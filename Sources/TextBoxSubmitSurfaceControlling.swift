@@ -19,7 +19,8 @@ protocol TextBoxSubmitSurfaceControlling: AnyObject {
         _ text: String,
         submitKey: String,
         rejectIfHumanComposerBusy: Bool,
-        hookRecordingSource: String?
+        hookRecordingSource: String?,
+        hookConfirmsHumanInput: Bool
     ) -> TerminalSurface.PromptSubmissionSendResult
     @discardableResult
     func performBindingAction(_ action: String) -> Bool
@@ -35,13 +36,15 @@ extension TextBoxSubmitSurfaceControlling {
         _ text: String,
         submitKey: String,
         rejectIfHumanComposerBusy: Bool,
-        hookRecordingSource: String?
+        hookRecordingSource: String?,
+        hookConfirmsHumanInput: Bool
     ) -> TerminalSurface.PromptSubmissionSendResult {
         textBoxSubmitTerminalSurface?.sendPromptSubmission(
             text,
             submitKey: submitKey,
             rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
-            hookRecordingSource: hookRecordingSource
+            hookRecordingSource: hookRecordingSource,
+            hookConfirmsHumanInput: hookConfirmsHumanInput
         ) ?? .surfaceUnavailable
     }
 

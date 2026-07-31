@@ -154,8 +154,6 @@ class TerminalController {
     private var simulatorMutationRecoveryTask: Task<Void, Never>?
     /// Process-wide native SSH master owner and per-host reconnect coordinator.
     nonisolated let nativeSSHConnectionBroker: NativeSSHConnectionBroker
-    /// Serializes complete agent prompt transactions per workspace.
-    let agentPromptSubmissionService = AgentPromptSubmissionService()
     // Stateless Sendable structs from CmuxControlSocket; injected at construction.
     // `transport` is internal so sibling-file extensions (CmuxEventStream) can write through it.
     nonisolated let transport: SocketTransport

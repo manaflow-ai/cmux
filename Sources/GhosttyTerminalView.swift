@@ -5660,9 +5660,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    /// A plain Return (or Ctrl-Return) may commit an agent prompt. Modified
-    /// newline variants remain part of the current draft.
-    private func keyMaySubmitAgentPrompt(_ event: NSEvent) -> Bool {
+    /// Returns a conservative recovery boundary for human prompt ownership.
+    ///
+    /// This does not infer that the composer is empty. Only a later structured
+    /// `UserPromptSubmit` hook can confirm the boundary; missing an
+    /// agent-specific submit chord therefore stays fail-closed.
+    private func keyCanBoundHumanPromptSubmission(_ event: NSEvent) -> Bool {
         guard event.keyCode == UInt16(kVK_Return)
                 || event.keyCode == UInt16(kVK_ANSI_KeypadEnter) else {
             return false
@@ -5763,12 +5766,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
             return
         }
-        let maySubmitAgentPrompt = keyMaySubmitAgentPrompt(event)
+        let mayBoundHumanPromptSubmission =
+            keyCanBoundHumanPromptSubmission(event)
         // Any key forwarded to the terminal can mutate an agent composer:
         // history navigation, control bindings, and user-defined Ghostty
         // bindings are not limited to printable text. Track them fail-closed.
         terminalSurface?.recordHumanPromptInput(
-            maySubmitPrompt: maySubmitAgentPrompt
+            maySubmitPrompt: mayBoundHumanPromptSubmission
         )
 #if DEBUG
         keyboardCopyModeMs = (ProcessInfo.processInfo.systemUptime - keyboardCopyModeStart) * 1000.0

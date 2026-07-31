@@ -235,6 +235,8 @@ extension TerminalSurface {
     ///     rejects the transaction before any terminal write.
     ///   - hookRecordingSource: Event source to apply when the later matching
     ///     agent hook records the prompt, or `nil` when no hook is expected.
+    ///   - hookConfirmsHumanInput: Whether that matching hook also confirms
+    ///     physical input that preceded this human-owned app submission.
     /// - Returns: The definitive acceptance or rejection outcome.
     @MainActor
     @discardableResult
@@ -243,7 +245,8 @@ extension TerminalSurface {
         submitKey: String,
         rejectIfHumanComposerBusy: Bool = true,
         hookRecordingSource: String? =
-            nil
+            nil,
+        hookConfirmsHumanInput: Bool = false
     ) -> PromptSubmissionSendResult {
         guard let data = text.data(using: .utf8), !data.isEmpty else {
             return .sent
@@ -255,6 +258,25 @@ extension TerminalSurface {
            promptInputLedger.hasUnconfirmedHumanInput {
             return .composerBusy
         }
+        if hookRecordingSource != nil {
+            let queuedAttributionCount = pendingSocketInputQueue.reduce(
+                into: 0
+            ) { count, item in
+                if case .promptSubmission(
+                    _,
+                    _,
+                    hookRecordingSource: .some(_),
+                    _
+                ) = item {
+                    count += 1
+                }
+            }
+            guard promptInputLedger.canRecordProgrammaticSubmission(
+                additionalCount: queuedAttributionCount + 1
+            ) else {
+                return .submissionUnavailable
+            }
+        }
 
         didReceiveExplicitInput()
         guard surface != nil else {
@@ -262,14 +284,15 @@ extension TerminalSurface {
                 return .surfaceUnavailable
             }
             guard enqueuePendingSocketInput(
-                .promptSubmission(text: data, submitKey: submitEvent)
+                .promptSubmission(
+                    text: data,
+                    submitKey: submitEvent,
+                    hookRecordingSource: hookRecordingSource,
+                    hookConfirmsHumanInput: hookConfirmsHumanInput
+                )
             ) else {
                 return .inputQueueFull
             }
-            promptInputLedger.recordProgrammaticSubmission(
-                message: text,
-                source: hookRecordingSource
-            )
             hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
             requestInputDemandSurfaceStartIfNeeded()
             return .queued
@@ -290,10 +313,12 @@ extension TerminalSurface {
             keycode: submitEvent.keycode,
             mods: submitEvent.mods
         )
-        promptInputLedger.recordProgrammaticSubmission(
+        let recorded = promptInputLedger.recordProgrammaticSubmission(
             message: text,
-            source: hookRecordingSource
+            source: hookRecordingSource,
+            confirmsHumanInput: hookConfirmsHumanInput
         )
+        assert(recorded, "Programmatic prompt attribution admission drifted")
         return .sent
     }
 
@@ -893,13 +918,29 @@ extension TerminalSurface {
             case .key(let event):
                 queuedKeys += 1
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
-            case .promptSubmission(let text, let submitKey):
+            case .promptSubmission(
+                let text,
+                let submitKey,
+                let hookRecordingSource,
+                let hookConfirmsHumanInput
+            ):
                 writeTextData(text, to: surface)
                 queuedKeys += 1
                 sendKeyEvent(
                     surface: surface,
                     keycode: submitKey.keycode,
                     mods: submitKey.mods
+                )
+                let message = String(decoding: text, as: UTF8.self)
+                let recorded = promptInputLedger
+                    .recordProgrammaticSubmission(
+                        message: message,
+                        source: hookRecordingSource,
+                        confirmsHumanInput: hookConfirmsHumanInput
+                    )
+                assert(
+                    recorded,
+                    "Queued programmatic prompt attribution admission drifted"
                 )
             }
         }

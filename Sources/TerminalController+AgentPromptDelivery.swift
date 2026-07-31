@@ -14,9 +14,9 @@ extension TerminalController {
         return latestAccepted
     }
 
-    /// Main-actor half of one FIFO-owned agent prompt request: resolve the
+    /// Main-actor half of one serialized agent prompt request: resolve the
     /// workspace's agent terminal, reject any human composer state, then issue
-    /// one compound paste-and-submit operation.
+    /// one compound paste-and-submit operation without suspension.
     func deliverAgentPromptSubmission(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
@@ -76,6 +76,11 @@ extension TerminalController {
             )
         case .inputQueueFull:
             return .inputQueueFull(
+                workspaceID: workspaceID,
+                surfaceID: target.surfaceID
+            )
+        case .submissionUnavailable:
+            return .submissionUnavailable(
                 workspaceID: workspaceID,
                 surfaceID: target.surfaceID
             )

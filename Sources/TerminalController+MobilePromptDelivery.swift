@@ -77,13 +77,20 @@ extension TerminalController {
                 text,
                 submitKey: submitKeyName,
                 agentInputScope: agentInputScope,
-                rejectIfHumanComposerBusy: agentInputScope != nil,
+                // This request is the human-owned mobile composer itself. The
+                // automation-only rejection policy must not wedge it behind
+                // stale physical-terminal ownership.
+                rejectIfHumanComposerBusy: false,
                 hookRecordingSource:
                     TextBoxAgentDetection.supportsActiveAgentPrefixes(
                         context: agentContext
                     )
                         ? "workspace.prompt_submit"
-                        : nil
+                        : nil,
+                hookConfirmsHumanInput:
+                    TextBoxAgentDetection.supportsActiveAgentPrefixes(
+                        context: agentContext
+                    )
             )
             switch result {
             case .sent:
@@ -114,6 +121,20 @@ extension TerminalController {
                     code: "input_queue_full",
                     message: Self.terminalInputQueueFullMessage,
                     data: ["surface_id": surfaceID.uuidString]
+                )
+            case .submissionUnavailable:
+                return .err(
+                    code: "submission_unavailable",
+                    message: String(
+                        localized:
+                            "socket.workspace.agentSubmit.unavailable",
+                        defaultValue:
+                            "The workspace cannot accept this submission right now."
+                    ),
+                    data: [
+                        "surface_id": surfaceID.uuidString,
+                        "retryable": true,
+                    ]
                 )
             case .surfaceUnavailable:
                 return .err(

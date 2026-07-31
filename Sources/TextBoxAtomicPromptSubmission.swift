@@ -5,4 +5,5 @@ struct TextBoxAtomicPromptSubmission {
     let submitKey: String
     let rejectIfHumanComposerBusy: Bool
     let hookRecordingSource: String?
+    let hookConfirmsHumanInput: Bool
 }

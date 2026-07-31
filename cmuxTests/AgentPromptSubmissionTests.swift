@@ -7,38 +7,34 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Atomic agent prompt submission")
-struct AgentPromptSubmissionServiceTests {
+@Suite("Atomic agent prompt submission", .serialized)
+struct AgentPromptSubmissionTests {
     @Test func concurrentSubmissionsToOneWorkspaceStayIntactAndFIFO() async {
         let workspaceID = UUID()
         let surfaceID = UUID()
-        let service = await MainActor.run {
-            AgentPromptSubmissionService()
-        }
-        let probe = AgentPromptFIFOProbe(
+        let controller = await MainActor.run { TerminalController.shared }
+        let probe = AgentPromptTransactionProbe(
             workspaceID: workspaceID,
             surfaceID: surfaceID
         )
-        let first = Task { @MainActor in
-            service.submit(
-                workspaceID: workspaceID,
-                delivery: {
-                    probe.deliver("first", waitsForRelease: true)
-                }
-            )
+        let first = Task.detached {
+            controller.v2MainSync {
+                probe.deliver("first", waitsForRelease: true)
+            }
         }
         await Task.detached {
             probe.waitUntilFirstStarted()
         }.value
 
-        let second = Task { @MainActor in
-            service.submit(
-                workspaceID: workspaceID,
-                delivery: {
-                    probe.deliver("second", waitsForRelease: false)
-                }
-            )
+        let second = Task.detached {
+            probe.noteSecondCallerReady()
+            controller.v2MainSync {
+                probe.deliver("second", waitsForRelease: false)
+            }
         }
+        await Task.detached {
+            probe.waitUntilSecondCallerReady()
+        }.value
 
         #expect(probe.startedMessages == ["first"])
         probe.releaseFirst()
@@ -57,47 +53,6 @@ struct AgentPromptSubmissionServiceTests {
         #expect(probe.completedMessages == ["first", "second"])
         #expect(probe.submittedWireMessages == ["first", "second"])
         #expect(probe.maximumConcurrentDeliveries == 1)
-    }
-
-    @MainActor
-    @Test func sameWorkspaceReentrancyRejectsWithoutLateDelivery() {
-        let workspaceID = UUID()
-        let surfaceID = UUID()
-        let service = AgentPromptSubmissionService()
-        var delivered: [String] = []
-
-        let outer = service.submit(
-            workspaceID: workspaceID,
-            delivery: {
-                delivered.append("outer")
-                let inner = service.submit(
-                    workspaceID: workspaceID,
-                    delivery: {
-                        delivered.append("inner")
-                        return .submitted(
-                            workspaceID: workspaceID,
-                            surfaceID: surfaceID,
-                            queued: false
-                        )
-                    }
-                )
-                #expect(inner == .serviceUnavailable(
-                    workspaceID: workspaceID
-                ))
-                return .submitted(
-                    workspaceID: workspaceID,
-                    surfaceID: surfaceID,
-                    queued: false
-                )
-            }
-        )
-
-        #expect(outer == .submitted(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            queued: false
-        ))
-        #expect(delivered == ["outer"])
     }
 
     @MainActor
@@ -144,7 +99,7 @@ struct AgentPromptSubmissionServiceTests {
     }
 
     @MainActor
-    @Test func rejectedTextBoxSubmissionNeverFallsBackToSplitWrites() {
+    @Test func humanTextBoxSubmissionIsNotWedgedByPhysicalInputLedger() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }
         panel.surface.releaseSurfaceForTesting()
@@ -163,8 +118,9 @@ struct AgentPromptSubmissionServiceTests {
         }
 
         let pending = panel.surface.debugPendingSocketInputForTesting()
-        #expect(pending.items == 0)
-        #expect(completion?.failure == .terminalWriteRejected)
+        #expect(pending.items == 1)
+        #expect(pending.promptSubmissionItems == 1)
+        #expect(completion?.didSubmit == true)
     }
 
     @MainActor

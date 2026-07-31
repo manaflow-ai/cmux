@@ -54,7 +54,7 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(
             fixture.surface.confirmPromptSubmission(
                 message: "first line second line"
-            ) == .programmatic(source: "workspace.agent_submit")
+            ) == .unmatched
         )
     }
 
@@ -74,6 +74,32 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(pending.items == 0)
         #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
         #expect(fixture.paneHost.explicitInputCount == 0)
+    }
+
+    @Test func promptSubmissionRejectsBeforeQueueingWhenAttributionIsFull() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        for index in 0..<64 {
+            #expect(
+                fixture.surface.sendPromptSubmission(
+                    "prompt \(index)",
+                    submitKey: "return",
+                    hookRecordingSource: "workspace.agent_submit"
+                ) == .queued
+            )
+        }
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "overflow",
+                submitKey: "return",
+                hookRecordingSource: "workspace.agent_submit"
+            ) == .submissionUnavailable
+        )
+        #expect(
+            fixture.surface.debugPendingSocketInputForTesting().items == 64
+        )
     }
 
     @Test func keyTextNotifiesPaneHostBeforeWritingToALiveSurface() {

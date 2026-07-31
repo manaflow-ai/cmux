@@ -1300,16 +1300,19 @@ enum TextBoxSubmit {
         return TextBoxAtomicPromptSubmission(
             text: text,
             submitKey: submitKey,
-            rejectIfHumanComposerBusy:
-                TextBoxAgentDetection.supportsActiveAgentPrefixes(
-                    context: terminalAgentContext
-                ),
+            // The native TextBox is itself the human-owned composer. Only
+            // external automation rejects on physical-terminal ownership.
+            rejectIfHumanComposerBusy: false,
             hookRecordingSource:
                 TextBoxAgentDetection.supportsActiveAgentPrefixes(
                     context: terminalAgentContext
                 )
                     ? "workspace.prompt_submit"
-                    : nil
+                    : nil,
+            hookConfirmsHumanInput:
+                TextBoxAgentDetection.supportsActiveAgentPrefixes(
+                    context: terminalAgentContext
+                )
         )
     }
 
@@ -1664,7 +1667,9 @@ private final class TextBoxSubmitEventRunner {
                 rejectIfHumanComposerBusy:
                     atomicPromptSubmission.rejectIfHumanComposerBusy,
                 hookRecordingSource:
-                    atomicPromptSubmission.hookRecordingSource
+                    atomicPromptSubmission.hookRecordingSource,
+                hookConfirmsHumanInput:
+                    atomicPromptSubmission.hookConfirmsHumanInput
             ).accepted else {
                 fail(.terminalWriteRejected)
                 return

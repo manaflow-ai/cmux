@@ -137,7 +137,7 @@ Environment:
 | `current-workspace` | Print current workspace information. |
 | `read-screen` | Read terminal text from a surface. |
 | `send` | Send text to a terminal surface. |
-| `agent-submit` | Submit one complete prompt to a workspace's agent terminal through the app-owned per-workspace FIFO. The call either accepts the whole paste-and-submit transaction or fails without changing input; `rejected_composer_busy` means a human draft was preserved and the caller may retry. Use `--surface` when a workspace has multiple agent terminals. |
+| `agent-submit` | Submit one complete prompt to a workspace's agent terminal through the app's serialized main-queue transaction boundary (a global FIFO, and therefore FIFO per workspace). The call either accepts the whole paste-and-submit transaction or fails without changing input; `rejected_composer_busy` means a human draft was preserved and the caller may retry. Use `--surface` when a workspace has multiple agent terminals. |
 | `send-key` | Send one key to a terminal surface. |
 | `send-panel` | Send text to a panel/surface. |
 | `send-key-panel` | Send one key to a panel/surface. |

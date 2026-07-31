@@ -3,12 +3,13 @@ import Foundation
 
 /// Thread-safe test probe that can hold the first synchronous delivery while a
 /// second caller queues on the main actor.
-nonisolated final class AgentPromptFIFOProbe: @unchecked Sendable {
+nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
     private let workspaceID: UUID
     private let surfaceID: UUID
     private let condition = NSCondition()
     private var firstStarted = false
     private var firstReleased = false
+    private var secondCallerReady = false
     private var activeDeliveries = 0
     private var maximumActiveDeliveries = 0
     private var started: [String] = []
@@ -53,6 +54,21 @@ nonisolated final class AgentPromptFIFOProbe: @unchecked Sendable {
             firstReleased = true
             condition.broadcast()
         }
+    }
+
+    func noteSecondCallerReady() {
+        condition.withLock {
+            secondCallerReady = true
+            condition.broadcast()
+        }
+    }
+
+    func waitUntilSecondCallerReady() {
+        condition.lock()
+        while !secondCallerReady {
+            condition.wait()
+        }
+        condition.unlock()
     }
 
     func deliver(

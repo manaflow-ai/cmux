@@ -16,12 +16,12 @@ nonisolated enum AgentPromptSubmissionResult: Equatable, Sendable {
     case ambiguousAgent(workspaceID: UUID, surfaceIDs: [UUID])
     /// The cold surface's pending-input budget is full.
     case inputQueueFull(workspaceID: UUID, surfaceID: UUID)
+    /// Safe hook attribution is temporarily at capacity.
+    case submissionUnavailable(workspaceID: UUID, surfaceID: UUID)
     /// No live surface exists and no cold surface can be started.
     case surfaceUnavailable(workspaceID: UUID, surfaceID: UUID)
     /// The target terminal process already exited.
     case processExited(workspaceID: UUID, surfaceID: UUID)
     /// The selected agent submit key could not be encoded.
     case invalidSubmitKey(workspaceID: UUID, surfaceID: UUID)
-    /// A same-workspace submission reentered the synchronous transaction.
-    case serviceUnavailable(workspaceID: UUID)
 }

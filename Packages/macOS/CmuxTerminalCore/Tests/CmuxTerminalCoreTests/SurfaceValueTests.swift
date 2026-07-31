@@ -39,7 +39,14 @@ import GhosttyKit
         #expect(PendingSocketInput.processOutput(data).estimatedBytes == 5)
         let key = PendingKeyEvent(keycode: 53, mods: GHOSTTY_MODS_NONE, label: "escape")
         #expect(PendingSocketInput.key(key).estimatedBytes == 6)
-        #expect(PendingSocketInput.promptSubmission(text: data, submitKey: key).estimatedBytes == 11)
+        #expect(
+            PendingSocketInput.promptSubmission(
+                text: data,
+                submitKey: key,
+                hookRecordingSource: "workspace.agent_submit",
+                hookConfirmsHumanInput: false
+            ).estimatedBytes == 11
+        )
     }
 }
 

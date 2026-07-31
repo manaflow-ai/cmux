@@ -10,9 +10,9 @@ extension TerminalController {
 
     /// Worker-lane handler for `workspace.agent_submit`.
     ///
-    /// The socket worker owns the definitive reply. One synchronous main hop
-    /// admits and drains the request's complete terminal transaction, so no
-    /// live submission remains after this method returns.
+    /// The socket worker owns the definitive reply. `v2MainSync` serializes
+    /// complete, non-suspending terminal transactions in main-queue arrival
+    /// order, so concurrent callers cannot interleave prompt bytes.
     nonisolated func v2WorkspaceAgentSubmit(params: [String: Any]) -> V2CallResult {
         guard let rawWorkspaceID = params["workspace_id"] as? String,
               let workspaceID = UUID(
@@ -63,15 +63,10 @@ extension TerminalController {
         }
 
         let result = v2MainSync {
-            agentPromptSubmissionService.submit(
+            deliverAgentPromptSubmission(
                 workspaceID: workspaceID,
-                delivery: {
-                    self.deliverAgentPromptSubmission(
-                        workspaceID: workspaceID,
-                        requestedSurfaceID: requestedSurfaceID,
-                        text: text
-                    )
-                }
+                requestedSurfaceID: requestedSurfaceID,
+                text: text
             )
         }
         return Self.agentPromptSocketResult(result)
@@ -185,7 +180,7 @@ extension TerminalController {
                     "surface_id": surfaceID.uuidString,
                 ]
             )
-        case .serviceUnavailable(let workspaceID):
+        case .submissionUnavailable(let workspaceID, let surfaceID):
             return .err(
                 code: "submission_unavailable",
                 message: String(
@@ -194,6 +189,7 @@ extension TerminalController {
                 ),
                 data: [
                     "workspace_id": workspaceID.uuidString,
+                    "surface_id": surfaceID.uuidString,
                     "retryable": true,
                 ]
             )

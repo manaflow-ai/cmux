@@ -5,6 +5,7 @@ enum TerminalPromptSubmissionBoundary: Sendable {
     /// App-owned input matched by normalized prompt signature.
     case programmatic(
         messageSignature: TerminalPromptMessageSignature,
-        source: String
+        source: String,
+        confirmsHumanInputGeneration: UInt64?
     )
 }

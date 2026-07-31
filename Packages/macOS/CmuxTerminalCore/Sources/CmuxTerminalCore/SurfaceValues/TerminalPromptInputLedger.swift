@@ -7,7 +7,6 @@ public struct TerminalPromptInputLedger: Sendable {
     private var humanInputGeneration: UInt64 = 0
     private var confirmedHumanInputGeneration: UInt64 = 0
     private var pendingBoundaries: [TerminalPromptSubmissionBoundary] = []
-    private var humanBoundaryOrderingWasLost = false
 
     /// Creates an empty ledger with no human input or pending boundaries.
     public init() {}
@@ -23,7 +22,6 @@ public struct TerminalPromptInputLedger: Sendable {
         humanInputGeneration = 0
         confirmedHumanInputGeneration = 0
         pendingBoundaries.removeAll(keepingCapacity: false)
-        humanBoundaryOrderingWasLost = false
     }
 
     /// True when human input occurred after the last safely matched human
@@ -34,54 +32,72 @@ public struct TerminalPromptInputLedger: Sendable {
 
     /// Records one human terminal input event.
     ///
-    /// A submit-capable Return records a boundary but does not clear ownership
-    /// until an agent hook confirms it. Return can also activate menus or
-    /// confirmations while leaving a draft intact, so clearing immediately
-    /// would permit a later app-owned prompt to clobber that draft.
+    /// A submit-capable Return records only a possible recovery boundary; it
+    /// never makes the composer available on its own. The ledger stays busy
+    /// until an actual agent `UserPromptSubmit` hook confirms that boundary.
+    /// This means agent-specific key handling can conservatively produce a
+    /// false negative without weakening draft safety: a later known boundary
+    /// and hook can still recover the ledger.
     ///
     /// - Parameter maySubmitPrompt: Whether this event may create the next
     ///   agent prompt-submission hook.
     public mutating func recordHumanInput(maySubmitPrompt: Bool) {
         humanInputGeneration &+= 1
         if humanInputGeneration == 0 {
-            // A wrap cannot preserve generation ordering. Fail closed until
-            // the active agent scope changes.
+            // A wrap cannot preserve generation ordering. Keep the current
+            // composer fail-closed, but allow a later boundary and hook to
+            // establish a new recoverable epoch.
             humanInputGeneration = 1
             confirmedHumanInputGeneration = 0
-            humanBoundaryOrderingWasLost = true
             removeHumanBoundaries()
         }
-        guard maySubmitPrompt, !humanBoundaryOrderingWasLost else { return }
+        guard maySubmitPrompt else { return }
         appendHumanBoundary(generation: humanInputGeneration)
+    }
+
+    /// Whether another app-owned hook attribution can be retained.
+    ///
+    /// Delivery checks this before writing any bytes. Cold-surface compound
+    /// items count as reservations at the surface layer and become ledger
+    /// records only after they are actually flushed.
+    public func canRecordProgrammaticSubmission(
+        additionalCount: Int = 1
+    ) -> Bool {
+        guard additionalCount >= 0,
+              additionalCount <= Self.maximumPendingBoundaries else {
+            return false
+        }
+        let count = pendingBoundaries.reduce(into: 0) { count, boundary in
+            if case .programmatic = boundary {
+                count += 1
+            }
+        }
+        return count <= Self.maximumPendingBoundaries - additionalCount
     }
 
     /// Records an accepted app-owned prompt for later message-matched hook
     /// confirmation.
     ///
-    /// The queue is bounded. When full, only another app-owned record may be
-    /// evicted; human boundaries are never discarded because doing so could
-    /// let an unrelated hook clear a newer draft.
+    /// - Returns: `false` when the bounded attribution queue is full. Callers
+    ///   must treat that as rejection before terminal delivery.
+    @discardableResult
     public mutating func recordProgrammaticSubmission(
         message: String,
-        source: String?
-    ) {
+        source: String?,
+        confirmsHumanInput: Bool = false
+    ) -> Bool {
         guard let source,
               let messageSignature = messageSignature(message) else {
-            return
+            return true
         }
-        if pendingBoundaries.count == Self.maximumPendingBoundaries {
-            guard let index = pendingBoundaries.firstIndex(where: {
-                if case .programmatic = $0 { return true }
-                return false
-            }) else {
-                return
-            }
-            pendingBoundaries.remove(at: index)
-        }
+        guard canRecordProgrammaticSubmission() else { return false }
         pendingBoundaries.append(.programmatic(
             messageSignature: messageSignature,
-            source: source
+            source: source,
+            confirmsHumanInputGeneration:
+                confirmsHumanInput ? humanInputGeneration : nil
         ))
+        return true
     }
 
     /// Matches an agent `UserPromptSubmit` hook to a known prompt boundary.
@@ -95,9 +111,10 @@ public struct TerminalPromptInputLedger: Sendable {
     {
         if let message,
            let messageSignature = messageSignature(message),
-           let index = pendingBoundaries.firstIndex(where: {
+               let index = pendingBoundaries.firstIndex(where: {
                guard case .programmatic(
                    let candidateSignature,
+                   _,
                    _
                ) = $0 else {
                    return false
@@ -106,14 +123,18 @@ public struct TerminalPromptInputLedger: Sendable {
            }) {
             guard case .programmatic(
                 _,
-                let source
+                let source,
+                let confirmsHumanInputGeneration
             ) = pendingBoundaries.remove(at: index) else {
                 return .unmatched
             }
+            if let confirmsHumanInputGeneration {
+                confirmedHumanInputGeneration =
+                    confirmsHumanInputGeneration
+            }
             return .programmatic(source: source)
         }
-        guard !humanBoundaryOrderingWasLost,
-              let first = pendingBoundaries.first,
+        guard let first = pendingBoundaries.first,
               case .human(let generation) = first else {
             return .unmatched
         }
@@ -123,11 +144,18 @@ public struct TerminalPromptInputLedger: Sendable {
     }
 
     private mutating func appendHumanBoundary(generation: UInt64) {
-        guard pendingBoundaries.count < Self.maximumPendingBoundaries else {
-            humanBoundaryOrderingWasLost = true
-            removeHumanBoundaries()
-            return
+        let humanBoundaryCount = pendingBoundaries.reduce(
+            into: 0
+        ) { count, boundary in
+            if case .human = boundary {
+                count += 1
+            }
         }
+        // Never discard or coalesce an older boundary: doing so could let its
+        // delayed hook clear newer typing. Skipping this boundary remains
+        // fail-closed, and once older hooks drain, any later Return plus hook
+        // can recover normally.
+        guard humanBoundaryCount < Self.maximumPendingBoundaries else { return }
         pendingBoundaries.append(.human(generation: generation))
     }
 
