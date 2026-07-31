@@ -1252,7 +1252,7 @@ struct BrowserScreenshotCropTests {
             """,
             configuration: WKWebViewConfiguration()
         )
-        _ = try await pendingFontWebView.evaluateJavaScript(
+        _ = pendingFontWebView.evaluateJavaScript(
             """
             (() => {
               Object.defineProperty(document, "fonts", {
@@ -1289,8 +1289,17 @@ struct BrowserScreenshotCropTests {
     }
 
     private func collectDOMProbes(
+        html: String
+    ) async throws -> BrowserScreenshotProbeSet {
+        try await collectDOMProbes(
+            html: html,
+            configuration: WKWebViewConfiguration()
+        )
+    }
+
+    private func collectDOMProbes(
         html: String,
-        configuration: WKWebViewConfiguration = WKWebViewConfiguration()
+        configuration: WKWebViewConfiguration
     ) async throws -> BrowserScreenshotProbeSet {
         let webView = try await loadDOMWebView(
             html: html,
