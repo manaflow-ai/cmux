@@ -5,6 +5,7 @@ import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { cloudDb } from "../../../db/client";
 import {
   accountDeletionTombstones,
+  accountMutationLeases,
   billingEmailClaims,
   cloudVmBaseEvents,
   cloudVmBaseGenerations,
@@ -53,9 +54,11 @@ import { deleteObject } from "../../../services/vault/storage";
 import { withVaultUserQuotaLock } from "../../../services/vault/usage";
 import {
   AccountDeletionAnalyticsForwardInProgressError,
+  AccountDeletionUserMutationInProgressError,
   accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
   assertNoAccountAnalyticsForwardInProgress,
+  assertNoAccountDeletionUserMutationInProgress,
   isBlockingAccountDeletionTombstone,
 } from "../../../services/account/deletionLock";
 import { unauthorized } from "../../../services/vms/auth";
@@ -303,7 +306,8 @@ export async function DELETE(request: Request): Promise<Response> {
     logAccountDeleteError("account.delete.failed", error);
     if (
       analyticsCleanupStarted ||
-      error instanceof AccountDeletionAnalyticsForwardInProgressError
+      error instanceof AccountDeletionAnalyticsForwardInProgressError ||
+      error instanceof AccountDeletionUserMutationInProgressError
     ) {
       return jsonResponse({
         error: "account_delete_retryable",
@@ -340,6 +344,7 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<Acco
   const userIdHash = accountDeletionUserHash(userId);
   return await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
+    await assertNoAccountDeletionUserMutationInProgress(tx, userId, now);
     const [existing] = await tx
       .select({
         userIdHash: accountDeletionTombstones.userIdHash,
@@ -1083,6 +1088,9 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
     await tx
       .delete(proWelcomeFulfillments)
       .where(eq(proWelcomeFulfillments.stackUserId, userId));
+    await tx
+      .delete(accountMutationLeases)
+      .where(eq(accountMutationLeases.userIdHash, accountDeletionUserHash(userId)));
     await tx.delete(stripeSubscriptions).where(or(
       and(
         eq(stripeSubscriptions.stackUserId, userId),

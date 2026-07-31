@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
     const result = await withAccountDeletionUserMutation(
       cloudDb(),
       user.id,
-      async () => {
+      async (mutationLease) => {
         if (action === "join") {
           const email = normalizedEmail(user.primaryEmail);
           if (!email) return "needs_email" as const;
@@ -76,8 +76,10 @@ export async function POST(request: NextRequest) {
           // Persist the exact address before the ASC mutation. If ASC fails, a
           // retry is harmless; if it succeeds, future email changes cannot
           // orphan this Pro-group enrollment.
+          await mutationLease.refresh();
           await recordProTestflightEnrollmentEmail(freshUser, freshEmail);
           const name = splitDisplayName(freshUser.displayName);
+          await mutationLease.refresh();
           await enrollTester(freshEmail, name.firstName, name.lastName);
           if (!(await isTestflightEligible(freshUser))) {
             // Protect against a non-cooperating eligibility writer. The shared
@@ -91,6 +93,7 @@ export async function POST(request: NextRequest) {
               removeTester,
               compensationUser
                 ? {
+                    beforeExternalMutation: mutationLease.refresh,
                     updateMetadata: (clientReadOnlyMetadata) =>
                       compensationUser.update({
                         clientReadOnlyMetadata:
@@ -111,6 +114,7 @@ export async function POST(request: NextRequest) {
           freshUser.clientReadOnlyMetadata,
           removeTester,
           {
+            beforeExternalMutation: mutationLease.refresh,
             updateMetadata: (clientReadOnlyMetadata) => freshUser.update({
               clientReadOnlyMetadata: clientReadOnlyMetadata as ProMetadataJson,
             }),

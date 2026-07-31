@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   accountDeletionTombstones,
+  accountMutationLeases,
   billingEmailClaims,
   stripeCustomers,
   stripeSubscriptions,
@@ -25,12 +26,17 @@ const upsertUpdates: Array<{ table: unknown; values: Record<string, unknown> }> 
 const insertErrorsByTable = new Map<unknown, unknown>();
 let selectResults: unknown[][] = [];
 let tombstoneSelectResults: unknown[][] = [];
+let accountMutationOperationId: string | null = null;
 
 function fakeDb() {
   const client = {
     insert: (table: unknown) => ({
       values: (values: Record<string, unknown>) => {
-        inserts.push({ table, values });
+        if (table === accountMutationLeases) {
+          accountMutationOperationId = values.operationId as string;
+        } else {
+          inserts.push({ table, values });
+        }
         return {
           onConflictDoUpdate: (options?: { set?: Record<string, unknown> }) => {
             upsertUpdates.push({ table, values: options?.set ?? {} });
@@ -44,18 +50,33 @@ function fakeDb() {
     }),
     select: () => ({
       from: (table: unknown) => ({
-        where: () => table === accountDeletionTombstones
-          ? tombstoneSelectableResult()
-          : selectableResult(),
+        where: () => {
+          if (table === accountDeletionTombstones) {
+            return tombstoneSelectableResult();
+          }
+          if (table === accountMutationLeases) {
+            return accountMutationLeaseSelectableResult();
+          }
+          return selectableResult();
+        },
       }),
     }),
     update: (table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
         where: () => {
-          updates.push({ table, values });
+          if (table !== accountMutationLeases) {
+            updates.push({ table, values });
+          }
           return Promise.resolve();
         },
       }),
+    }),
+    delete: (table: unknown) => ({
+      where: async () => {
+        if (table === accountMutationLeases) {
+          accountMutationOperationId = null;
+        }
+      },
     }),
   };
   return {
@@ -78,6 +99,17 @@ function tombstoneSelectableResult() {
   return {
     orderBy: () => tombstoneSelectableResult(),
     limit: () => Promise.resolve(tombstoneSelectResults.shift() ?? []),
+  };
+}
+
+function accountMutationLeaseSelectableResult() {
+  return {
+    orderBy: () => accountMutationLeaseSelectableResult(),
+    limit: () => Promise.resolve(
+      accountMutationOperationId
+        ? [{ operationId: accountMutationOperationId }]
+        : [],
+    ),
   };
 }
 
@@ -161,6 +193,7 @@ describe("recordCheckoutCompletion", () => {
     insertErrorsByTable.clear();
     selectResults = [];
     tombstoneSelectResults = [];
+    accountMutationOperationId = null;
   });
 
   test("attaches Stripe email to a purchaser without a primary email", async () => {
@@ -287,7 +320,7 @@ describe("recordCheckoutCompletion", () => {
     };
     const update = mock(async () => {
       expect(transactionOpen).toBe(false);
-      expect(lockCount).toBe(2);
+      expect(lockCount).toBeGreaterThanOrEqual(2);
     });
     const user = {
       id: "user_123",

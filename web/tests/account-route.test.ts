@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, tes
 import {
   accountAnalyticsForwardLeases,
   accountDeletionTombstones,
+  accountMutationLeases,
   cloudVmBaseGenerations,
   cloudVmBases,
   cloudVmBillingGrants,
@@ -88,6 +89,9 @@ const transactionSelect = mock(() => {
   const rows = () => {
     if (selectedTable === accountDeletionTombstones) return nextTransactionTombstoneSelectResult();
     if (selectedTable === accountAnalyticsForwardLeases) return nextTransactionAnalyticsLeaseSelectResult();
+    if (selectedTable === accountMutationLeases) {
+      return nextTransactionMutationLeaseSelectResult();
+    }
     if (
       selectedTable === vaultSnapshots ||
       selectedTable === vaultUploadGrants ||
@@ -120,6 +124,9 @@ const transactionExecute = mock(async () => {
   routeEvents.push("transaction-lock");
 });
 const transactionDeleteRows = mock((table: unknown) => {
+  if (table === accountMutationLeases) {
+    return { where: async () => undefined };
+  }
   if (table === accountAnalyticsForwardLeases) {
     return {
       where: async () => {
@@ -302,6 +309,7 @@ let selectResults: unknown[][] = [];
 let transactionSelectResults: unknown[][] = [];
 let transactionTombstoneSelectResults: unknown[][] = [];
 let transactionAnalyticsLeaseSelectResults: unknown[][] = [];
+let transactionMutationLeaseSelectResults: unknown[][] = [];
 let deletedVaultObjects: string[] = [];
 let vaultDeleteError: unknown = null;
 let postStackVaultDeleteError: unknown = null;
@@ -410,6 +418,10 @@ function nextTransactionTombstoneSelectResult(): unknown[] {
 
 function nextTransactionAnalyticsLeaseSelectResult(): unknown[] {
   return transactionAnalyticsLeaseSelectResults.shift() ?? [];
+}
+
+function nextTransactionMutationLeaseSelectResult(): unknown[] {
+  return transactionMutationLeaseSelectResults.shift() ?? [];
 }
 
 function chainableSelectResult(rows: unknown[]): SelectResult {
@@ -632,6 +644,7 @@ beforeEach(() => {
   transactionSelectResults = [];
   transactionTombstoneSelectResults = [];
   transactionAnalyticsLeaseSelectResults = [];
+  transactionMutationLeaseSelectResults = [];
   deletedVaultObjects = [];
   vaultDeleteError = null;
   postStackVaultDeleteError = null;
@@ -1087,6 +1100,26 @@ describe("account deletion route", () => {
     expect(updateStackUser).not.toHaveBeenCalled();
     expect(cancelSubscription).not.toHaveBeenCalled();
     expect(listUserVms).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+  });
+
+  test("waits for an active account mutation before starting deletion", async () => {
+    transactionMutationLeaseSelectResults = [[{
+      operationId: "active-account-mutation",
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(routeEvents).not.toContain("tombstone-upsert");
+    expect(updateStackUser).not.toHaveBeenCalled();
+    expect(postHogDeleteFetch).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
   });
 
@@ -1742,7 +1775,7 @@ describe("account deletion route", () => {
     });
     expect(transaction).toHaveBeenCalledTimes(3);
     expect(transactionExecute).toHaveBeenCalledTimes(3);
-    expect(transactionSelect).toHaveBeenCalledTimes(3);
+    expect(transactionSelect).toHaveBeenCalledTimes(4);
     expect(deletedTableCount).toBe(0);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith(

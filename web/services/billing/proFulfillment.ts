@@ -10,12 +10,18 @@ import { loadMessages } from "../../i18n/messages";
 import type { Locale } from "../../i18n/routing";
 import {
   AccountDeletionMutationBlockedError,
+  accountDeletionAdvisoryLockKey,
   assertAccountDeletionUserMutationAllowed,
+  withAccountDeletionUserMutation,
 } from "../account/deletionLock";
 
 export const DEFAULT_PRO_FROM_EMAIL = "pro@cmux.com";
 export const PRO_REPLY_TO_EMAIL = "pro@cmux.com";
 export const PRO_TESTFLIGHT_SIGNUP_URL = "https://cmux.com/dashboard/testflight";
+const PRO_WELCOME_ATTEMPT_LEASE_MS = 2 * 60 * 1000;
+// Resend retains idempotency keys for 24 hours. Stop ambiguous retries one
+// hour earlier so a delayed webhook cannot duplicate an accepted email.
+const PRO_WELCOME_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
 
 type ProWelcomeCopy = {
   subject: string;
@@ -36,7 +42,9 @@ export type ProWelcomeFulfillmentStore = {
       readonly stackUserId: string;
     },
     deliver: () => Promise<void>,
-  ): Promise<"sent" | "already_sent" | "account_deleting">;
+  ): Promise<
+    "sent" | "already_sent" | "delivery_abandoned" | "account_deleting"
+  >;
 };
 
 type ProFulfillmentDependencies = {
@@ -58,51 +66,38 @@ const defaultDependencies: ProFulfillmentDependencies = {
     deliverOnce: async (input, deliver) => {
       const db = cloudDb();
       try {
-        return await db.transaction(async (tx) => {
-          // Account deletion and email delivery are mutually exclusive. This
-          // prevents a successful webhook from recreating fulfillment state
-          // after the user's rows have been deleted.
-          await assertAccountDeletionUserMutationAllowed(tx, input.stackUserId);
-          await tx.execute(
-            sql`select pg_advisory_xact_lock(hashtextextended(${`pro-welcome:${input.checkoutSessionId}`}, 0))`,
-          );
-          const [existing] = await tx
-            .select({
-              stackUserId: proWelcomeFulfillments.stackUserId,
-              sentAt: proWelcomeFulfillments.sentAt,
-            })
-            .from(proWelcomeFulfillments)
-            .where(
-              eq(
-                proWelcomeFulfillments.checkoutSessionId,
-                input.checkoutSessionId,
-              ),
-            )
-            .limit(1);
-          if (existing?.sentAt) return "already_sent" as const;
-          if (existing && existing.stackUserId !== input.stackUserId) {
-            throw new Error(
-              "cmux Pro welcome checkout ownership changed before fulfillment",
+        return await withAccountDeletionUserMutation(
+          db,
+          input.stackUserId,
+          async (mutationLease) => {
+            const claimedAt = new Date();
+            const claim = await claimProWelcomeDelivery(
+              db,
+              input,
+              claimedAt,
             );
-          }
-          if (!existing) {
-            await tx.insert(proWelcomeFulfillments).values({
-              checkoutSessionId: input.checkoutSessionId,
-              stackUserId: input.stackUserId,
-            });
-          }
-          await deliver();
-          await tx
-            .update(proWelcomeFulfillments)
-            .set({ sentAt: new Date(), updatedAt: new Date() })
-            .where(
-              eq(
-                proWelcomeFulfillments.checkoutSessionId,
-                input.checkoutSessionId,
-              ),
-            );
-          return "sent" as const;
-        });
+            if (claim === "already_sent") return claim;
+            if (claim === "delivery_abandoned") {
+              console.warn(
+                "cmux Pro welcome skipped after the provider idempotency window",
+                { checkoutSessionId: input.checkoutSessionId },
+              );
+              return claim;
+            }
+
+            await mutationLease.refresh();
+            try {
+              await deliver();
+            } catch (error) {
+              if (error instanceof ProWelcomeProviderRejectedError) {
+                await releaseProWelcomeDeliveryAttempt(db, input);
+              }
+              throw error;
+            }
+            await markProWelcomeDeliverySent(db, input, new Date());
+            return "sent" as const;
+          },
+        );
       } catch (error) {
         if (error instanceof AccountDeletionMutationBlockedError) {
           return "account_deleting" as const;
@@ -160,10 +155,158 @@ export async function sendProSignupWelcome(
         idempotencyKey: `pro-welcome/${sessionRef}`,
       });
       if (error) {
-        throw new Error(`cmux Pro welcome email failed: ${errorMessage(error)}`);
+        throw new ProWelcomeProviderRejectedError(
+          `cmux Pro welcome email failed: ${errorMessage(error)}`,
+        );
       }
     },
   );
+}
+
+class ProWelcomeProviderRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProWelcomeProviderRejectedError";
+  }
+}
+
+class ProWelcomeDeliveryInProgressError extends Error {
+  constructor(checkoutSessionId: string) {
+    super(`cmux Pro welcome delivery is still in progress: ${checkoutSessionId}`);
+    this.name = "ProWelcomeDeliveryInProgressError";
+  }
+}
+
+type ProWelcomeDeliveryIdentity = {
+  readonly checkoutSessionId: string;
+  readonly stackUserId: string;
+};
+
+async function claimProWelcomeDelivery(
+  db: ReturnType<typeof cloudDb>,
+  input: ProWelcomeDeliveryIdentity,
+  claimedAt: Date,
+): Promise<"claimed" | "already_sent" | "delivery_abandoned"> {
+  return await db.transaction(async (tx) => {
+    await assertAccountDeletionUserMutationAllowed(tx, input.stackUserId);
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`pro-welcome:${input.checkoutSessionId}`}, 0))`,
+    );
+    const [existing] = await tx
+      .select({
+        stackUserId: proWelcomeFulfillments.stackUserId,
+        deliveryStartedAt: proWelcomeFulfillments.deliveryStartedAt,
+        attemptLeaseExpiresAt:
+          proWelcomeFulfillments.attemptLeaseExpiresAt,
+        sentAt: proWelcomeFulfillments.sentAt,
+      })
+      .from(proWelcomeFulfillments)
+      .where(
+        eq(
+          proWelcomeFulfillments.checkoutSessionId,
+          input.checkoutSessionId,
+        ),
+      )
+      .limit(1);
+    if (existing?.sentAt) return "already_sent";
+    if (existing && existing.stackUserId !== input.stackUserId) {
+      throw new Error(
+        "cmux Pro welcome checkout ownership changed before fulfillment",
+      );
+    }
+    if (
+      existing?.deliveryStartedAt &&
+      claimedAt.getTime() - existing.deliveryStartedAt.getTime() >=
+        PRO_WELCOME_RETRY_WINDOW_MS
+    ) {
+      return "delivery_abandoned";
+    }
+    if (
+      existing?.attemptLeaseExpiresAt &&
+      existing.attemptLeaseExpiresAt > claimedAt
+    ) {
+      throw new ProWelcomeDeliveryInProgressError(input.checkoutSessionId);
+    }
+
+    const attemptLeaseExpiresAt = new Date(
+      claimedAt.getTime() + PRO_WELCOME_ATTEMPT_LEASE_MS,
+    );
+    if (!existing) {
+      await tx.insert(proWelcomeFulfillments).values({
+        checkoutSessionId: input.checkoutSessionId,
+        stackUserId: input.stackUserId,
+        deliveryStartedAt: claimedAt,
+        attemptLeaseExpiresAt,
+        updatedAt: claimedAt,
+      });
+    } else {
+      await tx
+        .update(proWelcomeFulfillments)
+        .set({
+          deliveryStartedAt: existing.deliveryStartedAt ?? claimedAt,
+          attemptLeaseExpiresAt,
+          updatedAt: claimedAt,
+        })
+        .where(
+          eq(
+            proWelcomeFulfillments.checkoutSessionId,
+            input.checkoutSessionId,
+          ),
+        );
+    }
+    return "claimed";
+  });
+}
+
+async function releaseProWelcomeDeliveryAttempt(
+  db: ReturnType<typeof cloudDb>,
+  input: ProWelcomeDeliveryIdentity,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`pro-welcome:${input.checkoutSessionId}`}, 0))`,
+    );
+    await tx
+      .update(proWelcomeFulfillments)
+      .set({
+        attemptLeaseExpiresAt: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        eq(
+          proWelcomeFulfillments.checkoutSessionId,
+          input.checkoutSessionId,
+        ),
+      );
+  });
+}
+
+async function markProWelcomeDeliverySent(
+  db: ReturnType<typeof cloudDb>,
+  input: ProWelcomeDeliveryIdentity,
+  sentAt: Date,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.stackUserId)}, 0))`,
+    );
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`pro-welcome:${input.checkoutSessionId}`}, 0))`,
+    );
+    await tx
+      .update(proWelcomeFulfillments)
+      .set({
+        sentAt,
+        attemptLeaseExpiresAt: null,
+        updatedAt: sentAt,
+      })
+      .where(
+        eq(
+          proWelcomeFulfillments.checkoutSessionId,
+          input.checkoutSessionId,
+        ),
+      );
+  });
 }
 
 export async function buildProWelcomeEmail(input: {

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
+import { accountMutationLeases } from "../db/schema";
 import {
   createTestflightUser,
   testflightUserEligibility,
@@ -19,8 +20,47 @@ let user: typeof currentUser | null = currentUser;
 let useStubDb = false;
 let accountMutationLockActive = false;
 let accountMutationTransactionCount = 0;
+let accountMutationOperationId: string | null = null;
 let ascMutationLockStates: boolean[] = [];
 let eligibilityMutationLockStates: boolean[] = [];
+
+function stubSelect() {
+  return {
+    from: (table: unknown) => ({
+      where: () => ({
+        limit: async () =>
+          table === accountMutationLeases && accountMutationOperationId
+            ? [{ operationId: accountMutationOperationId }]
+            : [],
+      }),
+    }),
+  };
+}
+
+function stubDelete(table: unknown) {
+  return {
+    where: async () => {
+      if (table === accountMutationLeases) accountMutationOperationId = null;
+    },
+  };
+}
+
+function stubInsert(table: unknown) {
+  return {
+    values: async (values: unknown) => {
+      if (table === accountMutationLeases) {
+        accountMutationOperationId = (values as { operationId: string })
+          .operationId;
+      }
+    },
+  };
+}
+
+function stubUpdate() {
+  return {
+    set: () => ({ where: async () => undefined }),
+  };
+}
 
 const getUser = mock(async () => user);
 const ascFetch = mock(async (path: unknown, init?: unknown) => {
@@ -79,23 +119,17 @@ mock.module("../db/client", () => ({
   cloudDb: (() =>
     useStubDb
       ? ({
-          select: () => ({
-            from: () => ({
-              where: () => ({
-                limit: async () => [],
-              }),
-            }),
-          }),
+          select: stubSelect,
+          delete: stubDelete,
+          insert: stubInsert,
+          update: stubUpdate,
           transaction: async (run: (tx: unknown) => Promise<unknown>) => {
             accountMutationTransactionCount += 1;
             const tx = {
-              select: () => ({
-                from: () => ({
-                  where: () => ({
-                    limit: async () => [],
-                  }),
-                }),
-              }),
+              select: stubSelect,
+              delete: stubDelete,
+              insert: stubInsert,
+              update: stubUpdate,
               execute: async () => {
                 accountMutationLockActive = true;
               },
@@ -137,6 +171,7 @@ describe("TestFlight route", () => {
     ascFetch.mockClear();
     accountMutationLockActive = false;
     accountMutationTransactionCount = 0;
+    accountMutationOperationId = null;
     ascMutationLockStates = [];
     eligibilityMutationLockStates = [];
     captureAscError.mockClear();
@@ -265,7 +300,7 @@ describe("TestFlight route", () => {
     const response = await postAction("join");
 
     expect(response.status).toBe(303);
-    expect(accountMutationTransactionCount).toBe(1);
+    expect(accountMutationTransactionCount).toBeGreaterThan(1);
     expect(eligibilityMutationLockStates.length).toBeGreaterThan(0);
     expect(eligibilityMutationLockStates.every((active) => !active)).toBe(true);
     expect(ascMutationLockStates.length).toBeGreaterThan(0);

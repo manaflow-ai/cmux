@@ -156,7 +156,7 @@ export async function removeProTesterAccess(
   metadata: unknown,
   remover: typeof removeTester = removeTester,
   options: {
-    readonly beforeExternalMutation?: () => void;
+    readonly beforeExternalMutation?: () => void | Promise<void>;
     readonly updateMetadata?: (metadata: unknown) => Promise<unknown>;
   } = {},
 ): Promise<number> {
@@ -168,7 +168,7 @@ export async function removeProTesterAccess(
   ]);
   let workingMetadata = metadata;
   for (const target of targets) {
-    options.beforeExternalMutation?.();
+    await options.beforeExternalMutation?.();
     await remover(target.email, {
       ownedLegacyGroupIDs: target.ownedLegacyGroupIDs,
     });

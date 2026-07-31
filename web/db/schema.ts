@@ -176,6 +176,21 @@ export const accountAnalyticsForwardLeases = pgTable(
   ],
 );
 
+export const accountMutationLeases = pgTable(
+  "account_mutation_leases",
+  {
+    userIdHash: text("user_id_hash").primaryKey(),
+    operationId: uuid("operation_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("account_mutation_leases_expiry_idx").on(table.expiresAt),
+    index("account_mutation_leases_operation_idx").on(table.operationId),
+  ],
+);
+
 export const cloudVmLeases = pgTable(
   "cloud_vm_leases",
   {
@@ -439,6 +454,10 @@ export const proWelcomeFulfillments = pgTable(
   {
     checkoutSessionId: text("checkout_session_id").primaryKey(),
     stackUserId: text("stack_user_id").notNull(),
+    deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
+    attemptLeaseExpiresAt: timestamp("attempt_lease_expires_at", {
+      withTimezone: true,
+    }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

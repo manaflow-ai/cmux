@@ -3951,7 +3951,23 @@ final class Workspace: Identifiable, ObservableObject {
                 )
             }
             if outcome.recoveryAction == .beginSignIn {
-                auth.browserSignIn.beginSignIn()
+                let signInAttempt = auth.browserSignIn.beginSignIn()
+                let signedIn = await signInAttempt.value
+                guard let replaySource = self.panels[sourcePanel.id] as? BrowserPanel,
+                      replaySource === sourcePanel else {
+                    return
+                }
+                if signedIn {
+                    _ = self.openAppLinkInBrowserSplit(
+                        destinationURL,
+                        from: replaySource
+                    )
+                } else {
+                    _ = self.recoverAppLinkNavigation(
+                        destinationURL,
+                        from: replaySource
+                    )
+                }
                 return
             }
             if outcome.recoveryAction == .isolatedBrowser {
