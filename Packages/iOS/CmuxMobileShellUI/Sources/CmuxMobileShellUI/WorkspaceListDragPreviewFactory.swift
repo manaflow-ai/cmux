@@ -2,13 +2,13 @@
 import UIKit
 
 @MainActor
-enum WorkspaceListDragPreviewFactory {
-    private struct Metrics {
+struct WorkspaceListDragPreviewFactory {
+    struct Metrics {
         let insets: UIEdgeInsets
         let cornerRadius: CGFloat
     }
 
-    static func parameters(
+    func parameters(
         for item: WorkspaceListTableItem,
         cell: UITableViewCell
     ) -> UIDragPreviewParameters? {
@@ -19,7 +19,7 @@ enum WorkspaceListDragPreviewFactory {
         )
     }
 
-    static func preview(
+    func preview(
         for item: WorkspaceListTableItem,
         cell: UITableViewCell
     ) -> UIDragPreview? {
@@ -58,7 +58,7 @@ enum WorkspaceListDragPreviewFactory {
         )
     }
 
-    private static func parameters(
+    private func parameters(
         bounds: CGRect,
         cornerRadius: CGFloat
     ) -> UIDragPreviewParameters {
@@ -71,7 +71,7 @@ enum WorkspaceListDragPreviewFactory {
         return parameters
     }
 
-    private static func metrics(
+    func metrics(
         for item: WorkspaceListTableItem
     ) -> Metrics? {
         switch item {

@@ -231,6 +231,39 @@ import Testing
         #expect(session.commit == nil)
     }
 
+    @Test func compatibilityTracksEveryMovePolicyInput() throws {
+        let workspaces = [workspace("a"), workspace("b")]
+        let items = workspaces.map {
+            WorkspaceListTableItem.workspace($0.id, indented: false)
+        }
+        let session = try #require(
+            WorkspaceListDragSession(
+                items: items,
+                workspaces: workspaces,
+                groups: [],
+                groupHasUnreadByID: [:],
+                sourceTableRow: 0
+            )
+        )
+
+        #expect(session.isCompatible(with: items, workspaces: workspaces, groups: []))
+
+        var changedID = workspaces
+        changedID[1].id = .init(rawValue: "replacement")
+        #expect(!session.isCompatible(with: items, workspaces: changedID, groups: []))
+
+        var changedGroup = workspaces
+        changedGroup[1].groupID = .init(rawValue: "group")
+        #expect(!session.isCompatible(with: items, workspaces: changedGroup, groups: []))
+
+        var changedPinned = workspaces
+        changedPinned[1].isPinned = true
+        #expect(!session.isCompatible(with: items, workspaces: changedPinned, groups: []))
+
+        let changedItems = [items[0], .workspace(.init(rawValue: "replacement"), indented: false)]
+        #expect(!session.isCompatible(with: changedItems, workspaces: workspaces, groups: []))
+    }
+
     private func workspace(
         _ id: String,
         groupID: MobileWorkspaceGroupPreview.ID? = nil,

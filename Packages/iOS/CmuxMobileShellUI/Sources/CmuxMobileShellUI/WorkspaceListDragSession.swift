@@ -20,6 +20,7 @@ struct WorkspaceListDragSession {
 
     private let baselineItems: [WorkspaceListTableItem]
     private let baselineContentItems: [WorkspaceListTableItem]
+    private let baselineIndexByItemID: [String: Int]
     private let semanticItems: [MobileWorkspaceListItem]
     private let workspaces: [MobileWorkspacePreview]
     private let groups: [MobileWorkspaceGroupPreview]
@@ -70,6 +71,10 @@ struct WorkspaceListDragSession {
         self.commit = nil
         self.baselineItems = items
         self.baselineContentItems = contentItems
+        self.baselineIndexByItemID = Dictionary(
+            contentItems.enumerated().map { ($0.element.id, $0.offset) },
+            uniquingKeysWith: { first, _ in first }
+        )
         self.semanticItems = semanticItems
         self.workspaces = workspaces
         self.groups = groups
@@ -160,7 +165,7 @@ struct WorkspaceListDragSession {
         // the next durable, non-moved row so every hover gap still maps to the
         // original index space.
         for item in visualContent[visualRow...] where !movedItemIDs.contains(item.id) {
-            if let index = baselineContentItems.firstIndex(where: { $0.id == item.id }) {
+            if let index = baselineIndexByItemID[item.id] {
                 return index
             }
         }

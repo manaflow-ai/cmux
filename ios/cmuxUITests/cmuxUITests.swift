@@ -901,8 +901,18 @@ final class cmuxUITests: XCTestCase {
 
         XCTAssertTrue(waitForHittable(source, timeout: 3))
         XCTAssertTrue(waitForHittable(nextRow, timeout: 3))
-        XCTAssertEqual(source.frame.midY, sourceY, accuracy: 1)
-        XCTAssertEqual(nextRow.frame.midY, nextRowY, accuracy: 1)
+        let restored = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                abs(source.frame.midY - sourceY) <= 1
+                    && abs(nextRow.frame.midY - nextRowY) <= 1
+            },
+            object: app
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [restored], timeout: 4),
+            .completed,
+            "Cancelling the drag must restore the exact pre-drag row positions."
+        )
     }
 
     @MainActor
@@ -928,7 +938,10 @@ final class cmuxUITests: XCTestCase {
             "MobileWorkspaceRow-workspace-seed-8"
         ]
         XCTAssertTrue(waitForHittable(secondGroup, timeout: 3))
+        XCTAssertTrue(waitForHittable(secondGroupMember, timeout: 3))
         XCTAssertTrue(waitForHittable(destination, timeout: 3))
+        XCTAssertLessThan(secondGroup.frame.midY, secondGroupMember.frame.midY)
+        XCTAssertLessThan(secondGroupMember.frame.midY, destination.frame.midY)
 
         secondGroup.press(
             forDuration: 0.5,
@@ -937,9 +950,18 @@ final class cmuxUITests: XCTestCase {
             thenHoldForDuration: 0.35
         )
 
-        XCTAssertTrue(waitForHittable(secondGroupMember, timeout: 3))
-        XCTAssertLessThan(destination.frame.midY, secondGroup.frame.midY)
-        XCTAssertLessThan(secondGroup.frame.midY, secondGroupMember.frame.midY)
+        let groupMovedAsBlock = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                destination.frame.midY < secondGroup.frame.midY
+                    && secondGroup.frame.midY < secondGroupMember.frame.midY
+            },
+            object: app
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [groupMovedAsBlock], timeout: 4),
+            .completed,
+            "The group header and its member must settle together after the destination."
+        )
     }
 
     @MainActor

@@ -44,10 +44,16 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private var previousConfiguration: WorkspaceListTable?
     private var dataSource: UITableViewDiffableDataSource<Int, WorkspaceListTableItem>?
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
+    private let dragPreviewFactory: WorkspaceListDragPreviewFactory
     private var heightCache = WorkspaceListRowHeightCache<HeightCacheKey>()
     private var configuredItemsByID: [String: WorkspaceListTableItem]
     private var workspaceDragSession: WorkspaceListDragSession?
-    private var hiddenDraggedItemID: String?
+    private var isLiftPreviewActive = false
+    #if DEBUG
+    var hasActiveWorkspaceDragSessionForTesting: Bool {
+        workspaceDragSession != nil
+    }
+    #endif
     /// The order last applied to the native data source. Keeping this compact
     /// value avoids materializing a full diffable snapshot on every live
     /// workspace payload update merely to ask whether row identity moved.
@@ -57,8 +63,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         sourceView: UIView
     )?
 
-    init(configuration: WorkspaceListTable) {
+    init(
+        configuration: WorkspaceListTable,
+        dragPreviewFactory: WorkspaceListDragPreviewFactory = .init()
+    ) {
         self.configuration = configuration
+        self.dragPreviewFactory = dragPreviewFactory
         self.configuredItemsByID = Dictionary(
             configuration.items.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -70,6 +80,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         to tableView: WorkspaceListUITableView,
         viewController: WorkspaceListTableViewController? = nil
     ) {
+        workspaceDragSession = nil
+        isLiftPreviewActive = false
         tableViewController = viewController
         tableView.delegate = self
         tableView.dragDelegate = self
@@ -105,6 +117,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
     func detach() {
         pendingContextMenuWorkspaceClose = nil
+        workspaceDragSession = nil
+        isLiftPreviewActive = false
         tableViewController = nil
     }
 
@@ -159,7 +173,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 return
             }
         }
+        let discardedDragSession = workspaceDragSession != nil
         workspaceDragSession = nil
+        if discardedDragSession {
+            isLiftPreviewActive = false
+            setDraggedItemVisibility(in: tableView)
+        }
         if structureChanged {
             heightCache.retainRowIDs(Set(next.items.map(\.id)))
             configuredItemsByID = Dictionary(
@@ -294,7 +313,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         dragItem.previewProvider = { [weak self, weak tableView] in
             guard let self, let tableView else { return nil }
             guard let liftPreview else { return nil }
-            self.hiddenDraggedItemID = workspaceDragSession.draggedItemID
+            self.isLiftPreviewActive = true
             self.setDraggedItemVisibility(in: tableView)
             return liftPreview
         }
@@ -361,6 +380,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             )
         )
         self.workspaceDragSession = nil
+        isLiftPreviewActive = false
+        setDraggedItemVisibility(in: tableView)
         if let commit = workspaceDragSession.commit {
             moveRows(
                 IndexSet(integer: commit.sourceOffset),
@@ -402,7 +423,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         dragSessionDidEnd session: UIDragSession
     ) {
         cancelDragIfNeeded(in: tableView)
-        hiddenDraggedItemID = nil
+        isLiftPreviewActive = false
         setDraggedItemVisibility(in: tableView)
     }
 
@@ -689,7 +710,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private func cancelDragIfNeeded(in tableView: UITableView) {
         guard workspaceDragSession != nil else { return }
         workspaceDragSession = nil
+        isLiftPreviewActive = false
         applyDragPreview(configuration.items, animated: true)
+        setDraggedItemVisibility(in: tableView)
     }
 
     private func previewParameters(
@@ -700,7 +723,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             let item = dataSource?.itemIdentifier(for: indexPath),
             let cell = tableView.cellForRow(at: indexPath)
         else { return nil }
-        return WorkspaceListDragPreviewFactory.parameters(
+        return dragPreviewFactory.parameters(
             for: item,
             cell: cell
         )
@@ -714,7 +737,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             let item = dataSource?.itemIdentifier(for: indexPath),
             let cell = tableView.cellForRow(at: indexPath)
         else { return nil }
-        return WorkspaceListDragPreviewFactory.preview(
+        return dragPreviewFactory.preview(
             for: item,
             cell: cell
         )
@@ -735,7 +758,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private func configure(_ cell: UITableViewCell, for item: WorkspaceListTableItem) {
         cell.backgroundColor = .clear
         cell.contentView.backgroundColor = .clear
-        cell.contentView.alpha = hiddenDraggedItemID == item.id ? 0 : 1
+        cell.contentView.alpha = draggedItemIDToHide == item.id ? 0 : 1
         cell.selectionStyle = .none
         cell.isAccessibilityElement = false
         cell.accessibilityCustomActions = nil
@@ -744,21 +767,23 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             .margins(.all, 0)
         switch item {
         case .workspace:
+            let insets = dragPreviewFactory.metrics(for: item)?.insets ?? .zero
             hosting = hosting
-                .margins(.top, 4)
-                .margins(.bottom, 4)
-                .margins(.leading, item.isIndentedWorkspace ? 32 : 12)
-                .margins(.trailing, 12)
+                .margins(.top, insets.top)
+                .margins(.bottom, insets.bottom)
+                .margins(.leading, insets.left)
+                .margins(.trailing, insets.right)
         case .groupHeader:
             // Zero the hosting configuration's default minimum content size:
             // it would clamp this compact header to ~42pt where the List
             // rendered 32pt content (44pt row). The 44pt tap target comes from
             // the row height (32 + 12 margins), matching the List exactly.
+            let insets = dragPreviewFactory.metrics(for: item)?.insets ?? .zero
             hosting = hosting
-                .margins(.top, 6)
-                .margins(.bottom, 6)
-                .margins(.leading, 12)
-                .margins(.trailing, 12)
+                .margins(.top, insets.top)
+                .margins(.bottom, insets.bottom)
+                .margins(.leading, insets.left)
+                .margins(.trailing, insets.right)
                 .minSize(width: 0, height: 0)
         case .groupFooter:
             hosting = hosting
@@ -783,8 +808,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 let item = dataSource?.itemIdentifier(for: indexPath),
                 let cell = tableView.cellForRow(at: indexPath)
             else { continue }
-            cell.contentView.alpha = hiddenDraggedItemID == item.id ? 0 : 1
+            cell.contentView.alpha = draggedItemIDToHide == item.id ? 0 : 1
         }
+    }
+
+    private var draggedItemIDToHide: String? {
+        guard isLiftPreviewActive else { return nil }
+        return workspaceDragSession?.draggedItemID
     }
 
     private func hostedView(for item: WorkspaceListTableItem) -> AnyView {
