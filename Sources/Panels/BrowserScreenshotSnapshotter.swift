@@ -566,8 +566,8 @@ enum BrowserScreenshotWebViewSnapshotter {
         )
 
         var timeoutTimer: Timer?
-        let lease = BrowserScreenshotOffscreenLease<T>(
-            restore: {
+        let lease = BrowserScreenshotRenderLease<T>(
+            teardown: {
                 renderHost.restore()
             },
             completion: completion
@@ -624,26 +624,6 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
 
         forceAppKitLayout(for: webView)
-    }
-
-    static func prepareForVisualCapture(
-        _ webView: WKWebView,
-        expectedURL: URL?,
-        timingBudget: BrowserScreenshotTimingBudget = .init(),
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
-        Task { @MainActor in
-            do {
-                try await prepareForVisualCapture(
-                    webView,
-                    expectedURL: expectedURL,
-                    timingBudget: timingBudget
-                )
-                completion(.success(()))
-            } catch {
-                completion(.failure(error))
-            }
-        }
     }
 
     private static func isAcceptableFullContentSnapshot(

@@ -7387,14 +7387,11 @@ extension BrowserPanel {
         var didFinish = false
         let presentation = visualAutomationPresentation
         let usesOffscreenRenderHost = presentation.usesOffscreenRenderHost
-        var operationTask: Task<Void, Never>?
         let timeout = timingBudget.captureLeaseTimeout
 
-        let finish: (Result<T, Error>) -> Void = { result in
+        let completeLease: @MainActor (Result<T, Error>) -> Void = { result in
             guard !didFinish else { return }
             didFinish = true
-            operationTask?.cancel()
-            operationTask = nil
             timeoutTimer?.invalidate()
             timeoutTimer = nil
 
@@ -7418,41 +7415,40 @@ extension BrowserPanel {
                 operation: {
                     try await operation(captureWebView, presentation)
                 },
-                completion: finish
+                completion: completeLease
             )
             return
         }
 
+        let lease = BrowserScreenshotRenderLease<T>(
+            teardown: {},
+            completion: completeLease
+        )
+        let finish: @MainActor (Result<T, Error>) -> Void = { result in
+            guard lease.finish(result) else { return }
+            timeoutTimer?.invalidate()
+            timeoutTimer = nil
+        }
         let timer = Timer(timeInterval: timeout, repeats: false) { _ in
             finish(.failure(BrowserScreenshotError.automationTimedOut))
         }
         timeoutTimer = timer
         RunLoop.main.add(timer, forMode: .common)
 
-        BrowserScreenshotWebViewSnapshotter.prepareForVisualCapture(
-            captureWebView,
-            expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil,
-            timingBudget: timingBudget
-        ) { result in
-            switch result {
-            case .success:
-                guard !didFinish else { return }
-                let task = Task { @MainActor in
-                    do {
-                        finish(.success(try await operation(captureWebView, presentation)))
-                    } catch {
-                        finish(.failure(error))
-                    }
-                }
-                guard !didFinish else {
-                    task.cancel()
-                    return
-                }
-                operationTask = task
-            case .failure(let error):
+        let operationTask = Task { @MainActor in
+            do {
+                try await BrowserScreenshotWebViewSnapshotter.prepareForVisualCapture(
+                    captureWebView,
+                    expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil,
+                    timingBudget: timingBudget
+                )
+                try Task.checkCancellation()
+                finish(.success(try await operation(captureWebView, presentation)))
+            } catch {
                 finish(.failure(error))
             }
         }
+        lease.installOperationTask(operationTask)
     }
 
     @discardableResult

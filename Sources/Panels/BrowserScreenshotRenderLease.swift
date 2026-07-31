@@ -1,19 +1,19 @@
 import Foundation
 
-/// Restores an offscreen browser host only after its cancelled operation has stopped.
+/// Completes a browser render lease only after its cancelled operation has stopped.
 @MainActor
-final class BrowserScreenshotOffscreenLease<Success> {
-    private let restore: @MainActor () -> Void
+final class BrowserScreenshotRenderLease<Success> {
+    private let teardown: @MainActor () -> Void
     private let completion: @MainActor (Result<Success, Error>) -> Void
     private var operationTask: Task<Void, Never>?
     private var operationWasInstalled = false
     private var terminalResult: Result<Success, Error>?
 
     init(
-        restore: @escaping @MainActor () -> Void,
+        teardown: @escaping @MainActor () -> Void,
         completion: @escaping @MainActor (Result<Success, Error>) -> Void
     ) {
-        self.restore = restore
+        self.teardown = teardown
         self.completion = completion
     }
 
@@ -45,13 +45,13 @@ final class BrowserScreenshotOffscreenLease<Success> {
         }
         self.operationTask = nil
         operationTask.cancel()
-        let restore = self.restore
+        let teardown = self.teardown
         let completion = self.completion
 
         // This terminal task has no later lifecycle transition that can cancel it.
         Task { @MainActor in
             await operationTask.value
-            restore()
+            teardown()
             completion(terminalResult)
         }
     }

@@ -271,7 +271,7 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
-    func offscreenLeaseRestoresOnlyAfterCancelledOperationStops() async throws {
+    func renderLeaseCompletesOnlyAfterCancelledOperationStops() async throws {
         let operationStarted = BrowserScreenshotContinuationGate<Void>()
         let operationCancelled = BrowserScreenshotContinuationGate<Void>()
         let leaseCompleted = BrowserScreenshotContinuationGate<Void>()
@@ -291,7 +291,7 @@ struct BrowserScreenshotCropTests {
             }
         }
         var releaseOperation: CheckedContinuation<Void, Never>?
-        var didRestore = false
+        var didTeardown = false
         var completionResult: Result<Void, Error>?
         let operationTask = Task { @MainActor in
             operationStarted.finish(.success(()))
@@ -305,9 +305,9 @@ struct BrowserScreenshotCropTests {
                 }
             }
         }
-        let lease = BrowserScreenshotOffscreenLease<Void>(
-            restore: {
-                didRestore = true
+        let lease = BrowserScreenshotRenderLease<Void>(
+            teardown: {
+                didTeardown = true
             },
             completion: { result in
                 completionResult = result
@@ -319,17 +319,17 @@ struct BrowserScreenshotCropTests {
         try await startedTask.value
         #expect(lease.finish(.failure(BrowserScreenshotError.automationTimedOut)))
         try await cancelledTask.value
-        #expect(!didRestore)
+        #expect(!didTeardown)
 
         let continuation = try #require(releaseOperation)
         releaseOperation = nil
         continuation.resume()
         try await completedTask.value
 
-        #expect(didRestore)
+        #expect(didTeardown)
         guard case .failure(let error as BrowserScreenshotError) = completionResult,
               case .automationTimedOut = error else {
-            Issue.record("Expected the offscreen lease to complete with automationTimedOut")
+            Issue.record("Expected the render lease to complete with automationTimedOut")
             return
         }
     }
