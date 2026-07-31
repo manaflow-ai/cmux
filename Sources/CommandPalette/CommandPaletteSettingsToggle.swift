@@ -851,6 +851,28 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "terminalHyperlinkActivationEnabled",
+                settingsKey: "browser.terminalHyperlinkActivationEnabled",
+                title: {
+                    String(
+                        localized: "settings.browser.terminalHyperlinkActivation",
+                        defaultValue: "Enable Terminal Hyperlink Activation"
+                    )
+                },
+                sectionTitle: browser,
+                keywords: [
+                    "browser.terminalHyperlinkActivationEnabled",
+                    "browser",
+                    "terminal",
+                    "hyperlink",
+                    "OSC 8",
+                    "links",
+                    "disable",
+                ],
+                defaultValue: BrowserLinkOpenSettings.defaultTerminalHyperlinkActivationEnabled,
+                defaultsKey: BrowserLinkOpenSettings.terminalHyperlinkActivationEnabledKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "openTerminalLinksInCmuxBrowser",
                 settingsKey: "browser.openTerminalLinksInCmuxBrowser",
                 title: {

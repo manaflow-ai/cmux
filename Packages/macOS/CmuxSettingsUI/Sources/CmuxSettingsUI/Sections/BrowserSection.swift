@@ -26,6 +26,7 @@ public struct BrowserSection: View {
     @State private var discardEnabled: DefaultsValueModel<Bool>
     @State private var discardDelay: DefaultsValueModel<Double>
     @State private var askWhereToSaveDownloads: DefaultsValueModel<Bool>
+    @State private var terminalHyperlinkActivationEnabled: DefaultsValueModel<Bool>
     @State private var openTermLinks: DefaultsValueModel<Bool>
     @State private var interceptOpen: DefaultsValueModel<Bool>
     @State private var hosts: DefaultsValueModel<String>
@@ -57,6 +58,7 @@ public struct BrowserSection: View {
         _discardEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.discardHiddenWebViews))
         _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
         _askWhereToSaveDownloads = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.askWhereToSaveDownloads))
+        _terminalHyperlinkActivationEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.terminalHyperlinkActivationEnabled))
         _openTermLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.openTerminalLinksInCmuxBrowser))
         _interceptOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.interceptTerminalOpenCommandInCmuxBrowser))
         _hosts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hostsToOpenInEmbeddedBrowser))
@@ -85,7 +87,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, discardEnabled, discardDelay, askWhereToSaveDownloads, terminalHyperlinkActivationEnabled, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
     }
 
     @ViewBuilder
@@ -229,6 +231,31 @@ public struct BrowserSection: View {
             }
             SettingsCardDivider()
 
+            // Terminal hyperlink activation
+            SettingsCardRow(
+                configurationReview: .json("browser.terminalHyperlinkActivationEnabled"),
+                String(
+                    localized: "settings.browser.terminalHyperlinkActivation",
+                    defaultValue: "Enable Terminal Hyperlink Activation"
+                ),
+                subtitle: String(
+                    localized: "settings.browser.terminalHyperlinkActivation.subtitle",
+                    defaultValue: "When off, clicking OSC 8 and detected links in terminal output does nothing."
+                )
+            ) {
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { terminalHyperlinkActivationEnabled.current },
+                        set: { terminalHyperlinkActivationEnabled.set($0) }
+                    )
+                )
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBrowserTerminalHyperlinkActivationToggle")
+            }
+            SettingsCardDivider()
+
             // Open Terminal Links
             SettingsCardRow(
                 configurationReview: .json("browser.openTerminalLinksInCmuxBrowser"),
@@ -238,6 +265,7 @@ public struct BrowserSection: View {
                 Toggle("", isOn: Binding(get: { openTermLinks.current }, set: { openTermLinks.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+                    .disabled(!terminalHyperlinkActivationEnabled.current)
             }
             SettingsCardDivider()
 
@@ -253,7 +281,7 @@ public struct BrowserSection: View {
             }
 
             // Hosts + External Patterns (only when relevant)
-            if openTermLinks.current || interceptOpen.current {
+            if (terminalHyperlinkActivationEnabled.current && openTermLinks.current) || interceptOpen.current {
                 SettingsCardDivider()
                 hostnameEditor(
                     title: String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"),

@@ -8,12 +8,16 @@ import Foundation
 @MainActor
 struct TerminalLinkOpenCoordinator {
     private let defaults: UserDefaults
+    private let linkRouter: TerminalLinkRouter
     private let containerResolver: @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?
     private let externalOpen: @MainActor @Sendable (URL) -> Bool
     private let deferOperation: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
 
     init(
         defaults: UserDefaults = .standard,
+        linkRouter: TerminalLinkRouter = TerminalLinkRouter(
+            hostNormalizer: TerminalBrowserHostNormalizer()
+        ),
         containerResolver: @escaping @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)? = Self.resolveContainer,
         externalOpen: @escaping @MainActor @Sendable (URL) -> Bool = { NSWorkspace.shared.open($0) },
         deferOperation: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { operation in
@@ -21,6 +25,7 @@ struct TerminalLinkOpenCoordinator {
         }
     ) {
         self.defaults = defaults
+        self.linkRouter = linkRouter
         self.containerResolver = containerResolver
         self.externalOpen = externalOpen
         self.deferOperation = deferOperation
@@ -29,6 +34,10 @@ struct TerminalLinkOpenCoordinator {
     @discardableResult
     func open(_ request: TerminalLinkOpenRequest) -> Bool {
         log("link.openURL raw=\(request.rawValue)")
+        guard BrowserLinkOpenSettings.terminalHyperlinkActivationEnabled(defaults: defaults) else {
+            log("link.openURL suppressed terminal hyperlink activation disabled")
+            return true
+        }
 
         let trimmed = request.rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let container = containerResolver(request.sourceWorkspaceId, request.sourcePanelId)
@@ -62,7 +71,7 @@ struct TerminalLinkOpenCoordinator {
             normalizedOpenURLString = resolvedPath
         }
 
-        guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
+        guard let target = linkRouter.resolveOpenURLTarget(normalizedOpenURLString) else {
             log("link.openURL resolve failed")
             return false
         }

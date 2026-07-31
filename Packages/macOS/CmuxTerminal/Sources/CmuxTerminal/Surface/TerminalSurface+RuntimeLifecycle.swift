@@ -130,6 +130,7 @@ extension TerminalSurface {
         let registeredOwnerId = registry.runtimeSurfaceOwnerId(surface)
         guard registeredOwnerId == id,
               GhosttySurfaceRuntimeProbe.surfacePointerAppearsLive(surface) else {
+            attachedView?.runtimeSurfaceWillInvalidate()
             let callbackContext = surfaceCallbackContext
             surfaceCallbackContext = nil
             let teeLease = mobileByteTeeLease
@@ -244,6 +245,7 @@ extension TerminalSurface {
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
+        attachedView?.runtimeSurfaceWillInvalidate()
 
         let surfaceToFree = surface
         if let surfaceToFree {
@@ -325,6 +327,7 @@ extension TerminalSurface {
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
+        attachedView?.runtimeSurfaceWillInvalidate()
 
         let surfaceToFree = surface
         if let surfaceToFree {

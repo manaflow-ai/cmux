@@ -166441,6 +166441,40 @@
         }
       }
     },
+    "settings.browser.terminalHyperlinkActivation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Terminal Hyperlink Activation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのハイパーリンクを有効にする"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalHyperlinkActivation.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, clicking OSC 8 and detected links in terminal output does nothing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフの場合、ターミナル出力の OSC 8 リンクや検出されたリンクをクリックしても何も起こりません。"
+          }
+        }
+      }
+    },
     "settings.browser.openTerminalLinks": {
       "extractionState": "manual",
       "localizations": {
@@ -186547,6 +186581,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "browser.showSearchSuggestions suggest autocomplete address bar search suggestions 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 瀏覽器 網頁 WebView 位址列 連結 URL 內嵌 頁面 分頁 搜尋 建議 自動完成 提供者 搜尋引擎 網址列建議 • %@"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.browser.terminal-hyperlink-activation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalHyperlinkActivationEnabled terminal hyperlink OSC 8 detected links disable click URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalHyperlinkActivationEnabled ターミナル ハイパーリンク OSC 8 検出リンク 無効 クリック URL"
           }
         }
       }

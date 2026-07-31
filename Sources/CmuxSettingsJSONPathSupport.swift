@@ -350,6 +350,10 @@ enum BrowserSettingsFileMapping {
             defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey
         ),
         .init(
+            jsonKey: "terminalHyperlinkActivationEnabled",
+            defaultsKey: BrowserLinkOpenSettings.terminalHyperlinkActivationEnabledKey
+        ),
+        .init(
             jsonKey: "openTerminalLinksInCmuxBrowser",
             defaultsKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey
         ),
@@ -505,6 +509,7 @@ extension CmuxSettingsFileStore {
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
         "browser.askWhereToSaveDownloads",
+        "browser.terminalHyperlinkActivationEnabled",
         "browser.openTerminalLinksInCmuxBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
         "browser.hostsToOpenInEmbeddedBrowser",
