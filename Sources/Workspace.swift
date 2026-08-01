@@ -943,7 +943,6 @@ extension Workspace {
     nonisolated static func surfaceResumeStartupInput(
         _ resumeBinding: SurfaceResumeBindingSnapshot?,
         autoResumeAgentSessions: Bool,
-        allowLauncherScript: Bool = false,
         promptForApproval: Bool = true,
         approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
         approvalSigningSecret: Data? = nil
@@ -951,7 +950,6 @@ extension Workspace {
         makeSessionRestorePolicyService().surfaceResumeStartupInput(
             resumeBinding,
             autoResumeAgentSessions: autoResumeAgentSessions,
-            allowLauncherScript: allowLauncherScript,
             promptForApproval: promptForApproval,
             approvalStoreURL: approvalStoreURL,
             approvalSigningSecret: approvalSigningSecret
@@ -961,23 +959,16 @@ extension Workspace {
     nonisolated static func surfaceResumeStartupLaunch(
         _ resumeBinding: SurfaceResumeBindingSnapshot?,
         autoResumeAgentSessions: Bool,
-        allowLauncherScript: Bool = true,
         promptForApproval: Bool = true,
         approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
-        approvalSigningSecret: Data? = nil,
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        approvalSigningSecret: Data? = nil
     ) -> SurfaceResumeStartupLaunch? {
-        makeSessionRestorePolicyService(
-            temporaryDirectory: temporaryDirectory
-        ).surfaceResumeStartupLaunch(
+        makeSessionRestorePolicyService().surfaceResumeStartupLaunch(
             resumeBinding,
             autoResumeAgentSessions: autoResumeAgentSessions,
-            allowLauncherScript: allowLauncherScript,
             promptForApproval: promptForApproval,
             approvalStoreURL: approvalStoreURL,
-            approvalSigningSecret: approvalSigningSecret,
-            fileManager: fileManager
+            approvalSigningSecret: approvalSigningSecret
         )
     }
 
@@ -1366,20 +1357,10 @@ extension Workspace {
             let canAttemptLocalBindingResume =
                 effectiveResumeBindingForStartup?.launchFlavor == .local &&
                 !restoresRemoteWorkspaceTerminalSnapshot
-            let candidateSavedWorkingDirectory = (canAttemptLocalBindingResume ? resumeBinding?.cwd : nil)
-                ?? (restoresUntrustedSavedDirectory ? nil : snapshot.terminal?.workingDirectory)
-                ?? (restoresUntrustedSavedDirectory ? nil : restorableAgent?.workingDirectory)
-                ?? (restoresUntrustedSavedDirectory ? nil : snapshot.directory)
-            let candidateWorkingDirectory = candidateSavedWorkingDirectory
-                ?? currentDirectory
-            let candidateBindingWorkingDirectory = effectiveResumeBindingForStartup?.cwd
-                ?? candidateWorkingDirectory
             let unresolvedBindingLaunch: SurfaceResumeStartupLaunch? =
                 if canAttemptLocalBindingResume, let effectiveResumeBindingForStartup {
                     sessionRestorePolicy.surfaceResumeStartupLaunch(
-                        forApprovedBinding: effectiveResumeBindingForStartup,
-                        allowLauncherScript: true,
-                        restoringWorkingDirectory: candidateBindingWorkingDirectory
+                        forApprovedBinding: effectiveResumeBindingForStartup
                     )
                 } else {
                     nil
@@ -1456,8 +1437,7 @@ extension Workspace {
                     && !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(
-                            allowLauncherScript: false,
-                            allowOversizedInlineInput: true,
+                            useLocalRestoreVerb: false,
                             restoringWorkingDirectory: resumeSessionWorkingDirectory
                         )
                             .map(SurfaceResumeStartupLaunch.input)
@@ -2755,9 +2735,8 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    nonisolated static func makeSessionRestorePolicyService(
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot> {
+    nonisolated static func makeSessionRestorePolicyService()
+        -> WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot> {
         WorkspaceSessionRestorePolicyService(
             applyStoredApproval: { binding, fileURL, signingSecret in
                 switch SurfaceResumeApprovalStore.applyingStoredApprovalLookup(
@@ -2790,8 +2769,7 @@ final class Workspace: Identifiable, ObservableObject {
                 resolvingDefaultCodexModel: { environment in
                     HermesAgentCodexEnvironment.defaultCodexModel(environment: environment)
                 }
-            ),
-            temporaryDirectory: temporaryDirectory
+            )
         )
     }
 
@@ -5083,6 +5061,18 @@ final class Workspace: Identifiable, ObservableObject {
               let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false),
               !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
+        }
+        // This transient cwd belongs to the binding restored at launch. Let a
+        // same-session hook refresh keep its cwd rescue, but never let it
+        // override a replacement session's structured restore record.
+        if let previous = surfaceResumeBindingsByPanelId[panelId],
+           previous.kind != binding.kind
+            || previous.checkpointId != binding.checkpointId
+            || previous.cwd != binding.cwd
+            || previous.launchCommand?.workingDirectory != binding.launchCommand?.workingDirectory
+            || (previous.launchCommand == nil && binding.launchCommand == nil
+                && previous.command != binding.command) {
+            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
         return true
