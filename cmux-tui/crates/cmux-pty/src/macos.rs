@@ -59,6 +59,9 @@ pub(crate) fn spawn(
     if command.clean_environment {
         process.env_clear();
     }
+    for key in &command.removed_environment {
+        process.env_remove(key);
+    }
     process.envs(&command.environment);
     process.env("SHELL", shell);
 

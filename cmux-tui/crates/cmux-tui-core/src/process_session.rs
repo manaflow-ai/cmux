@@ -94,13 +94,14 @@ pub(crate) fn fail_after_pty_spawn_for_test() -> io::Result<()> {
     let marker = POST_SPAWN_FAILURE_MARKER.with_borrow(Clone::clone);
     let Some(marker) = marker else { return Ok(()) };
     let deadline = Instant::now() + Duration::from_secs(2);
-    while !marker.exists() && Instant::now() < deadline {
+    let marker_is_ready = || marker.metadata().is_ok_and(|metadata| metadata.len() > 0);
+    while !marker_is_ready() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(5));
     }
-    if !marker.exists() {
+    if !marker_is_ready() {
         return Err(io::Error::new(
             io::ErrorKind::TimedOut,
-            "forced post-spawn failure marker was not published",
+            "forced post-spawn failure marker was not fully published",
         ));
     }
     Err(io::Error::other("forced post-spawn PTY initialization failure"))

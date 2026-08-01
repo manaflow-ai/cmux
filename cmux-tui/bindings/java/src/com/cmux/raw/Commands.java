@@ -40,6 +40,7 @@ public final class Commands {
     public static final CommandMetadata EXPORT_LAYOUT = new CommandMetadata("export-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_DIRECTION = new CommandMetadata("focus-direction", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_PANE = new CommandMetadata("focus-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata GET_CELL_PIXELS = new CommandMetadata("get-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_FRONTEND_PROJECTION = new CommandMetadata("get-frontend-projection", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IDENTIFY = new CommandMetadata("identify", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IDS = new CommandMetadata("ids", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -136,6 +137,7 @@ public final class Commands {
         values.put("export-layout", EXPORT_LAYOUT);
         values.put("focus-direction", FOCUS_DIRECTION);
         values.put("focus-pane", FOCUS_PANE);
+        values.put("get-cell-pixels", GET_CELL_PIXELS);
         values.put("get-frontend-projection", GET_FRONTEND_PROJECTION);
         values.put("identify", IDENTIFY);
         values.put("ids", IDS);

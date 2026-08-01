@@ -716,7 +716,9 @@ fn fail_surface_route(state: &mut SurfaceRouteState, reason: &str) {
 pub struct BrowserSurface {
     pub(crate) meta: SurfaceMeta,
     session: Mutex<Option<BrowserSession>>,
-    state: Mutex<BrowserState>,
+    // Navigation and pointer lifecycle state grows independently of the
+    // Surface enum. Keep that payload out of line.
+    state: Mutex<Box<BrowserState>>,
     frame_epoch: Arc<FrameEpoch>,
     dirty: AtomicBool,
     dead: AtomicBool,
@@ -1150,7 +1152,7 @@ pub(crate) fn new_surface_with_resource_identity(
             selection: Mutex::new(None),
         },
         session: Mutex::new(None),
-        state: Mutex::new(BrowserState {
+        state: Mutex::new(Box::new(BrowserState {
             latest_frame: None,
             accepted_frame_epoch: frame_epoch.current(),
             accepted_navigation_epoch: frame_epoch.latest_navigation(),
@@ -1192,7 +1194,7 @@ pub(crate) fn new_surface_with_resource_identity(
             last_frame_at: None,
             stall_nudged: false,
             not_responding_reported: false,
-        }),
+        })),
         frame_epoch,
         dirty: AtomicBool::new(true),
         dead: AtomicBool::new(false),
@@ -2167,6 +2169,19 @@ impl BrowserSurface {
         }
     }
 
+    pub fn latest_frame_metadata(&self) -> Option<(u64, u32, u32, Option<u64>)> {
+        let state = self.state.lock().unwrap();
+        if matches!(state.status, BrowserStatus::Failed(_)) {
+            None
+        } else {
+            let pointer_frame_seq = self.exported_pointer_frame_seq_locked(&state);
+            state
+                .latest_frame
+                .as_ref()
+                .map(|frame| (frame.seq, frame.css_width, frame.css_height, pointer_frame_seq))
+        }
+    }
+
     /// Return the opaque authority token for guarded pointer input. The token
     /// identifies the latest admitted bitmap and rotates on every later bitmap.
     pub fn latest_frame_seq(&self) -> Option<u64> {
@@ -2349,6 +2364,10 @@ impl BrowserSurface {
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<bool> {
         self.set_cell_pixel_size_reporting(width_px, height_px, Box::new(|_| {}))
             .map(|reservation_id| reservation_id.is_some())
+    }
+
+    pub(crate) fn cell_pixel_size(&self) -> (u16, u16) {
+        *self.cell_pixels.lock().unwrap()
     }
 
     pub fn set_cell_pixel_size_reporting(
@@ -5883,11 +5902,13 @@ mod tests {
         browser.store_frame(test_frame(2));
         assert_eq!(browser.status(), BrowserStatus::Failed("nope".into()));
         assert_eq!(browser.latest_frame(), None);
+        assert_eq!(browser.latest_frame_metadata(), None);
 
         // Clearing the error restores the retained frame.
         browser.clear_error();
         assert_eq!(browser.status(), BrowserStatus::Live);
         assert_eq!(browser.latest_frame().map(|frame| frame.seq), Some(2));
+        assert_eq!(browser.latest_frame_metadata(), Some((2, 80, 48, None)));
     }
 
     #[test]

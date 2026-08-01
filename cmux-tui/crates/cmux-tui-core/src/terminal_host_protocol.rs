@@ -14,8 +14,11 @@ use serde::{Deserialize, Serialize};
 
 pub const MAGIC: [u8; 4] = *b"CMTH";
 pub const HEADER_LEN: usize = 32;
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 3;
 pub const MAX_FRAME_PAYLOAD: usize = 16 * 1024 * 1024;
+pub const MAX_KITTY_IMAGE_ALIASES: usize = 4_096;
+pub const KITTY_IMAGE_ALIAS_COUNT_LEN: usize = size_of::<u16>();
+pub const KITTY_IMAGE_ALIAS_ENCODED_LEN: usize = 2 * size_of::<u32>();
 const EXIT_PAYLOAD_VERSION: u16 = 1;
 const EXIT_PAYLOAD_HEADER_LEN: usize = 12;
 const EXIT_PAYLOAD_STATUS_LEN: usize = EXIT_PAYLOAD_HEADER_LEN + 4;
@@ -25,7 +28,7 @@ pub const MAX_EXIT_REASON_BYTES: usize = 4096;
 /// apply both before publishing terminal state.
 pub const FLAG_COLORS_FOLLOW: u32 = 1 << 0;
 /// ClientHello opt-in and HostHello acknowledgement for targeted ViewerSize
-/// control responses. This handshake-only flag lets v1 peers negotiate the
+/// control responses. This handshake-only flag lets compatible peers negotiate the
 /// optimization without exposing an unknown ResizeAck to legacy renderers.
 pub const FLAG_VIEWER_SIZE_ACKS: u32 = 1 << 1;
 /// ClientHello opt-in and HostHello acknowledgement for an authenticated
@@ -238,6 +241,12 @@ pub enum MessageKind {
     ResizeAck = 16,
     /// Targeted response to `ClearHistory`; payload is one status byte.
     ClearHistoryAck = 17,
+    /// Targeted response to `SetCellPixelSize`; payload is the committed
+    /// cell width:u16 + height:u16.
+    CellPixelSizeAck = 18,
+    /// Targeted response to `SetKittyGraphicsLimits`; payload is the applied
+    /// four-field resource limit tuple.
+    KittyGraphicsLimitsAck = 19,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -252,6 +261,12 @@ pub enum MessageKind {
     /// authoritative parser, or encode the optional key on the alternate
     /// screen. New hosts advertise support in their durable discovery record.
     ClearHistory = 107,
+    /// Protocol-v2 admin request: cell width:u16 + height:u16. The host
+    /// commits both its PTY and authoritative Ghostty parser before replying.
+    SetCellPixelSize = 108,
+    /// Protocol-v3 admin request: image bytes, in-flight bytes, image count,
+    /// and placement count as four little-endian u64 values.
+    SetKittyGraphicsLimits = 109,
 }
 
 impl TryFrom<u16> for MessageKind {
@@ -276,6 +291,8 @@ impl TryFrom<u16> for MessageKind {
             15 => Ok(Self::Capability),
             16 => Ok(Self::ResizeAck),
             17 => Ok(Self::ClearHistoryAck),
+            18 => Ok(Self::CellPixelSizeAck),
+            19 => Ok(Self::KittyGraphicsLimitsAck),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -284,6 +301,8 @@ impl TryFrom<u16> for MessageKind {
             105 => Ok(Self::MintCapability),
             106 => Ok(Self::SetDefaults),
             107 => Ok(Self::ClearHistory),
+            108 => Ok(Self::SetCellPixelSize),
+            109 => Ok(Self::SetKittyGraphicsLimits),
             other => Err(ProtocolError::UnknownMessageKind(other)),
         }
     }
@@ -616,7 +635,7 @@ mod tests {
             encoded,
             vec![
                 b'C', b'M', b'T', b'H', // magic
-                0x01, 0x00, // version
+                0x03, 0x00, // version
                 0x06, 0x00, // output
                 0x44, 0x33, 0x22, 0x11, // flags
                 0x03, 0x00, 0x00, 0x00, // payload length
@@ -656,6 +675,14 @@ mod tests {
         assert_eq!(MessageKind::try_from(17).unwrap(), MessageKind::ClearHistoryAck);
         assert_eq!(MessageKind::ClearHistory as u16, 107);
         assert_eq!(MessageKind::try_from(107).unwrap(), MessageKind::ClearHistory);
+    }
+
+    #[test]
+    fn kitty_graphics_limits_have_stable_additive_message_kinds() {
+        assert_eq!(MessageKind::KittyGraphicsLimitsAck as u16, 19);
+        assert_eq!(MessageKind::try_from(19).unwrap(), MessageKind::KittyGraphicsLimitsAck);
+        assert_eq!(MessageKind::SetKittyGraphicsLimits as u16, 109);
+        assert_eq!(MessageKind::try_from(109).unwrap(), MessageKind::SetKittyGraphicsLimits);
     }
 
     #[test]

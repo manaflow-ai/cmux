@@ -1848,6 +1848,12 @@ fn run_server(
     if let Err(error) = server_process.publish_socket(published_socket) {
         return finish_server_process(server_process, Err(error.into()));
     }
+    #[cfg(debug_assertions)]
+    if let Some(marker) = std::env::var_os("CMUX_TUI_TEST_LOCAL_SOCKET_PUBLISHED_MARKER")
+        && let Err(error) = std::fs::write(marker, b"published")
+    {
+        return finish_server_process(server_process, Err(error.into()));
+    }
 
     #[cfg(target_os = "linux")]
     let _provider_management = match provider_management_listener

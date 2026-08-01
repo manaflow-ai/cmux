@@ -5,7 +5,7 @@
 //! the same PTY pair without resolving a name. Other platforms continue to
 //! use portable-pty's native backend.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
@@ -20,6 +20,7 @@ pub struct PtyCommand {
     args: Vec<String>,
     cwd: Option<PathBuf>,
     environment: BTreeMap<String, String>,
+    removed_environment: BTreeSet<String>,
     clean_environment: bool,
 }
 
@@ -30,6 +31,7 @@ impl PtyCommand {
             args: Vec::new(),
             cwd: None,
             environment: BTreeMap::new(),
+            removed_environment: BTreeSet::new(),
             clean_environment: false,
         }
     }
@@ -47,12 +49,21 @@ impl PtyCommand {
     }
 
     pub fn env(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        self.environment.insert(key.into(), value.into());
+        let key = key.into();
+        self.removed_environment.remove(&key);
+        self.environment.insert(key, value.into());
+    }
+
+    pub fn env_remove(&mut self, key: impl Into<String>) {
+        let key = key.into();
+        self.environment.remove(&key);
+        self.removed_environment.insert(key);
     }
 
     pub fn env_clear(&mut self) {
         self.clean_environment = true;
         self.environment.clear();
+        self.removed_environment.clear();
     }
 }
 
@@ -112,6 +123,9 @@ mod platform {
         builder.args(command.args);
         if let Some(cwd) = command.cwd {
             builder.cwd(cwd);
+        }
+        for key in command.removed_environment {
+            builder.env_remove(key);
         }
         for (key, value) in command.environment {
             builder.env(key, value);

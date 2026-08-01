@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 6870892becb93e379f2cf6c10085a93a4843795904b1861d1c5672721a213425.
+// cmux-tui mux protocol 10, IR a9918d4cebc182e832fc2e08c8808125a7e4d4f6e4ed389f10b4cbb1478245aa.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -136,6 +136,37 @@ pub struct FrontendProjectionChangedEvent {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GraphicsStatusEventKind {
+    #[serde(rename = "kitty-image-budget-worker-start-failed")]
+    KittyImageBudgetWorkerStartFailed,
+    #[serde(rename = "kitty-image-budget-update-failed")]
+    KittyImageBudgetUpdateFailed,
+    #[serde(rename = "cell-pixel-update-retries-exhausted")]
+    CellPixelUpdateRetriesExhausted,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GraphicsStatusEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub attempts: Option<u16>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cell_height: Option<u16>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cell_width: Option<u16>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub kind: GraphicsStatusEventKind,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub remaining: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub retry_exhausted: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutChangedEvent {
     pub screen: T::Id,
@@ -214,6 +245,10 @@ pub struct RenderDeltaEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub default_fg: Option<T::ColorHex>,
     pub full: bool,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub graphics: Option<T::RenderGraphicsDelta>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub history_epoch: Option<u64>,
     pub rows: Vec<T::RenderRow>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub scrollback_rows: Option<u32>,
@@ -228,6 +263,9 @@ pub struct RenderStateEvent {
     pub cursor: T::RenderCursor,
     pub default_bg: T::ColorHex,
     pub default_fg: T::ColorHex,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub graphics: Option<T::RenderGraphics>,
+    pub history_epoch: u64,
     pub rows: Vec<T::RenderRow>,
     pub scrollback_rows: u32,
     pub size: T::Size,
@@ -243,6 +281,10 @@ pub struct ResizedEvent {
     /// Protocol 6 compatibility field.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub data: Option<T::Base64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub kitty_graphics_state: Option<T::KittyGraphicsState>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub kitty_image_aliases: Option<Vec<T::KittyImageAlias>>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub replay: Option<T::Base64>,
     pub rows: u16,
@@ -382,6 +424,10 @@ pub struct VtStateEvent {
     pub colors: Option<T::TerminalColors>,
     pub cols: u16,
     pub data: T::Base64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub kitty_graphics_state: Option<T::KittyGraphicsState>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub kitty_image_aliases: Option<Vec<T::KittyImageAlias>>,
     pub rows: u16,
     pub surface: T::Id,
 }
@@ -475,6 +521,7 @@ pub enum Event {
     Empty(EmptyEvent),
     Frame(FrameEvent),
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
+    GraphicsStatus(GraphicsStatusEvent),
     LayoutChanged(LayoutChangedEvent),
     Notification(NotificationEvent),
     Output(OutputEvent),
@@ -526,6 +573,7 @@ impl Event {
             Self::Empty(_) => Some("empty"),
             Self::Frame(_) => Some("frame"),
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
+            Self::GraphicsStatus(_) => Some("graphics-status"),
             Self::LayoutChanged(_) => Some("layout-changed"),
             Self::Notification(_) => Some("notification"),
             Self::Output(_) => Some("output"),
@@ -576,6 +624,7 @@ impl Event {
             Self::Empty(_) => Some(&EMPTY_EVENT_METADATA),
             Self::Frame(_) => Some(&FRAME_EVENT_METADATA),
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
+            Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
             Self::LayoutChanged(_) => Some(&LAYOUT_CHANGED_EVENT_METADATA),
             Self::Notification(_) => Some(&NOTIFICATION_EVENT_METADATA),
             Self::Output(_) => Some(&OUTPUT_EVENT_METADATA),
@@ -707,6 +756,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("frontend-projection-changed") => match serde_json::from_value::<FrontendProjectionChangedEvent>(raw.clone()) {
             Ok(event) => Event::FrontendProjectionChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("graphics-status") => match serde_json::from_value::<GraphicsStatusEvent>(raw.clone()) {
+            Ok(event) => Event::GraphicsStatus(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

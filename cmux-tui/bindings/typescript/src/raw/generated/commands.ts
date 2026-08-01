@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 6870892becb93e379f2cf6c10085a93a4843795904b1861d1c5672721a213425. */
+/* cmux-tui mux protocol 10, IR a9918d4cebc182e832fc2e08c8808125a7e4d4f6e4ed389f10b4cbb1478245aa. */
 
 
 import type * as T from "./types.js";
@@ -299,6 +299,11 @@ export interface FocusPaneRequest extends CmuxRequestBase {
   "pane": T.Id;
 }
 export type FocusPaneResult = T.EmptyResult;
+
+/** Protocol v6; authority: frontend. */
+export interface GetCellPixelsRequest extends CmuxRequestBase {
+  cmd: "get-cell-pixels";
+}
 
 /** Protocol v7; authority: control. */
 export interface GetFrontendProjectionRequest extends CmuxRequestBase {
@@ -860,6 +865,7 @@ export type CmuxRequest =
   | ExportLayoutRequest
   | FocusDirectionRequest
   | FocusPaneRequest
+  | GetCellPixelsRequest
   | GetFrontendProjectionRequest
   | IdentifyRequest
   | IdsRequest
@@ -1162,6 +1168,14 @@ export interface CmuxCommandDefinitionMap {
     result: FocusPaneResult;
     authority: "control";
     since: 5;
+    capability: null;
+    stream: null;
+  };
+  "get-cell-pixels": {
+    request: GetCellPixelsRequest;
+    result: T.GetCellPixelsResult;
+    authority: "frontend";
+    since: 6;
     capability: null;
     stream: null;
   };

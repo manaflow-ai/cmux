@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 10
-IR_SHA256 = '6870892becb93e379f2cf6c10085a93a4843795904b1861d1c5672721a213425'
+IR_SHA256 = 'a9918d4cebc182e832fc2e08c8808125a7e4d4f6e4ed389f10b4cbb1478245aa'
 
 
 @dataclass(frozen=True)
@@ -438,6 +438,16 @@ COMMANDS = {
         None,
         {
             'pane': CommandFieldMetadata(None, None),
+        },
+    ),
+    'get-cell-pixels': CommandMetadata(
+        'get-cell-pixels',
+        'frontend',
+        6,
+        None,
+        ('frontend',),
+        None,
+        {
         },
     ),
     'get-frontend-projection': CommandMetadata(
@@ -1248,6 +1258,7 @@ EVENTS = {
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
+    'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),
     'output': EventMetadata('output', 5, None, ('attach-byte',), 'emitted'),

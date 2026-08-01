@@ -1793,6 +1793,7 @@ fn invalid_websocket_startup_returns_after_publishing_the_local_socket() {
     let dir = unique_temp_dir("invalid-websocket-startup");
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("mux.sock");
+    let published = dir.join("published");
     let ghostty = dir.join("ghostty");
     fs::write(&ghostty, "#!/bin/sh\nprintf 'background = #272822\\nforeground = #fdfff1\\n'\n")
         .unwrap();
@@ -1802,10 +1803,17 @@ fn invalid_websocket_startup_returns_after_publishing_the_local_socket() {
         .arg(&socket)
         .args(["--ws", "not-an-address"])
         .env("GHOSTTY_BIN", &ghostty)
+        .env("CMUX_TUI_TEST_LOCAL_SOCKET_PUBLISHED_MARKER", &published)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
+
+    let publication_deadline = Instant::now() + Duration::from_secs(15);
+    while !published.exists() && Instant::now() < publication_deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(published.exists(), "invalid WebSocket setup did not publish its local socket");
 
     let deadline = Instant::now() + Duration::from_secs(3);
     let status = loop {

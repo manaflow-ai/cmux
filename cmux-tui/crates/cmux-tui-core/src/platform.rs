@@ -75,7 +75,19 @@ pub mod transport {
 
         #[cfg(test)]
         pub(super) fn set_socket_created_hook(hook: Option<SocketCreatedHook>) {
-            *SOCKET_CREATED_HOOK.get_or_init(Default::default).lock().unwrap() = hook;
+            *SOCKET_CREATED_HOOK
+                .get_or_init(Default::default)
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = hook;
+        }
+
+        #[cfg(test)]
+        fn socket_created_hook() -> Option<SocketCreatedHook> {
+            SOCKET_CREATED_HOOK
+                .get_or_init(Default::default)
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone()
         }
 
         #[cfg(target_os = "linux")]
@@ -100,9 +112,7 @@ pub mod transport {
             // OwnedFd takes its sole ownership.
             let descriptor = unsafe { OwnedFd::from_raw_fd(descriptor) };
             #[cfg(test)]
-            if let Some(hook) =
-                SOCKET_CREATED_HOOK.get_or_init(Default::default).lock().unwrap().clone()
-            {
+            if let Some(hook) = socket_created_hook() {
                 hook(descriptor.as_raw_fd());
             }
             Ok(descriptor)
@@ -125,9 +135,7 @@ pub mod transport {
             // OwnedFd takes its sole ownership.
             let descriptor = unsafe { OwnedFd::from_raw_fd(descriptor) };
             #[cfg(test)]
-            if let Some(hook) =
-                SOCKET_CREATED_HOOK.get_or_init(Default::default).lock().unwrap().clone()
-            {
+            if let Some(hook) = socket_created_hook() {
                 hook(descriptor.as_raw_fd());
             }
             // SAFETY: F_GETFD only reads flags from this valid descriptor.
@@ -682,6 +690,21 @@ pub mod transport {
         #[cfg(unix)]
         static SOCKET_CREATED_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+        #[cfg(unix)]
+        struct SocketCreatedHookReset;
+
+        #[cfg(unix)]
+        impl Drop for SocketCreatedHookReset {
+            fn drop(&mut self) {
+                imp::set_socket_created_hook(None);
+            }
+        }
+
+        #[cfg(unix)]
+        fn socket_created_test_lock() -> std::sync::MutexGuard<'static, ()> {
+            SOCKET_CREATED_TEST_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        }
+
         #[test]
         fn expired_connect_deadline_fails_before_socket_resolution() {
             let error = connect_until(
@@ -721,7 +744,8 @@ pub mod transport {
             use std::sync::Arc;
             use std::sync::atomic::{AtomicBool, Ordering};
 
-            let _guard = SOCKET_CREATED_TEST_LOCK.lock().unwrap();
+            let _guard = socket_created_test_lock();
+            let _hook_reset = SocketCreatedHookReset;
             let path = std::env::temp_dir().join(format!(
                 "cmux-platform-cloexec-{}-{}.sock",
                 std::process::id(),
@@ -763,7 +787,8 @@ pub mod transport {
             use std::sync::Arc;
             use std::sync::atomic::{AtomicBool, Ordering};
 
-            let _guard = SOCKET_CREATED_TEST_LOCK.lock().unwrap();
+            let _guard = socket_created_test_lock();
+            let _hook_reset = SocketCreatedHookReset;
             let path = std::path::PathBuf::from("/tmp").join(format!(
                 "cmux-cxfb-{}-{}.sock",
                 std::process::id(),
@@ -808,7 +833,8 @@ pub mod transport {
             use std::sync::Arc;
             use std::sync::mpsc;
 
-            let _guard = SOCKET_CREATED_TEST_LOCK.lock().unwrap();
+            let _guard = socket_created_test_lock();
+            let _hook_reset = SocketCreatedHookReset;
             let nonce = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -824,22 +850,31 @@ pub mod transport {
             let (descriptor_sender, descriptor_receiver) = mpsc::sync_channel(1);
             let (release_sender, release_receiver) = mpsc::sync_channel(1);
             let release_receiver = Arc::new(std::sync::Mutex::new(release_receiver));
+            let (connector_id_sender, connector_id_receiver) = mpsc::sync_channel(1);
+            let (connector_start_sender, connector_start_receiver) = mpsc::sync_channel(1);
+            let connector = std::thread::spawn(move || {
+                connector_id_sender.send(std::thread::current().id()).unwrap();
+                connector_start_receiver.recv().unwrap();
+                connect_unix_until(&socket_path, Instant::now() + Duration::from_secs(15))
+            });
+            let connector_id = connector_id_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
             imp::set_socket_created_hook(Some(Arc::new({
                 move |descriptor| {
+                    if std::thread::current().id() != connector_id {
+                        return;
+                    }
                     descriptor_sender.send(descriptor).unwrap();
                     release_receiver
                         .lock()
                         .unwrap()
-                        .recv_timeout(Duration::from_secs(5))
+                        .recv_timeout(Duration::from_secs(15))
                         .expect("test did not release descriptor setup");
                 }
             })));
 
-            let connector = std::thread::spawn({
-                move || connect_unix_until(&socket_path, Instant::now() + Duration::from_secs(5))
-            });
+            connector_start_sender.send(()).unwrap();
             let descriptor = descriptor_receiver
-                .recv_timeout(Duration::from_secs(5))
+                .recv_timeout(Duration::from_secs(15))
                 .expect("connector did not expose its descriptor setup window");
             std::fs::write(
                 &browser_path,
@@ -876,7 +911,7 @@ pub mod transport {
                     .map_err(|error| error.to_string());
                 launch_result_sender.send(result).unwrap();
             });
-            launch_started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+            launch_started_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
             let launch_result_before_close_on_exec =
                 launch_result_receiver.recv_timeout(Duration::from_millis(500)).ok();
             let launched_before_close_on_exec = launch_result_before_close_on_exec.is_some();
@@ -887,7 +922,7 @@ pub mod transport {
             let (_accepted, _) = listener.accept().unwrap();
             let launch_result = launch_result_before_close_on_exec.unwrap_or_else(|| {
                 launch_result_receiver
-                    .recv_timeout(Duration::from_secs(5))
+                    .recv_timeout(Duration::from_secs(15))
                     .expect("browser process did not launch after descriptor setup completed")
             });
             launcher.join().unwrap();
@@ -912,7 +947,7 @@ pub mod transport {
         fn deadline_connect_bounds_process_barrier_wait() {
             use std::sync::mpsc;
 
-            let _serial = SOCKET_CREATED_TEST_LOCK.lock().unwrap();
+            let _serial = socket_created_test_lock();
             let path = std::path::PathBuf::from("/tmp").join(format!(
                 "cmux-connect-barrier-{}-{}.sock",
                 std::process::id(),
@@ -966,7 +1001,7 @@ pub mod transport {
         fn transport_listener_creation_waits_for_the_process_barrier() {
             use std::sync::mpsc;
 
-            let _serial = SOCKET_CREATED_TEST_LOCK.lock().unwrap();
+            let _serial = socket_created_test_lock();
             let path = std::path::PathBuf::from("/tmp").join(format!(
                 "cmux-listen-barrier-{}-{}.sock",
                 std::process::id(),

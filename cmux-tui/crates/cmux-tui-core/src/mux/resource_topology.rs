@@ -2090,10 +2090,10 @@ impl Mux {
         self.terminate_discovered_terminal_hosts(&plan.unmaterialized_terminals);
         self.notify_terminal_exit_waiters(closed_public_ids);
         self.publish_resource_event();
-        for surface in plan.removed {
+        for surface in &plan.removed {
             self.purge_surface_side_tables(surface.id);
-            surface.kill();
         }
+        self.retire_surface_runtimes(plan.removed);
         if let Some(workspace_key) = plan.closed_workspace_key {
             self.terminate_tombstoned_workspace_hosts(&workspace_key);
         }
@@ -2289,6 +2289,10 @@ impl Mux {
             )? {
                 preparation
             } else {
+                // Reject known exhaustion before persisting a new external-effect
+                // intent. The spawn path still reserves atomically, so a later
+                // concurrent admission remains bounded and recoverable.
+                self.ensure_surface_owner_capacity()?;
                 let mut state = self.state.lock().unwrap();
                 let intent = self.resource_topology_effect_intent(
                     operation,
@@ -3483,6 +3487,13 @@ impl Mux {
         )?;
         let surface =
             self.spawn_surface_in_workspace_reserved(&workspace_key, cwd, size, None, reservation)?;
+        #[cfg(test)]
+        if split_direction.is_none()
+            && viewport_width.is_none()
+            && let Some(hook) = self.new_pane_after_spawn.lock().unwrap().clone()
+        {
+            hook(surface.clone());
+        }
         #[cfg(test)]
         if viewport_width.is_some()
             && let Some(hook) = self.viewport_split_after_spawn.lock().unwrap().clone()

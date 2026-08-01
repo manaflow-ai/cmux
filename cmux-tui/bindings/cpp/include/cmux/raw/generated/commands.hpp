@@ -71,6 +71,7 @@ public:
     [[nodiscard]] Result<ExportLayoutResult> export_layout(const ExportLayoutRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<FocusDirectionResult> focus_direction(const FocusDirectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> focus_pane(const FocusPaneRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<GetCellPixelsResult> get_cell_pixels(const GetCellPixelsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<FrontendProjection> get_frontend_projection(const GetFrontendProjectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<IdentifyResult> identify(const IdentifyRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<IdsResult> ids(const IdsRequest& request = {}, RequestOptions options = {});

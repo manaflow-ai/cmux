@@ -47,9 +47,9 @@ pub use layout::{
 pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
-    CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
-    LayoutUndoError, LayoutUndoResult, Mux, MuxEvent, NotificationEvent, NotificationLevel,
-    ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
+    CellPixelUpdateFailure, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError,
+    LayoutSpec, LayoutUndoError, LayoutUndoResult, Mux, MuxEvent, NotificationEvent,
+    NotificationLevel, ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
     ProviderWorkspaceAuthorityUpdateError, ResourceNotification, RunPlacement,
     ShutdownRequestWatch, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
     SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult,
@@ -74,6 +74,7 @@ pub use workspace_registry::{
     RegistryWorkspace, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
 };
 
+pub use cmux_remote_protocol::REMOTE_SESSION_MESSAGE_MAX_BYTES;
 pub use cmux_tui_cdp::BrowserMode;
 pub use ghostty_vt::{CursorShape, Rgb};
 
