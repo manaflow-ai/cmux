@@ -970,7 +970,7 @@
           "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
           "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL.",
           "openTerminalLinksInCmuxBrowser": "Otvarajte web-veze kliknute u terminalu u ugrađenom pregledniku. Kada je vrijednost false, sve web-veze iz terminala otvaraju se eksterno, uključujući hostove navedene u hostsToOpenInEmbeddedBrowser.",
-          "hostsToOpenInEmbeddedBrowser": "Opcionalna lista dozvoljenih hostova koji mogu ostati u ugrađenom pregledniku kada je openTerminalLinksInCmuxBrowser true. Ne nadjačava false; prazna lista dozvoljava sve hostove."
+          "hostsToOpenInEmbeddedBrowser": "Opcionalna lista dozvoljenih hostova za web-veze iz terminala i presretnute open http(s) naredbe. Svaka ruta je primjenjuje tek kada je uključen njen vlastiti prekidač (openTerminalLinksInCmuxBrowser ili interceptTerminalOpenCommandInCmuxBrowser); ne nadjačava nijedan prekidač, a prazna lista dozvoljava sve hostove."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globalna zadana vrijednost za mjesto gdje Cmd-N unutar grupe, + dugme u zaglavlju grupe i podešene grupne akcije stavljaju novi workspace: `afterCurrent` (poslije aktivnog workspacea u grupi, uz povratak na top), `top` (druga pozicija, odmah poslije sidra) ili `end` (poslije zadnjeg člana).",

@@ -970,7 +970,7 @@
           "customSearchEngineName": "Nom affiché lorsque defaultSearchEngine vaut custom.",
           "customSearchEngineURLTemplate": "URL de recherche utilisée lorsque defaultSearchEngine vaut custom. Incluez l’espace réservé de requête ou %s pour la requête encodée. Sans espace réservé, cmux ajoute q= à l’URL.",
           "openTerminalLinksInCmuxBrowser": "Ouvre dans le navigateur intégré les liens web cliqués dans le terminal. Lorsque la valeur est false, tous les liens web du terminal s’ouvrent à l’extérieur, y compris les hôtes répertoriés dans hostsToOpenInEmbeddedBrowser.",
-          "hostsToOpenInEmbeddedBrowser": "Liste d’autorisation facultative des hôtes qui peuvent rester dans le navigateur intégré lorsque openTerminalLinksInCmuxBrowser vaut true. Elle ne remplace pas false ; une liste vide autorise tous les hôtes."
+          "hostsToOpenInEmbeddedBrowser": "Liste d’autorisation facultative des hôtes pour les liens web du terminal et les commandes open http(s) interceptées. Chaque route ne l’applique qu’après l’activation de son propre réglage (openTerminalLinksInCmuxBrowser ou interceptTerminalOpenCommandInCmuxBrowser) ; elle ne remplace aucun des deux réglages et une liste vide autorise tous les hôtes."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Valeur globale par défaut indiquant où Cmd-N dans un groupe, le bouton + de l’en-tête du groupe et les actions de groupe configurées placent le nouveau workspace : `afterCurrent` (après le workspace actif du groupe, avec repli sur top), `top` (deuxième position, juste après l’ancre) ou `end` (après le dernier membre).",

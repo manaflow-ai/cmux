@@ -970,7 +970,7 @@
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
           "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。",
           "openTerminalLinksInCmuxBrowser": "在內嵌瀏覽器中開啟終端機裡點選的網頁連結。設為 false 時，所有終端機網頁連結都會在外部開啟，包括 hostsToOpenInEmbeddedBrowser 中列出的主機。",
-          "hostsToOpenInEmbeddedBrowser": "選用的主機允許清單；當 openTerminalLinksInCmuxBrowser 為 true 時，這些主機可留在內嵌瀏覽器中。它不會覆寫 false；空白清單允許所有主機。"
+          "hostsToOpenInEmbeddedBrowser": "用於終端機網頁連結和遭攔截的 open http(s) 指令的選用主機允許清單。每條路由僅在其自身開關（openTerminalLinksInCmuxBrowser 或 interceptTerminalOpenCommandInCmuxBrowser）啟用後才套用此清單；它不會覆寫任一開關，空白清單允許所有主機。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "群組內 Cmd-N、群組標題中的 + 按鈕，以及已設定的群組動作放置新 workspace 的全域預設位置：`afterCurrent`（在目前作用中的群組內 workspace 之後，沒有時回退到 top）、`top`（第二個位置，緊接錨點之後）或 `end`（最後一個成員之後）。",

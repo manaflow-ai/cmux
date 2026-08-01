@@ -970,7 +970,7 @@
           "customSearchEngineName": "Visningsnavn brugt når defaultSearchEngine er custom.",
           "customSearchEngineURLTemplate": "Søge-URL brugt når defaultSearchEngine er custom. Medtag forespørgselspladsholderen eller %s for den kodede søgning. Uden en pladsholder tilføjer cmux q= til URLen.",
           "openTerminalLinksInCmuxBrowser": "Åbn web-links, der klikkes på i terminalen, i den indbyggede browser. Når værdien er false, åbnes alle web-links fra terminalen eksternt, også værter angivet i hostsToOpenInEmbeddedBrowser.",
-          "hostsToOpenInEmbeddedBrowser": "Valgfri tilladelsesliste over værter, der må blive i den indbyggede browser, når openTerminalLinksInCmuxBrowser er true. Den tilsidesætter ikke false; en tom liste tillader alle værter."
+          "hostsToOpenInEmbeddedBrowser": "Valgfri tilladelsesliste over værter til web-links fra terminalen og opfangede open http(s)-kommandoer. Hver rute anvender den kun, når dens egen indstilling (openTerminalLinksInCmuxBrowser eller interceptTerminalOpenCommandInCmuxBrowser) er aktiveret; den tilsidesætter ingen af indstillingerne, og en tom liste tillader alle værter."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global standard for hvor Cmd-N i en gruppe, gruppehovedets + knap og konfigurerede gruppehandlinger placerer det nye workspace: `afterCurrent` (efter det aktive workspace i gruppen, med top som fallback), `top` (anden plads, lige efter ankeret) eller `end` (efter det sidste medlem).",

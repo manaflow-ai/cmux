@@ -971,7 +971,7 @@
           "customSearchEngineName": "Nazwa wyświetlana, gdy defaultSearchEngine ma wartość custom.",
           "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL.",
           "openTerminalLinksInCmuxBrowser": "Otwieraj kliknięte w terminalu łącza internetowe we wbudowanej przeglądarce. Gdy wartość to false, wszystkie łącza internetowe z terminala są otwierane zewnętrznie, w tym hosty wymienione w hostsToOpenInEmbeddedBrowser.",
-          "hostsToOpenInEmbeddedBrowser": "Opcjonalna lista dozwolonych hostów, które mogą pozostać we wbudowanej przeglądarce, gdy openTerminalLinksInCmuxBrowser ma wartość true. Nie zastępuje wartości false; pusta lista zezwala na wszystkie hosty."
+          "hostsToOpenInEmbeddedBrowser": "Opcjonalna lista dozwolonych hostów dla łączy internetowych z terminala i przechwyconych poleceń open http(s). Każda ścieżka stosuje ją dopiero po włączeniu własnego ustawienia (openTerminalLinksInCmuxBrowser lub interceptTerminalOpenCommandInCmuxBrowser); lista nie zastępuje żadnego z tych ustawień, a pusta lista zezwala na wszystkie hosty."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globalna wartość domyślna określająca, gdzie Cmd-N w grupie, przycisk + w nagłówku grupy i skonfigurowane akcje grupy umieszczają nowy workspace: `afterCurrent` (po aktywnym workspace w grupie, z fallbackiem do top), `top` (druga pozycja, tuż za kotwicą) albo `end` (po ostatnim członku).",
