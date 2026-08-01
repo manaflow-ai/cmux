@@ -83,6 +83,7 @@ import Testing
         XCTAssertEqual(result.status, 1, result.diagnostics)
     }
 
+<<<<<<< HEAD
     @Test func testHerdrCompatTranslatesCommandsAndPreservesChildExit() throws {
         let cliPath = try bundledCLIPath()
         let tempDirectory = FileManager.default.temporaryDirectory
@@ -169,6 +170,9 @@ import Testing
     }
 
     @Test func testAgentTeamsHelpForwardsToExternalAgentCLI() throws {
+=======
+    @Test func testAgentTeamsHelpDoesNotLaunchExternalAgentCLI() throws {
+>>>>>>> 650dfec51a (test: cover Herdr compatibility diagnostics)
         let cliPath = try bundledCLIPath()
         let home = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
