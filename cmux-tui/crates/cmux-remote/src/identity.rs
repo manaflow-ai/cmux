@@ -2014,7 +2014,7 @@ fn sync_parent_directory(path: &Path) -> Result<(), IdentityError> {
 }
 
 fn secure_directory(path: &Path) -> Result<(), IdentityError> {
-    ensure_secure_directory(path, DirectoryAccess::OwnerOnly).map_err(IdentityError::Io)
+    ensure_secure_directory(path, DirectoryAccess::ManagedOwnerOnly).map_err(IdentityError::Io)
 }
 
 fn restrict_file(path: &Path) -> Result<(), IdentityError> {

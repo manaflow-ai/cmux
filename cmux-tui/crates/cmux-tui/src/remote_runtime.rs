@@ -1702,14 +1702,14 @@ fn daemon_runtime_socket_paths(state: &Path) -> anyhow::Result<(PathBuf, PathBuf
         let (link, admin) = socket_names(&runtime);
         if unix_socket_path_fits(&link)
             && unix_socket_path_fits(&admin)
-            && ensure_secure_directory(&runtime, DirectoryAccess::OwnerOnly).is_ok()
+            && ensure_secure_directory(&runtime, DirectoryAccess::ManagedOwnerOnly).is_ok()
         {
             return Ok((link, admin));
         }
     }
 
     let runtime = PathBuf::from(format!("/tmp/cmux-rd-{}", unsafe { libc::geteuid() }));
-    ensure_secure_directory(&runtime, DirectoryAccess::OwnerOnly).with_context(|| {
+    ensure_secure_directory(&runtime, DirectoryAccess::ManagedOwnerOnly).with_context(|| {
         format!("could not create private remote daemon runtime directory {}", runtime.display())
     })?;
     let (link, admin) = socket_names(&runtime);

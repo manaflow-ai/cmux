@@ -91,17 +91,18 @@ impl OwnedUnixListener {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .ok_or_else(|| UnixSocketError::Protocol("Unix socket path has no parent".into()))?;
-        ensure_secure_directory(parent, DirectoryAccess::OwnerOnly).map_err(|error| {
+        ensure_secure_directory(parent, DirectoryAccess::OwnerControlled).map_err(|error| {
             contextual_io(
                 error,
                 format!("could not secure Unix socket directory {}", parent.display()),
             )
         })?;
         // The descriptor-based path walk verifies every ancestor and requires
-        // this final directory to be owned by the effective user at mode 0700.
-        // It creates missing directories but never chmods an existing caller-
-        // owned directory. A pathname swap after this point therefore requires
-        // the same OS identity (which already has full daemon authority) or root.
+        // the final directory to be owned by the effective user without group
+        // or other write access. It creates missing directories but never
+        // chmods an existing caller-owned directory. A pathname swap after this
+        // point therefore requires the same OS identity (which already has full
+        // daemon authority) or root.
         validate_socket_directory_for_uid(parent, unsafe { libc::geteuid() })?;
 
         let lock_path = sibling_lock_path(&path).map_err(UnixSocketError::Io)?;

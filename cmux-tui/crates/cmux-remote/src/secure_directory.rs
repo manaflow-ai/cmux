@@ -9,7 +9,11 @@ pub enum DirectoryAccess {
     /// The effective user owns the directory and nobody else may write it.
     OwnerControlled,
     /// The effective user is the only principal with any directory access.
+    /// Existing caller-owned directories are validated without mutation.
     OwnerOnly,
+    /// The effective user is the only principal with any directory access,
+    /// and cmux owns the final directory so it may tighten existing permissions.
+    ManagedOwnerOnly,
 }
 
 /// Creates `path` without following user-controlled symlinks and verifies that
@@ -18,7 +22,8 @@ pub enum DirectoryAccess {
 ///
 /// On Unix, every component is opened relative to the preceding directory
 /// descriptor with `O_NOFOLLOW`. Missing components are created as mode `0700`.
-/// An existing final directory is validated without changing its permissions.
+/// An existing final directory is validated without changing its permissions
+/// unless the caller explicitly selects `ManagedOwnerOnly`.
 /// Root-owned symlinks in root-owned, non-writable directories are expanded
 /// component by component so standard system aliases such as macOS `/var` and
 /// `/tmp` remain usable without permitting user-controlled aliases.
@@ -282,7 +287,9 @@ mod unix {
         if metadata.uid() != effective_uid() {
             return Err(invalid_path(path, "must be owned by the effective user"));
         }
-        if access == DirectoryAccess::OwnerOnly {
+        let owner_only =
+            matches!(access, DirectoryAccess::OwnerOnly | DirectoryAccess::ManagedOwnerOnly);
+        if owner_only {
             if metadata.permissions().mode() & 0o1000 != 0
                 && metadata.permissions().mode() & 0o077 != 0
             {
@@ -291,9 +298,10 @@ mod unix {
                     "is a shared sticky directory and cannot be made owner-only",
                 ));
             }
-            if created {
+            if created || access == DirectoryAccess::ManagedOwnerOnly {
                 // SAFETY: `directory` is a live descriptor for the directory
-                // this call created. Existing caller-owned directories are
+                // this call created or for a directory the caller explicitly
+                // declared cmux-managed. Caller-owned directories are only
                 // validated below and never have their permissions changed.
                 if unsafe { libc::fchmod(directory.as_raw_fd(), 0o700) } != 0 {
                     return Err(io::Error::last_os_error());
@@ -304,7 +312,7 @@ mod unix {
         if metadata.permissions().mode() & 0o022 != 0 {
             return Err(invalid_path(path, "must not be writable by group or other users"));
         }
-        if access == DirectoryAccess::OwnerOnly && metadata.permissions().mode() & 0o077 != 0 {
+        if owner_only && metadata.permissions().mode() & 0o077 != 0 {
             return Err(invalid_path(path, "must not be accessible by group or other users"));
         }
         Ok(())

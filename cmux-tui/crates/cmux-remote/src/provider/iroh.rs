@@ -81,7 +81,8 @@ impl FromStr for IrohPathMode {
 /// hints valid across daemon restarts.
 pub fn load_or_create_iroh_secret(path: &Path) -> Result<SecretKey, ProviderError> {
     if let Some(parent) = path.parent() {
-        ensure_secure_directory(parent, DirectoryAccess::OwnerOnly).map_err(io_provider_error)?;
+        ensure_secure_directory(parent, DirectoryAccess::ManagedOwnerOnly)
+            .map_err(io_provider_error)?;
     }
     if path.exists() {
         let bytes = crate::secret_file::read_owner_only(path, 32).map_err(io_provider_error)?;
