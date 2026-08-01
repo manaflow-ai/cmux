@@ -272,6 +272,7 @@ import os
         #expect(DiagnosticFailureKind.admissionLeaseExpired.rawValue == 22)
         #expect(DiagnosticFailureKind.admissionRevalidationFailed.rawValue == 23)
         #expect(DiagnosticFailureKind.sendQueueOverflow.rawValue == 24)
+        #expect(DiagnosticFailureKind.routeGated.rawValue == 25)
         #expect(
             Set(DiagnosticFailureKind.allCases.map(\.rawValue)).count
                 == DiagnosticFailureKind.allCases.count
@@ -439,6 +440,27 @@ import os
             #expect(report.lastFailureKind == .protocolViolation)
             #expect(report.lastFailureDate != nil)
         }
+    }
+
+    @Test func gatedDialRefusalsReportRouteGatedNotTimedOut() {
+        // A connect-registry gate refusal is instantaneous and never touched
+        // the network. It used to be classified as `.timedOut`, fabricating
+        // sub-30ms timeout failures that poisoned `lastFailureEvent`.
+        let gatedRefusal = DiagnosticEvent(
+            code: .transportDialFailed,
+            tNanos: 2,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: DiagnosticFailureKind.routeGated.rawValue,
+            c: 7
+        )
+        let report = DiagnosticReport(
+            anchorWallNanos: 1_000_000_000,
+            anchorMonotonicNanos: 1,
+            events: [gatedRefusal]
+        )
+        #expect(report.lastFailureKind == .routeGated)
+        #expect(report.lastFailureKind != .timedOut)
+        #expect(report.lastFailureEvent == gatedRefusal)
     }
 
     @Test func clearStartsFreshBoundedSessionAndResetsAnchors() async {

@@ -576,6 +576,65 @@ func TestTerminalWaitExitAbortDrainsFalseRaceBeforeReuse(t *testing.T) {
 	}
 }
 
+func TestTerminalWaitAbortDrainsResponseFirstFalseRaceBeforeReuse(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	waitSeen := make(chan struct{})
+	targetSent := make(chan struct{})
+	releaseCancel := make(chan struct{})
+	serverDone := make(chan error, 1)
+	go func() {
+		defer serverSide.Close()
+		reader := bufio.NewReader(serverSide)
+		wait := readRequest(t, reader)
+		close(waitSeen)
+		cancel := readRequest(t, reader)
+		writeSuccess(t, serverSide, wait["id"], map[string]any{
+			"matched": true,
+			"text":    "raced",
+		})
+		close(targetSent)
+		<-releaseCancel
+		writeSuccess(t, serverSide, cancel["id"], map[string]any{
+			"canceled": false,
+		})
+		ping := readRequest(t, reader)
+		writeSuccess(t, serverSide, ping["id"], pingResult())
+		serverDone <- nil
+	}()
+
+	client := resourceClientForConn(t, clientSide)
+	terminal := client.Session(SelectID(testSessionID)).
+		Terminal(SelectID(testTerminalID))
+	waitContext, cancelWait := context.WithCancel(context.Background())
+	waitDone := make(chan error, 1)
+	go func() {
+		_, err := terminal.Wait(
+			waitContext,
+			TerminalWaitOptions{Pattern: "ready"},
+		)
+		waitDone <- err
+	}()
+	<-waitSeen
+	cancelWait()
+	<-targetSent
+	select {
+	case err := <-waitDone:
+		t.Fatalf("wait returned before cancel response drain: %v", err)
+	case <-time.After(40 * time.Millisecond):
+	}
+	close(releaseCancel)
+	if err := <-waitDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("wait error = %T %v", err, err)
+	}
+	if _, err := client.Session(SelectID(testSessionID)).
+		Ping(context.Background(), SessionPingOptions{}); err != nil {
+		t.Fatalf("ping after response-first race: %v", err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTerminalWaitCleanupFailureClosesButPreservesAbort(t *testing.T) {
 	for _, testCase := range []struct {
 		name         string
@@ -656,6 +715,66 @@ func TestTerminalWaitCleanupFailureClosesButPreservesAbort(t *testing.T) {
 				t.Fatalf("closed connection reuse took %s", elapsed)
 			}
 		})
+	}
+}
+
+func TestTerminalWaitCleanupDeadlineFailClosesButPreservesAbort(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	waitSeen := make(chan struct{})
+	serverDone := make(chan error, 1)
+	go func() {
+		defer serverSide.Close()
+		reader := bufio.NewReader(serverSide)
+		_ = readRequest(t, reader)
+		close(waitSeen)
+		cancel := readRequest(t, reader)
+		if cancel["operation"] != "request.cancel" {
+			serverDone <- fmt.Errorf(
+				"cancel operation = %#v",
+				cancel["operation"],
+			)
+			return
+		}
+		if err := serverSide.SetReadDeadline(
+			time.Now().Add(2 * time.Second),
+		); err != nil {
+			serverDone <- err
+			return
+		}
+		var byte [1]byte
+		_, err := serverSide.Read(byte[:])
+		if err == nil {
+			serverDone <- errors.New("cleanup timeout did not close the connection")
+			return
+		}
+		serverDone <- nil
+	}()
+
+	client := resourceClientForConn(t, clientSide)
+	waitContext, cancelWait := context.WithCancel(context.Background())
+	waitDone := make(chan error, 1)
+	go func() {
+		_, err := client.Session(SelectID(testSessionID)).
+			Terminal(SelectID(testTerminalID)).
+			Wait(waitContext, TerminalWaitOptions{Pattern: "ready"})
+		waitDone <- err
+	}()
+	<-waitSeen
+	started := time.Now()
+	cancelWait()
+	if err := <-waitDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("wait error = %T %v", err, err)
+	}
+	if elapsed := time.Since(started); elapsed > 1500*time.Millisecond {
+		t.Fatalf("request cleanup exceeded its deadline: %s", elapsed)
+	}
+	select {
+	case <-client.done:
+	default:
+		t.Fatal("request cleanup timeout did not close the connection")
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -2616,6 +2735,11 @@ func TestStreamEnvelopesRequireExactCanonicalShape(t *testing.T) {
 
 func TestTypedStreamEndAndCancellation(t *testing.T) {
 	clientSide, serverSide := net.Pipe()
+	wrappedClient := &blockedFullWriteReturnConn{
+		Conn:      clientSide,
+		delivered: make(chan struct{}),
+		release:   make(chan struct{}),
+	}
 	cancelRequests := make(chan int, 1)
 	go func() {
 		defer serverSide.Close()
@@ -2656,14 +2780,48 @@ func TestTypedStreamEndAndCancellation(t *testing.T) {
 	}()
 	client, err := NewClient(context.Background(), ClientOptions{
 		DialContext: func(context.Context, string, string) (net.Conn, error) {
-			return clientSide, nil
+			return wrappedClient, nil
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	session := client.Machine(SelectID(testMachineID)).Session(SelectID(testSessionID))
-	stream, err := session.Events(context.Background(), SessionEventsOptions{})
+	type openResult struct {
+		stream *Stream[SessionEvent]
+		err    error
+	}
+	openDone := make(chan openResult, 1)
+	go func() {
+		stream, openErr := session.Events(context.Background(), SessionEventsOptions{})
+		openDone <- openResult{stream: stream, err: openErr}
+	}()
+	select {
+	case <-wrappedClient.delivered:
+	case <-time.After(time.Second):
+		t.Fatal("stream-open frame was not delivered")
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		client.mu.Lock()
+		closed := client.closed
+		client.mu.Unlock()
+		if closed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("client did not observe EOF after the complete stream")
+		}
+		runtime.Gosched()
+	}
+	close(wrappedClient.release)
+	var stream *Stream[SessionEvent]
+	select {
+	case result := <-openDone:
+		stream, err = result.stream, result.err
+	case <-time.After(time.Second):
+		t.Fatal("stream open did not finish after releasing the write")
+	}
 	if err != nil {
 		t.Fatalf("open stream: %v", err)
 	}
@@ -3574,6 +3732,7 @@ func TestCancelDeliveryRace(t *testing.T) {
 func TestOverflowAndExplicitCancelSendOneCleanup(t *testing.T) {
 	clientSide, serverSide := net.Pipe()
 	serverResult := make(chan error, 1)
+	overflowDone := make(chan struct{})
 	go func() {
 		defer serverSide.Close()
 		reader := bufio.NewReader(serverSide)
@@ -3589,6 +3748,12 @@ func TestOverflowAndExplicitCancelSendOneCleanup(t *testing.T) {
 				"cleanup operation = %#v",
 				cancel["operation"],
 			)
+			return
+		}
+		select {
+		case <-overflowDone:
+		case <-time.After(time.Second):
+			serverResult <- fmt.Errorf("overflow delivery did not finish before cancellation response")
 			return
 		}
 		writeEnvelope(t, serverSide, map[string]any{
@@ -3651,7 +3816,6 @@ func TestOverflowAndExplicitCancelSendOneCleanup(t *testing.T) {
 
 	start := make(chan struct{})
 	cancelDone := make(chan error, 1)
-	overflowDone := make(chan struct{})
 	go func() {
 		<-start
 		cancelDone <- stream.Cancel(context.Background())

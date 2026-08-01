@@ -30,8 +30,12 @@ use ghostty_vt::{
 use serde::Deserialize;
 use serde_json::json;
 
+pub(crate) use remote::{
+    REMOTE_CONTROL_MESSAGE_MAX_BYTES, read_bounded_json_line, read_json_line_with_progress,
+};
 pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
+    RemoteTransportAbort,
 };
 pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
@@ -676,9 +680,7 @@ impl Session {
 
     pub fn surface_cwd(&self, surface: SurfaceId) -> Option<String> {
         match self {
-            Session::Local(mux) => mux
-                .surface(surface)
-                .and_then(|surface| surface.pwd().or_else(|| surface.spawn_cwd())),
+            Session::Local(mux) => mux.surface(surface).and_then(|surface| surface.local_cwd()),
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "process-info", "surface": surface})).ok().and_then(
                     |data| data.get("cwd").and_then(serde_json::Value::as_str).map(str::to_owned),
@@ -1448,6 +1450,7 @@ impl SurfaceHandle {
                     frame: rs.build_frame()?,
                     content_generation: surface.content_generation.load(Ordering::Acquire),
                     scrollback_rows: term.history_rows(),
+                    history_epoch: term.history_epoch(),
                     pointer_semantics: term.pointer_semantic_snapshot(),
                     palette_colors,
                     palette_overridden,
@@ -1700,6 +1703,16 @@ impl SurfaceHandle {
             SurfaceHandle::Local(surface, _) => surface.browser_frame_update(),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
                 surface.browser_frame_update()
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn browser_frame_metadata(&self) -> Option<(u64, u32, u32, Option<u64>)> {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.browser_frame_metadata(),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
+                surface.browser_frame_metadata()
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
@@ -2073,6 +2086,35 @@ pub(crate) fn test_remote_session_with_browser_pointer_range(
 #[cfg(test)]
 pub(crate) fn test_remote_session_with_provider_authority_without_guard() -> Session {
     Session::Remote(remote::test_session_with_provider_authority_without_guard())
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_session_with_deferred_attach()
+-> (Session, std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+    let (session, started, release) = remote::test_session_with_deferred_attach();
+    (Session::Remote(session), started, release)
+}
+
+#[cfg(test)]
+pub(crate) struct DeferredAttachResizeFailureFixture {
+    pub session: Session,
+    pub attach_started: std::sync::mpsc::Receiver<()>,
+    pub release_attach: std::sync::mpsc::Sender<()>,
+    pub resize_started: std::sync::mpsc::Receiver<()>,
+    pub release_resize: std::sync::mpsc::Sender<()>,
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_session_with_deferred_attach_and_first_resize_failure()
+-> DeferredAttachResizeFailureFixture {
+    let fixture = remote::test_session_with_deferred_attach_and_first_resize_failure();
+    DeferredAttachResizeFailureFixture {
+        session: Session::Remote(fixture.session),
+        attach_started: fixture.attach_started,
+        release_attach: fixture.release_attach,
+        resize_started: fixture.resize_started,
+        release_resize: fixture.release_resize,
+    }
 }
 
 #[cfg(test)]
