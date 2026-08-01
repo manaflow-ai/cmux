@@ -30,6 +30,8 @@ public struct SimulatorUIAutomationExecutor {
             return try await withSimulatorUIAutomationTransaction(
                 coordinator: coordinator
             ) {
+                let publishedMutationGeneration =
+                    coordinator.uiAutomationMutationGeneration
                 let previousRecord = try? coordinator.currentUIAutomationSnapshot(
                     nowMilliseconds: simulatorUIWallTimeNowMilliseconds()
                 )
@@ -39,12 +41,12 @@ public struct SimulatorUIAutomationExecutor {
                 )
                 if sinceScreenHash == record.snapshot.screenHash,
                    let previousRecord,
-                   previousRecord.snapshot.screenHash == record.snapshot.screenHash {
-                    let preservedRecord = SimulatorUIAutomationSnapshotRecord(
-                        snapshot: previousRecord.snapshot,
-                        elementRecords: previousRecord.elementRecords,
-                        display: record.display
-                    )
+                   let preservedRecord = reusablePublishedSnapshot(
+                       previousRecord,
+                       after: record,
+                       mutationGeneration: publishedMutationGeneration,
+                       coordinator: coordinator
+                   ) {
                     coordinator.restoreUIAutomationSnapshot(preservedRecord)
                     return simulatorUIUnchangedPayload(preservedRecord.snapshot)
                 }
@@ -807,17 +809,13 @@ public struct SimulatorUIAutomationExecutor {
             }
             let record: SimulatorUIAutomationSnapshotRecord
             if let preservedRecord,
-               coordinator.uiAutomationMutationGeneration
-                   == publishedMutationGeneration,
-               preservedRecord.snapshot.simulatorID
-                   == capturedRecord.snapshot.simulatorID,
-               preservedRecord.snapshot.screenHash
-                   == capturedRecord.snapshot.screenHash {
-                record = SimulatorUIAutomationSnapshotRecord(
-                    snapshot: preservedRecord.snapshot,
-                    elementRecords: preservedRecord.elementRecords,
-                    display: capturedRecord.display
-                )
+               let reusableRecord = reusablePublishedSnapshot(
+                   preservedRecord,
+                   after: capturedRecord,
+                   mutationGeneration: publishedMutationGeneration,
+                   coordinator: coordinator
+               ) {
+                record = reusableRecord
                 coordinator.restoreUIAutomationSnapshot(record)
             } else {
                 preservedRecord = nil
@@ -917,6 +915,26 @@ public struct SimulatorUIAutomationExecutor {
             elementRef: elementRef,
             candidates: simulatorUICompactCandidatePayloads(latestCandidates),
             timeoutMilliseconds: Int(timeoutMilliseconds)
+        )
+    }
+
+    private func reusablePublishedSnapshot(
+        _ published: SimulatorUIAutomationSnapshotRecord,
+        after captured: SimulatorUIAutomationSnapshotRecord,
+        mutationGeneration: UInt64,
+        coordinator: SimulatorPaneCoordinator
+    ) -> SimulatorUIAutomationSnapshotRecord? {
+        guard coordinator.uiAutomationMutationGeneration == mutationGeneration,
+              simulatorUIWallTimeNowMilliseconds()
+                  <= published.snapshot.expiresAtMilliseconds,
+              published.snapshot.simulatorID == captured.snapshot.simulatorID,
+              published.snapshot.screenHash == captured.snapshot.screenHash else {
+            return nil
+        }
+        return SimulatorUIAutomationSnapshotRecord(
+            snapshot: published.snapshot,
+            elementRecords: published.elementRecords,
+            display: captured.display
         )
     }
 

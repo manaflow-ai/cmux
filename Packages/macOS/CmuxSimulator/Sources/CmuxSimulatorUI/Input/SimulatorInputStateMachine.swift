@@ -132,6 +132,16 @@ struct SimulatorInputStateMachine {
         return messages
     }
 
+    mutating func discardAll() {
+        activePointer = nil
+        activeEdge = .none
+        usesSecondaryTouch = false
+        heldKeys.removeAll(keepingCapacity: true)
+        scrollPoint = nil
+        scrollAnchor = nil
+        secondaryTouchOffset = nil
+    }
+
     mutating func releaseAll() -> [SimulatorWorkerInbound] {
         var messages = releaseLocallyOwnedInputs()
         messages.append(.releaseInputs)
