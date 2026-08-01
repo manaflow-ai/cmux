@@ -371,6 +371,10 @@ extension PortScanner {
     /// without them keeps one closed pty from erasing every other panel's
     /// evidence. Only ENOENT is treated as absence; any other diagnostic
     /// leaves the scan incomplete so ports are retained rather than dropped.
+    ///
+    /// Matching the English `strerror(ENOENT)` suffix is safe regardless of the
+    /// user's locale: Darwin libc ships no localized message catalogs, so
+    /// `ps` emits this exact text even under a non-English `LC_ALL`.
     static func vanishedTTYNames(inStderr stderr: String?, requested: Set<String>) -> Set<String> {
         guard let stderr, !stderr.isEmpty else { return [] }
         // Terminals are registered verbatim, so both `ttys1` and `/dev/ttys1`
