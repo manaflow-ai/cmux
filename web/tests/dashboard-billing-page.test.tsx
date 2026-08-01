@@ -221,6 +221,27 @@ describe("dashboard billing page", () => {
     expect(await renderBillingPage()).toContain("$336/seat/year");
   });
 
+  test("labels annual Stripe Team subscriptions from checkout metadata", async () => {
+    proUser.selectedTeam = { id: "team-pro", displayName: "Team Pro" };
+    subscriptionResults = [
+      [],
+      [],
+      [
+        stripeSubscriptionRow({
+          cancelAtPeriodEnd: false,
+          plan: "team",
+          scope: "team",
+          seats: 4,
+          lookupKey: "operator-managed-annual-price",
+          billingInterval: "year",
+        }),
+      ],
+    ];
+    customerRows = [{ id: "cus_team" }];
+
+    expect(await renderBillingPage()).toContain("$336/seat/year");
+  });
+
   test("renders active Stripe Team for a paid team when no team is selected", async () => {
     mockImplementation(proUser.listTeams, async () => [
       { id: "team-free", displayName: "Team Free", clientReadOnlyMetadata: { cmuxPlan: "free" } },
@@ -306,12 +327,14 @@ function stripeSubscriptionRow({
   scope = "user",
   seats = null,
   lookupKey = "cmux-pro-monthly",
+  billingInterval,
 }: {
   cancelAtPeriodEnd: boolean;
   plan?: string;
   scope?: string;
   seats?: number | null;
   lookupKey?: string;
+  billingInterval?: "month" | "year";
 }) {
   return {
     id: "sub_123",
@@ -323,6 +346,7 @@ function stripeSubscriptionRow({
     currentPeriodEnd: new Date("2026-12-01T00:00:00Z"),
     cancelAtPeriodEnd,
     raw: {
+      metadata: billingInterval ? { billingInterval } : {},
       items: {
         data: [
           {
