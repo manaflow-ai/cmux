@@ -401,6 +401,30 @@ def test_registry_state_is_revalidated_after_release_approval() -> None:
     assert '--expected-commit "$expected_commit"' in verifier
 
 
+def test_release_app_token_is_scoped_to_the_atomic_push() -> None:
+    cut_tags = workflow_job(workflow("sdk-release-cut.yml"), "cut-tags")
+
+    revalidate = cut_tags.rindex("verify_release_registry_state.sh")
+    mint = cut_tags.rindex("actions/create-github-app-token@")
+    push = cut_tags.rindex("git push --atomic origin")
+    assert revalidate < mint < push
+    assert "persist-credentials: false" in cut_tags
+    assert "token: ${{ steps.release_app_token.outputs.token }}" not in cut_tags
+
+    push_step = cut_tags.split(
+        "- name: Push protected release tags", 1
+    )[1].split("\n      - name:", 1)[0]
+    assert (
+        "RELEASE_TOKEN: ${{ steps.release_app_token.outputs.token }}"
+        in push_step
+    )
+    assert "GIT_CONFIG_COUNT=1" in push_step
+    assert "GIT_CONFIG_VALUE_0" in push_step
+    assert "verify_release_registry_state.sh" not in push_step
+    assert "python3 " not in push_step
+    assert "npm " not in push_step
+
+
 def test_stable_registry_provenance_gates_recovery_and_completion() -> None:
     release = workflow("sdk-release-cut.yml")
     registry = workflow_job(release, "registry-preflight")
