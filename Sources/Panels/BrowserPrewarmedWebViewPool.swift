@@ -4,12 +4,11 @@ import WebKit
 
 /// Single-slot pool of a hidden, pre-navigated browser webview.
 ///
-/// Upgrade entrypoints call ``prewarm(url:profileID:)`` on hover so the
-/// pricing page is already loaded by the time the user clicks. The
-/// ``BrowserPanel`` initializer claims a matching entry via
-/// ``claim(url:profileID:websiteDataStore:)`` and adopts the webview instead
-/// of starting a cold WebKit process launch plus network load, so the panel
-/// shows the finished page immediately.
+/// Callers use ``prewarm(url:profileID:)`` so a page is already loading by the
+/// time the user opens it. The ``BrowserPanel`` initializer claims a matching
+/// entry via ``claim(url:profileID:websiteDataStore:)`` and adopts the webview
+/// instead of starting a cold WebKit process launch plus network load, so the
+/// panel shows the finished page immediately.
 ///
 /// The webview normally lives in an offscreen, non-activating borderless
 /// window (the same hosting recipe as

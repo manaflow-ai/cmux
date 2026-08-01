@@ -47,6 +47,23 @@ private let pricingURL = URL(string: "https://cmux.com/app-pricing?appearance=da
 private let otherURL = URL(string: "https://cmux.com/docs")!
 private let profileID = UUID()
 
+private final class TerminalLinkPreviewSleepCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+
+    func value() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+}
+
 @MainActor
 struct BrowserPrewarmedWebViewPoolTests {
     @Test func prewarmLoadsURLInHiddenHostedWebView() {
@@ -278,6 +295,55 @@ struct BrowserPrewarmedWebViewPoolTests {
         await Task.yield()
         #expect(cancelledPrewarms == 0)
         #expect(!cancelledView.isPreviewVisible)
+    }
+
+    @Test func movingWithinTheSameURLDoesNotRestartDwell() async throws {
+        let url = try #require(URL(string: "https://example.com/steady-hover"))
+        let target = TerminalLinkOpenCoordinator.PreviewTarget(url: url, profileID: profileID)
+        let view = TerminalLinkHoverIndicatorView(
+            frame: NSRect(x: 0, y: 0, width: 900, height: 650)
+        )
+        let sleepCounter = TerminalLinkPreviewSleepCounter()
+        var prewarmCount = 0
+        let controller = TerminalLinkPreviewController(
+            view: view,
+            targetResolver: { _ in target },
+            prewarm: { _, _ in prewarmCount += 1 },
+            attach: { _, _, _, _, _ in
+                .init(id: UUID(), loadState: .loading)
+            },
+            detach: { _ in },
+            delayMilliseconds: { 650 },
+            sleep: { _ in
+                sleepCounter.increment()
+                try await Task.sleep(for: .milliseconds(30))
+            }
+        )
+
+        controller.update(
+            rawURL: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            anchorPoint: NSPoint(x: 300, y: 300)
+        )
+        var remainingYields = 1_000
+        while sleepCounter.value() == 0, remainingYields > 0 {
+            remainingYields -= 1
+            await Task.yield()
+        }
+        #expect(sleepCounter.value() == 1)
+
+        controller.update(
+            rawURL: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            anchorPoint: NSPoint(x: 340, y: 300)
+        )
+        try await Task.sleep(for: .milliseconds(60))
+
+        #expect(sleepCounter.value() == 1)
+        #expect(prewarmCount == 1)
+        #expect(view.previewURL == url)
     }
 
     @Test func claimForDifferentURLKeepsEntry() {

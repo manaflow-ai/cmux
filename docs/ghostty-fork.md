@@ -50,6 +50,9 @@ The final font integration landed in merge commits `23003282d` and
   - https://github.com/manaflow-ai/ghostty/tree/feat-unmodified-link-previews
 - Commit:
   - `aade8166b` (feat: expose unmodified link previews to embedders)
+- Release:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-aade8166b05e0b00a0499c3c24bb5d013149b264-crashsubdir-cmux-crash-v1
+  - Archive SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 - Files:
   - `include/ghostty.h`
   - `src/Surface.zig`
