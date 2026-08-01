@@ -28,6 +28,24 @@ import Testing
         #expect(await wait.value == false)
     }
 
+    @Test func surfaceFreeGateDoesNotInterceptAnotherRuntimeSurface() {
+        let unrelatedSurface = UnsafeMutableRawPointer(bitPattern: 0x7542)!
+        cmux_test_ghostty_surface_free_blocking_begin()
+        defer {
+            cmux_test_ghostty_surface_free_release()
+            cmux_test_ghostty_surface_free_blocking_reset()
+        }
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        ghostty_surface_free(unrelatedSurface)
+
+        #expect(
+            clock.now - start < .seconds(1),
+            "the test gate intercepted a different runtime surface"
+        )
+    }
+
     @Test func teardownSurfaceKeepsMainActorResponsiveWhileNativeFreeIsBlocked() async {
         let surface = makeSurface()
         surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
