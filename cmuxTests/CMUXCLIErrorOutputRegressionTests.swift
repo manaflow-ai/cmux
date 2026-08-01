@@ -696,6 +696,78 @@ import Testing
         #expect(restoreParams["surface_id"] as? String != staleSurfaceID)
     }
 
+    @Test func testRestoreFallsBackToAmbientSurfaceWhenCallerTTYIsAmbiguous() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let ambientSurfaceID = UUID().uuidString
+        let firstTTYSurfaceID = UUID().uuidString
+        let secondTTYSurfaceID = UUID().uuidString
+        let terminalResponse = try jsonResponse(result: [
+            "terminals": [
+                [
+                    "tty": "ttys9380",
+                    "workspace_id": UUID().uuidString,
+                    "surface_id": firstTTYSurfaceID,
+                ],
+                [
+                    "tty": "ttys9380",
+                    "workspace_id": UUID().uuidString,
+                    "surface_id": secondTTYSurfaceID,
+                ],
+            ],
+        ])
+        let restoreResponse = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-ambiguous-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [terminalResponse, restoreResponse]
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = ambientSurfaceID
+        environment["TTY"] = "/dev/ttys9380"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "debug.terminals",
+            "surface.resume.get",
+        ])
+        let restoreRequest = try #require(requests.last)
+        let restoreParams = try #require(restoreRequest["params"] as? [String: Any])
+        #expect(restoreParams["surface_id"] as? String == ambientSurfaceID)
+        #expect(restoreParams["surface_id"] as? String != firstTTYSurfaceID)
+        #expect(restoreParams["surface_id"] as? String != secondTTYSurfaceID)
+    }
+
     @Test func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"
