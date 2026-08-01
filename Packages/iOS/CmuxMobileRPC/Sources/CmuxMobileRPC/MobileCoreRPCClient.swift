@@ -4,6 +4,15 @@ internal import CmuxMobileSupport
 public import Foundation
 internal import os
 
+/// Controls whether a request carries the connection's attach-ticket context.
+/// Stack account authorization is always sent for authorized bearer requests.
+public enum MobileCoreRPCAttachTicketPolicy: Sendable, Equatable {
+    /// Include a current attach token when its route/workspace scope covers the request.
+    case whenCovered
+    /// Omit attach-ticket context so it cannot narrow an account-authorized request.
+    case omit
+}
+
 /// A multiplexed RPC client over a single persistent transport to a paired Mac.
 ///
 /// All stored properties are immutable `let`s of `Sendable` types (the session
@@ -241,10 +250,27 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///
     /// The optional timeout is a hard end-to-end deadline for auth augmentation,
     /// connection setup, and response wait, not a per-subphase timeout.
-    public func sendRequest(_ requestData: Data, timeoutNanoseconds: UInt64? = nil) async throws -> Data {
+    public func sendRequest(
+        _ requestData: Data,
+        timeoutNanoseconds: UInt64? = nil
+    ) async throws -> Data {
+        try await sendRequest(
+            requestData,
+            timeoutNanoseconds: timeoutNanoseconds,
+            attachTicketPolicy: .whenCovered
+        )
+    }
+
+    /// Sends one request with explicit control over attach-ticket context.
+    public func sendRequest(
+        _ requestData: Data,
+        timeoutNanoseconds: UInt64? = nil,
+        attachTicketPolicy: MobileCoreRPCAttachTicketPolicy
+    ) async throws -> Data {
         try await sendRequestOperation(
             requestData,
-            timeoutNanoseconds: timeoutNanoseconds
+            timeoutNanoseconds: timeoutNanoseconds,
+            attachTicketPolicy: attachTicketPolicy
         ).response
     }
 
@@ -322,7 +348,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private func sendRequestOperation(
         _ requestData: Data,
         timeoutNanoseconds: UInt64?,
-        hostStatusStackToken: String? = nil
+        hostStatusStackToken: String? = nil,
+        attachTicketPolicy: MobileCoreRPCAttachTicketPolicy = .whenCovered
     ) async throws -> AuthenticatedRequestResult {
         let deadline = RPCRequestDeadline(
             timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
@@ -336,7 +363,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 preparedRequest,
                 deadline: deadline,
                 allowAuthRetry: true,
-                hostStatusStackToken: hostStatusStackToken
+                hostStatusStackToken: hostStatusStackToken,
+                attachTicketPolicy: attachTicketPolicy
             )
         } catch let error as MobileShellConnectionError {
             // The host rejected this request on Stack-auth grounds. Before
@@ -358,7 +386,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 preparedRequest,
                 deadline: deadline,
                 allowAuthRetry: false,
-                hostStatusStackToken: hostStatusStackToken
+                hostStatusStackToken: hostStatusStackToken,
+                attachTicketPolicy: attachTicketPolicy
             )
         }
     }
@@ -423,7 +452,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         _ requestData: Data,
         deadline: RPCRequestDeadline,
         allowAuthRetry: Bool,
-        hostStatusStackToken: String?
+        hostStatusStackToken: String?,
+        attachTicketPolicy: MobileCoreRPCAttachTicketPolicy
     ) async throws -> AuthenticatedRequestResult {
         // Multiplexed over a persistent transport: each request gets a unique
         // id, the session's reader task routes the response back here. No
@@ -437,7 +467,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let authenticated = try await requestDataWithAuth(
             augmented,
             deadline: deadline,
-            hostStatusStackToken: hostStatusStackToken
+            hostStatusStackToken: hostStatusStackToken,
+            attachTicketPolicy: attachTicketPolicy
         )
         try Task.checkCancellation()
         let response = try await session.send(
@@ -472,7 +503,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private func requestDataWithAuth(
         _ requestData: Data,
         deadline: RPCRequestDeadline,
-        hostStatusStackToken: String?
+        hostStatusStackToken: String?,
+        attachTicketPolicy: MobileCoreRPCAttachTicketPolicy = .whenCovered
     ) async throws -> AuthenticatedRequestPayload {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             return AuthenticatedRequestPayload(data: requestData, stackAccessToken: nil)
@@ -493,6 +525,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         if let attachToken,
            requestNeedsAuth,
            hasAttachToken,
+           attachTicketPolicy == .whenCovered,
            requestIsCoveredByAttachTicket {
             // Expiry is enforced only here, where the RPC-minted attach token
             // is actually used. QR-decoded tickets carry no token (and no
@@ -669,7 +702,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
-        case "mobile.events.subscribe", "mobile.events.unsubscribe":
+        case "mobile.events.subscribe", "mobile.events.unsubscribe",
+             "mobile.events.probe":
             return false
         case "notification.feed.list", "notification.feed.mark_read", "notification.feed.mark_unread",
              "notification.feed.mark_all_read":

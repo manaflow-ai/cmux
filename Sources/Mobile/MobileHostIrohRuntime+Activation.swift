@@ -100,7 +100,8 @@ extension MobileHostIrohRuntime {
         }
         let rawBroker = try CmxIrohTrustBrokerClient(
             baseURL: brokerBaseURL,
-            tokenSource: CmxIrohBrokerTokenSource(
+            tokenSource: .accountPinned(
+                to: accountID,
                 // An ATOMIC authenticated snapshot per fetch, validated
                 // against the activation's ACCOUNT pin: identity and
                 // credentials come from one transition-checked capture, so an
@@ -115,7 +116,7 @@ extension MobileHostIrohRuntime {
                 // strand the runtime on nil credentials until relaunch. The
                 // snapshot's pair capture is store-level (no network while the
                 // stored access token is valid).
-                credentialPair: { [weak auth] in
+                snapshot: { [weak auth] in
                     guard let auth else { return nil }
                     let session: AuthenticatedSessionSnapshot
                     do {
@@ -128,11 +129,17 @@ extension MobileHostIrohRuntime {
                     // store, a re-mint is in flight or offline) rethrow so
                     // the broker classifies them connectivity instead of
                     // tearing the host runtime down as unauthorized.
-                    guard session.accountID == accountID else { return nil }
-                    return CmxIrohBrokerCredentials(
-                        accessToken: session.accessToken,
-                        refreshToken: session.refreshToken
+                    return CmxIrohAccountCredentialSnapshot(
+                        accountID: session.accountID,
+                        credentials: CmxIrohBrokerCredentials(
+                            accessToken: session.accessToken,
+                            refreshToken: session.refreshToken
+                        )
                     )
+                },
+                forceRefresh: { [weak auth] in
+                    guard let auth else { return }
+                    _ = try await auth.forceRefreshAccessToken()
                 }
             ),
             backpressureMode: .callerOwned
@@ -270,6 +277,11 @@ extension MobileHostIrohRuntime {
                     .admissionSucceeded,
                     a: DiagnosticTransportKind.iroh.rawValue
                 ))
+                CmuxEventBus.shared.publish(
+                    name: "mobile.iroh.admission.succeeded",
+                    category: "mobile",
+                    source: "mobile.iroh.host"
+                )
                 diagnosticLog.record(DiagnosticEvent(
                     .transportSessionLifecycle,
                     a: DiagnosticSessionLifecycleKind.established.rawValue,

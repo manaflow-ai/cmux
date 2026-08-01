@@ -44,9 +44,12 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     var customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil
     let createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)?
     let renameWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID, String) -> Void)?
+    var renameWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     let setGroupPinned: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
     let ungroupWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)?
+    var ungroupWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     let deleteWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)?
+    var deleteWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     let toggleGroupCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
     let showAll: () -> Void
     let signOut: (() -> Void)?

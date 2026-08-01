@@ -38,9 +38,15 @@ extension MobileShellComposite {
     /// Whether the Mac supports workspace group mutation requests.
     public var supportsWorkspaceGroupActions: Bool { supportedHostCapabilities.contains(Self.workspaceGroupActionsCapability) && allowsMacScopedWorkspaceMutations }
     /// Whether the Mac supports creating a workspace directly inside a group.
-    public var supportsWorkspaceCreateInGroup: Bool { supportedHostCapabilities.contains(Self.workspaceCreateInGroupCapability) && allowsMacScopedWorkspaceMutations }
+    public var supportsWorkspaceCreateInGroup: Bool {
+        supportedHostCapabilities.contains(Self.workspaceCreateInGroupCapability)
+            && discoversMacScopedWorkspaceMutations
+    }
     /// Whether the Mac supports creating workspace groups from iOS.
-    public var supportsWorkspaceGroupCreate: Bool { supportedHostCapabilities.contains(Self.workspaceGroupCreateCapability) && allowsMacScopedWorkspaceMutations }
+    public var supportsWorkspaceGroupCreate: Bool {
+        supportedHostCapabilities.contains(Self.workspaceGroupCreateCapability)
+            && discoversMacScopedWorkspaceMutations
+    }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// Whether the Mac supports chat artifact stat/fetch/thumbnail/list RPCs.
