@@ -19,6 +19,17 @@ describe("CLI config route", () => {
     });
   });
 
+  test("keeps CLI approval on the origin that issued the Stack login code", async () => {
+    const response = GET(
+      new Request("http://127.0.0.1:4152/api/cli/config"),
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).auth.confirmUrl).toBe(
+      "http://127.0.0.1:4152/handler/cli-auth-confirm",
+    );
+  });
+
   test("returns 503 instead of advertising incomplete Stack configuration", async () => {
     const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
     const publishableKey = process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY;
