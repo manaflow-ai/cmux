@@ -3838,6 +3838,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
+    private var manualNamedKeyConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModeRenderedFrameDemandRelease: (() -> Void)?
@@ -4309,8 +4310,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     private func updateSurfaceSize(
-        size: CGSize? = nil,
-        bypassLiveResizeCoalescing: Bool = false
+        size: CGSize? = nil, bypassLiveResizeCoalescing: Bool = false, caller: StaticString = #function
     ) -> Bool {
         guard let terminalSurface = terminalSurface else { return false }
         let size = resolvedSurfaceSize(preferred: size)
@@ -4444,7 +4444,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // would hold it at the pre-drag (larger) size and paint past the
             // shrinking pane. Re-pins at rest when the interactive flag clears.
             suppressAssignedGridPin: isWindowLiveResizeActive
-                || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window)
+                || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
+            caller: caller
         )
         return didChange || surfaceSizeChanged
     }
@@ -5303,6 +5304,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var shouldApplySurfaceFocus = false
         if result {
             imeConsumedKeyUps.removeAll()
+            manualNamedKeyConsumedKeyUps.removeAll()
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
@@ -5406,6 +5408,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.resignFirstResponder()
         if result {
             imeConsumedKeyUps.removeAll()
+            manualNamedKeyConsumedKeyUps.removeAll()
             desiredFocus = false
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             terminalSurface?.recordExternalFocusState(false)
@@ -5791,7 +5794,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                 #else
-                handled = ghostty_surface_key(surface, keyEvent)
+                handled = sendGhosttyKey(surface, keyEvent)
                 #endif
             } else {
                 #if DEBUG
@@ -5800,7 +5803,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 #endif
                 handled = text.withCString { ptr in
                     keyEvent.text = ptr
-                    return ghostty_surface_key(surface, keyEvent)
+                    return sendGhosttyKey(surface, keyEvent)
                 }
                 #if DEBUG
                 ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
@@ -5993,7 +5996,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     )
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     #else
-                    _ = ghostty_surface_key(surface, keyEvent)
+                    _ = sendGhosttyKey(surface, keyEvent)
                     #endif
                 }
             }
@@ -6014,7 +6017,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
 #else
-                _ = ghostty_surface_key(surface, keyEvent)
+                _ = sendGhosttyKey(surface, keyEvent)
 #endif
             }
         } else {
@@ -6075,7 +6078,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     )
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     #else
-                    _ = ghostty_surface_key(surface, keyEvent)
+                    _ = sendGhosttyKey(surface, keyEvent)
                     #endif
                 }
             } else {
@@ -6091,7 +6094,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                 #else
-                _ = ghostty_surface_key(surface, keyEvent)
+                _ = sendGhosttyKey(surface, keyEvent)
                 #endif
             }
         }
@@ -6104,6 +6107,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         Self.debugGhosttySurfaceKeyEventObserver?(keyEvent)
 #endif
+        if !manualNamedKeyConsumedKeyUps.isEmpty,
+           keyEvent.action == GHOSTTY_ACTION_RELEASE,
+           let keyCode = UInt16(exactly: keyEvent.keycode),
+           manualNamedKeyConsumedKeyUps.remove(keyCode) != nil {
+            return true
+        }
+        if let keyName = terminalSurface?.manualInputKeyName(for: keyEvent) {
+            var bindingFlags = ghostty_binding_flags_e(0)
+            if !ghostty_surface_key_is_binding(surface, keyEvent, &bindingFlags) {
+                if terminalSurface?.enqueueManualInputNamedKey(keyName) == true {
+                    if let keyCode = UInt16(exactly: keyEvent.keycode) {
+                        manualNamedKeyConsumedKeyUps.insert(keyCode)
+                    }
+                    return true
+                }
+            }
+        }
         return ghostty_surface_key(surface, keyEvent)
     }
 
