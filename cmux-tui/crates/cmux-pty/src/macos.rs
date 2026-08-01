@@ -517,6 +517,42 @@ mod linux_tests {
     use super::{DescriptorCleanup, mark_inherited_descriptors_close_on_exec};
 
     #[test]
+    fn high_descriptor_limit_falls_back_when_close_range_and_procfs_are_unavailable() {
+        const CHILD_ENV: &str = "CMUX_PTY_HIGH_FD_FALLBACK_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg(
+                    "macos::linux_tests::high_descriptor_limit_falls_back_when_close_range_and_procfs_are_unavailable",
+                )
+                .arg("--exact")
+                .arg("--nocapture")
+                .env(CHILD_ENV, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "PTY fallback rejected a valid high descriptor limit:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let source = File::open("/dev/null").unwrap();
+        let descriptor = unsafe { libc::fcntl(source.as_raw_fd(), libc::F_DUPFD, 200) };
+        assert!(descriptor >= 200);
+        let inherited = unsafe { File::from_raw_fd(descriptor) };
+        install_close_range_and_openat_eperm_filter();
+
+        let cleanup = DescriptorCleanup::new(65_537);
+        mark_inherited_descriptors_close_on_exec(&cleanup)
+            .expect("high descriptor limit should use the bounded individual scan");
+        let flags = unsafe { libc::fcntl(inherited.as_raw_fd(), libc::F_GETFD) };
+        assert_ne!(flags, -1);
+        assert_ne!(flags & libc::FD_CLOEXEC, 0);
+    }
+
+    #[test]
     fn close_range_fallback_enumerates_the_child_descriptor_table() {
         const CHILD_ENV: &str = "CMUX_PTY_CHILD_FD_TABLE_SECCOMP_CHILD";
         if std::env::var_os(CHILD_ENV).is_none() {
@@ -609,6 +645,63 @@ mod linux_tests {
                 jt: 0,
                 jf: 1,
                 k: libc::SYS_close_range as u32,
+            },
+            libc::sock_filter {
+                code: (libc::BPF_RET | libc::BPF_K) as u16,
+                jt: 0,
+                jf: 0,
+                k: libc::SECCOMP_RET_ERRNO | libc::EPERM as u32,
+            },
+            libc::sock_filter {
+                code: (libc::BPF_RET | libc::BPF_K) as u16,
+                jt: 0,
+                jf: 0,
+                k: libc::SECCOMP_RET_ALLOW,
+            },
+        ];
+        let program = libc::sock_fprog { len: filter.len() as u16, filter: filter.as_mut_ptr() };
+
+        let no_new_privileges = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
+        assert_eq!(
+            no_new_privileges,
+            0,
+            "PR_SET_NO_NEW_PRIVS failed: {}",
+            io::Error::last_os_error()
+        );
+        let installed = unsafe {
+            libc::prctl(
+                libc::PR_SET_SECCOMP,
+                libc::SECCOMP_MODE_FILTER,
+                &program as *const libc::sock_fprog,
+            )
+        };
+        assert_eq!(
+            installed,
+            0,
+            "seccomp filter installation failed: {}",
+            io::Error::last_os_error()
+        );
+    }
+
+    fn install_close_range_and_openat_eperm_filter() {
+        let mut filter = [
+            libc::sock_filter {
+                code: (libc::BPF_LD | libc::BPF_W | libc::BPF_ABS) as u16,
+                jt: 0,
+                jf: 0,
+                k: 0,
+            },
+            libc::sock_filter {
+                code: (libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K) as u16,
+                jt: 1,
+                jf: 0,
+                k: libc::SYS_close_range as u32,
+            },
+            libc::sock_filter {
+                code: (libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K) as u16,
+                jt: 0,
+                jf: 1,
+                k: libc::SYS_openat as u32,
             },
             libc::sock_filter {
                 code: (libc::BPF_RET | libc::BPF_K) as u16,

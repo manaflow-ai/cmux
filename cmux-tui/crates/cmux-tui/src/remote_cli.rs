@@ -3244,6 +3244,14 @@ mod tests {
             );
         }
 
+        struct FailingInvitationReader;
+
+        impl Read for FailingInvitationReader {
+            fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::other("fixture read failure"))
+            }
+        }
+
         for command in [
             "connect",
             "ssh",
@@ -3278,6 +3286,21 @@ mod tests {
         assert_japanese(&ssh_url("invalid destination").unwrap_err().to_string());
         assert_japanese(&run_forward(&[]).unwrap_err().to_string());
         assert_japanese(&run_rpc(&["--request".into()]).unwrap_err().to_string());
+        let missing_invitation = tempfile::tempdir().unwrap().path().join("missing-invitation");
+        assert_japanese(&read_invitation_uri(&missing_invitation).unwrap_err().to_string());
+        assert_japanese(
+            &read_invitation_uri_line(&mut FailingInvitationReader).unwrap_err().to_string(),
+        );
+        for bytes in [
+            Vec::new(),
+            b"cmux://enroll/value\nsecond".to_vec(),
+            vec![0xff, 0xfe, 0xfd],
+            vec![b'x'; MAX_INVITATION_URI_BYTES + 1],
+        ] {
+            assert_japanese(
+                &read_invitation_uri_to_end(&mut io::Cursor::new(bytes)).unwrap_err().to_string(),
+            );
+        }
         let mut oversized = io::Cursor::new(vec![b'x'; 128]);
         assert_japanese(&read_rpc_stdin_line(&mut oversized, 8).unwrap_err().to_string());
         assert_japanese(
