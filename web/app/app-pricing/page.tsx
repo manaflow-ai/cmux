@@ -86,7 +86,6 @@ export default async function AppPricingPage({
   const faqItems = visibleFaqItems(pricing.faq.items as FaqItem[]);
   const annualComparePrice = pricingMessage(pricing.annualComparePrice, {
     monthly: PRO_PRICING_USD.year.monthlyEquivalent,
-    annual: PRO_PRICING_USD.year.billedAmount,
   });
   const teamMonthlyComparePrice = pricingMessage(
     pricing.teamMonthlyComparePrice,
@@ -96,7 +95,6 @@ export default async function AppPricingPage({
     pricing.teamAnnualComparePrice,
     {
       monthly: TEAM_PRICING_USD.year.monthlyEquivalent,
-      annual: TEAM_PRICING_USD.year.billedAmount,
     },
   );
 
@@ -129,7 +127,7 @@ export default async function AppPricingPage({
               surface="app_pricing"
             />
 
-            <div className="mt-6 grid items-stretch gap-5 sm:grid-cols-2 min-[1800px]:grid-cols-4">
+            <div className="mt-6 grid items-stretch gap-5 sm:grid-cols-2 lg:grid-cols-4">
               <PlanCard
                 name={pricing.free.name}
                 price={pricing.free.price}
@@ -165,19 +163,6 @@ export default async function AppPricingPage({
                   <PricingIntervalValue
                     monthly={pricing.perMonth}
                     annual={pricing.perMonthBilledYearly}
-                  />
-                }
-                priceDetail={
-                  <PricingIntervalValue
-                    monthly={null}
-                    annual={
-                      <p className="mt-2 text-sm text-muted">
-                        {pricingMessage(pricing.annualPriceDetail, {
-                          amount: PRO_PRICING_USD.year.billedAmount,
-                          discount: PRO_PRICING_USD.year.discountPercent,
-                        })}
-                      </p>
-                    }
                   />
                 }
                 badge={
@@ -223,19 +208,6 @@ export default async function AppPricingPage({
                   <PricingIntervalValue
                     monthly={pricing.perUserMonth}
                     annual={pricing.perUserMonthBilledYearly}
-                  />
-                }
-                priceDetail={
-                  <PricingIntervalValue
-                    monthly={null}
-                    annual={
-                      <p className="mt-2 text-sm text-muted">
-                        {pricingMessage(pricing.annualPriceDetail, {
-                          amount: TEAM_PRICING_USD.year.billedAmount,
-                          discount: TEAM_PRICING_USD.year.discountPercent,
-                        })}
-                      </p>
-                    }
                   />
                 }
               >

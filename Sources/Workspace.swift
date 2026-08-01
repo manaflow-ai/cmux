@@ -3959,6 +3959,7 @@ final class Workspace: Identifiable, ObservableObject {
                     initialRequest: request,
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -3969,6 +3970,7 @@ final class Workspace: Identifiable, ObservableObject {
                     initialRequest: request,
                     preferredProfileID: sourcePanel.profileID,
                     focus: true,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -3984,9 +3986,11 @@ final class Workspace: Identifiable, ObservableObject {
                     focus: true,
                     insertAtEnd: true,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
-            }
+            },
+            isBrowserAvailable: { BrowserAvailabilitySettings.isEnabled() }
         )
     }
 
@@ -4014,6 +4018,7 @@ final class Workspace: Identifiable, ObservableObject {
                     url: url,
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -4024,6 +4029,7 @@ final class Workspace: Identifiable, ObservableObject {
                     url: url,
                     preferredProfileID: sourcePanel.profileID,
                     focus: true,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -4039,9 +4045,11 @@ final class Workspace: Identifiable, ObservableObject {
                     focus: true,
                     insertAtEnd: true,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
-            }
+            },
+            isBrowserAvailable: { BrowserAvailabilitySettings.isEnabled() }
         )
     }
 
@@ -8358,6 +8366,7 @@ final class Workspace: Identifiable, ObservableObject {
         preferredProfileID: UUID? = nil,
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
+        allowsExternalBrowserFallback: Bool = true,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
@@ -8369,7 +8378,8 @@ final class Workspace: Identifiable, ObservableObject {
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let externalURL = externalBrowserFallbackURL(
+            if allowsExternalBrowserFallback,
+               let externalURL = externalBrowserFallbackURL(
                 url: url,
                 initialRequest: initialRequest
             ) {
@@ -8479,6 +8489,7 @@ final class Workspace: Identifiable, ObservableObject {
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
+        allowsExternalBrowserFallback: Bool = true,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
@@ -8491,7 +8502,8 @@ final class Workspace: Identifiable, ObservableObject {
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let externalURL = externalBrowserFallbackURL(
+            if allowsExternalBrowserFallback,
+               let externalURL = externalBrowserFallbackURL(
                 url: url,
                 initialRequest: initialRequest
             ) {
