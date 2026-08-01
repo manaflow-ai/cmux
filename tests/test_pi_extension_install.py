@@ -28,6 +28,24 @@ def make_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
+def communicate_or_terminate(
+    process: subprocess.Popen[str],
+    *,
+    input_text: str | None = None,
+    timeout: float = 20,
+) -> tuple[str, str]:
+    try:
+        return process.communicate(input=input_text, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.terminate()
+        try:
+            process.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+        raise
+
+
 def wait_for_text(
     path: Path,
     expected_count: int,
@@ -142,6 +160,23 @@ def main() -> int:
             print("FAIL: Pi session-start did not refresh the stale cmux-managed extension")
             return 1
 
+        extension_path.write_text("", encoding="utf-8")
+        empty_refresh_result = subprocess.run(
+            refresh_command,
+            input=refresh_payload,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=refresh_env,
+            timeout=20,
+        )
+        if empty_refresh_result.returncode == 0:
+            print("FAIL: empty Pi refresh fixture unexpectedly connected to its missing socket")
+            return 1
+        if extension_path.read_text(encoding="utf-8") != extension_text:
+            print("FAIL: Pi session-start did not repair an empty managed extension")
+            return 1
+
         extension_path.write_text(
             "// cmux-pi-session-extension-marker v2\n// stale managed race fixture\n",
             encoding="utf-8",
@@ -159,8 +194,16 @@ def main() -> int:
                 env=refresh_env,
             )
             extension_path.write_text(replacement, encoding="utf-8")
+            try:
+                communicate_or_terminate(
+                    blocked_refresh,
+                    input_text=refresh_payload,
+                    timeout=1,
+                )
+            except subprocess.TimeoutExpired:
+                print("FAIL: Pi session-start refresh blocked on its advisory lock")
+                return 1
             fcntl.flock(lock, fcntl.LOCK_UN)
-        blocked_refresh.communicate(input=refresh_payload, timeout=20)
         if extension_path.read_text(encoding="utf-8") != replacement:
             print("FAIL: in-flight Pi refresh overwrote a replacement extension")
             return 1
@@ -188,9 +231,24 @@ def main() -> int:
                 text=True,
                 env=refresh_env,
             )
+            refresh_timed_out = False
+            try:
+                communicate_or_terminate(
+                    blocked_refresh,
+                    input_text=refresh_payload,
+                    timeout=1,
+                )
+            except subprocess.TimeoutExpired:
+                refresh_timed_out = True
             fcntl.flock(lock, fcntl.LOCK_UN)
-        blocked_refresh.communicate(input=refresh_payload, timeout=20)
-        uninstall_stdout, uninstall_stderr = blocked_uninstall.communicate(timeout=20)
+        try:
+            uninstall_stdout, uninstall_stderr = communicate_or_terminate(blocked_uninstall)
+        except subprocess.TimeoutExpired:
+            print("FAIL: concurrent Pi uninstall timed out")
+            return 1
+        if refresh_timed_out:
+            print("FAIL: concurrent Pi refresh blocked behind uninstall")
+            return 1
         if blocked_uninstall.returncode != 0:
             print(
                 "FAIL: concurrent Pi uninstall failed: "

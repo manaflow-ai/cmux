@@ -381,12 +381,18 @@ const slow = context("pi-slow-session");
 const healthy = context("pi-healthy-session");
 handlers.get("before_agent_start")({ prompt: "block session A" }, slow);
 const logPath = process.env.CMUX_TEST_PI_CROSS_LIFECYCLE_LOG;
-while (true) {
+const slowStartDeadline = performance.now() + 5000;
+let sawSlowStart = false;
+while (performance.now() < slowStartDeadline) {
   try {
-    if ((await Bun.file(logPath).text()).includes("pi-slow-session")) break;
+    if ((await Bun.file(logPath).text()).includes("pi-slow-session")) {
+      sawSlowStart = true;
+      break;
+    }
   } catch (_) {}
   await new Promise((resolve) => setTimeout(resolve, 10));
 }
+if (!sawSlowStart) throw new Error("slow session never entered cmux dispatch");
 await handlers.get("session_shutdown")({ reason: "session B complete" }, healthy);
 writeFileSync(process.env.CMUX_TEST_PI_CROSS_LIFECYCLE_RELEASE, "ready");
 await handlers.get("session_shutdown")({ reason: "session A complete" }, slow);

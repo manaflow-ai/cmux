@@ -108,4 +108,50 @@ struct SidebarUnreadSnapshotTests {
         )
         #expect(recorder.snapshots.count == 2)
     }
+
+    @Test
+    @MainActor
+    func reentrantPublicationsRemainOrderedForEveryObserver() {
+        final class Recorder {
+            var totals: [Int] = []
+        }
+        final class ReentrancyState {
+            var didPublishNestedSnapshot = false
+        }
+
+        let model = SidebarUnreadModel()
+        let first = Recorder()
+        let second = Recorder()
+        let reentrancy = ReentrancyState()
+        let receive: @MainActor (Recorder, SidebarUnreadSnapshot) -> Void = { recorder, snapshot in
+            recorder.totals.append(snapshot.totalUnreadCount)
+            guard !reentrancy.didPublishNestedSnapshot else { return }
+            reentrancy.didPublishNestedSnapshot = true
+            model.apply(
+                totalUnreadCount: 2,
+                summaries: [:],
+                unreadSurfaceKeys: [],
+                focusedReadIndicatorByWorkspaceId: [:],
+                manualUnreadWorkspaceIds: []
+            )
+        }
+        let firstObservation = model.observeChanges(owner: first, receive)
+        let secondObservation = model.observeChanges(owner: second, receive)
+        defer {
+            firstObservation.cancel()
+            secondObservation.cancel()
+        }
+
+        model.apply(
+            totalUnreadCount: 1,
+            summaries: [:],
+            unreadSurfaceKeys: [],
+            focusedReadIndicatorByWorkspaceId: [:],
+            manualUnreadWorkspaceIds: []
+        )
+
+        #expect(first.totals == [1, 2])
+        #expect(second.totals == [1, 2])
+        #expect(model.snapshot.totalUnreadCount == 2)
+    }
 }
