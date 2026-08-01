@@ -8,6 +8,8 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var healthSnapshot: ControlSurfaceHealthSnapshot?
     var sendKeyResolution: ControlSurfaceSendResolution = .tabManagerUnavailable
     var lastCreateInputs: ControlSurfaceCreateInputs?
+    var lastCreateAuthorization: ControlSocketRequestAuthorization?
+    var lastSendKeyAuthorization: ControlSocketRequestAuthorization?
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var resumeSetInputs: ControlSurfaceResumeSetInputs?
@@ -48,9 +50,11 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
 
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
-        inputs: ControlSurfaceCreateInputs
+        inputs: ControlSurfaceCreateInputs,
+        authorization: ControlSocketRequestAuthorization?
     ) -> ControlSurfaceCreateResolution {
         lastCreateInputs = inputs
+        lastCreateAuthorization = authorization
         return createResolution
     }
 
@@ -79,9 +83,11 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        key: String
+        key: String,
+        authorization: ControlSocketRequestAuthorization?
     ) -> ControlSurfaceSendResolution {
-        sendKeyResolution
+        lastSendKeyAuthorization = authorization
+        return sendKeyResolution
     }
 
     func controlSurfaceResumeSet(

@@ -1305,6 +1305,49 @@ struct ApplicationSurfaceTests {
         ))
     }
 
+    @Test func socketApplicationControlRejectsAuthorizationFromPriorMode() throws {
+        let controller = TerminalController.shared
+        controller.stop()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-app-auth-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer {
+            controller.stop()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        controller.start(
+            tabManager: TabManager(),
+            socketPath: directory.appendingPathComponent("cmux.sock").path,
+            accessMode: .automation
+        )
+        #expect(controller.socketServer.isRunning)
+        let staleAuthorization = ControlSocketRequestAuthorization(
+            acceptedAccessMode: .automation,
+            generation: controller.socketServer.connectionAuthorizationGeneration,
+            passwordAuthorization: SocketPasswordAuthorization()
+        )
+
+        #expect(controller.socketServer.reconfigure(accessMode: .cmuxOnly))
+        #expect(!controller.applicationSurfaceSocketControlIsAuthorized(
+            staleAuthorization
+        ))
+
+        let currentAuthorization = ControlSocketRequestAuthorization(
+            acceptedAccessMode: .cmuxOnly,
+            generation: controller.socketServer.connectionAuthorizationGeneration,
+            passwordAuthorization: SocketPasswordAuthorization()
+        )
+        #expect(controller.applicationSurfaceSocketControlIsAuthorized(
+            currentAuthorization
+        ))
+    }
+
     @Test func implicitSendKeyTargetsFocusedApplicationSurface() throws {
         let runtime = FakeApplicationSurfaceRuntime()
         let workspace = Workspace(applicationSurfaceRuntime: runtime)

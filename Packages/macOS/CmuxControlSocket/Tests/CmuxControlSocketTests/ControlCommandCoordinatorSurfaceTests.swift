@@ -133,6 +133,11 @@ struct ControlCommandCoordinatorSurfaceTests {
             typeRawValue: "application"
         ))
 
+        let authorization = ControlSocketRequestAuthorization(
+            acceptedAccessMode: .cmuxOnly,
+            generation: 17,
+            passwordAuthorization: SocketPasswordAuthorization()
+        )
         _ = coordinator.handle(ControlRequest(
             id: .int(1),
             method: "surface.create",
@@ -143,12 +148,14 @@ struct ControlCommandCoordinatorSurfaceTests {
                 "title": .string("Preview"),
                 "frame_rate": .int(120),
             ]
-        ))
+        ), authorization: authorization)
 
         #expect(context.lastCreateInputs?.applicationWindowID == 34599)
         #expect(context.lastCreateInputs?.applicationProcessID == 34401)
         #expect(context.lastCreateInputs?.applicationTitle == "Preview")
         #expect(context.lastCreateInputs?.applicationFrameRate == 120)
+        #expect(context.lastCreateAuthorization?.acceptedAccessMode == .cmuxOnly)
+        #expect(context.lastCreateAuthorization?.generation == 17)
     }
 
     @Test func applicationSurfaceCreateRejectsOutOfRangeWindowID() {
@@ -347,6 +354,39 @@ struct ControlCommandCoordinatorSurfaceTests {
             message: "Application input unavailable",
             data: .object(["surface_id": .string(surfaceID.uuidString)])
         ))
+    }
+
+    @Test func applicationSendKeyPreservesSocketAuthorizationOnWorkerLane() {
+        let surfaceID = UUID()
+        let (coordinator, context) = makeCoordinator()
+        context.sendKeyResolution = .applicationInputUnavailable(
+            surfaceID,
+            message: "Application input unavailable"
+        )
+        var passwordAuthorization = SocketPasswordAuthorization()
+        passwordAuthorization.authenticate(password: "test-password")
+        let authorization = ControlSocketRequestAuthorization(
+            acceptedAccessMode: .password,
+            generation: 29,
+            passwordAuthorization: passwordAuthorization
+        )
+
+        _ = coordinator.handleSocketWorkerV2(
+            ControlRequest(
+                id: .int(1),
+                method: "surface.send_key",
+                params: [
+                    "surface_id": .string(surfaceID.uuidString),
+                    "key": .string("ctrl+c"),
+                ]
+            ),
+            context: context,
+            authorization: authorization
+        )
+
+        #expect(context.lastSendKeyAuthorization?.acceptedAccessMode == .password)
+        #expect(context.lastSendKeyAuthorization?.generation == 29)
+        #expect(context.lastSendKeyAuthorization?.passwordAuthorization.isAuthenticated == true)
     }
 
     @Test func applicationHealthUsesStableFailureCode() {
