@@ -832,10 +832,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 .margins(.leading, 12)
                 .margins(.trailing, 12)
                 .minSize(width: 0, height: 0)
-        case .groupFooter:
-            cell.accessibilityIdentifier = isDragSessionActive
-                ? "MobileWorkspaceGroupFooterBoundary-active"
-                : "MobileWorkspaceGroupFooterBoundary-inactive"
+        case .groupFooter(let groupID):
+            let boundaryState = isDragSessionActive ? "active" : "inactive"
+            cell.accessibilityIdentifier =
+                "MobileWorkspaceGroupFooterBoundary-\(groupID.rawValue)-\(boundaryState)"
             hosting = hosting
                 .margins(.leading, 32)
                 .margins(.trailing, 12)
