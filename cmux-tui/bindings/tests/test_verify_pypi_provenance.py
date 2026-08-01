@@ -57,6 +57,7 @@ class VerifyPyPIProvenanceTests(unittest.TestCase):
             "version": 1,
             "attestation_bundles": [{
                 "publisher": {
+                    "claims": None,
                     "environment": self.environment,
                     "kind": "GitHub",
                     "repository": "manaflow-ai/cmux",

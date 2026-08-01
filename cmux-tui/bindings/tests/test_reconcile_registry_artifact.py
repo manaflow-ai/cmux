@@ -614,6 +614,37 @@ class RegistryArtifactTests(unittest.TestCase):
             )
         self.assertEqual(result, 0)
 
+    def test_successful_publish_fails_without_postwrite_registry_match(self) -> None:
+        with mock.patch.object(
+            reconcile,
+            "wait_for_status",
+            side_effect=(reconcile.MISSING, reconcile.MISSING),
+        ) as status, mock.patch.object(
+            reconcile.subprocess,
+            "run",
+            return_value=types.SimpleNamespace(returncode=0),
+        ):
+            result = reconcile.main(
+                [
+                    "publish",
+                    "--registry",
+                    "npm",
+                    "--package",
+                    "cmux-sdk",
+                    "--version",
+                    "1.0.0",
+                    "--artifact",
+                    str(self.artifact),
+                    "--wait-seconds",
+                    "120",
+                    "--",
+                    "npm",
+                    "publish",
+                ]
+            )
+        self.assertEqual(result, 1)
+        self.assertEqual(status.call_count, 2)
+
     def test_publish_preflight_retries_lookup_errors_then_publishes_missing(self) -> None:
         cancellation = mock.Mock()
         cancellation.is_set.return_value = False
