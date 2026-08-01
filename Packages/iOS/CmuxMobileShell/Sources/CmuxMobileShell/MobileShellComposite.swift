@@ -11989,7 +11989,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 || normalizedMessage.contains("expired token")
                 || normalizedMessage.contains("token expired")
         case .invalidResponse, .connectionClosed, .requestTimedOut,
-             .transportWriteTimedOut, .routeCleanupBlocked,
+             .transportWriteTimedOut, .routeCleanupBlocked, .connectAttemptGated,
              .insecureManualRoute:
             return false
         }
