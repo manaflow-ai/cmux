@@ -103,6 +103,39 @@ struct SimulatorUIAutomationSessionTests {
         }
     }
 
+    @Test("Refs cannot resolve in a different pane session")
+    func refsAreNamespacedBySession() async throws {
+        let firstSession = SimulatorUIAutomationSession()
+        let secondSession = SimulatorUIAutomationSession()
+        let first = try await firstSession.record(
+            snapshot(),
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: firstSession.mutationGeneration
+        )
+        let second = try await secondSession.record(
+            snapshot(),
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: secondSession.mutationGeneration
+        )
+        let firstRef = try #require(first.snapshot.elements.first {
+            $0.identifier == "continue"
+        }?.ref)
+        let secondRef = try #require(second.snapshot.elements.first {
+            $0.identifier == "continue"
+        }?.ref)
+
+        #expect(firstRef != secondRef)
+        #expect(throws: SimulatorUIAutomationReferenceError.elementRefNotFound(firstRef)) {
+            _ = try secondSession.resolve(
+                elementRef: firstRef,
+                requiredActions: [.tap],
+                nowMilliseconds: 1_001
+            )
+        }
+    }
+
     @Test("A ref-derived wait selector must identify one source element")
     func stableSelectorRejectsAmbiguousSource() async throws {
         let session = SimulatorUIAutomationSession()

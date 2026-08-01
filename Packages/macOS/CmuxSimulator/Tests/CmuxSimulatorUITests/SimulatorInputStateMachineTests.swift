@@ -139,6 +139,19 @@ struct SimulatorInputStateMachineTests {
         #expect(abs(event.deltaY - 0.05) < 0.000_001)
     }
 
+    @Test("An admitted wheel burst is cancelled before semantic input")
+    func admittedWheelBurstRequiresCleanup() {
+        var input = SimulatorAdmittedInputStateMachine()
+        input.record(.scrollWheel(SimulatorScrollWheelEvent(
+            id: UUID(),
+            anchor: SimulatorPoint(x: 0.5, y: 0.5),
+            deltaX: 0,
+            deltaY: 0.05
+        )))
+
+        #expect(input.releaseAll() == [.releaseInputs])
+    }
+
     @Test("Scroll begins under the pointer anchor")
     func scrollUsesPointerAnchor() {
         var input = SimulatorInputStateMachine()
