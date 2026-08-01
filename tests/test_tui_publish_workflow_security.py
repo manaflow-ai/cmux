@@ -543,6 +543,16 @@ def test_python_release_artifacts_use_the_commit_timestamp() -> None:
     timestamp = 'SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"'
     assert timestamp in build
     assert build.index(timestamp) < build.index("python3 -m build")
+    assert "normalize_python_sdist.py" in build
+    assert build.index("python3 -m build") < build.index(
+        "normalize_python_sdist.py"
+    )
+
+    bootstrap = workflow("sdk-bootstrap-pypi.yml")
+    assert "normalize_python_sdist.py" in bootstrap
+    assert bootstrap.index("python3 -m build") < bootstrap.index(
+        "normalize_python_sdist.py"
+    )
 
 
 def test_python_preflight_provisions_the_declared_build_backend() -> None:
