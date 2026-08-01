@@ -1764,6 +1764,7 @@ fn run_remote_sidecar(args: &[String]) -> anyhow::Result<()> {
             admin_socket: None,
             direct_websocket: None,
             allow_insecure_non_loopback: false,
+            workspace_http: None,
             relays: Vec::new(),
             iroh: false,
             advertised_routes: Vec::new(),

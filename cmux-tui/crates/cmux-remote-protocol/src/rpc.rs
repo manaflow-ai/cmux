@@ -122,6 +122,7 @@ pub enum RemoteCapability {
     ComputerUseNegotiationV1,
     WorkspacePaginationV1,
     WorkspacePatchV2,
+    WorkspacePatchV3,
     StructuredDiffV1,
     ProcessLifecycleV2,
     ProcessReplayV1,

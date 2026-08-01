@@ -314,6 +314,7 @@ OPTIONS:
   --remote          Run the authenticated remote daemon with this session.
   --remote-ws <addr> Listen for direct remote WebSocket links.
   --remote-ws-insecure-bind  Allow plaintext remote WebSocket off loopback.
+  --remote-http <addr> Listen for bearer-authenticated workspace HTTP RPC on loopback.
   --remote-state-dir <path>  Override remote identity and runtime state.
   --remote-link-socket <path> Override the local authenticated link socket.
   --remote-admin-socket <path> Override the owner-only admin socket.
@@ -423,6 +424,7 @@ struct Args {
     remote: bool,
     remote_ws: Option<String>,
     remote_ws_insecure_bind: bool,
+    remote_http: Option<String>,
     remote_state_dir: Option<PathBuf>,
     remote_link_socket: Option<PathBuf>,
     remote_admin_socket: Option<PathBuf>,
@@ -493,6 +495,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         remote: false,
         remote_ws: None,
         remote_ws_insecure_bind: false,
+        remote_http: None,
         remote_state_dir: None,
         remote_link_socket: None,
         remote_admin_socket: None,
@@ -606,6 +609,11 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             }
             "--remote-ws-insecure-bind" => {
                 out.remote_ws_insecure_bind = true;
+                out.remote = true;
+            }
+            "--remote-http" => {
+                out.remote_http =
+                    Some(args.next().unwrap_or_else(|| usage_exit("--remote-http needs a value")));
                 out.remote = true;
             }
             "--remote-state-dir" => {
@@ -1240,7 +1248,7 @@ fn run_server(
     }
 
     #[cfg(unix)]
-    let (remote_relays, remote_direct_websocket) = if args.remote {
+    let (remote_relays, remote_direct_websocket, remote_workspace_http) = if args.remote {
         let relays =
             relay_daemon_options(args.relay_endpoints, args.relay_slots, args.relay_credentials)?;
         let direct_websocket = args
@@ -1251,9 +1259,17 @@ fn run_server(
                     .map_err(|error| anyhow::anyhow!("invalid remote WebSocket address: {error}"))
             })
             .transpose()?;
-        (relays, direct_websocket)
+        let workspace_http = args
+            .remote_http
+            .map(|address| {
+                address
+                    .parse()
+                    .map_err(|error| anyhow::anyhow!("invalid remote HTTP address: {error}"))
+            })
+            .transpose()?;
+        (relays, direct_websocket, workspace_http)
     } else {
-        (Vec::new(), None)
+        (Vec::new(), None, None)
     };
 
     let mut surface_options = SurfaceOptions::default();
@@ -1347,6 +1363,7 @@ fn run_server(
                 admin_socket: args.remote_admin_socket,
                 direct_websocket: remote_direct_websocket,
                 allow_insecure_non_loopback: args.remote_ws_insecure_bind,
+                workspace_http: remote_workspace_http,
                 relays: remote_relays,
                 iroh: args.iroh,
                 advertised_routes: args.advertised_routes,
@@ -1403,6 +1420,7 @@ fn reject_unsupported_remote_options(args: &Args) -> anyhow::Result<()> {
     let requested = args.remote
         || args.remote_ws.is_some()
         || args.remote_ws_insecure_bind
+        || args.remote_http.is_some()
         || args.remote_state_dir.is_some()
         || args.remote_link_socket.is_some()
         || args.remote_admin_socket.is_some()
@@ -1710,6 +1728,14 @@ mod remote_args_tests {
 
         assert!(args.remote);
         assert_eq!(args.remote_state_dir, Some(PathBuf::from("/tmp/cmux-remote-state")));
+    }
+
+    #[test]
+    fn remote_http_enables_remote_daemon_mode() {
+        let args = parse_args(["--remote-http", "127.0.0.1:8765"].map(str::to_string));
+
+        assert!(args.remote);
+        assert_eq!(args.remote_http.as_deref(), Some("127.0.0.1:8765"));
     }
 
     #[test]
