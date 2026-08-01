@@ -64,6 +64,24 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
                         "bundle_path": "/Applications/Settings.app",
                     }
                 }
+            elif (
+                method == "simulator.tap"
+                and params.get("element_ref") == "e1_warning"
+            ):
+                result = {
+                    "completed": True,
+                    "snapshot_warning": (
+                        "The tap committed before snapshot refresh failed"
+                    ),
+                    "ui_error": {
+                        "code": "SNAPSHOT_CAPTURE_FAILED",
+                        "message": "Snapshot refresh failed",
+                    },
+                    "action": {
+                        "type": "tap",
+                        "element_ref": "e1_warning",
+                    },
+                }
             elif method in {"simulator.context", "simulator.prepare_screenshot"}:
                 result = {
                     "simulator_id": "SIMULATOR-1",
@@ -251,6 +269,25 @@ def check_ui_automation(
         "simulator.tap",
         {"label": "Search", "role": "text-field"},
     )
+    warning_result = assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["tap", "--ref", "e1_warning"],
+        "simulator.tap", {"element_ref": "e1_warning"},
+    )
+    warning_payload = json.loads(warning_result.stdout)
+    if warning_payload != {
+        "action": {"element_ref": "e1_warning", "type": "tap"},
+        "completed": True,
+        "snapshot_warning": "The tap committed before snapshot refresh failed",
+        "ui_error": {
+            "code": "SNAPSHOT_CAPTURE_FAILED",
+            "message": "Snapshot refresh failed",
+        },
+    }:
+        raise AssertionError(
+            "partial semantic tap output lost completion details: "
+            f"{warning_payload!r}"
+        )
     assert_request(
         cli_path, socket_path, fake_home, state,
         ["touch", "--ref", "e1_3", "--down", "--up", "--delay", "0.25"],
