@@ -1,5 +1,5 @@
 import { memo, type CSSProperties } from "react";
-import type { CmuxClient, Id, RenderRow } from "cmux/browser";
+import type { CmuxClient, Id, RenderRow } from "cmux/raw";
 import { useRenderTerminal } from "../hooks/useRenderTerminal";
 import { t } from "../i18n";
 import { projectRenderGraphicsToRows } from "../lib/scrollback";

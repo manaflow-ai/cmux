@@ -1,6 +1,6 @@
 import { render as renderInTestRoot, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RenderGraphicPlacement } from "cmux/browser";
+import type { RenderGraphicPlacement } from "cmux/raw";
 import type { ReactElement } from "react";
 import {
   RenderGraphics,
@@ -126,10 +126,10 @@ describe("RenderGraphics canvas resource policy", () => {
       }
       vi.stubGlobal("Worker", FailingWorker);
       const graphics: RenderGraphicsModel = {
-        generation: 1,
+        generation: 1n,
         images: [{
           id: 1,
-          generation: 1,
+          generation: 1n,
           width: 1,
           height: 1,
           format: "rgba",
@@ -166,17 +166,17 @@ describe("RenderGraphics canvas resource policy", () => {
     const width = 1_000;
     const height = 1_000;
     const graphics: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width: 1,
         height: 1,
         format: "rgba",
         data: "AAAAAA==",
       }, {
         id: 2,
-        generation: 1,
+        generation: 1n,
         width,
         height,
         format: "rgba",
@@ -245,10 +245,10 @@ describe("RenderGraphics canvas resource policy", () => {
     const width = 257;
     const height = 256;
     const graphics: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width,
         height,
         format: "rgba",
@@ -285,7 +285,7 @@ describe("RenderGraphics canvas resource policy", () => {
     const scheduler = new RenderGraphicsDecodeScheduler();
     const largeImage = (id: number) => ({
       id,
-      generation: 1,
+      generation: 1n,
       width: 257,
       height: 256,
       format: "rgba" as const,
@@ -293,7 +293,7 @@ describe("RenderGraphics canvas resource policy", () => {
     });
     const smallImage = {
       id: 3,
-      generation: 1,
+      generation: 1n,
       width: 1,
       height: 1,
       format: "rgba" as const,
@@ -327,10 +327,10 @@ describe("RenderGraphics canvas resource policy", () => {
     const height = 128;
     const byteLength = width * height * 4;
     const graphics: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: Array.from({ length: 3 }, (_, index) => ({
         id: index + 1,
-        generation: 1,
+        generation: 1n,
         width,
         height,
         format: "rgba" as const,
@@ -358,10 +358,10 @@ describe("RenderGraphics canvas resource policy", () => {
     const height = 1_000;
     const placementCount = 512;
     const graphics: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width,
         height,
         format: "rgba",
@@ -415,10 +415,10 @@ describe("RenderGraphics canvas resource policy", () => {
       return candidate;
     });
     const graphics: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width,
         height,
         format: "rgba",
@@ -440,10 +440,10 @@ describe("RenderGraphics canvas resource policy", () => {
     const width = 1_024;
     const height = 1_024;
     const graphics: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width,
         height,
         format: "rgba",
@@ -489,10 +489,10 @@ describe("RenderGraphics canvas resource policy", () => {
     const height = 257;
     const fullPlacementCount = RENDER_GRAPHIC_CANVAS_COUNT_CAP;
     const graphics: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width,
         height,
         format: "rgba",
@@ -540,10 +540,10 @@ describe("RenderGraphics canvas resource policy", () => {
       return candidate;
     });
     const graphics: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width: 1,
         height: 1,
         format: "rgba",
@@ -578,14 +578,14 @@ describe("RenderGraphics canvas resource policy", () => {
     const data = zeroBytesBase64(decodedBytes);
     const image = (id: number) => ({
       id,
-      generation: 1,
+      generation: 1n,
       width: decodedBytes / 4,
       height: 1,
       format: "rgba" as const,
       data,
     });
     const admitted: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: Array.from({ length: 6 }, (_, index) => image(index + 1)),
       placements: Array.from(
         { length: 6 },
@@ -606,7 +606,7 @@ describe("RenderGraphics canvas resource policy", () => {
       return candidate;
     });
     const rejected: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [image(7)],
       placements: rejectedPlacements,
     };
@@ -629,10 +629,10 @@ describe("RenderGraphics canvas resource policy", () => {
     const width = 1_024;
     const height = 1_024;
     const graphics: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width,
         height,
         format: "rgba",
@@ -681,10 +681,10 @@ describe("RenderGraphics canvas resource policy", () => {
     const width = 1_024;
     const height = 1_024;
     const graphics: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width,
         height,
         format: "rgba",
@@ -721,10 +721,10 @@ describe("RenderGraphics canvas resource policy", () => {
   it("caps tiny placements by canvas count independently of backing bytes", async () => {
     const placementCount = RENDER_GRAPHIC_CANVAS_COUNT_CAP + 1_000;
     const graphics: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width: 1,
         height: 1,
         format: "rgba",
@@ -751,10 +751,10 @@ describe("RenderGraphics canvas resource policy", () => {
   it("keeps the top 512 placements from one oversized owner list", async () => {
     const placementCount = RENDER_GRAPHIC_CANVAS_COUNT_CAP + 1_000;
     const graphics: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width: 1,
         height: 1,
         format: "rgba",
@@ -786,10 +786,10 @@ describe("RenderGraphics canvas resource policy", () => {
     const placementCount = RENDER_GRAPHIC_CANVAS_COUNT_CAP + 1_000;
     const duplicate = placement(1, 1, 1);
     const graphics: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width: 1,
         height: 1,
         format: "rgba",
@@ -842,10 +842,10 @@ describe("RenderGraphics canvas resource policy", () => {
     vi.stubGlobal("Worker", RecordingWorker);
     const decodedBytes = 10_000_000;
     const graphics: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width: decodedBytes / 4,
         height: 1,
         format: "rgba",
@@ -918,10 +918,10 @@ describe("RenderGraphics canvas resource policy", () => {
     }
     vi.stubGlobal("Worker", PausedWorker);
     const graphics: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width: 1,
         height: 1,
         format: "rgba",
@@ -950,10 +950,10 @@ describe("RenderGraphics canvas resource policy", () => {
 
   it("cancels a superseded decode before publishing stale pixels", async () => {
     const first: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width: 1,
         height: 1,
         format: "rgba",
@@ -962,10 +962,10 @@ describe("RenderGraphics canvas resource policy", () => {
       placements: [placement(1, 1, 1)],
     };
     const second: RenderGraphicsModel = {
-      generation: 2,
+      generation: 2n,
       images: [{
         id: 1,
-        generation: 2,
+        generation: 2n,
         width: 2,
         height: 1,
         format: "rgba",
@@ -1014,20 +1014,20 @@ describe("RenderGraphics canvas resource policy", () => {
     vi.stubGlobal("Worker", PausedWorker);
     const image = {
       id: 1,
-      generation: 1,
+      generation: 1n,
       width: 1,
       height: 1,
       format: "rgba" as const,
       data: zeroBytesBase64(4),
     };
     const first: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [image],
       placements: [placement(1, 1, 1)],
     };
     const movedPlacement = { ...placement(1, 1, 1), viewport_col: 1 };
     const second: RenderGraphicsModel = {
-      generation: 2,
+      generation: 2n,
       images: [{ ...image }],
       placements: [movedPlacement],
     };
@@ -1067,19 +1067,19 @@ describe("RenderGraphics canvas resource policy", () => {
       .mockReturnValue(context as unknown as CanvasRenderingContext2D);
     const image = {
       id: 1,
-      generation: 1,
+      generation: 1n,
       width: 1,
       height: 1,
       format: "rgba" as const,
       data: zeroBytesBase64(4),
     };
     const first: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [image],
       placements: [placement(1, 1, 1)],
     };
     const second: RenderGraphicsModel = {
-      generation: 2,
+      generation: 2n,
       images: [{ ...image }],
       placements: [{ ...placement(1, 1, 1), viewport_col: 1 }],
     };
@@ -1113,10 +1113,10 @@ describe("RenderGraphics canvas resource policy", () => {
   it("does not recalculate placement admission for a pixel-only image update", async () => {
     const placements = [placement(1, 1, 1)];
     const first: RenderGraphicsModel = {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width: 1,
         height: 1,
         format: "rgba",
@@ -1125,10 +1125,10 @@ describe("RenderGraphics canvas resource policy", () => {
       placements,
     };
     const second: RenderGraphicsModel = {
-      generation: 2,
+      generation: 2n,
       images: [{
         ...first.images[0]!,
-        generation: 2,
+        generation: 2n,
       }],
       placements,
     };

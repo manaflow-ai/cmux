@@ -35,3 +35,6 @@ zeroize.workspace = true
 terminput.workspace = true
 terminput-crossterm.workspace = true
 parking_lot.workspace = true
+
+[dev-dependencies]
+rusqlite.workspace = true

@@ -11,10 +11,10 @@ import {
   type RenderGraphicsDelta,
   type RenderRow,
   type RenderStateEvent,
-} from "cmux/browser";
+} from "cmux/raw";
 
 export interface RenderGraphicsModel {
-  generation: number;
+  generation: bigint;
   images: readonly RenderGraphicImage[];
   placements: readonly RenderGraphicPlacement[];
 }
@@ -26,7 +26,7 @@ export interface RenderModel {
   defaultFg: string;
   defaultBg: string;
   scrollbackRows: number;
-  historyEpoch: number | undefined;
+  historyEpoch: bigint | undefined;
   rows: readonly RenderRow[];
   graphics: RenderGraphicsModel;
 }
@@ -299,7 +299,7 @@ function snapshotGraphics(
 ): RenderGraphicsModel {
   if (graphics === undefined) {
     admitEncodedImages([], budget, owner, true);
-    return { generation: 0, images: [], placements: [] };
+    return { generation: 0n, images: [], placements: [] };
   }
   const sourceImages = graphics.images ?? [];
   validateAuthoritativeImages(sourceImages);

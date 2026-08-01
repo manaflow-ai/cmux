@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ReadScrollbackResult, RenderRow } from "cmux/browser";
+import type { ReadScrollbackResult, RenderRow } from "cmux/raw";
 import type { RenderGraphicsModel } from "../src/lib/renderModel";
 import {
   createScrollbackWindow,
@@ -17,7 +17,7 @@ function row(relative: number, text = String(relative)): RenderRow {
   return { row: relative, runs: [{ text, fg: null, bg: null, attrs: 0 }] };
 }
 
-function page(start: number, total: number, count: number, epoch = 1): ReadScrollbackResult {
+function page(start: number, total: number, count: number, epoch = 1n): ReadScrollbackResult {
   return {
     start,
     total,
@@ -28,10 +28,10 @@ function page(start: number, total: number, count: number, epoch = 1): ReadScrol
 
 function historyGraphics(anchorRow: number): RenderGraphicsModel {
   return {
-    generation: 1,
+    generation: 1n,
     images: [{
       id: 9,
-      generation: 1,
+      generation: 1n,
       width: 1,
       height: 1,
       format: "rgb",
@@ -77,6 +77,7 @@ describe("scrollback window", () => {
     const merged = mergeScrollbackPage(initial, {
       start: 10,
       total: 20,
+      epoch: 1n,
       rows: [row(2, "twelve"), row(0, "ten")],
     });
 
@@ -174,15 +175,15 @@ describe("scrollback window", () => {
   });
 
   it("discards cached indexes when retained history changes at a fixed total", () => {
-    const initial = mergeScrollbackPage(createScrollbackWindow(20, 10, 20), page(10, 20, 10, 1));
-    const reset = mergeScrollbackPage(initial, page(0, 20, 4, 2));
+    const initial = mergeScrollbackPage(createScrollbackWindow(20, 10, 20), page(10, 20, 10, 1n));
+    const reset = mergeScrollbackPage(initial, page(0, 20, 4, 2n));
 
     expect(reset.rows.map((candidate) => candidate.row)).toEqual([0, 1, 2, 3]);
-    expect((reset as { epoch?: number }).epoch).toBe(2);
+    expect((reset as { epoch?: bigint }).epoch).toBe(2n);
   });
 
   it("projects absolute Kitty anchors onto cached history rows", () => {
-    const projected = projectRenderGraphicsToRows(historyGraphics(7), [row(8), row(9)], 1, 1);
+    const projected = projectRenderGraphicsToRows(historyGraphics(7), [row(8), row(9)], 1n, 1n);
 
     expect(projected?.placements).toEqual([
       expect.objectContaining({
@@ -194,6 +195,6 @@ describe("scrollback window", () => {
   });
 
   it("suppresses current Kitty graphics over cached rows from an older history epoch", () => {
-    expect(projectRenderGraphicsToRows(historyGraphics(7), [row(7)], 2, 1)).toBeUndefined();
+    expect(projectRenderGraphicsToRows(historyGraphics(7), [row(7)], 2n, 1n)).toBeUndefined();
   });
 });

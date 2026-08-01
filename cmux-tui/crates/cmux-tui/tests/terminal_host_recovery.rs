@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -35,6 +36,7 @@ struct RecoveryHarness {
     session: String,
     host_ready_delay_ms: Option<u64>,
     reconnect_completion_failures: Option<u64>,
+    adoption_insert_failures: Option<u64>,
 }
 
 impl RecoveryHarness {
@@ -50,6 +52,7 @@ impl RecoveryHarness {
             session: "host-recovery".into(),
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
+            adoption_insert_failures: None,
             dir,
         };
         harness.restart();
@@ -107,6 +110,7 @@ impl RecoveryHarness {
             session: "host-recovery".into(),
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
+            adoption_insert_failures: None,
             dir,
         }
     }
@@ -133,6 +137,9 @@ impl RecoveryHarness {
         if let Some(failures) = self.reconnect_completion_failures {
             command.env("CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES", failures.to_string());
             command.env("CMUX_TUI_TEST_DISCONNECT_HOST_AFTER_SPAWN_MS", "1000");
+        }
+        if let Some(failures) = self.adoption_insert_failures {
+            command.env("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES", failures.to_string());
         }
         command
     }
@@ -1592,6 +1599,91 @@ fn transient_startup_adoption_failure_retries_in_process_until_running() {
 }
 
 #[test]
+fn adoption_topology_failures_retry_same_host_without_exited_transition() {
+    let mut harness = RecoveryHarness::start("retry-adopt-topology");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,
+            "cmd":"run",
+            "argv":["/bin/cat"],
+            "new_workspace":true,
+            "cols":80,
+            "rows":24,
+        }),
+    );
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    let before_revision = request(
+        &harness.socket,
+        serde_json::json!({"id":2,"cmd":"list-terminals"}),
+    )["terminal_revision"]
+        .as_u64()
+        .unwrap();
+    let before = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+
+    harness.sigkill();
+    harness.adoption_insert_failures = Some(3);
+    harness.restart();
+
+    let pending = request(
+        &harness.socket,
+        serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
+    assert_eq!(pending["lifecycle"], "adopting");
+    assert_eq!(pending["surface"], serde_json::Value::Null);
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let surface = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":4,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        if resolved["lifecycle"] == "running"
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            assert_eq!(resolved["terminal_incarnation"], incarnation);
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "terminal never recovered from topology failures");
+        std::thread::sleep(Duration::from_millis(25));
+    };
+
+    let after = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(after.host_pid, before.host_pid);
+    assert_eq!(after.host_start_nonce, before.host_start_nonce);
+    assert_eq!(after.incarnation, before.incarnation);
+    let lifecycle_events = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":5,"cmd":"terminal-events","after_revision":before_revision,
+        }),
+    );
+    let kinds = lifecycle_events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|event| event["kind"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(kinds, vec!["terminal-adopting", "terminal-ready"]);
+
+    let marker = format!("topology-retry-survivor-{}", std::process::id());
+    request(
+        &harness.socket,
+        serde_json::json!({"id":6,"cmd":"send","surface":surface,"text":format!("{marker}\n")}),
+    );
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id":7,"cmd":"close-terminal","terminal_id":terminal_id,
+            "terminal_incarnation":incarnation,
+        }),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn client_reserved_create_retry_returns_original_binding_without_second_host() {
     let harness = RecoveryHarness::start("reserved-create");
     let workspace = request(
@@ -1674,7 +1766,7 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
             "ttl_ms": 10_000,
         }),
     );
-    let mut stalled = connect_host_detailed(
+    let stalled = connect_host_detailed(
         grant["endpoint"].as_str().unwrap(),
         grant["terminal_id"].as_str().unwrap(),
         grant["token"].as_str().unwrap(),
@@ -1683,64 +1775,28 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
     )
     .unwrap();
 
-    let done = format!("overflow-done-{}", std::process::id());
     request(
         &harness.socket,
         serde_json::json!({
             "id": 3,
             "cmd": "send",
             "surface": surface,
-            "text": format!(
-                // Exceed both the host's bounded client queue and Darwin's
-                // dynamically sized Unix-socket buffers. A smaller burst can
-                // fit entirely in the kernel under light load, which does not
-                // represent a stalled writer and made this assertion timing
-                // dependent.
-                "/usr/bin/head -c 64000000 /dev/zero; printf '{done}\\n'\n"
-            ),
+            // A finite burst can fit in Darwin's dynamically sized socket
+            // buffers under some scheduler interleavings. Keep producing
+            // until the bounded host tap closes this unread renderer.
+            "text": "while :; do /usr/bin/head -c 1048576 /dev/zero; done\n",
         }),
     );
-    assert!(wait_for_screen(&harness.socket, surface, &done).contains(&done));
-
-    let disconnected_before_drain =
-        match stalled.stream.set_read_timeout(Some(Duration::from_secs(5))) {
-            Ok(()) => false,
-            // Darwin reports EINVAL when setting SO_RCVTIMEO after the peer has
-            // already issued shutdown(2); that is the overflow outcome under test.
-            Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => true,
-            Err(error) => panic!("set stalled-renderer timeout: {error}"),
-        };
-    let mut complete_frames = 0usize;
-    if !disconnected_before_drain {
-        loop {
-            match read_frame(&mut stalled.stream, MAX_FRAME_PAYLOAD) {
-                Ok(Some(frame)) => {
-                    assert_eq!(frame.request_id, 0);
-                    assert_eq!(frame.sequence, stalled.next_sequence);
-                    stalled.next_sequence = stalled.next_sequence.wrapping_add(1);
-                    complete_frames += 1;
-                }
-                Ok(None) => break,
-                Err(ProtocolError::Io(error))
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) =>
-                {
-                    panic!("stalled renderer silently froze instead of being disconnected")
-                }
-                // Shutdown can interrupt a frame already being copied into the
-                // kernel socket buffer. A clean EOF or truncated final frame are
-                // both explicit disconnects and require a fresh Snapshot.
-                Err(ProtocolError::Truncated { .. }) | Err(ProtocolError::Io(_)) => break,
-                Err(error) => panic!("stalled renderer received invalid protocol data: {error}"),
-            }
-        }
-    }
     assert!(
-        disconnected_before_drain || complete_frames > 0,
-        "stalled renderer received no output before disconnect"
+        wait_for_socket_hangup(&stalled.stream, Duration::from_secs(15)),
+        "stalled renderer silently froze instead of being disconnected"
     );
+
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 31, "cmd": "send", "surface": surface, "text": "\u{3}"}),
+    );
+    std::thread::sleep(Duration::from_millis(50));
 
     // Overflow is isolated to the stalled renderer. The daemon proxy and PTY
     // remain responsive and the durable host record remains adoptable.
@@ -1848,10 +1904,7 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
     )
     .unwrap();
     assert!(wait_for_screen(&harness.socket, surface, &after).contains(&after));
-    let resolved = request(
-        &harness.socket,
-        serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
-    );
+    let resolved = wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "running");
     assert_eq!(resolved["lifecycle"], "running");
     assert_eq!(resolved["terminal_incarnation"], incarnation);
     let after_record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
@@ -2398,6 +2451,173 @@ fn daemon_crash_after_record_before_ready_adopts_same_live_host() {
 }
 
 #[test]
+fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
+    let mut harness = RecoveryHarness::start_with_host_ready_delay("pre-ready-retry", 2_000);
+    let stream = transport::connect(&harness.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        })
+    )
+    .unwrap();
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let endpoint = PathBuf::from(&record.endpoint);
+    let held_endpoint = endpoint.with_extension("held-for-interrupted-creation");
+    let terminal_id = record.terminal_id.clone();
+    let incarnation = record.incarnation.clone();
+    let host_pid = record.host_pid;
+    harness.sigkill();
+    drop(writer);
+    drop(stream);
+    fs::rename(&endpoint, &held_endpoint).unwrap();
+    let restore_endpoint = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        fs::rename(held_endpoint, endpoint).unwrap();
+    });
+    let started = Instant::now();
+    harness.restart();
+    restore_endpoint.join().unwrap();
+    assert!(
+        started.elapsed() >= Duration::from_millis(400),
+        "daemon served before interrupted host adoption settled"
+    );
+
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
+    let surface = resolved["surface"].as_u64().expect("recovered terminal has a surface");
+    assert_eq!(resolved["lifecycle"], "running");
+    assert_eq!(resolved["terminal_incarnation"], incarnation);
+    let adopted = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(adopted.host_pid, host_pid);
+    request(&harness.socket, serde_json::json!({"id":3,"cmd":"close-surface","surface":surface}));
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_restarts() {
+    let mut harness = RecoveryHarness::start_with_host_ready_delay("public-create-recovery", 2_000);
+    let create = serde_json::json!({
+        "protocol":"cmux.protocol/1",
+        "type":"request",
+        "id":"public-create-request",
+        "operation":"workspace.create",
+        "idempotency_key":"public-create-attempt",
+        "params":{
+            "machine":"current",
+            "session":"current",
+            "name":"Recovered public workspace",
+            "initial_content":"terminal",
+            "correlation_key":"public-create-correlation",
+        },
+    });
+    let stream = transport::connect(&harness.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    writeln!(writer, "{create}").unwrap();
+    let (_, before) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    harness.sigkill();
+    drop(writer);
+    drop(stream);
+    harness.restart();
+
+    let first_resolution = resource_request(
+        &harness.socket,
+        "public-create-resolution-one",
+        "session.creation.resolve",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "correlation_key":"public-create-correlation",
+        }),
+        None,
+    );
+    assert_eq!(first_resolution["state"], "created");
+    assert_eq!(first_resolution["revision"], "1");
+    let created_path = first_resolution["created_path"].clone();
+    for field in ["workspace_id", "screen_id", "pane_id", "tab_id", "terminal_id"] {
+        assert!(created_path[field].as_str().is_some(), "{field}");
+    }
+    let first_snapshot = resource_request(
+        &harness.socket,
+        "public-create-snapshot-one",
+        "session.snapshot",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    assert_eq!(first_snapshot["cursor"]["revision"], "1");
+    assert_eq!(first_snapshot["workspaces"].as_array().unwrap().len(), 1);
+    assert_eq!(first_snapshot["terminals"].as_array().unwrap().len(), 1);
+    let after_first_restart = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(after_first_restart.host_pid, before.host_pid);
+    assert_eq!(after_first_restart.host_start_nonce, before.host_start_nonce);
+    assert_eq!(after_first_restart.incarnation, before.incarnation);
+
+    harness.sigkill();
+    harness.restart();
+
+    let second_resolution = resource_request(
+        &harness.socket,
+        "public-create-resolution-two",
+        "session.creation.resolve",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "correlation_key":"public-create-correlation",
+        }),
+        None,
+    );
+    assert_eq!(second_resolution, first_resolution);
+    let replay = resource_request(
+        &harness.socket,
+        "public-create-replay",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Recovered public workspace",
+            "initial_content":"terminal",
+            "correlation_key":"public-create-correlation",
+        }),
+        Some("public-create-attempt"),
+    );
+    assert_eq!(replay["value"], created_path);
+    assert_eq!(replay["revision"], "1");
+    assert_eq!(replay["replayed"], true);
+    let second_snapshot = resource_request(
+        &harness.socket,
+        "public-create-snapshot-two",
+        "session.snapshot",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    assert_eq!(second_snapshot["cursor"]["revision"], "1");
+    assert_eq!(second_snapshot["workspaces"].as_array().unwrap().len(), 1);
+    assert_eq!(second_snapshot["terminals"].as_array().unwrap().len(), 1);
+    let after_second_restart = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(after_second_restart.host_pid, before.host_pid);
+    assert_eq!(after_second_restart.host_start_nonce, before.host_start_nonce);
+    assert_eq!(after_second_restart.incarnation, before.incarnation);
+
+    resource_request(
+        &harness.socket,
+        "public-create-close",
+        "terminal.close",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":created_path["terminal_id"],
+        }),
+        Some("public-create-close"),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn running_host_sigkill_retains_read_only_exited_binding() {
     let harness = RecoveryHarness::start("running-host-sigkill");
     let created = request(
@@ -2543,6 +2763,31 @@ fn request_response(path: &Path, value: serde_json::Value) -> serde_json::Value 
     serde_json::from_str(&line).unwrap()
 }
 
+fn resource_request(
+    path: &Path,
+    id: &str,
+    operation: &str,
+    params: serde_json::Value,
+    idempotency_key: Option<&str>,
+) -> serde_json::Value {
+    let mut value = serde_json::json!({
+        "protocol":"cmux.protocol/1",
+        "type":"request",
+        "id":id,
+        "operation":operation,
+        "params":params,
+    });
+    if let Some(idempotency_key) = idempotency_key {
+        value["idempotency_key"] = serde_json::json!(idempotency_key);
+    }
+    let response = request_response(path, value);
+    assert_eq!(response["protocol"], "cmux.protocol/1", "request failed: {response}");
+    assert_eq!(response["type"], "response", "request failed: {response}");
+    assert_eq!(response["id"], id, "request failed: {response}");
+    assert_eq!(response["ok"], true, "request failed: {response}");
+    response["result"].clone()
+}
+
 fn wait_for_socket(path: &Path) {
     let deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < deadline {
@@ -2591,6 +2836,65 @@ fn wait_for_no_host_records(root: &Path) {
         std::thread::sleep(Duration::from_millis(25));
     }
     panic!("terminal host record was not removed after close");
+}
+
+fn wait_for_socket_hangup(stream: &UnixStream, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return false;
+        }
+        let mut descriptor = libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events: libc::POLLIN | libc::POLLHUP,
+            revents: 0,
+        };
+        let timeout_ms =
+            remaining.min(Duration::from_millis(100)).as_millis().clamp(1, i32::MAX as u128) as i32;
+        // SAFETY: descriptor points to one initialized pollfd and the stream
+        // remains borrowed for the duration of poll.
+        let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
+        if ready < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            panic!("poll stalled renderer: {error}");
+        }
+        if descriptor.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+            return true;
+        }
+        if ready > 0 {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+}
+
+fn wait_for_terminal_lifecycle(
+    socket: &Path,
+    terminal_id: &str,
+    expected: &str,
+) -> serde_json::Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let resolved = request(
+            socket,
+            serde_json::json!({
+                "cmd":"resolve-terminal",
+                "terminal_id":terminal_id,
+            }),
+        );
+        if resolved["lifecycle"] == expected {
+            return resolved;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "terminal {terminal_id} remained in lifecycle {:?}, expected {expected}",
+            resolved["lifecycle"],
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }
 
 fn wait_for_terminal_host_dead(path: &Path, record: &TerminalHostRecord) {

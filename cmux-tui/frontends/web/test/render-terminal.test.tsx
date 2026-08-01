@@ -1,6 +1,6 @@
 import { fireEvent, render as renderInTestRoot, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CmuxClient } from "cmux/browser";
+import type { CmuxClient } from "cmux/raw";
 import type { ReactElement } from "react";
 import { RenderGraphicsBudgetProvider } from "../src/components/RenderGraphics";
 import type { RenderModel } from "../src/lib/renderModel";
@@ -23,18 +23,18 @@ const renderHook = vi.hoisted(() => ({
 }));
 
 const model: RenderModel = {
-  surface: 7,
+  surface: 7n,
   size: { cols: 4, rows: 2 },
   cursor: { x: 2, y: 1, style: "bar", blink: true, visible: true, color: null },
   defaultFg: "#eeeeee",
   defaultBg: "#111111",
   scrollbackRows: 10,
-  historyEpoch: 1,
+  historyEpoch: 1n,
   graphics: {
-    generation: 4,
+    generation: 4n,
     images: [{
       id: 9,
-      generation: 2,
+      generation: 2n,
       width: 2,
       height: 2,
       format: "rgba",
@@ -137,7 +137,7 @@ vi.mock("../src/hooks/useRenderTerminal", () => ({
       active: renderHook.historyActive,
       loading: false,
       total: 10,
-      epoch: 1,
+      epoch: 1n,
       rows: [{ row: 9, runs: [{ text: "old ", fg: null, bg: null, attrs: 0 }] }],
     },
     backToLive: vi.fn(),
@@ -158,7 +158,7 @@ beforeEach(() => {
 describe("RenderTerminal DOM grid", () => {
   it("renders one absolute row per model row, authoritative run width, and server cursor geometry", () => {
     const { container } = render(
-      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
+      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7n} active error={null} onError={vi.fn()} />,
     );
 
     expect(container.querySelectorAll(".render-row")).toHaveLength(2);
@@ -175,7 +175,7 @@ describe("RenderTerminal DOM grid", () => {
 
   it("routes mobile navigation through terminal-mode-aware named keys", () => {
     const { getByLabelText } = render(
-      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
+      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7n} active error={null} onError={vi.fn()} />,
     );
 
     fireEvent.click(getByLabelText("Left arrow"));
@@ -186,7 +186,7 @@ describe("RenderTerminal DOM grid", () => {
   it("renders one row layer with real backgrounds when graphics are absent", () => {
     renderHook.graphicsEnabled = false;
     const { container } = render(
-      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
+      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7n} active error={null} onError={vi.fn()} />,
     );
 
     expect(container.querySelectorAll(".render-row-background")).toHaveLength(0);
@@ -199,7 +199,7 @@ describe("RenderTerminal DOM grid", () => {
   it("renders one row layer when every Kitty placement is outside the viewport", () => {
     renderHook.graphicsVisible = false;
     const { container } = render(
-      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
+      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7n} active error={null} onError={vi.fn()} />,
     );
 
     expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(0);
@@ -212,7 +212,7 @@ describe("RenderTerminal DOM grid", () => {
 
   it("renders cropped Kitty placements around terminal text in z order", async () => {
     const { container } = render(
-      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
+      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7n} active error={null} onError={vi.fn()} />,
     );
 
     await waitFor(() => {
@@ -260,7 +260,7 @@ describe("RenderTerminal DOM grid", () => {
   it("renders history-anchored Kitty placements while displaying scrollback", async () => {
     renderHook.historyActive = true;
     const { container } = render(
-      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
+      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7n} active error={null} onError={vi.fn()} />,
     );
 
     await waitFor(() => {
@@ -287,7 +287,7 @@ describe("RenderTerminal DOM grid", () => {
       .mockReturnValue(context as unknown as CanvasRenderingContext2D);
     try {
       const { container, unmount } = render(
-        <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
+        <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7n} active error={null} onError={vi.fn()} />,
       );
       await waitFor(() => expect(context.putImageData).toHaveBeenCalled());
       const canvases = [...container.querySelectorAll<HTMLCanvasElement>("[data-graphic-placement]")];

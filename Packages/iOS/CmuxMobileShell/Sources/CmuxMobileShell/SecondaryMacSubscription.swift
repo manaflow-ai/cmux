@@ -13,6 +13,11 @@ final class SecondaryMacSubscription {
     ]
 
     let macDeviceID: String
+    /// The typed pool identity: canonical device + STORED tag (the paired
+    /// row's authority; adopted/authenticated tags never re-key a live entry).
+    var ownerKey: MacPairingKey {
+        MacPairingKey(macDeviceID: macDeviceID, instanceTag: storedInstanceTag)
+    }
     let client: MobileCoreRPCClient
     /// The route and ticket this client was dialed on, kept for promotion.
     let route: CmxAttachRoute

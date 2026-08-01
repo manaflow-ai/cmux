@@ -109,14 +109,19 @@ public struct WorkspaceListLayoutPreviewView: View {
         let seedCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT"].flatMap(Int.init) ?? 0
         let reorderEnabled = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER"] == "1"
         let initialWorkspaces: [MobileWorkspacePreview]
+        let initialGroups: [MobileWorkspaceGroupPreview]
         if seedCount > 0 {
             let groupCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS"].flatMap(Int.init) ?? 0
-            (initialWorkspaces, groups) = Self.seeded(count: seedCount, groupCount: groupCount)
+            (initialWorkspaces, initialGroups) = Self.seeded(
+                count: seedCount,
+                groupCount: groupCount
+            )
         } else {
             initialWorkspaces = Self.defaultWorkspaces
-            groups = []
+            initialGroups = []
         }
         self.reorderEnabled = reorderEnabled
+        _groups = State(initialValue: initialGroups)
         let fixtureWorkspaces = reorderEnabled
             ? initialWorkspaces.map { workspace in
                 var workspace = workspace
@@ -162,7 +167,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_SWEEP"] == "1"
     }
 
-    private let groups: [MobileWorkspaceGroupPreview]
+    @State private var groups: [MobileWorkspaceGroupPreview]
     private let reorderEnabled: Bool
 
     private static let defaultWorkspaces: [MobileWorkspacePreview] = [
@@ -357,6 +362,12 @@ public struct WorkspaceListLayoutPreviewView: View {
                 )
                 return true
             } : nil,
+            toggleGroupCollapsed: reorderEnabled ? { groupID, isCollapsed in
+                guard let index = groups.firstIndex(where: { $0.id == groupID }) else {
+                    return
+                }
+                groups[index].isCollapsed = isCollapsed
+            } : nil,
             filterState: filterState,
             searchText: searchText
         )
@@ -374,10 +385,6 @@ public struct WorkspaceListLayoutPreviewView: View {
                 let workspaceListStack = NavigationStack {
                     MobilePrimaryWorkspaceSearchHost(
                         searchCoordinator: primarySearchCoordinator,
-                        // The live shell puts New Task in the bottom toolbar
-                        // next to the system search pill; the tab-scaffold
-                        // preview must render both so their shared bottom-bar
-                        // layout can be exercised without Mac pairing.
                         taskComposerAction: showsTabScaffold ? {} : nil
                     ) { searchText in
                         workspaceListFixture(searchText: searchText)
@@ -422,7 +429,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                     MobilePrimaryTabScaffold(
                         selection: $selectedPrimaryTab,
                         searchCoordinator: primarySearchCoordinator,
-                        notificationUnreadCount: 0
+                        notificationUnreadCount: 0,
+                        taskComposerAction: {}
                     ) {
                         workspaceListStack
                     } notifications: {
@@ -511,15 +519,6 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
         selectedPrimaryTab = tab
         return previousTab != tab
-    }
-}
-
-/// Pairing rows for the store-free workspace-list fixture. Lives in this
-/// DEBUG-only file so the production view exposes no fixture storage; the
-/// picker reads it only when `UITestConfig.workspaceListLayoutPreviewEnabled`.
-enum WorkspaceListLayoutPreviewFixture {
-    static var displayPairedMacs: [MobilePairedMac] {
-        WorkspaceListLayoutPreviewView.previewPairedMacs
     }
 }
 

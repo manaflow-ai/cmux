@@ -22,13 +22,13 @@ interface TestWorkspace {
 function snapshot(workspaces: TestWorkspace[]): SelectionSnapshot {
   return {
     workspaces: workspaces.map((workspace) => ({
-      id: workspace.id,
+      id: BigInt(workspace.id),
       active: workspace.active ?? false,
       screens: workspace.screens.map((screen) => ({
-        id: screen.id,
+        id: BigInt(screen.id),
         active: screen.active ?? false,
-        activePaneId: screen.activePaneId ?? screen.paneIds?.[0] ?? -1,
-        paneIds: screen.paneIds ?? [],
+        activePaneId: BigInt(screen.activePaneId ?? screen.paneIds?.[0] ?? -1),
+        paneIds: (screen.paneIds ?? []).map(BigInt),
       })),
     })),
   };
@@ -49,9 +49,9 @@ describe("localSelectionReducer", () => {
     ]));
 
     expect(state).toMatchObject({
-      selectedWorkspaceId: 2,
-      selectedScreenId: 22,
-      selectedPaneId: 222,
+      selectedWorkspaceId: 2n,
+      selectedScreenId: 22n,
+      selectedPaneId: 222n,
     });
   });
 
@@ -61,17 +61,17 @@ describe("localSelectionReducer", () => {
       { id: 2, screens: [{ id: 21, paneIds: [211, 212] }] },
     ]);
     let state = update(initialLocalSelectionState, first);
-    state = localSelectionReducer(state, { type: "navigate", workspaceId: 2, screenId: 21 });
-    state = localSelectionReducer(state, { type: "select-pane", paneId: 212 });
+    state = localSelectionReducer(state, { type: "navigate", workspaceId: 2n, screenId: 21n });
+    state = localSelectionReducer(state, { type: "select-pane", paneId: 212n });
     state = update(state, snapshot([
       { id: 1, active: true, screens: [{ id: 11, active: true, activePaneId: 111, paneIds: [111] }] },
       { id: 2, screens: [{ id: 21, activePaneId: 211, paneIds: [211, 212] }] },
     ]));
 
     expect(state).toMatchObject({
-      selectedWorkspaceId: 2,
-      selectedScreenId: 21,
-      selectedPaneId: 212,
+      selectedWorkspaceId: 2n,
+      selectedScreenId: 21n,
+      selectedPaneId: 212n,
     });
   });
 
@@ -87,12 +87,12 @@ describe("localSelectionReducer", () => {
     state = update(state, snapshot([
       { id: 1, active: true, screens: [{ id: 11, paneIds: [111] }, { id: 13, paneIds: [131] }] },
     ]));
-    expect(state.selectedScreenId).toBe(13);
+    expect(state.selectedScreenId).toBe(13n);
 
     state = update(state, snapshot([
       { id: 1, active: true, screens: [{ id: 11, paneIds: [111] }] },
     ]));
-    expect(state.selectedScreenId).toBe(11);
+    expect(state.selectedScreenId).toBe(11n);
   });
 
   it("falls to the nearest workspace sibling and uses server active only when none survives", () => {
@@ -106,11 +106,11 @@ describe("localSelectionReducer", () => {
       { id: 1, screens: [{ id: 11, paneIds: [111] }] },
       { id: 3, screens: [{ id: 31, paneIds: [311] }] },
     ]));
-    expect(state).toMatchObject({ selectedWorkspaceId: 3, selectedScreenId: 31 });
+    expect(state).toMatchObject({ selectedWorkspaceId: 3n, selectedScreenId: 31n });
 
     state = update(state, snapshot([
       { id: 4, active: true, screens: [{ id: 41, active: true, paneIds: [411] }] },
     ]));
-    expect(state).toMatchObject({ selectedWorkspaceId: 4, selectedScreenId: 41 });
+    expect(state).toMatchObject({ selectedWorkspaceId: 4n, selectedScreenId: 41n });
   });
 });

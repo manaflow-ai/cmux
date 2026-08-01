@@ -264,7 +264,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case name, kind, command, cwd, checkpointId, source
         case environment, autoResume, approvalPolicy, approvalRecordId
-        case launchFlavor, updatedAt
+        case launchCommand, permissionMode, launchFlavor, updatedAt
     }
 
     var name: String?
@@ -274,6 +274,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var checkpointId: String?
     var source: String?
     var environment: [String: String]?
+    var launchCommand: AgentLaunchCommandSnapshot?
+    var permissionMode: String?
     var autoResume: Bool?
     var approvalPolicy: SurfaceResumeApprovalPolicy?
     var approvalRecordId: String?
@@ -290,6 +292,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         checkpointId: String? = nil,
         source: String? = nil,
         environment: [String: String]? = nil,
+        launchCommand: AgentLaunchCommandSnapshot? = nil,
+        permissionMode: String? = nil,
         autoResume: Bool? = nil,
         approvalPolicy: SurfaceResumeApprovalPolicy? = nil,
         approvalRecordId: String? = nil,
@@ -310,6 +314,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.checkpointId = Self.normalized(checkpointId)
         self.source = normalizedSource
         self.environment = Self.normalizedEnvironment(environment)
+        self.launchCommand = Self.normalizedLaunchCommand(launchCommand)
+        self.permissionMode = Self.normalized(permissionMode)
         self.autoResume = autoResume
         self.approvalPolicy = approvalPolicy
         self.approvalRecordId = Self.normalized(approvalRecordId)
@@ -328,6 +334,11 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             checkpointId: try container.decodeIfPresent(String.self, forKey: .checkpointId),
             source: try container.decodeIfPresent(String.self, forKey: .source),
             environment: try container.decodeIfPresent([String: String].self, forKey: .environment),
+            launchCommand: try container.decodeIfPresent(
+                AgentLaunchCommandSnapshot.self,
+                forKey: .launchCommand
+            ),
+            permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode),
             autoResume: try container.decodeIfPresent(Bool.self, forKey: .autoResume),
             approvalPolicy: try container.decodeIfPresent(SurfaceResumeApprovalPolicy.self, forKey: .approvalPolicy),
             approvalRecordId: try container.decodeIfPresent(String.self, forKey: .approvalRecordId),
@@ -354,6 +365,10 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         autoResume == true
     }
 
+    var usesLocalRestoreVerb: Bool {
+        launchFlavor == .local
+    }
+
     func shouldYieldToDetectedSurfaceResumeBinding(_ detectedBinding: SurfaceResumeBindingSnapshot) -> Bool {
         detectedBinding.isProcessDetected && (isProcessDetected || isAgentHookBinding)
     }
@@ -361,28 +376,19 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     func retargetingWorkingDirectory(_ workingDirectory: String?) -> SurfaceResumeBindingSnapshot {
         guard isAgentHookBinding else { return self }
         let normalizedCwd = Self.normalized(workingDirectory)
-        let retargetedCommand = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
+        var retargeted = self
+        retargeted.command = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
             in: command,
             previousWorkingDirectory: cwd,
             workingDirectory: normalizedCwd
         )
-        return SurfaceResumeBindingSnapshot(
-            name: name,
-            kind: kind,
-            command: retargetedCommand,
-            cwd: normalizedCwd,
-            checkpointId: checkpointId,
-            source: source,
-            environment: environment,
-            autoResume: autoResume,
-            approvalPolicy: approvalPolicy,
-            approvalRecordId: approvalRecordId,
-            launchFlavor: launchFlavor,
-            updatedAt: updatedAt
-        )
+        retargeted.cwd = normalizedCwd
+        if var launchCommand = retargeted.launchCommand {
+            launchCommand.workingDirectory = normalizedCwd
+            retargeted.launchCommand = launchCommand
+        }
+        return retargeted
     }
-    static let maxInlineStartupInputBytes = SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
-
     var startupInput: String? {
         inlineStartupInput
     }
@@ -391,19 +397,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         inlineStartupInput(repairPortableAgentExecutable: true)
     }
 
-    func startupInputWithLauncherScript(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true,
-        restoringWorkingDirectory: String? = nil
-    ) -> String? {
-        startupInputWithLauncherScript(
-            fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript,
-            restoringWorkingDirectory: restoringWorkingDirectory,
-            repairPortableAgentExecutable: true
-        )
+    func restoreStartupInput() -> String? {
+        restoreStartupInput(repairPortableAgentExecutable: true)
     }
 
     private static func normalized(_ rawValue: String?) -> String? {
@@ -423,6 +418,15 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             result[key] = item.value
         }
         return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func normalizedLaunchCommand(
+        _ launchCommand: AgentLaunchCommandSnapshot?
+    ) -> AgentLaunchCommandSnapshot? {
+        guard var launchCommand else { return nil }
+        launchCommand.workingDirectory = normalized(launchCommand.workingDirectory)
+        launchCommand.environment = normalizedEnvironment(launchCommand.environment)
+        return launchCommand
     }
 
     private static func isSafeEnvironmentValue(_ value: String) -> Bool {
@@ -507,7 +511,10 @@ struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
     }
 
     func matches(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
-        guard !commandPrefix.isEmpty,
+        // Remote approvals require a follow-up location-scoped record design that
+        // persists and signs an execution-location field.
+        guard binding.launchFlavor == .local,
+              !commandPrefix.isEmpty,
               let tokens = SurfaceResumeCommandCanonicalizer.tokens(from: binding.command),
               tokens.count >= commandPrefix.count,
               Array(tokens.prefix(commandPrefix.count)) == commandPrefix else {
@@ -519,10 +526,12 @@ struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
             }
         }
         let bindingEnvironment = binding.environment ?? [:]
-        guard let environment, !environment.isEmpty else {
-            return bindingEnvironment.isEmpty
+        if let environment, !environment.isEmpty {
+            guard bindingEnvironment == environment else { return false }
+        } else {
+            guard bindingEnvironment.isEmpty else { return false }
         }
-        return bindingEnvironment == environment
+        return SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(binding.command)
     }
 
     func signingPayloadData() -> Data {
@@ -605,45 +614,135 @@ struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
 
 enum SurfaceResumeCommandCanonicalizer {
     static func tokens(from command: String) -> [String]? {
-        let scalars = Array(command.unicodeScalars)
-        var tokens: [String] = []
+        tokensWithRawSlices(from: command)?.map(\.token)
+    }
+
+    static func tokensWithRawSlices(
+        from command: String
+    ) -> [(token: String, raw: Substring)]? {
+        let scalars = command.unicodeScalars
+        var tokens: [(token: String, raw: Substring)] = []
         var token = String.UnicodeScalarView()
-        var index = 0
+        var rawStart: String.Index?
+        var index = scalars.startIndex
         var quote: UnicodeScalar?
 
-        func flushToken() {
-            guard !token.isEmpty else { return }
-            tokens.append(String(token))
-            token.removeAll(keepingCapacity: true)
+        func flushToken(endingAt endIndex: String.Index) {
+            defer {
+                token.removeAll(keepingCapacity: true)
+                rawStart = nil
+            }
+            guard !token.isEmpty, let rawStart else { return }
+            tokens.append((
+                token: String(token),
+                raw: command[rawStart..<endIndex]
+            ))
         }
 
-        while index < scalars.count {
+        while index < scalars.endIndex {
             let scalar = scalars[index]
             if let activeQuote = quote {
                 if scalar == activeQuote {
                     quote = nil
-                } else if activeQuote == "\"", scalar == "\\", index + 1 < scalars.count {
-                    index += 1
+                } else if activeQuote == "\"", scalar == "\\" {
+                    let nextIndex = scalars.index(after: index)
+                    guard nextIndex < scalars.endIndex else {
+                        index = nextIndex
+                        continue
+                    }
+                    index = nextIndex
                     token.append(scalars[index])
                 } else {
                     token.append(scalar)
                 }
             } else if scalar == "'" || scalar == "\"" {
+                rawStart = rawStart ?? index
                 quote = scalar
             } else if CharacterSet.whitespacesAndNewlines.contains(scalar) {
-                flushToken()
-            } else if scalar == "\\", index + 1 < scalars.count {
-                index += 1
+                flushToken(endingAt: index)
+            } else if scalar == "\\" {
+                rawStart = rawStart ?? index
+                let nextIndex = scalars.index(after: index)
+                guard nextIndex < scalars.endIndex else {
+                    token.append(scalar)
+                    index = nextIndex
+                    continue
+                }
+                index = nextIndex
                 token.append(scalars[index])
             } else {
+                rawStart = rawStart ?? index
                 token.append(scalar)
             }
-            index += 1
+            index = scalars.index(after: index)
         }
 
         guard quote == nil else { return nil }
-        flushToken()
+        flushToken(endingAt: scalars.endIndex)
         return tokens.isEmpty ? nil : tokens
+    }
+
+    static func isShellExpansionSafeCommand(_ command: String) -> Bool {
+        tokensWithRawSlices(from: command) != nil &&
+            !containsUnsafeShellControl(command[...])
+    }
+
+    static func generalizedApprovalPrefix(forCommand command: String) -> [String]? {
+        guard isShellExpansionSafeCommand(command),
+              let tokens = tokens(from: command) else {
+            return nil
+        }
+
+        var prefix: [String] = []
+        var index = tokens.startIndex
+
+        while index < tokens.endIndex, isEnvironmentAssignment(tokens[index]) {
+            prefix.append(tokens[index])
+            index = tokens.index(after: index)
+        }
+
+        if index < tokens.endIndex, tokens[index] == "env" || tokens[index] == "/usr/bin/env" {
+            prefix.append(tokens[index])
+            index = tokens.index(after: index)
+            while index < tokens.endIndex, isEnvironmentAssignment(tokens[index]) {
+                prefix.append(tokens[index])
+                index = tokens.index(after: index)
+            }
+        }
+
+        guard index < tokens.endIndex else {
+            return nil
+        }
+        let commandToken = tokens[index]
+        // `env` flags (e.g. `env -i`) or a nested `env` would make the wrapper
+        // itself the scoped command, so the generalized prefix would match
+        // arbitrary commands; fail closed instead.
+        guard !commandToken.hasPrefix("-"),
+              commandToken != "env",
+              commandToken != "/usr/bin/env" else {
+            return nil
+        }
+        prefix.append(commandToken)
+        index = tokens.index(after: index)
+
+        while index < tokens.endIndex {
+            let token = tokens[index]
+            guard token.hasPrefix("-") || token == "resume" else {
+                break
+            }
+            prefix.append(token)
+            index = tokens.index(after: index)
+        }
+
+        // The generalized scope may only leave the session id itself
+        // unmatched. Arguments after the session id (`codex resume <id>
+        // --yolo`) would be dropped from the scope and prefix matching would
+        // re-authorize a different session with different options, so fail
+        // closed instead of widening the policy.
+        guard tokens.count == prefix.count + 1 else {
+            return nil
+        }
+        return prefix
     }
 
     static func normalizedCWD(_ rawValue: String?) -> String? {
@@ -663,6 +762,95 @@ enum SurfaceResumeCommandCanonicalizer {
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
+    private static func isEnvironmentAssignment(_ token: String) -> Bool {
+        guard let equalsIndex = token.firstIndex(of: "=") else {
+            return false
+        }
+        let nameScalars = token[..<equalsIndex].unicodeScalars
+        guard let firstScalar = nameScalars.first,
+              isEnvironmentNameStart(firstScalar) else {
+            return false
+        }
+        return nameScalars.dropFirst().allSatisfy(isEnvironmentNameContinuation)
+    }
+
+    private static func containsUnsafeShellControl(_ raw: Substring) -> Bool {
+        let scalars = raw.unicodeScalars
+        var index = scalars.startIndex
+        var quote: UnicodeScalar?
+        var isAtTokenStart = true
+
+        while index < scalars.endIndex {
+            let scalar = scalars[index]
+            if quote == "'" {
+                if scalar == "'" {
+                    quote = nil
+                }
+                index = scalars.index(after: index)
+                continue
+            }
+            if quote == "\"" {
+                if scalar == "\\" {
+                    let nextIndex = scalars.index(after: index)
+                    index = nextIndex < scalars.endIndex
+                        ? scalars.index(after: nextIndex)
+                        : nextIndex
+                    continue
+                }
+                if scalar == "\"" {
+                    quote = nil
+                } else if scalar == "$" || scalar == "`" || scalar == "!" ||
+                            scalar == "\n" || scalar == "\r" {
+                    return true
+                }
+                index = scalars.index(after: index)
+                continue
+            }
+            if scalar == "\\" {
+                isAtTokenStart = false
+                let nextIndex = scalars.index(after: index)
+                index = nextIndex < scalars.endIndex
+                    ? scalars.index(after: nextIndex)
+                    : nextIndex
+                continue
+            }
+            if scalar == "'" {
+                isAtTokenStart = false
+                quote = scalar
+            } else if scalar == "\"" {
+                isAtTokenStart = false
+                quote = scalar
+            } else if scalar == "$" || scalar == "`" || scalar == "!" ||
+                        scalar == "\n" || scalar == "\r" {
+                return true
+            } else if CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                isAtTokenStart = true
+            } else if scalar == "*" || scalar == "?" || scalar == "[" ||
+                        scalar == "{" || scalar == "}" {
+                return true
+            } else if isAtTokenStart && (scalar == "~" || scalar == "=") {
+                return true
+            } else if scalar == ";" || scalar == "|" || scalar == "&" ||
+                      scalar == "<" || scalar == ">" || scalar == "(" || scalar == ")" {
+                return true
+            } else {
+                isAtTokenStart = false
+            }
+            index = scalars.index(after: index)
+        }
+        return false
+    }
+
+    private static func isEnvironmentNameStart(_ scalar: UnicodeScalar) -> Bool {
+        scalar == "_" ||
+            (scalar.value >= 65 && scalar.value <= 90) ||
+            (scalar.value >= 97 && scalar.value <= 122)
+    }
+
+    private static func isEnvironmentNameContinuation(_ scalar: UnicodeScalar) -> Bool {
+        isEnvironmentNameStart(scalar) ||
+            (scalar.value >= 48 && scalar.value <= 57)
+    }
 }
 
 enum SurfaceResumeApprovalSignature {
@@ -785,6 +973,9 @@ enum SurfaceResumeApprovalStore {
         isMainThread: Bool,
         isRunningTests: Bool
     ) -> Bool {
+        guard binding.launchFlavor == .local else {
+            return false
+        }
         guard isMainThread else {
             return false
         }
@@ -797,7 +988,7 @@ enum SurfaceResumeApprovalStore {
         guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
             return false
         }
-        guard SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) != nil else {
+        guard SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(binding.command) else {
             return false
         }
         guard let existingRecord else { return true }
@@ -839,6 +1030,13 @@ enum SurfaceResumeApprovalStore {
         fileManager: FileManager = .default,
         signingSecret: Data? = nil
     ) -> SurfaceResumeApprovalRecord? {
+        // Location-scoped signed records are the follow-up if remote approvals are wanted.
+        guard binding.launchFlavor == .local else {
+            return nil
+        }
+        guard SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(binding.command) else {
+            return nil
+        }
         let resolution = signingSecretResolution(explicit: signingSecret, fileManager: fileManager)
         guard case let .ready(signingSecret?) = resolution,
               let tokens = SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) else {
@@ -849,14 +1047,12 @@ enum SurfaceResumeApprovalStore {
             return nil
         }
         let now = Date().timeIntervalSince1970
-        let existing = matchingRecord(
-            for: binding,
-            fileURL: fileURL,
-            fileManager: fileManager,
-            signingSecret: signingSecret
-        )
+        var records = loadRecords(fileURL: fileURL, fileManager: fileManager)
+        let validRecords = records.filter { $0.hasValidSignature(secret: signingSecret) }
+        let matchingRecords = validRecords.filter { $0.matches(binding) }
+        let existingWithSamePrefix = matchingRecords.first { $0.commandPrefix == prefix }
         let record = SurfaceResumeApprovalRecord(
-            id: existing?.id ?? UUID().uuidString.lowercased(),
+            id: existingWithSamePrefix?.id ?? UUID().uuidString.lowercased(),
             name: binding.name,
             commandPrefix: prefix,
             cwd: binding.cwd,
@@ -864,12 +1060,30 @@ enum SurfaceResumeApprovalStore {
             environmentKeys: Array((binding.environment ?? [:]).keys),
             source: binding.source,
             policy: policy,
-            createdAt: existing?.createdAt ?? now,
+            createdAt: existingWithSamePrefix?.createdAt ?? now,
             updatedAt: now,
-            lastUsedAt: existing?.lastUsedAt,
+            lastUsedAt: existingWithSamePrefix?.lastUsedAt,
             signature: nil
         ).signed(secret: signingSecret)
-        writeReplacing(record: record, fileURL: fileURL, fileManager: fileManager)
+        let subsumedRecordIds = Set(
+            validRecords
+                .filter {
+                    $0.commandPrefix.count > prefix.count &&
+                        $0.commandPrefix.starts(with: prefix) &&
+                        $0.cwd == record.cwd &&
+                        $0.environment == record.environment
+                }
+                .map(\.id)
+        )
+        records.removeAll { subsumedRecordIds.contains($0.id) }
+        if let index = records.firstIndex(where: { $0.id == record.id }) {
+            records[index] = record
+        } else {
+            records.append(record)
+        }
+        guard write(records: records, fileURL: fileURL, fileManager: fileManager) else {
+            return nil
+        }
         return record
     }
 
@@ -974,20 +1188,6 @@ enum SurfaceResumeApprovalStore {
             return generated
         }
         return fileBackedSecret(fileManager: fileManager, generated: generated)
-    }
-
-    private static func writeReplacing(
-        record: SurfaceResumeApprovalRecord,
-        fileURL: URL,
-        fileManager: FileManager
-    ) {
-        var records = loadRecords(fileURL: fileURL, fileManager: fileManager)
-        if let index = records.firstIndex(where: { $0.id == record.id }) {
-            records[index] = record
-        } else {
-            records.append(record)
-        }
-        _ = write(records: records, fileURL: fileURL, fileManager: fileManager)
     }
 
     @discardableResult

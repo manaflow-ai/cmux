@@ -345,6 +345,7 @@ final class MobileHostService {
     private var auth: AuthCoordinator?
     private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
     private var readinessTimeoutTask: Task<Void, Never>?
+    let mobileBrowserStreamCoordinator = MobileBrowserStreamCoordinator()
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
     #endif
@@ -357,8 +358,14 @@ final class MobileHostService {
         MobileHostIrohRuntime.shared.configure(auth: auth)
     }
 
-    func updateIrohBinding(_ binding: CmxIrohBrokerBinding?) {
-        MobileHostPublicStatusCache.update(irohBinding: binding)
+    func updateIrohRoute(
+        identity: CmxIrohPeerIdentity?,
+        pathHints: [CmxIrohPathHint] = []
+    ) {
+        MobileHostPublicStatusCache.update(
+            irohIdentity: identity,
+            pathHints: pathHints
+        )
     }
 
     func closeIrohConnections(bindingID: String) {
@@ -1238,6 +1245,7 @@ final class MobileHostService {
                 let result = await TerminalController.shared.mobileHostHandleRPC(
                     request,
                     executionContext: MobileHostRPCExecutionContext(
+                        connectionID: id,
                         authorization: authorization,
                         artifactTransfers: artifactTransfers
                     )
@@ -1249,6 +1257,7 @@ final class MobileHostService {
                 return result
             },
             onClose: { id in
+                await MobileHostService.shared.mobileBrowserStreamCoordinator.connectionClosed(id)
                 MobileHostConnectionRegistry.shared.remove(id: id)
                 await MobileHostService.shared.removeConnection(id: id)
             }
@@ -1540,14 +1549,17 @@ final class MobileHostService {
     }
 
     private func ticketAuthorizationResultIfNeeded(for request: MobileHostRPCRequest) -> MobileHostRPCResult? {
-        let createsWorkspaceInGroup = request.method == "workspace.create" && request.params["group_id"] != nil && !(request.params["group_id"] is NSNull)
-        let requiresCurrentAttachTicket = request.method == "workspace.move" || request.method == "workspace.group.action" || request.method == "workspace.group.create" || createsWorkspaceInGroup
+        // The Stack same-account gate already authorized this request; an
+        // attach ticket only narrows scope while it is current (a workspace-
+        // pinned ticket must not mutate Mac-wide state). A missing, unknown,
+        // or expired token therefore leaves the account gate as the sole
+        // authority — Mac-scoped mutations included — so paired phones keep
+        // move/group affordances after the pairing ticket's TTL elapses.
+        // Advertised to clients as `workspace.mutations.account_auth.v1`.
         guard let attachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !attachToken.isEmpty else {
-            return requiresCurrentAttachTicket ? .failure(Self.scopedTicketError) : nil
-        }
-        guard let authorization = ticketStore.validAuthorization(authToken: attachToken) else {
-            return requiresCurrentAttachTicket ? .failure(Self.scopedTicketError) : nil
+              !attachToken.isEmpty,
+              let authorization = ticketStore.validAuthorization(authToken: attachToken) else {
+            return nil
         }
         if let error = Self.ticketAuthorizationError(authorization: authorization, request: request) { return .failure(error) }
         return nil

@@ -3,7 +3,7 @@ import {
   RENDER_GRAPHIC_MAX_DECODED_BYTES,
   type RenderGraphicImage,
   type RenderGraphicPlacement,
-} from "cmux/browser";
+} from "cmux/raw";
 
 const KITTY_BELOW_BACKGROUND_Z = -1_073_741_824;
 

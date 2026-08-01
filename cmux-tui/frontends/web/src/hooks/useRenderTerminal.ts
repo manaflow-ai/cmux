@@ -8,7 +8,7 @@ import {
   type RenderDeltaEvent,
   type RenderRow,
   type RenderStateEvent,
-} from "cmux/browser";
+} from "cmux/raw";
 import { useRenderGraphicsModelBudget } from "../components/RenderGraphics";
 import { ATTACH_RECOVERY_STABLE_MS, attachRecoveryDelay } from "../lib/attachRecovery";
 import { debounce } from "../lib/debounce";
@@ -50,7 +50,7 @@ interface RenderHistoryView {
   active: boolean;
   loading: boolean;
   total: number;
-  epoch: number | undefined;
+  epoch: bigint | undefined;
   rows: readonly RenderRow[];
 }
 

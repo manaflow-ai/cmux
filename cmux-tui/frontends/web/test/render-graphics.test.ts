@@ -5,7 +5,7 @@ import {
   RENDER_GRAPHIC_MAX_ENCODED_CHARS,
   type RenderGraphicImage,
   type RenderGraphicPlacement,
-} from "cmux/browser";
+} from "cmux/raw";
 import {
   decodeRenderGraphicImage,
   RENDER_GRAPHIC_MAX_CANVAS_DIMENSION,
@@ -40,7 +40,7 @@ describe("render graphics", () => {
   it("decodes bounded RGB and RGBA pixels into browser RGBA", () => {
     const rgb = decodeRenderGraphicImage({
       id: 9,
-      generation: 1,
+      generation: 1n,
       width: 2,
       height: 1,
       format: "rgb",
@@ -48,7 +48,7 @@ describe("render graphics", () => {
     });
     const rgba = decodeRenderGraphicImage({
       id: 10,
-      generation: 1,
+      generation: 1n,
       width: 1,
       height: 1,
       format: "rgba",
@@ -73,7 +73,7 @@ describe("render graphics", () => {
   it("rejects dimension mismatches and images beyond the server storage bound", () => {
     const mismatched: RenderGraphicImage = {
       id: 9,
-      generation: 1,
+      generation: 1n,
       width: 2,
       height: 2,
       format: "rgba",
@@ -93,7 +93,7 @@ describe("render graphics", () => {
   it("rejects invalid base64 characters and padding in the decoder", () => {
     const image: RenderGraphicImage = {
       id: 9,
-      generation: 1,
+      generation: 1n,
       width: 1,
       height: 1,
       format: "rgb",
@@ -117,7 +117,7 @@ describe("render graphics", () => {
 
     const oversized: RenderGraphicImage = {
       id: 11,
-      generation: 1,
+      generation: 1n,
       width: RENDER_GRAPHIC_MAX_DECODED_BYTES / 4 + 1,
       height: 1,
       format: "rgba",
@@ -125,7 +125,7 @@ describe("render graphics", () => {
     };
     const next: RenderGraphicImage = {
       id: 12,
-      generation: 1,
+      generation: 1n,
       width: 1,
       height: 1,
       format: "rgba",
@@ -139,7 +139,7 @@ describe("render graphics", () => {
   it("reuses unchanged decoded pixels and evicts replaced or removed images", () => {
     const firstImage: RenderGraphicImage = {
       id: 9,
-      generation: 1,
+      generation: 1n,
       width: 1,
       height: 1,
       format: "rgba",
@@ -150,7 +150,7 @@ describe("render graphics", () => {
       id: 10,
     };
     const first = updateDecodedRenderGraphicImages(new Map(), [firstImage, removedImage]);
-    const replacement = { ...removedImage, generation: 2 };
+    const replacement = { ...removedImage, generation: 2n };
     const second = updateDecodedRenderGraphicImages(first, [firstImage, replacement]);
 
     expect(second.get(9)).toBe(first.get(9));
@@ -165,7 +165,7 @@ describe("render graphics", () => {
   it("resolves source crop, cell origin, pixel offsets, explicit size, and layer", () => {
     const image: RenderGraphicImage = {
       id: 9,
-      generation: 1,
+      generation: 1n,
       width: 2,
       height: 2,
       format: "rgba",
@@ -189,7 +189,7 @@ describe("render graphics", () => {
   it("drops hidden and missing placements while preserving both negative layers", () => {
     const image: RenderGraphicImage = {
       id: 9,
-      generation: 1,
+      generation: 1n,
       width: 2,
       height: 2,
       format: "rgba",
@@ -209,7 +209,7 @@ describe("render graphics", () => {
   it("rejects browser-unsafe intrinsic canvas dimensions independently of area", () => {
     const atLimit: RenderGraphicImage = {
       id: 9,
-      generation: 1,
+      generation: 1n,
       width: RENDER_GRAPHIC_MAX_CANVAS_DIMENSION,
       height: 1,
       format: "rgba",

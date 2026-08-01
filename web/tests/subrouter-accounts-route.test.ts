@@ -85,9 +85,10 @@ describe("subrouter accounts route", () => {
     const operation = withSubrouterAuthorizationDeadline(
       async () => await new Promise<never>(() => {}),
     );
-    const result = await operation.catch((error: unknown) => error);
 
-    expect(result).toBeInstanceOf(SubrouterAuthorizationTimeoutError);
+    await expect(operation).rejects.toBeInstanceOf(
+      SubrouterAuthorizationTimeoutError,
+    );
   });
 
   test("bounded JSON releases a body reader after stream errors", async () => {
@@ -977,11 +978,16 @@ describe("subrouter accounts route", () => {
     });
     let active = 0;
     let maxActive = 0;
+    let reportPermissionsDrained!: () => void;
+    const permissionsDrained = new Promise<void>((resolve) => {
+      reportPermissionsDrained = resolve;
+    });
     const listPermissions = mock(async () => {
       active += 1;
       maxActive = Math.max(maxActive, active);
       await permissionsReady;
       active -= 1;
+      if (active === 0) reportPermissionsDrained();
       return [{ id: "subrouter:use" }];
     });
     currentUser = {
@@ -995,6 +1001,7 @@ describe("subrouter accounts route", () => {
     );
     const responses = await Promise.all(routes);
     releasePermissions();
+    await permissionsDrained;
 
     expect(responses.every((response) => response.status === 503)).toBe(true);
     expect(maxActive).toBeLessThanOrEqual(8);

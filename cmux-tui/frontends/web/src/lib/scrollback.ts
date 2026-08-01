@@ -1,4 +1,4 @@
-import type { ReadScrollbackResult, RenderGraphicPlacement, RenderRow } from "cmux/browser";
+import type { ReadScrollbackResult, RenderGraphicPlacement, RenderRow } from "cmux/raw";
 import type { RenderGraphicsModel } from "./renderModel";
 
 export interface ScrollbackRequest {
@@ -8,7 +8,7 @@ export interface ScrollbackRequest {
 
 export interface ScrollbackWindow {
   total: number;
-  epoch: number | undefined;
+  epoch: bigint | undefined;
   pageSize: number;
   maxRows: number;
   rows: readonly RenderRow[];
@@ -105,9 +105,7 @@ export function mergeScrollbackPage(
   window: ScrollbackWindow,
   page: ReadScrollbackResult,
 ): ScrollbackWindow {
-  const epoch = Number.isSafeInteger(page.epoch) && (page.epoch ?? -1) >= 0
-    ? page.epoch
-    : undefined;
+  const epoch = page.epoch;
   const existing = page.total < window.total || epoch !== window.epoch ? [] : window.rows;
   const byIndex = new Map<number, RenderRow>();
   for (const row of existing) byIndex.set(row.row, row);
@@ -131,12 +129,12 @@ export function mergeScrollbackPage(
 export function projectRenderGraphicsToRows(
   graphics: RenderGraphicsModel | undefined,
   rows: readonly RenderRow[],
-  graphicsEpoch: number | undefined,
-  rowsEpoch: number | undefined,
+  graphicsEpoch: bigint | undefined,
+  rowsEpoch: bigint | undefined,
 ): RenderGraphicsModel | undefined {
   const firstRow = rows[0]?.row;
   if (graphics === undefined || graphics.images.length === 0
-    || !Number.isSafeInteger(graphicsEpoch) || (graphicsEpoch ?? -1) < 0
+    || graphicsEpoch === undefined || graphicsEpoch < 0n
     || graphicsEpoch !== rowsEpoch || firstRow === undefined
     || !Number.isSafeInteger(firstRow) || firstRow < 0
     || rows.some((row, index) => row.row !== firstRow + index)) return undefined;

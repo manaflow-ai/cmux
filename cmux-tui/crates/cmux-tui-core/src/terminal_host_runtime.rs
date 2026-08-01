@@ -30,11 +30,13 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
     FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, KITTY_IMAGE_ALIAS_COUNT_LEN,
     KITTY_IMAGE_ALIAS_ENCODED_LEN, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
-    PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
+    PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, encode_terminal_exit, read_frame,
+    wait_for_native_child_status, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
 const LEGACY_PROTOCOL_VERSION: u16 = 1;
+const HOST_EXIT_RECORD_VERSION: u32 = 1;
 const MAX_LAUNCH_PAYLOAD: usize = 1024 * 1024;
 const MAX_STRING: usize = 256 * 1024;
 const MAX_BLOB: usize = crate::surface::VT_REPLAY_MAX_BYTES;
@@ -156,6 +158,35 @@ impl std::fmt::Debug for TerminalHostRecord {
 impl TerminalHostRecord {
     pub fn record_path(&self, root: &Path) -> PathBuf {
         root.join(format!("{}.json", self.terminal_id))
+    }
+}
+
+/// Host-owned completion sidecar. It is written and fsynced after the final
+/// PTY bytes are published but before the sequenced Exit frame. The mux
+/// removes it only after the same outcome is durable in SQLite, which makes
+/// removal an acknowledgement and keeps exit status recoverable across a
+/// daemon crash.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalHostExitRecord {
+    pub record_version: u32,
+    pub terminal_id: String,
+    pub incarnation: String,
+    pub exit: TerminalExit,
+}
+
+impl TerminalHostExitRecord {
+    pub fn new(identity: &TerminalHostIdentity, exit: TerminalExit) -> Self {
+        Self {
+            record_version: HOST_EXIT_RECORD_VERSION,
+            terminal_id: identity.terminal_id.clone(),
+            incarnation: identity.incarnation.clone(),
+            exit,
+        }
+    }
+
+    pub fn record_path(&self, root: &Path) -> PathBuf {
+        root.join(format!("{}.exit", self.terminal_id))
     }
 }
 
@@ -359,9 +390,12 @@ impl std::error::Error for CellPixelRequestDeadlineElapsed {}
 #[cfg(unix)]
 mod unix {
     use std::collections::{HashMap, HashSet};
+    use std::ffi::CString;
     use std::fs::{self, File, OpenOptions};
+    use std::io as std_io;
     use std::io::{Read, Write};
     use std::os::fd::{AsRawFd, RawFd};
+    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::os::unix::process::CommandExt;
@@ -1237,6 +1271,10 @@ mod unix {
             }
         }
 
+        pub(crate) fn exit_record_path(&self) -> PathBuf {
+            self.record_path.with_extension("exit")
+        }
+
         pub(crate) fn discovery_record(&self) -> (TerminalHostRecord, PathBuf) {
             (self.record.clone(), self.record_path.clone())
         }
@@ -1820,6 +1858,112 @@ mod unix {
         Ok(records)
     }
 
+    pub fn validate_terminal_host_exit_record(
+        record_path: &Path,
+        record: &TerminalHostExitRecord,
+    ) -> anyhow::Result<()> {
+        if record.record_version != HOST_EXIT_RECORD_VERSION {
+            anyhow::bail!(
+                "unsupported terminal-host exit record version {}",
+                record.record_version
+            );
+        }
+        TerminalId::from_hex(&record.terminal_id)
+            .ok_or_else(|| anyhow::anyhow!("terminal-host exit id is not a canonical UUIDv4"))?;
+        HostIncarnation::from_hex(&record.incarnation).ok_or_else(|| {
+            anyhow::anyhow!("terminal-host exit incarnation is not a canonical UUIDv4")
+        })?;
+        anyhow::ensure!(record.exit.is_valid(), "terminal-host exit outcome is invalid");
+        let parent = record_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("terminal-host exit record has no parent directory"))?;
+        if record_path != parent.join(format!("{}.exit", record.terminal_id)) {
+            anyhow::bail!("terminal-host exit record filename is not canonical");
+        }
+        let metadata = fs::symlink_metadata(record_path)?;
+        let expected_uid = fs::metadata(parent)?.uid();
+        if !metadata.file_type().is_file()
+            || metadata.uid() != expected_uid
+            || metadata.nlink() != 1
+            || metadata.mode() & 0o077 != 0
+        {
+            anyhow::bail!("terminal-host exit record permissions or ownership are unsafe");
+        }
+        Ok(())
+    }
+
+    pub fn load_terminal_host_exit_records(
+        root: &Path,
+    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostExitRecord)>> {
+        let mut records = Vec::new();
+        let mut identities = HashSet::new();
+        let entries = match fs::read_dir(root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(records),
+            Err(error) => return Err(error.into()),
+        };
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("exit") {
+                continue;
+            }
+            let bytes = match fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(_) => continue,
+            };
+            let Ok(record) = serde_json::from_slice::<TerminalHostExitRecord>(&bytes) else {
+                continue;
+            };
+            if validate_terminal_host_exit_record(&path, &record).is_err()
+                || !identities.insert((record.terminal_id.clone(), record.incarnation.clone()))
+            {
+                continue;
+            }
+            records.push((path, record));
+        }
+        records.sort_by(|left, right| left.0.cmp(&right.0));
+        Ok(records)
+    }
+
+    pub fn terminal_host_exit_record(
+        host_record_path: &Path,
+    ) -> anyhow::Result<Option<(PathBuf, TerminalHostExitRecord)>> {
+        let path = host_record_path.with_extension("exit");
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let record = serde_json::from_slice::<TerminalHostExitRecord>(&bytes)?;
+        validate_terminal_host_exit_record(&path, &record)?;
+        Ok(Some((path, record)))
+    }
+
+    /// Acknowledge only the exact sidecar already committed to the registry.
+    /// A mismatched replacement is retained for reconciliation rather than
+    /// deleting evidence from another incarnation.
+    pub fn acknowledge_terminal_host_exit_record(
+        record_path: &Path,
+        expected: &TerminalHostExitRecord,
+    ) -> anyhow::Result<bool> {
+        let bytes = match fs::read(record_path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        let current: TerminalHostExitRecord = serde_json::from_slice(&bytes)?;
+        validate_terminal_host_exit_record(record_path, &current)?;
+        if &current != expected {
+            return Ok(false);
+        }
+        fs::remove_file(record_path)?;
+        if let Some(parent) = record_path.parent() {
+            File::open(parent)?.sync_all()?;
+        }
+        Ok(true)
+    }
+
     fn connect_record(
         record: TerminalHostRecord,
         record_path: PathBuf,
@@ -1961,6 +2105,98 @@ mod unix {
     }
 
     fn write_record(path: &Path, record: &TerminalHostRecord) -> anyhow::Result<()> {
+        write_json_record(path, record)
+    }
+
+    fn write_exit_record(path: &Path, record: &TerminalHostExitRecord) -> anyhow::Result<()> {
+        if let Some(parent) = path.parent() {
+            prepare_private_dir(parent)?;
+        }
+        let temporary = path.with_extension(format!(
+            "tmp-{}-{}",
+            std::process::id(),
+            RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let bytes = serde_json::to_vec(record)?;
+        let result = (|| -> anyhow::Result<bool> {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+                .open(&temporary)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            match rename_no_replace(&temporary, path) {
+                Ok(()) => {
+                    if let Some(parent) = path.parent() {
+                        File::open(parent)?.sync_all()?;
+                    }
+                    Ok(true)
+                }
+                Err(error) if error.kind() == std_io::ErrorKind::AlreadyExists => Ok(false),
+                Err(error) => Err(error.into()),
+            }
+        })();
+        if temporary.exists() {
+            let _ = fs::remove_file(&temporary);
+        }
+        if result? {
+            return validate_terminal_host_exit_record(path, record);
+        }
+        let current: TerminalHostExitRecord = serde_json::from_slice(&fs::read(path)?)?;
+        validate_terminal_host_exit_record(path, &current)?;
+        anyhow::ensure!(
+            current == *record,
+            "terminal-host exit sidecar already contains a different outcome"
+        );
+        Ok(())
+    }
+
+    #[cfg(target_vendor = "apple")]
+    fn rename_no_replace(from: &Path, to: &Path) -> std_io::Result<()> {
+        let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| {
+            std_io::Error::new(std_io::ErrorKind::InvalidInput, "temporary path has NUL")
+        })?;
+        let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| {
+            std_io::Error::new(std_io::ErrorKind::InvalidInput, "exit path has NUL")
+        })?;
+        // SAFETY: both pointers reference live NUL-terminated path strings,
+        // and RENAME_EXCL asks the kernel to leave an existing target intact.
+        if unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) } == 0 {
+            Ok(())
+        } else {
+            Err(std_io::Error::last_os_error())
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    fn rename_no_replace(from: &Path, to: &Path) -> std_io::Result<()> {
+        let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| {
+            std_io::Error::new(std_io::ErrorKind::InvalidInput, "temporary path has NUL")
+        })?;
+        let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| {
+            std_io::Error::new(std_io::ErrorKind::InvalidInput, "exit path has NUL")
+        })?;
+        // SAFETY: both pointers reference live NUL-terminated path strings,
+        // and RENAME_NOREPLACE asks the kernel to leave an existing target intact.
+        if unsafe {
+            libc::renameat2(
+                libc::AT_FDCWD,
+                from.as_ptr(),
+                libc::AT_FDCWD,
+                to.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        } == 0
+        {
+            Ok(())
+        } else {
+            Err(std_io::Error::last_os_error())
+        }
+    }
+
+    fn write_json_record(path: &Path, record: &impl Serialize) -> anyhow::Result<()> {
         if let Some(parent) = path.parent() {
             prepare_private_dir(parent)?;
         }
@@ -2169,10 +2405,12 @@ mod unix {
         sequence: AtomicU64,
         next_client: AtomicU64,
         dead: AtomicBool,
-        child_exit: (Mutex<bool>, Condvar),
+        child_exit: (Mutex<Option<TerminalExit>>, Condvar),
         child_waitable: AtomicBool,
         pty_drained: AtomicBool,
         exit_published: AtomicBool,
+        exit_record_path: PathBuf,
+        exit_publish_lock: Mutex<()>,
         force_pty_drain: AtomicBool,
         pty_drain_waker: Mutex<UnixStream>,
         termination_started: AtomicBool,
@@ -2652,17 +2890,20 @@ mod unix {
         }
 
         fn child_exited(&self) -> bool {
-            *self.child_exit.0.lock().unwrap()
+            self.child_exit.0.lock().unwrap().is_some()
         }
 
         fn wait_for_child_exit(&self, timeout: Duration) -> bool {
             let exited = self.child_exit.0.lock().unwrap();
-            if *exited {
+            if exited.is_some() {
                 return true;
             }
-            let (exited, _) =
-                self.child_exit.1.wait_timeout_while(exited, timeout, |exited| !*exited).unwrap();
-            *exited
+            let (exited, _) = self
+                .child_exit
+                .1
+                .wait_timeout_while(exited, timeout, |value| value.is_none())
+                .unwrap();
+            exited.is_some()
         }
 
         fn wait_for_child_waitable(&self, timeout: Duration) -> bool {
@@ -2694,6 +2935,24 @@ mod unix {
                 .wait_timeout_while(state, timeout, |_| !self.pty_drained.load(Ordering::Acquire))
                 .unwrap();
             self.pty_drained.load(Ordering::Acquire)
+        }
+
+        fn publish_child_wait_predicate(&self, predicate: &AtomicBool) {
+            // Every predicate consumed by child_exit.wait_* must change while
+            // holding this mutex. Otherwise a notifier can run after a waiter
+            // checks the atomic but before Condvar::wait arms, losing the only
+            // wake that allows the terminal exit to be published.
+            let _state = self.child_exit.0.lock().unwrap();
+            predicate.store(true, Ordering::Release);
+            self.child_exit.1.notify_all();
+        }
+
+        fn mark_child_waitable(&self) {
+            self.publish_child_wait_predicate(&self.child_waitable);
+        }
+
+        fn mark_pty_drained(&self) {
+            self.publish_child_wait_predicate(&self.pty_drained);
         }
 
         fn signal_terminal_process_groups(&self, signal: libc::c_int) {
@@ -2762,18 +3021,51 @@ mod unix {
         }
 
         fn finish_group_escalation(&self) {
-            self.group_escalation_complete.store(true, Ordering::Release);
-            self.child_exit.1.notify_all();
+            self.publish_child_wait_predicate(&self.group_escalation_complete);
         }
 
         fn publish_exit_if_drained(&self) {
-            if claim_host_exit_after_drain(
-                &self.child_exit.0,
-                &self.pty_drained,
-                &self.exit_published,
-            ) {
-                self.dead.store(true, Ordering::Release);
-                self.broadcast(MessageKind::Exit, Vec::new());
+            let _publish = self.exit_publish_lock.lock().unwrap();
+            let mut reported = false;
+            loop {
+                let result = persist_and_claim_host_exit_after_drain(
+                    &self.child_exit.0,
+                    &self.pty_drained,
+                    &self.exit_published,
+                    |exit| {
+                        write_exit_record(
+                            &self.exit_record_path,
+                            &TerminalHostExitRecord::new(
+                                &TerminalHostIdentity {
+                                    terminal_id: self.terminal_id.to_hex(),
+                                    incarnation: self.incarnation.to_hex(),
+                                },
+                                exit.clone(),
+                            ),
+                        )
+                    },
+                );
+                match result {
+                    Ok(Some(exit)) => {
+                        self.dead.store(true, Ordering::Release);
+                        self.broadcast(MessageKind::Exit, encode_terminal_exit(&exit));
+                        return;
+                    }
+                    Ok(None) => return,
+                    Err(error) => {
+                        // The host stays live and sends no Exit until the
+                        // durable sidecar succeeds. Reconnecting muxes can
+                        // still inspect the retained snapshot, and a disk
+                        // failure cannot erase the only authoritative status.
+                        if !reported {
+                            eprintln!(
+                                "cmux-tui: terminal-host exit persistence failed; retrying: {error:#}"
+                            );
+                            reported = true;
+                        }
+                        thread::sleep(Duration::from_millis(100));
+                    }
+                }
             }
         }
 
@@ -2816,16 +3108,26 @@ mod unix {
         }
     }
 
-    fn claim_host_exit_after_drain(
-        child_exited: &Mutex<bool>,
+    fn persist_and_claim_host_exit_after_drain(
+        child_exited: &Mutex<Option<TerminalExit>>,
         pty_drained: &AtomicBool,
         exit_published: &AtomicBool,
-    ) -> bool {
-        pty_drained.load(Ordering::Acquire)
-            && *child_exited.lock().unwrap()
-            && exit_published
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
+        persist: impl FnOnce(&TerminalExit) -> anyhow::Result<()>,
+    ) -> anyhow::Result<Option<TerminalExit>> {
+        if !pty_drained.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        let Some(exit) = child_exited.lock().unwrap().clone() else {
+            return Ok(None);
+        };
+        if exit_published.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        persist(&exit)?;
+        Ok(exit_published
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+            .then_some(exit))
     }
 
     /// Keep viewer mutation, minimum reduction, and the resulting PTY resize
@@ -3145,10 +3447,12 @@ mod unix {
             sequence: AtomicU64::new(0),
             next_client: AtomicU64::new(1),
             dead: AtomicBool::new(false),
-            child_exit: (Mutex::new(false), Condvar::new()),
+            child_exit: (Mutex::new(None), Condvar::new()),
             child_waitable: AtomicBool::new(false),
             pty_drained: AtomicBool::new(false),
             exit_published: AtomicBool::new(false),
+            exit_record_path: Path::new(&launch.record_path).with_extension("exit"),
+            exit_publish_lock: Mutex::new(()),
             force_pty_drain: AtomicBool::new(false),
             pty_drain_waker: Mutex::new(pty_drain_waker),
             termination_started: AtomicBool::new(false),
@@ -3230,8 +3534,7 @@ mod unix {
             // The reader publishes every final PTY byte before declaring the
             // stream drained. Exit is emitted only after this flag and the
             // child wait rendezvous, so clients can safely stop at Exit.
-            reader_host.pty_drained.store(true, Ordering::Release);
-            reader_host.child_exit.1.notify_all();
+            reader_host.mark_pty_drained();
             reader_host.publish_exit_if_drained();
         })?;
         let child_host = shared.clone();
@@ -3241,8 +3544,7 @@ mod unix {
                 .and_then(|pid| libc::pid_t::try_from(pid).ok())
                 .is_some_and(|pid| wait_for_child_exit_without_reaping(pid).is_ok());
             if observed_without_reaping {
-                child_host.child_waitable.store(true, Ordering::Release);
-                child_host.child_exit.1.notify_all();
+                child_host.mark_child_waitable();
                 loop {
                     let signal = child_host.child_signal_lock.lock().unwrap();
                     let escalation_complete =
@@ -3251,9 +3553,10 @@ mod unix {
                         child_host.termination_started.load(Ordering::Acquire);
                     let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
                     if escalation_complete || (!termination_started && pty_drained) {
-                        let _ = child.wait();
+                        let exit = wait_for_native_child_status(child.as_mut());
                         child_host.child_reaped.store(true, Ordering::Release);
                         drop(signal);
+                        *child_host.child_exit.0.lock().unwrap() = Some(exit);
                         break;
                     }
                     drop(signal);
@@ -3268,19 +3571,16 @@ mod unix {
                         })
                         .unwrap();
                 }
-                let mut exited = child_host.child_exit.0.lock().unwrap();
-                *exited = true;
-                drop(exited);
                 child_host.child_exit.1.notify_all();
                 child_host.publish_exit_if_drained();
             } else {
                 // Native Unix PTYs always expose a PID and support waitid;
                 // retain a conservative fallback for alternate backends.
-                let _ = child.wait();
+                let exit = wait_for_native_child_status(child.as_mut());
                 child_host.child_reaped.store(true, Ordering::Release);
-                child_host.child_waitable.store(true, Ordering::Release);
+                child_host.mark_child_waitable();
                 let mut exited = child_host.child_exit.0.lock().unwrap();
-                *exited = true;
+                *exited = Some(exit);
                 child_host.child_exit.1.notify_all();
                 child_host.publish_exit_if_drained();
             }
@@ -4718,6 +5018,109 @@ mod unix {
         }
 
         #[test]
+        fn exit_sidecar_round_trips_and_requires_exact_acknowledgement() {
+            let (record_path, record, lease) = record_fixture("exit-sidecar");
+            let root = record_path.parent().unwrap();
+            let exit_record = TerminalHostExitRecord::new(
+                &TerminalHostIdentity {
+                    terminal_id: record.terminal_id.clone(),
+                    incarnation: record.incarnation.clone(),
+                },
+                TerminalExit {
+                    outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+                    exited_at_ms: 1_234_567,
+                },
+            );
+            let exit_path = record_path.with_extension("exit");
+            write_exit_record(&exit_path, &exit_record).unwrap();
+            assert_eq!(
+                load_terminal_host_exit_records(root).unwrap(),
+                vec![(exit_path.clone(), exit_record.clone())]
+            );
+            assert_eq!(
+                terminal_host_exit_record(&record_path).unwrap(),
+                Some((exit_path.clone(), exit_record.clone()))
+            );
+
+            let mut mismatch = exit_record.clone();
+            mismatch.exit.exited_at_ms += 1;
+            assert!(!acknowledge_terminal_host_exit_record(&exit_path, &mismatch).unwrap());
+            assert!(exit_path.exists(), "mismatched ack must retain restart evidence");
+            assert!(acknowledge_terminal_host_exit_record(&exit_path, &exit_record).unwrap());
+            assert!(!exit_path.exists());
+            assert!(
+                !acknowledge_terminal_host_exit_record(&exit_path, &exit_record).unwrap(),
+                "repeated exact ack is an idempotent no-op"
+            );
+
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn exit_sidecar_publication_never_clobbers_a_concurrent_outcome() {
+            let (record_path, record, lease) = record_fixture("exit-sidecar-race");
+            let root = record_path.parent().unwrap().to_path_buf();
+            let exit_path = record_path.with_extension("exit");
+            let identity = TerminalHostIdentity {
+                terminal_id: record.terminal_id.clone(),
+                incarnation: record.incarnation.clone(),
+            };
+            let first = TerminalHostExitRecord::new(
+                &identity,
+                TerminalExit {
+                    outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+                    exited_at_ms: 1_234_567,
+                },
+            );
+            let second = TerminalHostExitRecord::new(
+                &identity,
+                TerminalExit {
+                    outcome: crate::terminal_host_protocol::TerminalExitOutcome::Signal {
+                        signal: libc::SIGTERM,
+                        core_dumped: false,
+                    },
+                    exited_at_ms: 1_234_568,
+                },
+            );
+            let barrier = Arc::new(std::sync::Barrier::new(3));
+            let publishers = [first.clone(), second.clone()]
+                .into_iter()
+                .map(|candidate| {
+                    let barrier = barrier.clone();
+                    let exit_path = exit_path.clone();
+                    thread::spawn(move || {
+                        barrier.wait();
+                        write_exit_record(&exit_path, &candidate)
+                    })
+                })
+                .collect::<Vec<_>>();
+            barrier.wait();
+            let results = publishers
+                .into_iter()
+                .map(|publisher| publisher.join().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+            let stored: TerminalHostExitRecord =
+                serde_json::from_slice(&fs::read(&exit_path).unwrap()).unwrap();
+            assert!(stored == first || stored == second);
+            validate_terminal_host_exit_record(&exit_path, &stored).unwrap();
+
+            let mut unknown_field = serde_json::to_value(&stored).unwrap();
+            unknown_field["unexpected"] = serde_json::json!(true);
+            assert!(
+                serde_json::from_value::<TerminalHostExitRecord>(unknown_field).is_err(),
+                "exit sidecars must reject fields outside the versioned schema"
+            );
+
+            assert!(acknowledge_terminal_host_exit_record(&exit_path, &stored).unwrap());
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
         fn legacy_record_is_adoptable_shape_but_never_unsafely_reaped() {
             let (v2_path, v2, lease) = record_fixture("legacy");
             let root = v2_path.parent().unwrap();
@@ -5271,17 +5674,26 @@ mod unix {
                 let broadcast_lock = Mutex::new(());
                 let sequence = AtomicU64::new(0);
                 let taps = Mutex::new(HashMap::from([(1, tap)]));
-                let child_exited = Mutex::new(false);
+                let exit = TerminalExit {
+                    outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+                    exited_at_ms: 1234,
+                };
+                let child_exited = Mutex::new(None);
                 let pty_drained = AtomicBool::new(false);
                 let exit_published = AtomicBool::new(false);
 
                 if child_first {
-                    *child_exited.lock().unwrap() = true;
-                    assert!(!claim_host_exit_after_drain(
-                        &child_exited,
-                        &pty_drained,
-                        &exit_published,
-                    ));
+                    *child_exited.lock().unwrap() = Some(exit.clone());
+                    assert!(
+                        persist_and_claim_host_exit_after_drain(
+                            &child_exited,
+                            &pty_drained,
+                            &exit_published,
+                            |_| Ok(()),
+                        )
+                        .unwrap()
+                        .is_none()
+                    );
                 }
 
                 publish_host_frames(
@@ -5293,22 +5705,42 @@ mod unix {
                 pty_drained.store(true, Ordering::Release);
 
                 if !child_first {
-                    assert!(!claim_host_exit_after_drain(
-                        &child_exited,
-                        &pty_drained,
-                        &exit_published,
-                    ));
-                    *child_exited.lock().unwrap() = true;
+                    assert!(
+                        persist_and_claim_host_exit_after_drain(
+                            &child_exited,
+                            &pty_drained,
+                            &exit_published,
+                            |_| Ok(()),
+                        )
+                        .unwrap()
+                        .is_none()
+                    );
+                    *child_exited.lock().unwrap() = Some(exit.clone());
                 }
-                assert!(claim_host_exit_after_drain(&child_exited, &pty_drained, &exit_published,));
+                let claimed = persist_and_claim_host_exit_after_drain(
+                    &child_exited,
+                    &pty_drained,
+                    &exit_published,
+                    |_| Ok(()),
+                )
+                .unwrap()
+                .expect("drained exited child claims one Exit");
+                assert_eq!(claimed, exit);
                 publish_host_frames(
                     &broadcast_lock,
                     &sequence,
                     &taps,
-                    [Frame::new(MessageKind::Exit, Vec::new())],
+                    [Frame::new(MessageKind::Exit, encode_terminal_exit(&claimed))],
                 );
                 assert!(
-                    !claim_host_exit_after_drain(&child_exited, &pty_drained, &exit_published,)
+                    persist_and_claim_host_exit_after_drain(
+                        &child_exited,
+                        &pty_drained,
+                        &exit_published,
+                        |_| Ok(()),
+                    )
+                    .unwrap()
+                    .is_none()
                 );
 
                 let frames = receiver.try_iter().collect::<Vec<_>>();
@@ -5318,7 +5750,54 @@ mod unix {
                 assert_eq!(frames[0].sequence, 1);
                 assert_eq!(frames[1].kind, MessageKind::Exit);
                 assert_eq!(frames[1].sequence, 2);
+                assert_eq!(
+                    crate::terminal_host_protocol::decode_terminal_exit(&frames[1].payload)
+                        .unwrap(),
+                    exit
+                );
             }
+        }
+
+        #[test]
+        fn exit_persistence_failure_does_not_claim_or_publish_status() {
+            let exit = TerminalExit {
+                outcome: crate::terminal_host_protocol::TerminalExitOutcome::Signal {
+                    signal: libc::SIGTERM,
+                    core_dumped: false,
+                },
+                exited_at_ms: 4567,
+            };
+            let child_exited = Mutex::new(Some(exit.clone()));
+            let pty_drained = AtomicBool::new(true);
+            let exit_published = AtomicBool::new(false);
+            let failed = persist_and_claim_host_exit_after_drain(
+                &child_exited,
+                &pty_drained,
+                &exit_published,
+                |_| anyhow::bail!("injected sidecar fsync failure"),
+            );
+            assert!(failed.is_err());
+            assert!(!exit_published.load(Ordering::Acquire));
+
+            let claimed = persist_and_claim_host_exit_after_drain(
+                &child_exited,
+                &pty_drained,
+                &exit_published,
+                |_| Ok(()),
+            )
+            .unwrap();
+            assert_eq!(claimed, Some(exit));
+            assert!(exit_published.load(Ordering::Acquire));
+            assert!(
+                persist_and_claim_host_exit_after_drain(
+                    &child_exited,
+                    &pty_drained,
+                    &exit_published,
+                    |_| panic!("already-published exit must not persist twice"),
+                )
+                .unwrap()
+                .is_none()
+            );
         }
 
         #[test]
@@ -5524,10 +6003,11 @@ pub(crate) use unix::{
 };
 #[cfg(unix)]
 pub use unix::{
-    HostAttachment, adopt_terminal_host, isolate_terminal_host_process_fds, launch_terminal_host,
-    launch_terminal_host_with_identity, load_terminal_host_records,
-    remove_stale_terminal_host_record, serve_terminal_host_stdio, terminal_host_record_liveness,
-    terminal_host_root, validate_terminal_host_record,
+    HostAttachment, acknowledge_terminal_host_exit_record, adopt_terminal_host,
+    isolate_terminal_host_process_fds, launch_terminal_host, launch_terminal_host_with_identity,
+    load_terminal_host_exit_records, load_terminal_host_records, remove_stale_terminal_host_record,
+    serve_terminal_host_stdio, terminal_host_exit_record, terminal_host_record_liveness,
+    terminal_host_root, validate_terminal_host_exit_record, validate_terminal_host_record,
 };
 
 #[cfg(not(unix))]

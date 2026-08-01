@@ -6,7 +6,7 @@ import type {
   RenderGraphics,
   RenderRow,
   RenderStateEvent,
-} from "cmux/browser";
+} from "cmux/raw";
 import { decodeRenderGraphicImage } from "../src/lib/renderGraphics";
 import * as renderModelApi from "../src/lib/renderModel";
 import {
@@ -29,17 +29,17 @@ function row(index: number, text: string): RenderRow {
 }
 
 const graphics: RenderGraphics = {
-  generation: 4,
+  generation: 4n,
   images: [{
     id: 9,
-    generation: 2,
+    generation: 2n,
     width: 1,
     height: 1,
     format: "rgba",
     data: "/wAA/w==",
   }, {
     id: 10,
-    generation: 1,
+    generation: 1n,
     width: 1,
     height: 1,
     format: "rgb",
@@ -76,13 +76,13 @@ function snapshot(
 ): RenderStateEvent {
   return {
     event: "render-state",
-    surface: 7,
+    surface: 7n,
     size: { cols: 3, rows: 2 },
     cursor,
     default_fg: "#eeeeee",
     default_bg: "#111111",
     scrollback_rows: 12,
-    history_epoch: 5,
+    history_epoch: 5n,
     rows,
     graphics: renderGraphics,
   } as RenderStateEvent;
@@ -91,7 +91,7 @@ function snapshot(
 function delta(overrides: Partial<RenderDeltaEvent> = {}): RenderDeltaEvent {
   return {
     event: "render-delta",
-    surface: 7,
+    surface: 7n,
     cursor,
     full: false,
     rows: [],
@@ -102,10 +102,10 @@ function delta(overrides: Partial<RenderDeltaEvent> = {}): RenderDeltaEvent {
 describe("render model", () => {
   it("tracks retained-history epochs across snapshots and deltas", () => {
     const initial = applySnapshot(snapshot());
-    const updated = applyDelta(initial, delta({ history_epoch: 9 } as Partial<RenderDeltaEvent>));
+    const updated = applyDelta(initial, delta({ history_epoch: 9n } as Partial<RenderDeltaEvent>));
 
-    expect((initial as { historyEpoch?: number }).historyEpoch).toBe(5);
-    expect((updated as { historyEpoch?: number }).historyEpoch).toBe(9);
+    expect((initial as { historyEpoch?: bigint }).historyEpoch).toBe(5n);
+    expect((updated as { historyEpoch?: bigint }).historyEpoch).toBe(9n);
   });
 
   it("indexes snapshot and dirty rows by row number even when events list them out of order", () => {
@@ -119,7 +119,7 @@ describe("render model", () => {
   it("ignores invalid row indexes and deltas buffered for another surface", () => {
     const initial = applySnapshot(snapshot());
     const invalidRows = applyDelta(initial, delta({ rows: [row(-1, "bad"), row(8, "bad")] }));
-    const staleSurface = applyDelta(initial, delta({ surface: 99, rows: [row(0, "stale")] }));
+    const staleSurface = applyDelta(initial, delta({ surface: 99n, rows: [row(0, "stale")] }));
 
     expect(invalidRows.rows.map((candidate) => candidate.runs[0]?.text)).toEqual(["one", "two"]);
     expect(staleSurface).toBe(initial);
@@ -163,16 +163,16 @@ describe("render model", () => {
     const initial = applySnapshot(snapshot());
     const moved = applyDelta(initial, delta({
       graphics: {
-        generation: 4,
+        generation: 4n,
         placements: [{ ...graphics.placements[0], viewport_col: 2 }],
       },
     }));
     const replaced = applyDelta(moved, delta({
       graphics: {
-        generation: 5,
+        generation: 5n,
         images: [{
           ...graphics.images![0],
-          generation: 3,
+          generation: 3n,
           data: "AAD//w==",
         }],
         placements: [{ ...graphics.placements[0], viewport_col: 3 }],
@@ -182,7 +182,7 @@ describe("render model", () => {
     expect(initial.graphics.images[0]?.data).toBe("/wAA/w==");
     expect(moved.graphics.images).toBe(initial.graphics.images);
     expect(moved.graphics.placements[0]?.viewport_col).toBe(2);
-    expect(replaced.graphics.images[0]).toMatchObject({ generation: 3, data: "AAD//w==" });
+    expect(replaced.graphics.images[0]).toMatchObject({ generation: 3n, data: "AAD//w==" });
     expect(replaced.graphics.images[1]).toBe(initial.graphics.images[1]);
     expect(replaced.graphics.placements[0]?.viewport_col).toBe(3);
   });
@@ -208,7 +208,7 @@ describe("render model", () => {
 
       const moved = applyDelta(initial, delta({
         graphics: {
-          generation: 5,
+          generation: 5n,
           placements: [{ ...graphics.placements[0], viewport_col: 2 }],
         },
       }));
@@ -217,10 +217,10 @@ describe("render model", () => {
 
       applyDelta(moved, delta({
         graphics: {
-          generation: 6,
+          generation: 6n,
           images: [{
             ...graphics.images![0],
-            generation: 3,
+            generation: 3n,
             data: "AAD//w==",
           }],
         },
@@ -235,16 +235,16 @@ describe("render model", () => {
     const initial = applySnapshot(snapshot());
     const replaced = applyDelta(initial, delta({
       graphics: {
-        generation: 5,
+        generation: 5n,
         images: [{
           ...graphics.images![0],
-          generation: 3,
+          generation: 3n,
           data: "AAD//w==",
         }],
       },
     }));
 
-    expect(replaced.graphics.images[0]).toMatchObject({ generation: 3, data: "AAD//w==" });
+    expect(replaced.graphics.images[0]).toMatchObject({ generation: 3n, data: "AAD//w==" });
     expect(replaced.graphics.placements).toBe(initial.graphics.placements);
   });
 
@@ -253,7 +253,7 @@ describe("render model", () => {
     const textOnly = applyDelta(initial, delta({ rows: [row(0, "text")] }));
     const removed = applyDelta(textOnly, delta({
       graphics: {
-        generation: 5,
+        generation: 5n,
         removed_image_ids: [9, 10],
         placements: [],
       },
@@ -267,7 +267,7 @@ describe("render model", () => {
 
   it("starts with empty graphics when attached to an older additive protocol server", () => {
     expect(applySnapshot({ ...snapshot(), graphics: undefined }).graphics).toEqual({
-      generation: 0,
+      generation: 0n,
       images: [],
       placements: [],
     });
@@ -283,7 +283,7 @@ describe("render model", () => {
     const data = `${"A".repeat(13_333_334)}==`;
     const image: RenderGraphicImage = {
       id: 1,
-      generation: 1,
+      generation: 1n,
       width: 2_500_000,
       height: 1,
       format: "rgba",
@@ -293,7 +293,7 @@ describe("render model", () => {
     const owners = Array.from({ length: 7 }, () => ({}));
     const models = owners.map((owner) =>
       budgetedApplySnapshot(
-        snapshot([], { generation: 1, images: [image], placements: [] }),
+        snapshot([], { generation: 1n, images: [image], placements: [] }),
         encodedBudget,
         owner,
       )
@@ -329,7 +329,7 @@ describe("render model", () => {
     ) => ReturnType<typeof applyDelta>;
     budgetedApplyDelta(
       models.at(-1)!,
-      delta({ graphics: { generation: 2, placements: [] } }),
+      delta({ graphics: { generation: 2n, placements: [] } }),
       encodedBudget,
       owners.at(-1)!,
     );
@@ -339,7 +339,7 @@ describe("render model", () => {
     unsubscribe();
 
     const recovered = budgetedApplySnapshot(
-      snapshot([], { generation: 2, images: [image], placements: [] }),
+      snapshot([], { generation: 2n, images: [image], placements: [] }),
       encodedBudget,
       owners.at(-1)!,
     );
@@ -349,7 +349,7 @@ describe("render model", () => {
   it("rejects snapshots whose retained images exceed the decoded byte budget", () => {
     const image = (id: number): RenderGraphicImage => ({
       id,
-      generation: 1,
+      generation: 1n,
       width: 1_250_001,
       height: 1,
       format: "rgba",
@@ -357,7 +357,7 @@ describe("render model", () => {
     });
 
     expect(() => applySnapshot(snapshot([], {
-      generation: 1,
+      generation: 1n,
       images: [image(1), image(2)],
       placements: [],
     }))).toThrow(/exceeds 10000000 decoded image bytes/);
@@ -366,47 +366,47 @@ describe("render model", () => {
   it("rejects incremental image growth beyond the authoritative byte budget", () => {
     const image = (id: number): RenderGraphicImage => ({
       id,
-      generation: 1,
+      generation: 1n,
       width: 1_250_000,
       height: 1,
       format: "rgba",
       data: `${"A".repeat(6_666_667)}=`,
     });
     const initial = applySnapshot(snapshot([], {
-      generation: 1,
+      generation: 1n,
       images: [image(1)],
       placements: [],
     }));
 
     expect(() => applyDelta(initial, delta({
-      graphics: { generation: 2, images: [image(2)] },
+      graphics: { generation: 2n, images: [image(2)] },
     }))).not.toThrow();
     const full = applyDelta(initial, delta({
-      graphics: { generation: 2, images: [image(2)] },
+      graphics: { generation: 2n, images: [image(2)] },
     }));
     expect(() => applyDelta(full, delta({
-      graphics: { generation: 3, images: [{ ...image(3), width: 1, data: "AAAAAA==" }] },
+      graphics: { generation: 3n, images: [{ ...image(3), width: 1, data: "AAAAAA==" }] },
     }))).toThrow(/exceeds 10000000 decoded image bytes/);
   });
 
   it("rejects too many retained images across incremental deltas", () => {
     const images = Array.from({ length: 4_096 }, (_, index): RenderGraphicImage => ({
       id: index,
-      generation: 1,
+      generation: 1n,
       width: 1,
       height: 1,
       format: "rgb",
       data: "AAAA",
     }));
     const initial = applySnapshot(snapshot([], {
-      generation: 1,
+      generation: 1n,
       images,
       placements: [],
     }));
 
     expect(() => applyDelta(initial, delta({
       graphics: {
-        generation: 2,
+        generation: 2n,
         images: [{ ...images[0]!, id: images.length }],
       },
     }))).toThrow(/exceeds 4096 images/);
@@ -414,10 +414,10 @@ describe("render model", () => {
 
   it("rejects encoded image data that does not match its dimensions", () => {
     expect(() => applySnapshot(snapshot([], {
-      generation: 1,
+      generation: 1n,
       images: [{
         id: 1,
-        generation: 1,
+        generation: 1n,
         width: 1,
         height: 1,
         format: "rgba",
@@ -430,14 +430,14 @@ describe("render model", () => {
   it("defers full base64 validation to the image decoder", () => {
     const image: RenderGraphicImage = {
       id: 1,
-      generation: 1,
+      generation: 1n,
       width: 1,
       height: 1,
       format: "rgb",
       data: "AAA!",
     };
     const model = applySnapshot(snapshot([], {
-      generation: 1,
+      generation: 1n,
       images: [image],
       placements: [],
     }));

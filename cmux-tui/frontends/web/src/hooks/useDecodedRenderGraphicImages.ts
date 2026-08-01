@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { RenderGraphicImage } from "cmux/browser";
+import type { RenderGraphicImage } from "cmux/raw";
 import {
   renderGraphicImageKey,
   type DecodedRenderGraphicImage,

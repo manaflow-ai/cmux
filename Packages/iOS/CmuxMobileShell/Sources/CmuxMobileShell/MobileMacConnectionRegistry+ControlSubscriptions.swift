@@ -3,18 +3,18 @@ extension MobileMacConnectionRegistry {
     /// O(1). Enumeration snapshots only the control entries once.
     @MainActor
     struct ControlSubscriptions: @MainActor Sequence {
-        typealias Element = (key: String, value: SecondaryMacSubscription)
+        typealias Element = (key: MacPairingKey, value: SecondaryMacSubscription)
 
         unowned let registry: MobileMacConnectionRegistry
 
-        subscript(macDeviceID: String) -> SecondaryMacSubscription? {
-            get { registry.controlSubscription(for: macDeviceID) }
+        subscript(ownerKey: MacPairingKey) -> SecondaryMacSubscription? {
+            get { registry.controlSubscription(for: ownerKey) }
             nonmutating set {
-                registry.setControlSubscription(newValue, for: macDeviceID)
+                registry.setControlSubscription(newValue, for: ownerKey)
             }
         }
 
-        var keys: [String] {
+        var keys: [MacPairingKey] {
             registry.controlEntries.map(\.key)
         }
 

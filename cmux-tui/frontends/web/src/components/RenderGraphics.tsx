@@ -10,7 +10,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import type { RenderGraphicImage, RenderGraphicPlacement } from "cmux/browser";
+import type { RenderGraphicImage, RenderGraphicPlacement } from "cmux/raw";
 import { useDecodedRenderGraphicImages } from "../hooks/useDecodedRenderGraphicImages";
 import type { RenderGraphicsModel } from "../lib/renderModel";
 import {

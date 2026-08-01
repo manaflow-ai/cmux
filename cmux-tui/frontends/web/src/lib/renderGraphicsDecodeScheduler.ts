@@ -1,4 +1,4 @@
-import type { RenderGraphicImage } from "cmux/browser";
+import type { RenderGraphicImage } from "cmux/raw";
 import {
   decodeRenderGraphicImage,
   renderGraphicDecodedByteLength,

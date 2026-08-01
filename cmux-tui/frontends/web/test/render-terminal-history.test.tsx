@@ -6,7 +6,7 @@ import type {
   ReadScrollbackResult,
   RenderAttachEvent,
   RenderCursor,
-} from "cmux/browser";
+} from "cmux/raw";
 import { useRenderTerminal } from "../src/hooks/useRenderTerminal";
 
 class TestStream {
@@ -45,7 +45,7 @@ function Harness({ client }: { client: CmuxClient }) {
   }, []);
   const { terminalRef, history, model } = useRenderTerminal({
     client,
-    surface: 7,
+    surface: 7n,
     active: true,
     onError,
   });
@@ -85,7 +85,7 @@ function Harness({ client }: { client: CmuxClient }) {
   );
 }
 
-function page(epoch: number): ReadScrollbackResult {
+function page(epoch: bigint): ReadScrollbackResult {
   return {
     start: 0,
     total: 4,
@@ -124,9 +124,9 @@ describe("render terminal history", () => {
       finishSecondRead = resolve;
     });
     const readScrollback = vi.fn()
-      .mockResolvedValueOnce(page(1))
+      .mockResolvedValueOnce(page(1n))
       .mockReturnValueOnce(secondRead)
-      .mockResolvedValueOnce(page(3));
+      .mockResolvedValueOnce(page(3n));
     const client = {
       attachSurface: vi.fn(async () => stream),
       readScrollback,
@@ -142,7 +142,7 @@ describe("render terminal history", () => {
       default_fg: "#f8f8f2",
       default_bg: "#272822",
       scrollback_rows: 4,
-      history_epoch: 1,
+      history_epoch: 1n,
       rows: [],
     });
 
@@ -161,26 +161,26 @@ describe("render terminal history", () => {
       expect(stage).toHaveAttribute("data-history-epoch", "1");
     });
     expect(readScrollback).toHaveBeenCalledTimes(1);
-    expect(readScrollback).toHaveBeenLastCalledWith(7, 0, 4);
+    expect(readScrollback).toHaveBeenLastCalledWith(7n, 0, 4);
     await waitFor(() => expect(scroller.scrollTop).toBe(580));
 
     scroller.scrollTop = 240;
-    stream.push({ event: "render-delta", surface: 7, cursor, full: false, history_epoch: 2, rows: [] });
+    stream.push({ event: "render-delta", surface: 7, cursor, full: false, history_epoch: 2n, rows: [] });
     await waitFor(() => expect(readScrollback).toHaveBeenCalledTimes(2));
-    stream.push({ event: "render-delta", surface: 7, cursor, full: false, history_epoch: 3, rows: [] });
+    stream.push({ event: "render-delta", surface: 7, cursor, full: false, history_epoch: 3n, rows: [] });
     await Promise.resolve();
     expect(readScrollback).toHaveBeenCalledTimes(2);
 
-    finishSecondRead(page(2));
+    finishSecondRead(page(2n));
     await waitFor(() => {
       expect(readScrollback).toHaveBeenCalledTimes(3);
       expect(stage).toHaveAttribute("data-history-epoch", "3");
       expect(scroller.scrollTop).toBe(240);
     });
     expect(readScrollback.mock.calls).toEqual([
-      [7, 0, 4],
-      [7, 0, 4],
-      [7, 0, 4],
+      [7n, 0, 4],
+      [7n, 0, 4],
+      [7n, 0, 4],
     ]);
   });
 });

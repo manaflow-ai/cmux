@@ -1,4 +1,4 @@
-import type { RenderGraphicImage } from "cmux/browser";
+import type { RenderGraphicImage } from "cmux/raw";
 import { decodeRenderGraphicImage } from "../lib/renderGraphics";
 
 export interface RenderGraphicsDecodeRequest {
@@ -8,7 +8,7 @@ export interface RenderGraphicsDecodeRequest {
 
 export interface RenderGraphicsDecodeResult {
   id: number;
-  generation: number;
+  generation: bigint;
   pixels: ArrayBuffer | null;
 }
 

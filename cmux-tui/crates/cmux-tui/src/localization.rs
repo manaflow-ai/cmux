@@ -273,16 +273,19 @@ impl LayoutMessages {
             .replace("{ratio}", &ratio.to_string())
     }
 
+    #[cfg(test)]
     pub(crate) fn unsupported_server_command(&self, command: &str) -> String {
         self.unsupported_server_command.replace("{command}", command)
     }
 
+    #[cfg(test)]
     pub(crate) fn layout_undo_applied(&self, screen: u64, revision: u64) -> String {
         self.layout_undo_applied
             .replace("{screen}", &screen.to_string())
             .replace("{revision}", &revision.to_string())
     }
 
+    #[cfg(test)]
     pub(crate) fn layout_undo_confirmation_required(&self, revision: u64, panes: &str) -> String {
         self.layout_undo_confirmation_required
             .replace("{revision}", &revision.to_string())
@@ -374,10 +377,12 @@ impl AttachMessages {
         format!("{}{reference:?}{}", self.unknown_terminal_prefix, self.unknown_terminal_suffix)
     }
 
+    #[cfg(test)]
     pub fn ambiguous_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.ambiguous_terminal_prefix, self.ambiguous_terminal_suffix)
     }
 
+    #[cfg(test)]
     pub fn browser_not_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.browser_terminal_prefix, self.browser_terminal_suffix)
     }
@@ -542,8 +547,28 @@ const fn decimal_width(mut value: u16) -> usize {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct StartupMessages {
+    schema_too_new: &'static str,
+    pub session_socket: &'static str,
+    pub stop_newer_server: &'static str,
+    pub no_server_listening: &'static str,
+    pub forced_handoff_unsupported: &'static str,
+    pub different_server: &'static str,
+    pub server_not_verified: &'static str,
+    pub saved_state_requires_newer: &'static str,
+    pub start_separate_session: &'static str,
+}
+
+impl StartupMessages {
+    pub(crate) fn schema_too_new(&self, session: &str, version: &str) -> String {
+        self.schema_too_new.replace("{version}", version).replace("{session}", session)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
+    pub startup: StartupMessages,
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
     pub graphics: GraphicsMessages,
@@ -568,6 +593,17 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
+    startup: StartupMessages {
+        schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
+        session_socket: "session socket",
+        stop_newer_server: "a newer cmux server owns this saved session; stop it before retrying:",
+        no_server_listening: "no server is listening on this socket; nothing needs to be stopped",
+        forced_handoff_unsupported: "this server cannot accept a safe forced shutdown command; use the newer cmux build that started it to stop the session",
+        different_server: "this socket belongs to a different cmux session; no shutdown command is shown",
+        server_not_verified: "cmux could not verify which session owns this socket; no shutdown command is shown",
+        saved_state_requires_newer: "the saved state still requires a newer cmux; upgrade cmux to reopen this session",
+        start_separate_session: "or start this build in a separate session:",
+    },
     pairing: PairingMessages {
         title: "Approve browser?",
         confirm: "Confirm this code matches the browser:",
@@ -634,7 +670,7 @@ OPTIONS:
 The agent opens one outbound connection. It never opens a public listener or
 edits shell files. Authenticate with the configured host before retrying.
 ",
-        usage: "cmux machine-agent           Share one local session through the configured host",
+        usage: "cmux machine-agent       Share one local session through the configured host",
         pairing_code: "Pairing code",
         registered: "Sharing local cmux session",
         retrying: "Cloud connection lost; retrying in {milliseconds} ms",
@@ -731,9 +767,9 @@ edits shell files. Authenticate with the configured host before retrying.
         surface_sync_resize: "resize",
         surface_sync_operation: "operation",
         unknown_terminal_prefix: "unknown terminal ",
-        unknown_terminal_suffix: "; use `cmux-tui ids` to list surfaces",
+        unknown_terminal_suffix: "; use `cmux terminal list` to list terminal IDs",
         ambiguous_terminal_prefix: "ambiguous terminal reference ",
-        ambiguous_terminal_suffix: "; use an unambiguous id from `cmux-tui ids`",
+        ambiguous_terminal_suffix: "; use an unambiguous ID from `cmux terminal list`",
         browser_terminal_prefix: "surface ",
         browser_terminal_suffix: " is a browser, not a terminal",
     },
@@ -824,6 +860,17 @@ edits shell files. Authenticate with the configured host before retrying.
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
+    startup: StartupMessages {
+        schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
+        session_socket: "セッションソケット",
+        stop_newer_server: "新しい cmux サーバーがこの保存済みセッションを所有しています。再試行する前に停止:",
+        no_server_listening: "このソケットを待ち受けているサーバーはありません。停止は不要です",
+        forced_handoff_unsupported: "このサーバーは安全な強制停止コマンドに対応していません。セッションを停止するには、起動に使用した新しい cmux ビルドを使用してください",
+        different_server: "このソケットは別の cmux セッションに属しています。シャットダウンコマンドは表示しません",
+        server_not_verified: "このソケットを所有するセッションを確認できませんでした。シャットダウンコマンドは表示しません",
+        saved_state_requires_newer: "保存状態には新しい cmux が必要です。このセッションを再度開くには cmux をアップグレードしてください",
+        start_separate_session: "または、このビルドを別のセッションで開始:",
+    },
     pairing: PairingMessages {
         title: "ブラウザを承認しますか？",
         confirm: "ブラウザのコードと一致するか確認:",
@@ -890,7 +937,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
 エージェントは外向きの接続を 1 つ開きます。公開リスナーを開いたり、シェルファイル
 を編集したりしません。再試行する前に、設定したホストで認証してください。
 ",
-        usage: "cmux machine-agent           設定したホスト経由でローカルセッションを共有",
+        usage: "cmux machine-agent       設定したホスト経由でローカルセッションを共有",
         pairing_code: "ペアリングコード",
         registered: "ローカル cmux セッションを共有中",
         retrying: "クラウド接続が切断されました。{milliseconds} ミリ秒後に再接続します",
@@ -987,9 +1034,9 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         surface_sync_resize: "サイズ変更",
         surface_sync_operation: "操作",
         unknown_terminal_prefix: "ターミナル ",
-        unknown_terminal_suffix: " が見つかりません。`cmux-tui ids` でサーフェス一覧を確認してください",
+        unknown_terminal_suffix: " が見つかりません。`cmux terminal list` でターミナル ID 一覧を確認してください",
         ambiguous_terminal_prefix: "ターミナル参照 ",
-        ambiguous_terminal_suffix: " は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください",
+        ambiguous_terminal_suffix: " は曖昧です。`cmux terminal list` に表示される一意の ID を使用してください",
         browser_terminal_prefix: "サーフェス ",
         browser_terminal_suffix: " はブラウザであり、ターミナルではありません",
     },
@@ -1146,11 +1193,11 @@ mod tests {
         );
         assert_eq!(
             ENGLISH.attach.unknown_terminal("missing"),
-            "unknown terminal \"missing\"; use `cmux-tui ids` to list surfaces"
+            "unknown terminal \"missing\"; use `cmux terminal list` to list terminal IDs"
         );
         assert_eq!(
             JAPANESE.attach.ambiguous_terminal("000010"),
-            "ターミナル参照 \"000010\" は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください"
+            "ターミナル参照 \"000010\" は曖昧です。`cmux terminal list` に表示される一意の ID を使用してください"
         );
         assert_eq!(
             JAPANESE.attach.browser_not_terminal("browser"),
