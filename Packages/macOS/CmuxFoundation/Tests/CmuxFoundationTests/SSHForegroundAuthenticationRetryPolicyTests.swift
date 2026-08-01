@@ -322,6 +322,38 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(shell.contains("command kill -CONT \"$cmux_ssh_auth_tree_token\""))
     }
 
+    @Test func forceKillRecordsOnlyRevalidatedStoppedProcesses() throws {
+        let shell = SSHForegroundAuthenticationRetryPolicy()
+            .processTreeTerminationShellFunction()
+        let candidateStop = try #require(shell.range(
+            of: "if ! command kill -STOP \"$cmux_ssh_auth_tree_token_pid\""
+        ))
+        let candidateRevalidation = try #require(shell.range(
+            of: "if ! cmux_ssh_auth_process_is_original \"$cmux_ssh_auth_tree_token_pid\" \"$cmux_ssh_auth_tree_token_parent\"",
+            range: candidateStop.upperBound..<shell.endIndex
+        ))
+        let candidateLedger = try #require(shell.range(
+            of: "cmux_ssh_auth_tree_frozen_processes=\"$cmux_ssh_auth_tree_frozen_processes$cmux_ssh_auth_tree_token_pid \"",
+            range: candidateStop.upperBound..<shell.endIndex
+        ))
+        #expect(candidateStop.lowerBound < candidateRevalidation.lowerBound)
+        #expect(candidateRevalidation.lowerBound < candidateLedger.lowerBound)
+
+        let rootStop = try #require(shell.range(
+            of: "if ! command kill -STOP \"$cmux_ssh_auth_tree_pid\""
+        ))
+        let rootRevalidation = try #require(shell.range(
+            of: "if ! cmux_ssh_auth_process_is_original \"$cmux_ssh_auth_tree_pid\" \"$cmux_ssh_auth_tree_parent_pid\"",
+            range: rootStop.upperBound..<shell.endIndex
+        ))
+        let rootLedger = try #require(shell.range(
+            of: "cmux_ssh_auth_tree_frozen_processes=\"$cmux_ssh_auth_tree_frozen_processes$cmux_ssh_auth_tree_pid \"",
+            range: rootStop.upperBound..<shell.endIndex
+        ))
+        #expect(rootStop.lowerBound < rootRevalidation.lowerBound)
+        #expect(rootRevalidation.lowerBound < rootLedger.lowerBound)
+    }
+
     @Test func staleFinalSnapshotCandidateReturnsToTheKillLoop() {
         let shell = SSHForegroundAuthenticationRetryPolicy()
             .processTreeTerminationShellFunction()
