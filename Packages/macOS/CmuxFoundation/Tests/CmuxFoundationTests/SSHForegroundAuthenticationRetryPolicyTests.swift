@@ -322,6 +322,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(shell.contains("command kill -CONT \"$cmux_ssh_auth_tree_token\""))
     }
 
+    @Test func staleFinalSnapshotCandidateReturnsToTheKillLoop() {
+        let shell = SSHForegroundAuthenticationRetryPolicy()
+            .processTreeTerminationShellFunction()
+
+        #expect(shell.contains("*) return 1 ;;"))
+    }
+
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
