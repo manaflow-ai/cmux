@@ -18,9 +18,9 @@ struct ApplicationCaptureRepresentable: NSViewRepresentable {
             windowID: windowID,
             processID: processID
         )
-        view.setInputOwnership(allowsPointerInput)
-        panel.setCaptureVisibleInUI(
-            isVisibleInUI,
+        panel.updateCaptureViewMount(
+            isVisibleInUI: isVisibleInUI,
+            allowsPointerInput: allowsPointerInput,
             view: view,
             mountID: context.coordinator
         )
@@ -28,9 +28,9 @@ struct ApplicationCaptureRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: ApplicationCaptureView, context: Context) {
-        nsView.setInputOwnership(allowsPointerInput)
-        panel.setCaptureVisibleInUI(
-            isVisibleInUI,
+        panel.updateCaptureViewMount(
+            isVisibleInUI: isVisibleInUI,
+            allowsPointerInput: allowsPointerInput,
             view: nsView,
             mountID: context.coordinator
         )
@@ -40,7 +40,6 @@ struct ApplicationCaptureRepresentable: NSViewRepresentable {
         _ nsView: ApplicationCaptureView,
         coordinator: UUID
     ) {
-        nsView.setInputOwnership(false)
         nsView.representableWasDismantled(mountID: coordinator)
     }
 }

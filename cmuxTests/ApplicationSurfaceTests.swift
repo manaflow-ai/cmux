@@ -763,8 +763,9 @@ struct ApplicationSurfaceTests {
         )!
         let view = panel.captureView(windowID: 42, processID: 43)
         let mountID = UUID()
-        panel.setCaptureVisibleInUI(
-            true,
+        panel.updateCaptureViewMount(
+            isVisibleInUI: true,
+            allowsPointerInput: false,
             view: view,
             mountID: mountID
         )
@@ -807,19 +808,20 @@ struct ApplicationSurfaceTests {
         )!
         let staleView = panel.captureView(windowID: 42, processID: 43)
         let staleMountID = UUID()
-        panel.setCaptureVisibleInUI(
-            true,
+        panel.updateCaptureViewMount(
+            isVisibleInUI: true,
+            allowsPointerInput: false,
             view: staleView,
             mountID: staleMountID
         )
         let replacementView = panel.captureView(windowID: 42, processID: 43)
         let replacementMountID = UUID()
-        panel.setCaptureVisibleInUI(
-            true,
+        panel.updateCaptureViewMount(
+            isVisibleInUI: true,
+            allowsPointerInput: true,
             view: replacementView,
             mountID: replacementMountID
         )
-        replacementView.setInputOwnership(true)
         #expect(staleView === replacementView)
         #expect(replacementView.acceptsFirstMouse(for: nil))
 

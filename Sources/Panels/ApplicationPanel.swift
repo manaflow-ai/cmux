@@ -352,14 +352,16 @@ final class ApplicationPanel: Panel {
         applyCaptureVisibility()
     }
 
-    func setCaptureVisibleInUI(
-        _ visible: Bool,
+    func updateCaptureViewMount(
+        isVisibleInUI: Bool,
+        allowsPointerInput: Bool,
         view: ApplicationCaptureView,
         mountID: UUID
     ) {
         guard hostedView === view else { return }
         activeCaptureMountID = mountID
-        captureVisibleInUI = visible
+        captureVisibleInUI = isVisibleInUI
+        view.setInputOwnership(allowsPointerInput)
         applyCaptureVisibility()
     }
 
@@ -372,6 +374,7 @@ final class ApplicationPanel: Panel {
         }
         activeCaptureMountID = nil
         captureVisibleInUI = false
+        view.setInputOwnership(false)
         applyCaptureVisibility()
     }
 
