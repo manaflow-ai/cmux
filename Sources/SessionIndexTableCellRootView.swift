@@ -1,24 +1,17 @@
+import Observation
 import SwiftUI
 
-/// Cell-local visual state that can repaint selection without replacing the
-/// recycled cell's hosted root or owning the popover lifecycle.
+/// Derived cell-local highlight projection. The table row remains authoritative;
+/// this object can only repaint selection without replacing the hosted root.
 @MainActor
-final class SessionIndexTableCellPresentationModel: ObservableObject {
-    @Published private(set) var previewEntryId: SessionEntry.ID?
+@Observable
+final class SessionIndexTableCellHighlightProjection {
+    private(set) var previewEntryID: SessionEntry.ID?
 
-    func update(from row: SessionIndexTableRow) {
-        let nextPreviewEntryId: SessionEntry.ID?
-        switch row {
-        case let .section(section, _, _, previewEntryId, _, _, _, _, _):
-            nextPreviewEntryId = SessionIndexTableRow.containedPreviewEntryID(
-                previewEntryId,
-                in: section
-            )
-        case .gap:
-            nextPreviewEntryId = nil
-        }
-        guard previewEntryId != nextPreviewEntryId else { return }
-        previewEntryId = nextPreviewEntryId
+    func sync(from row: SessionIndexTableRow) {
+        let nextPreviewEntryID = row.containedPreviewEntryID
+        guard previewEntryID != nextPreviewEntryID else { return }
+        previewEntryID = nextPreviewEntryID
     }
 }
 
@@ -26,7 +19,8 @@ final class SessionIndexTableCellPresentationModel: ObservableObject {
 struct SessionIndexTableCellRootView: View {
     let row: SessionIndexTableRow
     let environment: SessionIndexTableEnvironmentSnapshot
-    @ObservedObject var presentation: SessionIndexTableCellPresentationModel
+    let highlight: SessionIndexTableCellHighlightProjection
+    let onPopoverAnchorChange: (SessionIndexTablePopoverIdentity, CGRect?) -> Void
 
     var body: some View {
         environment.apply(to: rowContent)
@@ -42,7 +36,6 @@ struct SessionIndexTableCellRootView: View {
                 isDragged,
                 _,
                 isCollapsed,
-                _,
                 actions,
                 setCollapsed,
                 setPopoverOpen
@@ -51,12 +44,13 @@ struct SessionIndexTableCellRootView: View {
                     section: section,
                     rowLimit: rowLimit,
                     isDragged: isDragged,
-                    previewEntryId: presentation.previewEntryId,
+                    previewEntryId: highlight.previewEntryID,
                     isCollapsed: Binding(
                         get: { isCollapsed },
                         set: setCollapsed
                     ),
                     onShowMore: { setPopoverOpen(true) },
+                    onPopoverAnchorChange: onPopoverAnchorChange,
                     actions: actions
                 )
                 .equatable()

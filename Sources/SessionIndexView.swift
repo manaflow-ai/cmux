@@ -56,9 +56,8 @@ struct SessionIndexView: View {
     @StateObject private var dragCoordinator = SessionDragCoordinator()
     /// Sections the user has explicitly collapsed (default is expanded).
     @State private var collapsedSections: Set<SectionKey> = []
-    /// Section whose "Show more" popover is currently open.
-    @State private var openPopoverSection: SectionKey?
-    @State private var previewEntry: SessionEntry?
+    /// Single source of truth for both Vault popover variants.
+    @State private var popoverIdentity: SessionIndexTablePopoverIdentity?
     let onResume: ((SessionEntry) -> Void)?
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
@@ -196,12 +195,11 @@ struct SessionIndexView: View {
             let sectionActions = IndexSectionActions(
                 onBeginDrag: { dragCoordinator.draggedKey = section.key },
                 onPreviewEntry: { entry in
-                    openPopoverSection = nil
-                    previewEntry = entry
+                    popoverIdentity = .transcript(section: section.key, entry: entry.id)
                 },
                 onDismissPreview: { id in
-                    if previewEntry?.id == id {
-                        previewEntry = nil
+                    if popoverIdentity == .transcript(section: section.key, entry: id) {
+                        popoverIdentity = nil
                     }
                 },
                 onResume: onResumeClosure,
@@ -218,19 +216,16 @@ struct SessionIndexView: View {
                     section: section,
                     rowLimit: Self.collapsedRowLimit,
                     isDragged: draggedKey == section.key,
-                    previewEntryId: SessionIndexTableRow.containedPreviewEntryID(previewEntry?.id, in: section),
+                    popoverIdentity: popoverIdentity?.sectionKey == section.key
+                        ? popoverIdentity
+                        : nil,
                     isCollapsed: collapsedSections.contains(section.key),
-                    isPopoverOpen: openPopoverSection == section.key,
                     actions: sectionActions,
                     setCollapsed: { newValue in
                         if newValue {
                             collapsedSections.insert(section.key)
-                            if openPopoverSection == section.key {
-                                openPopoverSection = nil
-                            }
-                            if let previewEntryId = previewEntry?.id,
-                               section.entries.contains(where: { $0.id == previewEntryId }) {
-                                previewEntry = nil
+                            if popoverIdentity?.sectionKey == section.key {
+                                popoverIdentity = nil
                             }
                         } else {
                             collapsedSections.remove(section.key)
@@ -238,10 +233,9 @@ struct SessionIndexView: View {
                     },
                     setPopoverOpen: { newValue in
                         if newValue {
-                            previewEntry = nil
-                            openPopoverSection = section.key
-                        } else if openPopoverSection == section.key {
-                            openPopoverSection = nil
+                            popoverIdentity = .section(section.key)
+                        } else if popoverIdentity == .section(section.key) {
+                            popoverIdentity = nil
                         }
                     }
                 ),
@@ -350,6 +344,8 @@ struct SectionGapActions {
 }
 
 struct IndexSectionView: View, Equatable {
+    private static let popoverAnchorCoordinateSpace = "session-index-popover-anchor"
+
     let section: IndexSection
     let rowLimit: Int
     /// True iff this section is the one currently being dragged. Precomputed
@@ -359,6 +355,7 @@ struct IndexSectionView: View, Equatable {
     let previewEntryId: SessionEntry.ID?
     @Binding var isCollapsed: Bool
     let onShowMore: () -> Void
+    let onPopoverAnchorChange: (SessionIndexTablePopoverIdentity, CGRect?) -> Void
     /// Value-type action bundle. See `IndexSectionActions`; replaces the
     /// earlier `store` / `dragCoordinator` class references so rows can't
     /// observe the store.
@@ -390,6 +387,20 @@ struct IndexSectionView: View, Equatable {
                     )
                         .equatable()
                         .id(entry.id)
+                        .onGeometryChange(for: CGRect.self) { proxy in
+                            proxy.frame(in: .named(Self.popoverAnchorCoordinateSpace))
+                        } action: { frame in
+                            onPopoverAnchorChange(
+                                .transcript(section: section.key, entry: entry.id),
+                                frame
+                            )
+                        }
+                        .onDisappear {
+                            onPopoverAnchorChange(
+                                .transcript(section: section.key, entry: entry.id),
+                                nil
+                            )
+                        }
                 }
                 if section.shouldOfferShowMore(rowLimit: rowLimit) {
                     showMoreButton
@@ -398,6 +409,7 @@ struct IndexSectionView: View, Equatable {
             }
         }
         .opacity(isDragged ? 0.45 : 1.0)
+        .coordinateSpace(name: Self.popoverAnchorCoordinateSpace)
     }
 
     private var showMoreButton: some View {
@@ -414,6 +426,14 @@ struct IndexSectionView: View, Equatable {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .named(Self.popoverAnchorCoordinateSpace))
+        } action: { frame in
+            onPopoverAnchorChange(.section(section.key), frame)
+        }
+        .onDisappear {
+            onPopoverAnchorChange(.section(section.key), nil)
+        }
     }
 
     private var sectionHeader: some View {
@@ -699,7 +719,7 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
 
 struct SessionTranscriptPreviewView: View {
     let entry: SessionEntry
-    @ObservedObject var sizeModel: SessionTranscriptPopoverSizeModel
+    let sizeModel: SessionTranscriptPopoverSizeModel
     let onResize: (CGSize) -> Void
     let onDismiss: () -> Void
 
@@ -835,27 +855,6 @@ struct SessionTranscriptPreviewView: View {
             guard !Task.isCancelled else { return }
             loadState = .failed
         }
-    }
-}
-
-enum SessionTranscriptPreviewLayout {
-    static let defaultSize = CGSize(width: 520, height: 500)
-    static let minSize = CGSize(width: 420, height: 320)
-    static let maxSize = CGSize(width: 920, height: 820)
-
-    static func clamped(_ size: CGSize) -> CGSize {
-        CGSize(
-            width: min(max(size.width, minSize.width), maxSize.width),
-            height: min(max(size.height, minSize.height), maxSize.height)
-        )
-    }
-}
-
-final class SessionTranscriptPopoverSizeModel: ObservableObject {
-    @Published var size: CGSize
-
-    init(size: CGSize = SessionTranscriptPreviewLayout.defaultSize) {
-        self.size = size
     }
 }
 

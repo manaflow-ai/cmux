@@ -2,45 +2,6 @@ import AppKit
 import CmuxAppKitSupportUI
 import SwiftUI
 
-enum SessionIndexTablePopoverIdentity: Equatable {
-    case section(SectionKey)
-    case transcript(section: SectionKey, entry: SessionEntry.ID)
-
-    var sectionKey: SectionKey {
-        switch self {
-        case .section(let key), .transcript(let key, _):
-            return key
-        }
-    }
-}
-
-struct SessionIndexTablePopoverPresentation {
-    enum Content {
-        case section(
-            section: IndexSection,
-            search: SessionSearchFn,
-            loadSnapshot: DirectorySnapshotFn,
-            onResume: ((SessionEntry) -> Void)?
-        )
-        case transcript(SessionEntry)
-    }
-
-    let identity: SessionIndexTablePopoverIdentity
-    let content: Content
-    let onDismiss: @MainActor () -> Void
-
-    func hasEquivalentContent(to other: Self) -> Bool {
-        switch (content, other.content) {
-        case let (.section(lhs, _, _, _), .section(rhs, _, _, _)):
-            return lhs == rhs
-        case let (.transcript(lhs), .transcript(rhs)):
-            return lhs == rhs
-        default:
-            return false
-        }
-    }
-}
-
 /// Owns the single Vault popover outside recycled SwiftUI row graphs.
 ///
 /// A row state change can arrive while AppKit is laying out its table. Keeping
@@ -49,25 +10,28 @@ struct SessionIndexTablePopoverPresentation {
 /// out of that AppKit layout stack entirely.
 @MainActor
 final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
-    private struct PendingPresentation {
-        let presentation: SessionIndexTablePopoverPresentation
-        let anchorView: NSView
-        let anchorRect: NSRect
-    }
-
     private lazy var hostingController = NSHostingController(rootView: AnyView(EmptyView()))
     private let visibleUpdateScheduler = CmuxPopoverVisibleUpdateScheduler()
-    private let transcriptSizeModel = SessionTranscriptPopoverSizeModel()
+    private let transcriptLayout: SessionTranscriptPopoverLayout
+    private let transcriptSizeModel: SessionTranscriptPopoverSizeModel
     private var popover: NSPopover?
     private var currentPresentation: SessionIndexTablePopoverPresentation?
-    private var pendingPresentation: PendingPresentation?
+    private var pendingPresentation: (
+        presentation: SessionIndexTablePopoverPresentation,
+        anchorView: NSView,
+        anchorRect: NSRect
+    )?
     private weak var anchorView: NSView?
     private var presentationCount = 0
     private var isClosingProgrammatically = false
 
-    private(set) var refreshContentCallCount = 0
     var isPopoverShown: Bool { popover?.isShown == true }
-    var presentedIdentity: SessionIndexTablePopoverIdentity? { currentPresentation?.identity }
+
+    init(transcriptLayout: SessionTranscriptPopoverLayout = SessionTranscriptPopoverLayout()) {
+        self.transcriptLayout = transcriptLayout
+        transcriptSizeModel = SessionTranscriptPopoverSizeModel(size: transcriptLayout.defaultSize)
+        super.init()
+    }
 
     func reconcile(
         _ presentation: SessionIndexTablePopoverPresentation,
@@ -87,7 +51,7 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
             return
         }
 
-        pendingPresentation = PendingPresentation(
+        pendingPresentation = (
             presentation: presentation,
             anchorView: anchorView,
             anchorRect: anchorRect
@@ -166,7 +130,6 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
 
     private func refreshContent() {
         guard let currentPresentation else { return }
-        refreshContentCallCount += 1
 
         switch currentPresentation.content {
         case let .section(section, search, loadSnapshot, onResume):
@@ -202,7 +165,7 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
     }
 
     private func resizeTranscript(to proposedSize: CGSize) {
-        transcriptSizeModel.size = SessionTranscriptPreviewLayout.clamped(proposedSize)
+        transcriptSizeModel.size = transcriptLayout.clamped(proposedSize)
         updateContentSize()
     }
 
@@ -264,35 +227,39 @@ extension SessionIndexTableRow {
             section,
             _,
             _,
-            previewEntryId,
+            popoverIdentity,
             _,
-            isPopoverOpen,
             actions,
             _,
             setPopoverOpen
-        ) = self else {
+        ) = self,
+        let popoverIdentity,
+        popoverIdentity.sectionKey == section.key else {
             return nil
         }
 
-        if let previewEntryId = Self.containedPreviewEntryID(previewEntryId, in: section),
-           let entry = section.entries.first(where: { $0.id == previewEntryId }) {
+        switch popoverIdentity {
+        case .transcript(_, let entryID):
+            guard let entryID = Self.containedPreviewEntryID(entryID, in: section),
+                  let entry = section.entries.first(where: { $0.id == entryID }) else {
+                return nil
+            }
             return SessionIndexTablePopoverPresentation(
                 identity: .transcript(section: section.key, entry: entry.id),
                 content: .transcript(entry),
                 onDismiss: { actions.onDismissPreview(entry.id) }
             )
+        case .section:
+            return SessionIndexTablePopoverPresentation(
+                identity: .section(section.key),
+                content: .section(
+                    section: section,
+                    search: actions.search,
+                    loadSnapshot: actions.loadSnapshot,
+                    onResume: actions.onResume
+                ),
+                onDismiss: { setPopoverOpen(false) }
+            )
         }
-
-        guard isPopoverOpen else { return nil }
-        return SessionIndexTablePopoverPresentation(
-            identity: .section(section.key),
-            content: .section(
-                section: section,
-                search: actions.search,
-                loadSnapshot: actions.loadSnapshot,
-                onResume: actions.onResume
-            ),
-            onDismiss: { setPopoverOpen(false) }
-        )
     }
 }

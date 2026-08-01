@@ -4,7 +4,8 @@ import SwiftUI
 /// Recycled AppKit cell containing one stable Vault row hosting view.
 @MainActor
 final class SessionIndexTableCellView: NSTableCellView {
-    private let presentationModel = SessionIndexTableCellPresentationModel()
+    private let highlightProjection = SessionIndexTableCellHighlightProjection()
+    private var popoverAnchorRects: [SessionIndexTablePopoverIdentity: NSRect] = [:]
     private lazy var hostingView = NSHostingView(
         rootView: SessionIndexTableCellRootView(
             row: .gap(beforeKey: nil, isValidDrop: true, actions: SectionGapActions(
@@ -13,11 +14,15 @@ final class SessionIndexTableCellView: NSTableCellView {
                 clearDraggedKey: {}
             )),
             environment: .fallback,
-            presentation: presentationModel
+            highlight: highlightProjection,
+            onPopoverAnchorChange: { [weak self] identity, rect in
+                self?.updatePopoverAnchor(identity, rect: rect)
+            }
         )
     )
     private var configuredRow: SessionIndexTableRow?
     private var configuredEnvironment: SessionIndexTableEnvironmentSnapshot?
+    var onPopoverAnchorChange: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -45,23 +50,40 @@ final class SessionIndexTableCellView: NSTableCellView {
         row: SessionIndexTableRow,
         environment: SessionIndexTableEnvironmentSnapshot
     ) {
-        presentationModel.update(from: row)
+        highlightProjection.sync(from: row)
         if let configuredRow,
            let configuredEnvironment,
            configuredRow.hasEquivalentContent(to: row),
            configuredEnvironment.hasEquivalentPresentation(to: environment) {
             return
         }
+        popoverAnchorRects.removeAll()
         configuredRow = row
         configuredEnvironment = environment
         hostingView.rootView = SessionIndexTableCellRootView(
             row: row,
             environment: environment,
-            presentation: presentationModel
+            highlight: highlightProjection,
+            onPopoverAnchorChange: { [weak self] identity, rect in
+                self?.updatePopoverAnchor(identity, rect: rect)
+            }
         )
     }
 
     func updatePresentation(from row: SessionIndexTableRow) {
-        presentationModel.update(from: row)
+        highlightProjection.sync(from: row)
+    }
+
+    func popoverAnchorRect(for identity: SessionIndexTablePopoverIdentity) -> NSRect? {
+        popoverAnchorRects[identity]
+    }
+
+    private func updatePopoverAnchor(
+        _ identity: SessionIndexTablePopoverIdentity,
+        rect: CGRect?
+    ) {
+        guard popoverAnchorRects[identity] != rect else { return }
+        popoverAnchorRects[identity] = rect
+        onPopoverAnchorChange?()
     }
 }

@@ -11,11 +11,16 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
     private var rows: [SessionIndexTableRow] = []
     private var environment: SessionIndexTableEnvironmentSnapshot?
     private let rowHeightCalculator = SessionIndexTableRowHeightCalculator()
-    private let popoverPresenter = SessionIndexTablePopoverPresenter()
+    private let popoverPresenter: SessionIndexTablePopoverPresenter
     private var isApplyingRows = false
     private lazy var mutationScheduler = SessionIndexTableMutationScheduler(
         applyFlush: { [weak self] in self?.flushApply($0) }
     )
+
+    init(popoverPresenter: SessionIndexTablePopoverPresenter = SessionIndexTablePopoverPresenter()) {
+        self.popoverPresenter = popoverPresenter
+        super.init()
+    }
 
     func makeContainerView() -> SessionIndexTableContainerView {
         let container = SessionIndexTableContainerView()
@@ -133,9 +138,12 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
         ) as? SessionIndexTableCellView else {
             return
         }
+        guard let anchorRect = cell.popoverAnchorRect(for: presentation.identity) else {
+            return
+        }
         popoverPresenter.reconcile(
             presentation,
-            relativeTo: cell.bounds,
+            relativeTo: anchorRect,
             of: cell
         )
     }
@@ -161,6 +169,11 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
         let cell = (tableView.makeView(withIdentifier: Self.cellIdentifier, owner: self)
             as? SessionIndexTableCellView) ?? SessionIndexTableCellView()
         cell.identifier = Self.cellIdentifier
+        cell.onPopoverAnchorChange = { [weak self, weak tableView] in
+            guard let self, let tableView else { return }
+            guard !self.isApplyingRows else { return }
+            self.reconcilePresentation(in: tableView)
+        }
         cell.configure(
             row: rows[row],
             environment: environment ?? .fallback
@@ -168,12 +181,12 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
         return cell
     }
 
-    func tableView(_ tableView: NSTableView, didAdd rowView: NSView, forRow row: Int) {
+    func tableView(_ tableView: NSTableView, didAdd rowView: NSTableRowView, forRow row: Int) {
         guard !isApplyingRows else { return }
         reconcilePresentation(in: tableView)
     }
 
-    func tableView(_ tableView: NSTableView, didRemove rowView: NSView, forRow row: Int) {
+    func tableView(_ tableView: NSTableView, didRemove rowView: NSTableRowView, forRow row: Int) {
         guard popoverPresenter.isAnchored(in: rowView) else { return }
         if isApplyingRows {
             popoverPresenter.dismiss()
