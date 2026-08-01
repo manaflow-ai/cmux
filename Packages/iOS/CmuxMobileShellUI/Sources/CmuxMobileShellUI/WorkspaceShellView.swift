@@ -255,6 +255,11 @@ struct WorkspaceShellView: View {
                                 createWorkspace: createWorkspaceInCompactStack,
                                 canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                             )
+                            .onAppear {
+                                if pendingPrimarySearchNotificationNavigationID == workspaceID {
+                                    pendingPrimarySearchNotificationNavigationID = nil
+                                }
+                            }
                             .toolbarVisibility(.hidden, for: .tabBar)
                     }
                 }
@@ -469,6 +474,11 @@ struct WorkspaceShellView: View {
                         action: popCompactStack
                     )
                 )
+                    .onAppear {
+                        if pendingPrimarySearchWorkspaceNavigationID == workspaceID {
+                            pendingPrimarySearchWorkspaceNavigationID = nil
+                        }
+                    }
                     #if os(iOS)
                     .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
                     #endif
@@ -847,16 +857,24 @@ struct WorkspaceShellView: View {
         guard usesCompactStack else { return }
     }
 
+    /// The pending ID stays set until the pushed destination actually
+    /// appears: since search became its own tab, the target tab's
+    /// NavigationStack is unmounted while search is presented, so a path
+    /// mutation made from the eager `onChange` consume has no registered
+    /// destination and SwiftUI pops it back. Keeping the pending ID armed
+    /// lets the stack's `onAppear` consume retry once the tab is mounted;
+    /// the destination clears it on appear.
     private func consumePendingPrimarySearchNavigation(for tab: MobilePrimaryTab) {
         guard !primarySearchCoordinator.isPresented else { return }
         switch tab {
         case .workspaces:
             guard let workspaceID = pendingPrimarySearchWorkspaceNavigationID else { return }
-            pendingPrimarySearchWorkspaceNavigationID = nil
+            if !usesCompactStack {
+                pendingPrimarySearchWorkspaceNavigationID = nil
+            }
             selectWorkspaceImmediately(workspaceID)
         case .notifications:
             guard let workspaceID = pendingPrimarySearchNotificationNavigationID else { return }
-            pendingPrimarySearchNotificationNavigationID = nil
             if notificationNavigationPath.last != workspaceID {
                 notificationNavigationPath = [workspaceID]
             }

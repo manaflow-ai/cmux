@@ -407,6 +407,11 @@ public struct WorkspaceListLayoutPreviewView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .accessibilityIdentifier("FixtureWorkspaceDetail")
+                        .onAppear {
+                            if pendingSearchFixtureRoute == route {
+                                pendingSearchFixtureRoute = nil
+                            }
+                        }
                         .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
                         .navigationBarBackButtonHidden(true)
                         .toolbar {
@@ -514,11 +519,14 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
     }
 
+    /// Mirrors WorkspaceShellView: the pending route stays armed until the
+    /// pushed detail actually appears, because a path mutation made while
+    /// the workspaces tab is unmounted (search tab active) has no registered
+    /// destination and SwiftUI pops it back; the stack's onAppear retries.
     private func consumePendingSearchFixtureNavigation() {
         guard !primarySearchCoordinator.isPresented,
               selectedPrimaryTab == .workspaces,
               let route = pendingSearchFixtureRoute else { return }
-        pendingSearchFixtureRoute = nil
         if fixturePath.last != route {
             fixturePath = [route]
         }
