@@ -200,6 +200,7 @@ export type BrowserStreamEvent = BrowserAttachEvent | UnknownBrowserAttachEvent;
 interface PendingResponse {
   resolve: (response: CmuxResponse<unknown>) => void;
   reject: (error: Error) => void;
+  readonly dispatchDeadline: number;
   timer?: ReturnType<typeof setTimeout>;
   signal?: AbortSignal;
   abort?: () => void;
@@ -238,11 +239,16 @@ class MessageRouter {
     }
 
     return new Promise((resolve, reject) => {
-      const pending: PendingResponse = { resolve, reject };
-      pending.timer = setTimeout(() => {
+      const pending: PendingResponse = {
+        resolve,
+        reject,
+        dispatchDeadline: performance.now() + timeoutMs,
+      };
+      const expire = () => {
         if (!this.takePending(key, pending)) return;
         reject(new CmuxTimeoutError("session did not respond"));
-      }, timeoutMs);
+      };
+      pending.timer = setTimeout(expire, timeoutMs);
       if (signal) {
         pending.signal = signal;
         pending.abort = () => {
@@ -271,7 +277,12 @@ class MessageRouter {
               pending.cancelUndispatched = undefined;
               release?.();
             },
-            () => this.pending.get(key) === pending,
+            () => {
+              if (this.pending.get(key) !== pending) return false;
+              if (performance.now() < pending.dispatchDeadline) return true;
+              expire();
+              return false;
+            },
           );
           if (!dispatchStarted && this.pending.get(key) === pending) {
             pending.cancelUndispatched = cancelUndispatched;
