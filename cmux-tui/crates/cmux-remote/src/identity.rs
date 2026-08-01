@@ -3011,6 +3011,11 @@ mod tests {
         let fingerprint = public_key_fingerprint(&public_key);
 
         assert!(store.pin_daemon("host".into(), public_key, Vec::new()).await.is_err());
+        assert!(
+            store.daemon_key(&fingerprint).await.is_err(),
+            "an unreadable authority store must fail closed"
+        );
+        fs::remove_dir(&state_path).unwrap();
         assert_eq!(store.daemon_key(&fingerprint).await.unwrap(), None);
     }
 
@@ -3063,9 +3068,13 @@ mod tests {
         fs::create_dir(&state_path).unwrap();
 
         assert!(store.forget_daemon(&known.fingerprint).await.is_err());
-        assert_eq!(store.daemon_key(&known.fingerprint).await.unwrap(), Some(public_key));
+        assert!(
+            store.daemon_key(&known.fingerprint).await.is_err(),
+            "an unreadable authority store must fail closed"
+        );
 
         fs::remove_dir(&state_path).unwrap();
+        assert_eq!(store.daemon_key(&known.fingerprint).await.unwrap(), Some(public_key));
         assert!(store.forget_daemon(&known.fingerprint).await.unwrap());
         assert_eq!(store.daemon_key(&known.fingerprint).await.unwrap(), None);
     }
