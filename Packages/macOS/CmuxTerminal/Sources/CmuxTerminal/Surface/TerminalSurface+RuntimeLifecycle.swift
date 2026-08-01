@@ -229,8 +229,12 @@ extension TerminalSurface {
 
     /// Explicitly free the Ghostty runtime surface. Idempotent — safe to call
     /// before deinit; deinit will skip the free if already torn down.
+    ///
+    /// - Returns: A ticket that completes after the native free and callback
+    ///   userdata releases, or the existing ticket when teardown already began.
+    @discardableResult
     @MainActor
-    public func teardownSurface() {
+    public func teardownSurface() -> TerminalSurfaceRuntimeTeardownTicket? {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
         backgroundSurfaceStartSource = .normal
@@ -255,7 +259,7 @@ extension TerminalSurface {
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
-            return
+            return closeRuntimeTeardownTicket
         }
 
 #if DEBUG
@@ -264,7 +268,7 @@ extension TerminalSurface {
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
-            return
+            return closeRuntimeTeardownTicket
         }
 #endif
 
@@ -273,7 +277,7 @@ extension TerminalSurface {
             // Transport manualIOContext and teeLease through the request too:
             // the coordinator releases all callback userdata only after the
             // native free, which is what joins ghostty's IO threads.
-            runtimeTeardown.enqueueRuntimeTeardown(
+            let ticket = runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
                 reason: "teardown",
@@ -283,18 +287,36 @@ extension TerminalSurface {
                 byteTeeLease: teeLease,
                 freeSurface: freeSurface
             )
-            return
+            closeRuntimeTeardownTicket = ticket
+            return ticket
         }
 #endif
 
-        Task { @MainActor in
-            // Keep free behavior aligned with deinit: perform the runtime teardown on
-            // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
-            ghostty_surface_free(surfaceToFree)
-            callbackContext?.release()
-            manualIOContext?.release()
-            teeLease?.release()
+        let ticket = runtimeTeardown.enqueueRuntimeTeardown(
+            id: id,
+            workspaceId: tabId,
+            reason: "teardown",
+            surface: surfaceToFree,
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: teeLease
+        )
+        closeRuntimeTeardownTicket = ticket
+        return ticket
+    }
+
+    /// Waits for an explicit close teardown to release its native surface.
+    ///
+    /// - Parameter timeout: Maximum wait, or `nil` for an event-driven wait.
+    /// - Returns: `true` when no close teardown is pending or it completed.
+    @MainActor
+    public func waitForCloseRuntimeTeardown(timeout: Duration?) async -> Bool {
+        guard let ticket = closeRuntimeTeardownTicket else { return true }
+        let completed = await ticket.wait(timeout: timeout)
+        if completed, closeRuntimeTeardownTicket?.id == ticket.id {
+            closeRuntimeTeardownTicket = nil
         }
+        return completed
     }
 
     /// Frees the runtime surface while keeping the model alive for an

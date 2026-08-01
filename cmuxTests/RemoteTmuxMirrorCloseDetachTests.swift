@@ -33,7 +33,7 @@ import Testing
     /// The mark seam must NOT flag a mirror workspace's window for kill-on-close:
     /// the close detaches, the remote tmux session survives for resume. Before the
     /// fix this marked the window for kill; after, it never does.
-    @Test func markSeamDoesNotMarkMirrorForKill() throws {
+    @Test func markSeamDoesNotMarkMirrorForKill() async throws {
         let harness = try Harness()
         defer { harness.tearDown() }
 
@@ -45,6 +45,7 @@ import Testing
                 .windowsMarkedForKillOnClose()
                 .contains(harness.windowId)
         )
+        await harness.tearDownAndWait()
     }
 
     /// The v2 socket close path must detach a live last-workspace mirror without
@@ -91,6 +92,7 @@ import Testing
         controller.cacheConnection(connection)
         #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
         let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        let teardownSurfaces = harness.captureTeardownSurfaces(in: [mirrorWorkspace])
         let keepWorkspaceOpenKey = "closeWorkspaceOnLastSurfaceShortcut"
         let previousKeepWorkspaceOpen = UserDefaults.standard.object(forKey: keepWorkspaceOpenKey)
         UserDefaults.standard.set(false, forKey: keepWorkspaceOpenKey)
@@ -130,6 +132,8 @@ import Testing
         #expect(!log.contains("kill-session"), Comment(rawValue: log))
         #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
         #expect(connection.exited)
+        await harness.waitForTeardown(of: teardownSurfaces)
+        await harness.tearDownAndWait()
     }
 
     /// Explicit detach of a mirror opened in its own window must close that
@@ -171,6 +175,7 @@ import Testing
         controller.cacheConnection(connection)
         #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
         let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        let teardownSurfaces = harness.captureTeardownSurfaces(in: [mirrorWorkspace])
         harness.manager.closeWorkspace(harness.workspace, recordHistory: false)
         #expect(harness.manager.tabs.map(\.id) == [mirrorWorkspace.id])
         let owningWindow = try #require(harness.appDelegate.mainWindow(for: harness.windowId))
@@ -195,12 +200,14 @@ import Testing
             $0.windowId == harness.windowId
         })
         #expect(harness.appDelegate.recoverableMainWindowRoute(windowId: harness.windowId) == nil)
+        await harness.waitForTeardown(of: teardownSurfaces)
+        await harness.tearDownAndWait()
     }
 
     /// A remote session ending removes its dead mirror but preserves the owning
     /// window with a fresh local workspace. Only explicit detach closes a
     /// dedicated final-mirror window.
-    @Test func remoteSessionEndOfDedicatedLastMirrorKeepsOwningWindowUsable() throws {
+    @Test func remoteSessionEndOfDedicatedLastMirrorKeepsOwningWindowUsable() async throws {
         let harness = try Harness()
         defer { harness.tearDown() }
         let host = RemoteTmuxHost(destination: "remote-end-\(UUID().uuidString)@example.test")
@@ -209,6 +216,7 @@ import Testing
         controller.cacheConnection(connection)
         #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
         let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        let teardownSurfaces = harness.captureTeardownSurfaces(in: [mirrorWorkspace])
         harness.manager.closeWorkspace(harness.workspace, recordHistory: false)
         let owningWindow = try #require(harness.appDelegate.mainWindow(for: harness.windowId))
 
@@ -221,6 +229,8 @@ import Testing
         #expect(harness.manager.tabs.count == 1)
         #expect(harness.manager.tabs.allSatisfy { !$0.isRemoteTmuxMirror })
         #expect(!harness.manager.tabs.contains { $0.id == mirrorWorkspace.id })
+        await harness.waitForTeardown(of: teardownSurfaces)
+        await harness.tearDownAndWait()
     }
 
     /// The ordinary non-last tab-close route shares the same detach contract as
@@ -265,6 +275,7 @@ import Testing
         controller.cacheConnection(connection)
         #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
         let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        let teardownSurfaces = harness.captureTeardownSurfaces(in: [mirrorWorkspace])
         #expect(harness.manager.tabs.count == 2)
 
         harness.manager.closeWorkspace(mirrorWorkspace, recordHistory: false)
@@ -274,6 +285,8 @@ import Testing
         #expect(harness.manager.tabs.map(\.id) == [harness.workspace.id])
         #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
         #expect(connection.exited)
+        await harness.waitForTeardown(of: teardownSurfaces)
+        await harness.tearDownAndWait()
     }
 
     @Test func windowCreationFailureUsesLocalErrorMessage() {
@@ -351,6 +364,13 @@ import Testing
         #expect(targetManager.tabs.filter(\.isRemoteTmuxMirror).count == 2)
         #expect(harness.manager.tabs.allSatisfy { !$0.isRemoteTmuxMirror })
         #expect(secondManager.tabs.allSatisfy { !$0.isRemoteTmuxMirror })
+        for windowID in extraWindowIDs.reversed() {
+            await harness.closeWindowAndWait(windowID)
+        }
+        extraWindowIDs.removeAll()
+        harness.controller.detach(host: host, sessionName: "one")
+        harness.controller.detach(host: host, sessionName: "two")
+        await harness.tearDownAndWait()
     }
 
     /// A direct socket caller must opt into focus. The CLI supplies an explicit
@@ -429,6 +449,12 @@ import Testing
         #expect(focusedAfter["workspace_id"] as? String == workspaceIDBefore)
         #expect(focusedAfter["pane_id"] as? String == paneIDBefore)
         #expect(focusedAfter["surface_id"] as? String == surfaceIDBefore)
+        if let targetWindowID {
+            await harness.closeWindowAndWait(targetWindowID)
+        }
+        targetWindowID = nil
+        harness.controller.detach(host: host, sessionName: "one")
+        await harness.tearDownAndWait()
     }
 
     private func writeExecutable(at url: URL, contents: String) throws {
@@ -467,6 +493,7 @@ import Testing
         let windowId: UUID
         let manager: TabManager
         let workspace: Workspace
+        let initialSurfaces: [TerminalSurface]
         var controller: RemoteTmuxController { appDelegate.remoteTmuxController }
 
         init() throws {
@@ -474,6 +501,9 @@ import Testing
             windowId = appDelegate.createMainWindow()
             manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             workspace = try #require(manager.selectedWorkspace)
+            initialSurfaces = workspace.panels.values.compactMap {
+                ($0 as? TerminalPanel)?.surface
+            }
         }
 
         func tearDown() {
@@ -481,6 +511,13 @@ import Testing
             // Clear any marker so it can't leak into another serialized test.
             controller.consumeKillSessionsOnWindowClose(windowId: windowId)
             closeWindow(windowId)
+        }
+
+        func tearDownAndWait() async {
+            workspace.isRemoteTmuxMirror = false
+            // Clear any marker so it can't leak into another serialized test.
+            controller.consumeKillSessionsOnWindowClose(windowId: windowId)
+            await closeWindowAndWait(windowId)
         }
 
         func cacheConnection(host: RemoteTmuxHost, session: String) {
@@ -498,6 +535,44 @@ import Testing
             }
             appDelegate.forgetRecoverableMainWindowRoute(windowId: id)
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
+
+        func closeWindowAndWait(_ id: UUID) async {
+            let surfaces = terminalSurfaces(in: id)
+            closeWindow(id)
+            await waitForTeardown(of: surfaces)
+        }
+
+        func waitForTeardown(of workspaces: [Workspace]) async {
+            await waitForTeardown(of: captureTeardownSurfaces(in: workspaces))
+        }
+
+        private func terminalSurfaces(in id: UUID) -> [TerminalSurface] {
+            var workspaces = appDelegate.tabManagerFor(windowId: id)?.tabs ?? []
+            if id == windowId, !workspaces.contains(where: { $0 === workspace }) {
+                workspaces.append(workspace)
+            }
+            return captureTeardownSurfaces(in: workspaces)
+        }
+
+        func captureTeardownSurfaces(in workspaces: [Workspace]) -> [TerminalSurface] {
+            var seen: Set<ObjectIdentifier> = []
+            return (initialSurfaces + workspaces.flatMap { workspace in
+                workspace.panels.values.compactMap { panel -> TerminalSurface? in
+                    (panel as? TerminalPanel)?.surface
+                }
+            }).filter { surface in
+                seen.insert(ObjectIdentifier(surface)).inserted
+            }
+        }
+
+        func waitForTeardown(of surfaces: [TerminalSurface]) async {
+            for surface in surfaces {
+                #expect(
+                    await surface.waitForCloseRuntimeTeardown(timeout: .seconds(10)),
+                    "Timed out waiting for a terminal surface to finish native teardown"
+                )
+            }
         }
     }
 }

@@ -276,6 +276,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         (any TerminalSurfaceNativeViewing)?
     var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
+    var closeRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
     var agentHibernationRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
     var agentHibernationRuntimeTeardownReservation:
         TerminalSurfaceRuntimeTeardownReservation?
