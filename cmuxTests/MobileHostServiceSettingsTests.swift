@@ -252,7 +252,10 @@ struct MobileHostTransportRouteCompositionTests {
             priority: 10
         )
 
-        publicStatusStore.update(irohIdentity: binding.endpointID)
+        publicStatusStore.update(
+            irohIdentity: binding.endpointID,
+            pathHints: binding.pathHints
+        )
         publicStatusStore.update(routes: [tailscale])
         #expect(publicStatusStore.snapshot().map(\.kind) == [.iroh, .tailscale])
 
@@ -310,7 +313,10 @@ struct MobileHostTransportRouteCompositionTests {
         )
 
         publicStatusStore.update(routes: [tailscale])
-        publicStatusStore.update(irohIdentity: binding.endpointID)
+        publicStatusStore.update(
+            irohIdentity: binding.endpointID,
+            pathHints: binding.pathHints
+        )
         #expect(publicStatusStore.snapshot().map(\.kind) == [.iroh, .tailscale])
 
         publicStatusStore.update(irohIdentity: nil)
