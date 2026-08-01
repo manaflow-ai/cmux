@@ -973,6 +973,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cancellable_connect_reuses_one_socket_across_poll_slices() {
+        let probe = crate::codec::ForcedPendingConnectProbe::install();
+        let cancellation = super::super::options::CancellationToken::new();
+        let options = RequestOptions::new()
+            .with_timeout(Duration::from_millis(35))
+            .unwrap()
+            .with_cancellation(cancellation);
+        let budget = CallBudget::new(options, Duration::from_secs(1)).unwrap();
+        let config = Config::from_socket_path("pending-connect.sock");
+
+        assert!(matches!(
+            connect_with_budget(&config, ops::SESSION_LIST, &budget),
+            Err(Error::Timeout(_))
+        ));
+        assert!(probe.polls() >= 2, "the connect should span several cancellation polls");
+        assert_eq!(
+            probe.attempts(),
+            1,
+            "cancellation polling must keep one pending Unix socket instead of recreating it"
+        );
+    }
+
+    #[test]
     fn classification_matches_connection_control_exceptions() {
         assert_eq!(operation_class(ops::TERMINAL_COPY), OperationClass::Read);
         assert_eq!(operation_class(ops::REQUEST_CANCEL), OperationClass::ConnectionControl);

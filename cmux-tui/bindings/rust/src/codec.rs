@@ -10,6 +10,45 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
+thread_local! {
+    static FORCE_PENDING_CONNECT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static FORCED_CONNECT_ATTEMPTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static FORCED_CONNECT_POLLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) struct ForcedPendingConnectProbe;
+
+#[cfg(test)]
+impl ForcedPendingConnectProbe {
+    pub(crate) fn install() -> Self {
+        FORCE_PENDING_CONNECT.with(|forced| {
+            assert!(!forced.replace(true), "a pending-connect probe is already installed");
+        });
+        FORCED_CONNECT_ATTEMPTS.with(|attempts| attempts.set(0));
+        FORCED_CONNECT_POLLS.with(|polls| polls.set(0));
+        Self
+    }
+
+    pub(crate) fn attempts(&self) -> usize {
+        FORCED_CONNECT_ATTEMPTS.with(std::cell::Cell::get)
+    }
+
+    pub(crate) fn polls(&self) -> usize {
+        FORCED_CONNECT_POLLS.with(std::cell::Cell::get)
+    }
+}
+
+#[cfg(test)]
+impl Drop for ForcedPendingConnectProbe {
+    fn drop(&mut self) {
+        FORCE_PENDING_CONNECT.with(|forced| forced.set(false));
+        FORCED_CONNECT_ATTEMPTS.with(|attempts| attempts.set(0));
+        FORCED_CONNECT_POLLS.with(|polls| polls.set(0));
+    }
+}
+
 pub(crate) struct JsonLineConnection {
     writer: UnixStream,
     reader: BufReader<UnixStream>,
@@ -195,6 +234,13 @@ impl JsonLineConnection {
 
 fn connect_unix_with_timeout(socket_path: &Path, timeout: Duration) -> Result<UnixStream> {
     if timeout.is_zero() {
+        return Err(connect_timeout_error(socket_path));
+    }
+    #[cfg(test)]
+    if FORCE_PENDING_CONNECT.with(std::cell::Cell::get) {
+        FORCED_CONNECT_ATTEMPTS.with(|attempts| attempts.set(attempts.get() + 1));
+        FORCED_CONNECT_POLLS.with(|polls| polls.set(polls.get() + 1));
+        std::thread::sleep(timeout);
         return Err(connect_timeout_error(socket_path));
     }
     let path = socket_path.as_os_str().as_bytes();
