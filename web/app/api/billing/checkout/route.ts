@@ -4,8 +4,11 @@ import { eq } from "drizzle-orm";
 
 import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
 import {
+  CHECKOUT_RELAY_EXPIRES_PARAM,
+  CHECKOUT_RELAY_SIGNATURE_PARAM,
   appPricingCheckoutRelayURL,
   appStorePricingUnavailableURL,
+  isProtectedAppPricingRelayScheme,
   isAppStoreDistributionMode,
   verifiedAppPricingRelayScheme,
 } from "../../../lib/billing";
@@ -60,10 +63,24 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   const interval = checkoutBillingInterval(
     request.nextUrl.searchParams.get("interval"),
   );
+  const rawCallbackScheme = request.nextUrl.searchParams.get("cmux_scheme");
+  const verifiedRelayScheme = verifiedAppPricingRelayScheme(request.nextUrl);
+  const hasRelayAssertion =
+    request.nextUrl.searchParams.has(CHECKOUT_RELAY_EXPIRES_PARAM) ||
+    request.nextUrl.searchParams.has(CHECKOUT_RELAY_SIGNATURE_PARAM);
+  if (
+    isProtectedAppPricingRelayScheme(rawCallbackScheme) &&
+    !verifiedRelayScheme &&
+    hasRelayAssertion
+  ) {
+    return NextResponse.redirect(
+      new URL("/pricing?billing=invalid_relay", request.url),
+    );
+  }
   const callbackScheme =
-    verifiedAppPricingRelayScheme(request.nextUrl) ??
+    verifiedRelayScheme ??
     validatedNativeCallbackScheme(
-      request.nextUrl.searchParams.get("cmux_scheme"),
+      rawCallbackScheme,
       request,
     );
   const configuredRelayURL = appPricingCheckoutRelayURL(request.nextUrl, {

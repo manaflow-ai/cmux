@@ -142,7 +142,10 @@
       "pro": {
         "name": "cmux Pro",
         "activeBody": "Your plan renews on {date}.",
-        "pendingBody": "Your plan is scheduled to end on {date}."
+        "pendingBody": "Your plan is scheduled to end on {date}.",
+        "monthlyPrice": "$30/month",
+        "annualPrice": "$288/year",
+        "legacyAnnualPrice": "$240/year"
       },
       "team": {
         "name": "cmux Team",
@@ -689,6 +692,7 @@
     "billingUnavailable": "Billing is not available right now. Please try again later.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
+    "billingInvalidRelay": "The app checkout link expired or could not be verified. Return to cmux and try again.",
     "welcomeTeam": "Your cmux Team purchase is complete."
   },
   "home": {

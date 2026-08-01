@@ -407,6 +407,9 @@ function appPricingBanner(
   if (billing === "invalid_plan") {
     return { message: pricing.billingInvalidPlan };
   }
+  if (billing === "invalid_relay") {
+    return { message: pricing.billingInvalidRelay };
+  }
   return null;
 }
 

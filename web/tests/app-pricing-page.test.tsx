@@ -222,6 +222,7 @@ describe("app pricing page", () => {
     ["welcomeTeam", { welcome: "team" }, "Your cmux Team purchase is complete."],
     ["billingCancelled", { billing: "cancelled" }, "Checkout cancelled. You have not been charged."],
     ["billingInvalidPlan", { billing: "invalid_plan" }, "That plan is not available. Pick a plan below."],
+    ["billingInvalidRelay", { billing: "invalid_relay" }, "The app checkout link expired or could not be verified. Return to cmux and try again."],
   ] as const) {
     test(`renders ${name} banner state`, async () => {
       const element = await AppPricingPage({

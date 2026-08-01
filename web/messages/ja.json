@@ -142,7 +142,10 @@
       "pro": {
         "name": "cmux Pro",
         "activeBody": "プランは{date}に更新されます。",
-        "pendingBody": "プランは{date}に終了する予定です。"
+        "pendingBody": "プランは{date}に終了する予定です。",
+        "monthlyPrice": "$30/月",
+        "annualPrice": "$288/年",
+        "legacyAnnualPrice": "$240/年"
       },
       "team": {
         "name": "cmux Team",
@@ -689,6 +692,7 @@
     "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。",
     "billingCancelled": "チェックアウトはキャンセルされました。請求は発生していません。",
     "billingInvalidPlan": "指定されたプランはご利用いただけません。以下からプランをお選びください。",
+    "billingInvalidRelay": "アプリのチェックアウトリンクの有効期限が切れているか、検証できませんでした。cmuxに戻ってもう一度お試しください。",
     "welcomeTeam": "cmux Team のご購入が完了しました。"
   },
   "home": {

@@ -242,9 +242,14 @@ describe("billing checkout route", () => {
       stripeConfigured = true;
       userResponses = [null, anonymousUser];
       const originalNow = Date.now;
-      Date.now = () => originalNow() - 1_000;
-      const checkoutResponse = await GET(new NextRequest(relayURL));
-      Date.now = originalNow;
+      let checkoutResponse: Awaited<ReturnType<typeof GET>>;
+      try {
+        const verifierNow = originalNow() - 1_000;
+        Date.now = () => verifierNow;
+        checkoutResponse = await GET(new NextRequest(relayURL));
+      } finally {
+        Date.now = originalNow;
+      }
 
       expect(checkoutResponse.headers.get("location")).toBe(
         "https://checkout.stripe.com/c/session",

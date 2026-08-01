@@ -237,9 +237,24 @@ describe("after sign-in native handoff", () => {
       const response = await GET(new NextRequest(afterSignIn));
 
       expect(response.status).toBe(200);
-      expect(returnHref(await response.text())).toContain(
+      const html = await response.text();
+      expect(returnHref(html)).toContain(
         "cmux-dev-test://auth-callback",
       );
+      const switchURL = new URL(switchAccountHref(html), "https://cmux.test");
+      const nativeSignInTarget = new URL(
+        switchURL.searchParams.get("after_auth_return_to")!,
+        "https://cmux.test",
+      );
+      const preservedAfterSignIn = new URL(
+        nativeSignInTarget.searchParams.get("after_auth_return_to")!,
+        "https://cmux.test",
+      );
+      expect(preservedAfterSignIn.searchParams.get("cmux_checkout_session")).toBe(
+        "cs_123",
+      );
+      expect(preservedAfterSignIn.searchParams.get("cmux_native_return_signature"))
+        .toMatch(/^[a-f0-9]{64}$/);
 
       afterSignIn.searchParams.set(
         "native_app_return_to",

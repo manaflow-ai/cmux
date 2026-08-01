@@ -382,7 +382,7 @@ function StripePlan({
   subscription: StripeSubscriptionRow;
   canManageBilling: boolean;
 }) {
-  const price = priceCopy(subscription);
+  const price = priceCopy(subscription, t);
   const periodDate = subscription.currentPeriodEnd
     ? formatBillingDate(subscription.currentPeriodEnd, locale)
     : t("dates.unknown");
@@ -568,19 +568,26 @@ function billingBanner(value: string | undefined) {
     : null;
 }
 
-function priceCopy(subscription: StripeSubscriptionRow): string | null {
+function priceCopy(
+  subscription: StripeSubscriptionRow,
+  t: Awaited<ReturnType<typeof getTranslations>>,
+): string | null {
   const lookupKey = priceLookupKey(subscription) ?? subscription.priceId;
   if (lookupKey === PRO_PRICING_USD.month.lookupKey) {
-    return `$${PRO_PRICING_USD.month.billedAmount}/month`;
+    return t("pro.monthlyPrice");
   }
-  if (lookupKey === LEGACY_PRO_YEARLY_LOOKUP_KEY) return "$240/year";
+  if (lookupKey === LEGACY_PRO_YEARLY_LOOKUP_KEY) {
+    return t("pro.legacyAnnualPrice");
+  }
   if (lookupKey === PRO_PRICING_USD.year.lookupKey) {
-    return `$${PRO_PRICING_USD.year.billedAmount}/year`;
+    return t("pro.annualPrice");
   }
   return null;
 }
 
-function priceLookupKey(subscription: StripeSubscriptionRow): string | null {
+function stripePrice(
+  subscription: StripeSubscriptionRow,
+): Record<string, unknown> | null {
   const raw = subscription.raw;
   const items = raw && typeof raw === "object" ? raw.items : null;
   const data = items && typeof items === "object" && "data" in items
@@ -590,22 +597,31 @@ function priceLookupKey(subscription: StripeSubscriptionRow): string | null {
   const price = firstItem && typeof firstItem === "object" && "price" in firstItem
     ? (firstItem as { price?: unknown }).price
     : null;
-  const lookupKey = price && typeof price === "object" && "lookup_key" in price
-    ? (price as { lookup_key?: unknown }).lookup_key
+  return price && typeof price === "object"
+    ? (price as Record<string, unknown>)
     : null;
+}
+
+function priceLookupKey(subscription: StripeSubscriptionRow): string | null {
+  const lookupKey = stripePrice(subscription)?.lookup_key;
   return typeof lookupKey === "string" ? lookupKey : null;
 }
 
+function priceRecurringInterval(
+  subscription: StripeSubscriptionRow,
+): "month" | "year" | null {
+  const recurring = stripePrice(subscription)?.recurring;
+  const interval = recurring && typeof recurring === "object"
+    ? (recurring as { interval?: unknown }).interval
+    : null;
+  return interval === "month" || interval === "year" ? interval : null;
+}
+
 function isAnnualTeamSubscription(subscription: StripeSubscriptionRow): boolean {
-  if (priceLookupKey(subscription) === TEAM_PRICING_USD.year.lookupKey) return true;
-  const raw = subscription.raw;
-  const metadata = raw && typeof raw === "object" ? raw.metadata : null;
-  return Boolean(
-    metadata &&
-      typeof metadata === "object" &&
-      "billingInterval" in metadata &&
-      (metadata as { billingInterval?: unknown }).billingInterval === "year",
-  );
+  const lookupKey = priceLookupKey(subscription);
+  if (lookupKey === TEAM_PRICING_USD.year.lookupKey) return true;
+  if (lookupKey === TEAM_PRICING_USD.month.lookupKey) return false;
+  return priceRecurringInterval(subscription) === "year";
 }
 
 function formatBillingDate(date: Date, locale: string): string {

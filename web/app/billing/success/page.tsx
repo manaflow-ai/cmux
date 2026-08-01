@@ -11,6 +11,7 @@ import {
   trustedNativeCallbackScheme,
   validatedNativeCallbackScheme,
 } from "../../lib/native-callback";
+import { appPricingNativeReturnURL } from "../../lib/billing";
 import {
   isActiveStripeSubscriptionStatus,
   latestStripeSubscriptionForSession,
@@ -98,8 +99,11 @@ export default async function BillingSuccessPage({
 
   const email = purchaseEmail(session) ?? "";
   const { locale, messages } = await billingSuccessMessages(requestHeaders);
-  const openCmuxHref = new URL("/handler/after-sign-in", request.nextUrl.origin);
-  openCmuxHref.searchParams.set("native_app_return_to", nativeCallbackHrefForScheme(scheme));
+  const openCmuxHref = appPricingNativeReturnURL(
+    new URL("/handler/after-sign-in", request.nextUrl.origin),
+    nativeCallbackHrefForScheme(scheme),
+    sessionId,
+  );
   const featureCards: readonly {
     key: BillingSuccessFeatureKey;
     href: string;

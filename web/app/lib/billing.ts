@@ -8,6 +8,14 @@ export const CHECKOUT_INTERVAL_PARAM = "interval";
 export const CHECKOUT_APP_RELAY_PARAM = "cmux_app_checkout";
 export const CHECKOUT_RELAY_EXPIRES_PARAM = "cmux_relay_expires";
 export const CHECKOUT_RELAY_SIGNATURE_PARAM = "cmux_relay_signature";
+export const CHECKOUT_NATIVE_RETURN_SESSION_PARAM = "cmux_checkout_session";
+export const CHECKOUT_NATIVE_RETURN_EXPIRES_PARAM = "cmux_native_return_expires";
+export const CHECKOUT_NATIVE_RETURN_SIGNATURE_PARAM = "cmux_native_return_signature";
+export const APP_PRICING_NATIVE_RETURN_QUERY_PARAMS = [
+  CHECKOUT_NATIVE_RETURN_SESSION_PARAM,
+  CHECKOUT_NATIVE_RETURN_EXPIRES_PARAM,
+  CHECKOUT_NATIVE_RETURN_SIGNATURE_PARAM,
+] as const;
 export const CHECKOUT_PATH = "/api/billing/checkout";
 export type CheckoutPlan = "pro" | "team";
 export type CheckoutInterval = "month" | "year";
@@ -23,6 +31,7 @@ export const TEAM_CHECKOUT_URL = withExternalBrowserIntent(TEAM_CHECKOUT_PATH);
 
 const DEFAULT_APP_PRICING_CHECKOUT_URL = "https://cmux.com/api/billing/checkout";
 const APP_PRICING_RELAY_TTL_SECONDS = 5 * 60;
+const APP_PRICING_RELAY_CLOCK_SKEW_SECONDS = 30;
 
 type SearchParamValue = string | string[] | null | undefined;
 
@@ -110,15 +119,7 @@ export function verifiedAppPricingRelayScheme(requestURL: URL): string | null {
   ) {
     return null;
   }
-  const expiresAt = Number(expires);
-  const now = Math.floor(Date.now() / 1000);
-  if (
-    !Number.isSafeInteger(expiresAt) ||
-    expiresAt < now ||
-    expiresAt > now + APP_PRICING_RELAY_TTL_SECONDS
-  ) {
-    return null;
-  }
+  if (!validRelayExpiry(expires)) return null;
   const expected = relaySignature(
     requestURL,
     { plan, interval, cmuxScheme: scheme },
@@ -127,6 +128,76 @@ export function verifiedAppPricingRelayScheme(requestURL: URL): string | null {
   );
   if (!constantTimeHexEqual(signature, expected)) return null;
   return scheme;
+}
+
+export function isProtectedAppPricingRelayScheme(
+  rawScheme: string | null | undefined,
+): boolean {
+  return isProtectedRelayScheme(rawScheme?.trim().toLowerCase() ?? "");
+}
+
+export function appPricingNativeReturnURL(
+  target: URL,
+  nativeReturnTo: string,
+  checkoutSessionId: string,
+): URL {
+  const result = new URL(target);
+  result.searchParams.set("native_app_return_to", nativeReturnTo);
+  if (!protectedNativeReturnTo(nativeReturnTo)) return result;
+  const secret = appPricingRelaySecret();
+  if (!secret || !validCheckoutSessionId(checkoutSessionId)) return result;
+  const expires = String(
+    Math.floor(Date.now() / 1000) + APP_PRICING_RELAY_TTL_SECONDS,
+  );
+  result.searchParams.set(CHECKOUT_NATIVE_RETURN_SESSION_PARAM, checkoutSessionId);
+  result.searchParams.set(CHECKOUT_NATIVE_RETURN_EXPIRES_PARAM, expires);
+  result.searchParams.set(
+    CHECKOUT_NATIVE_RETURN_SIGNATURE_PARAM,
+    nativeReturnSignature(
+      result,
+      nativeReturnTo,
+      checkoutSessionId,
+      expires,
+      secret,
+    ),
+  );
+  return result;
+}
+
+export function verifiedAppPricingNativeReturnTo(
+  requestURL: URL,
+): string | null {
+  const nativeReturnTo = requestURL.searchParams.get("native_app_return_to");
+  const checkoutSessionId = requestURL.searchParams.get(
+    CHECKOUT_NATIVE_RETURN_SESSION_PARAM,
+  );
+  const expires = requestURL.searchParams.get(
+    CHECKOUT_NATIVE_RETURN_EXPIRES_PARAM,
+  );
+  const signature = requestURL.searchParams.get(
+    CHECKOUT_NATIVE_RETURN_SIGNATURE_PARAM,
+  );
+  const secret = appPricingRelaySecret();
+  if (
+    !nativeReturnTo ||
+    !protectedNativeReturnTo(nativeReturnTo) ||
+    !checkoutSessionId ||
+    !validCheckoutSessionId(checkoutSessionId) ||
+    !expires ||
+    !signature ||
+    !secret ||
+    !validRelayExpiry(expires)
+  ) {
+    return null;
+  }
+  const expected = nativeReturnSignature(
+    requestURL,
+    nativeReturnTo,
+    checkoutSessionId,
+    expires,
+    secret,
+  );
+  return constantTimeHexEqual(signature, expected) ? nativeReturnTo : null;
 }
 
 export function isAppStoreDistributionMode(params: {
@@ -238,6 +309,50 @@ function relaySignature(
     expires,
   ].join("\n");
   return createHmac("sha256", secret).update(payload).digest("hex");
+}
+
+function nativeReturnSignature(
+  target: URL,
+  nativeReturnTo: string,
+  checkoutSessionId: string,
+  expires: string,
+  secret: string,
+): string {
+  const payload = [
+    "cmux-app-pricing-native-return-v1",
+    target.origin,
+    target.pathname,
+    nativeReturnTo,
+    checkoutSessionId,
+    expires,
+  ].join("\n");
+  return createHmac("sha256", secret).update(payload).digest("hex");
+}
+
+function validRelayExpiry(rawExpires: string): boolean {
+  const expiresAt = Number(rawExpires);
+  const now = Math.floor(Date.now() / 1000);
+  return (
+    Number.isSafeInteger(expiresAt)
+    && expiresAt >= now - APP_PRICING_RELAY_CLOCK_SKEW_SECONDS
+    && expiresAt <= now + APP_PRICING_RELAY_TTL_SECONDS
+      + APP_PRICING_RELAY_CLOCK_SKEW_SECONDS
+  );
+}
+
+function validCheckoutSessionId(value: string): boolean {
+  return /^cs_[A-Za-z0-9_]+$/.test(value);
+}
+
+function protectedNativeReturnTo(href: string): boolean {
+  try {
+    const url = new URL(href);
+    return isProtectedRelayScheme(url.protocol.replace(":", "").toLowerCase())
+      && url.hostname === "auth-callback"
+      && (url.pathname === "" || url.pathname === "/");
+  } catch {
+    return false;
+  }
 }
 
 function appPricingRelaySecret(): string | null {

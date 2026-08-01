@@ -83,6 +83,11 @@ public struct BrowserAppTheme: Equatable, Sendable {
 
     /// Returns whether the URL is a trusted app-web surface that consumes this theme contract.
     public func supports(url: URL?, trustedOrigin: URL) -> Bool {
+        Self.supportsAppSurface(url: url, trustedOrigin: trustedOrigin)
+    }
+
+    /// Checks the app-web URL contract without constructing theme colors.
+    public static func supportsAppSurface(url: URL?, trustedOrigin: URL) -> Bool {
         guard let url,
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
