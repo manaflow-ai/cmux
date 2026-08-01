@@ -49,6 +49,43 @@ describe("Connectivity authority", () => {
     });
   });
 
+  test("assembles every discovery page before proving a sync snapshot complete", async () => {
+    const bindings = Array.from({ length: 300 }, (_, index) => ({
+      binding_id: `binding-${index + 1}`,
+    }));
+    const requests: unknown[] = [];
+    const authority = makeConnectivityAuthority({
+      discover: (_userId, _now, request) => {
+        requests.push(request);
+        const cursor = (request as { cursor?: string } | undefined)?.cursor;
+        const offset = cursor === "page-2" ? 128 : cursor === "page-3" ? 256 : 0;
+        const nextCursor = offset === 0
+          ? "page-2"
+          : offset === 128
+            ? "page-3"
+            : null;
+        return Effect.succeed({
+          ...snapshot,
+          bindings: bindings.slice(offset, offset + 128),
+          next_cursor: nextCursor,
+        });
+      },
+    });
+
+    const response = await Effect.runPromise(authority.sync("user-a", {
+      protocol_version: 2,
+      known_revision: null,
+    }));
+
+    expect((response.snapshot?.bindings as unknown[])).toHaveLength(300);
+    expect(response).toMatchObject({ snapshot_complete: true });
+    expect(requests).toEqual([
+      { pageSize: "128" },
+      { pageSize: "128", cursor: "page-2" },
+      { pageSize: "128", cursor: "page-3" },
+    ]);
+  });
+
   test("omits an unchanged snapshot and identifies backend revision reset", async () => {
     const authority = makeConnectivityAuthority({
       discover: () => Effect.succeed(snapshot),
