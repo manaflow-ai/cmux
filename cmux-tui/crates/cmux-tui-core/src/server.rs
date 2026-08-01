@@ -12890,6 +12890,35 @@ mod tests {
     }
 
     #[test]
+    fn detached_terminal_requires_an_explicit_pane() {
+        let mux = test_mux();
+
+        let error = handle_command(
+            &mux,
+            0,
+            Command::CreateTerminal {
+                workspace: None,
+                key: None,
+                pane: None,
+                argv: None,
+                command: None,
+                cwd: None,
+                name: None,
+                cols: None,
+                rows: None,
+                terminal_id: None,
+                activate: Some(false),
+                mutation: MutationRequest::default(),
+            },
+            &test_writer(),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.to_string(), "create-terminal activate:false requires pane");
+        assert_eq!(mux.surface_count(), 0);
+    }
+
+    #[test]
     fn pty_pane_commands_explain_that_urls_require_browser_kind() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
@@ -12966,10 +12995,11 @@ mod tests {
     }
 
     #[test]
-    fn workspace_tree_exposes_the_public_terminal_id_for_startup_attach() {
+    fn workspace_tree_exposes_stable_tab_and_terminal_ids_for_startup_attach() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
-        let expected = match &surface.resource_identity().unwrap().content_id {
+        let identity = surface.resource_identity().unwrap();
+        let expected = match &identity.content_id {
             ContentPublicId::Terminal(id) => id.as_str(),
             ContentPublicId::Browser(_) => panic!("workspace started with a browser"),
         };
@@ -12979,6 +13009,10 @@ mod tests {
         assert_eq!(
             tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["terminal_resource_id"],
             expected
+        );
+        assert_eq!(
+            tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["tab_resource_id"],
+            identity.tab_id.as_str()
         );
         mux.shutdown();
     }

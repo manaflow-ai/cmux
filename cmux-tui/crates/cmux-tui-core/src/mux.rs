@@ -19050,6 +19050,95 @@ mod tests {
     }
 
     #[test]
+    fn failed_raw_browser_creation_and_relocation_restore_live_and_durable_topology() {
+        let mux = test_mux();
+        let owner = mux.new_workspace(None, None).unwrap();
+        let owner_pane = mux.with_state(|state| state.pane_of(owner.id).unwrap());
+        let moving = mux.new_tab(Some(owner_pane), None, None).unwrap();
+        let target = mux.split(owner_pane, SplitDir::Down, None).unwrap();
+        let target_pane = mux.with_state(|state| state.pane_of(target.id).unwrap());
+        let before_fingerprint = mux.with_state(state_topology_fingerprint);
+        let before_revision = mux.with_state(|state| state.resource_revision);
+        let before_epoch = mux.resource_event_epoch();
+        let before_surface_count = mux.surface_count();
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+
+        let create_error = mux
+            .new_browser_tab_in_pane(
+                target_pane,
+                "about:blank#must-rollback".into(),
+                Some((80, 24)),
+                false,
+            )
+            .unwrap_err();
+        assert!(create_error.to_string().contains("forced resource patch failure"));
+        assert_eq!(mux.surface_count(), before_surface_count);
+        assert_eq!(mux.with_state(state_topology_fingerprint), before_fingerprint);
+        assert_eq!(mux.with_state(|state| state.resource_revision), before_revision);
+        assert_eq!(mux.resource_event_epoch(), before_epoch);
+
+        let relocation_error = mux
+            .move_tab_to_split_with_activation(moving.id, target_pane, SplitDir::Right, true, false)
+            .unwrap_err();
+        assert!(relocation_error.to_string().contains("forced resource patch failure"));
+        assert_eq!(mux.with_state(state_topology_fingerprint), before_fingerprint);
+        assert_eq!(mux.with_state(|state| state.resource_revision), before_revision);
+        assert_eq!(mux.resource_event_epoch(), before_epoch);
+        let registry = mux.workspace_registry.lock().unwrap();
+        assert_eq!(registry.resource_topology_snapshot().unwrap().revision, before_revision);
+        assert!(registry.resource_events_after(before_revision).unwrap().batches.is_empty());
+        registry.set_resource_patch_failure(false).unwrap();
+    }
+
+    #[test]
+    fn detached_move_to_inactive_pane_preserves_its_selected_tab() {
+        let mux = test_mux();
+        let owner = mux.new_workspace(None, None).unwrap();
+        let owner_pane = mux.with_state(|state| state.pane_of(owner.id).unwrap());
+        let moving = mux.new_tab(Some(owner_pane), None, None).unwrap();
+        let target = mux.split(owner_pane, SplitDir::Down, None).unwrap();
+        let target_pane = mux.with_state(|state| state.pane_of(target.id).unwrap());
+        let target_second = mux.new_tab(Some(target_pane), None, None).unwrap();
+        mux.select_tab(Some(target_pane), Some(0), None);
+        assert!(mux.focus_pane(owner_pane));
+        mux.select_tab(Some(owner_pane), Some(0), None);
+        let owner_focus = mux.with_state(current_focus_identity);
+
+        assert!(mux.move_tab_with_activation(moving.id, target_pane, 0, false));
+
+        mux.with_state(|state| {
+            assert_eq!(current_focus_identity(state), owner_focus);
+            let target_state = &state.panes[&target_pane];
+            assert_eq!(target_state.tabs, vec![moving.id, target.id, target_second.id]);
+            assert_eq!(target_state.active_surface(), Some(target.id));
+        });
+    }
+
+    #[test]
+    fn tab_move_to_column_index_uses_pre_removal_coordinates() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let (second, second_placement) =
+            mux.new_pane_right_with_activation(first_pane, 0.5, None, false).unwrap();
+        let (_, third_placement) =
+            mux.new_pane_right_with_activation(second_placement.pane, 0.5, None, false).unwrap();
+
+        let moved = mux.move_tab_to_new_column_with_activation(first.id, 2, 0.75, false).unwrap();
+
+        mux.with_state(|state| {
+            let (workspace, screen) = state.screen_of(moved.pane).unwrap();
+            let columns = &state.workspaces[workspace].screens[screen].layout_columns;
+            assert_eq!(columns.len(), 3);
+            assert_eq!(columns[0].root.pane_ids_vec(), vec![second_placement.pane]);
+            assert_eq!(columns[1].root.pane_ids_vec(), vec![moved.pane]);
+            assert_eq!(columns[2].root.pane_ids_vec(), vec![third_placement.pane]);
+            assert_eq!(columns[1].width, 0.75);
+        });
+        second.kill();
+    }
+
+    #[test]
     fn detached_pane_relocations_preserve_identity_tabs_and_owner_focus() {
         let mux = test_mux();
         let owner_surface = mux.new_workspace(None, None).unwrap();
