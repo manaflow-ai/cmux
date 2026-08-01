@@ -284,10 +284,6 @@ struct WorkspaceShellView: View {
             }
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
-            .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
-                guard !isPresented, selectedPrimaryTab != .search else { return }
-                consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
-            }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
                 if oldValue == .search, newValue != .search {
                     notificationSearchNavigationPath = []
