@@ -134,6 +134,65 @@ extension Workspace {
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
     }
 
+    /// Keep an in-flight restored launch tied to the same structured binding
+    /// so a later, unrelated binding cannot inherit its lifecycle evidence.
+    func restoredAgentLifecycleOwns(
+        _ binding: SurfaceResumeBindingSnapshot,
+        panelId: UUID
+    ) -> Bool {
+        guard binding.isAgentHookBinding,
+              restoredAgentLifecycle.ownsInFlightRestoredCommand(panelId: panelId) else {
+            return false
+        }
+        if let storedBinding = surfaceResumeBindingsByPanelId[panelId] {
+            return storedBinding.isSameManagedSession(as: binding)
+        }
+        guard let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] else {
+            return false
+        }
+        return Self.restorableAgentForSessionRestore(
+            restoredAgent,
+            resumeBinding: binding
+        ) != nil
+    }
+
+    /// A real shell callback has advanced this binding's restored launch from
+    /// queued input to a running command.
+    func restoredAgentLifecycleConfirmsRunning(
+        _ binding: SurfaceResumeBindingSnapshot,
+        panelId: UUID
+    ) -> Bool {
+        restoredAgentLifecycle.confirmsRunningRestoredCommand(panelId: panelId) &&
+            restoredAgentLifecycleOwns(binding, panelId: panelId)
+    }
+
+    /// Preserve restore lifecycle state across a same-session hook refresh,
+    /// but never let a replacement binding reuse the prior session's observed
+    /// command-running phase.
+    func invalidateRestoredAgentLifecycleIfBindingIsReplaced(
+        by binding: SurfaceResumeBindingSnapshot,
+        panelId: UUID
+    ) {
+        guard restoredAgentLifecycle.ownsInFlightRestoredCommand(panelId: panelId) else {
+            return
+        }
+        let continuesRestoredSession: Bool
+        if let storedBinding = surfaceResumeBindingsByPanelId[panelId] {
+            continuesRestoredSession = storedBinding == binding ||
+                storedBinding.isSameManagedSession(as: binding)
+        } else if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
+            continuesRestoredSession = Self.restorableAgentForSessionRestore(
+                restoredAgent,
+                resumeBinding: binding
+            ) != nil
+        } else {
+            continuesRestoredSession = false
+        }
+        guard !continuesRestoredSession else { return }
+        clearRestoredAgentSnapshot(panelId: panelId)
+        invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+    }
+
     /// True when `binding` is a plain (non-tmux) agent-hook resume binding
     /// whose session no longer shows up as a live process. Generalizes the
     /// tmux-only `isProcessDetected` staleness signal in
@@ -165,6 +224,9 @@ extension Workspace {
               !checkpointId.isEmpty,
               let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
               !kind.isEmpty else {
+            return false
+        }
+        if restoredAgentLifecycleOwns(binding, panelId: panelId) {
             return false
         }
         let liveIndex = restorableAgentIndex ?? SharedLiveAgentIndex.shared.index

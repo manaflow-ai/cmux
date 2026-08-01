@@ -125,6 +125,7 @@ import Testing
         #expect(MobileShellConnectionError.connectionClosed.diagnosticFailureKind == .connectionClosed)
         #expect(MobileShellConnectionError.requestTimedOut.diagnosticFailureKind == .timedOut)
         #expect(MobileShellConnectionError.transportWriteTimedOut.diagnosticFailureKind == .timedOut)
+        #expect(MobileShellConnectionError.connectAttemptGated.diagnosticFailureKind == .routeGated)
         #expect(
             MobileShellConnectionError.routeCleanupBlocked.diagnosticFailureKind
                 == .admissionDenied
