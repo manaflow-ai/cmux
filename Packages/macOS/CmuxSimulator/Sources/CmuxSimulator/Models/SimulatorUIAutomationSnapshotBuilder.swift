@@ -143,13 +143,12 @@ struct SimulatorUIAutomationSnapshotBuilder {
         let visibleFrame = frameIntersection(frame, viewport)
         let visible = visibleFrame != nil
         let enabled = node.isEnabled != false
-        let hasStableSelector = normalizedIdentifier != nil
-            || (role != nil && (normalizedLabel != nil || normalizedValue != nil))
+        let hasStableInputSelector = normalizedIdentifier != nil
         let actions = supportedActions(
             node: node,
             role: role,
             hasSemanticIdentity: normalizedLabel != nil || normalizedIdentifier != nil,
-            hasStableSelector: hasStableSelector,
+            hasStableInputSelector: hasStableInputSelector,
             enabled: enabled,
             visible: visible,
             frame: frame,
@@ -236,7 +235,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
         node: SimulatorAccessibilityNode,
         role: SimulatorUIAutomationRole?,
         hasSemanticIdentity: Bool,
-        hasStableSelector: Bool,
+        hasStableInputSelector: Bool,
         enabled: Bool,
         visible: Bool,
         frame: SimulatorRect,
@@ -251,7 +250,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
             || (hasSemanticIdentity && node.children.isEmpty && role != .text) {
             actions.append(.tap)
         }
-        if role == .textField, hasStableSelector {
+        if role == .textField, hasStableInputSelector {
             actions.append(.typeText)
         }
         if role != .application, role != .window {
@@ -393,7 +392,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
             let element = record.element
             guard element.actions.contains(.typeText) else { return record }
             let hasUniqueSelector = !source.isTruncated && (
-                element.stableSelector.map { selector in
+                element.stableInputSelector.map { selector in
                     elements.lazy.filter {
                         $0.state.isVisible && selector.matches($0)
                     }.prefix(2).count == 1

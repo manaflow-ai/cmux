@@ -104,6 +104,17 @@ extension SimulatorUIAutomationSnapshotRecord {
         return elementsByRef[elementRef]?.element.stableSelector
     }
 
+    /// Returns an identifier-only selector that can safely route un-targeted input.
+    ///
+    /// Labels and values may identify replacement elements after a UI mutation,
+    /// so they remain suitable for observation waits but never for typing.
+    public func stableInputSelector(
+        for elementRef: String
+    ) -> SimulatorUIAutomationSelector? {
+        guard !snapshot.isTruncated else { return nil }
+        return elementsByRef[elementRef]?.element.stableInputSelector
+    }
+
     /// Resolves a swipe wholly inside the target's visible frame.
     ///
     /// - Parameters:
@@ -298,12 +309,17 @@ extension SimulatorUIAutomationSnapshotRecord {
 }
 
 extension SimulatorUIAutomationElement {
+    var stableInputSelector: SimulatorUIAutomationSelector? {
+        guard let identifier else { return nil }
+        return SimulatorUIAutomationSelector(
+            sourceElementRef: ref,
+            identifier: identifier
+        )
+    }
+
     var stableSelector: SimulatorUIAutomationSelector? {
-        if let identifier {
-            return SimulatorUIAutomationSelector(
-                sourceElementRef: ref,
-                identifier: identifier
-            )
+        if let stableInputSelector {
+            return stableInputSelector
         }
         if let label, let role {
             return SimulatorUIAutomationSelector(

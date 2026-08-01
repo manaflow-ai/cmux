@@ -9,7 +9,10 @@ struct SimulatorRemoteSurfaceFocusTests {
     func scrollRequiresPointerOwnership() throws {
         let view = SimulatorRemoteSurfaceView()
         var guestInvocationCount = 0
-        view.onMessage = { _ in guestInvocationCount += 1 }
+        view.onMessage = { _ in
+            guestInvocationCount += 1
+            return true
+        }
         let cgEvent = try #require(CGEvent(
             scrollWheelEvent2Source: nil,
             units: .pixel,
@@ -37,7 +40,10 @@ struct SimulatorRemoteSurfaceFocusTests {
             hostInvocationCount += 1
             return true
         }
-        view.onMessage = { _ in guestInvocationCount += 1 }
+        view.onMessage = { _ in
+            guestInvocationCount += 1
+            return true
+        }
         let event = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,

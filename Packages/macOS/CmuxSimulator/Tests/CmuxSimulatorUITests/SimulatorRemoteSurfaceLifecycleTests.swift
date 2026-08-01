@@ -289,8 +289,9 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         defer { view.teardown() }
         var received: [SimulatorPointerEvent] = []
         view.onMessage = { message in
-            guard case let .pointer(event) = message else { return }
+            guard case let .pointer(event) = message else { return true }
             received.append(event)
+            return true
         }
         let first = SimulatorPointerEvent(
             phase: .moved,

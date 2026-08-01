@@ -21,10 +21,8 @@ struct SimulatorRemoteSurface: NSViewRepresentable {
         view.setPointerInputEnabled(allowsPointerInput)
         view.pointerEntryEventFilter = pointerEntryEventFilter
         view.simulatorOwnerID = ObjectIdentifier(coordinator)
-        view.onMessage = { [weak coordinator, weak view] message in
-            if coordinator?.enqueue(message) != true {
-                view?.discardRejectedInputs()
-            }
+        view.onMessage = { [weak coordinator] message in
+            coordinator?.enqueue(message) == true
         }
         view.onGeometry = { [weak coordinator] geometry in
             coordinator?.updateGeometry(geometry)
@@ -48,10 +46,8 @@ struct SimulatorRemoteSurface: NSViewRepresentable {
         view.setPointerInputEnabled(allowsPointerInput)
         view.pointerEntryEventFilter = pointerEntryEventFilter
         view.simulatorOwnerID = ObjectIdentifier(coordinator)
-        view.onMessage = { [weak coordinator, weak view] message in
-            if coordinator?.enqueue(message) != true {
-                view?.discardRejectedInputs()
-            }
+        view.onMessage = { [weak coordinator] message in
+            coordinator?.enqueue(message) == true
         }
         view.onGeometry = { [weak coordinator] geometry in
             coordinator?.updateGeometry(geometry)

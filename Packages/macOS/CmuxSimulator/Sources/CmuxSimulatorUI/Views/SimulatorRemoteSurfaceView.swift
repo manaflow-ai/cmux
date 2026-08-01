@@ -5,7 +5,7 @@ import QuartzCore
 @MainActor
 final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     var simulatorOwnerID: ObjectIdentifier?
-    var onMessage: ((SimulatorWorkerInbound) -> Void)?
+    var onMessage: ((SimulatorWorkerInbound) -> Bool)?
     var onGeometry: ((SimulatorSurfaceGeometry) -> Void)?
     var onRequestPanelFocus: (() -> Void)?
     var onFrameTransportFailure: ((SimulatorFrameTransportDescriptor, SimulatorFailure) -> Void)?
@@ -519,7 +519,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
                 guard inputRejectionGeneration == rejectionGeneration else {
                     return
                 }
-                onMessage?(message)
+                guard deliverInput(message) else { return }
             }
         }
     }
@@ -532,7 +532,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         self.pendingInputMotion = nil
         if case let .scrollWheel(event) = pendingInputMotion,
            event.deltaX == 0, event.deltaY == 0 { return }
-        onMessage?(pendingInputMotion)
+        _ = deliverInput(pendingInputMotion)
     }
 
     private func schedulePendingInputFlush() {
@@ -575,11 +575,21 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         pendingInputMotion = nil
         pendingPointerEntry = nil
         stageHaloPointerActive = false
-        _ = chromeButtonInput.releaseAll()
+        let cleanup = chromeButtonInput.releaseAll() + input.releaseAll()
         activeChromeButton = nil
         hoveredChromeButton = nil
-        _ = input.releaseAll()
+        for message in cleanup {
+            _ = onMessage?(message)
+        }
         needsDisplay = true
+    }
+
+    private func deliverInput(_ message: SimulatorWorkerInbound) -> Bool {
+        guard onMessage?(message) != false else {
+            discardRejectedInputs()
+            return false
+        }
+        return true
     }
 
     func chromeButtonIsPressed(_ button: SimulatorDeviceChromeProfile.Button) -> Bool {

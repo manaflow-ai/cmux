@@ -138,10 +138,10 @@ struct SimulatorRemoteSurfaceEdgeEntryTests {
         harness.view.onMessage = { message in
             if !rejected, case .key = message {
                 rejected = true
-                harness.view.discardRejectedInputs()
-                return
+                return false
             }
             delivered.append(message)
+            return true
         }
 
         harness.view.send(messages)
@@ -176,8 +176,9 @@ struct SimulatorRemoteSurfaceEdgeEntryTests {
         defer { harness.close() }
         var wheelEvents: [SimulatorScrollWheelEvent] = []
         harness.view.onMessage = { message in
-            guard case let .scrollWheel(event) = message else { return }
+            guard case let .scrollWheel(event) = message else { return true }
             wheelEvents.append(event)
+            return true
         }
         let anchor = SimulatorPoint(x: 0.5, y: 0.5)
         for _ in 0..<1_000 {

@@ -404,7 +404,7 @@ public struct SimulatorUIAutomationExecutor {
                 requiredActions: [.typeText],
                 record: record
             )
-            guard let focusSelector = record.stableSelector(for: elementRef) else {
+            guard let focusSelector = record.stableInputSelector(for: elementRef) else {
                 throw simulatorUIReferenceFailure(
                     SimulatorUIAutomationReferenceError.stableSelectorUnavailable(
                         elementRef
