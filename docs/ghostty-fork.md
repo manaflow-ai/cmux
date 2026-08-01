@@ -73,6 +73,15 @@ The final font integration landed in merge commits `23003282d` and
     category, keep initialization thread-safe and process-lifetime, and keep
     the type-enablement check before every message allocation or formatter.
 
+The pinned `6dc671074` universal ReleaseFast GhosttyKit archive was built with
+Zig 0.16.0 by
+https://github.com/manaflow-ai/cmux/actions/runs/30687335030. It is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-6dc671074bf7c8a95562695ec6a701f1a15d7f03-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. The published
+asset was downloaded again, passed `scripts/validate-xcframework-archive.py`,
+and matched SHA-256
+`aa545ac5a8e23c049fd9de649fa2a18c61f90830abc82f42eb79c11ce4cab525`.
+
 ### Semantic prompt row lifecycle
 
 - Pull request:
