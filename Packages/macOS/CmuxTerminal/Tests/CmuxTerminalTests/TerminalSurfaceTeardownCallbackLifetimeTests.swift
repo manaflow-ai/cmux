@@ -29,8 +29,9 @@ import Testing
     }
 
     @Test func surfaceFreeGateDoesNotInterceptAnotherRuntimeSurface() {
+        let gatedSurface = fakeRuntimeSurface()
         let unrelatedSurface = UnsafeMutableRawPointer(bitPattern: 0x7542)!
-        cmux_test_ghostty_surface_free_blocking_begin()
+        cmux_test_ghostty_surface_free_blocking_begin(gatedSurface)
         defer {
             cmux_test_ghostty_surface_free_release()
             cmux_test_ghostty_surface_free_blocking_reset()
@@ -48,8 +49,9 @@ import Testing
 
     @Test func teardownSurfaceKeepsMainActorResponsiveWhileNativeFreeIsBlocked() async {
         let surface = makeSurface()
-        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
-        cmux_test_ghostty_surface_free_blocking_begin()
+        let runtimeSurface = fakeRuntimeSurface()
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        cmux_test_ghostty_surface_free_blocking_begin(runtimeSurface)
         defer {
             cmux_test_ghostty_surface_free_release()
             cmux_test_ghostty_surface_free_blocking_reset()
