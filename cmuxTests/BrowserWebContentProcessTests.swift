@@ -219,6 +219,35 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func browserAppSessionRegistryDoesNotResetAClosingPanel() throws {
+        let suiteName = "BrowserAppSessionClosingPanelTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL,
+            websiteDataStore: websiteDataStore
+        )
+        let registry = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "closing-panel-stores",
+            environment: BrowserAppSessionEnvironment(
+                webOrigin: URL(string: "https://cmux.test")!,
+                projectID: "project-a"
+            )
+        )
+        registry.register(websiteDataStore)
+        registry.register(panel)
+
+        panel.close()
+
+        #expect(!registry.panelsForCleanup().contains { $0 === panel })
+        #expect(registry.storesForCleanup().contains { $0 === websiteDataStore })
+    }
+
+    @Test
     func browserAppSessionCleanupCoversEveryWebsiteDataType() {
         #expect(
             BrowserAppSessionController.appSessionWebsiteDataTypes ==
