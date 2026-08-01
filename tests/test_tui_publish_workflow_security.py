@@ -167,6 +167,9 @@ def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
     assert "git tag --list 'cmux-sdk-v*'" in release
     assert "check-spec-inventory.py" in validation
     assert "codegen/generate.py --check" in validation
+    surface_gate = validation.index("check-spec-inventory.py")
+    assert validation.index('[[ "$GITHUB_REF" == "refs/heads/main" ]]') < surface_gate
+    assert validation.index('[[ "$GITHUB_SHA" == "$main_sha" ]]') < surface_gate
     for language in ("rust", "go", "typescript", "python"):
         assert f"--language {language}" in validation
     assert "gh workflow run sdk-publish-" not in release
