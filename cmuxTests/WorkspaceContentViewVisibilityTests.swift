@@ -460,6 +460,11 @@ final class WorkspaceContentViewVisibilityTests {
             isSignedIn: false,
             prefersProfileIcon: false
         )
+        let restoringSignedInIcon = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: true,
+            prefersProfileIcon: false,
+            isRestoringSession: true
+        )
 
         #expect(picture.visual == .profilePicture)
         #expect(picture.size == SidebarFooterButtonMetrics.accountAndHelpVisualSize)
@@ -474,6 +479,7 @@ final class WorkspaceContentViewVisibilityTests {
         )
         #expect(toggledIcon.size == SidebarFooterButtonMetrics.accountAndHelpVisualSize)
         #expect(signedOutIcon == toggledIcon)
+        #expect(restoringSignedInIcon == toggledIcon)
         #expect(
             SidebarFooterButtonMetrics.profilePictureSize
                 == SidebarFooterButtonMetrics.helpIconSize
