@@ -79,27 +79,13 @@ extension WorkspaceListTableCoordinator {
     }
 
     func contextMenuActions(
-        for group: MobileWorkspaceGroupPreview,
-        anchorWorkspace: MobileWorkspacePreview,
-        sourceView: UIView
+        for group: MobileWorkspaceGroupPreview
     ) -> [UIMenuElement] {
-        let capabilities = anchorWorkspace.actionCapabilities
+        let capabilities = configuration.workspacesByID[group.anchorWorkspaceID]?
+            .actionCapabilities ?? .none
         var sections: [UIMenuElement] = []
         var groupActions: [UIAction] = []
 
-        if let createWorkspaceInGroup = configuration.createWorkspaceInGroup {
-            let action = UIAction(
-                title: L10n.string(
-                    "mobile.workspaceGroup.newWorkspace",
-                    defaultValue: "New Workspace in Group"
-                ),
-                image: UIImage(systemName: "plus")
-            ) { _ in
-                createWorkspaceInGroup(group.id)
-            }
-            action.accessibilityIdentifier = "MobileWorkspaceGroupNewWorkspace-\(group.id.rawValue)"
-            groupActions.append(action)
-        }
         if capabilities.supportsGroupActions,
            let setGroupPinned = configuration.setGroupPinned {
             let action = UIAction(
@@ -127,21 +113,21 @@ extension WorkspaceListTableCoordinator {
             action.accessibilityIdentifier = "MobileWorkspaceGroupRenameButton-\(group.id.rawValue)"
             groupActions.append(action)
         }
+        if let createWorkspaceInGroup = configuration.createWorkspaceInGroup {
+            let action = UIAction(
+                title: L10n.string(
+                    "mobile.workspaceGroup.newWorkspace",
+                    defaultValue: "New Workspace in Group"
+                ),
+                image: UIImage(systemName: "plus")
+            ) { _ in
+                createWorkspaceInGroup(group.id)
+            }
+            action.accessibilityIdentifier = "MobileWorkspaceGroupNewWorkspace-\(group.id.rawValue)"
+            groupActions.append(action)
+        }
         if !groupActions.isEmpty {
             sections.append(UIMenu(options: .displayInline, children: groupActions))
-        }
-
-        let workspaceActions = contextMenuActions(
-            for: anchorWorkspace,
-            sourceView: sourceView,
-            renameTitle: L10n.string(
-                "mobile.workspace.rename.title",
-                defaultValue: "Rename Workspace"
-            ),
-            contextMenuIdentifier: group.id.rawValue
-        )
-        if !workspaceActions.isEmpty {
-            sections.append(UIMenu(options: .displayInline, children: workspaceActions))
         }
 
         var destructiveActions: [UIAction] = []

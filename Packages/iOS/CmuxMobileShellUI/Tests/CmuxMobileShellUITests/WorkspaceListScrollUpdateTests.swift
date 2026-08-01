@@ -277,13 +277,9 @@ import UIKit
             ) != nil
         )
 
-        let workspace = initial.workspacesByID[group.anchorWorkspaceID]!
-        let sourceView = UIView()
         let identifiers = menuActionIdentifiers(
             in: coordinator.contextMenuActions(
-                for: group,
-                anchorWorkspace: workspace,
-                sourceView: sourceView
+                for: group
             )
         )
         #expect(identifiers.contains("MobileWorkspaceGroupNewWorkspace-group-1"))

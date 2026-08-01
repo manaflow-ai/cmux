@@ -504,16 +504,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 sourceView: sourceView
             )
         case .groupHeader(let groupID):
-            guard let group = configuration.groupsByID[groupID],
-                  let workspace = configuration.workspacesByID[group.anchorWorkspaceID] else {
+            guard let group = configuration.groupsByID[groupID] else {
                 return nil
             }
             identifier = group.id.rawValue as NSString
-            actions = contextMenuActions(
-                for: group,
-                anchorWorkspace: workspace,
-                sourceView: sourceView
-            )
+            actions = contextMenuActions(for: group)
         case .chrome, .groupFooter, .filterEmpty:
             return nil
         }
