@@ -32,3 +32,7 @@ pub use rpc::{
     StructuredDiffLineV1, StructuredDiffV1, StructuredFileDiffV1, WorkspaceId, WorkspaceRequest,
     WorkspaceResponse,
 };
+
+/// Maximum serialized server-to-client message accepted by remote session
+/// transports. Render attach and VT replay responses share this budget.
+pub const REMOTE_SESSION_MESSAGE_MAX_BYTES: usize = 32 * 1024 * 1024;

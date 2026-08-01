@@ -33,6 +33,11 @@
       "default": "./dist/src/node.js"
     },
     "./raw": {
+      "browser": {
+        "types": "./dist/src/raw/browser.d.ts",
+        "import": "./dist/src/raw/browser.js",
+        "default": "./dist/src/raw/browser.js"
+      },
       "types": "./dist/src/raw/index.d.ts",
       "import": "./dist/src/raw/index.js",
       "default": "./dist/src/raw/index.js"

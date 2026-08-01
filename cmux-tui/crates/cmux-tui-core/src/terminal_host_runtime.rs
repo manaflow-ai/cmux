@@ -7,7 +7,10 @@
 
 use std::path::{Path, PathBuf};
 
-use ghostty_vt::{KeyInput, Rgb, TerminalColorOverrides};
+use ghostty_vt::{
+    KeyInput, KittyGraphicsLimits, KittyImageAlias, KittyImageIdCursors, KittyReplayState, Rgb,
+    TerminalColorOverrides,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::surface::{
@@ -25,28 +28,54 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
-    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
+    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, KITTY_IMAGE_ALIAS_COUNT_LEN,
+    KITTY_IMAGE_ALIAS_ENCODED_LEN, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
     PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, encode_terminal_exit, read_frame,
     wait_for_native_child_status, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
+const LEGACY_PROTOCOL_VERSION: u16 = 1;
 const HOST_EXIT_RECORD_VERSION: u32 = 1;
 const MAX_LAUNCH_PAYLOAD: usize = 1024 * 1024;
 const MAX_STRING: usize = 256 * 1024;
-const MAX_BLOB: usize = 8 * 1024 * 1024;
+const MAX_BLOB: usize = crate::surface::VT_REPLAY_MAX_BYTES;
 const MAX_ARGV: usize = 256;
 const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
-const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+pub(crate) const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
-const MAX_HOST_CLIENT_QUEUED_BYTES: usize = 8 * 1024 * 1024;
+// Keep live PTY backpressure independent from the extra headroom needed by
+// one maximum Resized + Colors + targeted acknowledgement transition.
+const MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES: usize = 8 * 1024 * 1024;
+const MAX_HOST_CLIENT_STATE_QUEUED_BYTES: usize = MAX_FRAME_PAYLOAD
+    + MAX_TERMINAL_COLORS_PAYLOAD
+    + CELL_PIXEL_SIZE_ENCODED_LEN
+    + KITTY_REPLAY_STATE_ENCODED_LEN
+    + 3 * crate::terminal_host_protocol::HEADER_LEN;
+const MAX_HOST_CLIENT_QUEUED_BYTES: usize =
+    MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES + MAX_HOST_CLIENT_STATE_QUEUED_BYTES;
 const HOST_START_NONCE_LEN: usize = 32;
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
+const DEFAULT_CELL_PIXELS: (u16, u16) = (8, 16);
+const CELL_PIXEL_SIZE_ENCODED_LEN: usize = 2 * size_of::<u16>();
+const KITTY_GRAPHICS_LIMITS_ENCODED_LEN: usize = 4 * size_of::<u64>();
+const KITTY_REPLAY_STATE_ENCODED_LEN: usize =
+    KITTY_GRAPHICS_LIMITS_ENCODED_LEN + 5 * size_of::<u32>();
 const TERMINAL_COLORS_WIRE_VERSION_V1: u16 = 1;
 pub const TERMINAL_COLORS_WIRE_VERSION: u16 = 2;
 pub const MAX_TERMINAL_COLORS_PAYLOAD: usize = 8 + 3 * 3 + 2 + 256 * 4;
+const _: () = assert!(
+    2 * size_of::<u16>()
+        + size_of::<u32>()
+        + crate::surface::VT_REPLAY_MAX_BYTES
+        + KITTY_IMAGE_ALIAS_COUNT_LEN
+        + MAX_KITTY_IMAGE_ALIASES * KITTY_IMAGE_ALIAS_ENCODED_LEN
+        + CELL_PIXEL_SIZE_ENCODED_LEN
+        + KITTY_REPLAY_STATE_ENCODED_LEN
+        <= MAX_FRAME_PAYLOAD
+);
 
 pub(crate) fn normalize_terminal_geometry(cols: u16, rows: u16) -> anyhow::Result<(u16, u16)> {
     let cols = cols.clamp(1, TERMINAL_DIMENSION_MAX);
@@ -57,6 +86,24 @@ pub(crate) fn normalize_terminal_geometry(cols: u16, rows: u16) -> anyhow::Resul
         );
     }
     Ok((cols, rows))
+}
+
+pub fn validate_kitty_image_aliases(aliases: &[KittyImageAlias]) -> anyhow::Result<()> {
+    if aliases.len() > MAX_KITTY_IMAGE_ALIASES {
+        anyhow::bail!("terminal-host Kitty image alias count is too large");
+    }
+    // Repeated image numbers preserve Kitty's assignment history. Image IDs
+    // remain unique identities within a snapshot.
+    let mut image_ids = std::collections::HashSet::with_capacity(aliases.len());
+    for alias in aliases {
+        if alias.image_id == 0 || alias.image_number == 0 {
+            anyhow::bail!("terminal-host Kitty image aliases must be nonzero");
+        }
+        if !image_ids.insert(alias.image_id) {
+            anyhow::bail!("duplicate terminal-host Kitty image alias ID");
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -147,7 +194,11 @@ impl TerminalHostExitRecord {
 pub struct HostSnapshot {
     pub cols: u16,
     pub rows: u16,
+    /// Authoritative PTY and parser cell metrics at the snapshot boundary.
+    pub cell_pixels: (u16, u16),
     pub replay: Vec<u8>,
+    pub kitty_image_aliases: Vec<KittyImageAlias>,
+    pub kitty_state: KittyReplayState,
     /// Global live-stream sequence at the atomic Snapshot/Colors boundary.
     pub sequence_boundary: u64,
     /// Complete application-authored color state at `sequence_boundary`.
@@ -184,6 +235,7 @@ pub struct RendererGrant {
     pub incarnation: String,
     pub token: String,
     pub rights: CapabilityRights,
+    pub protocol_version: u16,
 }
 
 impl std::fmt::Debug for RendererGrant {
@@ -310,6 +362,31 @@ pub fn decode_terminal_color_overrides(payload: &[u8]) -> anyhow::Result<Termina
     Ok(TerminalColorOverrides { foreground, background, cursor, cursor_visual, palette })
 }
 
+#[derive(Debug)]
+pub(crate) struct DeferredCellPixelAck;
+
+impl std::fmt::Display for DeferredCellPixelAck {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(
+            "terminal host cell pixel acknowledgement is pending; \
+             the late response will reconcile the mirror",
+        )
+    }
+}
+
+impl std::error::Error for DeferredCellPixelAck {}
+
+#[derive(Debug)]
+pub(crate) struct CellPixelRequestDeadlineElapsed;
+
+impl std::fmt::Display for CellPixelRequestDeadlineElapsed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("terminal host cell pixel size deadline elapsed before request")
+    }
+}
+
+impl std::error::Error for CellPixelRequestDeadlineElapsed {}
+
 #[cfg(unix)]
 mod unix {
     use std::collections::{HashMap, HashSet};
@@ -324,7 +401,7 @@ mod unix {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-    use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
+    use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
     use std::sync::{Arc, Condvar, Mutex};
     use std::thread;
     use std::time::{Duration, Instant};
@@ -343,6 +420,34 @@ mod unix {
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
     const HOST_LAUNCH_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
     const HOST_EXIT_STREAM_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+
+    fn pty_size(cols: u16, rows: u16, cell_pixels: (u16, u16)) -> anyhow::Result<PtySize> {
+        let pixel_width = cols.checked_mul(cell_pixels.0).ok_or_else(|| {
+            anyhow::anyhow!(
+                "terminal pixel width exceeds {}: {cols} columns at {} pixels per cell",
+                u16::MAX,
+                cell_pixels.0
+            )
+        })?;
+        let pixel_height = rows.checked_mul(cell_pixels.1).ok_or_else(|| {
+            anyhow::anyhow!(
+                "terminal pixel height exceeds {}: {rows} rows at {} pixels per cell",
+                u16::MAX,
+                cell_pixels.1
+            )
+        })?;
+        Ok(PtySize { rows, cols, pixel_width, pixel_height })
+    }
+
+    fn kitty_graphics_limits_within(
+        candidate: KittyGraphicsLimits,
+        ceiling: KittyGraphicsLimits,
+    ) -> bool {
+        candidate.image_bytes <= ceiling.image_bytes
+            && candidate.inflight_bytes <= ceiling.inflight_bytes
+            && candidate.images <= ceiling.images
+            && candidate.placements <= ceiling.placements
+    }
 
     struct SpawnedHostProcess {
         child: Option<std::process::Child>,
@@ -391,11 +496,13 @@ mod unix {
         term: String,
         cols: u16,
         rows: u16,
+        cell_pixels: (u16, u16),
         scrollback: usize,
         cwd: Option<String>,
         command: Vec<String>,
         extra_env: Vec<(String, String)>,
         default_colors: DefaultColors,
+        kitty_graphics_limits: KittyGraphicsLimits,
     }
 
     impl HostLaunch {
@@ -407,6 +514,8 @@ mod unix {
                 anyhow::bail!("terminal-host environment count is out of range");
             }
             let (cols, rows) = normalize_terminal_geometry(self.cols, self.rows)?;
+            let cell_pixels = (self.cell_pixels.0.max(1), self.cell_pixels.1.max(1));
+            pty_size(cols, rows, cell_pixels)?;
             let mut output = Vec::new();
             put_string(&mut output, &self.endpoint)?;
             put_string(&mut output, &self.record_path)?;
@@ -429,6 +538,9 @@ mod unix {
                 put_string(&mut output, value)?;
             }
             encode_default_colors(&mut output, self.default_colors);
+            output.extend_from_slice(&cell_pixels.0.to_le_bytes());
+            output.extend_from_slice(&cell_pixels.1.to_le_bytes());
+            encode_kitty_graphics_limits(&mut output, self.kitty_graphics_limits)?;
             if output.len() > MAX_LAUNCH_PAYLOAD {
                 anyhow::bail!("terminal-host launch payload is too large");
             }
@@ -460,6 +572,9 @@ mod unix {
                 extra_env.push((decoder.string()?, decoder.string()?));
             }
             let default_colors = decode_default_colors(&mut decoder)?;
+            let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
+            pty_size(cols, rows, cell_pixels)?;
+            let kitty_graphics_limits = decode_kitty_graphics_limits(&mut decoder)?;
             decoder.finish()?;
             Ok(Self {
                 endpoint,
@@ -467,11 +582,13 @@ mod unix {
                 term,
                 cols,
                 rows,
+                cell_pixels,
                 scrollback,
                 cwd,
                 command,
                 extra_env,
                 default_colors,
+                kitty_graphics_limits,
             })
         }
     }
@@ -579,30 +696,124 @@ mod unix {
         Ok(colors)
     }
 
-    struct ControlResponseWaiter {
-        kind: MessageKind,
-        sender: SyncSender<Vec<u8>>,
+    enum ControlResponseWaiter {
+        Blocking { kind: MessageKind, sender: SyncSender<Frame> },
+        DeferredCellPixel { expected: (u16, u16) },
     }
+
+    #[derive(Debug, Clone)]
+    pub(crate) enum DeferredCellPixelResolution {
+        Response(Frame),
+        Disconnected,
+    }
+
+    pub(crate) type DeferredCellPixelHandler =
+        Arc<dyn Fn(u64, (u16, u16), DeferredCellPixelResolution) + Send + Sync + 'static>;
 
     pub(crate) struct ControlResponses {
         waiters: Mutex<HashMap<u64, ControlResponseWaiter>>,
+        deferred_cell_pixel_handler: Mutex<Option<DeferredCellPixelHandler>>,
+        latest_cell_pixel_ack: AtomicU64,
     }
 
     impl ControlResponses {
+        fn new() -> Self {
+            Self {
+                waiters: Mutex::new(HashMap::new()),
+                deferred_cell_pixel_handler: Mutex::new(None),
+                latest_cell_pixel_ack: AtomicU64::new(0),
+            }
+        }
+
+        #[cfg(test)]
+        pub(crate) fn new_for_test() -> Self {
+            Self::new()
+        }
+
+        #[cfg(test)]
+        pub(crate) fn invoke_deferred_cell_pixel_handler_for_test(
+            &self,
+            request_id: u64,
+            expected: (u16, u16),
+            resolution: DeferredCellPixelResolution,
+        ) {
+            if let Some(handler) = self.deferred_cell_pixel_handler.lock().unwrap().clone() {
+                handler(request_id, expected, resolution);
+            }
+        }
+
         pub(crate) fn resolve(&self, frame: &Frame) -> bool {
+            let waiter = self.waiters.lock().unwrap().remove(&frame.request_id);
+            match waiter {
+                Some(ControlResponseWaiter::Blocking { kind, sender }) => {
+                    if kind != frame.kind {
+                        return false;
+                    }
+                    if frame.kind == MessageKind::CellPixelSizeAck {
+                        self.latest_cell_pixel_ack.fetch_max(frame.request_id, Ordering::AcqRel);
+                    }
+                    let _ = sender.try_send(frame.clone());
+                    true
+                }
+                Some(ControlResponseWaiter::DeferredCellPixel { expected }) => {
+                    if frame.kind != MessageKind::CellPixelSizeAck {
+                        return false;
+                    }
+                    self.latest_cell_pixel_ack.fetch_max(frame.request_id, Ordering::AcqRel);
+                    let handler = self.deferred_cell_pixel_handler.lock().unwrap().clone();
+                    if let Some(handler) = handler {
+                        handler(
+                            frame.request_id,
+                            expected,
+                            DeferredCellPixelResolution::Response(frame.clone()),
+                        );
+                    }
+                    true
+                }
+                None => false,
+            }
+        }
+
+        fn defer_cell_pixel(&self, request_id: u64, expected: (u16, u16)) -> bool {
             let mut waiters = self.waiters.lock().unwrap();
-            let Some(waiter) = waiters.remove(&frame.request_id) else {
-                return false;
-            };
-            if waiter.kind != frame.kind {
+            let Some(waiter) = waiters.get_mut(&request_id) else { return false };
+            if !matches!(
+                waiter,
+                ControlResponseWaiter::Blocking { kind: MessageKind::CellPixelSizeAck, .. }
+            ) {
                 return false;
             }
-            let _ = waiter.sender.try_send(frame.payload.clone());
+            *waiter = ControlResponseWaiter::DeferredCellPixel { expected };
             true
         }
 
-        pub(crate) fn cancel_all(&self) {
-            self.waiters.lock().unwrap().clear();
+        pub(crate) fn fail_all(&self) {
+            let deferred = {
+                let mut waiters = self.waiters.lock().unwrap();
+                waiters
+                    .drain()
+                    .filter_map(|(request_id, waiter)| match waiter {
+                        ControlResponseWaiter::DeferredCellPixel { expected } => {
+                            Some((request_id, expected))
+                        }
+                        ControlResponseWaiter::Blocking { .. } => None,
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let handler = self.deferred_cell_pixel_handler.lock().unwrap().clone();
+            if let Some(handler) = handler {
+                for (request_id, expected) in deferred {
+                    handler(request_id, expected, DeferredCellPixelResolution::Disconnected);
+                }
+            }
+        }
+
+        pub(crate) fn set_deferred_cell_pixel_handler(&self, handler: DeferredCellPixelHandler) {
+            *self.deferred_cell_pixel_handler.lock().unwrap() = Some(handler);
+        }
+
+        pub(crate) fn latest_cell_pixel_ack(&self) -> u64 {
+            self.latest_cell_pixel_ack.load(Ordering::Acquire)
         }
     }
 
@@ -610,6 +821,7 @@ mod unix {
         pub record: TerminalHostRecord,
         pub record_path: PathBuf,
         pub snapshot: HostSnapshot,
+        protocol_version: u16,
         reader: Option<UnixStream>,
         writer: Arc<Mutex<UnixStream>>,
         control_responses: Arc<ControlResponses>,
@@ -693,7 +905,8 @@ mod unix {
 
         pub fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
             let mut writer = self.writer.lock().unwrap();
-            let frame = Frame::new(kind, payload.to_vec());
+            let mut frame = Frame::new(kind, payload.to_vec());
+            frame.version = self.protocol_version;
             let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
             if result.is_err() {
                 // A timed-out write may have emitted only part of a frame.
@@ -774,6 +987,242 @@ mod unix {
             Ok(())
         }
 
+        /// Commit frontend cell metrics in the durable host before updating
+        /// this daemon's disposable mirror. Protocol-v1 hosts do not expose
+        /// this transaction, so callers leave their mirror unchanged.
+        pub fn send_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<bool> {
+            self.send_cell_pixel_size_until(
+                width_px,
+                height_px,
+                Instant::now() + CONTROL_RESPONSE_TIMEOUT,
+            )
+        }
+
+        pub(crate) fn send_cell_pixel_size_until(
+            &self,
+            width_px: u16,
+            height_px: u16,
+            deadline: Instant,
+        ) -> anyhow::Result<bool> {
+            if self.protocol_version < 2 {
+                return Ok(false);
+            }
+            if Instant::now() >= deadline {
+                return Err(CellPixelRequestDeadlineElapsed.into());
+            }
+            let width_px = width_px.max(1);
+            let height_px = height_px.max(1);
+            let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
+            let (sender, receiver) = sync_channel(1);
+            self.control_responses.waiters.lock().unwrap().insert(
+                request_id,
+                ControlResponseWaiter::Blocking { kind: MessageKind::CellPixelSizeAck, sender },
+            );
+            let mut payload = Vec::with_capacity(4);
+            payload.extend_from_slice(&width_px.to_le_bytes());
+            payload.extend_from_slice(&height_px.to_le_bytes());
+            let mut frame = Frame::new(MessageKind::SetCellPixelSize, payload);
+            frame.version = self.protocol_version;
+            frame.request_id = request_id;
+            let write_result = {
+                let mut writer = self.writer.lock().unwrap();
+                write_frame(&mut *writer, &frame).map_err(protocol_io_error)
+            };
+            if let Err(error) = write_result {
+                let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
+                self.control_responses.waiters.lock().unwrap().remove(&request_id);
+                return Err(error.into());
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let response = match (!remaining.is_zero())
+                .then(|| receiver.recv_timeout(remaining))
+                .transpose()
+            {
+                Ok(Some(response)) => response,
+                Ok(None) | Err(RecvTimeoutError::Timeout) => {
+                    match self.defer_or_receive_raced_cell_pixel_ack(
+                        request_id,
+                        (width_px, height_px),
+                        &receiver,
+                    )? {
+                        Some(response) => response,
+                        None => return Err(DeferredCellPixelAck.into()),
+                    }
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    self.control_responses.waiters.lock().unwrap().remove(&request_id);
+                    anyhow::bail!(
+                        "terminal host connection closed before acknowledging cell pixel size"
+                    );
+                }
+            };
+            if response.kind != MessageKind::CellPixelSizeAck
+                || response.payload.as_slice()
+                    != [width_px.to_le_bytes(), height_px.to_le_bytes()].concat()
+            {
+                let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
+                anyhow::bail!("terminal host returned a malformed cell pixel size acknowledgement");
+            }
+            Ok(true)
+        }
+
+        /// Commit Kitty resource limits in the authoritative host before
+        /// returning control to the disposable mirror. Protocol-v1/v2 hosts
+        /// cannot synchronize this sidecar state and therefore keep graphics
+        /// disabled in new mirrors.
+        pub fn send_kitty_graphics_limits(
+            &self,
+            limits: KittyGraphicsLimits,
+        ) -> anyhow::Result<bool> {
+            self.send_kitty_graphics_limits_until(limits, Instant::now() + CONTROL_RESPONSE_TIMEOUT)
+        }
+
+        pub fn send_kitty_graphics_limits_until(
+            &self,
+            limits: KittyGraphicsLimits,
+            deadline: Instant,
+        ) -> anyhow::Result<bool> {
+            if self.protocol_version < 3 {
+                return Ok(false);
+            }
+            let limits = limits
+                .validate()
+                .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
+            let mut payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
+            encode_kitty_graphics_limits(&mut payload, limits)?;
+            let response = self
+                .send_control_request_until(
+                    MessageKind::SetKittyGraphicsLimits,
+                    MessageKind::KittyGraphicsLimitsAck,
+                    payload,
+                    deadline,
+                )
+                .map_err(ClearHistoryFailure::into_error)
+                .context("terminal host did not acknowledge Kitty graphics limits")?;
+            let mut decoder = PayloadDecoder::new(&response);
+            let acknowledged = decode_kitty_graphics_limits(&mut decoder)?;
+            decoder.finish()?;
+            if acknowledged != limits {
+                self.disconnect();
+                anyhow::bail!("terminal host acknowledged different Kitty graphics limits");
+            }
+            Ok(true)
+        }
+
+        fn reconfigure_kitty_graphics_for_adoption(
+            &mut self,
+            limits: KittyGraphicsLimits,
+        ) -> anyhow::Result<()> {
+            anyhow::ensure!(
+                self.protocol_version >= 3,
+                "terminal host cannot synchronize Kitty graphics limits"
+            );
+            let limits = limits
+                .validate()
+                .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
+            let mut payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
+            encode_kitty_graphics_limits(&mut payload, limits)?;
+            let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
+            if request_id == 0 {
+                self.disconnect();
+                anyhow::bail!("terminal host control request id exhausted");
+            }
+            let mut request = Frame::new(MessageKind::SetKittyGraphicsLimits, payload);
+            request.version = self.protocol_version;
+            request.request_id = request_id;
+            let write_result = {
+                let mut writer = self.writer.lock().unwrap();
+                write_frame(&mut *writer, &request).map_err(protocol_io_error)
+            };
+            if let Err(error) = write_result {
+                self.disconnect();
+                return Err(error.into());
+            }
+
+            // No Surface reader exists yet. Drain the old live stream through
+            // the targeted acknowledgement, then reconnect for the fresh
+            // authoritative Snapshot produced before that acknowledgement.
+            let protocol_version = self.protocol_version;
+            let deadline = Instant::now() + CONTROL_RESPONSE_TIMEOUT;
+            let result = (|| -> anyhow::Result<()> {
+                let reader = self
+                    .reader
+                    .as_mut()
+                    .ok_or_else(|| anyhow::anyhow!("terminal-host reader already taken"))?;
+                let previous_timeout = reader
+                    .read_timeout()
+                    .context("read terminal-host timeout before Kitty quota adoption")?;
+                let response = (|| -> anyhow::Result<()> {
+                    loop {
+                        let remaining = deadline.saturating_duration_since(Instant::now());
+                        anyhow::ensure!(
+                            !remaining.is_zero(),
+                            "terminal host did not apply Kitty graphics limits before adoption"
+                        );
+                        reader
+                            .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
+                            .context("set terminal-host Kitty quota adoption timeout")?;
+                        let frame = read_frame(reader, MAX_FRAME_PAYLOAD)
+                            .map_err(protocol_io_error)?
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "terminal host disconnected while applying Kitty graphics limits"
+                                )
+                            })?;
+                        anyhow::ensure!(
+                            frame.version == protocol_version,
+                            "terminal host changed protocol during Kitty quota adoption"
+                        );
+                        if frame.request_id == 0 {
+                            continue;
+                        }
+                        anyhow::ensure!(
+                            frame.request_id == request_id
+                                && frame.kind == MessageKind::KittyGraphicsLimitsAck
+                                && frame.flags == 0
+                                && frame.sequence == 0,
+                            "terminal host returned an invalid Kitty quota adoption response"
+                        );
+                        let mut decoder = PayloadDecoder::new(&frame.payload);
+                        let acknowledged = decode_kitty_graphics_limits(&mut decoder)?;
+                        decoder.finish()?;
+                        anyhow::ensure!(
+                            acknowledged == limits,
+                            "terminal host acknowledged different Kitty graphics limits"
+                        );
+                        return Ok(());
+                    }
+                })();
+                let restored = reader
+                    .set_read_timeout(previous_timeout)
+                    .context("restore terminal-host timeout after Kitty quota adoption");
+                response.and(restored)
+            })();
+            if result.is_err() {
+                self.disconnect();
+            }
+            result
+        }
+
+        fn defer_or_receive_raced_cell_pixel_ack(
+            &self,
+            request_id: u64,
+            expected: (u16, u16),
+            receiver: &Receiver<Frame>,
+        ) -> anyhow::Result<Option<Frame>> {
+            if self.control_responses.defer_cell_pixel(request_id, expected) {
+                return Ok(None);
+            }
+            // resolve() removes the waiter while holding the same mutex
+            // before delivering the response. An absent entry therefore
+            // means a response won the timeout race or the connection failed.
+            receiver.recv().map(Some).map_err(|_| {
+                anyhow::anyhow!(
+                    "terminal host connection closed while acknowledging cell pixel size"
+                )
+            })
+        }
+
         pub fn release_viewer_size(&self) -> std::io::Result<bool> {
             let mut viewer_size = self.viewer_size.lock().unwrap();
             if viewer_size.is_none() {
@@ -789,6 +1238,10 @@ mod unix {
 
         pub fn viewer_size(&self) -> Option<(u16, u16)> {
             *self.viewer_size.lock().unwrap()
+        }
+
+        pub fn protocol_version(&self) -> u16 {
+            self.protocol_version
         }
 
         pub fn terminate(&self) -> std::io::Result<()> {
@@ -838,6 +1291,21 @@ mod unix {
             response_kind: MessageKind,
             payload: Vec<u8>,
         ) -> Result<Vec<u8>, ClearHistoryFailure> {
+            self.send_control_request_until(
+                request_kind,
+                response_kind,
+                payload,
+                Instant::now() + CONTROL_RESPONSE_TIMEOUT,
+            )
+        }
+
+        fn send_control_request_until(
+            &self,
+            request_kind: MessageKind,
+            response_kind: MessageKind,
+            payload: Vec<u8>,
+            deadline: Instant,
+        ) -> Result<Vec<u8>, ClearHistoryFailure> {
             let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
             if request_id == 0 {
                 return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
@@ -852,9 +1320,13 @@ mod unix {
                         "terminal host control request id collision"
                     )));
                 }
-                waiters.insert(request_id, ControlResponseWaiter { kind: response_kind, sender });
+                waiters.insert(
+                    request_id,
+                    ControlResponseWaiter::Blocking { kind: response_kind, sender },
+                );
             }
             let mut frame = Frame::new(request_kind, payload);
+            frame.version = self.protocol_version;
             frame.request_id = request_id;
             let write_result = {
                 let mut writer = self.writer.lock().unwrap();
@@ -868,8 +1340,14 @@ mod unix {
                 self.control_responses.waiters.lock().unwrap().remove(&request_id);
                 return Err(ClearHistoryFailure::ambiguous(error.into()));
             }
-            match receiver.recv_timeout(CONTROL_RESPONSE_TIMEOUT) {
-                Ok(payload) => Ok(payload),
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let response = if remaining.is_zero() {
+                Err(RecvTimeoutError::Timeout)
+            } else {
+                receiver.recv_timeout(remaining)
+            };
+            match response {
+                Ok(frame) => Ok(frame.payload),
                 Err(error) => {
                     self.control_responses.waiters.lock().unwrap().remove(&request_id);
                     self.disconnect();
@@ -903,6 +1381,7 @@ mod unix {
                 incarnation: self.record.incarnation.clone(),
                 token: encode_hex(&payload),
                 rights: CapabilityRights::RENDERER,
+                protocol_version: self.protocol_version,
             })
         }
 
@@ -989,9 +1468,18 @@ mod unix {
         options: &SurfaceOptions,
         root: &Path,
         default_colors: DefaultColors,
+        cell_pixels: (u16, u16),
+        kitty_graphics_limits: KittyGraphicsLimits,
     ) -> anyhow::Result<HostAttachment> {
         let terminal_id = TerminalId::random()?;
-        launch_terminal_host_with_identity(options, root, default_colors, terminal_id)
+        launch_terminal_host_with_identity(
+            options,
+            root,
+            default_colors,
+            cell_pixels,
+            kitty_graphics_limits,
+            terminal_id,
+        )
     }
 
     /// Launch using a registry-reserved stable UUID. The workspace registry
@@ -1001,6 +1489,8 @@ mod unix {
         options: &SurfaceOptions,
         root: &Path,
         default_colors: DefaultColors,
+        cell_pixels: (u16, u16),
+        kitty_graphics_limits: KittyGraphicsLimits,
         terminal_id: TerminalId,
     ) -> anyhow::Result<HostAttachment> {
         prepare_private_dir(root)?;
@@ -1029,6 +1519,7 @@ mod unix {
             term: options.term.clone(),
             cols: options.cols,
             rows: options.rows,
+            cell_pixels,
             scrollback: options.scrollback,
             cwd: options.cwd.clone().or_else(|| {
                 crate::platform::home_dir().map(|path| path.to_string_lossy().into_owned())
@@ -1036,6 +1527,7 @@ mod unix {
             command,
             extra_env: options.extra_env.clone(),
             default_colors,
+            kitty_graphics_limits,
         };
 
         let binary = std::env::current_exe().context("resolve cmux-tui terminal-host binary")?;
@@ -1122,6 +1614,31 @@ mod unix {
     ) -> anyhow::Result<HostAttachment> {
         validate_terminal_host_record(&record_path, &record)?;
         connect_record(record, record_path)
+    }
+
+    pub(crate) fn adopt_terminal_host_with_kitty_limits(
+        record: TerminalHostRecord,
+        record_path: PathBuf,
+        ceiling: KittyGraphicsLimits,
+    ) -> anyhow::Result<HostAttachment> {
+        let ceiling = ceiling
+            .validate()
+            .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
+        let mut attachment = adopt_terminal_host(record.clone(), record_path.clone())?;
+        if kitty_graphics_limits_within(attachment.snapshot.kitty_state.limits, ceiling) {
+            return Ok(attachment);
+        }
+
+        attachment.reconfigure_kitty_graphics_for_adoption(ceiling)?;
+        attachment.disconnect();
+        drop(attachment);
+
+        let attachment = adopt_terminal_host(record, record_path)?;
+        anyhow::ensure!(
+            kitty_graphics_limits_within(attachment.snapshot.kitty_state.limits, ceiling),
+            "terminal host retained Kitty graphics state above its adoption quota"
+        );
+        Ok(attachment)
     }
 
     /// Validate a discovery record without trusting paths or alternate
@@ -1461,6 +1978,32 @@ mod unix {
         record_path: PathBuf,
         handshake_timeout: Duration,
     ) -> anyhow::Result<HostAttachment> {
+        let mut failures = Vec::new();
+        for protocol_version in (LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).rev() {
+            match connect_record_at_version(
+                record.clone(),
+                record_path.clone(),
+                handshake_timeout,
+                protocol_version,
+            ) {
+                Ok(attachment) => return Ok(attachment),
+                Err(error) => {
+                    failures.push(format!("protocol {protocol_version}: {error:#}"));
+                }
+            }
+        }
+        anyhow::bail!("terminal-host adoption failed: {}", failures.join("; "))
+    }
+
+    fn connect_record_at_version(
+        record: TerminalHostRecord,
+        record_path: PathBuf,
+        handshake_timeout: Duration,
+        protocol_version: u16,
+    ) -> anyhow::Result<HostAttachment> {
+        if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
+            anyhow::bail!("unsupported terminal-host adoption protocol {protocol_version}");
+        }
         let terminal_id = TerminalId::from_bytes(decode_hex_array(&record.terminal_id)?);
         let incarnation = HostIncarnation::from_bytes(decode_hex_array(&record.incarnation)?);
         let owner_token = CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?);
@@ -1468,32 +2011,44 @@ mod unix {
         stream.set_read_timeout(Some(handshake_timeout))?;
         stream.set_write_timeout(Some(handshake_timeout))?;
         let hello = ClientHello {
-            min_version: PROTOCOL_VERSION,
-            max_version: PROTOCOL_VERSION,
+            min_version: protocol_version,
+            max_version: protocol_version,
             role: ClientRole::Admin,
             requested_rights: CapabilityRights::ADMIN,
             terminal_id,
             token: owner_token,
         };
-        write_frame(&mut stream, &hello.into_frame(1))?;
+        let mut hello_frame = hello.into_frame(1);
+        hello_frame.version = protocol_version;
+        write_frame(&mut stream, &hello_frame)?;
         let hello_frame = read_required_frame(&mut stream, "host hello")?;
-        if hello_frame.kind != MessageKind::HostHello {
+        if hello_frame.kind != MessageKind::HostHello
+            || hello_frame.version != protocol_version
+            || hello_frame.request_id != 1
+            || hello_frame.sequence != 0
+        {
             anyhow::bail!("terminal host rejected owner handshake");
         }
         let host_hello = HostHello::decode(&hello_frame.payload)?;
-        if host_hello.terminal_id != terminal_id || host_hello.incarnation != incarnation {
+        if host_hello.selected_version != protocol_version
+            || host_hello.terminal_id != terminal_id
+            || host_hello.incarnation != incarnation
+            || host_hello.granted_rights != CapabilityRights::ADMIN
+        {
             anyhow::bail!("terminal-host record identity does not match live host");
         }
         let snapshot_frame = read_required_frame(&mut stream, "terminal snapshot")?;
         if snapshot_frame.kind != MessageKind::Snapshot
+            || snapshot_frame.version != protocol_version
             || snapshot_frame.flags != 0
             || snapshot_frame.request_id != 0
         {
             anyhow::bail!("terminal host did not send an initial snapshot");
         }
-        let mut snapshot = decode_snapshot(&snapshot_frame.payload)?;
+        let mut snapshot = decode_snapshot_for_version(&snapshot_frame.payload, protocol_version)?;
         let colors_frame = read_required_frame(&mut stream, "terminal color state")?;
         if colors_frame.kind != MessageKind::Colors
+            || colors_frame.version != protocol_version
             || colors_frame.flags != 0
             || colors_frame.sequence != snapshot_frame.sequence
             || colors_frame.request_id != 0
@@ -1514,9 +2069,10 @@ mod unix {
             record,
             record_path,
             snapshot,
+            protocol_version,
             reader: Some(reader),
             writer: Arc::new(Mutex::new(stream)),
-            control_responses: Arc::new(ControlResponses { waiters: Mutex::new(HashMap::new()) }),
+            control_responses: Arc::new(ControlResponses::new()),
             next_request: AtomicU64::new(2),
             // New hosts do not register Admin as a viewer. Initialize this as
             // if they did so the unconditional release below also upgrades
@@ -1679,38 +2235,73 @@ mod unix {
     struct HostTap {
         sender: SyncSender<Frame>,
         queued_bytes: Arc<AtomicUsize>,
+        queued_output_bytes: Arc<AtomicUsize>,
         shutdown: Arc<UnixStream>,
         max_queued_bytes: usize,
     }
 
     impl HostTap {
-        fn try_send(&self, frame: Frame) -> bool {
-            let retained =
-                crate::terminal_host_protocol::HEADER_LEN.saturating_add(frame.payload.len());
-            let mut queued = self.queued_bytes.load(Ordering::Acquire);
+        fn new(
+            sender: SyncSender<Frame>,
+            shutdown: Arc<UnixStream>,
+            max_queued_bytes: usize,
+        ) -> Self {
+            Self {
+                sender,
+                queued_bytes: Arc::new(AtomicUsize::new(0)),
+                queued_output_bytes: Arc::new(AtomicUsize::new(0)),
+                shutdown,
+                max_queued_bytes,
+            }
+        }
+
+        fn try_reserve(counter: &AtomicUsize, retained: usize, limit: usize) -> bool {
+            let mut queued = counter.load(Ordering::Acquire);
             loop {
                 let Some(next) = queued.checked_add(retained) else {
-                    self.close();
                     return false;
                 };
-                if next > self.max_queued_bytes {
-                    self.close();
+                if next > limit {
                     return false;
                 }
-                match self.queued_bytes.compare_exchange_weak(
+                match counter.compare_exchange_weak(
                     queued,
                     next,
                     Ordering::AcqRel,
                     Ordering::Acquire,
                 ) {
-                    Ok(_) => break,
+                    Ok(_) => return true,
                     Err(actual) => queued = actual,
                 }
+            }
+        }
+
+        fn try_send(&self, frame: Frame) -> bool {
+            let retained =
+                crate::terminal_host_protocol::HEADER_LEN.saturating_add(frame.payload.len());
+            if !Self::try_reserve(&self.queued_bytes, retained, self.max_queued_bytes) {
+                self.close();
+                return false;
+            }
+            let is_output = frame.kind == MessageKind::Output;
+            if is_output
+                && !Self::try_reserve(
+                    &self.queued_output_bytes,
+                    retained,
+                    MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES,
+                )
+            {
+                self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
+                self.close();
+                return false;
             }
             match self.sender.try_send(frame) {
                 Ok(()) => true,
                 Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
                     self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
+                    if is_output {
+                        self.queued_output_bytes.fetch_sub(retained, Ordering::AcqRel);
+                    }
                     self.close();
                     false
                 }
@@ -1721,6 +2312,9 @@ mod unix {
             let retained =
                 crate::terminal_host_protocol::HEADER_LEN.saturating_add(frame.payload.len());
             self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
+            if frame.kind == MessageKind::Output {
+                self.queued_output_bytes.fetch_sub(retained, Ordering::AcqRel);
+            }
         }
 
         fn close(&self) {
@@ -1806,6 +2400,7 @@ mod unix {
         command: Vec<String>,
         cwd: Option<String>,
         size: Mutex<(u16, u16)>,
+        cell_pixels: Mutex<(u16, u16)>,
         viewer_sizes: Mutex<HashMap<u64, (u16, u16)>>,
         taps: Mutex<HashMap<u64, HostTap>>,
         broadcast_lock: Mutex<()>,
@@ -2063,6 +2658,177 @@ mod unix {
             );
         }
 
+        fn set_cell_pixel_size(
+            &self,
+            width_px: u16,
+            height_px: u16,
+            request_id: u64,
+            target: &HostTap,
+        ) -> anyhow::Result<bool> {
+            let next = (width_px.max(1), height_px.max(1));
+            let size = self.size.lock().unwrap();
+            let mut cell_pixels = self.cell_pixels.lock().unwrap();
+            let previous = *cell_pixels;
+            let changed = previous != next;
+            let resize_sizes = if changed {
+                Some((pty_size(size.0, size.1, previous)?, pty_size(size.0, size.1, next)?))
+            } else {
+                None
+            };
+            let mut term = self.term.lock().unwrap();
+            if let Some((previous_size, next_size)) = resize_sizes {
+                term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES).context(
+                    "could not preflight terminal-host cell-metric replay; geometry unchanged",
+                )?;
+                let master = self.master.lock().unwrap();
+                master.resize(next_size)?;
+                if let Err(error) =
+                    term.resize(size.0, size.1, u32::from(next.0), u32::from(next.1))
+                {
+                    let rollback = master.resize(previous_size);
+                    return match rollback {
+                        Ok(()) => Err(error.into()),
+                        Err(rollback_error) => Err(anyhow::anyhow!(
+                            "could not update authoritative cell metrics: {error}; \
+                             PTY rollback also failed: {rollback_error}"
+                        )),
+                    };
+                }
+                *cell_pixels = next;
+            }
+            let transition = if changed {
+                let replay = match term.vt_replay_bounded_theme_portable_with_aliases(
+                    crate::surface::VT_REPLAY_MAX_BYTES,
+                ) {
+                    Ok(replay) => replay,
+                    Err(_) => {
+                        // Preflight ruled out persistent budget failure. Keep
+                        // the canonical commit and force every client to take
+                        // a fresh snapshot instead of broadcasting partial
+                        // geometry state or destructively resizing backward.
+                        let mut taps = self.taps.lock().unwrap();
+                        for tap in taps.values() {
+                            tap.close();
+                        }
+                        taps.clear();
+                        target.close();
+                        return Ok(false);
+                    }
+                };
+                let mut resized = Frame::new(
+                    MessageKind::Resized,
+                    encode_resize(
+                        size.0,
+                        size.1,
+                        &replay.bytes,
+                        &replay.kitty_image_aliases,
+                        next,
+                        replay.kitty_state,
+                    )?,
+                );
+                resized.flags = FLAG_COLORS_FOLLOW;
+                Some([
+                    resized,
+                    Frame::new(
+                        MessageKind::Colors,
+                        encode_terminal_color_overrides(&term.color_overrides()),
+                    ),
+                ])
+            } else {
+                None
+            };
+            let mut ack = Frame::new(MessageKind::CellPixelSizeAck, {
+                let mut payload = Vec::with_capacity(4);
+                payload.extend_from_slice(&next.0.to_le_bytes());
+                payload.extend_from_slice(&next.1.to_le_bytes());
+                payload
+            });
+            ack.request_id = request_id;
+            // Keep the parser locked through canonical publication and the
+            // targeted acknowledgement. Output parsed at the new metrics
+            // cannot overtake the complete Resized+Colors transition.
+            Ok(publish_host_frames_and_targeted(
+                &self.broadcast_lock,
+                &self.sequence,
+                &self.taps,
+                transition.into_iter().flatten(),
+                Some((target, ack)),
+            ))
+        }
+
+        fn set_kitty_graphics_limits(
+            &self,
+            limits: KittyGraphicsLimits,
+            request_id: u64,
+            target: &HostTap,
+        ) -> anyhow::Result<bool> {
+            let limits = limits
+                .validate()
+                .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
+            let size = *self.size.lock().unwrap();
+            let cell_pixels = *self.cell_pixels.lock().unwrap();
+            let mut term = self.term.lock().unwrap();
+            term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
+                .context("could not preflight terminal-host Kitty limit replay")?;
+            if let Err(error) = term.set_kitty_graphics_limits(limits) {
+                let mut taps = self.taps.lock().unwrap();
+                for tap in taps.values() {
+                    tap.close();
+                }
+                taps.clear();
+                target.close();
+                return Err(error.into());
+            }
+            let replay = match term
+                .vt_replay_bounded_theme_portable_with_aliases(crate::surface::VT_REPLAY_MAX_BYTES)
+            {
+                Ok(replay) => replay,
+                Err(error) => {
+                    // The authoritative limit change may already have evicted
+                    // state. Disconnect every mirror so none can continue from
+                    // the pre-eviction scene.
+                    let mut taps = self.taps.lock().unwrap();
+                    for tap in taps.values() {
+                        tap.close();
+                    }
+                    taps.clear();
+                    target.close();
+                    return Err(error.into());
+                }
+            };
+            let mut resized = Frame::new(
+                MessageKind::Resized,
+                encode_resize(
+                    size.0,
+                    size.1,
+                    &replay.bytes,
+                    &replay.kitty_image_aliases,
+                    cell_pixels,
+                    replay.kitty_state,
+                )?,
+            );
+            resized.flags = FLAG_COLORS_FOLLOW;
+            let mut ack_payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
+            encode_kitty_graphics_limits(&mut ack_payload, limits)?;
+            let mut ack = Frame::new(MessageKind::KittyGraphicsLimitsAck, ack_payload);
+            ack.request_id = request_id;
+            // The parser stays locked until all mirrors receive one complete
+            // replacement and the requester receives its acknowledgement.
+            Ok(publish_host_frames_and_targeted(
+                &self.broadcast_lock,
+                &self.sequence,
+                &self.taps,
+                [
+                    resized,
+                    Frame::new(
+                        MessageKind::Colors,
+                        encode_terminal_color_overrides(&term.color_overrides()),
+                    ),
+                ],
+                Some((target, ack)),
+            ))
+        }
+
         fn apply_viewer_minimum(
             &self,
             desired: Option<(u16, u16)>,
@@ -2072,6 +2838,7 @@ mod unix {
             let Some((cols, rows)) = desired else { return Ok(true) };
             let (cols, rows) = normalize_terminal_geometry(cols, rows)?;
             let mut size = self.size.lock().unwrap();
+            let cell_pixels = self.cell_pixels.lock().unwrap();
             let changed = *size != (cols, rows);
             if !changed && !acknowledge_with_replay {
                 let targeted = targeted_ack.map(|(request_id, tap)| {
@@ -2089,43 +2856,64 @@ mod unix {
                 ));
             }
             let previous = *size;
+            let resize_sizes = if changed {
+                Some((
+                    pty_size(previous.0, previous.1, *cell_pixels)?,
+                    pty_size(cols, rows, *cell_pixels)?,
+                ))
+            } else {
+                None
+            };
             let mut term = self.term.lock().unwrap();
             let master = self.master.lock().unwrap();
-            if changed {
-                master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;
-                if let Err(error) = term.resize(cols, rows, 8, 16) {
-                    let _ = master.resize(PtySize {
-                        rows: previous.1,
-                        cols: previous.0,
-                        pixel_width: 0,
-                        pixel_height: 0,
-                    });
+            if let Some((previous_size, next_size)) = resize_sizes {
+                term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES).context(
+                    "could not preflight terminal-host resize replay; geometry unchanged",
+                )?;
+                master.resize(next_size)?;
+                if let Err(error) =
+                    term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))
+                {
+                    let _ = master.resize(previous_size);
                     return Err(error.into());
                 }
             }
-            let replay =
-                match term.vt_replay_bounded_theme_portable(crate::surface::VT_REPLAY_MAX_BYTES) {
-                    Ok(replay) => replay,
-                    Err(error) => {
-                        if changed {
-                            let _ = term.resize(previous.0, previous.1, 8, 16);
-                            let _ = master.resize(PtySize {
-                                rows: previous.1,
-                                cols: previous.0,
-                                pixel_width: 0,
-                                pixel_height: 0,
-                            });
-                        }
-                        return Err(error.into());
+            let replay = match term
+                .vt_replay_bounded_theme_portable_with_aliases(crate::surface::VT_REPLAY_MAX_BYTES)
+            {
+                Ok(replay) => replay,
+                Err(_) if changed => {
+                    // The bounded preflight ruled out the only persistent
+                    // budget failure. Preserve the committed terminal state
+                    // and force mirrors to reconnect instead of attempting an
+                    // inverse, destructive Ghostty resize.
+                    *size = (cols, rows);
+                    let mut taps = self.taps.lock().unwrap();
+                    for tap in taps.values() {
+                        tap.close();
                     }
-                };
+                    taps.clear();
+                    return Ok(false);
+                }
+                Err(error) => return Err(error.into()),
+            };
             let colors = term.color_overrides();
             if changed {
                 *size = (cols, rows);
             }
             // Keep the parser lock through sequence publication so output
             // parsed at the new size cannot overtake the Resized marker.
-            let mut resized = Frame::new(MessageKind::Resized, encode_resize(cols, rows, &replay));
+            let mut resized = Frame::new(
+                MessageKind::Resized,
+                encode_resize(
+                    cols,
+                    rows,
+                    &replay.bytes,
+                    &replay.kitty_image_aliases,
+                    *cell_pixels,
+                    replay.kitty_state,
+                )?,
+            );
             resized.flags = FLAG_COLORS_FOLLOW;
             let targeted = targeted_ack.map(|(request_id, tap)| {
                 let mut frame =
@@ -2680,12 +3468,9 @@ mod unix {
         launch: &HostLaunch,
         bootstrapped: &crate::terminal_host::BootstrappedHost,
     ) -> anyhow::Result<Arc<HostShared>> {
-        let pty = cmux_pty::open(PtySize {
-            rows: launch.rows,
-            cols: launch.cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        })?;
+        let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
+        let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels)?;
+        let pty = cmux_pty::open(initial_pty_size)?;
         let mut command = PtyCommand::new(&launch.command[0]);
         command.args(launch.command[1..].iter().cloned());
         command.env("TERM", &launch.term);
@@ -2721,6 +3506,8 @@ mod unix {
             })),
         };
         let mut term = Terminal::new(launch.cols, launch.rows, launch.scrollback, callbacks)?;
+        term.resize(launch.cols, launch.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
+        term.set_kitty_graphics_limits(launch.kitty_graphics_limits)?;
         term.replace_default_colors(
             launch.default_colors.fg,
             launch.default_colors.bg,
@@ -2743,6 +3530,7 @@ mod unix {
             command: launch.command.clone(),
             cwd: launch.cwd.clone(),
             size: Mutex::new((launch.cols, launch.rows)),
+            cell_pixels: Mutex::new(cell_pixels),
             viewer_sizes: Mutex::new(HashMap::new()),
             taps: Mutex::new(HashMap::new()),
             broadcast_lock: Mutex::new(()),
@@ -2908,6 +3696,7 @@ mod unix {
         {
             anyhow::bail!("terminal-host capability denied");
         }
+        let selected_version = response.selected_version;
         let granted_rights = response.granted_rights;
         let launch_owner = LaunchOwnerConnection::claim(host.clone(), granted_rights);
         let viewer_size_acks = hello_frame.flags & FLAG_VIEWER_SIZE_ACKS != 0
@@ -2921,23 +3710,21 @@ mod unix {
 
         let client = host.next_client.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = sync_channel(256);
-        let tap = HostTap {
-            sender,
-            queued_bytes: Arc::new(AtomicUsize::new(0)),
-            shutdown: Arc::new(stream.try_clone()?),
-            max_queued_bytes: MAX_HOST_CLIENT_QUEUED_BYTES,
-        };
+        let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
         let command_sender = tap.clone();
         let (snapshot, colors, snapshot_sequence) = {
-            // Viewer registration follows the same viewer -> parser ->
-            // broadcast lock order as resize application. This makes the
-            // initial snapshot an atomic member of size arbitration too.
+            // Match resize's viewer -> size -> cell metrics -> parser ->
+            // broadcast lock order so a snapshot contains one atomic
+            // logical and pixel geometry.
             let mut viewer_sizes = host.viewer_sizes.lock().unwrap();
+            let size = host.size.lock().unwrap();
+            let cell_pixels = *host.cell_pixels.lock().unwrap();
             let mut term = host.term.lock().unwrap();
-            let replay =
-                term.vt_replay_bounded_theme_portable(crate::surface::VT_REPLAY_MAX_BYTES)?;
+            let replay = term.vt_replay_bounded_theme_portable_with_aliases(
+                crate::surface::VT_REPLAY_MAX_BYTES,
+            )?;
             let colors = term.color_overrides();
-            let (cols, rows) = (term.cols(), term.rows());
+            let (cols, rows) = *size;
             let _broadcast = host.broadcast_lock.lock().unwrap();
             if host.dead.load(Ordering::Acquire) {
                 anyhow::bail!("terminal host exited before snapshot");
@@ -2956,7 +3743,10 @@ mod unix {
                 HostSnapshot {
                     cols,
                     rows,
-                    replay,
+                    cell_pixels,
+                    replay: replay.bytes,
+                    kitty_image_aliases: replay.kitty_image_aliases,
+                    kitty_state: replay.kitty_state,
                     sequence_boundary: 0,
                     colors: colors.clone(),
                     pid: host.pid,
@@ -2991,7 +3781,7 @@ mod unix {
             while let Ok(Some(frame)) = read_frame(&mut command_stream, MAX_FRAME_PAYLOAD) {
                 // Client-to-host messages currently define no flags and never
                 // participate in the host live-stream sequence.
-                if frame.flags != 0 || frame.sequence != 0 {
+                if frame.version != selected_version || frame.flags != 0 || frame.sequence != 0 {
                     break;
                 }
                 match frame.kind {
@@ -3065,6 +3855,50 @@ mod unix {
                             break;
                         };
                         command_host.set_default_colors(colors);
+                    }
+                    MessageKind::SetCellPixelSize
+                        if frame.request_id != 0 && frame.payload.len() == 4 =>
+                    {
+                        if !granted_rights.contains(CapabilityRights::RESIZE) {
+                            break;
+                        }
+                        let width_px = u16::from_le_bytes([frame.payload[0], frame.payload[1]]);
+                        let height_px = u16::from_le_bytes([frame.payload[2], frame.payload[3]]);
+                        if !matches!(
+                            command_host.set_cell_pixel_size(
+                                width_px,
+                                height_px,
+                                frame.request_id,
+                                &command_sender,
+                            ),
+                            Ok(true)
+                        ) {
+                            break;
+                        }
+                    }
+                    MessageKind::SetKittyGraphicsLimits
+                        if frame.request_id != 0
+                            && frame.payload.len() == KITTY_GRAPHICS_LIMITS_ENCODED_LEN =>
+                    {
+                        if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
+                            break;
+                        }
+                        let mut decoder = PayloadDecoder::new(&frame.payload);
+                        let Ok(limits) = decode_kitty_graphics_limits(&mut decoder) else {
+                            break;
+                        };
+                        if decoder.finish().is_err()
+                            || !matches!(
+                                command_host.set_kitty_graphics_limits(
+                                    limits,
+                                    frame.request_id,
+                                    &command_sender,
+                                ),
+                                Ok(true)
+                            )
+                        {
+                            break;
+                        }
                     }
                     MessageKind::ClearHistory => {
                         if !granted_rights.contains(CapabilityRights::INPUT)
@@ -3186,6 +4020,10 @@ mod unix {
 
     fn encode_snapshot(snapshot: &HostSnapshot) -> anyhow::Result<Vec<u8>> {
         let (cols, rows) = normalize_terminal_geometry(snapshot.cols, snapshot.rows)?;
+        snapshot
+            .kitty_state
+            .validate_for_replay(snapshot.replay.len())
+            .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay offset is invalid"))?;
         let mut output = Vec::new();
         output.extend_from_slice(&cols.to_le_bytes());
         output.extend_from_slice(&rows.to_le_bytes());
@@ -3199,10 +4037,28 @@ mod unix {
         for argument in &snapshot.command {
             put_string(&mut output, argument)?;
         }
+        encode_kitty_image_aliases(&mut output, &snapshot.kitty_image_aliases)?;
+        output.extend_from_slice(&snapshot.cell_pixels.0.max(1).to_le_bytes());
+        output.extend_from_slice(&snapshot.cell_pixels.1.max(1).to_le_bytes());
+        encode_kitty_replay_state(&mut output, snapshot.kitty_state)?;
+        if output.len() > MAX_FRAME_PAYLOAD {
+            anyhow::bail!("terminal-host snapshot payload is too large");
+        }
         Ok(output)
     }
 
+    #[cfg(test)]
     fn decode_snapshot(payload: &[u8]) -> anyhow::Result<HostSnapshot> {
+        decode_snapshot_for_version(payload, PROTOCOL_VERSION)
+    }
+
+    fn decode_snapshot_for_version(
+        payload: &[u8],
+        protocol_version: u16,
+    ) -> anyhow::Result<HostSnapshot> {
+        if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
+            anyhow::bail!("unsupported terminal-host snapshot protocol {protocol_version}");
+        }
         let mut decoder = PayloadDecoder::new(payload);
         let (cols, rows) = normalize_terminal_geometry(decoder.u16()?, decoder.u16()?)?;
         let pid = match decoder.u32()? {
@@ -3219,11 +4075,32 @@ mod unix {
         for _ in 0..argc {
             command.push(decoder.string()?);
         }
+        let kitty_image_aliases = if protocol_version >= 2 {
+            decode_kitty_image_aliases(&mut decoder)?
+        } else {
+            Vec::new()
+        };
+        let cell_pixels = if protocol_version >= 2 {
+            (decoder.u16()?.max(1), decoder.u16()?.max(1))
+        } else {
+            DEFAULT_CELL_PIXELS
+        };
+        let kitty_state = if protocol_version >= 3 {
+            decode_kitty_replay_state(&mut decoder)?
+                .validate_for_replay(replay.len())
+                .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay offset is invalid"))?
+        } else {
+            KittyReplayState::disabled()
+        };
+        pty_size(cols, rows, cell_pixels)?;
         decoder.finish()?;
         Ok(HostSnapshot {
             cols,
             rows,
+            cell_pixels,
             replay,
+            kitty_image_aliases,
+            kitty_state,
             sequence_boundary: 0,
             colors: TerminalColorOverrides::default(),
             pid,
@@ -3232,15 +4109,188 @@ mod unix {
         })
     }
 
-    fn encode_resize(cols: u16, rows: u16, replay: &[u8]) -> Vec<u8> {
-        let replay_len =
-            u32::try_from(replay.len()).expect("terminal-host resize replay exceeds u32");
-        let mut output = Vec::with_capacity(8 + replay.len());
+    fn encode_kitty_image_aliases(
+        output: &mut Vec<u8>,
+        aliases: &[KittyImageAlias],
+    ) -> anyhow::Result<()> {
+        validate_kitty_image_aliases(aliases)?;
+        output.extend_from_slice(&(aliases.len() as u16).to_le_bytes());
+        for alias in aliases {
+            output.extend_from_slice(&alias.image_id.to_le_bytes());
+            output.extend_from_slice(&alias.image_number.to_le_bytes());
+        }
+        Ok(())
+    }
+
+    fn decode_kitty_image_aliases(
+        decoder: &mut PayloadDecoder<'_>,
+    ) -> anyhow::Result<Vec<KittyImageAlias>> {
+        let count = decoder.u16()? as usize;
+        if count > MAX_KITTY_IMAGE_ALIASES {
+            anyhow::bail!("terminal-host Kitty image alias count is too large");
+        }
+        let mut aliases = Vec::with_capacity(count);
+        for _ in 0..count {
+            aliases
+                .push(KittyImageAlias { image_id: decoder.u32()?, image_number: decoder.u32()? });
+        }
+        validate_kitty_image_aliases(&aliases)?;
+        Ok(aliases)
+    }
+
+    fn encode_kitty_graphics_limits(
+        output: &mut Vec<u8>,
+        limits: KittyGraphicsLimits,
+    ) -> anyhow::Result<()> {
+        let limits = limits
+            .validate()
+            .map_err(|_| anyhow::anyhow!("terminal-host Kitty graphics limits are out of range"))?;
+        output.extend_from_slice(&limits.image_bytes.to_le_bytes());
+        output.extend_from_slice(&limits.inflight_bytes.to_le_bytes());
+        output.extend_from_slice(&limits.images.to_le_bytes());
+        output.extend_from_slice(&limits.placements.to_le_bytes());
+        Ok(())
+    }
+
+    fn decode_kitty_graphics_limits(
+        decoder: &mut PayloadDecoder<'_>,
+    ) -> anyhow::Result<KittyGraphicsLimits> {
+        KittyGraphicsLimits {
+            image_bytes: decoder.u64()?,
+            inflight_bytes: decoder.u64()?,
+            images: decoder.u64()?,
+            placements: decoder.u64()?,
+        }
+        .validate()
+        .map_err(|_| anyhow::anyhow!("terminal-host Kitty graphics limits are out of range"))
+    }
+
+    fn encode_kitty_replay_state(
+        output: &mut Vec<u8>,
+        state: KittyReplayState,
+    ) -> anyhow::Result<()> {
+        let state = state
+            .validate()
+            .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay state is invalid"))?;
+        encode_kitty_graphics_limits(output, state.limits)?;
+        output.extend_from_slice(&state.replay_cursor_offset.to_le_bytes());
+        output.extend_from_slice(&state.replay_next_image_ids.primary.to_le_bytes());
+        output.extend_from_slice(&state.next_image_ids.primary.to_le_bytes());
+        output.extend_from_slice(&state.replay_next_image_ids.alternate.to_le_bytes());
+        output.extend_from_slice(&state.next_image_ids.alternate.to_le_bytes());
+        Ok(())
+    }
+
+    fn decode_kitty_replay_state(
+        decoder: &mut PayloadDecoder<'_>,
+    ) -> anyhow::Result<KittyReplayState> {
+        let limits = decode_kitty_graphics_limits(decoder)?;
+        let replay_cursor_offset = decoder.u32()?;
+        let primary_replay_next_image_id = decoder.u32()?;
+        let primary_next_image_id = decoder.u32()?;
+        let alternate_replay_next_image_id = decoder.u32()?;
+        let alternate_next_image_id = decoder.u32()?;
+        KittyReplayState {
+            limits,
+            replay_cursor_offset,
+            replay_next_image_ids: KittyImageIdCursors {
+                primary: primary_replay_next_image_id,
+                alternate: alternate_replay_next_image_id,
+            },
+            next_image_ids: KittyImageIdCursors {
+                primary: primary_next_image_id,
+                alternate: alternate_next_image_id,
+            },
+        }
+        .validate()
+        .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay state is invalid"))
+    }
+
+    fn encode_resize(
+        cols: u16,
+        rows: u16,
+        replay: &[u8],
+        kitty_image_aliases: &[KittyImageAlias],
+        cell_pixels: (u16, u16),
+        kitty_state: KittyReplayState,
+    ) -> anyhow::Result<Vec<u8>> {
+        let (cols, rows) = normalize_terminal_geometry(cols, rows)?;
+        kitty_state
+            .validate_for_replay(replay.len())
+            .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay offset is invalid"))?;
+        let cell_pixels = (cell_pixels.0.max(1), cell_pixels.1.max(1));
+        pty_size(cols, rows, cell_pixels)?;
+        if replay.len() > crate::surface::VT_REPLAY_MAX_BYTES {
+            anyhow::bail!("terminal-host resize replay is too large");
+        }
+        let replay_len = u32::try_from(replay.len())
+            .map_err(|_| anyhow::anyhow!("terminal-host resize replay exceeds u32"))?;
+        let mut output = Vec::with_capacity(
+            8 + replay.len()
+                + KITTY_IMAGE_ALIAS_COUNT_LEN
+                + kitty_image_aliases.len() * KITTY_IMAGE_ALIAS_ENCODED_LEN
+                + CELL_PIXEL_SIZE_ENCODED_LEN
+                + KITTY_REPLAY_STATE_ENCODED_LEN,
+        );
         output.extend_from_slice(&cols.to_le_bytes());
         output.extend_from_slice(&rows.to_le_bytes());
         output.extend_from_slice(&replay_len.to_le_bytes());
         output.extend_from_slice(replay);
-        output
+        encode_kitty_image_aliases(&mut output, kitty_image_aliases)?;
+        output.extend_from_slice(&cell_pixels.0.to_le_bytes());
+        output.extend_from_slice(&cell_pixels.1.to_le_bytes());
+        encode_kitty_replay_state(&mut output, kitty_state)?;
+        if output.len() > MAX_FRAME_PAYLOAD {
+            anyhow::bail!("terminal-host resize payload is too large");
+        }
+        Ok(output)
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(crate) struct DecodedHostResize {
+        pub cols: u16,
+        pub rows: u16,
+        pub cell_pixels: (u16, u16),
+        pub replay: Vec<u8>,
+        pub kitty_image_aliases: Vec<KittyImageAlias>,
+        pub kitty_state: KittyReplayState,
+    }
+
+    #[cfg(test)]
+    pub(crate) fn decode_host_resize_payload(payload: &[u8]) -> anyhow::Result<DecodedHostResize> {
+        decode_host_resize_payload_for_version(payload, PROTOCOL_VERSION)
+    }
+
+    pub(crate) fn decode_host_resize_payload_for_version(
+        payload: &[u8],
+        protocol_version: u16,
+    ) -> anyhow::Result<DecodedHostResize> {
+        if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
+            anyhow::bail!("unsupported terminal-host resize protocol {protocol_version}");
+        }
+        let mut decoder = PayloadDecoder::new(payload);
+        let (cols, rows) = normalize_terminal_geometry(decoder.u16()?, decoder.u16()?)?;
+        let replay = decoder.bytes_with_limit(crate::surface::VT_REPLAY_MAX_BYTES)?.to_vec();
+        let kitty_image_aliases = if protocol_version >= 2 {
+            decode_kitty_image_aliases(&mut decoder)?
+        } else {
+            Vec::new()
+        };
+        let cell_pixels = if protocol_version >= 2 {
+            (decoder.u16()?.max(1), decoder.u16()?.max(1))
+        } else {
+            DEFAULT_CELL_PIXELS
+        };
+        let kitty_state = if protocol_version >= 3 {
+            decode_kitty_replay_state(&mut decoder)?
+                .validate_for_replay(replay.len())
+                .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay offset is invalid"))?
+        } else {
+            KittyReplayState::disabled()
+        };
+        pty_size(cols, rows, cell_pixels)?;
+        decoder.finish()?;
+        Ok(DecodedHostResize { cols, rows, cell_pixels, replay, kitty_image_aliases, kitty_state })
     }
 
     fn encode_resize_ack(cols: u16, rows: u16, canonical_changed: bool) -> Vec<u8> {
@@ -3358,6 +4408,10 @@ mod unix {
             Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
         }
 
+        fn u64(&mut self) -> anyhow::Result<u64> {
+            Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
+        }
+
         fn bytes_with_limit(&mut self, limit: usize) -> anyhow::Result<&'a [u8]> {
             let length = self.u32()? as usize;
             if length > limit {
@@ -3429,6 +4483,117 @@ mod unix {
     mod tests {
         use super::*;
 
+        fn test_kitty_state() -> KittyReplayState {
+            KittyReplayState {
+                limits: KittyGraphicsLimits {
+                    image_bytes: 1,
+                    inflight_bytes: 2,
+                    images: 3,
+                    placements: 4,
+                },
+                replay_cursor_offset: 0,
+                replay_next_image_ids: KittyImageIdCursors { primary: 5, alternate: 7 },
+                next_image_ids: KittyImageIdCursors { primary: 6, alternate: 8 },
+            }
+        }
+
+        struct TestHostMaster {
+            size: Mutex<PtySize>,
+        }
+
+        impl MasterPty for TestHostMaster {
+            fn resize(&self, size: PtySize) -> anyhow::Result<()> {
+                *self.size.lock().unwrap() = size;
+                Ok(())
+            }
+
+            fn get_size(&self) -> anyhow::Result<PtySize> {
+                Ok(*self.size.lock().unwrap())
+            }
+
+            fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send>> {
+                Ok(Box::new(std::io::empty()))
+            }
+
+            fn take_writer(&self) -> anyhow::Result<Box<dyn Write + Send>> {
+                Ok(Box::new(std::io::sink()))
+            }
+
+            fn process_group_leader(&self) -> Option<libc::pid_t> {
+                None
+            }
+
+            fn as_raw_fd(&self) -> Option<RawFd> {
+                None
+            }
+
+            fn tty_name(&self) -> Option<PathBuf> {
+                None
+            }
+        }
+
+        #[derive(Debug)]
+        struct TestHostKiller;
+
+        impl ChildKiller for TestHostKiller {
+            fn kill(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+
+            fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+                Box::new(Self)
+            }
+        }
+
+        fn test_host_shared() -> HostShared {
+            let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            term.resize(80, 24, 8, 16).unwrap();
+            let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
+            HostShared {
+                terminal_id: TerminalId::random().unwrap(),
+                incarnation: HostIncarnation::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+                capabilities: CapabilityStore::new(64),
+                term: Mutex::new(term),
+                stream_progress: TerminalStreamProgress::default(),
+                writer: Mutex::new(Box::new(std::io::sink())),
+                master: Mutex::new(Box::new(TestHostMaster {
+                    size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap()),
+                })),
+                killer: Mutex::new(Box::new(TestHostKiller)),
+                pid: None,
+                command: vec!["/bin/cat".into()],
+                cwd: None,
+                size: Mutex::new((80, 24)),
+                cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
+                viewer_sizes: Mutex::new(HashMap::new()),
+                taps: Mutex::new(HashMap::new()),
+                broadcast_lock: Mutex::new(()),
+                sequence: AtomicU64::new(0),
+                next_client: AtomicU64::new(1),
+                dead: AtomicBool::new(false),
+                launch_owner_claimed: AtomicBool::new(false),
+                launch_owner_stream_ready: AtomicBool::new(false),
+                launch_owner_completed: AtomicBool::new(false),
+                child_exit: (Mutex::new(None), Condvar::new()),
+                child_waitable: AtomicBool::new(false),
+                pty_drained: AtomicBool::new(false),
+                exit_published: AtomicBool::new(false),
+                exit_record_path: std::env::temp_dir().join(format!(
+                    "cmux-host-test-exit-{}-{}",
+                    std::process::id(),
+                    RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+                )),
+                exit_publish_lock: Mutex::new(()),
+                force_pty_drain: AtomicBool::new(false),
+                pty_drain_waker: Mutex::new(pty_drain_waker),
+                termination_started: AtomicBool::new(false),
+                child_signal_lock: Mutex::new(()),
+                child_reaped: AtomicBool::new(false),
+                group_escalation_complete: AtomicBool::new(false),
+            }
+        }
+
         fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
             let root = std::env::temp_dir().join(format!(
                 "cmux-host-record-{name}-{}-{}",
@@ -3461,6 +4626,40 @@ mod unix {
         }
 
         #[test]
+        fn default_host_cell_metrics_initialize_both_terminal_backends() {
+            let size = pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap();
+            assert_eq!(
+                (size.cols, size.rows, size.pixel_width, size.pixel_height),
+                (80, 24, 640, 384)
+            );
+
+            let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            terminal
+                .resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
+                .unwrap();
+            terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=1,p=1,s=1,v=1,c=1,r=1,q=2;/wAA\x1b\\");
+            let graphics = terminal.kitty_graphics_snapshot().unwrap();
+            assert_eq!(
+                (graphics.placements[0].pixel_width, graphics.placements[0].pixel_height),
+                (8, 16)
+            );
+        }
+
+        #[test]
+        fn pty_size_rejects_pixel_dimension_overflow() {
+            let maximum_cols = u16::MAX / DEFAULT_CELL_PIXELS.0;
+            let boundary = pty_size(maximum_cols, 24, DEFAULT_CELL_PIXELS).unwrap();
+            assert_eq!(boundary.pixel_width, maximum_cols * DEFAULT_CELL_PIXELS.0);
+
+            let width_error = pty_size(maximum_cols + 1, 24, DEFAULT_CELL_PIXELS).unwrap_err();
+            assert!(width_error.to_string().contains("pixel width"));
+
+            let maximum_rows = u16::MAX / DEFAULT_CELL_PIXELS.1;
+            let height_error = pty_size(80, maximum_rows + 1, DEFAULT_CELL_PIXELS).unwrap_err();
+            assert!(height_error.to_string().contains("pixel height"));
+        }
+
+        #[test]
         fn launch_round_trip_preserves_ghostty_defaults() {
             let mut default_colors = DefaultColors {
                 fg: Some(Rgb { r: 1, g: 2, b: 3 }),
@@ -3480,15 +4679,24 @@ mod unix {
                 term: "xterm-256color".into(),
                 cols: 80,
                 rows: 24,
+                cell_pixels: (9, 18),
                 scrollback: 10_000,
                 cwd: Some("/tmp".into()),
                 command: vec!["/bin/cat".into()],
                 extra_env: vec![("KEY".into(), "value".into())],
                 default_colors,
+                kitty_graphics_limits: KittyGraphicsLimits {
+                    image_bytes: 1_000,
+                    inflight_bytes: 500,
+                    images: 10,
+                    placements: 20,
+                },
             };
 
             let decoded = HostLaunch::decode(&launch.encode().unwrap()).unwrap();
             assert_eq!(decoded.default_colors, default_colors);
+            assert_eq!(decoded.cell_pixels, (9, 18));
+            assert_eq!(decoded.kitty_graphics_limits, launch.kitty_graphics_limits);
             assert_eq!(decoded.command, launch.command);
             assert_eq!(decoded.extra_env, launch.extra_env);
             assert_eq!(
@@ -3511,9 +4719,231 @@ mod unix {
         #[test]
         fn resized_payload_is_length_prefixed_for_cross_language_clients() {
             assert_eq!(
-                encode_resize(0x0123, 0x4567, &[0xaa, 0xbb, 0xcc]),
-                vec![0x23, 0x01, 0x67, 0x45, 3, 0, 0, 0, 0xaa, 0xbb, 0xcc]
+                encode_resize(
+                    0x0123,
+                    0x0456,
+                    &[0xaa, 0xbb, 0xcc],
+                    &[],
+                    (9, 18),
+                    test_kitty_state(),
+                )
+                .unwrap(),
+                vec![
+                    0x23, 0x01, 0x56, 0x04, 3, 0, 0, 0, 0xaa, 0xbb, 0xcc, 0, 0, 9, 0, 18, 0, 1, 0,
+                    0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0, 7, 0, 0, 0, 8, 0, 0, 0,
+                ]
             );
+        }
+
+        #[test]
+        fn snapshot_payload_round_trip_preserves_kitty_image_alias_section() {
+            let snapshot = HostSnapshot {
+                cols: 80,
+                rows: 24,
+                cell_pixels: (9, 18),
+                replay: b"theme-portable replay".to_vec(),
+                kitty_image_aliases: vec![
+                    KittyImageAlias { image_id: 41, image_number: 77 },
+                    KittyImageAlias { image_id: 42, image_number: 77 },
+                ],
+                kitty_state: test_kitty_state(),
+                sequence_boundary: 0,
+                colors: TerminalColorOverrides::default(),
+                pid: Some(42),
+                command: vec!["/bin/cat".into()],
+                cwd: Some("/tmp".into()),
+            };
+            let payload = encode_snapshot(&snapshot).unwrap();
+
+            let decoded =
+                decode_snapshot(&payload).expect("snapshot decoder must retain Kitty aliases");
+            assert_eq!(decoded.kitty_image_aliases, snapshot.kitty_image_aliases);
+            assert_eq!(decoded.kitty_state, snapshot.kitty_state);
+            assert_eq!(decoded.cell_pixels, snapshot.cell_pixels);
+            assert_eq!(
+                encode_snapshot(&decoded).unwrap(),
+                payload,
+                "snapshot encode/decode dropped Kitty image-number aliases"
+            );
+        }
+
+        #[test]
+        fn snapshot_payload_matches_the_cross_language_v3_golden_bytes() {
+            let snapshot = HostSnapshot {
+                cols: 1,
+                rows: 2,
+                cell_pixels: (9, 18),
+                replay: Vec::new(),
+                kitty_image_aliases: Vec::new(),
+                kitty_state: test_kitty_state(),
+                sequence_boundary: 0,
+                colors: TerminalColorOverrides::default(),
+                pid: None,
+                command: Vec::new(),
+                cwd: None,
+            };
+
+            assert_eq!(
+                encode_snapshot(&snapshot).unwrap(),
+                vec![
+                    1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 18, 0, 1, 0, 0, 0, 0,
+                    0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0, 7, 0, 0, 0, 8, 0, 0, 0,
+                ]
+            );
+        }
+
+        #[test]
+        fn legacy_snapshots_and_resizes_decode_without_newer_tails() {
+            let snapshot = HostSnapshot {
+                cols: 80,
+                rows: 24,
+                cell_pixels: (9, 18),
+                replay: b"legacy replay".to_vec(),
+                kitty_image_aliases: vec![KittyImageAlias { image_id: 41, image_number: 77 }],
+                kitty_state: test_kitty_state(),
+                sequence_boundary: 0,
+                colors: TerminalColorOverrides::default(),
+                pid: Some(42),
+                command: vec!["/bin/cat".into()],
+                cwd: Some("/tmp".into()),
+            };
+            let snapshot_payload = encode_snapshot(&snapshot).unwrap();
+            let v2_snapshot_len = snapshot_payload.len() - KITTY_REPLAY_STATE_ENCODED_LEN;
+            let decoded = decode_snapshot_for_version(&snapshot_payload[..v2_snapshot_len], 2)
+                .expect("protocol-v2 snapshots end after cell metrics");
+            assert_eq!(decoded.replay, snapshot.replay);
+            assert_eq!(decoded.kitty_image_aliases, snapshot.kitty_image_aliases);
+            assert_eq!(decoded.cell_pixels, snapshot.cell_pixels);
+            assert_eq!(decoded.kitty_state, KittyReplayState::disabled());
+
+            let v1_snapshot_len = snapshot_payload.len()
+                - KITTY_IMAGE_ALIAS_COUNT_LEN
+                - snapshot.kitty_image_aliases.len() * KITTY_IMAGE_ALIAS_ENCODED_LEN
+                - CELL_PIXEL_SIZE_ENCODED_LEN
+                - KITTY_REPLAY_STATE_ENCODED_LEN;
+            let decoded = decode_snapshot_for_version(
+                &snapshot_payload[..v1_snapshot_len],
+                LEGACY_PROTOCOL_VERSION,
+            )
+            .expect("protocol-v1 snapshots end before Kitty aliases");
+            assert_eq!(decoded.replay, snapshot.replay);
+            assert!(decoded.kitty_image_aliases.is_empty());
+            assert_eq!(decoded.cell_pixels, DEFAULT_CELL_PIXELS);
+            assert_eq!(decoded.kitty_state, KittyReplayState::disabled());
+
+            let resize_payload = encode_resize(
+                81,
+                25,
+                b"legacy resize",
+                &snapshot.kitty_image_aliases,
+                snapshot.cell_pixels,
+                test_kitty_state(),
+            )
+            .unwrap();
+            let v2_resize_len = resize_payload.len() - KITTY_REPLAY_STATE_ENCODED_LEN;
+            assert_eq!(
+                decode_host_resize_payload_for_version(&resize_payload[..v2_resize_len], 2)
+                    .unwrap(),
+                DecodedHostResize {
+                    cols: 81,
+                    rows: 25,
+                    cell_pixels: snapshot.cell_pixels,
+                    replay: b"legacy resize".to_vec(),
+                    kitty_image_aliases: snapshot.kitty_image_aliases.clone(),
+                    kitty_state: KittyReplayState::disabled(),
+                }
+            );
+
+            let v1_resize_len = resize_payload.len()
+                - KITTY_IMAGE_ALIAS_COUNT_LEN
+                - snapshot.kitty_image_aliases.len() * KITTY_IMAGE_ALIAS_ENCODED_LEN
+                - CELL_PIXEL_SIZE_ENCODED_LEN
+                - KITTY_REPLAY_STATE_ENCODED_LEN;
+            assert_eq!(
+                decode_host_resize_payload_for_version(
+                    &resize_payload[..v1_resize_len],
+                    LEGACY_PROTOCOL_VERSION,
+                )
+                .unwrap(),
+                DecodedHostResize {
+                    cols: 81,
+                    rows: 25,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    replay: b"legacy resize".to_vec(),
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: KittyReplayState::disabled(),
+                }
+            );
+        }
+
+        #[test]
+        fn resize_alias_section_preserves_number_history_and_rejects_malformed_data() {
+            let alias = KittyImageAlias { image_id: 41, image_number: 77 };
+            let valid =
+                encode_resize(80, 24, b"replay", &[alias], (9, 18), test_kitty_state()).unwrap();
+            assert_eq!(
+                decode_host_resize_payload(&valid).unwrap(),
+                DecodedHostResize {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: (9, 18),
+                    replay: b"replay".to_vec(),
+                    kitty_image_aliases: vec![alias],
+                    kitty_state: test_kitty_state(),
+                }
+            );
+
+            let alias_offset = 8 + b"replay".len();
+            let mut zero_id = valid.clone();
+            zero_id[alias_offset + 2..alias_offset + 6].fill(0);
+            assert!(decode_host_resize_payload(&zero_id).is_err());
+
+            let duplicate_aliases = [
+                KittyImageAlias { image_id: 41, image_number: 77 },
+                KittyImageAlias { image_id: 42, image_number: 77 },
+            ];
+            let duplicate_numbers =
+                encode_resize(80, 24, b"replay", &duplicate_aliases, (9, 18), test_kitty_state())
+                    .unwrap();
+            assert_eq!(
+                decode_host_resize_payload(&duplicate_numbers).unwrap(),
+                DecodedHostResize {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: (9, 18),
+                    replay: b"replay".to_vec(),
+                    kitty_image_aliases: duplicate_aliases.to_vec(),
+                    kitty_state: test_kitty_state(),
+                }
+            );
+
+            let mut truncated = valid.clone();
+            truncated.pop();
+            assert!(decode_host_resize_payload(&truncated).is_err());
+
+            let mut invalid_offset = valid.clone();
+            let state_offset = alias_offset
+                + KITTY_IMAGE_ALIAS_COUNT_LEN
+                + KITTY_IMAGE_ALIAS_ENCODED_LEN
+                + CELL_PIXEL_SIZE_ENCODED_LEN;
+            invalid_offset[state_offset + KITTY_GRAPHICS_LIMITS_ENCODED_LEN
+                ..state_offset + KITTY_GRAPHICS_LIMITS_ENCODED_LEN + size_of::<u32>()]
+                .copy_from_slice(&7u32.to_le_bytes());
+            assert!(decode_host_resize_payload(&invalid_offset).is_err());
+
+            let mut invalid_state = test_kitty_state();
+            invalid_state.replay_cursor_offset = 7;
+            assert!(encode_resize(80, 24, b"replay", &[alias], (9, 18), invalid_state).is_err());
+
+            let mut trailing = valid;
+            trailing.push(0);
+            assert!(decode_host_resize_payload(&trailing).is_err());
+
+            let mut excessive = vec![80, 0, 24, 0, 0, 0, 0, 0];
+            excessive.extend_from_slice(&((MAX_KITTY_IMAGE_ALIASES + 1) as u16).to_le_bytes());
+            assert!(decode_host_resize_payload(&excessive).is_err());
         }
 
         #[test]
@@ -3521,21 +4951,24 @@ mod unix {
             let (record_path, record, lease) = record_fixture("clear-history-ack");
             let root = record_path.parent().unwrap().to_path_buf();
             let (client, mut host) = UnixStream::pair().unwrap();
-            let control_responses =
-                Arc::new(ControlResponses { waiters: Mutex::new(HashMap::new()) });
+            let control_responses = Arc::new(ControlResponses::new());
             let attachment = HostAttachment {
                 record,
                 record_path,
                 snapshot: HostSnapshot {
                     cols: 80,
                     rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
                     replay: Vec::new(),
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
                     sequence_boundary: 0,
                     colors: TerminalColorOverrides::default(),
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
                 },
+                protocol_version: PROTOCOL_VERSION,
                 reader: None,
                 writer: Arc::new(Mutex::new(client)),
                 control_responses: control_responses.clone(),
@@ -3576,18 +5009,20 @@ mod unix {
                 snapshot: HostSnapshot {
                     cols: 80,
                     rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
                     replay: Vec::new(),
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
                     sequence_boundary: 0,
                     colors: TerminalColorOverrides::default(),
                     pid: None,
                     command: Vec::new(),
                     cwd: None,
                 },
+                protocol_version: PROTOCOL_VERSION,
                 reader: None,
                 writer: Arc::new(Mutex::new(client)),
-                control_responses: Arc::new(ControlResponses {
-                    waiters: Mutex::new(HashMap::new()),
-                }),
+                control_responses: Arc::new(ControlResponses::new()),
                 next_request: AtomicU64::new(2),
                 viewer_size: Mutex::new(None),
                 launch_process: None,
@@ -3877,20 +5312,382 @@ mod unix {
         }
 
         #[test]
+        fn timed_out_cell_pixel_ack_reconciles_when_the_response_arrives_late() {
+            let (record_path, record, lease) = record_fixture("late-cell-pixel-ack");
+            let (client, mut host) = UnixStream::pair().unwrap();
+            let control_responses = Arc::new(ControlResponses::new());
+            let (reconciled_tx, reconciled_rx) = std::sync::mpsc::channel();
+            control_responses.set_deferred_cell_pixel_handler(Arc::new(
+                move |request_id, expected, frame| {
+                    reconciled_tx.send((request_id, expected, frame)).unwrap();
+                },
+            ));
+            let attachment = HostAttachment {
+                record: record.clone(),
+                record_path: record_path.clone(),
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    replay: Vec::new(),
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: vec!["/bin/cat".into()],
+                    cwd: None,
+                },
+                protocol_version: PROTOCOL_VERSION,
+                reader: None,
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: control_responses.clone(),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+            };
+            let resolver = {
+                let control_responses = control_responses.clone();
+                thread::spawn(move || {
+                    let request =
+                        read_required_frame(&mut host, "cell pixel size request").unwrap();
+                    assert_eq!(request.kind, MessageKind::SetCellPixelSize);
+                    thread::sleep(Duration::from_millis(50));
+                    let mut ack =
+                        Frame::new(MessageKind::CellPixelSizeAck, request.payload.clone());
+                    ack.request_id = request.request_id;
+                    control_responses.resolve(&ack);
+                })
+            };
+
+            let error = attachment
+                .send_cell_pixel_size_until(9, 18, Instant::now() + Duration::from_millis(10))
+                .unwrap_err();
+            assert!(error.is::<DeferredCellPixelAck>());
+            assert!(
+                error.to_string().contains("late response will reconcile the mirror"),
+                "{error:#}"
+            );
+            let (request_id, expected, resolution) =
+                reconciled_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(request_id, 2);
+            assert_eq!(expected, (9, 18));
+            let DeferredCellPixelResolution::Response(ack) = resolution else {
+                panic!("late acknowledgement was reported as a disconnect");
+            };
+            assert_eq!(ack.payload, vec![9, 0, 18, 0]);
+            assert_eq!(control_responses.latest_cell_pixel_ack(), 2);
+
+            resolver.join().unwrap();
+            drop(attachment);
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
+        fn disconnect_settles_deferred_cell_pixel_waiters() {
+            let control_responses = ControlResponses::new();
+            let (sender, _receiver) = sync_channel(1);
+            control_responses.waiters.lock().unwrap().insert(
+                7,
+                ControlResponseWaiter::Blocking { kind: MessageKind::CellPixelSizeAck, sender },
+            );
+            assert!(control_responses.defer_cell_pixel(7, (9, 18)));
+            let (settled_tx, settled_rx) = std::sync::mpsc::channel();
+            control_responses.set_deferred_cell_pixel_handler(Arc::new(
+                move |request_id, expected, _frame| {
+                    settled_tx.send((request_id, expected)).unwrap();
+                },
+            ));
+
+            control_responses.fail_all();
+
+            assert_eq!(settled_rx.recv_timeout(Duration::from_secs(1)).unwrap(), (7, (9, 18)));
+        }
+
+        #[test]
+        fn cell_pixel_commit_is_broadcast_to_live_renderer_taps_before_ack() {
+            let host = test_host_shared();
+            let (renderer_socket, _renderer_peer) = UnixStream::pair().unwrap();
+            let (renderer_tx, renderer_rx) = sync_channel(4);
+            host.taps
+                .lock()
+                .unwrap()
+                .insert(1, HostTap::new(renderer_tx, Arc::new(renderer_socket), usize::MAX));
+            let (target_socket, _target_peer) = UnixStream::pair().unwrap();
+            let (target_tx, target_rx) = sync_channel(1);
+            let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
+
+            assert!(host.set_cell_pixel_size(9, 18, 42, &target).unwrap());
+
+            let resized = renderer_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(resized.kind, MessageKind::Resized);
+            assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
+            assert_eq!(decode_host_resize_payload(&resized.payload).unwrap().cell_pixels, (9, 18));
+            let colors = renderer_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(colors.kind, MessageKind::Colors);
+            assert!(colors.sequence > resized.sequence);
+            let ack = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(ack.kind, MessageKind::CellPixelSizeAck);
+            assert_eq!(ack.request_id, 42);
+        }
+
+        #[test]
+        fn kitty_limit_commit_replaces_live_mirrors_before_ack() {
+            let host = test_host_shared();
+            host.term
+                .lock()
+                .unwrap()
+                .vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAAA\x1b\\");
+            let (target_socket, _target_peer) = UnixStream::pair().unwrap();
+            let (target_tx, target_rx) = sync_channel(3);
+            let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
+            host.taps.lock().unwrap().insert(1, target.clone());
+            let limits = KittyGraphicsLimits::disabled();
+
+            assert!(host.set_kitty_graphics_limits(limits, 43, &target).unwrap());
+
+            let resized = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(resized.kind, MessageKind::Resized);
+            assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
+            let decoded = decode_host_resize_payload(&resized.payload).unwrap();
+            assert_eq!(decoded.kitty_state.limits, limits);
+            let colors = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(colors.kind, MessageKind::Colors);
+            assert!(colors.sequence > resized.sequence);
+            let ack = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(ack.kind, MessageKind::KittyGraphicsLimitsAck);
+            assert_eq!(ack.request_id, 43);
+            let mut decoder = PayloadDecoder::new(&ack.payload);
+            assert_eq!(decode_kitty_graphics_limits(&mut decoder).unwrap(), limits);
+            decoder.finish().unwrap();
+
+            let mut mirror =
+                Terminal::new(decoded.cols, decoded.rows, 0, Callbacks::default()).unwrap();
+            mirror
+                .apply_vt_replay(&ghostty_vt::VtReplay {
+                    bytes: decoded.replay,
+                    kitty_image_aliases: decoded.kitty_image_aliases,
+                    kitty_state: decoded.kitty_state,
+                })
+                .unwrap();
+            assert!(mirror.kitty_graphics_snapshot().unwrap().images.is_empty());
+            assert_eq!(mirror.kitty_graphics_limits().unwrap(), limits);
+        }
+
+        #[test]
+        fn adoption_quota_reconfiguration_finishes_before_snapshot_use() {
+            let (record_path, record, lease) = record_fixture("adoption-kitty-quota");
+            let root = record_path.parent().unwrap().to_path_buf();
+            let (client, mut host) = UnixStream::pair().unwrap();
+            let reader = client.try_clone().unwrap();
+            let mut stale_state = test_kitty_state();
+            stale_state.limits = KittyGraphicsLimits {
+                image_bytes: 8_000,
+                inflight_bytes: 8_000,
+                images: 80,
+                placements: 160,
+            };
+            let ceiling = KittyGraphicsLimits {
+                image_bytes: 4_000,
+                inflight_bytes: 4_000,
+                images: 40,
+                placements: 80,
+            };
+            let mut attachment = HostAttachment {
+                record,
+                record_path,
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    replay: Vec::new(),
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: stale_state,
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: Vec::new(),
+                    cwd: None,
+                },
+                protocol_version: PROTOCOL_VERSION,
+                reader: Some(reader),
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: Arc::new(ControlResponses::new()),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+            };
+            let responder = thread::spawn(move || {
+                let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+                assert_eq!(request.kind, MessageKind::SetKittyGraphicsLimits);
+                let mut decoder = PayloadDecoder::new(&request.payload);
+                assert_eq!(decode_kitty_graphics_limits(&mut decoder).unwrap(), ceiling);
+                decoder.finish().unwrap();
+
+                let mut fresh_state = test_kitty_state();
+                fresh_state.limits = ceiling;
+                let mut resized = Frame::new(
+                    MessageKind::Resized,
+                    encode_resize(80, 24, &[], &[], DEFAULT_CELL_PIXELS, fresh_state).unwrap(),
+                );
+                resized.version = PROTOCOL_VERSION;
+                resized.flags = FLAG_COLORS_FOLLOW;
+                resized.sequence = 1;
+                write_frame(&mut host, &resized).unwrap();
+                let mut colors = Frame::new(
+                    MessageKind::Colors,
+                    encode_terminal_color_overrides(&TerminalColorOverrides {
+                        cursor_visual: Some((CursorShape::Block, false)),
+                        ..TerminalColorOverrides::default()
+                    }),
+                );
+                colors.version = PROTOCOL_VERSION;
+                colors.sequence = 2;
+                write_frame(&mut host, &colors).unwrap();
+
+                let mut payload = Vec::new();
+                encode_kitty_graphics_limits(&mut payload, ceiling).unwrap();
+                let mut ack = Frame::new(MessageKind::KittyGraphicsLimitsAck, payload);
+                ack.version = PROTOCOL_VERSION;
+                ack.request_id = request.request_id;
+                write_frame(&mut host, &ack).unwrap();
+                assert!(read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().is_none());
+            });
+
+            attachment.reconfigure_kitty_graphics_for_adoption(ceiling).unwrap();
+            attachment.disconnect();
+            responder.join().unwrap();
+
+            drop(attachment);
+            drop(lease);
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn upgraded_daemon_falls_back_to_a_live_protocol_one_host() {
+            let (record_path, record, lease) = record_fixture("protocol-one-adoption");
+            let endpoint = PathBuf::from(&record.endpoint);
+            prepare_private_dir(endpoint.parent().unwrap()).unwrap();
+            let _ = fs::remove_file(&endpoint);
+            let listener = UnixListener::bind(&endpoint).unwrap();
+            let terminal_id =
+                TerminalId::from_bytes(decode_hex_array(&record.terminal_id).unwrap());
+            let incarnation =
+                HostIncarnation::from_bytes(decode_hex_array(&record.incarnation).unwrap());
+            let expected_replay = b"protocol-one-live-state".to_vec();
+            let host_replay = expected_replay.clone();
+            let fake_host = thread::spawn(move || {
+                for rejected_version in ((LEGACY_PROTOCOL_VERSION + 1)..=PROTOCOL_VERSION).rev() {
+                    let (mut rejected, _) = listener.accept().unwrap();
+                    let hello = read_required_frame(&mut rejected, "newer-version hello").unwrap();
+                    assert_eq!(hello.kind, MessageKind::ClientHello);
+                    assert_eq!(hello.version, rejected_version);
+                }
+
+                let (mut legacy, _) = listener.accept().unwrap();
+                let legacy_hello = read_required_frame(&mut legacy, "legacy hello").unwrap();
+                assert_eq!(legacy_hello.kind, MessageKind::ClientHello);
+                assert_eq!(legacy_hello.version, LEGACY_PROTOCOL_VERSION);
+                let decoded = ClientHello::decode(&legacy_hello.payload).unwrap();
+                assert_eq!(
+                    (decoded.min_version, decoded.max_version),
+                    (LEGACY_PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSION)
+                );
+
+                let response = HostHello {
+                    selected_version: LEGACY_PROTOCOL_VERSION,
+                    granted_rights: CapabilityRights::ADMIN,
+                    terminal_id,
+                    incarnation,
+                };
+                let mut hello = Frame::new(MessageKind::HostHello, response.encode());
+                hello.version = LEGACY_PROTOCOL_VERSION;
+                hello.request_id = legacy_hello.request_id;
+                write_frame(&mut legacy, &hello).unwrap();
+
+                let snapshot = HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    replay: host_replay,
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: Some(42),
+                    command: vec!["/bin/cat".into()],
+                    cwd: Some("/tmp".into()),
+                };
+                let mut payload = encode_snapshot(&snapshot).unwrap();
+                payload.truncate(
+                    payload.len()
+                        - KITTY_IMAGE_ALIAS_COUNT_LEN
+                        - CELL_PIXEL_SIZE_ENCODED_LEN
+                        - KITTY_REPLAY_STATE_ENCODED_LEN,
+                );
+                let mut frame = Frame::new(MessageKind::Snapshot, payload);
+                frame.version = LEGACY_PROTOCOL_VERSION;
+                write_frame(&mut legacy, &frame).unwrap();
+
+                let colors = TerminalColorOverrides {
+                    cursor_visual: Some((CursorShape::Block, true)),
+                    ..TerminalColorOverrides::default()
+                };
+                let mut frame =
+                    Frame::new(MessageKind::Colors, encode_terminal_color_overrides(&colors));
+                frame.version = LEGACY_PROTOCOL_VERSION;
+                write_frame(&mut legacy, &frame).unwrap();
+
+                let release = read_required_frame(&mut legacy, "legacy viewer release").unwrap();
+                assert_eq!(release.kind, MessageKind::ReleaseViewer);
+                assert_eq!(release.version, LEGACY_PROTOCOL_VERSION);
+            });
+
+            let attachment = connect_record_with_timeout(
+                record.clone(),
+                record_path.clone(),
+                Duration::from_secs(1),
+            )
+            .unwrap();
+            assert_eq!(attachment.protocol_version(), LEGACY_PROTOCOL_VERSION);
+            assert_eq!(attachment.snapshot.replay, expected_replay);
+            assert!(attachment.snapshot.kitty_image_aliases.is_empty());
+            assert!(!attachment.send_cell_pixel_size(9, 18).unwrap());
+            drop(attachment);
+            fake_host.join().unwrap();
+
+            let _ = fs::remove_file(endpoint);
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
         fn host_tap_byte_overflow_closes_the_client_socket() {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
             let (sender, _receiver) = sync_channel(8);
             let one_frame = crate::terminal_host_protocol::HEADER_LEN + 4;
-            let tap = HostTap {
-                sender,
-                queued_bytes: Arc::new(AtomicUsize::new(0)),
-                shutdown: Arc::new(host_socket),
-                max_queued_bytes: one_frame,
-            };
+            let tap = HostTap::new(sender, Arc::new(host_socket), one_frame);
 
             assert!(tap.try_send(Frame::new(MessageKind::Output, vec![1; 4])));
             assert!(!tap.try_send(Frame::new(MessageKind::Output, vec![2])));
+            let mut byte = [0u8; 1];
+            assert_eq!(client_socket.read(&mut byte).unwrap(), 0);
+        }
+
+        #[test]
+        fn host_tap_snapshot_headroom_does_not_expand_live_output_budget() {
+            let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
+            client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let (sender, _receiver) = sync_channel(8);
+            let tap = HostTap::new(sender, Arc::new(host_socket), MAX_HOST_CLIENT_QUEUED_BYTES);
+            let half_output_budget = 4 * 1024 * 1024;
+
+            assert!(tap.try_send(Frame::new(MessageKind::Output, vec![1; half_output_budget],)));
+            assert!(!tap.try_send(Frame::new(MessageKind::Output, vec![2; half_output_budget],)));
             let mut byte = [0u8; 1];
             assert_eq!(client_socket.read(&mut byte).unwrap(), 0);
         }
@@ -3900,12 +5697,7 @@ mod unix {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
             let (sender, _receiver) = sync_channel(1);
-            let tap = HostTap {
-                sender,
-                queued_bytes: Arc::new(AtomicUsize::new(0)),
-                shutdown: Arc::new(host_socket),
-                max_queued_bytes: usize::MAX,
-            };
+            let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
 
             assert!(tap.try_send(Frame::new(MessageKind::Output, vec![1])));
             assert!(!tap.try_send(Frame::new(MessageKind::Output, vec![2])));
@@ -3985,12 +5777,7 @@ mod unix {
             for child_first in [false, true] {
                 let (host_socket, _client_socket) = UnixStream::pair().unwrap();
                 let (sender, receiver) = sync_channel(8);
-                let tap = HostTap {
-                    sender,
-                    queued_bytes: Arc::new(AtomicUsize::new(0)),
-                    shutdown: Arc::new(host_socket),
-                    max_queued_bytes: usize::MAX,
-                };
+                let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
                 let broadcast_lock = Mutex::new(());
                 let sequence = AtomicU64::new(0);
                 let taps = Mutex::new(HashMap::from([(1, tap)]));
@@ -4173,12 +5960,7 @@ mod unix {
         fn coupled_color_frames_stay_adjacent_under_concurrent_exit_and_resize() {
             let (host_socket, _client_socket) = UnixStream::pair().unwrap();
             let (sender, receiver) = sync_channel(8);
-            let tap = HostTap {
-                sender,
-                queued_bytes: Arc::new(AtomicUsize::new(0)),
-                shutdown: Arc::new(host_socket),
-                max_queued_bytes: usize::MAX,
-            };
+            let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
             let broadcast_lock = Mutex::new(());
             let sequence = AtomicU64::new(0);
             let taps = Mutex::new(HashMap::from([(1, tap)]));
@@ -4275,12 +6057,7 @@ mod unix {
         fn pwd_change_stays_contiguous_with_its_output_boundary() {
             let (host_socket, _client_socket) = UnixStream::pair().unwrap();
             let (sender, receiver) = sync_channel(8);
-            let tap = HostTap {
-                sender,
-                queued_bytes: Arc::new(AtomicUsize::new(0)),
-                shutdown: Arc::new(host_socket),
-                max_queued_bytes: usize::MAX,
-            };
+            let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
             let broadcast_lock = Mutex::new(());
             let sequence = AtomicU64::new(0);
             let taps = Mutex::new(HashMap::from([(1, tap)]));
@@ -4326,6 +6103,11 @@ mod unix {
     }
 }
 
+#[cfg(unix)]
+pub(crate) use unix::{
+    ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
+    adopt_terminal_host_with_kitty_limits, decode_host_resize_payload_for_version,
+};
 #[cfg(unix)]
 pub use unix::{
     HostAttachment, acknowledge_terminal_host_exit_record, adopt_terminal_host,

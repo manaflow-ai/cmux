@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
-inline constexpr std::string_view kProtocolIrSha256 = "4248b1dd1a8640da3f983118ddce2e8d5ff94db5dc2e18cb9ebc5ba41052284e";
+inline constexpr std::string_view kProtocolIrSha256 = "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -26,6 +26,7 @@ struct Base64;
 struct BrowserFrame;
 struct CellPixelFailure;
 struct CellPixelResize;
+struct CellPixelSurface;
 struct ClientInfo;
 struct ClientSize;
 enum class ClientTransport;
@@ -40,11 +41,14 @@ struct ExportLayoutResult;
 struct ExportedPane;
 struct FocusDirectionResult;
 struct FrontendProjection;
+struct GetCellPixelsResult;
 struct Id;
 struct IdMapping;
 struct IdentifyResult;
 struct IdsResult;
 struct JsonValue;
+struct KittyGraphicsState;
+struct KittyImageAlias;
 struct Layout;
 struct LayoutUndoConfirmationRequired;
 struct LayoutUndoResult;
@@ -66,6 +70,11 @@ struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
 struct RenderCursor;
+enum class RenderGraphicFormat;
+struct RenderGraphicImage;
+struct RenderGraphicPlacement;
+struct RenderGraphics;
+struct RenderGraphicsDelta;
 struct RenderRow;
 struct RenderRun;
 enum class RenderUnderline;
@@ -127,6 +136,7 @@ struct DetachClientRequest;
 struct ExportLayoutRequest;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
+struct GetCellPixelsRequest;
 struct GetFrontendProjectionRequest;
 struct IdentifyRequest;
 struct IdsRequest;
@@ -202,6 +212,7 @@ struct DetachedEvent;
 struct EmptyEvent;
 struct FrameEvent;
 struct FrontendProjectionChangedEvent;
+struct GraphicsStatusEvent;
 struct LayoutChangedEvent;
 struct NotificationEvent;
 struct OutputEvent;
@@ -255,6 +266,7 @@ enum class SubscribeRequestTreeEvents;
 enum class ZoomPaneRequestMode;
 enum class BrowserStateEventStatus;
 enum class ClientAttachedEventTransport;
+enum class GraphicsStatusEventKind;
 
 enum class AgentSource {
     detected,
@@ -519,6 +531,13 @@ struct CellPixelResize {
     std::uint16_t rows{};
     Id surface{};
     friend bool operator==(const CellPixelResize&, const CellPixelResize&) = default;
+};
+
+struct CellPixelSurface {
+    std::uint16_t height_px{};
+    Id surface{};
+    std::uint16_t width_px{};
+    friend bool operator==(const CellPixelSurface&, const CellPixelSurface&) = default;
 };
 
 enum class TerminalKey {
@@ -988,11 +1007,40 @@ struct FrontendProjectionChangedEvent {
     friend bool operator==(const FrontendProjectionChangedEvent&, const FrontendProjectionChangedEvent&) = default;
 };
 
+struct GetCellPixelsRequest {
+    friend bool operator==(const GetCellPixelsRequest&, const GetCellPixelsRequest&) = default;
+};
+
+struct GetCellPixelsResult {
+    std::uint16_t height_px{};
+    std::vector<CellPixelSurface> surfaces{};
+    std::uint16_t width_px{};
+    friend bool operator==(const GetCellPixelsResult&, const GetCellPixelsResult&) = default;
+};
+
 struct GetFrontendProjectionRequest {
     std::string frontend{};
     std::string scope{};
     std::string subject_key{};
     friend bool operator==(const GetFrontendProjectionRequest&, const GetFrontendProjectionRequest&) = default;
+};
+
+enum class GraphicsStatusEventKind {
+    kitty_image_budget_worker_start_failed,
+    kitty_image_budget_update_failed,
+    cell_pixel_update_retries_exhausted,
+};
+
+struct GraphicsStatusEvent {
+    std::optional<std::uint16_t> attempts{};
+    std::optional<std::uint16_t> cell_height{};
+    std::optional<std::uint16_t> cell_width{};
+    std::optional<std::string> error{};
+    GraphicsStatusEventKind kind{};
+    std::optional<std::uint64_t> remaining{};
+    std::optional<bool> retry_exhausted{};
+    std::optional<std::string> summary{};
+    friend bool operator==(const GraphicsStatusEvent&, const GraphicsStatusEvent&) = default;
 };
 
 enum class IdMappingKind {
@@ -1043,6 +1091,25 @@ struct IdsRequest {
 struct IdsResult {
     std::vector<IdMapping> ids{};
     friend bool operator==(const IdsResult&, const IdsResult&) = default;
+};
+
+struct KittyGraphicsState {
+    std::uint32_t alternate_next_image_id{};
+    std::uint32_t alternate_replay_next_image_id{};
+    std::uint64_t image_bytes{};
+    std::uint64_t images{};
+    std::uint64_t inflight_bytes{};
+    std::uint64_t placements{};
+    std::uint32_t primary_next_image_id{};
+    std::uint32_t primary_replay_next_image_id{};
+    std::uint32_t replay_cursor_offset{};
+    friend bool operator==(const KittyGraphicsState&, const KittyGraphicsState&) = default;
+};
+
+struct KittyImageAlias {
+    std::uint32_t image_id{};
+    std::uint32_t image_number{};
+    friend bool operator==(const KittyImageAlias&, const KittyImageAlias&) = default;
 };
 
 struct LayoutChangedEvent {
@@ -1490,6 +1557,7 @@ struct RenderRow {
 };
 
 struct ReadScrollbackResult {
+    std::uint64_t epoch{};
     std::vector<RenderRow> rows{};
     std::uint32_t start{};
     std::uint32_t total{};
@@ -1557,11 +1625,61 @@ struct RenderCursor {
     friend bool operator==(const RenderCursor&, const RenderCursor&) = default;
 };
 
+enum class RenderGraphicFormat {
+    rgb,
+    rgba,
+};
+
+struct RenderGraphicImage {
+    Base64 data{};
+    RenderGraphicFormat format{};
+    std::uint64_t generation{};
+    std::uint32_t height{};
+    std::uint32_t id{};
+    std::uint32_t width{};
+    friend bool operator==(const RenderGraphicImage&, const RenderGraphicImage&) = default;
+};
+
+struct RenderGraphicPlacement {
+    std::optional<std::uint16_t> anchor_col{};
+    std::optional<std::uint32_t> anchor_row{};
+    std::uint32_t columns{};
+    std::uint32_t grid_cols{};
+    std::uint32_t grid_rows{};
+    std::uint32_t image_id{};
+    std::uint32_t ordinal{};
+    std::uint32_t pixel_height{};
+    std::uint32_t pixel_width{};
+    std::uint32_t placement_id{};
+    std::uint32_t rows{};
+    std::uint32_t source_height{};
+    std::uint32_t source_width{};
+    std::uint32_t source_x{};
+    std::uint32_t source_y{};
+    std::int32_t viewport_col{};
+    std::int32_t viewport_row{};
+    bool viewport_visible{};
+    std::uint32_t x_offset{};
+    std::uint32_t y_offset{};
+    std::int32_t z{};
+    friend bool operator==(const RenderGraphicPlacement&, const RenderGraphicPlacement&) = default;
+};
+
+struct RenderGraphicsDelta {
+    std::uint64_t generation{};
+    std::optional<std::vector<RenderGraphicImage>> images{};
+    std::optional<std::vector<RenderGraphicPlacement>> placements{};
+    std::optional<std::vector<std::uint32_t>> removed_image_ids{};
+    friend bool operator==(const RenderGraphicsDelta&, const RenderGraphicsDelta&) = default;
+};
+
 struct RenderDeltaEvent {
     RenderCursor cursor{};
     std::optional<ColorHex> default_bg{};
     std::optional<ColorHex> default_fg{};
     bool full{};
+    std::optional<RenderGraphicsDelta> graphics{};
+    std::optional<std::uint64_t> history_epoch{};
     std::vector<RenderRow> rows{};
     std::optional<std::uint32_t> scrollback_rows{};
     std::optional<Size> size{};
@@ -1569,10 +1687,20 @@ struct RenderDeltaEvent {
     friend bool operator==(const RenderDeltaEvent&, const RenderDeltaEvent&) = default;
 };
 
+struct RenderGraphics {
+    std::uint64_t generation{};
+    std::optional<std::vector<RenderGraphicImage>> images{};
+    std::vector<RenderGraphicPlacement> placements{};
+    std::optional<std::vector<std::uint32_t>> removed_image_ids{};
+    friend bool operator==(const RenderGraphics&, const RenderGraphics&) = default;
+};
+
 struct RenderStateEvent {
     RenderCursor cursor{};
     ColorHex default_bg{};
     ColorHex default_fg{};
+    std::optional<RenderGraphics> graphics{};
+    std::uint64_t history_epoch{};
     std::vector<RenderRow> rows{};
     std::uint32_t scrollback_rows{};
     Size size{};
@@ -1613,6 +1741,8 @@ struct ResizedEvent {
     std::optional<TerminalColors> colors{};
     std::uint16_t cols{};
     std::optional<Base64> data{};
+    std::optional<KittyGraphicsState> kitty_graphics_state{};
+    std::optional<std::vector<KittyImageAlias>> kitty_image_aliases{};
     std::optional<Base64> replay{};
     std::uint16_t rows{};
     Id surface{};
@@ -2018,6 +2148,8 @@ struct VtStateEvent {
     std::optional<TerminalColors> colors{};
     std::uint16_t cols{};
     Base64 data{};
+    std::optional<KittyGraphicsState> kitty_graphics_state{};
+    std::optional<std::vector<KittyImageAlias>> kitty_image_aliases{};
     std::uint16_t rows{};
     Id surface{};
     friend bool operator==(const VtStateEvent&, const VtStateEvent&) = default;
@@ -2031,6 +2163,8 @@ struct VtStateRequest {
 struct VtStateResult {
     std::uint16_t cols{};
     Base64 data{};
+    std::optional<KittyGraphicsState> kitty_graphics_state{};
+    std::optional<std::vector<KittyImageAlias>> kitty_image_aliases{};
     std::uint16_t rows{};
     friend bool operator==(const VtStateResult&, const VtStateResult&) = default;
 };
@@ -2192,6 +2326,12 @@ struct Codec<CellPixelResize> {
 };
 
 template <>
+struct Codec<CellPixelSurface> {
+    static Result<Json> encode(const CellPixelSurface& value);
+    static Result<CellPixelSurface> decode(const Json& value);
+};
+
+template <>
 struct Codec<ClientInfo> {
     static Result<Json> encode(const ClientInfo& value);
     static Result<ClientInfo> decode(const Json& value);
@@ -2276,6 +2416,12 @@ struct Codec<FrontendProjection> {
 };
 
 template <>
+struct Codec<GetCellPixelsResult> {
+    static Result<Json> encode(const GetCellPixelsResult& value);
+    static Result<GetCellPixelsResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<Id> {
     static Result<Json> encode(const Id& value);
     static Result<Id> decode(const Json& value);
@@ -2303,6 +2449,18 @@ template <>
 struct Codec<JsonValue> {
     static Result<Json> encode(const JsonValue& value);
     static Result<JsonValue> decode(const Json& value);
+};
+
+template <>
+struct Codec<KittyGraphicsState> {
+    static Result<Json> encode(const KittyGraphicsState& value);
+    static Result<KittyGraphicsState> decode(const Json& value);
+};
+
+template <>
+struct Codec<KittyImageAlias> {
+    static Result<Json> encode(const KittyImageAlias& value);
+    static Result<KittyImageAlias> decode(const Json& value);
 };
 
 template <>
@@ -2429,6 +2587,36 @@ template <>
 struct Codec<RenderCursor> {
     static Result<Json> encode(const RenderCursor& value);
     static Result<RenderCursor> decode(const Json& value);
+};
+
+template <>
+struct Codec<RenderGraphicFormat> {
+    static Result<Json> encode(const RenderGraphicFormat& value);
+    static Result<RenderGraphicFormat> decode(const Json& value);
+};
+
+template <>
+struct Codec<RenderGraphicImage> {
+    static Result<Json> encode(const RenderGraphicImage& value);
+    static Result<RenderGraphicImage> decode(const Json& value);
+};
+
+template <>
+struct Codec<RenderGraphicPlacement> {
+    static Result<Json> encode(const RenderGraphicPlacement& value);
+    static Result<RenderGraphicPlacement> decode(const Json& value);
+};
+
+template <>
+struct Codec<RenderGraphics> {
+    static Result<Json> encode(const RenderGraphics& value);
+    static Result<RenderGraphics> decode(const Json& value);
+};
+
+template <>
+struct Codec<RenderGraphicsDelta> {
+    static Result<Json> encode(const RenderGraphicsDelta& value);
+    static Result<RenderGraphicsDelta> decode(const Json& value);
 };
 
 template <>
@@ -2795,6 +2983,12 @@ template <>
 struct Codec<FocusPaneRequest> {
     static Result<Json> encode(const FocusPaneRequest& value);
     static Result<FocusPaneRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<GetCellPixelsRequest> {
+    static Result<Json> encode(const GetCellPixelsRequest& value);
+    static Result<GetCellPixelsRequest> decode(const Json& value);
 };
 
 template <>
@@ -3248,6 +3442,12 @@ struct Codec<FrontendProjectionChangedEvent> {
 };
 
 template <>
+struct Codec<GraphicsStatusEvent> {
+    static Result<Json> encode(const GraphicsStatusEvent& value);
+    static Result<GraphicsStatusEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<LayoutChangedEvent> {
     static Result<Json> encode(const LayoutChangedEvent& value);
     static Result<LayoutChangedEvent> decode(const Json& value);
@@ -3563,6 +3763,12 @@ template <>
 struct Codec<ClientAttachedEventTransport> {
     static Result<Json> encode(const ClientAttachedEventTransport& value);
     static Result<ClientAttachedEventTransport> decode(const Json& value);
+};
+
+template <>
+struct Codec<GraphicsStatusEventKind> {
+    static Result<Json> encode(const GraphicsStatusEventKind& value);
+    static Result<GraphicsStatusEventKind> decode(const Json& value);
 };
 
 }  // namespace cmux::raw
