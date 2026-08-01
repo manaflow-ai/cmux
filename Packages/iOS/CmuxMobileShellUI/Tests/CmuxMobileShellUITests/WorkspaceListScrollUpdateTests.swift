@@ -228,7 +228,7 @@ import UIKit
         )
     }
 
-    @Test func coordinatorKeepsGroupHeaderWorkspaceAndGroupActionsAvailable() {
+    @Test func coordinatorKeepsGroupHeaderContextMenuGroupScoped() {
         let capabilities = MobileWorkspaceActionCapabilities(
             supportsWorkspaceActions: true,
             supportsWorkspaceMetadata: true,
@@ -291,11 +291,11 @@ import UIKit
         #expect(identifiers.contains("MobileWorkspaceGroupRenameButton-group-1"))
         #expect(identifiers.contains("MobileWorkspaceGroupUngroupButton-group-1"))
         #expect(identifiers.contains("MobileWorkspaceGroupDeleteButton-group-1"))
-        #expect(identifiers.contains("MobileWorkspacePinButton-workspace-1"))
-        #expect(identifiers.contains("MobileWorkspaceCustomizeButton-workspace-1"))
-        #expect(identifiers.contains("MobileWorkspaceRenameButton-workspace-1"))
-        #expect(identifiers.contains("MobileWorkspaceReadStateMenuButton-workspace-1"))
-        #expect(identifiers.contains("MobileWorkspaceDeleteMenuButton-workspace-1"))
+        #expect(!identifiers.contains("MobileWorkspacePinButton-workspace-1"))
+        #expect(!identifiers.contains("MobileWorkspaceCustomizeButton-workspace-1"))
+        #expect(!identifiers.contains("MobileWorkspaceRenameButton-workspace-1"))
+        #expect(!identifiers.contains("MobileWorkspaceReadStateMenuButton-workspace-1"))
+        #expect(!identifiers.contains("MobileWorkspaceDeleteMenuButton-workspace-1"))
         #expect(
             coordinator.tableView(
                 tableView,
