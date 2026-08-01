@@ -80,6 +80,35 @@ struct MobileStateSyncFrameCodingTests {
         #expect(!decoded.customDescriptionIsTruncated)
     }
 
+    @Test func groupRecordCarriesIconAndDecodesOlderFrames() throws {
+        let group = GroupSyncRecord(
+            id: "group-1",
+            name: "Release",
+            isCollapsed: false,
+            isPinned: true,
+            iconSymbol: "shippingbox.fill",
+            anchorWorkspaceID: "workspace-1",
+            sortIndex: 0
+        )
+        let object = try MobileSyncFrameCoder().jsonObject(from: group)
+        #expect(object["icon_symbol"] as? String == "shippingbox.fill")
+
+        let decodedOlder = try MobileSyncFrameCoder().decode(
+            GroupSyncRecord.self,
+            fromJSONString: """
+            {
+              "id": "group-older",
+              "name": "Older Mac",
+              "is_collapsed": false,
+              "is_pinned": false,
+              "anchor_workspace_id": "workspace-older",
+              "sort_index": 0
+            }
+            """
+        )
+        #expect(decodedOlder.iconSymbol == nil)
+    }
+
     @Test func deltaEventRoundTripsThroughJSONObject() throws {
         let event = MobileSyncDeltaEvent(
             epoch: "e1",
