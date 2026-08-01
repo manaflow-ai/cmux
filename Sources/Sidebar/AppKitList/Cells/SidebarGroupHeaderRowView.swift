@@ -295,7 +295,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         backgroundView.layer?.cornerRadius = 4
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         CATransaction.commit()
-        nameField.textColor = NSColor.labelColor.withAlphaComponent(0.9)
+        // Active and inactive headers both use the dynamic label color and
+        // differ only in alpha. Preserve its already-resolved value during
+        // this optimistic-only paint; the authoritative model applies the
+        // final alpha with the rest of the row.
     }
 
     /// Inverse of the press treatment: previewing a different row must peel a
