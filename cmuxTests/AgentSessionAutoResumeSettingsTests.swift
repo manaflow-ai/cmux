@@ -316,7 +316,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredInput = try XCTUnwrap(restoredPanel.surface.initialInput)
 
             XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), restored.remoteConfiguration?.terminalStartupCommand)
-            XCTAssertGreaterThan(restoredInput.utf8.count, SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
+            XCTAssertGreaterThan(restoredInput.utf8.count, 900)
             XCTAssertTrue(restoredInput.contains("'resume'"), restoredInput)
             XCTAssertTrue(restoredInput.contains("codex-remote-long-running-session"), restoredInput)
             XCTAssertTrue(restoredInput.contains(longPath), restoredInput)

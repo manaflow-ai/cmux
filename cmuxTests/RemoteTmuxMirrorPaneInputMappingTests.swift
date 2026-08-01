@@ -500,6 +500,25 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         try expectDistinctSurfacesPerPane(mirror)
     }
 
+    /// tmux owns the pane's PTY and terminal protocol. The local Ghostty
+    /// surface is only a rendering mirror, so it must encode user input without
+    /// generating a second set of DA/OSC/DCS/size replies into tmux's input.
+    @Test
+    func remoteTmuxPaneUsesTransportOwnedTerminalProtocol() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        harness.publishListWindows([
+            "@2 f92f,80x24,0,0,4 f92f,80x24,0,0,4 [] yazi",
+        ])
+        try harness.drainThroughPaneRects([2: [
+            "%4 0 0 80 24 1 off :0 \"host\"",
+        ]])
+
+        let mirror = try harness.mirror()
+        let panel = try #require(mirror.panel(forPane: 4))
+        #expect(panel.surface.ioMode == .manualMirror)
+    }
+
     @Test
     func staleCachedActivePaneFallsBackToFirstLivePane() {
         let connection = RemoteTmuxControlConnection(

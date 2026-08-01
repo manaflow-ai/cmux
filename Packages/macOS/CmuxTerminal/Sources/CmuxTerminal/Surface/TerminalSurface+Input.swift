@@ -12,14 +12,14 @@ extension TerminalSurface {
     /// Returns the transport-owned name for a physical manual-I/O key, if any.
     @MainActor
     public func manualInputKeyName(for event: ghostty_input_key_s) -> String? {
-        guard manualIO, manualInputHandler != nil else { return nil }
+        guard ioMode.usesManualIO, manualInputHandler != nil else { return nil }
         return manualInputKeyNameResolver?(event)
     }
 
     /// Queues a name from ``manualInputKeyName(for:)`` behind earlier Ghostty input.
     @MainActor
     public func enqueueManualInputNamedKey(_ name: String) -> Bool {
-        guard manualIO, manualInputHandler != nil, let surface else { return false }
+        guard ioMode.usesManualIO, manualInputHandler != nil, let surface else { return false }
         let frame = TerminalManualInput.namedKey(name).manualIOData
         return frame.withUnsafeBytes { bytes in
             guard let baseAddress = bytes.baseAddress else { return false }
