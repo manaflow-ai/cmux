@@ -260,6 +260,12 @@ async fn run_git(
     maximum_stdout: usize,
 ) -> Result<Vec<u8>, RpcError> {
     let mut command = tokio::process::Command::new("git");
+    // The daemon's launch environment must not redirect an RPC away from its pinned workspace.
+    for (name, _) in std::env::vars_os() {
+        if name.as_encoded_bytes().starts_with(b"GIT_") {
+            command.env_remove(name);
+        }
+    }
     command
         .args(["-c", "core.fsmonitor=false"])
         .args(arguments)

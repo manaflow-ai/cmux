@@ -862,7 +862,7 @@ async fn serve_iroh_connection(
     tokio::pin!(first_stream_deadline);
     tokio::pin!(unauthenticated_deadline);
     let mut authenticated = false;
-    let mut connection_permit = Some(connection_permit);
+    let _connection_permit = connection_permit;
     loop {
         tokio::select! {
             biased;
@@ -874,7 +874,6 @@ async fn serve_iroh_connection(
                     Some(IrohAcceptResult::Succeeded) => {
                         if !authenticated {
                             authenticated = true;
-                            connection_permit.take();
                             authenticated_tx.send_replace(true);
                         }
                     }
