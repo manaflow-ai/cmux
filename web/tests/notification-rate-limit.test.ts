@@ -115,6 +115,35 @@ describe("notification rate limit", () => {
     ).resolves.toMatchObject({ kind: "busy" });
   });
 
+  dbTest("does not take over a live claim when its event expires mid-send", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate notification_send_events restart identity cascade`;
+
+    const { cloudDb } = await import("../db/client");
+    const db = cloudDb();
+    const startedAt = new Date("2026-06-02T12:00:00Z");
+    const correlationId = "expired-while-active";
+    await recordPushSendOrThrow(
+      db,
+      "push-user-1",
+      1,
+      correlationId,
+      startedAt,
+      new Date(startedAt.getTime() + 1_000),
+    );
+
+    await expect(recordPushSendOrThrow(
+      db,
+      "push-user-1",
+      1,
+      correlationId,
+      new Date(startedAt.getTime() + 1_001),
+    )).resolves.toMatchObject({
+      kind: "busy",
+      retryAfterSeconds: 59,
+    });
+  });
+
   dbTest("a stale worker cannot overwrite a reclaimed lease", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate notification_send_events restart identity cascade`;

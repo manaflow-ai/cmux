@@ -3,6 +3,7 @@ import postgres, { type Sql } from "postgres";
 import { DEVICE_DELIVERY_LEASE_MS } from "../services/apns/deviceDeliveryLease";
 import { PUSH_SEND_LEASE_MS } from "../services/apns/rateLimit";
 import { APNS_DEFAULT_MAX_DELIVERY_DURATION_MS } from "../services/apns/sender";
+import { accountDeletionUserHash } from "../services/account/deletionLock";
 
 const envKeys = [
   "SKIP_ENV_VALIDATION",
@@ -1408,6 +1409,75 @@ describe("notifications push route", () => {
     expect(registered).toEqual({
       bundleId: "dev.cmux.ios.push1",
       environment: "sandbox",
+    });
+  });
+
+  dbTest("a pending account deletion fences new phone delivery claims", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    await sql`
+      truncate device_tokens, notification_send_events,
+        account_deletion_tombstones restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values (
+        'user-1',
+        ${"a".repeat(64)},
+        'ios',
+        'com.cmux.app',
+        'production'
+      )
+    `;
+    await sql`
+      insert into account_deletion_tombstones (
+        user_id_hash, user_id, status, updated_at
+      ) values (
+        ${accountDeletionUserHash("user-1")},
+        'user-1',
+        'pending',
+        now()
+      )
+    `;
+
+    const response = await pushRoute.sendPushWithTransport(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          correlationId: "a6e884c3-fc14-49c0-8ccb-b12a42b104ea",
+        }),
+      }),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "account_deletion_in_progress",
+      correlationId: "a6e884c3-fc14-49c0-8ccb-b12a42b104ea",
+    });
+    expect(sendApnsNotificationReliably).not.toHaveBeenCalled();
+    const [token] = await sql<{
+      deliveryLeaseUntil: Date | null;
+      deliveryLeaseToken: string | null;
+    }[]>`
+      select
+        delivery_lease_until as "deliveryLeaseUntil",
+        delivery_lease_token as "deliveryLeaseToken"
+      from device_tokens
+      where user_id = 'user-1'
+    `;
+    expect(token).toEqual({
+      deliveryLeaseUntil: null,
+      deliveryLeaseToken: null,
     });
   });
 });

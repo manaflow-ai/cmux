@@ -311,11 +311,11 @@ describe("apns logical-event delivery state", () => {
           prune: false,
         },
       ],
-      1_000,
+      new Date(1_000_750),
       1_300,
     );
-    expect(clamped[0]?.retryAfterSeconds).toBe(272);
-    expect(summarizeApnsSendResults(clamped).retryAfterSeconds).toBe(272);
+    expect(clamped[0]?.retryAfterSeconds).toBe(270);
+    expect(summarizeApnsSendResults(clamped).retryAfterSeconds).toBe(270);
   });
 
   test("a backoff the event outlives is untouched", () => {
@@ -329,7 +329,7 @@ describe("apns logical-event delivery state", () => {
           prune: false,
         },
       ],
-      1_000,
+      new Date(1_000_000),
       1_300,
     );
     expect(clamped[0]?.retryAfterSeconds).toBe(60);
@@ -346,7 +346,7 @@ describe("apns logical-event delivery state", () => {
           prune: false,
         },
       ],
-      1_000,
+      new Date(1_000_000),
       1_300,
     );
     expect(clamped[0]?.retryAfterSeconds).toBe(30);
@@ -367,7 +367,7 @@ describe("apns logical-event delivery state", () => {
           prune: false,
         },
       ],
-      1_000,
+      new Date(1_000_000),
       1_020,
     );
     expect(clamped[0]).toEqual({
@@ -380,6 +380,40 @@ describe("apns logical-event delivery state", () => {
     expect(
       summarizeApnsSendResults(clamped).retryAfterSeconds,
     ).toBeUndefined();
+  });
+
+  test("a transport failure without provider backoff gets the retry floor", () => {
+    const clamped = clampRetryToEventLife(
+      [
+        {
+          deviceToken: "a".repeat(64),
+          status: 0,
+          reason: "connection_error",
+          prune: false,
+        },
+      ],
+      new Date(1_000_000),
+      1_300,
+    );
+    expect(clamped[0]?.retryAfterSeconds).toBe(30);
+  });
+
+  test("the retry floor is rejected one millisecond beyond the viable boundary", () => {
+    const outcome = {
+      targetId: "target-1",
+      deviceToken: "a".repeat(64),
+      status: 429,
+      reason: "TooManyRequests",
+      retryAfterSeconds: 0,
+      prune: false,
+    };
+    expect(
+      clampRetryToEventLife([outcome], new Date(1_000_999), 1_060)[0]
+        ?.retryAfterSeconds,
+    ).toBe(30);
+    expect(
+      clampRetryToEventLife([outcome], new Date(1_001_001), 1_060)[0],
+    ).toMatchObject({ reason: "event_expired", status: 0 });
   });
 
   test("resolved and no-backoff outcomes pass through the clamp unchanged", () => {
@@ -396,7 +430,9 @@ describe("apns logical-event delivery state", () => {
         prune: false,
       },
     ];
-    expect(clampRetryToEventLife(outcomes, 1_000, 1_300)).toEqual(outcomes);
+    expect(
+      clampRetryToEventLife(outcomes, new Date(1_000_000), 1_300),
+    ).toEqual(outcomes);
   });
 });
 

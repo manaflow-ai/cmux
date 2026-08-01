@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import Darwin
 import Foundation
 import Testing
 
@@ -360,6 +361,56 @@ import Testing
 
         #expect(!FileManager.default.fileExists(atPath: staleBeforeSave.path))
         #expect(FileManager.default.fileExists(atPath: freshWriterSnapshot.path))
+    }
+
+    @Test func scavengerWaitsForAWriterHoldingTheStoreLock() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "phone-push-live-writer-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("queue.json")
+        let lockURL = directory.appendingPathComponent(".queue.json.lock")
+        let liveWriterSnapshot = directory.appendingPathComponent(
+            ".queue.json.00000000-0000-4000-8000-000000000005.tmp"
+        )
+        try Data("active".utf8).write(to: liveWriterSnapshot)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -10 * 60)],
+            ofItemAtPath: liveWriterSnapshot.path
+        )
+
+        let descriptor = Darwin.open(
+            lockURL.path,
+            O_RDWR | O_CREAT,
+            S_IRUSR | S_IWUSR
+        )
+        #expect(descriptor >= 0)
+        guard descriptor >= 0 else { return }
+        var lockHeld = Darwin.flock(descriptor, LOCK_EX) == 0
+        #expect(lockHeld)
+        defer {
+            if lockHeld { _ = Darwin.flock(descriptor, LOCK_UN) }
+            _ = Darwin.close(descriptor)
+        }
+
+        let store = PhonePushQueueStore(fileURL: fileURL)
+        let load = Task { try await store.load(nowEpochSeconds: 1_000) }
+        try await Task.sleep(for: .milliseconds(250))
+
+        #expect(
+            FileManager.default.fileExists(atPath: liveWriterSnapshot.path),
+            "An old temporary file is still live while its writer holds the lock"
+        )
+        _ = Darwin.flock(descriptor, LOCK_UN)
+        lockHeld = false
+        #expect(try await load.value.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: liveWriterSnapshot.path))
     }
 
     @Test func queuedEventCannotRebindToTheNextSignedInAccount() {
