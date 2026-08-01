@@ -6690,6 +6690,7 @@ final class Workspace: Identifiable, ObservableObject {
             endedPendingConnection = nil
         }
         if cleanupTransferredRemoteConnectionIfNeeded(surfaceId: surfaceId, relayPort: relayPort) {
+            invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
             return true
         }
         guard let configuration = remoteConfiguration,
@@ -6699,8 +6700,13 @@ final class Workspace: Identifiable, ObservableObject {
                 configuration: configuration,
                 allowUntracked: allowUntracked
               ) else {
-            return endedPendingConnection != nil || recordedLifecycleTombstone
+            let didEnd = endedPendingConnection != nil || recordedLifecycleTombstone
+            if didEnd {
+                invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
+            }
+            return didEnd
         }
+        invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
         let preservesRemotePTYSession = configuration.preserveAfterTerminalExit
         let previousPresentedDirectory = presentedCurrentDirectory
         if !preservesRemotePTYSession {

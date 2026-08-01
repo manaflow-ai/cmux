@@ -114,6 +114,11 @@ extension Workspace {
     /// device index through ``surfaceTTYNames``.
     func restorePersistedSurfaceTTYName(_ ttyName: String?, panelId: UUID) {
         surfaceRegistry.surfaceTTYNames[panelId] = ttyName
+        invalidateReportedSurfaceTTYRuntime(panelId: panelId)
+    }
+
+    /// Discards live-process evidence while preserving display-only TTY metadata.
+    func invalidateReportedSurfaceTTYRuntime(panelId: UUID) {
         surfaceRegistry.surfaceTTYDevices.removeValue(forKey: panelId)
         surfaceRegistry.runtimeReportedTTYSurfaceIDs.remove(panelId)
     }
@@ -139,7 +144,8 @@ extension Workspace {
         var candidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] =
             surfaceRegistry.runtimeReportedTTYSurfaceIDs.compactMap { surfaceId
                 -> (binding: TerminalCallerTTYBinding, ttyName: String)? in
-                guard panels[surfaceId] != nil,
+                guard activeRemoteTerminalSurfaceIds.contains(surfaceId),
+                      panels[surfaceId] != nil,
                       let reportedTTYName = surfaceRegistry.surfaceTTYNames[surfaceId] else {
                     return nil
                 }
@@ -172,9 +178,7 @@ extension Workspace {
                 return []
             }
             var devices: [Int64] = []
-            if let liveDevice = terminal.surface.controllingTTYName().flatMap(
-                CmuxTopProcessSnapshot.deviceIdentifier(forTTYName:)
-            ) {
+            if let liveDevice = terminal.surface.controllingTTYDeviceIdentifier {
                 devices.append(liveDevice)
             }
             if surfaceRegistry.runtimeReportedTTYSurfaceIDs.contains(panelId),
@@ -202,9 +206,7 @@ extension DockSplitStore {
                 return []
             }
             var devices: [Int64] = []
-            if let liveDevice = terminal.surface.controllingTTYName().flatMap(
-                CmuxTopProcessSnapshot.deviceIdentifier(forTTYName:)
-            ) {
+            if let liveDevice = terminal.surface.controllingTTYDeviceIdentifier {
                 devices.append(liveDevice)
             }
             if let transfer = detachedSurfaceTransfersByPanelId[panelId],
@@ -236,8 +238,8 @@ extension AppDelegate {
 
         var ttyTarget: AgentDeliveryTargetCandidate?
         if let ttyDevice = identity.ttyDevice {
-            // Query Ghostty's live PTY so shell integration is not required;
-            // fresh runtime reports remain a nested-PTY fallback.
+            // Read the lifecycle-cached Ghostty PTY so shell integration is not
+            // required; fresh runtime reports remain a nested-PTY fallback.
             ttyTarget = agentDeliveryTargetMatchingTTYDevice(
                 ttyDevice,
                 surfaceTTYDevices: liveAgentDeliveryTTYBindings()

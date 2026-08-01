@@ -63,9 +63,13 @@ extension DockSplitStore {
            transfer.remoteTerminalLifecycleID == terminalLifecycleID {
             return false
         }
+        let beginsNewLifecycle = transfer.remoteTerminalLifecycleID != terminalLifecycleID
         transfer.remoteTerminalSessionPhase = .launching
         transfer.remoteTerminalLifecycleID = terminalLifecycleID
         transfer.remoteTerminalAttemptID = attemptID
+        if beginsNewLifecycle {
+            transfer.ttyNameWasReportedByCurrentRuntime = false
+        }
         setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
         return true
     }
@@ -136,6 +140,7 @@ extension DockSplitStore {
             guard panels[panelId] != nil,
                   transfer.isRemoteTerminal,
                   transfer.sessionRestoreWorkspaceId == presentationWorkspaceID,
+                  transfer.remoteTerminalSessionPhase != .ended,
                   transfer.ttyNameWasReportedByCurrentRuntime,
                   let ttyName = transfer.ttyName else {
                 return nil
@@ -158,7 +163,8 @@ extension DockSplitStore {
         guard panels[panelId] != nil,
               var transfer = detachedSurfaceTransfersByPanelId[panelId],
               transfer.isRemoteTerminal,
-              transfer.sessionRestoreWorkspaceId == presentationWorkspaceID else {
+              transfer.sessionRestoreWorkspaceId == presentationWorkspaceID,
+              transfer.remoteTerminalSessionPhase != .ended else {
             return false
         }
         transfer.ttyName = ttyName
@@ -211,6 +217,7 @@ extension DockSplitStore {
         transfer.remoteTerminalLifecycleID =
             terminalLifecycleID ?? transfer.remoteTerminalLifecycleID
         transfer.remoteTerminalAttemptID = nil
+        transfer.ttyNameWasReportedByCurrentRuntime = false
         setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
         return true
     }

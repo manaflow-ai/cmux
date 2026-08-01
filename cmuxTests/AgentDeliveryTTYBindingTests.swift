@@ -52,6 +52,7 @@ extension AgentNotificationRegressionTests {
         let workspace = Workspace()
         let panelID = try #require(workspace.focusedPanelId)
         workspace.remoteConfiguration = deliveryTargetRemoteConfiguration()
+        workspace.trackRemoteTerminalSurface(panelID)
         workspace.registerReportedSurfaceTTYName("pts/0", panelId: panelID)
         #expect(workspace.agentDeliveryTarget(forReportedTTYName: "pts/0") != nil)
 

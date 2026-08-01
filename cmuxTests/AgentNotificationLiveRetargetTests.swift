@@ -196,6 +196,8 @@ extension AgentNotificationRegressionTests {
         fixture.claimedWorkspace.remoteConfiguration = remoteConfiguration
         fixture.owningWorkspace.remoteConfiguration = remoteConfiguration
         let siblingPanelID = try #require(fixture.claimedWorkspace.focusedPanelId)
+        fixture.claimedWorkspace.trackRemoteTerminalSurface(siblingPanelID)
+        fixture.owningWorkspace.trackRemoteTerminalSurface(fixture.panelId)
         #expect(TerminalController.shared.controlSurfaceReportTTY(
             workspaceID: fixture.claimedWorkspace.id,
             requestedSurfaceID: siblingPanelID,

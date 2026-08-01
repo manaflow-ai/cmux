@@ -94,6 +94,10 @@ extension Workspace {
         if terminalLifecycleID != nil {
             endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(forKey: surfaceId)
         }
+        let previousState = remoteTerminalSessionStatesBySurfaceId[surfaceId]
+        if previousState == nil || previousState?.terminalLifecycleID != terminalLifecycleID {
+            invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
+        }
         remoteTerminalSessionStatesBySurfaceId[surfaceId] = WorkspaceRemoteTerminalSessionState(
             phase: .launching,
             authority: authority,
