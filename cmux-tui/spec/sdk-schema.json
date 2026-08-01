@@ -7676,6 +7676,17 @@
             },
             "presence": "required",
             "nullable": false
+          },
+          "force": {
+            "type": {
+              "kind": "scalar",
+              "name": "boolean"
+            },
+            "presence": "optional",
+            "nullable": false,
+            "default": false,
+            "since": 10,
+            "capability": "daemon-handoff-force-v1"
           }
         },
         "additional_properties": false
@@ -7687,6 +7698,8 @@
       "stream": null,
       "constraints": [
         "pid and generation must match the latest identify result.",
+        "force bypasses native-browser ownership only; the identity fence and trusted-local authority still apply.",
+        "Clients must require daemon-handoff-force-v1 before sending force:true.",
         "The daemon exits only after the success response is queued."
       ]
     },

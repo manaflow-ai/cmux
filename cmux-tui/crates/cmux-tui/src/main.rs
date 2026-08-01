@@ -500,6 +500,7 @@ fn shell_prompt() -> &'static str {
 enum SchemaSocketOwner {
     Absent,
     Matching { pid: u32, generation: String },
+    ForcedHandoffUnsupported,
     Different,
     Unverified,
 }
@@ -550,6 +551,13 @@ fn schema_socket_owner(
     if data["session"] != expected_session || data["registry_id"] != expected_registry_id {
         return SchemaSocketOwner::Different;
     }
+    if !data["capabilities"].as_array().is_some_and(|capabilities| {
+        capabilities
+            .iter()
+            .any(|capability| capability == cmux_tui_core::server::DAEMON_HANDOFF_FORCE_CAPABILITY)
+    }) {
+        return SchemaSocketOwner::ForcedHandoffUnsupported;
+    }
     let Some(pid) = data["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok()) else {
         return SchemaSocketOwner::Unverified;
     };
@@ -575,6 +583,7 @@ fn workspace_schema_startup_error(
         SchemaSocketOwner::Matching { pid, generation } => {
             let request = serde_json::to_string(&serde_json::json!({
                 "cmd": "shutdown-daemon",
+                "force": true,
                 "generation": generation,
                 "id": 1,
                 "pid": pid,
@@ -589,6 +598,9 @@ fn workspace_schema_startup_error(
             format!("{}\n  {stop_command}", messages.stop_newer_server)
         }
         SchemaSocketOwner::Absent => messages.no_server_listening.to_string(),
+        SchemaSocketOwner::ForcedHandoffUnsupported => {
+            messages.forced_handoff_unsupported.to_string()
+        }
         SchemaSocketOwner::Different => messages.different_server.to_string(),
         SchemaSocketOwner::Unverified => messages.server_not_verified.to_string(),
     };

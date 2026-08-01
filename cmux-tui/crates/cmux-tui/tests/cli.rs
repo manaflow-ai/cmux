@@ -405,6 +405,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
                         "registry_id": expected_registry_id,
                         "pid": 4242,
                         "generation": "schema-generation",
+                        "capabilities": ["daemon-handoff-force-v1"],
                     },
                 })
             )
@@ -426,6 +427,43 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
                 .contains("no server is listening on this socket; nothing needs to be stopped"),
             "{live_server}"
         );
+
+        fs::remove_file(&socket).unwrap();
+        let listener = UnixListener::bind(&socket).unwrap();
+        let expected_session = session.to_string();
+        let expected_registry_id = registry_id.clone();
+        let responder = std::thread::spawn(move || {
+            let mut stream = accept_with_deadline(&listener);
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut request).unwrap();
+            let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            writeln!(
+                stream,
+                "{}",
+                serde_json::json!({
+                    "id": request["id"],
+                    "ok": true,
+                    "data": {
+                        "app": "cmux-tui",
+                        "session": expected_session,
+                        "registry_id": expected_registry_id,
+                        "pid": 4242,
+                        "generation": "schema-generation",
+                        "capabilities": [],
+                    },
+                })
+            )
+            .unwrap();
+        });
+        let legacy_server = launch("C");
+        responder.join().unwrap();
+        assert!(!legacy_server.status.success());
+        let legacy_server = String::from_utf8(legacy_server.stderr).unwrap();
+        assert!(
+            legacy_server.contains("this server cannot accept a safe forced shutdown command"),
+            "{legacy_server}"
+        );
+        assert!(!legacy_server.contains("shutdown-daemon"), "{legacy_server}");
 
         fs::remove_file(&socket).unwrap();
         let listener = UnixListener::bind(&socket).unwrap();
