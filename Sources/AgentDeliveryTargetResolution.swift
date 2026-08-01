@@ -144,37 +144,6 @@ extension Workspace {
         adoptTransferredSurfaceTTYName(from: transfer)
     }
 
-    /// Resolves a remote caller only from a TTY report observed in this app
-    /// runtime. TTY basenames are unique only inside one authenticated remote
-    /// workspace because separate hosts commonly reuse `/dev/pts/0`.
-    func agentDeliveryTarget(forReportedTTYName ttyName: String) -> AgentDeliveryTargetCandidate? {
-        guard isRemoteWorkspace else { return nil }
-        var candidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] =
-            surfaceRegistry.runtimeReportedTTYSurfaceIDs.compactMap { surfaceId
-                -> (binding: TerminalCallerTTYBinding, ttyName: String)? in
-                guard activeRemoteTerminalSurfaceIds.contains(surfaceId),
-                      panels[surfaceId] != nil,
-                      let reportedTTYName = surfaceRegistry.surfaceTTYNames[surfaceId] else {
-                    return nil
-                }
-                return (
-                    binding: TerminalCallerTTYBinding(workspaceId: id, surfaceId: surfaceId),
-                    ttyName: reportedTTYName
-                )
-            }
-        for dock in DockSplitStore.liveRemoteTerminalStores(presentationWorkspaceID: id) {
-            candidates.append(contentsOf: dock.runtimeReportedRemoteTTYCandidates(
-                presentationWorkspaceID: id
-            ))
-        }
-        let resolver = TerminalCallerTTYResolver(reportedCandidates: candidates)
-        guard let binding = resolver.binding(for: ttyName) else { return nil }
-        return AgentDeliveryTargetCandidate(
-            workspaceId: binding.workspaceId,
-            surfaceId: binding.surfaceId
-        )
-    }
-
     /// Host-local TTY bindings eligible to identify a process running on this
     /// Mac. Remote workspaces and remote terminal surfaces use a different
     /// `/dev` namespace and must never participate in local device matching.
@@ -332,7 +301,7 @@ extension AppDelegate {
         return (owner.tabID, owner.surfaceID)
     }
 
-    private func agentDeliveryTabManagers() -> [TabManager] {
+    func agentDeliveryTabManagers() -> [TabManager] {
         var managers: [TabManager] = []
         func append(_ manager: TabManager?) {
             guard let manager, !managers.contains(where: { $0 === manager }) else { return }
@@ -391,8 +360,12 @@ extension TerminalController {
                   let ttyName = params["tty_name"] as? String,
                   TerminalCallerTTYResolver.normalizedName(ttyName) != nil,
                   let remoteWorkspaceId = v2UUID(params, "_cmux_remote_workspace_id"),
-                  let workspace = controlTabForSidebarMutation(id: remoteWorkspaceId),
-                  let target = workspace.agentDeliveryTarget(forReportedTTYName: ttyName) else {
+                  let authenticatedWorkspace = controlTabForSidebarMutation(id: remoteWorkspaceId),
+                  authenticatedWorkspace.isRemoteWorkspace,
+                  let target = appDelegate.liveRelayAgentDeliveryTarget(
+                      authenticatedWorkspaceID: remoteWorkspaceId,
+                      ttyName: ttyName
+                  ) else {
                 return .err(
                     code: "not_found",
                     message: String(

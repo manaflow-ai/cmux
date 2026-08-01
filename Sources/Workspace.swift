@@ -5330,6 +5330,10 @@ final class Workspace: Identifiable, ObservableObject {
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
+        surfaceRegistry.remoteTTYReportOriginWorkspaceIDs =
+            surfaceRegistry.remoteTTYReportOriginWorkspaceIDs.filter {
+                validSurfaceIds.contains($0.key)
+            }
         restoredGuardedWorkingDirectoriesByPanelId = restoredGuardedWorkingDirectoriesByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
@@ -6006,6 +6010,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func trackRemoteTerminalSurface(_ panelId: UUID, preserveTrustedRemoteDirectory: Bool = false) {
+        surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[panelId] = id
         let previousPresentedDirectory = presentedCurrentDirectory
         let existingDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let removedTrustedDirectory: Bool
@@ -6042,6 +6047,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func untrackRemoteTerminalSurface(_ panelId: UUID) {
+        surfaceRegistry.remoteTTYReportOriginWorkspaceIDs.removeValue(forKey: panelId)
         let previousPresentedDirectory = presentedCurrentDirectory
         let removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(panelId) != nil; if removedTrustedDirectory { clearPanelGitBranch(panelId: panelId) }
         clearRemoteTerminalSessionPhase(surfaceId: panelId)
@@ -6691,6 +6697,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if cleanupTransferredRemoteConnectionIfNeeded(surfaceId: surfaceId, relayPort: relayPort) {
             invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
+            surfaceRegistry.remoteTTYReportOriginWorkspaceIDs.removeValue(forKey: surfaceId)
             return true
         }
         guard let configuration = remoteConfiguration,
@@ -6703,6 +6710,7 @@ final class Workspace: Identifiable, ObservableObject {
             let didEnd = endedPendingConnection != nil || recordedLifecycleTombstone
             if didEnd {
                 invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
+                surfaceRegistry.remoteTTYReportOriginWorkspaceIDs.removeValue(forKey: surfaceId)
             }
             return didEnd
         }
@@ -9806,6 +9814,12 @@ final class Workspace: Identifiable, ObservableObject {
                 )
             }
         }
+        if detached.isRemoteTerminal, detached.remoteTerminalSessionPhase != .ended {
+            surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[detached.panelId] =
+                didAdoptWorkspaceRemoteTracking ? id : detached.sessionRestoreWorkspaceId
+        } else {
+            surfaceRegistry.remoteTTYReportOriginWorkspaceIDs.removeValue(forKey: detached.panelId)
+        }
         restoreTransferredSurfaceTTYRuntimeProofIfNeeded(from: detached)
         if let cleanupConfiguration = detached.remoteCleanupConfiguration {
             if didAdoptWorkspaceRemoteTracking {
@@ -12480,7 +12494,8 @@ extension Workspace: BonsplitDelegate {
             let panelDirectory = panelDirectories[panelId]
             splitLayout.storeDetachedTransfer(DetachedSurfaceTransfer(
                 sourceWorkspaceId: id,
-                sessionRestoreSourceWorkspaceId: id,
+                sessionRestoreSourceWorkspaceId:
+                    surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[panelId] ?? id,
                 panelId: panelId,
                 panel: panel,
                 title: resolvedPanelTitle(panelId: panelId, fallback: transferFallbackTitle),

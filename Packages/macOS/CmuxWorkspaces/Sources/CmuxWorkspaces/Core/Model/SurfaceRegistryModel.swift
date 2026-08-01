@@ -55,6 +55,10 @@ public final class SurfaceRegistryModel<TabSelectionRequest> {
     /// arrives, including when the current runtime reuses the same name.
     public var runtimeReportedTTYSurfaceIDs: Set<UUID> = []
 
+    /// Authenticated remote workspace that originated each live TTY report.
+    /// This provenance follows a remote terminal through container moves.
+    public var remoteTTYReportOriginWorkspaceIDs: [UUID: UUID] = [:]
+
     /// The shell-activity classification reported for each terminal panel,
     /// keyed by panel id (legacy `Workspace.panelShellActivityStates`).
     public var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
