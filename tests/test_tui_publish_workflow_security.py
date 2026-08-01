@@ -238,6 +238,22 @@ def test_irreversible_registry_writes_are_independently_rerunnable() -> None:
     assert "gh-action-pypi-publish" in sdist
 
 
+def test_registry_writes_reconcile_ambiguous_publish_failures() -> None:
+    release = workflow("sdk-release-cut.yml")
+
+    for job in ("publish-crate-client", "publish-crate-sidebar", "publish-npm"):
+        block = workflow_job(release, job)
+        assert "reconcile_registry_artifact.py publish" in block
+        assert "--wait-seconds 120" in block
+
+    for job in ("publish-python-wheel", "publish-python-sdist"):
+        block = workflow_job(release, job)
+        assert block.count("reconcile_registry_artifact.py check") == 2
+        assert "continue-on-error: true" in block
+        assert "--require-match" in block
+        assert "--wait-seconds 120" in block
+
+
 def test_typescript_spec_uses_the_sdk_registry_name() -> None:
     spec = (ROOT / "cmux-tui" / "spec" / "bindings.md").read_text()
     typescript = spec.split("### TypeScript", 1)[1].split("### Go", 1)[0]
