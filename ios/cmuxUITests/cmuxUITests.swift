@@ -6531,7 +6531,10 @@ final class cmuxUITests: XCTestCase {
         // input proxy so this covers the reported keyboard-up → attach path.
         surface.tap()
         waitForDock(in: app, describe: "terminal proxy owns the visible keyboard before photo picker") {
-            $0["proxyFirstResponder"] == "1" && $0["keyboardUp"] == "1"
+            $0["proxyFirstResponder"] == "1"
+                && $0["keyboardUp"] == "1"
+                && $0["inputRequested"] == "terminal"
+                && $0["inputActual"] == "terminal"
         }
         XCTAssertTrue(
             app.keyboards.firstMatch.waitForExistence(timeout: 4),
@@ -6552,17 +6555,69 @@ final class cmuxUITests: XCTestCase {
             waitForKeyboardDismissal(in: app),
             "Cancelling the photo picker should leave the keyboard visually closed"
         )
+        waitForDock(in: app, describe: "photo picker dismissal clears modal and responder state") {
+            $0["inputModal"] == "none" && $0["inputActual"] == "none"
+        }
 
         // A terminal tap must create a real responder transition and re-open the
         // keyboard, rather than no-op against a stale first-responder proxy.
         surface.tap()
         waitForDock(in: app, describe: "terminal tap restores keyboard after photo picker cancellation") {
-            $0["proxyFirstResponder"] == "1" && $0["keyboardUp"] == "1"
+            $0["proxyFirstResponder"] == "1"
+                && $0["keyboardUp"] == "1"
+                && $0["inputRequested"] == "terminal"
+                && $0["inputActual"] == "terminal"
         }
         XCTAssertTrue(
             app.keyboards.firstMatch.waitForExistence(timeout: 4),
             "Tapping the terminal after cancelling the photo picker should restore the keyboard"
         )
+    }
+
+    /// Cancelling the picker must also leave the hosted composer able to claim
+    /// first responder on its first tap. Typing afterward proves the simultaneous
+    /// intent gesture did not replace the TextField's native editing gesture.
+    @MainActor
+    func testComposerTapRestoresKeyboardAfterCancellingPhotoPicker() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+        let field = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+
+        field.tap()
+        waitForDock(in: app, describe: "composer owns the visible keyboard before photo picker") {
+            $0["fieldFocused"] == "1"
+                && $0["keyboardUp"] == "1"
+                && $0["inputRequested"] == "composer"
+                && $0["inputActual"] == "composer"
+        }
+
+        let attachButton = app.buttons[Composer.attachButton]
+        XCTAssertTrue(attachButton.waitForExistence(timeout: 4))
+        attachButton.tap()
+        let cancelButton = app.buttons["Cancel"].firstMatch
+        XCTAssertTrue(cancelButton.waitForExistence(timeout: 6))
+        cancelButton.tap()
+        XCTAssertTrue(waitForKeyboardDismissal(in: app))
+        waitForDock(in: app, describe: "picker dismissal leaves no stale composer owner") {
+            $0["inputModal"] == "none" && $0["inputActual"] == "none"
+        }
+
+        field.tap()
+        waitForDock(in: app, describe: "first composer tap restores keyboard after picker") {
+            $0["fieldFocused"] == "1"
+                && $0["keyboardUp"] == "1"
+                && $0["inputRequested"] == "composer"
+                && $0["inputActual"] == "composer"
+        }
+        field.typeText("x")
+        _ = waitForDock(in: app, describe: "composer remains editable after restored focus") { _ in
+            (self.storeComposer(in: app)["draftLength"].flatMap(Int.init) ?? 0) == 1
+        }
     }
 
     /// Rapid double-toggle: two compose taps with no settle in between. This is the
