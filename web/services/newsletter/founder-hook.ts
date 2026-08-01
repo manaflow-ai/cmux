@@ -1,32 +1,63 @@
-// Purchase-time audience upsert: when a Founder's Edition checkout completes,
-// add the buyer to both Resend audiences ("cmux Users" is a superset that
-// includes founders; "cmux Founder's Edition" is the founders-only list).
+// Purchase-time segment upsert: when a Founder's Edition checkout completes
+// with a successful payment, add the buyer to both cmux segments ("cmux
+// Users" is a superset that includes founders; "cmux Founder's Edition" is
+// the founders-only list).
 //
-// This keeps the audiences fresh between manual runs of
+// This keeps the segments fresh between manual runs of
 // web/scripts/newsletter/sync-audiences.ts without any new cron surface: the
 // existing Stripe-signature-gated webhook is the trigger. Failures here are
 // best-effort by contract; the caller logs and still acknowledges the
-// webhook, and the reconciliation script is the catch-up mechanism.
+// webhook, and the reconciliation script is the catch-up mechanism. The
+// caller also bounds the whole upsert with a deadline (see withDeadline) so
+// a Resend stall can never hold the webhook open past its response.
 //
-// The same one-way-door rule as the sync applies: an existing contact who
-// unsubscribed is never touched, and an existing subscribed contact only has
-// missing name fields backfilled.
+// Subscription state is untouchable here, same as in the sync: a contact
+// with global unsubscribed=true gets no writes at all, topic preferences are
+// never written, and an existing subscribed contact only has missing name
+// fields backfilled.
 
 import { normalizeEmail, splitDisplayName } from "./contacts";
 import type { ResendClient } from "./resend-client";
-import { FOUNDERS_AUDIENCE_NAME, USERS_AUDIENCE_NAME } from "./sync";
+import { FOUNDERS_SEGMENT_NAME, USERS_SEGMENT_NAME } from "./sync";
 
 export type FounderContactUpsertResult = {
-  audienceName: string;
+  segmentName: string;
   outcome:
     | "created"
+    | "added_to_segment"
     | "name_backfilled"
     | "already_present"
     | "skipped_unsubscribed"
-    | "skipped_missing_audience";
+    | "skipped_missing_segment";
 };
 
-export async function upsertFounderIntoAudiences(options: {
+// Bound a best-effort promise with a wall-clock deadline. The underlying
+// work is not cancelled (fetches carry their own per-request timeout), but
+// the caller regains control on time and can answer the webhook.
+export async function withDeadline<T>(
+  work: Promise<T>,
+  deadlineMs: number,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(`newsletter upsert exceeded ${deadlineMs}ms deadline`),
+            ),
+          deadlineMs,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function upsertFounderIntoSegments(options: {
   client: ResendClient;
   email: string;
   customerName?: string | null;
@@ -36,40 +67,73 @@ export async function upsertFounderIntoAudiences(options: {
     throw new Error("Founder contact upsert requires a valid email");
   }
   const name = splitDisplayName(options.customerName);
+  const segmentNames = [USERS_SEGMENT_NAME, FOUNDERS_SEGMENT_NAME];
+
+  // Contacts are global: read once, decide once, then apply per segment.
+  const existing = await options.client.getContactByEmail(email);
+  if (existing?.unsubscribed) {
+    return segmentNames.map((segmentName) => ({
+      segmentName,
+      outcome: "skipped_unsubscribed",
+    }));
+  }
+
+  // Segments are provisioned by the sync script (or by hand); the webhook
+  // never creates them, so a typo'd or not-yet-created segment shows up as
+  // an explicit skip in the logs instead of a surprise new list.
+  const segments = await Promise.all(
+    segmentNames.map(async (segmentName) => ({
+      segmentName,
+      segment: await options.client.findSegmentByName(segmentName),
+    })),
+  );
 
   const results: FounderContactUpsertResult[] = [];
-  for (const audienceName of [USERS_AUDIENCE_NAME, FOUNDERS_AUDIENCE_NAME]) {
-    // Audiences are provisioned by the sync script (or by hand); the webhook
-    // never creates them, so a typo'd or not-yet-created audience shows up
-    // as an explicit skip in the logs instead of a surprise new list.
-    const audience = await options.client.findAudienceByName(audienceName);
-    if (!audience) {
-      results.push({ audienceName, outcome: "skipped_missing_audience" });
+  if (!existing) {
+    const segmentIds = segments
+      .filter((entry) => entry.segment)
+      .map((entry) => entry.segment!.id);
+    if (segmentIds.length > 0) {
+      await options.client.createContact({ email, ...name, segmentIds });
+    }
+    for (const entry of segments) {
+      results.push({
+        segmentName: entry.segmentName,
+        outcome: entry.segment ? "created" : "skipped_missing_segment",
+      });
+    }
+    return results;
+  }
+
+  const backfill: { firstName?: string; lastName?: string } = {};
+  if (!existing.first_name && name.firstName) {
+    backfill.firstName = name.firstName;
+  }
+  if (!existing.last_name && name.lastName) {
+    backfill.lastName = name.lastName;
+  }
+  if (backfill.firstName || backfill.lastName) {
+    await options.client.updateContactName(existing.id, backfill);
+  }
+
+  for (const entry of segments) {
+    if (!entry.segment) {
+      results.push({
+        segmentName: entry.segmentName,
+        outcome: "skipped_missing_segment",
+      });
       continue;
     }
-    const existing = await options.client.getContactByEmail(audience.id, email);
-    if (!existing) {
-      await options.client.createContact(audience.id, { email, ...name });
-      results.push({ audienceName, outcome: "created" });
-      continue;
-    }
-    if (existing.unsubscribed) {
-      results.push({ audienceName, outcome: "skipped_unsubscribed" });
-      continue;
-    }
-    const backfill: { firstName?: string; lastName?: string } = {};
-    if (!existing.first_name && name.firstName) {
-      backfill.firstName = name.firstName;
-    }
-    if (!existing.last_name && name.lastName) {
-      backfill.lastName = name.lastName;
-    }
-    if (backfill.firstName || backfill.lastName) {
-      await options.client.updateContactName(audience.id, existing.id, backfill);
-      results.push({ audienceName, outcome: "name_backfilled" });
-    } else {
-      results.push({ audienceName, outcome: "already_present" });
-    }
+    // Membership add is idempotent from our perspective; Resend treats a
+    // re-add of an existing member as a no-op rather than an error.
+    await options.client.addContactToSegment(existing.id, entry.segment.id);
+    results.push({
+      segmentName: entry.segmentName,
+      outcome:
+        backfill.firstName || backfill.lastName
+          ? "name_backfilled"
+          : "added_to_segment",
+    });
   }
   return results;
 }

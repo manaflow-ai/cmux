@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
 // Structural guarantees on the marketing email templates: the shared layout
-// always carries the Resend unsubscribe merge token, and the greeting can
-// never render empty or "undefined".
+// always carries the Resend unsubscribe merge token and the CAN-SPAM
+// physical postal address, and the greeting can never render empty or
+// "undefined".
 
 import { renderTemplate } from "../emails/render";
-import { RESEND_UNSUBSCRIBE_TOKEN } from "../emails/components/email-layout";
+import {
+  COMPANY_POSTAL_ADDRESS,
+  RESEND_UNSUBSCRIBE_TOKEN,
+} from "../emails/components/email-layout";
 import { FIRST_NAME_GREETING_TOKEN } from "../emails/product-update";
 
 describe("product-update template", () => {
@@ -19,7 +23,15 @@ describe("product-update template", () => {
   test("greeting defaults to the merge tag with a 'there' fallback", async () => {
     const { html } = await renderTemplate("product-update");
     expect(html).toContain(FIRST_NAME_GREETING_TOKEN);
-    expect(FIRST_NAME_GREETING_TOKEN).toContain("|there");
+    // Resend's current broadcast merge-tag syntax with an explicit fallback,
+    // so contacts without a stored name never see "Hi ,".
+    expect(FIRST_NAME_GREETING_TOKEN).toBe("{{{contact.first_name|there}}}");
+  });
+
+  test("always renders the CAN-SPAM physical postal address in the footer", async () => {
+    const { html } = await renderTemplate("product-update");
+    expect(COMPANY_POSTAL_ADDRESS).toContain("Rowland Heights");
+    expect(html).toContain("18428 Vantage Pointe Dr");
   });
 
   test("greeting override renders a concrete name and never 'undefined'", async () => {

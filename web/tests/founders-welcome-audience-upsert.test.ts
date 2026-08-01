@@ -10,10 +10,11 @@ import {
   test,
 } from "bun:test";
 
-// Route-level coverage for the purchase-time newsletter audience upsert in
-// /api/stripe/founders-welcome: it runs only for Founder's Edition sessions,
-// and a failure inside it never turns a delivered welcome email into a
-// webhook error (which would trigger Stripe retries).
+// Route-level coverage for the purchase-time newsletter segment upsert in
+// /api/stripe/founders-welcome: it runs only for Founder's Edition sessions
+// whose payment actually settled, and a failure inside it never turns a
+// delivered welcome email into a webhook error (which would trigger Stripe
+// retries).
 
 const WEBHOOK_SECRET = process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET ?? "";
 
@@ -32,7 +33,7 @@ mock.module("resend", () => ({
 type UpsertCall = { email: string; customerName?: string | null };
 const upsertCalls: UpsertCall[] = [];
 let upsertError: Error | null = null;
-const upsertFounderIntoAudiences = mock(async (...args: unknown[]) => {
+const upsertFounderIntoSegments = mock(async (...args: unknown[]) => {
   const options = args[0] as UpsertCall;
   upsertCalls.push({
     email: options.email,
@@ -45,7 +46,10 @@ const upsertFounderIntoAudiences = mock(async (...args: unknown[]) => {
 });
 
 mock.module("@/services/newsletter/founder-hook", () => ({
-  upsertFounderIntoAudiences,
+  upsertFounderIntoSegments,
+  // The route wraps the upsert in the real module's deadline helper; keep
+  // the pass-through behavior so route tests exercise the call flow.
+  withDeadline: async <T,>(work: Promise<T>) => work,
 }));
 
 const { POST } = await import("../app/api/stripe/founders-welcome/route");
@@ -57,7 +61,7 @@ beforeEach(() => {
   setSystemTime(FROZEN_NOW_MS);
   resendSend.mockClear();
   resendError = null;
-  upsertFounderIntoAudiences.mockClear();
+  upsertFounderIntoSegments.mockClear();
   upsertCalls.length = 0;
   upsertError = null;
 });
@@ -79,7 +83,7 @@ function signedRequest(body: string): Request {
 
 function checkoutCompletedEvent(
   metadata: Record<string, string>,
-  email = "customer@example.com",
+  overrides: { payment_status?: string | null } = {},
 ): string {
   return JSON.stringify({
     id: "evt_1",
@@ -88,14 +92,18 @@ function checkoutCompletedEvent(
       object: {
         id: "cs_test_123",
         metadata,
-        customer_details: { email, name: "Ada Lovelace" },
+        payment_status: overrides.payment_status ?? "paid",
+        customer_details: {
+          email: "customer@example.com",
+          name: "Ada Lovelace",
+        },
       },
     },
   });
 }
 
-describe("founders welcome audience upsert", () => {
-  test("upserts the buyer into the audiences for a Founder's Edition session", async () => {
+describe("founders welcome segment upsert", () => {
+  test("upserts the buyer for a paid Founder's Edition session", async () => {
     const response = await POST(
       signedRequest(checkoutCompletedEvent({ founders_edition: "true" })),
     );
@@ -107,20 +115,49 @@ describe("founders welcome audience upsert", () => {
     ]);
   });
 
-  test("does not touch audiences for non-founder checkouts", async () => {
+  test("upserts for a no_payment_required founder session", async () => {
     const response = await POST(
       signedRequest(
-        checkoutCompletedEvent({ app: "cmux", plan: "team" }),
+        checkoutCompletedEvent(
+          { founders_edition: "true" },
+          { payment_status: "no_payment_required" },
+        ),
       ),
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, sent: true });
-    expect(upsertFounderIntoAudiences).not.toHaveBeenCalled();
+    expect(upsertFounderIntoSegments).toHaveBeenCalledTimes(1);
   });
 
-  test("an audience upsert failure never fails the webhook", async () => {
-    upsertError = new Error("resend audience API down");
+  test("does not upsert when the payment has not settled yet", async () => {
+    const response = await POST(
+      signedRequest(
+        checkoutCompletedEvent(
+          { founders_edition: "true" },
+          { payment_status: "unpaid" },
+        ),
+      ),
+    );
+
+    // The welcome email itself still goes out (existing behavior); only the
+    // permanent segment membership waits for a settled payment.
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, sent: true });
+    expect(upsertFounderIntoSegments).not.toHaveBeenCalled();
+  });
+
+  test("does not touch segments for non-founder checkouts", async () => {
+    const response = await POST(
+      signedRequest(checkoutCompletedEvent({ app: "cmux", plan: "team" })),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, sent: true });
+    expect(upsertFounderIntoSegments).not.toHaveBeenCalled();
+  });
+
+  test("a segment upsert failure never fails the webhook", async () => {
+    upsertError = new Error("resend segment API down");
 
     const response = await POST(
       signedRequest(checkoutCompletedEvent({ founders_edition: "true" })),
@@ -128,7 +165,7 @@ describe("founders welcome audience upsert", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, sent: true });
-    expect(upsertFounderIntoAudiences).toHaveBeenCalledTimes(1);
+    expect(upsertFounderIntoSegments).toHaveBeenCalledTimes(1);
   });
 
   test("no upsert happens when the welcome email itself failed", async () => {
@@ -139,6 +176,6 @@ describe("founders welcome audience upsert", () => {
     );
 
     expect(response.status).toBe(502);
-    expect(upsertFounderIntoAudiences).not.toHaveBeenCalled();
+    expect(upsertFounderIntoSegments).not.toHaveBeenCalled();
   });
 });

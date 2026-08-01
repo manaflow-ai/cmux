@@ -1,139 +1,181 @@
 import { describe, expect, test } from "bun:test";
 
-// Purchase-time audience upsert used by /api/stripe/founders-welcome: adds a
-// founder to both audiences, never resurrects an unsubscribed contact, and
-// only backfills missing names.
+// Purchase-time segment upsert used by /api/stripe/founders-welcome: adds a
+// founder to both cmux segments, never writes anything for a globally
+// unsubscribed contact, only backfills missing names, and its deadline
+// helper actually bounds a stalled upsert.
 
-import { upsertFounderIntoAudiences } from "../services/newsletter/founder-hook";
+import {
+  upsertFounderIntoSegments,
+  withDeadline,
+} from "../services/newsletter/founder-hook";
 import type {
   ResendClient,
   ResendContact,
 } from "../services/newsletter/resend-client";
 import {
-  FOUNDERS_AUDIENCE_NAME,
-  USERS_AUDIENCE_NAME,
+  FOUNDERS_SEGMENT_NAME,
+  USERS_SEGMENT_NAME,
 } from "../services/newsletter/sync";
 
-type FakeAudience = {
-  id: string;
-  name: string;
+type FakeState = {
+  segments: { id: string; name: string }[];
   contacts: ResendContact[];
 };
 
-function fakeClient(audiences: FakeAudience[]): {
+function fakeClient(state: FakeState): {
   client: ResendClient;
   writes: string[];
 } {
   const writes: string[] = [];
   const client = {
-    async findAudienceByName(name: string) {
-      const found = audiences.find((a) => a.name === name);
-      return found ? { id: found.id, name: found.name } : null;
+    async findSegmentByName(name: string) {
+      const found = state.segments.find((s) => s.name === name);
+      return found ?? null;
     },
-    async getContactByEmail(audienceId: string, email: string) {
-      const audience = audiences.find((a) => a.id === audienceId);
-      return (
-        audience?.contacts.find((c) => c.email === email) ?? null
+    async getContactByEmail(email: string) {
+      return state.contacts.find((c) => c.email === email) ?? null;
+    },
+    async createContact(contact: {
+      email: string;
+      firstName?: string;
+      lastName?: string;
+      segmentIds?: string[];
+    }) {
+      writes.push(
+        `create:${contact.email}:[${(contact.segmentIds ?? []).join(",")}]`,
       );
     },
-    async createContact(
-      audienceId: string,
-      contact: { email: string; firstName?: string; lastName?: string },
-    ) {
-      writes.push(`create:${audienceId}:${contact.email}`);
+    async updateContactName(contactId: string) {
+      writes.push(`patch:${contactId}`);
     },
-    async updateContactName(audienceId: string, contactId: string) {
-      writes.push(`patch:${audienceId}:${contactId}`);
+    async addContactToSegment(contactId: string, segmentId: string) {
+      writes.push(`add:${contactId}:${segmentId}`);
     },
   } as unknown as ResendClient;
   return { client, writes };
 }
 
-const bothAudiences = (): FakeAudience[] => [
-  { id: "aud_users", name: USERS_AUDIENCE_NAME, contacts: [] },
-  { id: "aud_founders", name: FOUNDERS_AUDIENCE_NAME, contacts: [] },
-];
+const bothSegments = (): FakeState => ({
+  segments: [
+    { id: "seg_users", name: USERS_SEGMENT_NAME },
+    { id: "seg_founders", name: FOUNDERS_SEGMENT_NAME },
+  ],
+  contacts: [],
+});
 
-describe("upsertFounderIntoAudiences", () => {
-  test("adds a new founder to both audiences with a split name", async () => {
-    const audiences = bothAudiences();
-    const { client, writes } = fakeClient(audiences);
-    const results = await upsertFounderIntoAudiences({
+describe("upsertFounderIntoSegments", () => {
+  test("creates a missing contact directly into both segments with a split name", async () => {
+    const state = bothSegments();
+    const { client, writes } = fakeClient(state);
+    const results = await upsertFounderIntoSegments({
       client,
       email: "Fred@Example.com",
       customerName: "Fred Founder",
     });
-    expect(writes).toEqual([
-      "create:aud_users:fred@example.com",
-      "create:aud_founders:fred@example.com",
-    ]);
+    expect(writes).toEqual(["create:fred@example.com:[seg_users,seg_founders]"]);
     expect(results.map((r) => r.outcome)).toEqual(["created", "created"]);
   });
 
-  test("unsubscribed in one audience does not block the other", async () => {
-    const audiences = bothAudiences();
-    audiences[0].contacts.push({
+  test("a globally unsubscribed contact gets zero writes in every segment", async () => {
+    const state = bothSegments();
+    state.contacts.push({
       id: "con_1",
       email: "fred@example.com",
       unsubscribed: true,
     });
-    const { client, writes } = fakeClient(audiences);
-    const results = await upsertFounderIntoAudiences({
+    const { client, writes } = fakeClient(state);
+    const results = await upsertFounderIntoSegments({
       client,
       email: "fred@example.com",
       customerName: "Fred Founder",
     });
-    expect(writes).toEqual(["create:aud_founders:fred@example.com"]);
+    expect(writes).toEqual([]);
     expect(results).toEqual([
-      {
-        audienceName: USERS_AUDIENCE_NAME,
-        outcome: "skipped_unsubscribed",
-      },
-      { audienceName: FOUNDERS_AUDIENCE_NAME, outcome: "created" },
+      { segmentName: USERS_SEGMENT_NAME, outcome: "skipped_unsubscribed" },
+      { segmentName: FOUNDERS_SEGMENT_NAME, outcome: "skipped_unsubscribed" },
     ]);
   });
 
-  test("existing subscribed contact with a name is left untouched", async () => {
-    const audiences = bothAudiences();
-    for (const audience of audiences) {
-      audience.contacts.push({
-        id: "con_1",
-        email: "fred@example.com",
-        first_name: "Fred",
-        last_name: "Founder",
-        unsubscribed: false,
-      });
-    }
-    const { client, writes } = fakeClient(audiences);
-    const results = await upsertFounderIntoAudiences({
+  test("an existing subscribed contact is added to both segments without name overwrite", async () => {
+    const state = bothSegments();
+    state.contacts.push({
+      id: "con_1",
+      email: "fred@example.com",
+      first_name: "Fred",
+      last_name: "Founder",
+      unsubscribed: false,
+    });
+    const { client, writes } = fakeClient(state);
+    const results = await upsertFounderIntoSegments({
       client,
       email: "fred@example.com",
       customerName: "Different Name",
     });
-    expect(writes).toEqual([]);
+    expect(writes).toEqual([
+      "add:con_1:seg_users",
+      "add:con_1:seg_founders",
+    ]);
     expect(results.map((r) => r.outcome)).toEqual([
-      "already_present",
-      "already_present",
+      "added_to_segment",
+      "added_to_segment",
     ]);
   });
 
-  test("missing audiences are reported, not created, by the webhook path", async () => {
-    const { client, writes } = fakeClient([]);
-    const results = await upsertFounderIntoAudiences({
+  test("backfills a missing name once on the global contact", async () => {
+    const state = bothSegments();
+    state.contacts.push({
+      id: "con_1",
+      email: "fred@example.com",
+      unsubscribed: false,
+    });
+    const { client, writes } = fakeClient(state);
+    const results = await upsertFounderIntoSegments({
+      client,
+      email: "fred@example.com",
+      customerName: "Fred Founder",
+    });
+    expect(writes).toEqual([
+      "patch:con_1",
+      "add:con_1:seg_users",
+      "add:con_1:seg_founders",
+    ]);
+    expect(results.map((r) => r.outcome)).toEqual([
+      "name_backfilled",
+      "name_backfilled",
+    ]);
+  });
+
+  test("missing segments are reported, not created, by the webhook path", async () => {
+    const { client, writes } = fakeClient({ segments: [], contacts: [] });
+    const results = await upsertFounderIntoSegments({
       client,
       email: "fred@example.com",
     });
     expect(writes).toEqual([]);
     expect(results.map((r) => r.outcome)).toEqual([
-      "skipped_missing_audience",
-      "skipped_missing_audience",
+      "skipped_missing_segment",
+      "skipped_missing_segment",
     ]);
   });
 
   test("rejects an unusable email instead of writing garbage", async () => {
-    const { client } = fakeClient(bothAudiences());
+    const { client } = fakeClient(bothSegments());
     await expect(
-      upsertFounderIntoAudiences({ client, email: "   " }),
+      upsertFounderIntoSegments({ client, email: "   " }),
     ).rejects.toThrow(/valid email/);
+  });
+});
+
+describe("withDeadline", () => {
+  test("returns the work's result when it beats the deadline", async () => {
+    await expect(withDeadline(Promise.resolve("ok"), 1000)).resolves.toBe(
+      "ok",
+    );
+  });
+
+  test("rejects when the work stalls past the deadline", async () => {
+    const stalled = new Promise<never>(() => {});
+    await expect(withDeadline(stalled, 20)).rejects.toThrow(/deadline/);
   });
 });

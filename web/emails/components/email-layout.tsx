@@ -34,6 +34,11 @@ import type * as React from "react";
 // literal token must appear verbatim in the rendered HTML.
 export const RESEND_UNSUBSCRIBE_TOKEN = "{{{RESEND_UNSUBSCRIBE_URL}}}";
 
+// Sender's physical postal address, required by CAN-SPAM in every marketing
+// email. Kept in sync with web/app/[locale]/(legal)/company-information.
+export const COMPANY_POSTAL_ADDRESS =
+  "Manaflow, Inc. · 18428 Vantage Pointe Dr, Rowland Heights, CA 91748-5142";
+
 // Palette lifted from the marketing site (web/app/[locale]/theme-colors.ts):
 // near-black ink on a near-white page. Emails render on a light card that
 // most dark-mode clients leave alone, with ink colors that stay legible if a
@@ -129,13 +134,25 @@ export function MarketingEmailLayout({
             </Text>
             <Text
               style={{
+                margin: "0 0 6px",
+                fontSize: "12px",
+                lineHeight: "18px",
+                color: MUTED,
+              }}
+            >
+              {/* CAN-SPAM requires the sender's valid physical postal
+                  address in every commercial email. This is the registered
+                  business address from the company-information legal page. */}
+              {COMPANY_POSTAL_ADDRESS}
+            </Text>
+            <Text
+              style={{
                 margin: 0,
                 fontSize: "12px",
                 lineHeight: "18px",
                 color: MUTED,
               }}
             >
-              Manaflow, Inc. &middot;{" "}
               <Link
                 href={RESEND_UNSUBSCRIBE_TOKEN}
                 style={{ color: MUTED, textDecoration: "underline" }}

@@ -1,17 +1,27 @@
-// Minimal Resend REST client for audience/contact/broadcast management.
+// Minimal Resend REST client for segment/contact/topic/broadcast management,
+// targeting Resend's current data model: contacts are GLOBAL per account,
+// segments group contacts for targeting, and topics carry per-lane
+// subscription preferences (https://resend.com/docs/dashboard/segments/
+// migrating-from-audiences-to-segments).
 //
 // The transactional welcome email keeps using the official `resend` SDK; this
 // client exists because the newsletter tooling needs behaviors the SDK does
 // not expose cleanly: explicit pagination with a no-progress guard (so a
 // truncated listing fails loudly instead of silently syncing a partial
-// audience), injectable fetch for tests, and a clear error when the API key
-// is a sending-only restricted key.
+// segment), injectable fetch for tests, per-request timeouts so webhook-path
+// callers stay bounded, and a clear error when the API key is a sending-only
+// restricted key.
 //
 // Broadcast SENDING is deliberately not implemented. Drafts are created via
-// createBroadcast and the actual send stays a human action in the Resend
-// dashboard.
+// createBroadcastDraft (which never sets `send`) and the actual send stays a
+// human action in the Resend dashboard.
 
-export type ResendAudience = {
+export type ResendSegment = {
+  id: string;
+  name: string;
+};
+
+export type ResendTopic = {
   id: string;
   name: string;
 };
@@ -30,6 +40,7 @@ export type FetchLike = (
     method?: string;
     headers?: Record<string, string>;
     body?: string;
+    signal?: AbortSignal;
   },
 ) => Promise<{
   status: number;
@@ -55,6 +66,11 @@ const PAGE_LIMIT = 100;
 // large first sync does not trip it, and retry 429s with backoff regardless.
 const WRITE_SPACING_MS = 600;
 const MAX_ATTEMPTS = 5;
+// Cap both the per-request wall time and any server-suggested Retry-After so
+// a Resend stall cannot hold a caller (notably the Stripe webhook) open
+// indefinitely.
+const REQUEST_TIMEOUT_MS = 10_000;
+const MAX_RETRY_AFTER_MS = 5_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -65,43 +81,77 @@ type ListResponse<T> = {
   has_more?: boolean;
 };
 
+type RequestOptions = {
+  body?: unknown;
+  // PII-safe description used in error messages instead of the raw path,
+  // which for contact endpoints embeds an email address. Errors (and
+  // anything logging them) must never carry contact PII.
+  redactedLabel?: string;
+};
+
 export class ResendClient {
   private readonly apiKey: string;
   private readonly fetchImpl: FetchLike;
   private readonly writeSpacingMs: number;
+  private readonly requestTimeoutMs: number;
+  private readonly maxRetryAfterMs: number;
   private lastWriteAt = 0;
 
   constructor(options: {
     apiKey: string;
     fetchImpl?: FetchLike;
     writeSpacingMs?: number;
+    requestTimeoutMs?: number;
+    maxRetryAfterMs?: number;
   }) {
     this.apiKey = options.apiKey;
     this.fetchImpl = options.fetchImpl ?? (fetch as unknown as FetchLike);
     this.writeSpacingMs = options.writeSpacingMs ?? WRITE_SPACING_MS;
+    this.requestTimeoutMs = options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
+    this.maxRetryAfterMs = options.maxRetryAfterMs ?? MAX_RETRY_AFTER_MS;
   }
 
   private async request<T>(
     method: string,
     path: string,
-    body?: unknown,
+    options: RequestOptions = {},
   ): Promise<T> {
+    const label = options.redactedLabel ?? path;
     for (let attempt = 1; ; attempt += 1) {
-      const response = await this.fetchImpl(`${API_BASE}${path}`, {
-        method,
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
-      const text = await response.text();
+      const abort = new AbortController();
+      const timer = setTimeout(() => abort.abort(), this.requestTimeoutMs);
+      let response: Awaited<ReturnType<FetchLike>>;
+      let text: string;
+      try {
+        response = await this.fetchImpl(`${API_BASE}${path}`, {
+          method,
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          signal: abort.signal,
+          ...(options.body === undefined
+            ? {}
+            : { body: JSON.stringify(options.body) }),
+        });
+        text = await response.text();
+      } catch (cause) {
+        if (abort.signal.aborted) {
+          throw new ResendApiError(
+            `Resend ${method} ${label} timed out after ${this.requestTimeoutMs}ms`,
+            0,
+          );
+        }
+        throw cause;
+      } finally {
+        clearTimeout(timer);
+      }
       if (response.status === 429 && attempt < MAX_ATTEMPTS) {
         const retryAfter = Number(response.headers.get("retry-after"));
-        const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
+        const suggestedMs = Number.isFinite(retryAfter) && retryAfter > 0
           ? retryAfter * 1000
           : 1000 * attempt;
-        await sleep(delayMs);
+        await sleep(Math.min(suggestedMs, this.maxRetryAfterMs));
         continue;
       }
       let parsed: unknown = null;
@@ -123,14 +173,14 @@ export class ResendClient {
         if (apiError?.name === "restricted_api_key") {
           throw new ResendApiError(
             "The RESEND_API_KEY is restricted to sending emails only. " +
-              "Audience, contact, and broadcast management require a key " +
-              'with "Full access" permission (Resend dashboard -> API Keys).',
+              "Segment, contact, topic, and broadcast management require a " +
+              'key with "Full access" permission (Resend dashboard -> API Keys).',
             response.status,
             apiError.name,
           );
         }
         throw new ResendApiError(
-          `Resend ${method} ${path} failed with ${response.status}: ${
+          `Resend ${method} ${label} failed with ${response.status}: ${
             apiError?.message ?? text.slice(0, 200)
           }`,
           response.status,
@@ -145,7 +195,7 @@ export class ResendClient {
   private async throttledWrite<T>(
     method: string,
     path: string,
-    body?: unknown,
+    options: RequestOptions = {},
   ): Promise<T> {
     const now = Date.now();
     const waitMs = this.lastWriteAt + this.writeSpacingMs - now;
@@ -153,12 +203,11 @@ export class ResendClient {
       await sleep(waitMs);
     }
     this.lastWriteAt = Date.now();
-    return this.request<T>(method, path, body);
+    return this.request<T>(method, path, options);
   }
 
-  // Page through a Resend list endpoint. Resend list responses carry
-  // `has_more`; the cursor is the last item's id passed back as `after`. If
-  // the API reports more data but a follow-up page makes no progress, throw
+  // Page through a Resend list endpoint (limit/after cursor protocol). If the
+  // API reports more data but a follow-up page makes no progress, throw
   // instead of returning a silently truncated list.
   private async listAll<T extends { id: string }>(path: string): Promise<T[]> {
     const items: T[] = [];
@@ -190,20 +239,20 @@ export class ResendClient {
     }
   }
 
-  async listAudiences(): Promise<ResendAudience[]> {
-    return this.listAll<ResendAudience>("/audiences");
+  async listSegments(): Promise<ResendSegment[]> {
+    return this.listAll<ResendSegment>("/segments");
   }
 
-  // Resolve an audience by exact name. Zero matches returns null (the caller
+  // Resolve a segment by exact name. Zero matches returns null (the caller
   // decides whether to create it); more than one match is ambiguous and
   // always an error, because writing into "whichever came back first" could
   // target the wrong list.
-  async findAudienceByName(name: string): Promise<ResendAudience | null> {
-    const audiences = await this.listAudiences();
-    const matches = audiences.filter((audience) => audience.name === name);
+  async findSegmentByName(name: string): Promise<ResendSegment | null> {
+    const segments = await this.listSegments();
+    const matches = segments.filter((segment) => segment.name === name);
     if (matches.length > 1) {
       throw new ResendApiError(
-        `Audience name "${name}" is ambiguous: ${matches.length} audiences ` +
+        `Segment name "${name}" is ambiguous: ${matches.length} segments ` +
           "share it. Rename or delete the duplicates in the Resend dashboard.",
         200,
       );
@@ -211,31 +260,72 @@ export class ResendClient {
     return matches[0] ?? null;
   }
 
-  async createAudience(name: string): Promise<ResendAudience> {
+  async createSegment(name: string): Promise<ResendSegment> {
     const created = await this.throttledWrite<{ id: string; name?: string }>(
       "POST",
-      "/audiences",
-      { name },
+      "/segments",
+      { body: { name } },
     );
     return { id: created.id, name: created.name ?? name };
   }
 
-  async listContacts(audienceId: string): Promise<ResendContact[]> {
-    return this.listAll<ResendContact>(
-      `/audiences/${encodeURIComponent(audienceId)}/contacts`,
-    );
+  async listTopics(): Promise<ResendTopic[]> {
+    return this.listAll<ResendTopic>("/topics");
   }
 
-  // Point read used by the purchase-time webhook hook, where listing the
-  // whole audience per event would be wasteful. Returns null on 404.
-  async getContactByEmail(
-    audienceId: string,
-    email: string,
-  ): Promise<ResendContact | null> {
+  async findTopicByName(name: string): Promise<ResendTopic | null> {
+    const topics = await this.listTopics();
+    const matches = topics.filter((topic) => topic.name === name);
+    if (matches.length > 1) {
+      throw new ResendApiError(
+        `Topic name "${name}" is ambiguous: ${matches.length} topics share ` +
+          "it. Rename or delete the duplicates in the Resend dashboard.",
+        200,
+      );
+    }
+    return matches[0] ?? null;
+  }
+
+  // Topics are created opt-in-by-default: contacts who never touched their
+  // preferences receive the topic's broadcasts, and anyone who opted out did
+  // so explicitly. default_subscription cannot be changed after creation.
+  async createTopic(topic: {
+    name: string;
+    description?: string;
+  }): Promise<ResendTopic> {
+    const created = await this.throttledWrite<{ id: string; name?: string }>(
+      "POST",
+      "/topics",
+      {
+        body: {
+          name: topic.name,
+          default_subscription: "opt_in",
+          ...(topic.description ? { description: topic.description } : {}),
+        },
+      },
+    );
+    return { id: created.id, name: created.name ?? topic.name };
+  }
+
+  // Global contact listing; pass segmentId to list one segment's membership.
+  async listContacts(options: { segmentId?: string } = {}): Promise<
+    ResendContact[]
+  > {
+    const path = options.segmentId
+      ? `/contacts?segment_id=${encodeURIComponent(options.segmentId)}`
+      : "/contacts";
+    return this.listAll<ResendContact>(path);
+  }
+
+  // Point read used by the purchase-time webhook hook, where listing every
+  // contact per event would be wasteful. Returns null on 404. The email is
+  // kept out of error messages via redactedLabel.
+  async getContactByEmail(email: string): Promise<ResendContact | null> {
     try {
       return await this.request<ResendContact>(
         "GET",
-        `/audiences/${encodeURIComponent(audienceId)}/contacts/${encodeURIComponent(email)}`,
+        `/contacts/${encodeURIComponent(email)}`,
+        { redactedLabel: "/contacts/<email>" },
       );
     } catch (error) {
       if (error instanceof ResendApiError && error.status === 404) {
@@ -245,46 +335,70 @@ export class ResendClient {
     }
   }
 
-  // Create a contact. `unsubscribed` is intentionally not accepted: new
-  // contacts default to subscribed, and no code path may ever write that
-  // field (see reconcile.ts invariants).
-  async createContact(
-    audienceId: string,
-    contact: { email: string; firstName?: string; lastName?: string },
-  ): Promise<void> {
-    await this.throttledWrite(
-      "POST",
-      `/audiences/${encodeURIComponent(audienceId)}/contacts`,
-      {
+  // Create a global contact, optionally placing it into segments in the same
+  // call. `unsubscribed` and topic subscriptions are intentionally not
+  // accepted: new contacts default to subscribed with each topic's default
+  // preference, and no code path may ever write subscription state (see
+  // reconcile.ts invariants).
+  async createContact(contact: {
+    email: string;
+    firstName?: string;
+    lastName?: string;
+    segmentIds?: string[];
+  }): Promise<void> {
+    await this.throttledWrite("POST", "/contacts", {
+      redactedLabel: "/contacts (create)",
+      body: {
         email: contact.email,
         ...(contact.firstName ? { first_name: contact.firstName } : {}),
         ...(contact.lastName ? { last_name: contact.lastName } : {}),
+        ...(contact.segmentIds && contact.segmentIds.length > 0
+          ? { segments: contact.segmentIds }
+          : {}),
       },
-    );
+    });
   }
 
   // Backfill missing name fields on an existing, still-subscribed contact.
-  // Never sends `unsubscribed`, so it cannot resubscribe anyone.
+  // Never sends `unsubscribed` or topic preferences, so it cannot
+  // resubscribe anyone to anything.
   async updateContactName(
-    audienceId: string,
     contactId: string,
     name: { firstName?: string; lastName?: string },
   ): Promise<void> {
     await this.throttledWrite(
       "PATCH",
-      `/audiences/${encodeURIComponent(audienceId)}/contacts/${encodeURIComponent(contactId)}`,
+      `/contacts/${encodeURIComponent(contactId)}`,
       {
-        ...(name.firstName ? { first_name: name.firstName } : {}),
-        ...(name.lastName ? { last_name: name.lastName } : {}),
+        redactedLabel: "/contacts/<id> (name backfill)",
+        body: {
+          ...(name.firstName ? { first_name: name.firstName } : {}),
+          ...(name.lastName ? { last_name: name.lastName } : {}),
+        },
       },
     );
   }
 
-  // Create a broadcast DRAFT tied to an audience. There is deliberately no
-  // corresponding send method on this client; sending happens in the Resend
-  // dashboard after human review.
+  // Segment membership is additive metadata; it never changes subscription
+  // state (global unsubscribe and topic opt-outs still suppress delivery).
+  async addContactToSegment(
+    contactId: string,
+    segmentId: string,
+  ): Promise<void> {
+    await this.throttledWrite(
+      "POST",
+      `/contacts/${encodeURIComponent(contactId)}/segments/${encodeURIComponent(segmentId)}`,
+      { redactedLabel: "/contacts/<id>/segments/<segment>" },
+    );
+  }
+
+  // Create a broadcast DRAFT targeted at a segment, scoped to a topic so
+  // per-topic opt-outs are honored. `send` is never set (Resend defaults it
+  // to false), and there is deliberately no corresponding send method on
+  // this client; sending happens in the Resend dashboard after human review.
   async createBroadcastDraft(broadcast: {
-    audienceId: string;
+    segmentId: string;
+    topicId: string;
     from: string;
     subject: string;
     html: string;
@@ -292,12 +406,15 @@ export class ResendClient {
     replyTo?: string;
   }): Promise<{ id: string }> {
     return this.throttledWrite<{ id: string }>("POST", "/broadcasts", {
-      audience_id: broadcast.audienceId,
-      from: broadcast.from,
-      subject: broadcast.subject,
-      html: broadcast.html,
-      name: broadcast.name,
-      ...(broadcast.replyTo ? { reply_to: broadcast.replyTo } : {}),
+      body: {
+        segment_id: broadcast.segmentId,
+        topic_id: broadcast.topicId,
+        from: broadcast.from,
+        subject: broadcast.subject,
+        html: broadcast.html,
+        name: broadcast.name,
+        ...(broadcast.replyTo ? { reply_to: broadcast.replyTo } : {}),
+      },
     });
   }
 
@@ -309,10 +426,13 @@ export class ResendClient {
     html: string;
   }): Promise<{ id: string }> {
     return this.throttledWrite<{ id: string }>("POST", "/emails", {
-      from: email.from,
-      to: [email.to],
-      subject: email.subject,
-      html: email.html,
+      redactedLabel: "/emails (test send)",
+      body: {
+        from: email.from,
+        to: [email.to],
+        subject: email.subject,
+        html: email.html,
+      },
     });
   }
 }

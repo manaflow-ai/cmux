@@ -6,10 +6,10 @@
 // to austin@manaflow.ai). The audience send itself is a human click in the
 // Resend dashboard.
 //
-// The greeting personalizes via Resend's contact merge tags. The audience
-// sync populates first_name on each contact, and {{{FIRST_NAME|there}}}
-// falls back to "there" for contacts without one, so a broadcast never
-// renders "Hi ," or "Hi undefined,".
+// The greeting personalizes via Resend's contact merge tags. The segment
+// sync populates first_name on each contact, and
+// {{{contact.first_name|there}}} falls back to "there" for contacts without
+// one, so a broadcast never renders "Hi ," or "Hi undefined,".
 
 import { Button, Heading, Link, Section, Text } from "@react-email/components";
 
@@ -18,7 +18,7 @@ import {
   layoutStyles,
 } from "./components/email-layout";
 
-export const FIRST_NAME_GREETING_TOKEN = "{{{FIRST_NAME|there}}}";
+export const FIRST_NAME_GREETING_TOKEN = "{{{contact.first_name|there}}}";
 
 export type ProductUpdateSection = {
   title: string;

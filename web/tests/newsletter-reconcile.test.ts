@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-// Reconciliation invariants for the newsletter audience sync: unsubscribe is
-// a one-way door, updates only backfill missing names, and re-running the
-// same sync plans zero writes.
+// Reconciliation invariants for the newsletter segment sync: subscription
+// state is a one-way door (globally unsubscribed contacts get zero writes),
+// updates only backfill missing names, and re-running the same sync plans
+// zero writes.
 
 import {
   mergeContactSources,
@@ -11,7 +12,7 @@ import {
   type NewsletterContact,
 } from "../services/newsletter/contacts";
 import {
-  planAudienceSync,
+  planSegmentSync,
   type ExistingContact,
 } from "../services/newsletter/reconcile";
 
@@ -127,8 +128,8 @@ describe("mergeContactSources", () => {
   });
 });
 
-describe("planAudienceSync", () => {
-  const existing: ExistingContact[] = [
+describe("planSegmentSync", () => {
+  const existingContacts: ExistingContact[] = [
     {
       id: "c_present",
       email: "present@example.com",
@@ -146,47 +147,80 @@ describe("planAudienceSync", () => {
       email: "noname@example.com",
       unsubscribed: false,
     },
+    {
+      id: "c_outside",
+      email: "outside@example.com",
+      firstName: "Otto",
+      unsubscribed: false,
+    },
   ];
+  // present and noname are in the segment; outside is a global contact that
+  // has not been added to this segment yet.
+  const memberEmails = new Set(["present@example.com", "noname@example.com"]);
 
-  test("plans creates for new contacts only", () => {
-    const plan = planAudienceSync(
-      [contact("new@example.com", "New", "Person")],
-      existing,
-    );
+  test("plans creates for contacts missing globally", () => {
+    const plan = planSegmentSync({
+      desired: [contact("new@example.com", "New", "Person")],
+      existingContacts,
+      segmentMemberEmails: memberEmails,
+    });
     expect(plan.toCreate).toEqual([
       { email: "new@example.com", firstName: "New", lastName: "Person" },
     ]);
+    expect(plan.toAddToSegment).toHaveLength(0);
     expect(plan.toBackfillName).toHaveLength(0);
   });
 
-  test("never writes an unsubscribed contact, even with new name data", () => {
-    const plan = planAudienceSync(
-      [contact("unsub@example.com", "Una", "Subscribed")],
-      existing,
-    );
+  test("plans a segment add for an existing contact outside the segment", () => {
+    const plan = planSegmentSync({
+      desired: [contact("outside@example.com")],
+      existingContacts,
+      segmentMemberEmails: memberEmails,
+    });
     expect(plan.toCreate).toHaveLength(0);
+    expect(plan.toAddToSegment).toEqual([
+      { contactId: "c_outside", email: "outside@example.com" },
+    ]);
+  });
+
+  test("a globally unsubscribed contact gets zero writes of any kind", () => {
+    const plan = planSegmentSync({
+      desired: [contact("unsub@example.com", "Una", "Subscribed")],
+      existingContacts,
+      segmentMemberEmails: memberEmails,
+    });
+    expect(plan.toCreate).toHaveLength(0);
+    expect(plan.toAddToSegment).toHaveLength(0);
     expect(plan.toBackfillName).toHaveLength(0);
     expect(plan.skippedUnsubscribed).toBe(1);
   });
 
-  test("no plan entry ever carries an unsubscribed field", () => {
-    const plan = planAudienceSync(
-      [contact("new@example.com"), contact("present@example.com")],
-      existing,
-    );
-    for (const create of plan.toCreate) {
-      expect("unsubscribed" in create).toBe(false);
-    }
-    for (const update of plan.toBackfillName) {
-      expect("unsubscribed" in update).toBe(false);
+  test("no plan entry ever carries subscription state", () => {
+    const plan = planSegmentSync({
+      desired: [
+        contact("new@example.com"),
+        contact("present@example.com"),
+        contact("outside@example.com"),
+      ],
+      existingContacts,
+      segmentMemberEmails: memberEmails,
+    });
+    for (const entry of [
+      ...plan.toCreate,
+      ...plan.toAddToSegment,
+      ...plan.toBackfillName,
+    ]) {
+      expect("unsubscribed" in entry).toBe(false);
+      expect("topics" in entry).toBe(false);
     }
   });
 
   test("backfills only missing name fields", () => {
-    const plan = planAudienceSync(
-      [contact("noname@example.com", "Nova", "Named")],
-      existing,
-    );
+    const plan = planSegmentSync({
+      desired: [contact("noname@example.com", "Nova", "Named")],
+      existingContacts,
+      segmentMemberEmails: memberEmails,
+    });
     expect(plan.toBackfillName).toEqual([
       {
         contactId: "c_noname",
@@ -195,21 +229,23 @@ describe("planAudienceSync", () => {
         lastName: "Named",
       },
     ]);
+    expect(plan.toAddToSegment).toHaveLength(0);
   });
 
   test("does not overwrite an existing name", () => {
-    const plan = planAudienceSync(
-      [contact("present@example.com", "Different", "Name")],
-      existing,
-    );
+    const plan = planSegmentSync({
+      desired: [contact("present@example.com", "Different", "Name")],
+      existingContacts,
+      segmentMemberEmails: memberEmails,
+    });
     expect(plan.toBackfillName).toHaveLength(0);
     expect(plan.alreadyPresent).toBe(1);
   });
 
-  test("matches existing contacts case-insensitively", () => {
-    const plan = planAudienceSync(
-      [contact("present@example.com")],
-      [
+  test("matches existing contacts and members case-insensitively", () => {
+    const plan = planSegmentSync({
+      desired: [contact("present@example.com")],
+      existingContacts: [
         {
           id: "c_present",
           email: "Present@Example.com",
@@ -217,8 +253,10 @@ describe("planAudienceSync", () => {
           unsubscribed: false,
         },
       ],
-    );
+      segmentMemberEmails: new Set(["Present@Example.com"]),
+    });
     expect(plan.toCreate).toHaveLength(0);
+    expect(plan.toAddToSegment).toHaveLength(0);
     expect(plan.alreadyPresent).toBe(1);
   });
 
@@ -226,11 +264,16 @@ describe("planAudienceSync", () => {
     const desired = [
       contact("new@example.com", "New", "Person"),
       contact("noname@example.com", "Nova", "Named"),
+      contact("outside@example.com"),
     ];
-    const first = planAudienceSync(desired, existing);
+    const first = planSegmentSync({
+      desired,
+      existingContacts,
+      segmentMemberEmails: memberEmails,
+    });
     // Simulate the applied state after the first run.
     const afterApply: ExistingContact[] = [
-      ...existing.map((c) =>
+      ...existingContacts.map((c) =>
         c.id === "c_noname"
           ? { ...c, firstName: "Nova", lastName: "Named" }
           : c,
@@ -243,11 +286,22 @@ describe("planAudienceSync", () => {
         unsubscribed: false,
       },
     ];
-    const second = planAudienceSync(desired, afterApply);
+    const membersAfterApply = new Set([
+      ...memberEmails,
+      "new@example.com",
+      "outside@example.com",
+    ]);
+    const second = planSegmentSync({
+      desired,
+      existingContacts: afterApply,
+      segmentMemberEmails: membersAfterApply,
+    });
     expect(first.toCreate).toHaveLength(1);
+    expect(first.toAddToSegment).toHaveLength(1);
     expect(first.toBackfillName).toHaveLength(1);
     expect(second.toCreate).toHaveLength(0);
+    expect(second.toAddToSegment).toHaveLength(0);
     expect(second.toBackfillName).toHaveLength(0);
-    expect(second.alreadyPresent).toBe(2);
+    expect(second.alreadyPresent).toBe(3);
   });
 });

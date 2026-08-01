@@ -9,10 +9,10 @@
 // services/newsletter/cli.ts). This is a single transactional send, never a
 // broadcast, so it cannot reach an audience.
 //
-// Merge tags ({{{FIRST_NAME|...}}}, {{{RESEND_UNSUBSCRIBE_URL}}}) are only
-// substituted by Resend for broadcast sends; in this preview the greeting
-// defaults to the "there" fallback text and the unsubscribe link stays a
-// literal token.
+// Merge tags ({{{contact.first_name|...}}}, {{{RESEND_UNSUBSCRIBE_URL}}})
+// are only substituted by Resend for broadcast sends; in this preview the
+// greeting defaults to the "there" fallback text and the unsubscribe link
+// stays a literal token.
 //
 // Env: RESEND_API_KEY (a sending-only key is sufficient here). Optional
 // CMUX_NEWSLETTER_FROM_EMAIL overrides the sender.

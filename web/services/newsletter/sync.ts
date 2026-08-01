@@ -1,25 +1,41 @@
-// Audience sync orchestration: resolve the audience by name, read its full
-// contact state, plan the minimal mutations (reconcile.ts), and apply them
-// only when explicitly asked to.
+// Segment sync orchestration: resolve the segment and its topic by name,
+// read the global contact state plus the segment's membership, plan the
+// minimal mutations (reconcile.ts), and apply them only when explicitly
+// asked to.
 //
-// The two cmux audiences overlap by design:
+// The two cmux segments overlap by design:
 //   - "cmux Users" is the union of Stack Auth signups and Stripe Founder's
 //     Edition buyers (a founder may have bought without ever creating a
 //     Stack account, so the general list must merge both sources).
 //   - "cmux Founder's Edition" is only the Stripe founders, a strict subset
 //     for founder-only announcements.
-// Each syncAudience call touches exactly one audience; unsubscribe state is
-// per-audience in Resend, and syncing one list never reads or writes the
-// other.
+//
+// Each segment pairs with a topic that owns its unsubscribe lane: broadcasts
+// are created with both segment_id (who is targeted) and topic_id (which
+// preference governs suppression), so opting out of general updates does not
+// silence founder announcements and vice versa. A contact's GLOBAL
+// unsubscribe suppresses everything; the sync treats it as untouchable.
+// Topics are created opt-in-by-default and the sync NEVER writes topic
+// preferences, so an explicit opt-out is permanent as far as this tooling is
+// concerned.
 
 import { type NewsletterContact, mergeContactSources } from "./contacts";
-import { planAudienceSync } from "./reconcile";
+import { planSegmentSync } from "./reconcile";
 import type { ResendClient } from "./resend-client";
 
-export const USERS_AUDIENCE_NAME = "cmux Users";
-export const FOUNDERS_AUDIENCE_NAME = "cmux Founder's Edition";
+export const USERS_SEGMENT_NAME = "cmux Users";
+export const FOUNDERS_SEGMENT_NAME = "cmux Founder's Edition";
 
-export function buildUsersAudienceContacts(
+export const USERS_TOPIC = {
+  name: "cmux Updates",
+  description: "Product updates and announcements for everyone using cmux.",
+} as const;
+export const FOUNDERS_TOPIC = {
+  name: "cmux Founder's Edition",
+  description: "Announcements exclusively for Founder's Edition owners.",
+} as const;
+
+export function buildUsersSegmentContacts(
   stackContacts: NewsletterContact[],
   founderContacts: NewsletterContact[],
 ): NewsletterContact[] {
@@ -28,68 +44,93 @@ export function buildUsersAudienceContacts(
   return mergeContactSources([stackContacts, founderContacts]);
 }
 
-export type AudienceSyncSummary = {
-  audienceName: string;
-  audienceId: string | null;
-  audienceCreated: boolean;
+export type SegmentSyncSummary = {
+  segmentName: string;
+  segmentId: string | null;
+  segmentCreated: boolean;
+  topicName: string;
+  topicId: string | null;
+  topicCreated: boolean;
   applied: boolean;
   desiredContacts: number;
-  existingContacts: number;
-  added: number;
+  existingGlobalContacts: number;
+  existingSegmentMembers: number;
+  created: number;
+  addedToSegment: number;
   nameBackfilled: number;
   alreadyPresent: number;
   skippedUnsubscribed: number;
 };
 
-export async function syncAudience(options: {
+export async function syncSegment(options: {
   client: ResendClient;
-  audienceName: string;
+  segmentName: string;
+  topic: { name: string; description?: string };
   desired: NewsletterContact[];
+  // Global contact listing, shared across segment syncs in one run so the
+  // (potentially large) account-wide listing happens once.
+  existingContacts: Awaited<ReturnType<ResendClient["listContacts"]>>;
   apply: boolean;
-}): Promise<AudienceSyncSummary> {
-  const { client, audienceName, desired, apply } = options;
+}): Promise<SegmentSyncSummary> {
+  const { client, segmentName, topic, desired, existingContacts, apply } =
+    options;
 
-  let audience = await client.findAudienceByName(audienceName);
-  let audienceCreated = false;
-  if (!audience && apply) {
-    audience = await client.createAudience(audienceName);
-    audienceCreated = true;
+  // The topic is provisioned alongside its segment so email:draft can always
+  // attach a topic_id. Creation is apply-gated like every other write.
+  let topicRecord = await client.findTopicByName(topic.name);
+  let topicCreated = false;
+  if (!topicRecord && apply) {
+    topicRecord = await client.createTopic(topic);
+    topicCreated = true;
   }
 
-  // Missing audience in dry-run mode: report what would happen. Every
-  // desired contact would be a create into a brand-new empty audience.
-  if (!audience) {
-    return {
-      audienceName,
-      audienceId: null,
-      audienceCreated: false,
-      applied: false,
-      desiredContacts: desired.length,
-      existingContacts: 0,
-      added: desired.length,
-      nameBackfilled: 0,
-      alreadyPresent: 0,
-      skippedUnsubscribed: 0,
-    };
+  let segment = await client.findSegmentByName(segmentName);
+  let segmentCreated = false;
+  if (!segment && apply) {
+    segment = await client.createSegment(segmentName);
+    segmentCreated = true;
   }
 
-  const existing = await client.listContacts(audience.id);
-  const plan = planAudienceSync(desired, [
-    ...existing.map((contact) => ({
+  const base = {
+    segmentName,
+    topicName: topic.name,
+    topicId: topicRecord?.id ?? null,
+    topicCreated,
+    desiredContacts: desired.length,
+    existingGlobalContacts: existingContacts.length,
+  };
+
+  // Missing segment in dry-run mode: report what would happen against an
+  // empty membership.
+  const memberEmails = new Set<string>(
+    segment
+      ? (await client.listContacts({ segmentId: segment.id })).map((contact) =>
+          contact.email.trim().toLowerCase(),
+        )
+      : [],
+  );
+
+  const plan = planSegmentSync({
+    desired,
+    existingContacts: existingContacts.map((contact) => ({
       id: contact.id,
       email: contact.email,
       firstName: contact.first_name ?? undefined,
       lastName: contact.last_name ?? undefined,
       unsubscribed: contact.unsubscribed,
     })),
-  ]);
+    segmentMemberEmails: memberEmails,
+  });
 
-  if (apply) {
+  if (apply && segment) {
     for (const create of plan.toCreate) {
-      await client.createContact(audience.id, create);
+      await client.createContact({ ...create, segmentIds: [segment.id] });
+    }
+    for (const add of plan.toAddToSegment) {
+      await client.addContactToSegment(add.contactId, segment.id);
     }
     for (const backfill of plan.toBackfillName) {
-      await client.updateContactName(audience.id, backfill.contactId, {
+      await client.updateContactName(backfill.contactId, {
         firstName: backfill.firstName,
         lastName: backfill.lastName,
       });
@@ -97,13 +138,13 @@ export async function syncAudience(options: {
   }
 
   return {
-    audienceName,
-    audienceId: audience.id,
-    audienceCreated,
-    applied: apply,
-    desiredContacts: desired.length,
-    existingContacts: existing.length,
-    added: plan.toCreate.length,
+    ...base,
+    segmentId: segment?.id ?? null,
+    segmentCreated,
+    applied: apply && Boolean(segment),
+    existingSegmentMembers: memberEmails.size,
+    created: plan.toCreate.length,
+    addedToSegment: plan.toAddToSegment.length,
     nameBackfilled: plan.toBackfillName.length,
     alreadyPresent: plan.alreadyPresent,
     skippedUnsubscribed: plan.skippedUnsubscribed,

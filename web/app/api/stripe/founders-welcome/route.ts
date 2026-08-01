@@ -4,7 +4,10 @@ import { NextResponse } from "next/server";
 import { Resend } from "resend";
 
 import { env } from "@/app/env";
-import { upsertFounderIntoAudiences } from "@/services/newsletter/founder-hook";
+import {
+  upsertFounderIntoSegments,
+  withDeadline,
+} from "@/services/newsletter/founder-hook";
 import { ResendClient } from "@/services/newsletter/resend-client";
 import {
   recordSpanError,
@@ -24,6 +27,11 @@ export const dynamic = "force-dynamic";
 // Stripe signs webhooks with a 5-minute default tolerance; reject older payloads
 // to blunt replay attempts.
 const SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
+
+// Upper bound on the best-effort newsletter segment upsert after a founder
+// purchase. Keeps the webhook's total runtime bounded even if Resend stalls;
+// anything missed is picked up by the manual reconciliation sync.
+const NEWSLETTER_UPSERT_DEADLINE_MS = 10_000;
 
 type FoundersConfig = {
   resendApiKey: string;
@@ -187,29 +195,41 @@ export async function POST(request: Request) {
         return jsonError("Failed to send welcome email", 502);
       }
 
-      // Purchase-time newsletter audience upsert (see
+      // Purchase-time newsletter segment upsert (see
       // services/newsletter/founder-hook.ts). Best-effort by design: the
-      // welcome email already went out, so a Resend audience hiccup (for
-      // example a sending-only restricted key) must not fail the webhook and
-      // trigger a Stripe retry storm. The manual sync script reconciles any
-      // contact missed here.
-      if (trigger === "founders_edition") {
+      // welcome email already went out, so a Resend hiccup (for example a
+      // sending-only restricted key) must not fail the webhook and trigger a
+      // Stripe retry storm. The whole upsert is bounded by a deadline so a
+      // Resend stall cannot hold the webhook open, and the manual sync
+      // script reconciles any contact missed here.
+      //
+      // Only sessions whose payment actually succeeded are added: Stripe
+      // emits checkout.session.completed with payment_status "unpaid" for
+      // delayed payment methods that may still fail, and the additive sync
+      // would never remove a buyer whose payment later fell through.
+      const paymentSettled =
+        session?.payment_status === "paid" ||
+        session?.payment_status === "no_payment_required";
+      if (trigger === "founders_edition" && paymentSettled) {
         try {
-          const results = await upsertFounderIntoAudiences({
-            client: new ResendClient({ apiKey: config.resendApiKey }),
-            email: customerEmail,
-            customerName: session?.customer_details?.name,
-          });
+          const results = await withDeadline(
+            upsertFounderIntoSegments({
+              client: new ResendClient({ apiKey: config.resendApiKey }),
+              email: customerEmail,
+              customerName: session?.customer_details?.name,
+            }),
+            NEWSLETTER_UPSERT_DEADLINE_MS,
+          );
           setSpanAttributes(span, {
-            "cmux.newsletter.audience_outcomes": results
+            "cmux.newsletter.segment_outcomes": results
               .map((result) => result.outcome)
               .join(","),
           });
-        } catch (audienceError) {
-          recordSpanError(span, audienceError);
+        } catch (segmentError) {
+          recordSpanError(span, segmentError);
           console.error(
-            "stripe.founders_welcome.audience_upsert_failed",
-            audienceError,
+            "stripe.founders_welcome.segment_upsert_failed",
+            segmentError,
           );
         }
       }
@@ -236,6 +256,7 @@ type StripeEvent = {
     object?: {
       id?: string;
       metadata?: Record<string, string> | null;
+      payment_status?: string | null;
       customer_details?: {
         email?: string | null;
         name?: string | null;
