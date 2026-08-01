@@ -17,6 +17,13 @@ struct BrowserAppWebPolicyTests {
         #expect(policy.shouldOpenInSystemBrowser(
             try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=1"))
         ))
+        #expect(policy.shouldOpenInSystemBrowser(
+            try #require(
+                URL(
+                    string: "https://billing.example/checkout?cmux_external_browser=1"
+                )
+            )
+        ))
         #expect(!policy.shouldOpenInSystemBrowser(
             try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser"))
         ))

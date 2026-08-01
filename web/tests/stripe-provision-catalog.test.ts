@@ -95,8 +95,11 @@ describe("Stripe catalog provisioning", () => {
     );
     expect(
       result.calls.some((call) =>
+        call.args.includes("POST") &&
         call.args.some((argument) =>
-          argument.includes("/webhook_endpoints/we_"),
+          argument.startsWith(
+            "https://api.stripe.com/v1/webhook_endpoints",
+          ),
         ),
       ),
     ).toBe(false);
