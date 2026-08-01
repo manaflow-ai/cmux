@@ -8,13 +8,17 @@ internal import CMUXDebugLog
 
 /// Coordinates native `ghostty_surface_free` calls off the close/deinit paths.
 ///
-/// Close/deinit frees run one at a time on a utility worker so re-entrant
-/// teardown loops cannot form. Each admitted hibernation owns one independently
-/// startable utility slot, so one stuck native join cannot strand another pane.
+/// Close/deinit frees use two independently startable utility slots. Each slot
+/// remains serial, so teardown cannot recursively reuse one worker, while one
+/// stuck native join leaves the other slot available to drain later closes.
+/// Each admitted hibernation also owns one independently startable utility slot.
 /// Deadline observers report, but never block on, stuck frees. The app constructs
 /// exactly one instance and injects it through
 /// ``TerminalSurfaceRuntimeDependencies``.
 public actor TerminalSurfaceRuntimeTeardownCoordinator {
+    /// Maximum native close frees that can run concurrently.
+    public static let maximumConcurrentCloseTeardownCount = 2
+
     /// Largest batch that can own independently startable native-free slots.
     public static let maximumIsolatedHibernationTeardownCount = 2
 
@@ -27,14 +31,26 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
 #else
     private var pendingReasonsById: [UUID: String] = [:]
 #endif
-    private var queuedRequests: [TerminalSurfaceRuntimeTeardownRequest] = []
-    private var isWorkerRunning = false
+    private var queuedCloseRequests: [TerminalSurfaceRuntimeTeardownRequest] = []
+    private var availableCloseExecutionSlots: Set<Int>
+    private let closeTeardownQueues: [DispatchQueue]
     private let isolatedHibernationQueues: [DispatchQueue]
     private nonisolated let isolatedHibernationAdmission =
         TerminalSurfaceRuntimeTeardownAdmission()
 
     /// Creates the process's teardown coordinator.
     public init() {
+        availableCloseExecutionSlots = Set(
+            0..<Self.maximumConcurrentCloseTeardownCount
+        )
+        closeTeardownQueues = (
+            0..<Self.maximumConcurrentCloseTeardownCount
+        ).map { executionSlot in
+            DispatchQueue(
+                label: "com.cmux.terminal-surface-close-teardown.\(executionSlot)",
+                qos: .utility
+            )
+        }
         isolatedHibernationQueues = (
             0..<Self.maximumIsolatedHibernationTeardownCount
         ).map { executionSlot in
@@ -140,7 +156,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
-        executionLane: TerminalSurfaceRuntimeTeardownExecutionLane = .serializedClose,
+        executionLane: TerminalSurfaceRuntimeTeardownExecutionLane = .boundedClose,
         isolatedHibernationReservation:
             TerminalSurfaceRuntimeTeardownReservation? = nil,
         freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void = { surface in
@@ -172,7 +188,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
 
     func enqueue(
         _ request: TerminalSurfaceRuntimeTeardownRequest,
-        executionLane: TerminalSurfaceRuntimeTeardownExecutionLane = .serializedClose,
+        executionLane: TerminalSurfaceRuntimeTeardownExecutionLane = .boundedClose,
         isolatedHibernationReservation:
             TerminalSurfaceRuntimeTeardownReservation? = nil
     ) async {
@@ -209,31 +225,35 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
                     isolatedHibernationReservation
                 )
             }
-        case .serializedClose:
+        case .boundedClose:
             break
         }
-        queuedRequests.append(request)
-        if !isWorkerRunning {
-            isWorkerRunning = true
-            Task.detached(priority: .utility) {
-                while let request = await self.nextRequestForWorker() {
-                    Task {
-                        await self.observeTimeout(id: request.id)
-                    }
-                    self.freeNativeSurface(request)
+        queuedCloseRequests.append(request)
+        scheduleCloseTeardowns()
+    }
+
+    private func scheduleCloseTeardowns() {
+        while !queuedCloseRequests.isEmpty,
+              let executionSlot = availableCloseExecutionSlots.min() {
+            availableCloseExecutionSlots.remove(executionSlot)
+            let request = queuedCloseRequests.removeFirst()
+            Task {
+                await self.observeTimeout(id: request.id)
+            }
+            closeTeardownQueues[executionSlot].async {
+                self.freeNativeSurface(request)
+                Task {
                     await self.finishFree(request)
                     await self.complete(id: request.id)
+                    await self.closeTeardownFinished(executionSlot: executionSlot)
                 }
             }
         }
     }
 
-    private func nextRequestForWorker() -> TerminalSurfaceRuntimeTeardownRequest? {
-        guard !queuedRequests.isEmpty else {
-            isWorkerRunning = false
-            return nil
-        }
-        return queuedRequests.removeFirst()
+    private func closeTeardownFinished(executionSlot: Int) {
+        availableCloseExecutionSlots.insert(executionSlot)
+        scheduleCloseTeardowns()
     }
 
     private nonisolated func freeNativeSurface(

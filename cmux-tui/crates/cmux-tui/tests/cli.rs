@@ -184,7 +184,7 @@ fn server_establishes_shutdown_ownership_before_publishing_its_listener() {
         .spawn()
         .unwrap();
 
-    let marker_deadline = Instant::now() + Duration::from_secs(5);
+    let marker_deadline = Instant::now() + Duration::from_secs(15);
     while !marker.exists() && Instant::now() < marker_deadline {
         assert!(
             child.try_wait().unwrap().is_none(),

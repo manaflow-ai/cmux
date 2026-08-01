@@ -1675,6 +1675,20 @@ fn finish_server_process(
     result
 }
 
+#[cfg(unix)]
+fn combine_server_and_remote_shutdown_results(
+    server_result: anyhow::Result<()>,
+    remote_shutdown_result: anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    match (server_result, remote_shutdown_result) {
+        (result, Ok(())) => result,
+        (Ok(()), Err(shutdown_error)) => Err(shutdown_error),
+        (Err(error), Err(shutdown_error)) => {
+            Err(error.context(format!("remote daemon shutdown also failed: {shutdown_error:#}")))
+        }
+    }
+}
+
 fn server_shutdown_exit_grace() -> std::time::Duration {
     #[cfg(debug_assertions)]
     if let Some(milliseconds) = std::env::var("CMUX_TUI_TEST_SHUTDOWN_EXIT_GRACE_MS")
@@ -1877,7 +1891,7 @@ fn run_server(
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
-        let runtime = remote_runtime::start_daemon_runtime(
+        let runtime = match remote_runtime::start_daemon_runtime(
             socket_path.clone(),
             remote_runtime::DaemonRuntimeOptions {
                 session: args.session.clone(),
@@ -1893,7 +1907,15 @@ fn run_server(
                 resume_lease: std::time::Duration::from_secs(args.remote_resume_lease_seconds),
                 replaceable_sidecar: false,
             },
-        )?;
+        ) {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                drop(websocket_server);
+                #[cfg(target_os = "linux")]
+                drop(_provider_management);
+                return finish_server_process(server_process, Err(error));
+            }
+        };
         eprintln!(
             "cmux-tui: remote daemon {}, link {}, admin {}",
             runtime.info().daemon_fingerprint,
@@ -1929,9 +1951,10 @@ fn run_server(
         run_tui(Session::Local(mux), args.session, None)
     };
     #[cfg(unix)]
-    if let Some(runtime) = remote_runtime {
-        runtime.shutdown()?;
-    }
+    let result = match remote_runtime {
+        Some(runtime) => combine_server_and_remote_shutdown_results(result, runtime.shutdown()),
+        None => result,
+    };
     drop(websocket_server);
     #[cfg(target_os = "linux")]
     drop(_provider_management);
@@ -2505,6 +2528,32 @@ mod tests {
             "remote startup failure bypassed server process cleanup"
         );
         assert!(!socket_remained, "remote startup failure retained the published server socket");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_shutdown_failure_preserves_an_earlier_server_error() {
+        let error = combine_server_and_remote_shutdown_results(
+            Err(anyhow::anyhow!("frontend failed")),
+            Err(anyhow::anyhow!("remote shutdown failed")),
+        )
+        .unwrap_err();
+        let message = format!("{error:#}");
+
+        assert!(message.contains("frontend failed"));
+        assert!(message.contains("remote shutdown failed"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_shutdown_failure_is_returned_after_successful_server_execution() {
+        let error = combine_server_and_remote_shutdown_results(
+            Ok(()),
+            Err(anyhow::anyhow!("remote shutdown failed")),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.to_string(), "remote shutdown failed");
     }
 
     fn args(values: &[&str]) -> Args {

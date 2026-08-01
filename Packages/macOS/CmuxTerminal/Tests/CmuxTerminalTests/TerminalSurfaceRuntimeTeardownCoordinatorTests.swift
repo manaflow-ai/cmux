@@ -169,7 +169,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         releaseFirstFree.signal()
 
         #expect(secondCompleted, "one stuck native free stranded the next explicit close")
-        #expect(thirdCompleted, "one stuck native free stranded the serialized close lane")
+        #expect(thirdCompleted, "one stuck native free stranded the remaining close worker")
         #expect(await firstTicket.wait(timeout: .seconds(1)))
     }
 
@@ -180,16 +180,16 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             byteCount: 8,
             alignment: 8
         )
-        let serializedSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let closeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         defer {
             isolatedSurface.deallocate()
             queuedIsolatedSurface.deallocate()
-            serializedSurface.deallocate()
+            closeSurface.deallocate()
         }
         let isolatedFreeStarted = AsyncStream<Void>.makeStream()
         let releaseIsolatedFree = DispatchSemaphore(value: 0)
         let secondIsolatedFreeCount = OSAllocatedUnfairLock(initialState: 0)
-        let serializedFreeCount = OSAllocatedUnfairLock(initialState: 0)
+        let closeFreeCount = OSAllocatedUnfairLock(initialState: 0)
         defer {
             releaseIsolatedFree.signal()
             isolatedFreeStarted.continuation.finish()
@@ -234,20 +234,20 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
                 secondIsolatedFreeCount.withLock { $0 += 1 }
             }
         )
-        let serializedTicket = coordinator.enqueueRuntimeTeardown(
+        let closeTicket = coordinator.enqueueRuntimeTeardown(
             id: UUID(),
             workspaceId: UUID(),
-            reason: "test.serializedClose",
-            surface: serializedSurface,
+            reason: "test.boundedClose",
+            surface: closeSurface,
             callbackContext: nil,
             freeSurface: { _ in
-                serializedFreeCount.withLock { $0 += 1 }
+                closeFreeCount.withLock { $0 += 1 }
             }
         )
 
-        #expect(await serializedTicket.wait(timeout: .seconds(1)))
+        #expect(await closeTicket.wait(timeout: .seconds(1)))
         #expect(await secondIsolatedTicket.wait(timeout: .seconds(1)))
-        #expect(serializedFreeCount.withLock { $0 } == 1)
+        #expect(closeFreeCount.withLock { $0 } == 1)
         #expect(await isolatedTicket.wait(timeout: .zero) == false)
         #expect(secondIsolatedFreeCount.withLock { $0 } == 1)
 
@@ -264,7 +264,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         await coordinator.cancelIsolatedHibernationTeardown(nextReservation)
     }
 
-    @Test func staleIsolatedReservationFallsBackToSerializedFree() async throws {
+    @Test func staleIsolatedReservationFallsBackToBoundedClose() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         defer { surface.deallocate() }
