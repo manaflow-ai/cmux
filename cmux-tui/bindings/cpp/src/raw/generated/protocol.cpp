@@ -3668,6 +3668,11 @@ Result<Json> Codec<Tab>::encode(const Tab& value) {
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
+    if (!value.tab_resource_id.is_absent()) {
+        auto encoded = encode_value(value.tab_resource_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("tab_resource_id", std::move(encoded).value());
+    }
     if (!value.terminal_id.is_absent()) {
         auto encoded = encode_value(value.terminal_id);
         if (!encoded) return std::move(encoded).error();
@@ -3810,6 +3815,16 @@ Result<Tab> Codec<Tab>::decode(const Json& value) {
         auto decoded = decode_value<Id>(*field_surface);
         if (!decoded) return std::move(decoded).error();
         result.surface = std::move(decoded).value();
+    }
+    const Json* field_tab_resource_id = value.find("tab_resource_id");
+    if (field_tab_resource_id) {
+        if (field_tab_resource_id->is_null()) {
+            result.tab_resource_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_tab_resource_id);
+            if (!decoded) return std::move(decoded).error();
+            result.tab_resource_id = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_terminal_id = value.find("terminal_id");
     if (field_terminal_id) {

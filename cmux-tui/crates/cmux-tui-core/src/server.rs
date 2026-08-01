@@ -6302,6 +6302,7 @@ fn pane_json(
         "focused_at": pane.focused_at,
         "tabs": pane.tabs.iter().map(|sid| {
             let surface = state.surfaces.get(sid);
+            let tab_resource_id = state.resource_indexes.tab_ids.get(sid);
             let terminal_identity = surface.and_then(|surface| surface.terminal_host_identity());
             let terminal_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
@@ -6311,6 +6312,7 @@ fn pane_json(
                 });
             json!({
                 "surface": sid,
+                "tab_resource_id": tab_resource_id,
                 "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
                 "terminal_resource_id": terminal_resource_id,
                 "terminal_incarnation": terminal_identity
@@ -8018,6 +8020,9 @@ fn handle_command_with_cancellation(
             activate,
             mutation,
         } => {
+            if activate == Some(false) && pane.is_none() {
+                anyhow::bail!("create-terminal activate:false requires pane");
+            }
             if argv.is_some() && command.is_some() {
                 anyhow::bail!("argv and command are mutually exclusive");
             }
@@ -8308,7 +8313,7 @@ fn handle_command_with_cancellation(
             if !valid {
                 anyhow::bail!("unknown surface/pane");
             }
-            mux.move_tab_with_activation(surface, pane, index, activate.unwrap_or(true));
+            mux.try_move_tab_with_activation(surface, pane, index, activate.unwrap_or(true))?;
             let placement = mux
                 .with_state(|state| {
                     let pane = state.pane_of(surface)?;

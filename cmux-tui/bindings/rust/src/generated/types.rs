@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 05f952383037543fc9083005dd4d45e44b362e9624d80cd37f563c12c1e83c88.
+// cmux-tui mux protocol 10, IR 27bd947e3cb8c85aeda9984bc133c5d456f4fc8c85670057113e4ef5eee9abfd.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -743,6 +743,8 @@ pub struct Tab {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub supports_clear_history_key_fallback: Option<bool>,
     pub surface: Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab_resource_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]

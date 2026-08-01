@@ -7,12 +7,12 @@
     },
     {
       "path": "protocol.zig",
-      "sha256": "49d893a6053d0def73dd7c719731a5fafe48e8890d5a9710a602602776becbb2",
-      "size": 144707
+      "sha256": "85045779fcd99f163adf059362557edab4cc555daf82ee98badc4c09026ed72b",
+      "size": 144762
     }
   ],
   "format": 1,
-  "ir_sha256": "05f952383037543fc9083005dd4d45e44b362e9624d80cd37f563c12c1e83c88",
+  "ir_sha256": "27bd947e3cb8c85aeda9984bc133c5d456f4fc8c85670057113e4ef5eee9abfd",
   "language": "zig",
   "mux_protocol": 10,
   "schema_version": 2

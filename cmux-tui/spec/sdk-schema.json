@@ -771,6 +771,20 @@
           "presence": "required",
           "nullable": false
         },
+        "tab_resource_id": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "optional",
+          "nullable": true,
+          "since": 10,
+          "constraints": [
+            {
+              "pattern": "^tab_[0-9a-f]{32}$"
+            }
+          ]
+        },
         "terminal_id": {
           "type": {
             "kind": "scalar",
