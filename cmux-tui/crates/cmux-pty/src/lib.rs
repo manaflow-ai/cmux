@@ -140,6 +140,8 @@ mod platform {
 #[cfg(all(test, unix))]
 mod tests {
     use std::fs::File;
+    #[cfg(target_os = "linux")]
+    use std::io;
     use std::os::fd::{AsRawFd, FromRawFd};
 
     use super::*;
@@ -176,6 +178,87 @@ mod tests {
             parent_flags & libc::FD_CLOEXEC,
             0,
             "child cleanup changed the parent descriptor"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn close_range_seccomp_fallback_keeps_pty_spawn_working() {
+        const CHILD_ENV: &str = "CMUX_PTY_CLOSE_RANGE_SECCOMP_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("tests::close_range_seccomp_fallback_keeps_pty_spawn_working")
+                .arg("--exact")
+                .arg("--nocapture")
+                .env(CHILD_ENV, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "PTY spawn failed when seccomp denied close_range:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        install_close_range_eperm_filter();
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/bin/sh");
+        command.args(["-c", "exit 0"]);
+        let mut spawned = pair.spawn(command).expect("seccomp-compatible PTY spawn");
+        assert!(spawned.child.wait().unwrap().success());
+    }
+
+    #[cfg(target_os = "linux")]
+    fn install_close_range_eperm_filter() {
+        let mut filter = [
+            libc::sock_filter {
+                code: (libc::BPF_LD | libc::BPF_W | libc::BPF_ABS) as u16,
+                jt: 0,
+                jf: 0,
+                k: 0,
+            },
+            libc::sock_filter {
+                code: (libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K) as u16,
+                jt: 0,
+                jf: 1,
+                k: libc::SYS_close_range as u32,
+            },
+            libc::sock_filter {
+                code: (libc::BPF_RET | libc::BPF_K) as u16,
+                jt: 0,
+                jf: 0,
+                k: libc::SECCOMP_RET_ERRNO | libc::EPERM as u32,
+            },
+            libc::sock_filter {
+                code: (libc::BPF_RET | libc::BPF_K) as u16,
+                jt: 0,
+                jf: 0,
+                k: libc::SECCOMP_RET_ALLOW,
+            },
+        ];
+        let program = libc::sock_fprog { len: filter.len() as u16, filter: filter.as_mut_ptr() };
+
+        let no_new_privileges = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
+        assert_eq!(
+            no_new_privileges,
+            0,
+            "PR_SET_NO_NEW_PRIVS failed: {}",
+            io::Error::last_os_error()
+        );
+        let installed = unsafe {
+            libc::prctl(
+                libc::PR_SET_SECCOMP,
+                libc::SECCOMP_MODE_FILTER,
+                &program as *const libc::sock_fprog,
+            )
+        };
+        assert_eq!(
+            installed,
+            0,
+            "seccomp filter installation failed: {}",
+            io::Error::last_os_error()
         );
     }
 }

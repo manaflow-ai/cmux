@@ -242,12 +242,15 @@ fn cargo_tracks_source_inputs_without_watching_target() {
 }
 
 #[test]
-fn incremental_cargo_detects_a_new_untracked_source_input() {
+fn incremental_cargo_detects_a_new_top_level_input_with_ignored_target_present() {
     let fixture = BuildFixture::new();
+    let ignored_output = fixture.root.join("cmux-tui/target/generated");
+    fs::create_dir_all(ignored_output.parent().unwrap()).unwrap();
+    fs::write(ignored_output, "ignored build output\n").unwrap();
     let clean = fixture.cargo_identity();
     assert_eq!(clean, fixture.head(), "the initial Cargo build was not clean");
 
-    let untracked = fixture.root.join("cmux-tui/crates/new-source.rs");
+    let untracked = fixture.root.join("cmux-tui/new-source.rs");
     fs::write(&untracked, "const NEW_SOURCE: bool = true;\n").unwrap();
     let dirty = fixture.cargo_identity();
 
