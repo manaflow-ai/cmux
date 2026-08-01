@@ -169,7 +169,6 @@ async function sendPush(
         nowEpochSeconds,
         expirationEpochSeconds,
         payload: deliveryPayload,
-        signal: request.signal,
       });
     }).pipe(
       Effect.provide(Layer.succeed(PushDeliveryService, service)),

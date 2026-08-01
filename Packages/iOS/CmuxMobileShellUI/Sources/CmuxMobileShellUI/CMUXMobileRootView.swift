@@ -123,9 +123,7 @@ struct CMUXMobileRootView: View {
 
     private var shouldShowPushReadinessPreview: Bool {
         #if os(iOS) && DEBUG
-        return ProcessInfo.processInfo.environment[
-            "CMUX_UITEST_PUSH_READINESS_PREVIEW"
-        ] != nil
+        return UITestConfig.pushReadinessPreviewState != nil
         #else
         return false
         #endif
@@ -178,9 +176,7 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var pushReadinessPreview: some View {
         #if os(iOS) && DEBUG
         MobilePushReadinessPreviewView(
-            state: ProcessInfo.processInfo.environment[
-                "CMUX_UITEST_PUSH_READINESS_PREVIEW"
-            ] ?? "healthy"
+            state: UITestConfig.pushReadinessPreviewState ?? "healthy"
         )
         #else
         EmptyView()

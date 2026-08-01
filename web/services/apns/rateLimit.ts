@@ -110,9 +110,11 @@ export async function recordPushSendOrThrow(
           existing.eventKind === "dismiss" ? "dismiss" : "notify",
         initialTargets: existing.initialTargets,
       });
+      const recordExpired =
+        record.expiresAt != null && record.expiresAt.getTime() <= now.getTime();
       const blockedUntilMs = Math.max(
-        existing.leaseUntil?.getTime() ?? 0,
-        existing.retryNotBefore?.getTime() ?? 0,
+        recordExpired ? 0 : existing.leaseUntil?.getTime() ?? 0,
+        recordExpired ? 0 : existing.retryNotBefore?.getTime() ?? 0,
       );
       if (blockedUntilMs > now.getTime()) {
         return {
@@ -207,8 +209,9 @@ export async function completePushSend(
   summary: PushSendSummary,
   outcomes: readonly ApnsSendResult[],
   completedAt = new Date(),
+  expiresAt: Date | null = null,
 ): Promise<boolean> {
-  const retryNotBefore =
+  const requestedRetryNotBefore =
     summary.transientFailures > 0
       && summary.retryAfterSeconds != null
       && summary.retryAfterSeconds > 0
@@ -216,6 +219,11 @@ export async function completePushSend(
           completedAt.getTime()
             + Math.ceil(summary.retryAfterSeconds) * 1_000,
         )
+      : null;
+  const retryNotBefore =
+    requestedRetryNotBefore != null
+      && (expiresAt == null || requestedRetryNotBefore.getTime() < expiresAt.getTime())
+      ? requestedRetryNotBefore
       : null;
   const updated = await db
     .update(notificationSendEvents)

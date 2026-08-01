@@ -12,6 +12,7 @@ import {
   PushRateLimitExceededError,
 } from "./rateLimit";
 import {
+  clampRetryToEventLife,
   mergePushDeliveryOutcomes,
   unresolvedPushTargets,
 } from "./deliveryState";
@@ -46,7 +47,6 @@ export interface PushDeliveryInput {
   readonly nowEpochSeconds: number;
   readonly expirationEpochSeconds: number;
   readonly payload: PushDeliveryPayload;
-  readonly signal?: AbortSignal;
 }
 
 export interface PushDeliveryOutcome {
@@ -223,6 +223,8 @@ async function executePushDeliveryWithTargets(
           claim.leaseToken,
           existing.summary,
           existing.outcomes,
+          undefined,
+          existing.expiresAt,
         );
         if (!completed) {
           return {
@@ -286,6 +288,7 @@ async function executePushDeliveryWithTargets(
           claim.leaseToken,
           priorOutcomes,
           true,
+          deliveryPayload.expirationEpochSeconds,
         );
       }
     }
@@ -316,6 +319,7 @@ async function executePushDeliveryWithTargets(
       leaseToken,
       priorOutcomes,
       false,
+      deliveryPayload.expirationEpochSeconds,
     );
   }
   if (!dependencies.config) {
@@ -335,13 +339,17 @@ async function executePushDeliveryWithTargets(
     };
   }
 
+  // Deliberately not tied to the caller's request lifecycle: a client
+  // disconnect mid-send would discard partial APNs outcomes and re-alert
+  // already-delivered devices on the next same-correlation retry, and it
+  // would strand the correlation lease until it times out. The send is
+  // bounded (attempt cap x timeout), so it always finishes inside the lease.
   const rawResults = await (
     dependencies.send ?? sendApnsNotificationReliably
   )(
     dependencies.config,
     sendTargets,
     deliveryPayload,
-    { signal: input.signal },
   );
   const sentTargetByToken = new Map(
     sendTargets.map((target) => [target.deviceToken, target]),
@@ -383,6 +391,7 @@ async function executePushDeliveryWithTargets(
     leaseToken,
     mergePushDeliveryOutcomes(priorOutcomes, results),
     false,
+    deliveryPayload.expirationEpochSeconds,
   );
 }
 
@@ -400,6 +409,7 @@ async function completeDelivery(
   leaseToken: string | null,
   outcomes: readonly ApnsSendResult[],
   replayed: boolean,
+  expirationEpochSeconds: number,
 ): Promise<DeliveryExecution> {
   if (!leaseToken) {
     return {
@@ -410,14 +420,21 @@ async function completeDelivery(
       }),
     };
   }
-  const summary = summarizeApnsSendResults(outcomes);
+  const finalOutcomes = clampRetryToEventLife(
+    outcomes,
+    Math.floor(Date.now() / 1_000),
+    expirationEpochSeconds,
+  );
+  const summary = summarizeApnsSendResults(finalOutcomes);
   const completed = await completePushSend(
     dependencies.db,
     input.userId,
     input.correlationId,
     leaseToken,
     summary,
-    outcomes,
+    finalOutcomes,
+    undefined,
+    new Date(expirationEpochSeconds * 1_000),
   );
   if (!completed) {
     return {

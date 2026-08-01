@@ -396,12 +396,17 @@ final class PhonePushClient {
         auth: AuthCoordinator
     ) async {
         guard defaults.bool(forKey: PhonePushSettings.forwardEnabledKey) else {
+            // Adopt the observed identity so the identity stream's initial
+            // yield is a no-op instead of a spurious auth transition that
+            // cancels work enqueued between restore and first yield.
+            activeIdentity = identity
             cancelInMemoryQueue()
             await clearPersistedQueue()
             deliveryQueue.start()
             return
         }
         guard let identity else {
+            activeIdentity = nil
             cancelInMemoryQueue()
             await clearPersistedQueue()
             deliveryQueue.start()

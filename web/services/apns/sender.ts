@@ -502,6 +502,7 @@ export async function sendApnsNotificationReliably(
     ) {
       for (const target of unresolved) {
         finalByToken.set(target.deviceToken, {
+          targetId: target.targetId,
           deviceToken: target.deviceToken,
           status: 0,
           reason: "event_expired",
@@ -576,6 +577,7 @@ function isExpiredProviderToken(result: ApnsSendResult): boolean {
 }
 
 export function isTransientApnsResult(result: ApnsSendResult): boolean {
+  if (result.reason === "event_expired") return false;
   return result.status === 0
     || result.status === 429
     || result.status >= 500

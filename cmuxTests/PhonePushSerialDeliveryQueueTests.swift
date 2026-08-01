@@ -314,6 +314,40 @@ import Testing
         #expect(try await store.load(nowEpochSeconds: 1_000).isEmpty)
     }
 
+    @Test func abandonedTemporaryQueueSnapshotsAreScavenged() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "phone-push-stale-tmp-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("queue.json")
+        let store = PhonePushQueueStore(fileURL: fileURL)
+        let staleBeforeLoad = directory.appendingPathComponent(
+            ".queue.json.00000000-0000-4000-8000-000000000001.tmp"
+        )
+        try Data("stale".utf8).write(to: staleBeforeLoad)
+
+        #expect(try await store.load(nowEpochSeconds: 1_000).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: staleBeforeLoad.path))
+
+        let staleBeforeSave = directory.appendingPathComponent(
+            ".queue.json.00000000-0000-4000-8000-000000000002.tmp"
+        )
+        try Data("stale".utf8).write(to: staleBeforeSave)
+        try await store.save([
+            requestEnvelope(
+                correlationID: "00000000-0000-4000-8000-000000000003"
+            ),
+        ])
+
+        #expect(!FileManager.default.fileExists(atPath: staleBeforeSave.path))
+    }
+
     @Test func queuedEventCannotRebindToTheNextSignedInAccount() {
         let envelope = PhonePushRequestEnvelope(
             correlationID: "00000000-0000-4000-8000-000000000001",

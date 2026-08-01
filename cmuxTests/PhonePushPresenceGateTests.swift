@@ -571,6 +571,17 @@ import Testing
                 expirationEpochSeconds: 1_120
             ) == 7
         )
+        // A malformed provider header can carry a negative Retry-After; the
+        // clamp floors it at an immediate retry instead of a negative delay.
+        #expect(
+            PhonePushRetryPolicy.delaySeconds(
+                afterAttempt: 1,
+                result: .retryableFailure,
+                retryAfterSeconds: -30,
+                nowEpochSeconds: 1_000,
+                expirationEpochSeconds: 1_120
+            ) == 0
+        )
         #expect(
             PhonePushRetryPolicy.delaySeconds(
                 afterAttempt: 1,

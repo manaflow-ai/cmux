@@ -11,6 +11,7 @@ import {
 import { resolveApnsProviderConfiguration } from "../services/apns/config";
 import { summarizeApnsSendResults } from "../services/apns/response";
 import {
+  clampRetryToEventLife,
   mergePushDeliveryOutcomes,
   unresolvedPushTargets,
 } from "../services/apns/deliveryState";
@@ -294,6 +295,91 @@ describe("apns logical-event delivery state", () => {
     expect(summarizeApnsSendResults(recovered).sent).toBe(2);
     expect(recovered.filter((result) => result.deviceToken.startsWith("a")))
       .toHaveLength(1);
+  });
+
+  test("a provider backoff longer than the event's life is clamped to a viable retry", () => {
+    // 300s of event life left; the APNs 5xx policy asks for 900s. Unclamped,
+    // the advertised retry lands 10 minutes after the event TTL and the alert
+    // is silently lost. 28s is the bounded worst-case send duration margin.
+    const clamped = clampRetryToEventLife(
+      [
+        {
+          deviceToken: "a".repeat(64),
+          status: 503,
+          reason: "ServiceUnavailable",
+          retryAfterSeconds: 900,
+          prune: false,
+        },
+      ],
+      1_000,
+      1_300,
+    );
+    expect(clamped[0]?.retryAfterSeconds).toBe(272);
+    expect(summarizeApnsSendResults(clamped).retryAfterSeconds).toBe(272);
+  });
+
+  test("a backoff the event outlives is untouched", () => {
+    const clamped = clampRetryToEventLife(
+      [
+        {
+          deviceToken: "a".repeat(64),
+          status: 429,
+          reason: "TooManyRequests",
+          retryAfterSeconds: 60,
+          prune: false,
+        },
+      ],
+      1_000,
+      1_300,
+    );
+    expect(clamped[0]?.retryAfterSeconds).toBe(60);
+  });
+
+  test("a retry that cannot fit before the TTL finalizes as expired instead", () => {
+    // Only 20s of life left: even the floor (30s) lands past the TTL, so
+    // advertising any retry would be a lie. The target finalizes as expired
+    // immediately and no backoff is published.
+    const clamped = clampRetryToEventLife(
+      [
+        {
+          targetId: "target-1",
+          deviceToken: "a".repeat(64),
+          status: 500,
+          reason: "InternalServerError",
+          retryAfterSeconds: 900,
+          prune: false,
+        },
+      ],
+      1_000,
+      1_020,
+    );
+    expect(clamped[0]).toEqual({
+      targetId: "target-1",
+      deviceToken: "a".repeat(64),
+      status: 0,
+      reason: "event_expired",
+      prune: false,
+    });
+    expect(
+      summarizeApnsSendResults(clamped).retryAfterSeconds,
+    ).toBeUndefined();
+  });
+
+  test("resolved and no-backoff outcomes pass through the clamp unchanged", () => {
+    const outcomes = [
+      {
+        deviceToken: "a".repeat(64),
+        status: 200,
+        prune: false,
+      },
+      {
+        deviceToken: "b".repeat(64),
+        status: 0,
+        reason: "event_expired",
+        prune: false,
+      },
+    ];
+    expect(clampRetryToEventLife(outcomes, 1_000, 1_300)).toEqual(outcomes);
   });
 });
 

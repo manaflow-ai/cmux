@@ -1,5 +1,62 @@
 import type { ApnsSendResult, ApnsTarget } from "./sender";
-import { isTransientApnsResult } from "./sender";
+import {
+  APNS_DEFAULT_MAX_DELIVERY_DURATION_MS,
+  isTransientApnsResult,
+} from "./sender";
+
+/** Never reschedule a deferred retry sooner than this after a failure. */
+export const MINIMUM_DEFERRED_RETRY_SECONDS = 30;
+/** Time a rescheduled attempt needs to finish before the event TTL. */
+const DEFERRED_RETRY_DELIVERY_MARGIN_SECONDS = Math.ceil(
+  APNS_DEFAULT_MAX_DELIVERY_DURATION_MS / 1_000,
+);
+
+/**
+ * Bounds each transient outcome's provider backoff by the event's remaining
+ * life. A deferred retry scheduled at or past the event TTL can never send,
+ * so an unclamped backoff longer than the TTL (an APNs 5xx asks for 15
+ * minutes; events live 2-5) silently guarantees the alert is lost while the
+ * caller is told to retry. The clamp keeps a retry viable when the event
+ * still has room for one, keeps a floor so a recovering provider is never
+ * hammered, and leaves backoffs the event outlives untouched. When even the
+ * floor lands past the TTL, the target is finalized as expired immediately
+ * instead of advertising an impossible recovery.
+ */
+export function clampRetryToEventLife(
+  outcomes: readonly ApnsSendResult[],
+  nowEpochSeconds: number,
+  expirationEpochSeconds: number,
+): ApnsSendResult[] {
+  const viableRetrySeconds =
+    expirationEpochSeconds
+    - nowEpochSeconds
+    - DEFERRED_RETRY_DELIVERY_MARGIN_SECONDS;
+  return outcomes.map((outcome) => {
+    if (
+      !isTransientApnsResult(outcome)
+      || outcome.retryAfterSeconds == null
+      || outcome.retryAfterSeconds <= viableRetrySeconds
+    ) {
+      return outcome;
+    }
+    if (viableRetrySeconds < MINIMUM_DEFERRED_RETRY_SECONDS) {
+      const { retryAfterSeconds: _retryAfterSeconds, ...expired } = outcome;
+      return {
+        ...expired,
+        status: 0,
+        reason: "event_expired",
+        prune: false,
+      };
+    }
+    return {
+      ...outcome,
+      retryAfterSeconds: Math.max(
+        MINIMUM_DEFERRED_RETRY_SECONDS,
+        viableRetrySeconds,
+      ),
+    };
+  });
+}
 
 /**
  * Replaces only outcomes observed again on a later same-correlation attempt.

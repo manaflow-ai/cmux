@@ -467,8 +467,8 @@ private extension MobilePushSettingsContent {
                 defaultValue: "Blocked, Registration Rate Limited"
             )
         case let .deviceLimitReached(limit):
-            String(
-                format: L10n.string(
+            String.localizedStringWithFormat(
+                L10n.string(
                     "mobile.notifications.status.deviceLimitFormat",
                     defaultValue: "Blocked, %d-Device Limit Reached"
                 ),

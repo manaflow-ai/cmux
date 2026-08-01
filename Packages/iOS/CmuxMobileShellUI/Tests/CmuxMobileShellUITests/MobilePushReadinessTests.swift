@@ -314,6 +314,24 @@ import Testing
         )
     }
 
+    @Test func unknownAdmissionFailsClosedInsteadOfReportingReady() {
+        let readiness = MobilePushReadiness.resolve(
+            authorization: .authorized,
+            registration: registered,
+            mac: .init(
+                forwardingEnabled: true,
+                mode: .always,
+                admission: .unknown,
+                apiOrigin: "https://cmux.com",
+                accountVerified: true
+            ),
+            phoneAPIOrigin: "https://cmux.com"
+        )
+
+        #expect(readiness == .blocked(.macAdmissionUnavailable))
+        #expect(readiness.repair == .connectMac)
+    }
+
     @Test func authenticatedConnectionAccountMismatchIsDistinctFromUnavailableMac() {
         let readiness = MobilePushReadiness.resolve(
             authorization: .authorized,

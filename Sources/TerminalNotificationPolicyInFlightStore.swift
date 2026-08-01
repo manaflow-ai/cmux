@@ -147,10 +147,13 @@ final class TerminalNotificationPolicyInFlightStore {
         let deliveryIdentity = TerminalNotificationPolicyDeliveryIdentity(
             request: request
         )
-        let idsToDiscard = requests.compactMap { id, entry in
-            entry.deliveryIdentity == deliveryIdentity ? id : nil
-        }
-        for id in idsToDiscard {
+        // Every live request with this identity sits at or past the drain
+        // offset of its identity's order array, so the index replaces a scan
+        // of all in-flight requests; ids already claimed or discarded are
+        // skipped by the `requests` lookup.
+        let order = requestIDsByDeliveryIdentity[deliveryIdentity] ?? []
+        let offset = requestOffsetByDeliveryIdentity[deliveryIdentity] ?? 0
+        for id in order.dropFirst(offset) where requests[id] != nil {
             _ = discardRequest(id)
         }
         drainCompletedRequests(for: deliveryIdentity)

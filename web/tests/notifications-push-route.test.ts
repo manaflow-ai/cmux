@@ -50,11 +50,16 @@ let scriptedSendOutcomes: Array<Array<{
   prune: boolean;
 }>> = [];
 let beforeNextSend: (() => Promise<void>) | null = null;
+let failIfSendReceivesAbortedSignal = false;
 const sendApnsNotificationReliably = mock(
   async (...args: unknown[]) => {
     const hook = beforeNextSend;
     beforeNextSend = null;
     if (hook) await hook();
+    const options = args[3] as { readonly signal?: AbortSignal } | undefined;
+    if (failIfSendReceivesAbortedSignal && options?.signal?.aborted) {
+      throw options.signal.reason ?? new DOMException("Aborted", "AbortError");
+    }
     const scripted = scriptedSendOutcomes.shift();
     if (scripted) return scripted;
     const targets = args[1] as readonly { deviceToken: string }[];
@@ -128,6 +133,7 @@ beforeEach(() => {
   sendApnsNotificationReliably.mockClear();
   scriptedSendOutcomes = [];
   beforeNextSend = null;
+  failIfSendReceivesAbortedSignal = false;
   useStubDb = true;
 });
 
@@ -462,6 +468,135 @@ describe("notifications push route", () => {
       correlationId,
     });
     expect(sendApnsNotificationReliably).toHaveBeenCalledTimes(1);
+  });
+
+  dbTest("expires provider backoff that cannot fit before the event TTL", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values (
+        'user-1',
+        ${"a".repeat(64)},
+        'ios',
+        'com.cmux.app',
+        'production'
+      )
+    `;
+    scriptedSendOutcomes = [[{
+      deviceToken: "a".repeat(64),
+      status: 503,
+      reason: "ServiceUnavailable",
+      retryAfterSeconds: 900,
+      prune: false,
+    }]];
+    const correlationId = "95e94601-0974-44ef-95b9-607e031345e1";
+    const expirationEpochSeconds = Math.floor(Date.now() / 1_000) + 20;
+    const request = () => new Request(
+      "https://cmux.test/api/notifications/push",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          correlationId,
+          expirationEpochSeconds,
+        }),
+      },
+    );
+
+    const first = await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({
+      transientFailures: 0,
+      permanentFailures: 1,
+      correlationId,
+    });
+    expect(first.headers.get("retry-after")).toBeNull();
+
+    const replay = await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({
+      transientFailures: 0,
+      permanentFailures: 1,
+      correlationId,
+    });
+    expect(sendApnsNotificationReliably).toHaveBeenCalledTimes(1);
+  });
+
+  dbTest("durable APNs delivery is not cancelled by a client abort", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values (
+        'user-1',
+        ${"b".repeat(64)},
+        'ios',
+        'com.cmux.app',
+        'production'
+      )
+    `;
+    const controller = new AbortController();
+    const correlationId = "878aa598-9658-40e1-a8dd-d11885a8c0c8";
+    failIfSendReceivesAbortedSignal = true;
+    beforeNextSend = async () => {
+      controller.abort(new DOMException("client left", "AbortError"));
+    };
+
+    const response = await pushRoute.sendPushWithTransport(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          correlationId,
+        }),
+        signal: controller.signal,
+      }),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      sent: 1,
+      transientFailures: 0,
+      correlationId,
+    });
+    const [record] = await sql<{ leaseUntil: Date | null }[]>`
+      select lease_until as "leaseUntil"
+      from notification_send_events
+      where user_id = 'user-1' and correlation_id = ${correlationId}
+    `;
+    expect(record?.leaseUntil).toBeNull();
   });
 
   dbTest("takes over a stale retry lease without resending a recorded success", async () => {

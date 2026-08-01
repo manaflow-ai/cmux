@@ -34,6 +34,7 @@ actor PhonePushQueueStore {
     }
 
     func load(nowEpochSeconds: Int) throws -> [PhonePushRequestEnvelope] {
+        removeAbandonedTemporaryFiles()
         guard fileManager.fileExists(atPath: fileURL.path) else { return [] }
         let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
         let fileSize = (attributes[.size] as? NSNumber)?.intValue
@@ -88,6 +89,7 @@ actor PhonePushQueueStore {
         guard data.count <= Self.maximumFileBytes else {
             throw StoreError.fileTooLarge
         }
+        removeAbandonedTemporaryFiles()
         let temporaryURL = directoryURL.appendingPathComponent(
             ".\(fileURL.lastPathComponent).\(UUID().uuidString).tmp"
         )
@@ -105,6 +107,27 @@ actor PhonePushQueueStore {
         guard fileManager.fileExists(atPath: fileURL.path) else { return }
         try fileManager.removeItem(at: fileURL)
         try Self.synchronizeDirectory(at: fileURL.deletingLastPathComponent())
+    }
+
+    /// A crash between the temp write and the rename leaves a UUID-named
+    /// `.tmp` behind that no later save can target again, so without this
+    /// sweep repeated crashes grow the directory without bound. Every name
+    /// this store could have written is scoped by the live file's name, and
+    /// each save mints a fresh UUID, so sweeping before writing can never
+    /// touch the file about to be created.
+    private func removeAbandonedTemporaryFiles() {
+        let directoryURL = fileURL.deletingLastPathComponent()
+        let prefix = ".\(fileURL.lastPathComponent)."
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsSubdirectoryDescendants]
+        ) else { return }
+        for entry in entries
+        where entry.lastPathComponent.hasPrefix(prefix)
+            && entry.pathExtension == "tmp" {
+            try? fileManager.removeItem(at: entry)
+        }
     }
 
     private static func writeAndFullSync(_ data: Data, to url: URL) throws {
