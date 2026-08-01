@@ -276,6 +276,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B5A5E5580000000000000001 /* BrowserAppSessionStoreRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E5580000000000000002 /* BrowserAppSessionStoreRegistry.swift */; };
 		B5A5E5570000000000000001 /* BrowserAppSessionWeakReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E5570000000000000002 /* BrowserAppSessionWeakReference.swift */; };
 		D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */; };
+		AC7B24C10000000000000003 /* BrowserAuthCallbackNavigationDisposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC7B24C10000000000000004 /* BrowserAuthCallbackNavigationDisposition.swift */; };
+		AC7B24C10000000000000001 /* BrowserAuthCallbackNavigationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC7B24C10000000000000002 /* BrowserAuthCallbackNavigationPolicy.swift */; };
 		D7032A070000000000000001 /* BrowserAuthPromptTextFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A070000000000000002 /* BrowserAuthPromptTextFormatter.swift */; };
 		B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770BA00000000000000002 /* BrowserAutomation.swift */; };
 		8054A0050000000000000005 /* BrowserAutomationProbeChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8054A0060000000000000006 /* BrowserAutomationProbeChannel.swift */; };
@@ -2940,6 +2942,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B5A5E5580000000000000002 /* BrowserAppSessionStoreRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BrowserAppSession/BrowserAppSessionStoreRegistry.swift; sourceTree = "<group>"; };
 		B5A5E5570000000000000002 /* BrowserAppSessionWeakReference.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BrowserAppSession/BrowserAppSessionWeakReference.swift; sourceTree = "<group>"; };
 		D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
+		AC7B24C10000000000000004 /* BrowserAuthCallbackNavigationDisposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAuthCallbackNavigationDisposition.swift; sourceTree = "<group>"; };
+		AC7B24C10000000000000002 /* BrowserAuthCallbackNavigationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAuthCallbackNavigationPolicy.swift; sourceTree = "<group>"; };
 		D7032A070000000000000002 /* BrowserAuthPromptTextFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAuthPromptTextFormatter.swift; sourceTree = "<group>"; };
 		B3770BA00000000000000002 /* BrowserAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAutomation.swift; sourceTree = "<group>"; };
 		8054A0060000000000000006 /* BrowserAutomationProbeChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAutomationProbeChannel.swift; sourceTree = "<group>"; };
@@ -6538,6 +6542,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B424PWNP000000000000PW02 /* BrowserNavigationPolicy.swift */,
 				B424PNRQ0000000000000002 /* BrowserAddressBarFocusSelectionIntent.swift */,
 				B424PWRS000000000000PW02 /* BrowserPortalWebViewRenderingState.swift */,
+				AC7B24C10000000000000004 /* BrowserAuthCallbackNavigationDisposition.swift */,
+				AC7B24C10000000000000002 /* BrowserAuthCallbackNavigationPolicy.swift */,
 				D7032A070000000000000002 /* BrowserAuthPromptTextFormatter.swift */,
 				D7032A020000000000000002 /* BrowserClientCertificateAuthenticationController.swift */,
 				D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */,
@@ -8574,6 +8580,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B5A5E5560000000000000001 /* BrowserAppSessionStoreCleanupTarget.swift in Sources */,
 				B5A5E5580000000000000001 /* BrowserAppSessionStoreRegistry.swift in Sources */,
 				B5A5E5570000000000000001 /* BrowserAppSessionWeakReference.swift in Sources */,
+				AC7B24C10000000000000003 /* BrowserAuthCallbackNavigationDisposition.swift in Sources */,
+				AC7B24C10000000000000001 /* BrowserAuthCallbackNavigationPolicy.swift in Sources */,
 				D7032A070000000000000001 /* BrowserAuthPromptTextFormatter.swift in Sources */,
 				B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */,
 				8054A0050000000000000005 /* BrowserAutomationProbeChannel.swift in Sources */,
