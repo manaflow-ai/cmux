@@ -27,7 +27,9 @@ public struct SimulatorUIAutomationExecutor {
     ) async throws -> JSONValue {
         switch operation {
         case let .uiSnapshot(sinceScreenHash):
-            return try await coordinator.withUIAutomationTransaction {
+            return try await withSimulatorUIAutomationTransaction(
+                coordinator: coordinator
+            ) {
                 let previousRecord = try? coordinator.currentUIAutomationSnapshot(
                     nowMilliseconds: simulatorUIWallTimeNowMilliseconds()
                 )
@@ -49,11 +51,15 @@ public struct SimulatorUIAutomationExecutor {
                 return simulatorUISnapshotPayload(record.snapshot)
             }
         case let .uiWait(wait):
-            return try await coordinator.withUIAutomationTransaction {
+            return try await withSimulatorUIAutomationTransaction(
+                coordinator: coordinator
+            ) {
                 try await waitForSimulatorUI(wait, coordinator: coordinator)
             }
         case let .uiAction(action):
-            return try await coordinator.withUIAutomationTransaction {
+            return try await withSimulatorUIAutomationTransaction(
+                coordinator: coordinator
+            ) {
                 do {
                     return try await performSimulatorUIAction(
                         action,
@@ -66,7 +72,9 @@ public struct SimulatorUIAutomationExecutor {
                 }
             }
         case let .accessibilityTap(label, identifier, role):
-            return try await coordinator.withUIAutomationTransaction {
+            return try await withSimulatorUIAutomationTransaction(
+                coordinator: coordinator
+            ) {
                 do {
                     return try await performSimulatorAccessibilityTap(
                         label: label,
@@ -85,6 +93,27 @@ public struct SimulatorUIAutomationExecutor {
                 localized: "cli.simulator.error.uiOperationInvalid",
                 defaultValue: "The Simulator UI automation operation is invalid"
             ))
+        }
+    }
+
+    private func withSimulatorUIAutomationTransaction<Value>(
+        coordinator: SimulatorPaneCoordinator,
+        operation: @MainActor () async throws -> Value
+    ) async throws -> Value {
+        do {
+            return try await coordinator.withUIAutomationTransaction(operation)
+        } catch SimulatorUIAutomationTransactionError.busy {
+            throw SimulatorUIAutomationFailure(
+                code: "ui_automation_busy",
+                message: String(
+                    localized: "cli.simulator.error.uiAutomationBusy",
+                    defaultValue: "The Simulator UI automation queue is at capacity"
+                ),
+                recoveryHint: String(
+                    localized: "cli.simulator.recovery.retryAfterActiveOperation",
+                    defaultValue: "Retry after the active Simulator UI operation finishes"
+                )
+            )
         }
     }
 

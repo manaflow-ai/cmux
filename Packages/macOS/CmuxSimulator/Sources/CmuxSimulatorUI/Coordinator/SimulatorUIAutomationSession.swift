@@ -4,6 +4,8 @@ import Foundation
 /// Stores pane-scoped refs and serializes Simulator UI mutations.
 @MainActor
 final class SimulatorUIAutomationSession {
+    private static let maximumQueuedTransactionCount = 8
+
     private var record: SimulatorUIAutomationSnapshotRecord?
     private var nextSequence: UInt64 = 1
     private(set) var mutationGeneration: UInt64 = 0
@@ -147,6 +149,9 @@ final class SimulatorUIAutomationSession {
         guard transactionIsActive else {
             transactionIsActive = true
             return
+        }
+        guard waiters.count < Self.maximumQueuedTransactionCount else {
+            throw SimulatorUIAutomationTransactionError.busy
         }
 
         let id = UUID()

@@ -354,6 +354,14 @@ extension TerminalController {
                     defaultValue: "The Simulator operation was cancelled"
                 )
             ))
+        } catch SimulatorUIAutomationTransactionError.busy {
+            receipt.complete(.failed(
+                code: "ui_automation_busy",
+                message: String(
+                    localized: "cli.simulator.error.uiAutomationBusy",
+                    defaultValue: "The Simulator UI automation queue is at capacity"
+                )
+            ))
         } catch let failure as SimulatorUIAutomationFailure {
             receipt.complete(.failed(
                 code: failure.code,

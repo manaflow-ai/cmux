@@ -49847,6 +49847,23 @@
         }
       }
     },
+    "cli.simulator.error.uiAutomationBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI automation queue is at capacity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UIオートメーションの待機キューが上限に達しました"
+          }
+        }
+      }
+    },
     "cli.simulator.error.uiDirectionInvalid": {
       "extractionState": "manual",
       "localizations": {
@@ -53154,6 +53171,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用方法:\n  cmux simulator permissions list [bundle-id] [--surface <id|ref|index>]\n  cmux simulator permissions grant <permission> <bundle-id> [--value <value>] [--surface <id|ref|index>]\n  cmux simulator permissions revoke <permission> <bundle-id> [--surface <id|ref|index>]\n  cmux simulator permissions reset <permission|all> <bundle-id> [--surface <id|ref|index>]\n\n値: photos は limited、notifications は critical、location は always、inuse、never。"
+          }
+        }
+      }
+    },
+    "cli.simulator.recovery.retryAfterActiveOperation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry after the active Simulator UI operation finishes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のSimulator UI操作が完了してから再試行してください"
           }
         }
       }
