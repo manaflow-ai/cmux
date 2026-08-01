@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "UI test class or class/method, for example cmuxUITests/testSignInPairingAndWorkspaceShell"
+        description: "xcodebuild -only-testing id: Target, Target/Class, or Target/Class/method, for example cmuxUITests/cmuxUITests/testSignInPairingAndWorkspaceShell (a two-part Class/method form silently selects nothing)"
         required: false
         default: ""
       device_family:
@@ -382,6 +382,16 @@ jobs:
             XCODEBUILD_ARGS+=(-skip-testing:cmuxUITests)
           fi
           XCODEBUILD_ARGS+=(test)
+          # A test_filter that matches nothing is a SUCCESSFUL xcodebuild run
+          # ("Executed 0 tests", exit 0), so without this guard a typo'd filter
+          # (for example the Class/method form missing the target) turns the
+          # job green while running nothing.
+          filter_selected_zero_tests() {
+            local log_path="$1"
+            [ -n "${TEST_FILTER:-}" ] &&
+              grep -Eq "Executed 0 tests" "$log_path" &&
+              ! grep -Eq "Executed [1-9][0-9]* tests?," "$log_path"
+          }
           selected_tests_passed_despite_xcodebuild_status() {
             local log_path="$1"
             # The negative grep must catch BOTH XCTest failure output and Swift
@@ -401,6 +411,10 @@ jobs:
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
             if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
+              if filter_selected_zero_tests "$LOG_PATH"; then
+                echo "::error::test_filter '$TEST_FILTER' selected no tests (Executed 0 tests). Use the full Target/Class/method -only-testing form, e.g. cmuxUITests/cmuxUITests/testMethod." >&2
+                exit 1
+              fi
               exit 0
             fi
             status="${PIPESTATUS[0]}"
