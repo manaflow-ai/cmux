@@ -1691,6 +1691,7 @@ mod tests {
         let destination = public_session_snapshot(&mux).unwrap();
         let workspace_id = destination["workspaces"][0]["id"].as_str().unwrap();
         let screen_id = destination["screens"][0]["id"].as_str().unwrap();
+        let active_before_projection = mux.active_surface();
         let projected = dispatch(
             &mux,
             parsed_request(
@@ -1707,6 +1708,8 @@ mod tests {
             ),
         )
         .unwrap();
+        assert_eq!(projected["value"]["focused"], false);
+        assert_eq!(mux.active_surface(), active_before_projection);
         let projected_tab = projected["value"]["id"].as_str().unwrap().to_string();
         let placements = mux.with_state(|state| {
             state.placements_of_content(&ContentPublicId::Terminal(terminal_id.clone())).to_vec()
@@ -1773,7 +1776,30 @@ mod tests {
         )
         .unwrap();
         assert_eq!(reprojected["value"]["content_id"], terminal_id.as_str());
+        dispatch(
+            &mux,
+            parsed_request(
+                "terminal.project",
+                &selectors,
+                json!({
+                    "destination_workspace":workspace_id,
+                    "destination_screen":screen_id,
+                    "destination_pane":pane_id,
+                    "index":2,
+                    "name":"second mirror",
+                }),
+                Some("terminal-multiview-second-reproject"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            mux.with_state(|state| state
+                .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+                .len()),
+            2
+        );
 
+        let before_close = mux.with_state(|state| state.resource_revision);
         dispatch(
             &mux,
             parsed_request(
@@ -1784,6 +1810,27 @@ mod tests {
             ),
         )
         .unwrap();
+        let close_events = mux.resource_events_after(before_close).unwrap();
+        assert_eq!(close_events.batches.len(), 1);
+        let close_changes = close_events.batches[0].changes.as_array().unwrap();
+        assert_eq!(
+            close_changes
+                .iter()
+                .filter(|change| {
+                    change["kind"] == "delete"
+                        && change["resource"] == "terminal"
+                        && change["id"] == terminal_id.as_str()
+                })
+                .count(),
+            1
+        );
+        assert_eq!(
+            close_changes
+                .iter()
+                .filter(|change| change["kind"] == "delete" && change["resource"] == "tab")
+                .count(),
+            2
+        );
         assert!(
             public_session_snapshot(&mux).unwrap()["terminals"]
                 .as_array()

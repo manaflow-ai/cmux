@@ -1094,6 +1094,7 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let sizing_workspace = json_cli(&server, &["workspace", "create", "--name", "cli-test"]);
     assert_success(&sizing_workspace);
     let created = json_output(&sizing_workspace);
+    let workspace_id = created["value"]["workspace_id"].as_str().unwrap().to_string();
     let screen_id = created["value"]["screen_id"].as_str().unwrap().to_string();
     let pane0 = created["value"]["pane_id"].as_str().unwrap().to_string();
     let terminal = created["value"]["terminal_id"].as_str().unwrap().to_string();
@@ -1199,6 +1200,46 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let split = json_cli(&server, &["pane", &pane0, "split", "--right"]);
     assert_success(&split);
     let pane1 = json_output(&split)["value"]["pane_id"].as_str().unwrap().to_string();
+    let projected = json_cli(
+        &server,
+        &[
+            "terminal",
+            &terminal,
+            "project",
+            "--workspace",
+            &workspace_id,
+            "--screen",
+            &screen_id,
+            "--pane",
+            &pane1,
+            "--index",
+            "0",
+            "--name",
+            "mirror",
+        ],
+    );
+    assert_success(&projected);
+    let projected = json_output(&projected);
+    assert_eq!(projected["value"]["focused"], false);
+    let projected_tab = projected["value"]["id"].as_str().unwrap();
+    let terminals = json_cli(&server, &["terminal", "list"]);
+    assert_success(&terminals);
+    let terminals = json_output(&terminals);
+    let source =
+        terminals.as_array().unwrap().iter().find(|candidate| candidate["id"] == terminal).unwrap();
+    assert_eq!(source["tab_ids"].as_array().unwrap().len(), 2);
+    let snapshot = json_cli(&server, &["session", "current", "snapshot"]);
+    assert_success(&snapshot);
+    let focused_tab = json_output(&snapshot)["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["pane_id"] == pane1 && tab["focused"] == true)
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_ne!(focused_tab, projected_tab);
 
     let new_pane = json_cli(
         &server,
@@ -1795,6 +1836,7 @@ fn layout_split_ratio(node: &serde_json::Value, split_id: &str) -> Option<f64> {
     }
 }
 
+#[track_caller]
 fn assert_success(output: &Output) {
     assert!(
         output.status.success(),

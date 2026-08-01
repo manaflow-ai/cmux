@@ -71,6 +71,12 @@ impl Mux {
                 let pane = destination.pane.context("destination pane is not live")?;
                 let pane_id = destination.path.pane.context("destination omitted its pane id")?;
                 let topology = registry.resource_topology_snapshot()?;
+                let mut destination_pane = topology
+                    .panes
+                    .iter()
+                    .find(|candidate| candidate.public_id == pane_id)
+                    .cloned()
+                    .context("destination pane has no durable projection")?;
                 let host = mux
                     .resource_terminal_host_identity(&terminal)
                     .context("terminal omitted its durable host identity")?;
@@ -84,6 +90,11 @@ impl Mux {
                 projected.set_name(name.clone());
 
                 let mut tabs = ordered_tabs(&topology.tabs, &pane_id);
+                let focused = tabs.is_empty();
+                anyhow::ensure!(
+                    focused == destination_pane.active_tab.is_none(),
+                    "destination pane active-tab projection is inconsistent"
+                );
                 let final_index = index.min(tabs.len());
                 tabs.insert(
                     final_index,
@@ -100,11 +111,15 @@ impl Mux {
                 reindex_tabs(&mut tabs, &pane_id);
                 let projected_tab = tabs[final_index].clone();
                 let tab_ids = tabs.iter().map(|tab| tab.public_id.clone()).collect::<Vec<_>>();
+                if focused {
+                    destination_pane.active_tab = Some(tab_id.clone());
+                }
                 let value = json!({
                     "id":tab_id,
                     "pane_id":pane_id,
                     "index":final_index,
                     "name":name,
+                    "focused":focused,
                     "content_kind":"terminal",
                     "content_id":terminal_id,
                 });
@@ -120,6 +135,13 @@ impl Mux {
                     "id":tab_id,
                     "value":value,
                 }]);
+
+                let mut patch_changes = Vec::with_capacity(if focused { 3 } else { 2 });
+                if focused {
+                    patch_changes.push(ResourceChange::UpsertPane(destination_pane));
+                }
+                patch_changes.push(ResourceChange::UpsertTab(projected_tab));
+                patch_changes.push(ResourceChange::SetTabOrder { pane_id, tab_ids });
 
                 state.surfaces.try_reserve(1)?;
                 state.resource_indexes.tabs.try_reserve(1)?;
@@ -143,22 +165,22 @@ impl Mux {
                     .try_reserve(1)?;
 
                 Ok(ResourceMutationPlan::new(
-                    ResourcePatch {
-                        changes: vec![
-                            ResourceChange::UpsertTab(projected_tab),
-                            ResourceChange::SetTabOrder { pane_id, tab_ids },
-                        ],
-                    },
+                    ResourcePatch { changes: patch_changes },
                     result,
                     deltas,
                     move |state| {
                         state.surfaces.insert(surface_id, projected);
-                        state
+                        let destination = state
                             .panes
                             .get_mut(&pane)
-                            .expect("reserved destination pane remains live")
-                            .tabs
-                            .insert(final_index, surface_id);
+                            .expect("reserved destination pane remains live");
+                        if focused {
+                            debug_assert!(destination.tabs.is_empty());
+                            destination.active_tab = 0;
+                        } else if final_index <= destination.active_tab {
+                            destination.active_tab += 1;
+                        }
+                        destination.tabs.insert(final_index, surface_id);
                         state.resource_indexes.tabs.insert(tab_id.clone(), surface_id);
                         state.resource_indexes.tab_ids.insert(surface_id, tab_id);
                         if let Some(placements) = new_content_placements {
@@ -761,6 +783,7 @@ impl Mux {
                                 "pane_id":tab.pane_id,
                                 "index":tab.position,
                                 "name":tab.name,
+                                "focused":pane.active_tab == position,
                                 "content_kind":content_kind,
                                 "content_id":tab.content_id.as_str(),
                             }),
@@ -887,18 +910,24 @@ impl Mux {
                 .map(|workspace| workspace.public_id.clone()),
         });
 
+        let mut tombstoned_terminals = HashSet::new();
+        let mut tombstoned_browsers = HashSet::new();
         for tab in &before.tabs {
             if !live_tabs.contains(&tab.public_id) {
                 changes.push(ResourceChange::TombstoneTab { tab_id: tab.public_id.clone() });
             }
             match &tab.content_id {
-                ContentPublicId::Terminal(id) if !live_terminals.contains(id) => {
+                ContentPublicId::Terminal(id)
+                    if !live_terminals.contains(id) && tombstoned_terminals.insert(id.clone()) =>
+                {
                     changes.push(ResourceChange::TombstoneTerminal {
                         public_id: id.clone(),
                         expected_incarnation: None,
                     });
                 }
-                ContentPublicId::Browser(id) if !live_browsers.contains(id) => {
+                ContentPublicId::Browser(id)
+                    if !live_browsers.contains(id) && tombstoned_browsers.insert(id.clone()) =>
+                {
                     changes.push(ResourceChange::TombstoneBrowser { public_id: id.clone() });
                 }
                 _ => {}
@@ -938,12 +967,15 @@ impl Mux {
                 "value":value,
             }));
         }
+        let mut deleted_content = HashSet::new();
         for tab in &before.tabs {
             let (kind, id) = match &tab.content_id {
                 ContentPublicId::Terminal(id) => ("terminal", id.as_str()),
                 ContentPublicId::Browser(id) => ("browser", id.as_str()),
             };
-            if !live_keys.contains(&(kind.to_string(), id.to_string())) {
+            if !live_keys.contains(&(kind.to_string(), id.to_string()))
+                && deleted_content.insert((kind, id))
+            {
                 push_delete_delta(&mut deltas, kind, id);
             }
             if !live_keys.contains(&("tab".to_string(), tab.public_id.to_string())) {
@@ -1186,11 +1218,15 @@ fn move_deltas(
         push_pane_delta(&mut changes, target_pane, true);
     }
     for tab in source_tabs {
-        push_tab_delta(&mut changes, tab);
+        push_tab_delta(&mut changes, tab, source_pane.active_tab.as_ref() == Some(&tab.public_id));
     }
     if !same_pane {
         for tab in target_tabs {
-            push_tab_delta(&mut changes, tab);
+            push_tab_delta(
+                &mut changes,
+                tab,
+                target_pane.active_tab.as_ref() == Some(&tab.public_id),
+            );
         }
     }
     changes
@@ -1213,7 +1249,7 @@ fn push_pane_delta(changes: &mut Vec<Value>, pane: &RegistryPane, focused: bool)
     }));
 }
 
-fn push_tab_delta(changes: &mut Vec<Value>, tab: &RegistryTab) {
+fn push_tab_delta(changes: &mut Vec<Value>, tab: &RegistryTab, focused: bool) {
     let sequence = changes.len();
     let content_kind = match &tab.content_id {
         ContentPublicId::Terminal(_) => "terminal",
@@ -1229,6 +1265,7 @@ fn push_tab_delta(changes: &mut Vec<Value>, tab: &RegistryTab) {
             "pane_id": tab.pane_id,
             "index": tab.position,
             "name": tab.name,
+            "focused": focused,
             "content_kind": content_kind,
             "content_id": tab.content_id.as_str(),
         },
