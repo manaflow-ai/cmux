@@ -945,7 +945,7 @@ cmux_computer_use_auth_token() {
     printf '%s' "$token"
 }
 
-cmux_computer_use_config() {
+cmux_claude_computer_use_enabled_for_invocation() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
     cmux_claude_sideload_flags_disabled && return 1
     local arg
@@ -958,6 +958,24 @@ cmux_computer_use_config() {
                 ;;
         esac
     done
+    return 0
+}
+
+cmux_claude_computer_use_plugin_dir() {
+    # Claude's --plugin-dir is session-only. Derive the plugin solely from this
+    # wrapper's signed app resources so no global Claude or shared agent config
+    # is created or modified.
+    local self_dir resource_dir plugin_dir
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
+    resource_dir="${self_dir%/bin}"
+    plugin_dir="$resource_dir/cmux-computer-use"
+    [[ -f "$plugin_dir/.claude-plugin/plugin.json" ]] || return 1
+    [[ -f "$plugin_dir/SKILL.md" ]] || return 1
+    printf '%s' "$plugin_dir"
+}
+
+cmux_computer_use_config() {
+    cmux_claude_computer_use_enabled_for_invocation "$@" || return 1
     local client state_dir default_session cua_socket runtime_scope runtime_uid auth_token
     client="$(cmux_computer_use_resolve_client)" || return 1
     auth_token="$(cmux_computer_use_auth_token)" || return 1
@@ -982,12 +1000,10 @@ cmux_computer_use_config() {
 }
 
 cmux_claude_install_computer_use_skill() {
-    # Claude discovers user-wide skills under ~/.agents/skills. Keep the source
-    # inside the signed cmux app and link it instead of copying stale versions.
-    # Never replace a real directory or a symlink the user owns. The Codex
-    # wrapper maintains the identical link; both writers stay idempotent so
-    # whichever agent launches first (or after a tag cleanup dangles the link)
-    # repairs it for every agent.
+    # Explicit opt-in only. Normal cmux sessions use Claude's session-scoped
+    # --plugin-dir and never write to global skill directories. Preserve this
+    # installer for users who deliberately set
+    # CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1.
     local home="${HOME:-}"
     [[ "$home" = /* ]] || return 1
     local self_dir resource_dir source_dir skills_root destination target
@@ -1334,14 +1350,24 @@ process.stdout.write(JSON.stringify(acc));
     unset CMUX_MERGED_SETTINGS cmux_merge_status
 fi
 
-# Skill discovery does not depend on the helper or its daemon being ready.
-# Install the signed app-bundled ~/.agents/skills link before resolving MCP
-# config so the first Claude session can name cmux Computer Use even while
-# onboarding is still preparing the standalone helper — and so a link left
-# dangling by a removed dev build is repaired without waiting for a Codex
-# session to do it.
-if [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" != "1" ]] && ! cmux_claude_sideload_flags_disabled; then
+# Global discovery is available only through deliberate opt-in. The ordinary
+# cmux path below is session-local and leaves ~/.agents and ~/.claude untouched.
+if [[ "${CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL:-0}" == "1" ]] \
+      && cmux_claude_computer_use_enabled_for_invocation "$@"; then
     cmux_claude_install_computer_use_skill || true
+fi
+
+# Load the app-bundled skill for this Claude process only. This is independent
+# of helper readiness, so Claude can explain onboarding even before the MCP
+# daemon is attachable. Managed disableSideloadFlags and strict MCP invocations
+# remain fully inert.
+CMUX_COMPUTER_USE_PLUGIN_DIR=""
+if cmux_claude_computer_use_enabled_for_invocation "$@"; then
+    CMUX_COMPUTER_USE_PLUGIN_DIR="$(cmux_claude_computer_use_plugin_dir 2>/dev/null)" \
+        || CMUX_COMPUTER_USE_PLUGIN_DIR=""
+fi
+if [[ -n "$CMUX_COMPUTER_USE_PLUGIN_DIR" ]]; then
+    set -- "--plugin-dir" "$CMUX_COMPUTER_USE_PLUGIN_DIR" "$@"
 fi
 
 # Attach the cmux computer use MCP server. Prepended so a user-supplied
