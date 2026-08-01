@@ -6586,7 +6586,7 @@ final class cmuxUITests: XCTestCase {
         let app = try launchConnectedApp(port: port)
         XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
         let field = app.descendants(matching: .any)[Composer.field]
-        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        XCTAssertTrue(waitForHittable(field, timeout: 4))
 
         field.tap()
         waitForDock(in: app, describe: "composer owns the visible keyboard before photo picker") {

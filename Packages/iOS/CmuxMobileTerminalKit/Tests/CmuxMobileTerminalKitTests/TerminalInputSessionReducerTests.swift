@@ -82,6 +82,32 @@ import Testing
         #expect(resolved.commands == [.focus(.terminal)])
     }
 
+    @Test func staleArtifactSnapshotDefersWhenAPathCouldHaveAppearedAfterTheCache() {
+        let staleSnapshot = TerminalInputTapIntent.artifactAware(
+            artifactDetectionEnabled: true,
+            currentSnapshotGeneration: 42,
+            cachedSnapshotGeneration: 41,
+            cachedSnapshotContainsCandidate: false
+        )
+        #expect(staleSnapshot == .deferForArtifactDecision)
+
+        let missingSnapshot = TerminalInputTapIntent.artifactAware(
+            artifactDetectionEnabled: true,
+            currentSnapshotGeneration: 42,
+            cachedSnapshotGeneration: nil,
+            cachedSnapshotContainsCandidate: false
+        )
+        #expect(missingSnapshot == .deferForArtifactDecision)
+
+        let freshTerminalCell = TerminalInputTapIntent.artifactAware(
+            artifactDetectionEnabled: true,
+            currentSnapshotGeneration: 42,
+            cachedSnapshotGeneration: 42,
+            cachedSnapshotContainsCandidate: false
+        )
+        #expect(freshTerminalCell == .immediateInput)
+    }
+
     @Test func terminalComposerHandoffHasOneRequestedAndActualOwner() {
         var state = TerminalInputSessionState()
 
@@ -182,6 +208,27 @@ import Testing
         let active = state.handle(.sceneDidBecomeActive)
         #expect(state.scenePhase == .active)
         #expect(active.commands == [.focus(.composer)])
+    }
+
+    @Test func surfaceDetachClearsInputWithoutMisreportingTheActiveScene() {
+        var state = TerminalInputSessionState()
+        _ = state.handle(.requestFocus(.terminal))
+        _ = state.handle(.focusCompleted(owner: .terminal, succeeded: true))
+
+        let detached = state.handle(.surfaceDetached)
+        #expect(state.scenePhase == .active)
+        #expect(state.requestedOwner == nil)
+        #expect(state.actualOwner == .terminal)
+        #expect(detached.commands == [.resign(.terminal)])
+    }
+
+    @Test func lifecycleBoundaryFocusesARetainedComposerRequestAfterMount() {
+        var state = TerminalInputSessionState()
+        _ = state.handle(.requestFocus(.composer))
+        _ = state.handle(.focusCompleted(owner: .composer, succeeded: false))
+
+        let mounted = state.handle(.lifecycleBoundary)
+        #expect(mounted.commands == [.focus(.composer)])
     }
 
     @Test func responderObservationCannotLeaveAnOwnerActiveUnderAModal() {
