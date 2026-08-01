@@ -124,7 +124,9 @@ struct MobileIrohRuntimeCompositionTests {
     #if DEBUG
     @Test
     func debugTransportModePersistsAndRebindsWithoutRotatingIdentity() async throws {
-        let fixture = try await MobileIrohSignOutFixture.make()
+        let fixture = try await MobileIrohSignOutFixture.make(
+            activatesRuntime: true
+        )
         let initialBindCount = await fixture.endpointFactory.bindCount()
         #expect(fixture.endpointFactoryModes.modes == [.automatic])
 
@@ -1317,11 +1319,14 @@ private struct MobileIrohSignOutFixture {
     ///     store (Keychain locked before first unlock). Activation must then
     ///     defer instead of registering a binding under an ephemeral id, so no
     ///     endpoint is bound.
+    ///   - activatesRuntime: When `true`, the endpoint and broker fakes complete
+    ///     activation so tests can exercise active-runtime restarts.
     ///   - brokerFactory: Overrides the composition's broker factory so a test
     ///     can observe the token source handed to each direct broker (e.g. the
     ///     forget flow's). `nil` keeps the fixture's standard revocation broker.
     static func make(
         resolvableDeviceID: Bool = true,
+        activatesRuntime: Bool = false,
         brokerFactory: MobileIrohRuntimeComposition.BrokerFactory? = nil
     ) async throws -> Self {
         let suiteName = "MobileIrohRuntimeCompositionTests.signout.\(UUID().uuidString)"
@@ -1429,9 +1434,28 @@ private struct MobileIrohSignOutFixture {
         )
 
         let outbox = CmxIrohPendingRevocationOutbox(secureStore: outboxStore)
-        let endpointFactory = MobileIrohCountingEndpointFactory()
+        let endpointFactory = MobileIrohCountingEndpointFactory(
+            identity: activatesRuntime ? endpointID : nil
+        )
         let endpointFactoryModes = MobileIrohEndpointFactoryModeRecorder()
-        let broker = MobileIrohRevocationBroker()
+        let activationDiscovery = if activatesRuntime {
+            try mobileIrohDiscovery(bindings: [
+                mobileIrohBinding(
+                    bindingID: bindingID,
+                    deviceID: deviceID,
+                    appInstanceID: appInstanceID,
+                    endpointID: endpointID.endpointID,
+                    platform: "ios",
+                    pairingEnabled: false,
+                    capabilities: ["mobile-rpc-v1", "multistream-v1"]
+                ),
+            ])
+        } else {
+            nil
+        }
+        let broker = MobileIrohRevocationBroker(
+            activationDiscovery: activationDiscovery
+        )
         let stableDeviceID = deviceID
         let composition = MobileIrohRuntimeComposition(
             appInstances: appInstances,
@@ -1466,10 +1490,15 @@ private struct MobileIrohSignOutFixture {
             expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174074",
             authorizationMode: .transportAdmission
         )
-        await expectRetryAwarePreparationFailure(
-            kind: resolvableDeviceID ? nil : .endpointUnavailable
-        ) {
-            _ = try await composition.transport(for: request)
+        if activatesRuntime {
+            await composition.prepareForConnection()
+            #expect(composition.runtime != nil)
+        } else {
+            await expectRetryAwarePreparationFailure(
+                kind: resolvableDeviceID ? nil : .endpointUnavailable
+            ) {
+                _ = try await composition.transport(for: request)
+            }
         }
         let initialBindCount = await endpointFactory.bindCount()
         // A resolvable durable id activates and binds an endpoint; an
@@ -1663,16 +1692,55 @@ private final class MobileIrohDataSequence: @unchecked Sendable {
 }
 
 private actor MobileIrohCountingEndpointFactory: CmxIrohEndpointFactory {
+    private let identity: CmxIrohPeerIdentity?
     private var count = 0
+
+    init(identity: CmxIrohPeerIdentity? = nil) {
+        self.identity = identity
+    }
 
     func bind(
         configuration _: CmxIrohEndpointConfiguration
     ) throws -> any CmxIrohEndpoint {
         count += 1
-        throw MobileIrohSignOutTestError.unavailable
+        guard let identity else {
+            throw MobileIrohSignOutTestError.unavailable
+        }
+        return MobileIrohCountingEndpoint(identity: identity)
     }
 
     func bindCount() -> Int { count }
+}
+
+private actor MobileIrohCountingEndpoint: CmxIrohEndpoint {
+    private let peerIdentity: CmxIrohPeerIdentity
+
+    init(identity: CmxIrohPeerIdentity) {
+        peerIdentity = identity
+    }
+
+    func identity() -> CmxIrohPeerIdentity { peerIdentity }
+
+    func address() -> CmxIrohEndpointAddress {
+        CmxIrohEndpointAddress(identity: peerIdentity, pathHints: [])
+    }
+
+    func connect(
+        to _: CmxIrohEndpointAddress,
+        alpn _: Data
+    ) throws -> any CmxIrohConnection {
+        throw MobileIrohSignOutTestError.unavailable
+    }
+
+    func accept() -> (any CmxIrohConnection)? { nil }
+    func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
+
+    func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> {
+        AsyncStream { $0.finish() }
+    }
+
+    func isHealthy() -> Bool { true }
+    func close() {}
 }
 
 @MainActor
@@ -1685,17 +1753,32 @@ private final class MobileIrohEndpointFactoryModeRecorder {
 }
 
 private actor MobileIrohRevocationBroker: CmxIrohClientBrokerServing {
+    private let activationDiscovery: CmxIrohDiscoveryResponse?
     private var bindingIDs: [String] = []
+
+    init(activationDiscovery: CmxIrohDiscoveryResponse? = nil) {
+        self.activationDiscovery = activationDiscovery
+    }
 
     func register(
         prepared _: CmxIrohPreparedRegistration,
         signer _: CmxIrohRegistrationSigner
     ) throws -> CmxIrohRegistrationResponse {
-        throw MobileIrohSignOutTestError.unavailable
+        guard let activationDiscovery,
+              let binding = activationDiscovery.bindings.first else {
+            throw MobileIrohSignOutTestError.unavailable
+        }
+        return CmxIrohRegistrationResponse(
+            binding: binding,
+            relay: .unavailable
+        )
     }
 
     func discover() throws -> CmxIrohDiscoveryResponse {
-        throw MobileIrohSignOutTestError.unavailable
+        guard let activationDiscovery else {
+            throw MobileIrohSignOutTestError.unavailable
+        }
+        return activationDiscovery
     }
 
     func issuePairGrant(
@@ -1928,6 +2011,7 @@ private func mobileIrohBinding(
     platform: String,
     pairingEnabled: Bool,
     tag: String = "test",
+    capabilities: [String] = ["mobile-rpc-v1"],
     lastSeenAt: String = "2027-07-10T12:00:00.000Z",
     pathHints: [[String: Any]] = []
 ) -> [String: Any] {
@@ -1940,7 +2024,7 @@ private func mobileIrohBinding(
         "endpoint_id": endpointID,
         "identity_generation": 1,
         "pairing_enabled": pairingEnabled,
-        "capabilities": ["mobile-rpc-v1"],
+        "capabilities": capabilities,
         "path_hints": pathHints,
         "last_seen_at": lastSeenAt,
     ]
