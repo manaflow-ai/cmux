@@ -514,6 +514,31 @@ describe("ResendClient error handling", () => {
     }
   });
 
+  test("a cancel signal stops in-flight requests and pending backoff", async () => {
+    const abort = new AbortController();
+    let calls = 0;
+    const rateLimitedFetch: FetchLike = async () => {
+      calls += 1;
+      return {
+        status: 429,
+        headers: { get: (name: string) => (name === "retry-after" ? "4" : null) },
+        text: async () => JSON.stringify({ message: "rate limited" }),
+      };
+    };
+    const cancellable = new ResendClient({
+      apiKey: "re_test",
+      fetchImpl: rateLimitedFetch,
+      writeSpacingMs: 0,
+      cancelSignal: abort.signal,
+    });
+    const pending = cancellable.listSegments();
+    // Cancel while the client is sleeping in 429 backoff; without signal
+    // threading this would keep retrying for several more seconds.
+    setTimeout(() => abort.abort(), 20);
+    await expect(pending).rejects.toThrow(/cancelled/);
+    expect(calls).toBe(1);
+  });
+
   test("aborts a stalled request at the configured timeout", async () => {
     const neverFetch: FetchLike = (_url, init) =>
       new Promise((_, reject) => {

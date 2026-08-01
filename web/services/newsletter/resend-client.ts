@@ -80,8 +80,28 @@ const MAX_ATTEMPTS = 5;
 const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_RETRY_AFTER_MS = 5_000;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function cancelledError(label: string): ResendApiError {
+  return new ResendApiError(`Resend ${label} cancelled by caller`, 0);
+}
+
+// Signal-aware sleep: rejects immediately when the cancel signal fires so
+// throttle pacing and 429 backoff cannot outlive a cancelled operation.
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(cancelledError("wait"));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(cancelledError("wait"));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 type ListResponse<T> = {
@@ -103,6 +123,7 @@ export class ResendClient {
   private readonly writeSpacingMs: number;
   private readonly requestTimeoutMs: number;
   private readonly maxRetryAfterMs: number;
+  private readonly cancelSignal: AbortSignal | undefined;
   private lastWriteAt = 0;
 
   constructor(options: {
@@ -111,12 +132,18 @@ export class ResendClient {
     writeSpacingMs?: number;
     requestTimeoutMs?: number;
     maxRetryAfterMs?: number;
+    // When provided, aborting this signal cancels in-flight requests AND
+    // pending throttle/backoff waits, so a deadline-bounded caller (the
+    // Stripe webhook) does not leave a detached retry loop running after
+    // it gives up.
+    cancelSignal?: AbortSignal;
   }) {
     this.apiKey = options.apiKey;
     this.fetchImpl = options.fetchImpl ?? (fetch as unknown as FetchLike);
     this.writeSpacingMs = options.writeSpacingMs ?? WRITE_SPACING_MS;
     this.requestTimeoutMs = options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
     this.maxRetryAfterMs = options.maxRetryAfterMs ?? MAX_RETRY_AFTER_MS;
+    this.cancelSignal = options.cancelSignal;
   }
 
   private async request<T>(
@@ -126,7 +153,12 @@ export class ResendClient {
   ): Promise<T> {
     const label = options.redactedLabel ?? path;
     for (let attempt = 1; ; attempt += 1) {
+      if (this.cancelSignal?.aborted) {
+        throw cancelledError(`${method} ${label}`);
+      }
       const abort = new AbortController();
+      const onCancel = () => abort.abort();
+      this.cancelSignal?.addEventListener("abort", onCancel, { once: true });
       const timer = setTimeout(() => abort.abort(), this.requestTimeoutMs);
       let response: Awaited<ReturnType<FetchLike>>;
       let text: string;
@@ -144,6 +176,9 @@ export class ResendClient {
         });
         text = await response.text();
       } catch (cause) {
+        if (this.cancelSignal?.aborted) {
+          throw cancelledError(`${method} ${label}`);
+        }
         if (abort.signal.aborted) {
           throw new ResendApiError(
             `Resend ${method} ${label} timed out after ${this.requestTimeoutMs}ms`,
@@ -153,13 +188,17 @@ export class ResendClient {
         throw cause;
       } finally {
         clearTimeout(timer);
+        this.cancelSignal?.removeEventListener("abort", onCancel);
       }
       if (response.status === 429 && attempt < MAX_ATTEMPTS) {
         const retryAfter = Number(response.headers.get("retry-after"));
         const suggestedMs = Number.isFinite(retryAfter) && retryAfter > 0
           ? retryAfter * 1000
           : 1000 * attempt;
-        await sleep(Math.min(suggestedMs, this.maxRetryAfterMs));
+        await sleep(
+          Math.min(suggestedMs, this.maxRetryAfterMs),
+          this.cancelSignal,
+        );
         continue;
       }
       let parsed: unknown = null;
@@ -208,7 +247,7 @@ export class ResendClient {
     const now = Date.now();
     const waitMs = this.lastWriteAt + this.writeSpacingMs - now;
     if (waitMs > 0) {
-      await sleep(waitMs);
+      await sleep(waitMs, this.cancelSignal);
     }
     this.lastWriteAt = Date.now();
     return this.request<T>(method, path, options);

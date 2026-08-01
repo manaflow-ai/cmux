@@ -48,7 +48,16 @@ export async function listStackContacts(options: {
   const seenCursors = new Set<string>();
 
   for (;;) {
-    const query = new URLSearchParams({ limit: String(PAGE_LIMIT) });
+    // include_restricted covers users who signed up but have not finished
+    // every onboarding requirement (Stack omits them by default). The
+    // verified-primary-email filter below still applies, so unverified
+    // restricted users are counted and skipped rather than silently
+    // invisible. Anonymous users are deliberately NOT requested: they never
+    // signed up with an email.
+    const query = new URLSearchParams({
+      limit: String(PAGE_LIMIT),
+      include_restricted: "true",
+    });
     if (cursor) {
       query.set("cursor", cursor);
     }

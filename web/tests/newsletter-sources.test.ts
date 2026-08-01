@@ -29,6 +29,9 @@ function fetchScript(
 describe("listStackContacts", () => {
   test("pages through the whole user list and filters unverified emails", async () => {
     const { fetchImpl, calls } = fetchScript((url) => {
+      // Restricted (not fully onboarded) users must be requested explicitly
+      // or verified signups mid-onboarding would be silently omitted.
+      expect(url).toContain("include_restricted=true");
       if (!url.includes("cursor=")) {
         return {
           body: {

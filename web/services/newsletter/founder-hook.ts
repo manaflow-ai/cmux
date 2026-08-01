@@ -33,25 +33,26 @@ export type FounderContactUpsertResult = {
     | "skipped_missing_segment";
 };
 
-// Bound a best-effort promise with a wall-clock deadline. The underlying
-// work is not cancelled (fetches carry their own per-request timeout), but
-// the caller regains control on time and can answer the webhook.
+// Bound a best-effort promise with a wall-clock deadline. When the deadline
+// fires, the provided controller is aborted so the underlying work
+// (in-flight requests, throttle pacing, 429 backoff in ResendClient) stops
+// instead of continuing detached after the caller has answered the webhook.
 export async function withDeadline<T>(
   work: Promise<T>,
   deadlineMs: number,
+  abortOnTimeout?: AbortController,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       work,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(
-              new Error(`newsletter upsert exceeded ${deadlineMs}ms deadline`),
-            ),
-          deadlineMs,
-        );
+        timer = setTimeout(() => {
+          abortOnTimeout?.abort();
+          reject(
+            new Error(`newsletter upsert exceeded ${deadlineMs}ms deadline`),
+          );
+        }, deadlineMs);
       }),
     ]);
   } finally {

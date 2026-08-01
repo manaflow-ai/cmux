@@ -188,12 +188,35 @@ describe("founders welcome segment upsert", () => {
     const response = await POST(signedRequest(body));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, upserted: true });
+    expect(await response.json()).toEqual({ ok: true, upsert: "completed" });
     // No second welcome email: only the segment upsert runs on this event.
     expect(resendSend).not.toHaveBeenCalled();
     expect(upsertCalls).toEqual([
       { email: "customer@example.com", customerName: "Ada Lovelace" },
     ]);
+  });
+
+  test("async_payment_succeeded reports a failed upsert honestly", async () => {
+    upsertError = new Error("resend down");
+    const body = JSON.stringify({
+      id: "evt_async",
+      type: "checkout.session.async_payment_succeeded",
+      data: {
+        object: {
+          id: "cs_test_async",
+          metadata: { founders_edition: "true" },
+          payment_status: "paid",
+          customer_details: { email: "customer@example.com" },
+        },
+      },
+    });
+
+    const response = await POST(signedRequest(body));
+
+    // Still a 200 acknowledgement (best-effort contract), but the body
+    // does not claim success.
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, upsert: "failed" });
   });
 
   test("async_payment_succeeded for a non-founder session does nothing", async () => {

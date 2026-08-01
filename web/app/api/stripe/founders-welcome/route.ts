@@ -156,12 +156,12 @@ export async function POST(request: Request) {
         ) {
           return NextResponse.json({ ok: true, skipped: "async_payment" });
         }
-        await upsertFounderBestEffort(span, config, {
+        const upsert = await upsertFounderBestEffort(span, config, {
           email: asyncEmail,
           customerName: asyncSession?.customer_details?.name,
         });
         return NextResponse.json(
-          { ok: true, upserted: true },
+          { ok: true, upsert },
           { headers: { "Cache-Control": "no-store" } },
         );
       }
@@ -259,32 +259,42 @@ export async function POST(request: Request) {
 // Best-effort, deadline-bounded newsletter segment upsert. Never throws: a
 // Resend failure is logged and recorded on the span, but must not turn an
 // already-acknowledged purchase event into a webhook error and a Stripe
-// retry storm. The manual reconciliation sync is the catch-up.
+// retry storm. The deadline aborts the underlying Resend work (requests,
+// pacing, backoff) so nothing keeps running after the webhook answers, and
+// the manual reconciliation sync is the catch-up. Returns "completed" or
+// "failed" so callers never report a failed upsert as successful.
 async function upsertFounderBestEffort(
   span: Parameters<typeof setSpanAttributes>[0],
   config: FoundersConfig,
   buyer: { email: string; customerName?: string | null },
-): Promise<void> {
+): Promise<"completed" | "failed"> {
   try {
+    const abort = new AbortController();
     const results = await withDeadline(
       upsertFounderIntoSegments({
-        client: new ResendClient({ apiKey: config.resendApiKey }),
+        client: new ResendClient({
+          apiKey: config.resendApiKey,
+          cancelSignal: abort.signal,
+        }),
         email: buyer.email,
         customerName: buyer.customerName,
       }),
       NEWSLETTER_UPSERT_DEADLINE_MS,
+      abort,
     );
     setSpanAttributes(span, {
       "cmux.newsletter.segment_outcomes": results
         .map((result) => `${result.segmentName}:${result.outcome}`)
         .join(","),
     });
+    return "completed";
   } catch (segmentError) {
     recordSpanError(span, segmentError);
     console.error(
       "stripe.founders_welcome.segment_upsert_failed",
       segmentError,
     );
+    return "failed";
   }
 }
 

@@ -178,4 +178,21 @@ describe("withDeadline", () => {
     const stalled = new Promise<never>(() => {});
     await expect(withDeadline(stalled, 20)).rejects.toThrow(/deadline/);
   });
+
+  test("aborts the provided controller when the deadline fires", async () => {
+    const abort = new AbortController();
+    const stalled = new Promise<never>(() => {});
+    await expect(withDeadline(stalled, 20, abort)).rejects.toThrow(
+      /deadline/,
+    );
+    expect(abort.signal.aborted).toBe(true);
+  });
+
+  test("does not abort the controller when the work wins", async () => {
+    const abort = new AbortController();
+    await expect(
+      withDeadline(Promise.resolve("ok"), 1000, abort),
+    ).resolves.toBe("ok");
+    expect(abort.signal.aborted).toBe(false);
+  });
 });
