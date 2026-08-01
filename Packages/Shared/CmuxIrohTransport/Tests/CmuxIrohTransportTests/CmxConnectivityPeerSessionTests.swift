@@ -152,6 +152,9 @@ struct CmxConnectivityPeerSessionTests {
     func unavailableSelectedPathEvictsTheSessionAndTheNextOperationRedials() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
+        let clock = OnlineAdmissionManualClock(
+            now: Date(timeIntervalSince1970: 1_800_000_000)
+        )
         let stranded = TestConnectivitySession(
             continuityID: 23,
             keepsSelectedPathStreamOpen: true
@@ -164,12 +167,17 @@ struct CmxConnectivityPeerSessionTests {
             peerID: peerID,
             buildSession: { request in
                 try await builder.build(request)
-            }
+            },
+            clock: clock
         )
 
         _ = try await peer.acquireControl(for: request, ownerID: UUID())
         try await Self.waitUntil { await stranded.hasSelectedPathObserver() }
         await stranded.publishSelectedPath(.unavailable)
+        await clock.waitUntilSleeping()
+        clock.advance(
+            by: CmxConnectivityPeerSession.allPathsClosedEvictionGraceSeconds
+        )
         try await Self.waitUntil { await peer.snapshot().phase == .failed }
 
         let failed = await peer.snapshot()
@@ -214,6 +222,85 @@ struct CmxConnectivityPeerSessionTests {
         let snapshot = await peer.snapshot()
         #expect(snapshot.phase == .connected)
         #expect(await stranded.closeCount() == 0)
+    }
+
+    @Test
+    func usablePathReturningWithinGraceDisarmsTheEviction() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let clock = OnlineAdmissionManualClock(
+            now: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        let recovered = TestConnectivitySession(
+            continuityID: 32,
+            keepsSelectedPathStreamOpen: true
+        )
+        let builder = SequencedConnectivitySessionBuilder(sessions: [recovered])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            },
+            clock: clock
+        )
+
+        _ = try await peer.acquireControl(for: request, ownerID: UUID())
+        try await Self.waitUntil { await recovered.hasSelectedPathObserver() }
+        await recovered.publishSelectedPath(.unavailable)
+        await clock.waitUntilSleeping()
+        await recovered.publishSelectedPath(.direct)
+        try await Self.waitUntil { clock.sleepingDeadlines().isEmpty }
+        clock.advance(
+            by: CmxConnectivityPeerSession.allPathsClosedEvictionGraceSeconds + 1
+        )
+        for _ in 0 ..< 100 { await Task.yield() }
+
+        let snapshot = await peer.snapshot()
+        #expect(snapshot.phase == .connected)
+        #expect(await recovered.closeCount() == 0)
+        #expect(await peer.connectionContinuityID() == 32)
+    }
+
+    @Test
+    func evictionDeadlineReChecksLivePathStateBeforeEvicting() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let clock = OnlineAdmissionManualClock(
+            now: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        let quietlyRecovered = TestConnectivitySession(
+            continuityID: 33,
+            keepsSelectedPathStreamOpen: true
+        )
+        let builder = SequencedConnectivitySessionBuilder(
+            sessions: [quietlyRecovered]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            },
+            clock: clock
+        )
+
+        _ = try await peer.acquireControl(for: request, ownerID: UUID())
+        try await Self.waitUntil {
+            await quietlyRecovered.hasSelectedPathObserver()
+        }
+        await quietlyRecovered.publishSelectedPath(.unavailable)
+        await clock.waitUntilSleeping()
+        // The path recovered but the observation stream never delivered the
+        // usable value (a dropped event). The deadline must trust the live
+        // state it re-reads, not the stale event that armed it.
+        await quietlyRecovered.setSelectedPathQuietly(.direct)
+        clock.advance(
+            by: CmxConnectivityPeerSession.allPathsClosedEvictionGraceSeconds
+        )
+        for _ in 0 ..< 100 { await Task.yield() }
+
+        let snapshot = await peer.snapshot()
+        #expect(snapshot.phase == .connected)
+        #expect(await quietlyRecovered.closeCount() == 0)
     }
 
     @Test
@@ -639,6 +726,12 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     func publishSelectedPath(_ path: CmxIrohObservedConnectionPath) {
         selectedPath = path
         selectedPathContinuation?.yield(path)
+    }
+
+    /// Updates the live path state without delivering a stream event, so a
+    /// test can model a recovery whose observation was dropped.
+    func setSelectedPathQuietly(_ path: CmxIrohObservedConnectionPath) {
+        selectedPath = path
     }
 
     func observedPathEvents() -> AsyncStream<CmxIrohConnectionPathEvent> {
