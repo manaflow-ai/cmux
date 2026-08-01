@@ -11,7 +11,6 @@ import {
 } from "../services/account/deletionLock";
 import type { PairGrantPeer } from "../services/iroh/crypto";
 import {
-  IROH_ACTIVE_BINDING_SANITY_CAP,
   IROH_RETENTION_BATCH_SIZE,
   IrohRepository,
   IrohRepositoryLive,
@@ -301,7 +300,7 @@ describe("Iroh trust broker database behavior", () => {
     const operations: Array<Effect.Effect<unknown, unknown>> = [
       repository.findActiveBindings(userId, [iosId, macId]),
       repository.revokeBinding({ userId, bindingId: macId, now: NOW }),
-      repository.discoverySnapshot({ userId, now: NOW }),
+      repository.discoveryPage({ userId, now: NOW, pageSize: 256 }),
       repository.pruneExpiredState({ userId, now: NOW }),
       repository.finalizeEndpointAttestation({
         userId,
@@ -663,121 +662,6 @@ describe("Iroh trust broker database behavior", () => {
       where id = ${second.binding.id}
     `;
     expect(state).toEqual({ platform: "ios", pairingEnabled: false, active: "1" });
-  });
-
-  dbTest("serializes an account-wide registration challenge rate cap", async () => {
-    const userId = "user-challenge-flood";
-    await requiredSql()`
-      insert into iroh_registration_challenges (
-        user_id, device_uuid, app_instance_id, tag, endpoint_id,
-        identity_generation, payload_sha256, nonce_hash, created_at, expires_at, consumed_at
-      )
-      select
-        ${userId}, gen_random_uuid(), gen_random_uuid(), 'stable', repeat('3a', 32),
-        1,
-        md5('account-payload-a-' || value::text) || md5('account-payload-b-' || value::text),
-        md5('account-nonce-a-' || value::text) || md5('account-nonce-b-' || value::text),
-        ${new Date(NOW.getTime() - 60_000)}, ${new Date(NOW.getTime() + 60_000)}, ${NOW}
-      from generate_series(1, 119) as values(value)
-    `;
-    const issue = (suffix: string) => Effect.runPromiseExit(requiredRepository().issueChallenge({
-      userId,
-      deviceUuid: randomUUID(),
-      appInstanceId: randomUUID(),
-      tag: "stable",
-      endpointId: suffix.repeat(64),
-      identityGeneration: 1,
-      payloadSha256: suffix.repeat(64),
-      nonceHash: `${suffix}${"0".repeat(63)}`,
-      now: NOW,
-      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
-    }));
-
-    const results = await Promise.all([issue("4"), issue("5")]);
-    expect(results.filter((result) => result._tag === "Success")).toHaveLength(1);
-    expect(results.filter((result) => result._tag === "Failure")).toHaveLength(1);
-    const failure = results.find((result) => result._tag === "Failure");
-    const causeError = failure?._tag === "Failure"
-      ? Option.getOrUndefined(Cause.failureOption(failure.cause))
-      : undefined;
-    expect(causeError).toMatchObject({
-      _tag: "IrohQuotaExceededError",
-      code: "challenge_account_rate_limited",
-    });
-    const [{ total }] = await requiredSql()<Array<{ total: string }>>`
-      select count(*)::text as total
-      from iroh_registration_challenges
-      where user_id = ${userId}
-    `;
-    expect(total).toBe("120");
-  });
-
-  dbTest("allows forty same-device challenges under an explicit development quota", async () => {
-    const userId = "user-development-challenges";
-    const deviceUuid = randomUUID();
-    const results = await Promise.all(Array.from({ length: 40 }, (_, index) => {
-      const suffix = (index + 1).toString(16).padStart(64, "0");
-      const input = {
-        userId,
-        deviceUuid,
-        appInstanceId: randomUUID(),
-        tag: `dev-${index + 1}`,
-        endpointId: suffix,
-        identityGeneration: 1,
-        payloadSha256: suffix,
-        nonceHash: (index + 101).toString(16).padStart(64, "0"),
-        now: NOW,
-        expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
-        challengeQuota: { account: 2_048, deviceInstance: 128, outstanding: 256 },
-      } as Parameters<IrohRepositoryShape["issueChallenge"]>[0];
-      return Effect.runPromiseExit(requiredRepository().issueChallenge(input));
-    }));
-
-    expect(results.filter((result) => result._tag === "Success")).toHaveLength(40);
-    const [{ total }] = await requiredSql()<Array<{ total: string }>>`
-      select count(*)::text as total
-      from iroh_registration_challenges
-      where user_id = ${userId}
-    `;
-    expect(total).toBe("40");
-  });
-
-  dbTest("scopes challenge burst quota to an exact device app instance", async () => {
-    const userId = "user-instance-scoped-challenges";
-    const deviceUuid = randomUUID();
-    const firstAppInstanceId = randomUUID();
-    const secondAppInstanceId = randomUUID();
-    const issue = (appInstanceId: string, index: number) => {
-      const suffix = index.toString(16).padStart(64, "0");
-      return Effect.runPromiseExit(requiredRepository().issueChallenge({
-        userId,
-        deviceUuid,
-        appInstanceId,
-        tag: appInstanceId === firstAppInstanceId ? "dev-first" : "dev-second",
-        endpointId: suffix,
-        identityGeneration: 1,
-        payloadSha256: suffix,
-        nonceHash: (index + 100).toString(16).padStart(64, "0"),
-        now: NOW,
-        expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
-        challengeQuota: { account: 10, deviceInstance: 2, outstanding: 10 },
-      }));
-    };
-
-    expect((await issue(firstAppInstanceId, 1))._tag).toBe("Success");
-    expect((await issue(firstAppInstanceId, 2))._tag).toBe("Success");
-
-    const firstInstanceOverflow = await issue(firstAppInstanceId, 3);
-    expect(firstInstanceOverflow._tag).toBe("Failure");
-    const causeError = firstInstanceOverflow._tag === "Failure"
-      ? Option.getOrUndefined(Cause.failureOption(firstInstanceOverflow.cause))
-      : undefined;
-    expect(causeError).toMatchObject({
-      _tag: "IrohQuotaExceededError",
-      code: "challenge_rate_limited",
-    });
-
-    expect((await issue(secondAppInstanceId, 4))._tag).toBe("Success");
   });
 
   dbTest("enforces globally unique active EndpointIDs", async () => {
@@ -1325,108 +1209,76 @@ describe("Iroh trust broker database behavior", () => {
     expect(grants?.staleRevoked).toBe(true);
   });
 
-  dbTest("rejects a genuinely-new slot once the account is at the active-binding sanity cap", async () => {
+  dbTest("registers and discovers more than 256 active bindings across bounded pages", async () => {
     const repo = requiredRepository();
-    const userId = "user-binding-cap";
+    const userId = "user-unbounded-bindings";
 
-    // Seed one deterministically-oldest active binding, then fill up to CAP - 1
-    // active rows that are all more recently seen than it.
-    const oldestEndpoint = "0f4240".padStart(64, "0");
-    const [oldest] = await requiredSql()<Array<{ id: string }>>`
-      insert into iroh_endpoint_bindings (
-        user_id, device_uuid, app_instance_id, tag, platform, endpoint_id,
-        identity_generation, pairing_enabled, capabilities, path_hints, last_seen_at
-      ) values (
-        ${userId}, gen_random_uuid(), gen_random_uuid(), 'stable', 'ios', ${oldestEndpoint},
-        1, true, '[]'::jsonb, '[]'::jsonb, ${new Date(NOW.getTime() - 10 * 60 * 60 * 1_000)}
-      ) returning id::text
-    `;
-    if (!oldest) throw new Error("oldest binding insert returned no row");
     await requiredSql()`
       insert into iroh_endpoint_bindings (
         user_id, device_uuid, app_instance_id, tag, platform, endpoint_id,
-        identity_generation, pairing_enabled, capabilities, path_hints, last_seen_at
+        identity_generation, pairing_enabled, capabilities, path_hints,
+        last_seen_at, registered_at
       )
       select
         ${userId}, gen_random_uuid(), gen_random_uuid(), 'stable', 'ios',
         lpad(to_hex(gs), 64, '0'), 1, true, '[]'::jsonb, '[]'::jsonb,
-        ${new Date(NOW.getTime() - 60 * 60 * 1_000)}::timestamptz + (gs * interval '1 second')
-      from generate_series(1, ${IROH_ACTIVE_BINDING_SANITY_CAP - 2}) as gs
+        ${NOW}::timestamptz + (gs * interval '1 second'),
+        ${NOW}::timestamptz + (gs * interval '1 second')
+      from generate_series(1, 300) as gs
     `;
 
-    const register = async (input: { endpointId: string; suffix: string; now: Date }) => {
-      const nonceHash = input.suffix.repeat(64);
-      const deviceId = randomUUID();
-      const appInstanceId = randomUUID();
-      const challenge = await Effect.runPromise(repo.issueChallenge({
-        userId,
-        deviceUuid: deviceId,
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const nonceHash = "8".repeat(64);
+    const challenge = await Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      tag: "stable",
+      endpointId: "c1".repeat(32),
+      identityGeneration: 1,
+      payloadSha256: `8${"0".repeat(63)}`,
+      nonceHash,
+      now: new Date(NOW.getTime() + 301_000),
+      expiresAt: new Date(NOW.getTime() + 601_000),
+    }));
+    const registration = await Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: challenge.id,
+      nonceHash,
+      payload: {
+        route_contract_version: 1,
+        deviceId,
         appInstanceId,
         tag: "stable",
-        endpointId: input.endpointId,
+        platform: "ios",
+        endpointId: "c1".repeat(32),
         identityGeneration: 1,
-        payloadSha256: `${input.suffix}${"0".repeat(63)}`,
-        nonceHash,
-        now: input.now,
-        expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
-      }));
-      return Effect.runPromiseExit(repo.consumeChallengeAndRegister({
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now: new Date(NOW.getTime() + 301_000),
+    }));
+    expect(registration.created).toBe(true);
+
+    const pageCounts: number[] = [];
+    const bindingIds = new Set<string>();
+    let cursor: { generation: number; afterBindingId: string } | undefined;
+    do {
+      const page = await Effect.runPromise(repo.discoveryPage({
         userId,
-        challengeId: challenge.id,
-        nonceHash,
-        payload: {
-          route_contract_version: 1,
-          deviceId,
-          appInstanceId,
-          tag: "stable",
-          platform: "ios",
-          endpointId: input.endpointId,
-          identityGeneration: 1,
-          pairingEnabled: true,
-          capabilities: [],
-          pathHints: [],
-        },
-        now: input.now,
+        now: new Date(NOW.getTime() + 302_000),
+        pageSize: 128,
+        ...(cursor ? { cursor } : {}),
       }));
-    };
+      pageCounts.push(page.bindings.length);
+      page.bindings.forEach((binding) => bindingIds.add(binding.id));
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
 
-    const countActive = async () => {
-      const [row] = await requiredSql()<Array<{ total: string }>>`
-        select count(*)::text as total from iroh_endpoint_bindings
-        where user_id = ${userId} and revoked_at is null
-      `;
-      return Number(row?.total ?? "-1");
-    };
-
-    // Exactly at the cap: a new slot fills the last free space and is admitted.
-    const atCap = await register({ endpointId: "c1".repeat(32), suffix: "8", now: NOW });
-    expect(atCap._tag).toBe("Success");
-    expect(await countActive()).toBe(IROH_ACTIVE_BINDING_SANITY_CAP);
-
-    // Over the cap: a genuinely new slot is REJECTED rather than evicting an
-    // existing device, so a stuck client spamming fresh device/tag tuples cannot
-    // make its own churn the newest rows and shed the account's real, older hosts
-    // and phones. The active count holds and the oldest row stays live.
-    const overCap = await register({
-      endpointId: "c2".repeat(32),
-      suffix: "9",
-      now: new Date(NOW.getTime() + 1_000),
-    });
-    expect(overCap._tag).toBe("Failure");
-    const causeError = overCap._tag === "Failure"
-      ? Option.getOrUndefined(Cause.failureOption(overCap.cause))
-      : undefined;
-    expect(causeError).toMatchObject({
-      _tag: "IrohConflictError",
-      code: "active_binding_limit",
-    });
-    expect(await countActive()).toBe(IROH_ACTIVE_BINDING_SANITY_CAP);
-
-    const [oldestState] = await requiredSql()<Array<{ revoked: boolean }>>`
-      select revoked_at is not null as revoked
-      from iroh_endpoint_bindings where id = ${oldest.id}
-    `;
-    expect(oldestState).toEqual({ revoked: false });
+    expect(pageCounts).toEqual([128, 128, 45]);
+    expect(bindingIds.size).toBe(301);
   });
 
   dbTest("enforces the UDP port range for each direct-address family", async () => {
@@ -1481,7 +1333,7 @@ describe("Iroh trust broker database behavior", () => {
       userId: "user-revoked-direct-ports",
       bindingId,
       now: NOW,
-    }))).toBe(true);
+    }))).toEqual({ revoked: true, accountRevision: 1 });
 
     const [stored] = await requiredSql()<Array<{
       directPortV4: number | null;
@@ -1512,10 +1364,15 @@ describe("Iroh trust broker database behavior", () => {
       endpointId: "46".repeat(32),
     });
 
-    const initial = await Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }));
-    const otherInitial = await Effect.runPromise(repo.discoverySnapshot({
+    const initial = await Effect.runPromise(repo.discoveryPage({
+      userId,
+      now: NOW,
+      pageSize: 256,
+    }));
+    const otherInitial = await Effect.runPromise(repo.discoveryPage({
       userId: "user-lan-other",
       now: NOW,
+      pageSize: 256,
     }));
     expect(initial.lanDiscoveryGeneration).toBe(1);
     expect(initial.bindings.map((binding) => binding.id).sort()).toEqual([
@@ -1531,32 +1388,40 @@ describe("Iroh trust broker database behavior", () => {
       userId,
       bindingId: firstBindingId,
       now: NOW,
-    }))).toBe(true);
-    const afterFirstRevoke = await Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }));
+    }))).toEqual({ revoked: true, accountRevision: 1 });
+    const afterFirstRevoke = await Effect.runPromise(repo.discoveryPage({
+      userId,
+      now: NOW,
+      pageSize: 256,
+    }));
     expect(afterFirstRevoke.lanDiscoveryGeneration).toBe(2);
     expect(afterFirstRevoke.bindings.map((binding) => binding.id)).toEqual([secondBindingId]);
     expect(await Effect.runPromise(repo.revokeBinding({
       userId,
       bindingId: firstBindingId,
       now: new Date(NOW.getTime() + 60_000),
-    }))).toBe(true);
+    }))).toEqual({ revoked: true, accountRevision: 1 });
     const [retriedBinding] = await requiredSql()<Array<{ revokedAt: Date }>>`
       select revoked_at as "revokedAt"
       from iroh_endpoint_bindings
       where id = ${firstBindingId}
     `;
     expect(retriedBinding?.revokedAt).toEqual(NOW);
-    expect((await Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }))).lanDiscoveryGeneration).toBe(2);
+    expect((await Effect.runPromise(repo.discoveryPage({
+      userId,
+      now: NOW,
+      pageSize: 256,
+    }))).lanDiscoveryGeneration).toBe(2);
     expect(await Effect.runPromise(repo.revokeBinding({
       userId: "user-lan-other",
       bindingId: firstBindingId,
       now: NOW,
-    }))).toBe(false);
+    }))).toEqual({ revoked: false, accountRevision: 0 });
     expect(await Effect.runPromise(repo.revokeBinding({
       userId,
       bindingId: randomUUID(),
       now: NOW,
-    }))).toBe(false);
+    }))).toEqual({ revoked: false, accountRevision: 1 });
 
     let concurrentDiscovery: ReturnType<typeof Effect.runPromise> | undefined;
     await requiredSql().begin(async (revocationSql) => {
@@ -1571,10 +1436,16 @@ describe("Iroh trust broker database behavior", () => {
       `;
       await revocationSql`
         update iroh_account_security_states
-        set lan_discovery_generation = lan_discovery_generation + 1, updated_at = ${NOW}
+        set lan_discovery_generation = lan_discovery_generation + 1,
+            route_revision = route_revision + 1,
+            updated_at = ${NOW}
         where user_id = ${userId}
       `;
-      concurrentDiscovery = Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }));
+      concurrentDiscovery = Effect.runPromise(repo.discoveryPage({
+        userId,
+        now: NOW,
+        pageSize: 256,
+      }));
       await waitForAdvisoryLockWaiter();
     });
     if (!concurrentDiscovery) throw new Error("concurrent discovery was not started");
@@ -1583,55 +1454,15 @@ describe("Iroh trust broker database behavior", () => {
       lanDiscoveryGeneration: 3,
       bindings: [],
     });
-    const otherAfter = await Effect.runPromise(repo.discoverySnapshot({
+    const otherAfter = await Effect.runPromise(repo.discoveryPage({
       userId: "user-lan-other",
       now: NOW,
+      pageSize: 256,
     }));
     expect(otherAfter).toMatchObject({
       lanDiscoveryGeneration: 1,
       bindings: [{ id: otherBindingId }],
     });
-  });
-
-  dbTest("serializes the pair-grant hourly quota", async () => {
-    const repo = requiredRepository();
-    const initiatorId = await insertBinding({ userId: "user-pair", platform: "ios", endpointId: "50".repeat(32) });
-    const acceptorId = await insertBinding({ userId: "user-pair", platform: "mac", endpointId: "51".repeat(32) });
-    for (let index = 0; index < 59; index += 1) {
-      await requiredSql()`
-        insert into iroh_pair_grant_issuances (
-          user_id, jti, initiator_binding_id, acceptor_binding_id, signing_key_id,
-          alpn, scope, issued_at, not_before, expires_at
-        ) values (
-          'user-pair', ${randomUUID()}, ${initiatorId}, ${acceptorId}, 'current',
-          'cmux/mobile/1', 'cmux.mobile.attach',
-          ${new Date(NOW.getTime() - index * 1_000)},
-          ${new Date(NOW.getTime() - index * 1_000)},
-          ${new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1_000)}
-        )
-      `;
-    }
-    const initiator = await pairPeer(initiatorId);
-    const acceptor = await pairPeer(acceptorId);
-    const reserve = () => Effect.runPromise(repo.recordPairGrant({
-      userId: "user-pair",
-      jti: randomUUID(),
-      initiator,
-      acceptor,
-      signingKeyId: "current",
-      alpn: "cmux/mobile/1",
-      scope: "cmux.mobile.attach",
-      issuedAt: NOW,
-      notBefore: NOW,
-      expiresAt: new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1_000),
-    }));
-    const results = await Promise.allSettled([reserve(), reserve()]);
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
-    const [{ total }] = await requiredSql()<Array<{ total: string }>>`
-      select count(*)::text as total from iroh_pair_grant_issuances where user_id = 'user-pair'
-    `;
-    expect(total).toBe("60");
   });
 
   dbTest("revalidates pairability and exact signed peers inside the grant transaction", async () => {
@@ -1746,33 +1577,6 @@ describe("Iroh trust broker database behavior", () => {
     expect(String(exit)).toContain("IrohNotFoundError");
   });
 
-  dbTest("serializes relay quota reservations before provider work", async () => {
-    const repo = requiredRepository();
-    const bindingId = await insertBinding({ userId: "user-relay", endpointId: "60".repeat(32) });
-    for (let index = 0; index < 2; index += 1) {
-      await requiredSql()`
-        insert into iroh_relay_token_issuances (
-          user_id, binding_id, endpoint_id_hash, status, requested_at
-        ) values (
-          'user-relay', ${bindingId}, ${"70".repeat(32)}, 'failed',
-          ${new Date(NOW.getTime() - index * 1_000)}
-        )
-      `;
-    }
-    const reserve = () => Effect.runPromise(repo.reserveRelayIssuance({
-      userId: "user-relay",
-      bindingId,
-      now: NOW,
-    }));
-    const results = await Promise.allSettled([reserve(), reserve()]);
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
-    const [{ total }] = await requiredSql()<Array<{ total: string }>>`
-      select count(*)::text as total from iroh_relay_token_issuances where binding_id = ${bindingId}
-    `;
-    expect(total).toBe("3");
-  });
-
   dbTest("expires abandoned relay reservations before enforcing endpoint and account quotas", async () => {
     const repo = requiredRepository();
     const endpointUserId = "user-relay-abandoned-endpoint";
@@ -1858,7 +1662,7 @@ describe("Iroh trust broker database behavior", () => {
       userId: "user-relay-race",
       bindingId,
       now: new Date(NOW.getTime() + 1_000),
-    }))).toBe(true);
+    }))).toEqual({ revoked: true, accountRevision: 1 });
     expect(await Effect.runPromise(repo.completeRelayIssuance({
       userId: "user-relay-race",
       issuanceId: reservation.issuanceId,

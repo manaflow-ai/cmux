@@ -308,7 +308,7 @@ final class RemoteTmuxController {
                 titleSource: .auto,
                 select: false,
                 autoWelcomeIfNeeded: false,
-                workspaceDirectoryCustomizationMode: .disabled
+                applyCreationTitleAsCustomTitle: false
             ) else {
                 connection.stop()
                 return nil

@@ -14,6 +14,7 @@ struct MobilePrimaryTabScaffold<
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
+    let taskComposerAction: (() -> Void)?
     let workspaces: Workspaces
     let notifications: Notifications
     let workspaceSearch: WorkspaceSearch
@@ -23,6 +24,7 @@ struct MobilePrimaryTabScaffold<
         selection: Binding<MobilePrimaryTab>,
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
+        taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
         @ViewBuilder notifications: () -> Notifications,
         @ViewBuilder workspaceSearch: () -> WorkspaceSearch,
@@ -31,6 +33,7 @@ struct MobilePrimaryTabScaffold<
         _selection = selection
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
+        self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
         self.notifications = notifications()
         self.workspaceSearch = workspaceSearch()
@@ -39,37 +42,59 @@ struct MobilePrimaryTabScaffold<
 
     var body: some View {
         if #available(iOS 26.0, *) {
-            TabView(selection: tabSelection) {
-                primaryTabs
+            ZStack(alignment: .bottomTrailing) {
+                TabView(selection: tabSelection) {
+                    primaryTabs
 
-                Tab(value: MobilePrimaryTab.search, role: .search) {
-                    // Scoped to the search tab's content: a TabView-level
-                    // searchable is inherited by every tab's navigation bar,
-                    // which rendered a second, top search field on the
-                    // workspaces and notifications tabs.
-                    searchDestination
-                        .searchable(
-                            text: activeSearchText,
-                            isPresented: searchPresentation,
-                            prompt: activeSearchPrompt
-                        )
-                        .onSubmit(of: .search) {
-                            selection = searchCoordinator.commitSubmit()
-                        }
+                    Tab(value: MobilePrimaryTab.search, role: .search) {
+                        // Scoped to the search tab's content: a TabView-level
+                        // searchable is inherited by every tab's navigation bar,
+                        // which rendered a second, top search field on the
+                        // workspaces and notifications tabs.
+                        searchDestination
+                            .searchable(
+                                text: activeSearchText,
+                                isPresented: searchPresentation,
+                                prompt: activeSearchPrompt
+                            )
+                            .onSubmit(of: .search) {
+                                selection = searchCoordinator.commitSubmit()
+                            }
+                    }
+                    .accessibilityIdentifier("MobilePrimaryTabSearch")
                 }
-                .accessibilityIdentifier("MobilePrimaryTabSearch")
+                .tabViewSearchActivation(.searchTabSelection)
+                .accessibilityIdentifier("MobilePrimaryTabs")
+                .onChange(of: selection, initial: true) { _, selection in
+                    searchCoordinator.synchronizeSelection(selection)
+                }
+
+                if selection == .workspaces, let taskComposerAction {
+                    TaskComposerButton(
+                        action: taskComposerAction,
+                        diameter: iOS26BottomControlDiameter
+                    )
+                    .padding(.trailing, iOS26BottomControlInset)
+                    .padding(.bottom, iOS26TaskComposerBottomPadding)
+                }
             }
-            .tabViewSearchActivation(.searchTabSelection)
-            .accessibilityIdentifier("MobilePrimaryTabs")
-            .onChange(of: selection, initial: true) { _, selection in
-                searchCoordinator.synchronizeSelection(selection)
-            }
+            .ignoresSafeArea(.container, edges: .bottom)
         } else {
             TabView(selection: $selection) {
                 primaryTabs
             }
             .accessibilityIdentifier("MobilePrimaryTabs")
         }
+    }
+
+    /// A tab-view bottom accessory always adds a full-width plate, which is
+    /// intended for mini-player content. Compose remains a standalone action
+    /// aligned with the detached Search control instead.
+    private var iOS26BottomControlDiameter: CGFloat { 62 }
+    private var iOS26BottomControlInset: CGFloat { 21 }
+    private var iOS26BottomControlSpacing: CGFloat { 12 }
+    private var iOS26TaskComposerBottomPadding: CGFloat {
+        iOS26BottomControlInset + iOS26BottomControlDiameter + iOS26BottomControlSpacing
     }
 
     private var tabSelection: Binding<MobilePrimaryTab> {

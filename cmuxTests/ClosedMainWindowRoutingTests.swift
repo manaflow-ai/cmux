@@ -36,7 +36,7 @@ extension TabManager {
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
-        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory,
+        applyCreationTitleAsCustomTitle: Bool = true,
         allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         guard let workspace = addWorkspaceIfActive(
@@ -59,7 +59,7 @@ extension TabManager {
             autoWelcomeIfNeeded: autoWelcomeIfNeeded,
             autoRefreshMetadata: autoRefreshMetadata,
             normalizeWorkspaceGroupsAfterInsert: normalizeWorkspaceGroupsAfterInsert,
-            workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode,
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault
         ) else {
             preconditionFailure("Test fixture cannot create a workspace on a finalized manager")

@@ -81,9 +81,8 @@ extension TabManager {
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self
-            trackWorkspaceDirectoryCustomization(
+            applyCreationWorkspaceCustomization(
                 to: newWorkspace,
-                rootDirectory: workingDirectory,
                 explicitTitle: title,
                 explicitTitleSource: titleSource
             )

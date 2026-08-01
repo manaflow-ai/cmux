@@ -154,7 +154,7 @@ extension CmuxConfigExecutor {
                 titleSource: .auto,
                 workingDirectory: resolvedCwd,
                 workspaceEnvironment: wsDef.env ?? [:],
-                workspaceDirectoryCustomizationMode: .disabled
+                applyCreationTitleAsCustomTitle: false
             )
         }) else {
             return false
