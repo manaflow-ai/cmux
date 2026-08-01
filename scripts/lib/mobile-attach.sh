@@ -295,7 +295,11 @@ except BaseException:
 }
 
 cmux_attach_monotonic_milliseconds() {
-  /usr/bin/python3 -c 'import time; print(time.monotonic_ns() // 1_000_000)'
+  /usr/bin/python3 -c '
+import time
+
+print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1_000_000)
+'
 }
 
 # Ensure the tagged Mac app is running AND its iOS pairing listener
