@@ -72,7 +72,7 @@ use crate::{
     TreeDeltaKind, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
-const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
+pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guard-v1";
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
@@ -9093,7 +9093,7 @@ fn handle_command_with_cancellation(
             Ok(json!({
                 "pid": surface.process_id(),
                 "command": surface.spawn_command(),
-                "cwd": surface.pwd().or_else(|| surface.spawn_cwd()),
+                "cwd": surface.local_cwd(),
             }))
         }
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {

@@ -54,7 +54,9 @@ use serde_json::Value;
 use zeroize::Zeroize;
 
 #[cfg(unix)]
-use crate::session::{RemoteMessageReader, RemoteMessageWriter, RemoteTransport};
+use crate::session::{
+    RemoteMessageReader, RemoteMessageWriter, RemoteTransport, RemoteTransportAbort,
+};
 
 #[cfg(unix)]
 #[path = "machine_provider_transport.rs"]
@@ -1020,7 +1022,8 @@ impl ProviderClient {
         drop(deadline);
         Ok(RemoteTransport::new(
             Box::new(BoundedRemoteReader { inner: reader, guard: guard.clone() }),
-            Box::new(BoundedRemoteWriter { inner: writer, guard }),
+            Box::new(BoundedRemoteWriter { inner: writer, guard: guard.clone() }),
+            Arc::new(ProviderRemoteAbort { guard }),
         ))
     }
 
@@ -1451,6 +1454,19 @@ impl RemoteMessageReader for BoundedRemoteReader {
 struct BoundedRemoteWriter {
     inner: Box<dyn Write + Send>,
     guard: ProviderIoGuard,
+}
+
+#[cfg(unix)]
+struct ProviderRemoteAbort {
+    guard: ProviderIoGuard,
+}
+
+#[cfg(unix)]
+impl RemoteTransportAbort for ProviderRemoteAbort {
+    fn abort(&self) -> io::Result<()> {
+        self.guard.close();
+        Ok(())
+    }
 }
 
 #[cfg(unix)]

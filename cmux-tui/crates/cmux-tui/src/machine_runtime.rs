@@ -23,7 +23,8 @@ use crate::machine::{
 };
 use crate::process_diagnostics::BoundedDiagnosticBuffer;
 use crate::session::{
-    RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteTransport, Session,
+    REMOTE_CONTROL_MESSAGE_MAX_BYTES, RemoteMessageReader, RemoteMessageWriter, RemoteSession,
+    RemoteTransport, RemoteTransportAbort, Session, read_bounded_json_line,
     read_json_line_with_progress,
 };
 
@@ -224,7 +225,8 @@ fn ssh_transport(
     let (stdin, stdout, process) = spawn_transport_process(&mut command)?;
     Ok(RemoteTransport::new(
         Box::new(ProcessReader { inner: BufReader::new(stdout), process: process.clone() }),
-        Box::new(ProcessWriter { inner: stdin, process }),
+        Box::new(ProcessWriter { inner: stdin, process: process.clone() }),
+        Arc::new(ProcessAbort { process }),
     ))
 }
 
@@ -460,7 +462,14 @@ impl ProcessReader {
 
 impl RemoteMessageReader for ProcessReader {
     fn receive(&mut self) -> io::Result<Option<String>> {
-        self.receive_inner(&mut |_| {})
+        let _keep_alive = &self.process;
+        let message = read_bounded_json_line(&mut self.inner, REMOTE_CONTROL_MESSAGE_MAX_BYTES)?;
+        if message.is_none()
+            && let Some(diagnostic) = self.process.diagnostic_after_stdout_eof()
+        {
+            return Err(io::Error::other(format!("ssh transport closed: {diagnostic}")));
+        }
+        Ok(message)
     }
 
     fn receive_with_progress(
@@ -474,6 +483,16 @@ impl RemoteMessageReader for ProcessReader {
 struct ProcessWriter {
     inner: ChildStdin,
     process: Arc<Process>,
+}
+
+struct ProcessAbort {
+    process: Arc<Process>,
+}
+
+impl RemoteTransportAbort for ProcessAbort {
+    fn abort(&self) -> io::Result<()> {
+        self.process.terminate_and_reap()
+    }
 }
 
 impl RemoteMessageWriter for ProcessWriter {

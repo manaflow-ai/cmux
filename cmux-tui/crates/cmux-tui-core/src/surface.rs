@@ -18,12 +18,12 @@ use std::sync::mpsc::{
 use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
+use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtySize};
 use ghostty_vt::{
     Callbacks, ClearHistoryOutcome, CursorShape, Dirty, KeyEncoder, KeyInput, KittyGraphicsLimits,
     KittyReplayState, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Screen, Scrollbar,
     Terminal, TerminalColorOverrides, TerminalPointerSemanticSnapshot,
 };
-use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::mux::ResourceWaitWake;
 use crate::platform;
@@ -855,6 +855,9 @@ struct InitialGraphicsSnapshot {
     snapshot: Arc<ghostty_vt::KittyGraphicsSnapshot>,
 }
 
+#[cfg(test)]
+type FrameProducerTestHook = Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SurfaceKind {
     Pty,
@@ -1069,6 +1072,8 @@ pub struct PtySurface {
     render: Arc<Mutex<RenderHub>>,
     render_generation: AtomicU64,
     frame_requests: SyncSender<u64>,
+    #[cfg(test)]
+    frame_producer_before_upgrade: FrameProducerTestHook,
 }
 
 enum PtyRuntime {
@@ -1550,6 +1555,8 @@ fn mark_hosted_runtime_exited(
         }
         *runtime = PtyRuntime::ExitedHosted;
         pty.supports_clear_history_key_fallback.store(false, Ordering::Release);
+        drop(runtime);
+        pty.finish_hosted_exit();
     }
 }
 
@@ -1733,15 +1740,15 @@ impl Surface {
             cell_width: cell_pixels.0,
             cell_height: cell_pixels.1,
         };
-        let pty = native_pty_system().openpty(initial_geometry.pty_size()?)?;
+        let pty = cmux_pty::open(initial_geometry.pty_size()?)?;
 
         let argv = opts
             .command
             .clone()
             .filter(|argv| !argv.is_empty())
             .unwrap_or_else(|| vec![platform::default_shell()]);
-        let mut cmd = CommandBuilder::new(&argv[0]);
-        cmd.args(&argv[1..]);
+        let mut cmd = PtyCommand::new(&argv[0]);
+        cmd.args(argv[1..].iter().cloned());
         cmd.env("TERM", &opts.term);
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
@@ -1754,14 +1761,13 @@ impl Surface {
             cmd.cwd(cwd);
         }
 
-        let mut child = pty.slave.spawn_command(cmd)?;
+        let cmux_pty::SpawnedPty { master, mut child } = pty.spawn(cmd)?;
         let pid = child.process_id();
-        drop(pty.slave);
         let killer = child.clone_killer();
-        let mut reader = pty.master.try_clone_reader()?;
-        let writer = pty.master.take_writer()?;
+        let mut reader = master.try_clone_reader()?;
+        let writer = master.take_writer()?;
         #[cfg(unix)]
-        let supports_clear_history_key_fallback = pty.master.as_raw_fd().is_some();
+        let supports_clear_history_key_fallback = master.as_raw_fd().is_some();
         #[cfg(not(unix))]
         let supports_clear_history_key_fallback = false;
 
@@ -1804,6 +1810,8 @@ impl Surface {
         mouse_encoders.sync_from_terminal(&term);
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
+        #[cfg(test)]
+        let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
                 id,
@@ -1814,7 +1822,7 @@ impl Surface {
             term: Mutex::new(Box::new(term)),
             stream_progress: Box::new(TerminalStreamProgress::default()),
             mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
-            runtime: Mutex::new(PtyRuntime::Local { writer, master: pty.master, killer }),
+            runtime: Mutex::new(PtyRuntime::Local { writer, master, killer }),
             supports_clear_history_key_fallback: AtomicBool::new(
                 supports_clear_history_key_fallback,
             ),
@@ -1857,6 +1865,8 @@ impl Surface {
             })),
             render_generation: AtomicU64::new(1),
             frame_requests,
+            #[cfg(test)]
+            frame_producer_before_upgrade,
         }));
 
         if let Some(reservation) = kitty_reservation
@@ -1951,6 +1961,7 @@ impl Surface {
                     }
                 }
                 if let Some(pty) = surface.as_pty() {
+                    pty.publish_final_frame();
                     pty.local_pty_drained.store(true, Ordering::Release);
                 }
                 publish_local_exit_if_ready(&surface);
@@ -2149,6 +2160,8 @@ impl Surface {
         let supports_clear_history_key_fallback = attachment.supports_clear_history();
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
+        #[cfg(test)]
+        let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
                 id,
@@ -2206,6 +2219,8 @@ impl Surface {
             })),
             render_generation: AtomicU64::new(1),
             frame_requests,
+            #[cfg(test)]
+            frame_producer_before_upgrade,
         }));
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
         spawn_frame_producer(&surface, frame_rx)?;
@@ -2484,7 +2499,6 @@ impl Surface {
                         mark_hosted_runtime_exited(pty, &identity);
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
-                        pty.dead.store(true, Ordering::Release);
                         if let Some(mux) = mux.upgrade() {
                             mux.surface_exited(surface.id);
                         }
@@ -2541,7 +2555,6 @@ impl Surface {
                                     TerminalHostConnectionState::Exited as u8,
                                     Ordering::Release,
                                 );
-                                pty.dead.store(true, Ordering::Release);
                                 if let Some(mux) = mux.upgrade() {
                                     mux.surface_exited(surface.id);
                                 }
@@ -2918,6 +2931,8 @@ impl Surface {
         mouse_encoders.sync_from_terminal(&term);
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
+        #[cfg(test)]
+        let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
         let command = opts
             .command
             .clone()
@@ -2978,6 +2993,8 @@ impl Surface {
             })),
             render_generation: AtomicU64::new(1),
             frame_requests,
+            #[cfg(test)]
+            frame_producer_before_upgrade,
         }));
         spawn_frame_producer(&surface, frame_rx)?;
         Ok(surface)
@@ -3087,6 +3104,7 @@ impl Surface {
         let render_state = RenderState::new()?;
         let (frame_requests, _frame_rx) = sync_channel(1);
         let test_master_control = Arc::new(TestMasterPtyControl::default());
+        let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
 
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
@@ -3142,6 +3160,7 @@ impl Surface {
             })),
             render_generation: AtomicU64::new(1),
             frame_requests,
+            frame_producer_before_upgrade,
         }));
         if let Some(reservation) = kitty_reservation {
             reservation.commit(&surface, initial_kitty_limits)?;
@@ -4093,6 +4112,14 @@ impl Surface {
         self.as_pty().and_then(|pty| pty.pwd.lock().unwrap().clone())
     }
 
+    pub fn local_cwd(&self) -> Option<String> {
+        self.pwd()
+            .as_deref()
+            .and_then(platform::terminal_pwd_to_local_path)
+            .map(|path| path.to_string_lossy().into_owned())
+            .or_else(|| self.spawn_cwd())
+    }
+
     pub fn process_id(&self) -> Option<u32> {
         self.as_pty().and_then(|pty| pty.pid)
     }
@@ -4194,17 +4221,19 @@ impl Surface {
         let (cols, rows) = (term.cols(), term.rows());
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
-        let mut taps = pty.taps.lock().unwrap();
-        if taps.is_empty() {
-            *pty.last_attach_colors.lock().unwrap() =
-                Some(Box::new(TerminalColors::from_pty_output(&term, defaults)));
+        if !pty.dead.load(Ordering::Acquire) {
+            let mut taps = pty.taps.lock().unwrap();
+            if taps.is_empty() {
+                *pty.last_attach_colors.lock().unwrap() =
+                    Some(Box::new(TerminalColors::from_pty_output(&term, defaults)));
+            }
+            taps.push(AttachTap {
+                sender: tx,
+                lifecycle: lifecycle.clone(),
+                queued_bytes: queued_bytes.clone(),
+                max_queued_bytes: ATTACH_STREAM_MAX_BYTES,
+            });
         }
-        taps.push(AttachTap {
-            sender: tx,
-            lifecycle: lifecycle.clone(),
-            queued_bytes: queued_bytes.clone(),
-            max_queued_bytes: ATTACH_STREAM_MAX_BYTES,
-        });
         Ok(AttachStream {
             cols,
             rows,
@@ -4254,7 +4283,9 @@ impl Surface {
             };
             let mut initial = (*shared).clone();
             initial.frame.kitty_graphics = initial_graphics;
-            render.taps.push(tap);
+            if !pty.dead.load(Ordering::Acquire) {
+                render.taps.push(tap);
+            }
             Arc::new(initial)
         };
         Ok(RenderAttachStream { initial, stream, _permit: permit })
@@ -4870,6 +4901,30 @@ impl PtySurface {
         }
     }
 
+    /// Publish the last PTY generation before the mux drops this surface.
+    ///
+    /// A normal frame request may still be waiting for the cadence deadline,
+    /// and the frame worker holds only a weak reference. Building here keeps
+    /// the final render frame ordered after the byte taps and before detach.
+    fn publish_final_frame(&self) {
+        let mut term = self.term.lock().unwrap();
+        let generation = self.render_generation.load(Ordering::Acquire);
+        let _ = self.build_frame_locked(&mut term, generation, true);
+    }
+
+    /// Preserve the last hosted frame, then end every live attachment while
+    /// retaining the exited surface as a stable, snapshot-renderable tab.
+    fn finish_hosted_exit(&self) {
+        let mut term = self.term.lock().unwrap();
+        if self.dead.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let generation = self.render_generation.load(Ordering::Acquire);
+        let _ = self.build_frame_locked(&mut term, generation, true);
+        self.taps.lock().unwrap().clear();
+        self.render.lock().unwrap().taps.clear();
+    }
+
     fn mark_output_dirty(&self) {
         if !self.dirty.swap(true, Ordering::AcqRel)
             && let Some(mux) = self.mux.upgrade()
@@ -5239,6 +5294,12 @@ const RENDER_FRAME_CADENCE: Duration = Duration::from_millis(8);
 fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyhow::Result<()> {
     let weak = Arc::downgrade(surface);
     let id = surface.id;
+    #[cfg(test)]
+    let before_upgrade = surface
+        .as_pty()
+        .expect("frame producer got non-pty surface")
+        .frame_producer_before_upgrade
+        .clone();
     std::thread::Builder::new().name(format!("surface-{id}-frames")).spawn(move || {
         let mut last_frame = Instant::now() - RENDER_FRAME_CADENCE;
         while let Ok(mut requested) = requests.recv() {
@@ -5253,6 +5314,10 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
                     Err(RecvTimeoutError::Timeout) => break,
                     Err(RecvTimeoutError::Disconnected) => return,
                 }
+            }
+            #[cfg(test)]
+            if let Some(hook) = before_upgrade.lock().unwrap().clone() {
+                hook();
             }
             let Some(surface) = weak.upgrade() else { break };
             let Some(pty) = surface.as_pty() else { break };
@@ -5316,6 +5381,28 @@ mod tests {
             size_of::<PtySurface>(),
             size_of::<BrowserSurface>()
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_surface_spawn_returns_within_deadline() {
+        let (result_tx, result_rx) = sync_channel(1);
+        std::thread::spawn(move || {
+            let mux = Mux::new_for_test("macos-pty-deadline", SurfaceOptions::default());
+            let options = SurfaceOptions {
+                command: Some(vec!["/bin/sh".into(), "-c".into(), "exit 0".into()]),
+                ..SurfaceOptions::default()
+            };
+            let result = Surface::spawn(9_001, options, Arc::downgrade(&mux))
+                .map(drop)
+                .map_err(|error| error.to_string());
+            let _ = result_tx.send(result);
+        });
+
+        result_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("macOS surface PTY spawn blocked past its five-second deadline")
+            .expect("macOS surface PTY spawn failed");
     }
 
     #[derive(Clone, Default)]
@@ -6711,6 +6798,78 @@ mod tests {
             (master.cols, master.rows, master.pixel_width, master.pixel_height),
             (100, 30, 800, 480)
         );
+    }
+
+    #[test]
+    fn pty_eof_publishes_final_render_frame_before_surface_removal() {
+        const FINAL_MARKER: &str = "CMUX_FINAL_RENDER_MARKER";
+
+        let mux = Mux::new("pty-final-render", SurfaceOptions::default());
+        let placement = mux
+            .run_command_surface(
+                vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    format!("IFS= read -r _; printf '{FINAL_MARKER}'"),
+                ],
+                None,
+                true,
+                None,
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        let surface = mux.surface(placement.surface).unwrap();
+        let attach = surface.attach_render_stream().unwrap();
+        let events = mux.subscribe();
+
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (release_tx, release_rx) = sync_channel(1);
+        let release_rx = Mutex::new(release_rx);
+        {
+            let pty = surface.as_pty().unwrap();
+            *pty.frame_producer_before_upgrade.lock().unwrap() = Some(Arc::new(move || {
+                let _ = entered_tx.try_send(());
+                let _ = release_rx.lock().unwrap().recv_timeout(Duration::from_secs(5));
+            }));
+        }
+
+        surface.write_bytes(b"go\n").unwrap();
+        drop(surface);
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("frame producer did not receive the final output request");
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match events.recv_timeout(remaining) {
+                Ok(MuxEvent::SurfaceExited(id)) if id == placement.surface => break,
+                Ok(_) => {}
+                Err(error) => panic!("surface did not exit before frame worker release: {error}"),
+            }
+        }
+        release_tx.send(()).unwrap();
+
+        let frame = attach
+            .stream
+            .recv_timeout(Duration::from_secs(2))
+            .expect("final render frame was dropped with the surface");
+        let RenderAttachFrame::Frame(frame) = frame else {
+            panic!("expected final render frame");
+        };
+        let rendered = frame
+            .frame
+            .styled_rows()
+            .iter()
+            .flat_map(|row| row.iter())
+            .map(|cell| cell.text.as_str())
+            .collect::<String>();
+        assert!(
+            rendered.contains(FINAL_MARKER),
+            "final render frame did not contain producer receipt: {rendered:?}"
+        );
+        mux.shutdown();
     }
 
     #[test]

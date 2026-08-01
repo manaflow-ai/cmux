@@ -9639,7 +9639,7 @@ impl Mux {
             let active = state.panes.get(&pane)?.active_surface()?;
             state.surfaces.get(&active).cloned()
         };
-        surface.and_then(|surface| surface.pwd().or_else(|| surface.spawn_cwd()))
+        surface.and_then(|surface| surface.local_cwd())
     }
 
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {
@@ -14608,7 +14608,6 @@ mod tests {
         assert_eq!(resolved_rx.recv().unwrap(), first_id);
         let concurrent = {
             let mux = mux.clone();
-            let overlap = overlap;
             let second_id = second_id.clone();
             std::thread::spawn(move || {
                 overlap.wait();
