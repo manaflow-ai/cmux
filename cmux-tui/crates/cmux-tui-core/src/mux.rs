@@ -17401,6 +17401,40 @@ mod tests {
         assert!(format!("{error:#}").contains("terminal-host"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn workspace_close_cleanup_is_driven_by_live_host_records() {
+        let mux = test_mux();
+        let surface =
+            mux.new_workspace(Some("bounded-workspace-close".into()), Some((80, 24))).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        for _ in 0..32 {
+            let historical = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+            let identity = mux.resource_terminal_host_identity(&historical).unwrap();
+            mux.close_terminal(&identity.terminal_id, &identity.incarnation).unwrap();
+        }
+        let _ = mux.take_discovered_terminal_termination_requests_for_test();
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-workspace-close-live-records-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        mux.surface_options.lock().unwrap().terminal_host_root = Some(root.clone());
+
+        let result = mux.close_workspace_at_revision(workspace, None);
+        let requested = mux.take_discovered_terminal_termination_requests_for_test();
+        let _ = std::fs::remove_dir_all(root);
+
+        result.unwrap();
+        assert!(
+            requested.is_empty(),
+            "workspace close probed {} historical tombstone(s) without live host records",
+            requested.len()
+        );
+    }
+
     #[test]
     fn ordinary_topology_projection_failure_keeps_memory_and_public_state_unchanged() {
         let mux = test_mux();
