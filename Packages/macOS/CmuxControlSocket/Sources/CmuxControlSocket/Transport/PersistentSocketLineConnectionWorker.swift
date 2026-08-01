@@ -36,32 +36,36 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
         validatingPeer: @escaping @Sendable (pid_t?) -> Bool
     ) async -> (response: String, peerProcessID: pid_t?)? {
         let cancellation = PersistentSocketInterruptionSignal()
+        let cancellationGeneration = cancellation.begin()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 queue.async { [self] in
-                    let result = cancellation.isTriggered
+                    let result = cancellation.isTriggered(
+                        generation: cancellationGeneration
+                    )
                         ? nil
                         : blockingCommand(
                             command,
                             at: socketPath,
                             timeout: timeout,
                             cancellation: cancellation,
+                            cancellationGeneration: cancellationGeneration,
                             validatingPeer: validatingPeer
                         )
                     continuation.resume(returning: result)
                 }
             }
         } onCancel: {
-            cancellation.trigger()
+            cancellation.trigger(generation: cancellationGeneration)
         }
     }
 
     func invalidate() async {
-        activeInterruption.trigger()
+        activeInterruption.triggerCurrentGeneration()
         await withCheckedContinuation { continuation in
             queue.async { [self] in
                 closeConnection()
-                activeInterruption.retire()
+                activeInterruption.retireCurrentGeneration()
                 continuation.resume()
             }
         }
@@ -72,12 +76,24 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
         at socketPath: String,
         timeout: TimeInterval,
         cancellation: PersistentSocketInterruptionSignal,
+        cancellationGeneration: UInt32,
         validatingPeer: @Sendable (pid_t?) -> Bool
     ) -> (response: String, peerProcessID: pid_t?)? {
         dispatchPrecondition(condition: .onQueue(queue))
-        defer { endActiveOperation(cancellation: cancellation) }
+        let activeGeneration = activeInterruption.begin()
+        defer {
+            endActiveOperation(
+                cancellation: cancellation,
+                cancellationGeneration: cancellationGeneration,
+                activeGeneration: activeGeneration
+            )
+        }
         guard
-            !operationWasInterrupted(cancellation),
+            !operationWasInterrupted(
+                cancellation,
+                cancellationGeneration: cancellationGeneration,
+                activeGeneration: activeGeneration
+            ),
             timeout.isFinite,
             timeout > 0,
             !command.contains("\n"),
@@ -91,14 +107,22 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
             timeout: timeout,
             deadline: deadline,
             cancellation: cancellation,
+            cancellationGeneration: cancellationGeneration,
+            activeGeneration: activeGeneration,
             validatingPeer: validatingPeer
         ), var current = state else {
             return nil
         }
         guard publishActiveSocket(
             current.socket,
-            cancellation: cancellation
-        ), !operationWasInterrupted(cancellation) else {
+            cancellation: cancellation,
+            cancellationGeneration: cancellationGeneration,
+            activeGeneration: activeGeneration
+        ), !operationWasInterrupted(
+            cancellation,
+            cancellationGeneration: cancellationGeneration,
+            activeGeneration: activeGeneration
+        ) else {
             closeConnection()
             return nil
         }
@@ -112,7 +136,9 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
         ), let response = readResponseLine(
             from: &current,
             deadline: deadline,
-            cancellation: cancellation
+            cancellation: cancellation,
+            cancellationGeneration: cancellationGeneration,
+            activeGeneration: activeGeneration
         ) else {
             closeConnection()
             return nil
@@ -129,6 +155,8 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
         timeout: TimeInterval,
         deadline: TimeInterval,
         cancellation: PersistentSocketInterruptionSignal,
+        cancellationGeneration: UInt32,
+        activeGeneration: UInt32,
         validatingPeer: @Sendable (pid_t?) -> Bool
     ) -> Bool {
         if var current = state {
@@ -154,6 +182,8 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
             timeout: timeout,
             deadline: deadline,
             cancellation: cancellation,
+            cancellationGeneration: cancellationGeneration,
+            activeGeneration: activeGeneration,
             validatingPeer: validatingPeer
         ) else {
             return false
@@ -167,6 +197,8 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
         timeout: TimeInterval,
         deadline: TimeInterval,
         cancellation: PersistentSocketInterruptionSignal,
+        cancellationGeneration: UInt32,
+        activeGeneration: UInt32,
         validatingPeer: @Sendable (pid_t?) -> Bool
     ) -> PersistentSocketLineConnectionState? {
         let socket = connectDependencies.makeSocket()
@@ -186,8 +218,17 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
         }
         transport.configureSocketTimeouts(socket, timeout: timeout)
         guard
-            publishActiveSocket(socket, cancellation: cancellation),
-            !operationWasInterrupted(cancellation)
+            publishActiveSocket(
+                socket,
+                cancellation: cancellation,
+                cancellationGeneration: cancellationGeneration,
+                activeGeneration: activeGeneration
+            ),
+            !operationWasInterrupted(
+                cancellation,
+                cancellationGeneration: cancellationGeneration,
+                activeGeneration: activeGeneration
+            )
         else {
             return nil
         }
@@ -200,14 +241,20 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
                 waitForConnection(
                     socket,
                     deadline: deadline,
-                    cancellation: cancellation
+                    cancellation: cancellation,
+                    cancellationGeneration: cancellationGeneration,
+                    activeGeneration: activeGeneration
                 )
             else {
                 return nil
             }
         }
         guard
-            !operationWasInterrupted(cancellation),
+            !operationWasInterrupted(
+                cancellation,
+                cancellationGeneration: cancellationGeneration,
+                activeGeneration: activeGeneration
+            ),
             transport.configureBlocking(socket) == nil
         else {
             return nil
@@ -227,9 +274,15 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
     private func waitForConnection(
         _ socket: Int32,
         deadline: TimeInterval,
-        cancellation: PersistentSocketInterruptionSignal
+        cancellation: PersistentSocketInterruptionSignal,
+        cancellationGeneration: UInt32,
+        activeGeneration: UInt32
     ) -> Bool {
-        while !operationWasInterrupted(cancellation) {
+        while !operationWasInterrupted(
+            cancellation,
+            cancellationGeneration: cancellationGeneration,
+            activeGeneration: activeGeneration
+        ) {
             guard let remaining = remainingTimeoutMilliseconds(
                 until: deadline
             ) else {
@@ -251,7 +304,11 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
             if pollResult == 0 {
                 continue
             }
-            guard pollResult > 0, !operationWasInterrupted(cancellation) else {
+            guard pollResult > 0, !operationWasInterrupted(
+                cancellation,
+                cancellationGeneration: cancellationGeneration,
+                activeGeneration: activeGeneration
+            ) else {
                 return false
             }
             var socketError: Int32 = 0
@@ -282,7 +339,9 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
     private func readResponseLine(
         from state: inout PersistentSocketLineConnectionState,
         deadline: TimeInterval,
-        cancellation: PersistentSocketInterruptionSignal
+        cancellation: PersistentSocketInterruptionSignal,
+        cancellationGeneration: UInt32,
+        activeGeneration: UInt32
     ) -> String? {
         while true {
             if let newline = state.responseBuffer.firstIndex(of: 0x0A) {
@@ -293,7 +352,11 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
                 return String(data: line, encoding: .utf8)
             }
             guard
-                !operationWasInterrupted(cancellation),
+                !operationWasInterrupted(
+                    cancellation,
+                    cancellationGeneration: cancellationGeneration,
+                    activeGeneration: activeGeneration
+                ),
                 let timeoutMilliseconds = remainingTimeoutMilliseconds(
                     until: deadline
                 )
@@ -352,29 +415,49 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
 
     private func publishActiveSocket(
         _ socket: Int32,
-        cancellation: PersistentSocketInterruptionSignal
+        cancellation: PersistentSocketInterruptionSignal,
+        cancellationGeneration: UInt32,
+        activeGeneration: UInt32
     ) -> Bool {
-        guard cancellation.install(socket: socket) else {
+        guard cancellation.install(
+            socket: socket,
+            generation: cancellationGeneration
+        ) else {
             return false
         }
-        guard activeInterruption.install(socket: socket) else {
-            cancellation.retire()
+        guard activeInterruption.install(
+            socket: socket,
+            generation: activeGeneration
+        ) else {
+            _ = cancellation.retire(generation: cancellationGeneration)
             return false
         }
         return true
     }
 
     private func endActiveOperation(
-        cancellation: PersistentSocketInterruptionSignal
+        cancellation: PersistentSocketInterruptionSignal,
+        cancellationGeneration: UInt32,
+        activeGeneration: UInt32
     ) {
-        cancellation.retire()
-        activeInterruption.retire()
+        let commandWasInterrupted = cancellation.retire(
+            generation: cancellationGeneration
+        )
+        let activeOperationWasInterrupted = activeInterruption.retire(
+            generation: activeGeneration
+        )
+        if commandWasInterrupted || activeOperationWasInterrupted {
+            closeConnection()
+        }
     }
 
     private func operationWasInterrupted(
-        _ cancellation: PersistentSocketInterruptionSignal
+        _ cancellation: PersistentSocketInterruptionSignal,
+        cancellationGeneration: UInt32,
+        activeGeneration: UInt32
     ) -> Bool {
-        cancellation.isTriggered || activeInterruption.isTriggered
+        cancellation.isTriggered(generation: cancellationGeneration) ||
+            activeInterruption.isTriggered(generation: activeGeneration)
     }
 
     private func closeSocket(_ socket: Int32) {
