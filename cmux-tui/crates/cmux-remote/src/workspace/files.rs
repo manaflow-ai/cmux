@@ -22,6 +22,7 @@ use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
+use super::PreparedWorkspaceResponse;
 #[cfg(unix)]
 use super::path::{UnixWorkspaceDirectory, UnixWorkspaceRoot, UnixWorkspaceTarget};
 use super::path::{
@@ -53,6 +54,7 @@ const GUARDED_CONTENT_MUTATIONS_SUPPORTED: bool = true;
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "android", target_vendor = "apple"))))]
 const GUARDED_CONTENT_MUTATIONS_SUPPORTED: bool = false;
 
+#[derive(Clone)]
 struct SortedDirectoryEntry {
     entry: DirectoryEntry,
     folded_name: String,
@@ -69,6 +71,7 @@ impl SortedDirectoryEntry {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct DirectoryContinuation {
     entries: Vec<SortedDirectoryEntry>,
     next_index: usize,
@@ -95,6 +98,7 @@ impl DirectoryContinuation {
     }
 }
 
+#[derive(Clone)]
 struct SearchQueueEntry {
     path: PathBuf,
     protocol_path: String,
@@ -117,6 +121,7 @@ struct SearchFilePosition {
     previous_line: Option<(usize, usize)>,
 }
 
+#[derive(Clone)]
 struct SearchFileContinuation {
     protocol_path: String,
     text: String,
@@ -164,6 +169,7 @@ impl SearchFileContinuation {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct SearchContinuation {
     queue: VecDeque<SearchQueueEntry>,
     queue_bytes: usize,
@@ -695,7 +701,7 @@ pub(crate) async fn list_directory(
     include_hidden: bool,
     limit: u32,
     cursor: Option<&PageCursor>,
-) -> Result<WorkspaceResponse, RpcError> {
+) -> Result<PreparedWorkspaceResponse, RpcError> {
     if limit > MAX_DIRECTORY_LIMIT {
         return Err(RpcError::new(
             "resource-exhausted",
@@ -703,19 +709,25 @@ pub(crate) async fn list_directory(
         ));
     }
     if limit == 0 {
-        return Ok(WorkspaceResponse::Directory {
+        return Ok(PreparedWorkspaceResponse::plain(WorkspaceResponse::Directory {
             entries: Vec::new(),
             truncated: false,
             next_cursor: None,
-        });
+        }));
     }
     let normalized = normalize_protocol_path(path)?;
     let cursor_scope =
         page_scope(&["directory", &normalized, if include_hidden { "1" } else { "0" }]);
-    let mut continuation = if let Some(cursor) = cursor {
-        context.service.take_directory(context.owner, &context.root.id, &cursor_scope, cursor)?
+    let (mut continuation, mut delivery) = if let Some(cursor) = cursor {
+        let (continuation, delivery) = context.service.lease_directory(
+            context.owner,
+            &context.root.id,
+            &cursor_scope,
+            cursor,
+        )?;
+        (continuation, Some(delivery))
     } else {
-        snapshot_directory(context.root, path, &normalized, include_hidden).await?
+        (snapshot_directory(context.root, path, &normalized, include_hidden).await?, None)
     };
 
     let requested = limit as usize;
@@ -737,20 +749,29 @@ pub(crate) async fn list_directory(
     let has_more = continuation.next_index < continuation.entries.len();
     let scan_truncated = continuation.scan_truncated;
     let next_cursor = if has_more {
-        Some(context.service.put_directory(
+        let (next, next_delivery) = context.service.put_directory(
             context.owner,
             &context.root.id,
             &cursor_scope,
             continuation,
-        )?)
+            delivery.take(),
+        )?;
+        delivery = Some(next_delivery);
+        Some(next)
     } else {
         None
     };
-    Ok(WorkspaceResponse::Directory {
-        entries: page,
-        truncated: scan_truncated || next_cursor.is_some(),
-        next_cursor,
-    })
+    if let Some(delivery) = delivery.as_mut() {
+        delivery.finish_preparation();
+    }
+    Ok(PreparedWorkspaceResponse::paginated(
+        WorkspaceResponse::Directory {
+            entries: page,
+            truncated: scan_truncated || next_cursor.is_some(),
+            next_cursor,
+        },
+        delivery,
+    ))
 }
 
 async fn snapshot_directory(
@@ -855,7 +876,7 @@ pub(crate) async fn search(
     include_hidden: bool,
     max_results: u32,
     cursor: Option<&PageCursor>,
-) -> Result<WorkspaceResponse, RpcError> {
+) -> Result<PreparedWorkspaceResponse, RpcError> {
     if query.is_empty() {
         return Err(RpcError::new("invalid-argument", "search query cannot be empty"));
     }
@@ -888,11 +909,11 @@ pub(crate) async fn search(
         ));
     }
     if max_results == 0 {
-        return Ok(WorkspaceResponse::Search {
+        return Ok(PreparedWorkspaceResponse::plain(WorkspaceResponse::Search {
             matches: Vec::new(),
             truncated: false,
             next_cursor: None,
-        });
+        }));
     }
     for glob in globs {
         if glob.contains('\0') {
@@ -908,10 +929,12 @@ pub(crate) async fn search(
     requested_paths.sort_by(|left, right| left.1.cmp(&right.1));
     requested_paths.dedup_by(|left, right| left.1 == right.1);
     let cursor_scope = search_page_scope(query, &requested_paths, globs, include_hidden);
-    let mut continuation = if let Some(cursor) = cursor {
-        context.service.take_search(context.owner, &context.root.id, &cursor_scope, cursor)?
+    let (mut continuation, mut delivery) = if let Some(cursor) = cursor {
+        let (continuation, delivery) =
+            context.service.lease_search(context.owner, &context.root.id, &cursor_scope, cursor)?;
+        (continuation, Some(delivery))
     } else {
-        initialize_search(context.root, requested_paths).await?
+        (initialize_search(context.root, requested_paths).await?, None)
     };
 
     let mut matches = Vec::new();
@@ -1151,20 +1174,29 @@ pub(crate) async fn search(
                 format!("search continuation exceeds {MAX_SEARCH_STATE_BYTES} retained bytes"),
             ));
         }
-        Some(context.service.put_search(
+        let (next, next_delivery) = context.service.put_search(
             context.owner,
             &context.root.id,
             &cursor_scope,
             continuation,
-        )?)
+            delivery.take(),
+        )?;
+        delivery = Some(next_delivery);
+        Some(next)
     } else {
         None
     };
-    Ok(WorkspaceResponse::Search {
-        matches,
-        truncated: discovery_truncated || next_cursor.is_some(),
-        next_cursor,
-    })
+    if let Some(delivery) = delivery.as_mut() {
+        delivery.finish_preparation();
+    }
+    Ok(PreparedWorkspaceResponse::paginated(
+        WorkspaceResponse::Search {
+            matches,
+            truncated: discovery_truncated || next_cursor.is_some(),
+            next_cursor,
+        },
+        delivery,
+    ))
 }
 
 async fn initialize_search(
@@ -3832,7 +3864,9 @@ mod tests {
         symlink(outside.path(), &parent).unwrap();
         barrier.resume();
 
-        if let Ok(WorkspaceResponse::Directory { entries, .. }) = inspector.await.unwrap() {
+        if let Ok(WorkspaceResponse::Directory { entries, .. }) =
+            inspector.await.unwrap().map(PreparedWorkspaceResponse::commit)
+        {
             assert!(
                 entries.iter().all(|entry| entry.name != "outside.txt"),
                 "directory listing escaped the workspace: {entries:?}"
@@ -3867,7 +3901,9 @@ mod tests {
         symlink(outside.path(), &parent).unwrap();
         barrier.resume();
 
-        if let Ok(WorkspaceResponse::Search { matches, .. }) = inspector.await.unwrap() {
+        if let Ok(WorkspaceResponse::Search { matches, .. }) =
+            inspector.await.unwrap().map(PreparedWorkspaceResponse::commit)
+        {
             assert!(matches.is_empty(), "search escaped the workspace: {matches:?}");
         }
     }
@@ -3923,7 +3959,8 @@ mod tests {
         let WorkspaceResponse::File { data, .. } = response else { panic!() };
         assert_eq!(data.decode().unwrap(), b"requested");
 
-        let response = list_directory(&context, "requested-dir", false, 10, None).await.unwrap();
+        let response =
+            list_directory(&context, "requested-dir", false, 10, None).await.unwrap().commit();
         let WorkspaceResponse::Directory { entries, .. } = response else { panic!() };
         assert_eq!(
             entries.iter().map(|entry| entry.name.as_str()).collect::<Vec<_>>(),
@@ -3932,7 +3969,8 @@ mod tests {
 
         let response = search(&context, "needle", &["requested-dir".into()], &[], false, 10, None)
             .await
-            .unwrap();
+            .unwrap()
+            .commit();
         let WorkspaceResponse::Search { matches, .. } = response else { panic!() };
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].path, "requested-dir/requested.txt");
@@ -5067,7 +5105,7 @@ mod tests {
         tokio::fs::create_dir(root.canonical_root().join("z-dir")).await.unwrap();
         tokio::fs::write(root.canonical_root().join("A.txt"), b"a").await.unwrap();
         tokio::fs::write(root.canonical_root().join(".hidden"), b"h").await.unwrap();
-        let response = list_directory(&context, "", false, 1, None).await.unwrap();
+        let response = list_directory(&context, "", false, 1, None).await.unwrap().commit();
         let WorkspaceResponse::Directory { entries, truncated, .. } = response else { panic!() };
         assert!(truncated);
         assert_eq!(entries[0].name, "z-dir");
@@ -5082,7 +5120,7 @@ mod tests {
         tokio::fs::write(root.canonical_root().join("one.txt"), b"one").await.unwrap();
 
         for _ in 0..2 {
-            let response = list_directory(&context, "", false, 10, None).await.unwrap();
+            let response = list_directory(&context, "", false, 10, None).await.unwrap().commit();
             let WorkspaceResponse::Directory { entries, .. } = response else { panic!() };
             assert!(entries.iter().any(|entry| entry.name == "one.txt"));
         }
@@ -5096,7 +5134,7 @@ mod tests {
         for name in ["c.txt", "a.txt", "b.txt"] {
             tokio::fs::write(root.canonical_root().join(name), name).await.unwrap();
         }
-        let first = list_directory(&context, "", false, 2, None).await.unwrap();
+        let first = list_directory(&context, "", false, 2, None).await.unwrap().commit();
         let WorkspaceResponse::Directory { entries, next_cursor: Some(cursor), .. } = first else {
             panic!()
         };
@@ -5105,7 +5143,7 @@ mod tests {
             ["a.txt", "b.txt"]
         );
 
-        let second = list_directory(&context, "", false, 2, Some(&cursor)).await.unwrap();
+        let second = list_directory(&context, "", false, 2, Some(&cursor)).await.unwrap().commit();
         let WorkspaceResponse::Directory { entries, next_cursor, truncated } = second else {
             panic!()
         };
@@ -5113,7 +5151,10 @@ mod tests {
         assert_eq!(next_cursor, None);
         assert!(!truncated);
 
-        let error = list_directory(&context, "", true, 2, Some(&cursor)).await.unwrap_err();
+        let error = list_directory(&context, "", true, 2, Some(&cursor))
+            .await
+            .err()
+            .expect("cursor with a different scope should fail");
         assert_eq!(error.code, "invalid-cursor");
     }
 
@@ -5125,14 +5166,14 @@ mod tests {
         for name in ["a.txt", "b.txt", "c.txt"] {
             tokio::fs::write(root.canonical_root().join(name), name).await.unwrap();
         }
-        let first = list_directory(&context, "", false, 1, None).await.unwrap();
+        let first = list_directory(&context, "", false, 1, None).await.unwrap().commit();
         let WorkspaceResponse::Directory { entries, next_cursor: Some(cursor), .. } = first else {
             panic!()
         };
         assert_eq!(entries[0].name, "a.txt");
         tokio::fs::remove_file(root.canonical_root().join("a.txt")).await.unwrap();
 
-        let second = list_directory(&context, "", false, 1, Some(&cursor)).await.unwrap();
+        let second = list_directory(&context, "", false, 1, Some(&cursor)).await.unwrap().commit();
         let WorkspaceResponse::Directory { entries, .. } = second else { panic!() };
         assert_eq!(entries[0].name, "b.txt");
     }
@@ -5152,7 +5193,8 @@ mod tests {
         let response =
             search(&context, "needle", &["src".into()], &["*.rs".into()], false, 1, None)
                 .await
-                .unwrap();
+                .unwrap()
+                .commit();
         let WorkspaceResponse::Search { matches, truncated, .. } = response else { panic!() };
         assert!(truncated);
         assert_eq!(matches[0].path, "src/lib.rs");
@@ -5169,13 +5211,14 @@ mod tests {
         tokio::fs::write(root.canonical_root().join("matches.txt"), b"needle one\nneedle two\n")
             .await
             .unwrap();
-        let first = search(&context, "needle", &[], &[], false, 1, None).await.unwrap();
+        let first = search(&context, "needle", &[], &[], false, 1, None).await.unwrap().commit();
         let WorkspaceResponse::Search { matches, next_cursor: Some(cursor), .. } = first else {
             panic!()
         };
         assert_eq!(matches[0].line, 1);
 
-        let second = search(&context, "needle", &[], &[], false, 1, Some(&cursor)).await.unwrap();
+        let second =
+            search(&context, "needle", &[], &[], false, 1, Some(&cursor)).await.unwrap().commit();
         let WorkspaceResponse::Search { matches, next_cursor, truncated } = second else {
             panic!()
         };
@@ -5191,11 +5234,12 @@ mod tests {
         let context = WorkspaceQueryContext::new(&queries, &owner, &root);
         let path = root.canonical_root().join("matches.txt");
         tokio::fs::write(&path, b"needle one\nneedle two\n").await.unwrap();
-        let first = search(&context, "needle", &[], &[], false, 1, None).await.unwrap();
+        let first = search(&context, "needle", &[], &[], false, 1, None).await.unwrap().commit();
         let WorkspaceResponse::Search { next_cursor: Some(cursor), .. } = first else { panic!() };
         tokio::fs::write(&path, b"needle zero\nneedle one\nneedle two\n").await.unwrap();
 
-        let second = search(&context, "needle", &[], &[], false, 1, Some(&cursor)).await.unwrap();
+        let second =
+            search(&context, "needle", &[], &[], false, 1, Some(&cursor)).await.unwrap().commit();
         let WorkspaceResponse::Search { matches, .. } = second else { panic!() };
         assert_eq!(matches[0].text, "needle two");
         assert_eq!(matches[0].line, 2);

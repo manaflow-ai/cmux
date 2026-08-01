@@ -17,6 +17,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
 
+use super::PreparedWorkspaceResponse;
 use super::path::{WorkspaceRoot, normalize_protocol_path};
 use super::query::WorkspaceQueryContext;
 
@@ -33,6 +34,7 @@ const MAX_GIT_CHANGES: usize = 10_000;
 const MAX_GIT_DIFF_FILES: usize = 10_000;
 const MAX_GIT_STATUS_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
+#[derive(Clone)]
 pub(super) struct DiffContinuation {
     unified: Vec<u8>,
     sections: Vec<Range<usize>>,
@@ -81,7 +83,7 @@ pub(crate) async fn diff(
     format: DiffFormat,
     cursor: Option<&PageCursor>,
     max_bytes: Option<u32>,
-) -> Result<WorkspaceResponse, RpcError> {
+) -> Result<PreparedWorkspaceResponse, RpcError> {
     if diff_context > MAX_DIFF_CONTEXT {
         return Err(RpcError::new(
             "resource-exhausted",
@@ -130,8 +132,10 @@ pub(crate) async fn diff(
         arguments.extend(normalized.iter().cloned());
     }
     let references = arguments.iter().map(String::as_str).collect::<Vec<_>>();
-    let mut continuation = if let Some(cursor) = cursor {
-        query_context.service.take_diff(query_context.owner, &root.id, &scope, cursor)?
+    let (mut continuation, mut delivery) = if let Some(cursor) = cursor {
+        let (continuation, delivery) =
+            query_context.service.lease_diff(query_context.owner, &root.id, &scope, cursor)?;
+        (continuation, Some(delivery))
     } else {
         let (mut unified, mut path_metadata) =
             if matches!(format, DiffFormat::Structured | DiffFormat::StructuredV1) {
@@ -161,7 +165,7 @@ pub(crate) async fn diff(
         if let Some(metadata) = &mut path_metadata {
             metadata.shrink_to_fit();
         }
-        DiffContinuation { unified, sections, path_metadata, next_index: 0 }
+        (DiffContinuation { unified, sections, path_metadata, next_index: 0 }, None)
     };
 
     let start = continuation.next_index;
@@ -240,10 +244,21 @@ pub(crate) async fn diff(
     };
     continuation.next_index = index;
     let next_cursor = if index < continuation.sections.len() {
-        Some(query_context.service.put_diff(query_context.owner, &root.id, &scope, continuation)?)
+        let (next, next_delivery) = query_context.service.put_diff(
+            query_context.owner,
+            &root.id,
+            &scope,
+            continuation,
+            delivery.take(),
+        )?;
+        delivery = Some(next_delivery);
+        Some(next)
     } else {
         None
     };
+    if let Some(delivery) = delivery.as_mut() {
+        delivery.finish_preparation();
+    }
     match &mut response {
         WorkspaceResponse::Diff { next_cursor: response_cursor, .. }
         | WorkspaceResponse::StructuredDiff { next_cursor: response_cursor, .. } => {
@@ -251,7 +266,7 @@ pub(crate) async fn diff(
         }
         _ => unreachable!("diff request constructed a diff response"),
     }
-    Ok(response)
+    Ok(PreparedWorkspaceResponse::paginated(response, delivery))
 }
 
 async fn run_git(
@@ -372,6 +387,7 @@ async fn read_bounded(
     Ok(bytes)
 }
 
+#[derive(Clone)]
 struct DiffPathPair {
     old_path: Option<String>,
     new_path: Option<String>,
@@ -721,8 +737,10 @@ mod tests {
         let queries = WorkspaceQueryService::default();
         let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
         let context = WorkspaceQueryContext::new(&queries, &owner, root);
-        let response =
-            diff(&context, &[], staged, 3, DiffFormat::StructuredV1, None, None).await.unwrap();
+        let response = diff(&context, &[], staged, 3, DiffFormat::StructuredV1, None, None)
+            .await
+            .unwrap()
+            .commit();
         let WorkspaceResponse::StructuredDiff { diff, .. } = response else { panic!() };
         diff
     }
@@ -755,8 +773,10 @@ mod tests {
         assert_eq!(status.changes[0].path, "tracked.txt");
         assert_eq!(status.changes[0].worktree_status, 'M');
 
-        let response =
-            diff(&context, &[], false, 3, DiffFormat::Structured, None, None).await.unwrap();
+        let response = diff(&context, &[], false, 3, DiffFormat::Structured, None, None)
+            .await
+            .unwrap()
+            .commit();
         let WorkspaceResponse::Diff { data, .. } = response else { panic!() };
         let decoded = data.decode().unwrap();
         let json: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
@@ -764,8 +784,10 @@ mod tests {
         assert!(json["files"][0]["hunks"][0]["lines"].is_array());
         assert!(json["files"][0].get("metadata").is_none());
 
-        let typed =
-            diff(&context, &[], false, 3, DiffFormat::StructuredV1, None, None).await.unwrap();
+        let typed = diff(&context, &[], false, 3, DiffFormat::StructuredV1, None, None)
+            .await
+            .unwrap()
+            .commit();
         let WorkspaceResponse::StructuredDiff { diff, .. } = typed else { panic!() };
         assert_eq!(diff.version, 1);
         assert_eq!(diff.files[0].new_path.as_deref(), Some("tracked.txt"));
@@ -958,14 +980,17 @@ mod tests {
         std::fs::write(root.canonical_root().join("tracked.txt"), "after one\n").unwrap();
         std::fs::write(root.canonical_root().join("second.txt"), "after two\n").unwrap();
 
-        let full = diff(&context, &[], false, 3, DiffFormat::Unified, None, None).await.unwrap();
+        let full =
+            diff(&context, &[], false, 3, DiffFormat::Unified, None, None).await.unwrap().commit();
         let WorkspaceResponse::Diff { data, .. } = full else { panic!() };
         let full = data.decode().unwrap();
         let maximum = split_diff_sections(&full).iter().map(|section| section.len()).max().unwrap();
         let maximum = u32::try_from(maximum).unwrap();
 
-        let first =
-            diff(&context, &[], false, 3, DiffFormat::Unified, None, Some(maximum)).await.unwrap();
+        let first = diff(&context, &[], false, 3, DiffFormat::Unified, None, Some(maximum))
+            .await
+            .unwrap()
+            .commit();
         let WorkspaceResponse::Diff { data, next_cursor: Some(cursor), .. } = first else {
             panic!()
         };
@@ -973,7 +998,8 @@ mod tests {
         let second =
             diff(&context, &[], false, 3, DiffFormat::Unified, Some(&cursor), Some(maximum))
                 .await
-                .unwrap();
+                .unwrap()
+                .commit();
         let WorkspaceResponse::Diff { data, next_cursor, .. } = second else { panic!() };
         assert_eq!(next_cursor, None);
         combined.extend(data.decode().unwrap());
@@ -992,13 +1018,16 @@ mod tests {
         std::fs::write(root.canonical_root().join("tracked.txt"), "after one\n").unwrap();
         std::fs::write(root.canonical_root().join("second.txt"), "after two\n").unwrap();
 
-        let full = diff(&context, &[], false, 3, DiffFormat::Unified, None, None).await.unwrap();
+        let full =
+            diff(&context, &[], false, 3, DiffFormat::Unified, None, None).await.unwrap().commit();
         let WorkspaceResponse::Diff { data, .. } = full else { panic!() };
         let full = data.decode().unwrap();
         let maximum = split_diff_sections(&full).iter().map(|section| section.len()).max().unwrap();
         let maximum = u32::try_from(maximum).unwrap();
-        let first =
-            diff(&context, &[], false, 3, DiffFormat::Unified, None, Some(maximum)).await.unwrap();
+        let first = diff(&context, &[], false, 3, DiffFormat::Unified, None, Some(maximum))
+            .await
+            .unwrap()
+            .commit();
         let WorkspaceResponse::Diff { data, next_cursor: Some(cursor), .. } = first else {
             panic!()
         };
@@ -1013,7 +1042,8 @@ mod tests {
         let second =
             diff(&context, &[], false, 3, DiffFormat::Unified, Some(&cursor), Some(maximum))
                 .await
-                .unwrap();
+                .unwrap()
+                .commit();
         let WorkspaceResponse::Diff { data, .. } = second else { panic!() };
         let second = String::from_utf8(data.decode().unwrap()).unwrap();
         assert!(second.contains(remaining), "missing retained diff for {remaining}: {second}");

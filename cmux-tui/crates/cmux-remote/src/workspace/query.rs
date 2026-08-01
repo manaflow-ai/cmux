@@ -42,7 +42,7 @@ impl<'a> WorkspaceQueryContext<'a> {
 
 #[derive(Default)]
 pub(super) struct WorkspaceQueryService {
-    state: StdMutex<QueryState>,
+    state: Arc<StdMutex<QueryState>>,
 }
 
 #[derive(Default)]
@@ -61,13 +61,68 @@ struct StoredContinuation {
     scope: String,
     last_used: Instant,
     charge: usize,
-    value: QueryContinuation,
+    leased: bool,
+    value: Arc<QueryContinuation>,
 }
 
+#[derive(Clone)]
 enum QueryContinuation {
     Directory(DirectoryContinuation),
     Search(SearchContinuation),
     Diff(DiffContinuation),
+}
+
+pub(super) struct ContinuationDelivery {
+    state: Arc<StdMutex<QueryState>>,
+    parent: Option<String>,
+    clone_charge: usize,
+    successor: Option<String>,
+    finished: bool,
+}
+
+impl ContinuationDelivery {
+    pub(super) fn finish_preparation(&mut self) {
+        if self.clone_charge == 0 {
+            return;
+        }
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.continuation_bytes = state.continuation_bytes.saturating_sub(self.clone_charge);
+        self.clone_charge = 0;
+    }
+
+    pub(super) fn commit(mut self) {
+        self.finish(true);
+    }
+
+    fn finish(&mut self, delivered: bool) {
+        if self.finished {
+            return;
+        }
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.continuation_bytes = state.continuation_bytes.saturating_sub(self.clone_charge);
+        if delivered {
+            if let Some(parent) = &self.parent {
+                state.remove_continuation(parent);
+            }
+            if let Some(successor) = &self.successor {
+                state.release_continuation(successor);
+            }
+        } else {
+            if let Some(successor) = &self.successor {
+                state.remove_continuation(successor);
+            }
+            if let Some(parent) = &self.parent {
+                state.release_continuation(parent);
+            }
+        }
+        self.finished = true;
+    }
+}
+
+impl Drop for ContinuationDelivery {
+    fn drop(&mut self) {
+        self.finish(false);
+    }
 }
 
 impl QueryContinuation {
@@ -95,19 +150,20 @@ impl WorkspaceQueryService {
         workspace: &WorkspaceId,
         scope: &str,
         state: DirectoryContinuation,
-    ) -> Result<PageCursor, RpcError> {
-        self.put(owner, workspace, scope, QueryContinuation::Directory(state))
+        delivery: Option<ContinuationDelivery>,
+    ) -> Result<(PageCursor, ContinuationDelivery), RpcError> {
+        self.put(owner, workspace, scope, QueryContinuation::Directory(state), delivery)
     }
 
-    pub(super) fn take_directory(
+    pub(super) fn lease_directory(
         &self,
         owner: &ClientScope,
         workspace: &WorkspaceId,
         scope: &str,
         cursor: &PageCursor,
-    ) -> Result<DirectoryContinuation, RpcError> {
-        match self.take(owner, workspace, scope, "directory", cursor)? {
-            QueryContinuation::Directory(state) => Ok(state),
+    ) -> Result<(DirectoryContinuation, ContinuationDelivery), RpcError> {
+        match self.lease(owner, workspace, scope, "directory", cursor)? {
+            (QueryContinuation::Directory(state), delivery) => Ok((state, delivery)),
             _ => unreachable!("continuation kind was validated"),
         }
     }
@@ -118,19 +174,20 @@ impl WorkspaceQueryService {
         workspace: &WorkspaceId,
         scope: &str,
         state: SearchContinuation,
-    ) -> Result<PageCursor, RpcError> {
-        self.put(owner, workspace, scope, QueryContinuation::Search(state))
+        delivery: Option<ContinuationDelivery>,
+    ) -> Result<(PageCursor, ContinuationDelivery), RpcError> {
+        self.put(owner, workspace, scope, QueryContinuation::Search(state), delivery)
     }
 
-    pub(super) fn take_search(
+    pub(super) fn lease_search(
         &self,
         owner: &ClientScope,
         workspace: &WorkspaceId,
         scope: &str,
         cursor: &PageCursor,
-    ) -> Result<SearchContinuation, RpcError> {
-        match self.take(owner, workspace, scope, "search", cursor)? {
-            QueryContinuation::Search(state) => Ok(state),
+    ) -> Result<(SearchContinuation, ContinuationDelivery), RpcError> {
+        match self.lease(owner, workspace, scope, "search", cursor)? {
+            (QueryContinuation::Search(state), delivery) => Ok((state, delivery)),
             _ => unreachable!("continuation kind was validated"),
         }
     }
@@ -141,19 +198,20 @@ impl WorkspaceQueryService {
         workspace: &WorkspaceId,
         scope: &str,
         state: DiffContinuation,
-    ) -> Result<PageCursor, RpcError> {
-        self.put(owner, workspace, scope, QueryContinuation::Diff(state))
+        delivery: Option<ContinuationDelivery>,
+    ) -> Result<(PageCursor, ContinuationDelivery), RpcError> {
+        self.put(owner, workspace, scope, QueryContinuation::Diff(state), delivery)
     }
 
-    pub(super) fn take_diff(
+    pub(super) fn lease_diff(
         &self,
         owner: &ClientScope,
         workspace: &WorkspaceId,
         scope: &str,
         cursor: &PageCursor,
-    ) -> Result<DiffContinuation, RpcError> {
-        match self.take(owner, workspace, scope, "diff", cursor)? {
-            QueryContinuation::Diff(state) => Ok(state),
+    ) -> Result<(DiffContinuation, ContinuationDelivery), RpcError> {
+        match self.lease(owner, workspace, scope, "diff", cursor)? {
+            (QueryContinuation::Diff(state), delivery) => Ok((state, delivery)),
             _ => unreachable!("continuation kind was validated"),
         }
     }
@@ -164,7 +222,8 @@ impl WorkspaceQueryService {
         workspace: &WorkspaceId,
         scope: &str,
         value: QueryContinuation,
-    ) -> Result<PageCursor, RpcError> {
+        mut delivery: Option<ContinuationDelivery>,
+    ) -> Result<(PageCursor, ContinuationDelivery), RpcError> {
         let now = Instant::now();
         let kind = value.kind();
         let token = format!("q:{kind}:{}", uuid::Uuid::new_v4());
@@ -183,17 +242,32 @@ impl WorkspaceQueryService {
         }
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.prune_continuations(now);
+        if let Some(delivery) = &delivery {
+            let parent_is_leased = Arc::ptr_eq(&delivery.state, &self.state)
+                && delivery.successor.is_none()
+                && delivery.parent.as_ref().is_some_and(|parent| {
+                    state.continuations.get(parent).is_some_and(|stored| stored.leased)
+                });
+            if !parent_is_leased {
+                drop(state);
+                return Err(cursor_lifecycle_error());
+            }
+        }
+        let clone_charge = delivery.as_ref().map_or(0, |delivery| delivery.clone_charge);
         while state.continuations.len() >= MAX_QUERY_CONTINUATIONS
-            || state.continuation_bytes.saturating_add(charge) > MAX_QUERY_CONTINUATION_BYTES
+            || state.continuation_bytes.saturating_sub(clone_charge).saturating_add(charge)
+                > MAX_QUERY_CONTINUATION_BYTES
         {
             if !state.evict_oldest_continuation() {
+                drop(state);
                 return Err(RpcError::new(
                     "resource-exhausted",
                     "retained query memory is unavailable",
                 ));
             }
         }
-        state.continuation_bytes = state.continuation_bytes.saturating_add(charge);
+        state.continuation_bytes =
+            state.continuation_bytes.saturating_sub(clone_charge).saturating_add(charge);
         state.continuation_order.push_back(token.clone());
         state.continuations.insert(
             token.clone(),
@@ -203,20 +277,34 @@ impl WorkspaceQueryService {
                 scope: scope.to_owned(),
                 last_used: now,
                 charge,
-                value,
+                leased: true,
+                value: Arc::new(value),
             },
         );
-        Ok(PageCursor(token))
+        let delivery = if let Some(mut delivery) = delivery.take() {
+            delivery.clone_charge = 0;
+            delivery.successor = Some(token.clone());
+            delivery
+        } else {
+            ContinuationDelivery {
+                state: Arc::clone(&self.state),
+                parent: None,
+                clone_charge: 0,
+                successor: Some(token.clone()),
+                finished: false,
+            }
+        };
+        Ok((PageCursor(token), delivery))
     }
 
-    fn take(
+    fn lease(
         &self,
         owner: &ClientScope,
         workspace: &WorkspaceId,
         scope: &str,
         kind: &str,
         cursor: &PageCursor,
-    ) -> Result<QueryContinuation, RpcError> {
+    ) -> Result<(QueryContinuation, ContinuationDelivery), RpcError> {
         if cursor.0.len() > MAX_CURSOR_BYTES || !cursor.0.starts_with(&format!("q:{kind}:")) {
             return Err(invalid_cursor(kind));
         }
@@ -236,11 +324,49 @@ impl WorkspaceQueryService {
         {
             return Err(invalid_cursor(kind));
         }
-        let stored =
-            state.continuations.remove(&cursor.0).expect("validated continuation remains present");
+        if stored.leased {
+            let mut error = RpcError::new(
+                "cursor-in-use",
+                format!("{kind} cursor is already serving another request"),
+            );
+            error.retryable = true;
+            return Err(error);
+        }
+        let (value, charge) = {
+            let stored = state
+                .continuations
+                .get_mut(&cursor.0)
+                .expect("validated continuation remains present");
+            stored.leased = true;
+            stored.last_used = now;
+            (Arc::clone(&stored.value), stored.charge)
+        };
+        while state.continuation_bytes.saturating_add(charge) > MAX_QUERY_CONTINUATION_BYTES {
+            if !state.evict_oldest_continuation() {
+                state
+                    .continuations
+                    .get_mut(&cursor.0)
+                    .expect("leased continuation remains present")
+                    .leased = false;
+                return Err(RpcError::new(
+                    "resource-exhausted",
+                    "retained query memory is unavailable for a cursor lease",
+                ));
+            }
+        }
+        state.continuation_bytes = state.continuation_bytes.saturating_add(charge);
         state.continuation_order.retain(|token| token != &cursor.0);
-        state.continuation_bytes = state.continuation_bytes.saturating_sub(stored.charge);
-        Ok(stored.value)
+        state.continuation_order.push_back(cursor.0.clone());
+        drop(state);
+
+        let delivery = ContinuationDelivery {
+            state: Arc::clone(&self.state),
+            parent: Some(cursor.0.clone()),
+            clone_charge: charge,
+            successor: None,
+            finished: false,
+        };
+        Ok((value.as_ref().clone(), delivery))
     }
 
     pub(super) fn hash_cell(&self, key: FileHashKey) -> Arc<OnceCell<String>> {
@@ -335,7 +461,8 @@ impl QueryState {
             .continuations
             .iter()
             .filter_map(|(token, stored)| {
-                (now.saturating_duration_since(stored.last_used) >= QUERY_CONTINUATION_TTL)
+                (!stored.leased
+                    && now.saturating_duration_since(stored.last_used) >= QUERY_CONTINUATION_TTL)
                     .then_some(token.clone())
             })
             .collect::<Vec<_>>();
@@ -345,11 +472,15 @@ impl QueryState {
     }
 
     fn evict_oldest_continuation(&mut self) -> bool {
-        while let Some(token) = self.continuation_order.pop_front() {
-            if let Some(stored) = self.continuations.remove(&token) {
-                self.continuation_bytes = self.continuation_bytes.saturating_sub(stored.charge);
-                return true;
+        for _ in 0..self.continuation_order.len() {
+            let Some(token) = self.continuation_order.pop_front() else { break };
+            if self.continuations.get(&token).is_some_and(|stored| stored.leased) {
+                self.continuation_order.push_back(token);
+                continue;
             }
+            let Some(stored) = self.continuations.remove(&token) else { continue };
+            self.continuation_bytes = self.continuation_bytes.saturating_sub(stored.charge);
+            return true;
         }
         false
     }
@@ -359,6 +490,14 @@ impl QueryState {
             self.continuation_bytes = self.continuation_bytes.saturating_sub(stored.charge);
         }
         self.continuation_order.retain(|candidate| candidate != token);
+    }
+
+    fn release_continuation(&mut self, token: &str) {
+        let Some(stored) = self.continuations.get_mut(token) else { return };
+        stored.leased = false;
+        stored.last_used = Instant::now();
+        self.continuation_order.retain(|candidate| candidate != token);
+        self.continuation_order.push_back(token.to_owned());
     }
 
     fn prune_hashes(&mut self, now: Instant) {
@@ -395,6 +534,15 @@ impl QueryState {
 
 fn invalid_cursor(kind: &str) -> RpcError {
     RpcError::new("invalid-cursor", format!("cursor does not belong to this {kind} request"))
+}
+
+fn cursor_lifecycle_error() -> RpcError {
+    let mut error = RpcError::new(
+        "invalid-cursor",
+        "query cursor lifecycle ended before its successor was retained",
+    );
+    error.retryable = true;
+    error
 }
 
 struct CachedHash {
@@ -498,19 +646,65 @@ impl FileIdentity {
 mod tests {
     use super::*;
 
+    fn delivered_directory_cursor(
+        service: &WorkspaceQueryService,
+        owner: &ClientScope,
+        workspace: &WorkspaceId,
+        scope: &str,
+    ) -> PageCursor {
+        let (cursor, delivery) = service
+            .put_directory(owner, workspace, scope, DirectoryContinuation::for_test(), None)
+            .unwrap();
+        delivery.commit();
+        cursor
+    }
+
     #[test]
     fn continuation_store_binds_owner_scope_and_consumes_tokens_once() {
         let service = WorkspaceQueryService::default();
         let owner = ClientScope::new("device", cmux_remote_protocol::SessionId([1; 16]));
         let other_owner = ClientScope::new("other", cmux_remote_protocol::SessionId([2; 16]));
         let workspace = WorkspaceId("workspace".into());
-        let cursor = service
-            .put_directory(&owner, &workspace, "scope", DirectoryContinuation::for_test())
+        let cursor = delivered_directory_cursor(&service, &owner, &workspace, "scope");
+        assert!(service.lease_directory(&owner, &workspace, "other", &cursor).is_err());
+        assert!(service.lease_directory(&other_owner, &workspace, "scope", &cursor).is_err());
+        let (_, delivery) = service.lease_directory(&owner, &workspace, "scope", &cursor).unwrap();
+        delivery.commit();
+        assert!(service.lease_directory(&owner, &workspace, "scope", &cursor).is_err());
+    }
+
+    #[test]
+    fn dropping_an_initial_prepared_page_discards_its_undelivered_cursor() {
+        let service = WorkspaceQueryService::default();
+        let owner = ClientScope::new("device", cmux_remote_protocol::SessionId([1; 16]));
+        let workspace = WorkspaceId("workspace".into());
+        let (cursor, delivery) = service
+            .put_directory(&owner, &workspace, "scope", DirectoryContinuation::for_test(), None)
             .unwrap();
-        assert!(service.take_directory(&owner, &workspace, "other", &cursor).is_err());
-        assert!(service.take_directory(&other_owner, &workspace, "scope", &cursor).is_err());
-        service.take_directory(&owner, &workspace, "scope", &cursor).unwrap();
-        assert!(service.take_directory(&owner, &workspace, "scope", &cursor).is_err());
+
+        drop(delivery);
+
+        assert!(service.lease_directory(&owner, &workspace, "scope", &cursor).is_err());
+    }
+
+    #[test]
+    fn dropping_a_successor_page_restores_its_parent_and_discards_the_successor() {
+        let service = WorkspaceQueryService::default();
+        let owner = ClientScope::new("device", cmux_remote_protocol::SessionId([1; 16]));
+        let workspace = WorkspaceId("workspace".into());
+        let parent = delivered_directory_cursor(&service, &owner, &workspace, "scope");
+        let (continuation, parent_delivery) =
+            service.lease_directory(&owner, &workspace, "scope", &parent).unwrap();
+        let (successor, delivery) = service
+            .put_directory(&owner, &workspace, "scope", continuation, Some(parent_delivery))
+            .unwrap();
+
+        drop(delivery);
+
+        assert!(service.lease_directory(&owner, &workspace, "scope", &successor).is_err());
+        let (_, parent_delivery) =
+            service.lease_directory(&owner, &workspace, "scope", &parent).unwrap();
+        parent_delivery.commit();
     }
 
     #[test]
@@ -520,25 +714,19 @@ mod tests {
         let workspace = WorkspaceId("workspace".into());
         let cursors = (0..=MAX_QUERY_CONTINUATIONS)
             .map(|index| {
-                service
-                    .put_directory(
-                        &owner,
-                        &workspace,
-                        &format!("scope-{index}"),
-                        DirectoryContinuation::for_test(),
-                    )
-                    .unwrap()
+                delivered_directory_cursor(&service, &owner, &workspace, &format!("scope-{index}"))
             })
             .collect::<Vec<_>>();
-        assert!(service.take_directory(&owner, &workspace, "scope-0", &cursors[0]).is_err());
-        service
-            .take_directory(
+        assert!(service.lease_directory(&owner, &workspace, "scope-0", &cursors[0]).is_err());
+        let (_, delivery) = service
+            .lease_directory(
                 &owner,
                 &workspace,
                 &format!("scope-{MAX_QUERY_CONTINUATIONS}"),
                 cursors.last().unwrap(),
             )
             .unwrap();
+        delivery.commit();
     }
 
     #[test]
@@ -548,21 +736,14 @@ mod tests {
         let other_owner = ClientScope::new("other", cmux_remote_protocol::SessionId([2; 16]));
         let workspace = WorkspaceId("workspace".into());
         let other_workspace = WorkspaceId("other-workspace".into());
-        let owned = service
-            .put_directory(&owner, &workspace, "owned", DirectoryContinuation::for_test())
-            .unwrap();
-        let other = service
-            .put_directory(
-                &other_owner,
-                &other_workspace,
-                "other",
-                DirectoryContinuation::for_test(),
-            )
-            .unwrap();
+        let owned = delivered_directory_cursor(&service, &owner, &workspace, "owned");
+        let other = delivered_directory_cursor(&service, &other_owner, &other_workspace, "other");
 
         service.close_client_workspace(&owner, &workspace);
-        assert!(service.take_directory(&owner, &workspace, "owned", &owned).is_err());
-        service.take_directory(&other_owner, &other_workspace, "other", &other).unwrap();
+        assert!(service.lease_directory(&owner, &workspace, "owned", &owned).is_err());
+        let (_, delivery) =
+            service.lease_directory(&other_owner, &other_workspace, "other", &other).unwrap();
+        delivery.commit();
     }
 
     #[tokio::test]

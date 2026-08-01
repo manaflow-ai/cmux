@@ -17,7 +17,9 @@ use crate::daemon::ServerConnection;
 use crate::service::{
     EndpointRole, IncomingStream, ServiceError, ServiceMultiplexer, ServiceStream, StreamBudget,
 };
-use crate::workspace::{ClientScope, ProcessSubscriptionError, WorkspaceService};
+use crate::workspace::{
+    ClientScope, PreparedRpcResponse, ProcessSubscriptionError, WorkspaceService,
+};
 
 const MAX_RPC_MESSAGE: usize = 16 * 1024 * 1024;
 const RPC_CODEC_OFFLOAD_BYTES: usize = 64 * 1024;
@@ -445,8 +447,8 @@ impl DaemonServices {
             if matches!(&request.request, WorkspaceRequest::CancelRequest { .. }) {
                 // Cancellation must remain available when ordinary work fills
                 // admission. Inline handling also bounds cancellation floods.
-                let response = workspace.handle_rpc_for(scope.clone(), request).await;
-                send_workspace_response(&workspace, &messages, response, false).await?;
+                let response = workspace.prepare_rpc_for(scope.clone(), request).await;
+                send_prepared_workspace_response(&workspace, &messages, response, false).await?;
                 continue;
             }
             let permit = match request_slots.for_lane(lane).clone().try_acquire_owned() {
@@ -467,8 +469,8 @@ impl DaemonServices {
                 // Mutations execute in receive order on their traffic-class
                 // stream and are never aborted because a response stream ends.
                 let _permit = permit;
-                let response = workspace.handle_rpc_for(scope.clone(), request).await;
-                send_workspace_response(&workspace, &messages, response, true).await?;
+                let response = workspace.prepare_rpc_for(scope.clone(), request).await;
+                send_prepared_workspace_response(&workspace, &messages, response, true).await?;
                 continue;
             }
             let workspace = workspace.clone();
@@ -476,8 +478,8 @@ impl DaemonServices {
             let messages = messages.clone();
             requests.spawn_local(async move {
                 let _permit = permit;
-                let response = workspace.handle_rpc_for(scope, request).await;
-                send_workspace_response(&workspace, &messages, response, true).await
+                let response = workspace.prepare_rpc_for(scope, request).await;
+                send_prepared_workspace_response(&workspace, &messages, response, true).await
             });
         }
         requests.abort_all();
@@ -661,6 +663,22 @@ async fn send_workspace_response(
     response: RpcResponse,
     allow_offload: bool,
 ) -> Result<(), ServicesError> {
+    send_prepared_workspace_response(
+        workspace,
+        messages,
+        PreparedRpcResponse::plain(response),
+        allow_offload,
+    )
+    .await
+}
+
+async fn send_prepared_workspace_response(
+    workspace: &WorkspaceService,
+    messages: &MessageStream,
+    mut prepared: PreparedRpcResponse,
+    allow_offload: bool,
+) -> Result<(), ServicesError> {
+    let response = prepared.take_response();
     let response_id = response.id;
     let retryable_if_too_large = workspace_response_too_large_is_retryable(&response);
     let encoded = if allow_offload && workspace_response_needs_codec(&response) {
@@ -675,8 +693,16 @@ async fn send_workspace_response(
         encode_workspace_response(&response)?
     };
     match encoded {
-        EncodedWorkspaceResponse::Message(encoded) => messages.send(&encoded).await,
+        EncodedWorkspaceResponse::Message(encoded) => {
+            messages.send(&encoded).await?;
+            prepared.commit_delivery();
+            Ok(())
+        }
         EncodedWorkspaceResponse::TooLarge => {
+            // The client did not receive the requested page. Dropping the
+            // delivery guard restores its input cursor before the fallback is
+            // sent, regardless of whether that send succeeds.
+            drop(prepared);
             let mut error = RpcError::new(
                 "resource-exhausted",
                 "RPC response exceeds the maximum message size",
@@ -1663,6 +1689,108 @@ mod tests {
             "a pre-spawn process stream must start after sequence zero",
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn failed_response_send_keeps_paginated_cursor_retryable() {
+        let directory = tempdir().unwrap();
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(directory.path().join(name), name).unwrap();
+        }
+        let workspace = WorkspaceService::new();
+        let scope = ClientScope::new("failed-page-send", cmux_remote_protocol::SessionId([15; 16]));
+        let opened = workspace
+            .handle_rpc_for(
+                scope.clone(),
+                RpcRequest {
+                    id: cmux_remote_protocol::RequestId::from_u128(1),
+                    timeout_ms: None,
+                    request: WorkspaceRequest::OpenWorkspace {
+                        root: directory.path().to_string_lossy().into_owned(),
+                    },
+                },
+            )
+            .await;
+        let WorkspaceResponse::Workspace { id, .. } = opened.result.unwrap() else { panic!() };
+        let first = workspace
+            .handle_rpc_for(
+                scope.clone(),
+                RpcRequest {
+                    id: cmux_remote_protocol::RequestId::from_u128(2),
+                    timeout_ms: None,
+                    request: WorkspaceRequest::ListDirectory {
+                        workspace: id.clone(),
+                        path: String::new(),
+                        include_hidden: false,
+                        limit: 1,
+                        cursor: None,
+                    },
+                },
+            )
+            .await;
+        let WorkspaceResponse::Directory { next_cursor: Some(cursor), .. } = first.result.unwrap()
+        else {
+            panic!()
+        };
+        let prepared = workspace
+            .prepare_rpc_for(
+                scope.clone(),
+                RpcRequest {
+                    id: cmux_remote_protocol::RequestId::from_u128(3),
+                    timeout_ms: None,
+                    request: WorkspaceRequest::ListDirectory {
+                        workspace: id.clone(),
+                        path: String::new(),
+                        include_hidden: false,
+                        limit: 1,
+                        cursor: Some(cursor.clone()),
+                    },
+                },
+            )
+            .await;
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let _client_stream = client
+            .open(Service::WorkspaceRpc, BTreeMap::new())
+            .await
+            .expect("open workspace RPC stream");
+        let incoming = daemon
+            .accept()
+            .await
+            .expect("accept workspace RPC stream")
+            .expect("workspace RPC stream was delivered");
+        incoming.stream.close().await.expect("close test response stream");
+        let messages = MessageStream::with_lane(Arc::new(incoming.stream), Lane::Control);
+        let send_error = send_prepared_workspace_response(&workspace, &messages, prepared, false)
+            .await
+            .expect_err("closed response stream should reject the page");
+        assert!(matches!(send_error, ServicesError::Service(ServiceError::Closed)));
+
+        let retried = workspace
+            .handle_rpc_for(
+                scope,
+                RpcRequest {
+                    id: cmux_remote_protocol::RequestId::from_u128(4),
+                    timeout_ms: None,
+                    request: WorkspaceRequest::ListDirectory {
+                        workspace: id,
+                        path: String::new(),
+                        include_hidden: false,
+                        limit: 1,
+                        cursor: Some(cursor),
+                    },
+                },
+            )
+            .await;
+        let WorkspaceResponse::Directory { entries, .. } = retried.result.unwrap() else {
+            panic!()
+        };
+        assert_eq!(entries[0].name, "b.txt");
+
+        client.shutdown().await;
+        daemon.shutdown().await;
     }
 
     #[tokio::test]

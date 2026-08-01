@@ -28,7 +28,7 @@ use blocking::WorkspaceBlockingPool;
 use path::WorkspaceRoot;
 use process::{ProcessManager, ProcessSpawnOptions};
 pub use process::{ProcessSubscription, ProcessSubscriptionError};
-use query::{WorkspaceQueryContext, WorkspaceQueryService};
+use query::{ContinuationDelivery, WorkspaceQueryContext, WorkspaceQueryService};
 use route::RouteManager;
 
 const MAX_WORKSPACES: usize = 256;
@@ -118,6 +118,66 @@ pub(crate) struct WorkspaceShutdownResidual {
     pub(crate) codec_jobs: usize,
 }
 
+pub(super) struct PreparedWorkspaceResponse {
+    response: WorkspaceResponse,
+    delivery: Option<ContinuationDelivery>,
+}
+
+impl PreparedWorkspaceResponse {
+    fn plain(response: WorkspaceResponse) -> Self {
+        Self { response, delivery: None }
+    }
+
+    fn paginated(response: WorkspaceResponse, delivery: Option<ContinuationDelivery>) -> Self {
+        Self { response, delivery }
+    }
+
+    pub(super) fn commit(mut self) -> WorkspaceResponse {
+        if let Some(delivery) = self.delivery.take() {
+            delivery.commit();
+        }
+        self.response
+    }
+}
+
+pub(crate) struct PreparedRpcResponse {
+    response: Option<RpcResponse>,
+    delivery: Option<ContinuationDelivery>,
+}
+
+impl PreparedRpcResponse {
+    pub(crate) fn plain(response: RpcResponse) -> Self {
+        Self { response: Some(response), delivery: None }
+    }
+
+    fn from_result(id: RequestId, result: Result<PreparedWorkspaceResponse, RpcError>) -> Self {
+        match result {
+            Ok(prepared) => Self {
+                response: Some(RpcResponse { id, result: Ok(prepared.response) }),
+                delivery: prepared.delivery,
+            },
+            Err(error) => Self::plain(RpcResponse { id, result: Err(error) }),
+        }
+    }
+
+    fn commit_into_response(mut self) -> RpcResponse {
+        if let Some(delivery) = self.delivery.take() {
+            delivery.commit();
+        }
+        self.response.take().expect("prepared RPC response remains present")
+    }
+
+    pub(crate) fn take_response(&mut self) -> RpcResponse {
+        self.response.take().expect("prepared RPC response remains present")
+    }
+
+    pub(crate) fn commit_delivery(mut self) {
+        if let Some(delivery) = self.delivery.take() {
+            delivery.commit();
+        }
+    }
+}
+
 impl Default for WorkspaceService {
     fn default() -> Self {
         Self::new()
@@ -178,24 +238,36 @@ impl WorkspaceService {
         self.handle_rpc_for(ClientScope::local(), request).await
     }
 
+    pub(crate) async fn prepare_rpc(&self, request: RpcRequest) -> PreparedRpcResponse {
+        self.prepare_rpc_for(ClientScope::local(), request).await
+    }
+
     pub(crate) async fn handle_rpc_for(
         &self,
         scope: ClientScope,
         request: RpcRequest,
     ) -> RpcResponse {
+        self.prepare_rpc_for(scope, request).await.commit_into_response()
+    }
+
+    pub(crate) async fn prepare_rpc_for(
+        &self,
+        scope: ClientScope,
+        request: RpcRequest,
+    ) -> PreparedRpcResponse {
         let id = request.id;
         if let WorkspaceRequest::CancelRequest { request: target } = &request.request {
             let result = self.cancel_request(&scope, *target).await;
-            return RpcResponse { id, result };
+            return PreparedRpcResponse::plain(RpcResponse { id, result });
         }
         if request.timeout_ms.is_some() && !request_supports_cancellation(&request.request) {
-            return RpcResponse {
+            return PreparedRpcResponse::plain(RpcResponse {
                 id,
                 result: Err(RpcError::new(
                     "deadline-unsupported",
                     "this mutating request cannot be canceled safely",
                 )),
-            };
+            });
         }
         let supports_cancellation = request_supports_cancellation(&request.request);
         let (cancel, mut canceled) = watch::channel(false);
@@ -207,26 +279,26 @@ impl WorkspaceService {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             if control.shutting_down || control.closing_clients.contains(&scope) {
-                return RpcResponse {
+                return PreparedRpcResponse::plain(RpcResponse {
                     id,
                     result: Err(RpcError::new("session-closed", "client session is closing")),
-                };
+                });
             }
             if control.pending_cancellations.remove(&key) {
                 control.cancellation_order.retain(|pending| pending != &key);
-                return RpcResponse {
+                return PreparedRpcResponse::plain(RpcResponse {
                     id,
                     result: Err(RpcError::new("canceled", "request was canceled before execution")),
-                };
+                });
             }
             if control.active.contains_key(&key) {
-                return RpcResponse {
+                return PreparedRpcResponse::plain(RpcResponse {
                     id,
                     result: Err(RpcError::new(
                         "duplicate-request-id",
                         format!("request id {id} is already active"),
                     )),
-                };
+                });
             }
             control.active.insert(
                 key.clone(),
@@ -242,11 +314,11 @@ impl WorkspaceService {
             key,
         };
         if !supports_cancellation {
-            let result = self.handle_request_for(&scope, request.request).await;
-            return RpcResponse { id, result };
+            let result = self.prepare_request_for(&scope, request.request).await;
+            return PreparedRpcResponse::from_result(id, result);
         }
         let timeout_ms = request.timeout_ms;
-        let operation = self.handle_request_for(&scope, request.request);
+        let operation = self.prepare_request_for(&scope, request.request);
         tokio::pin!(operation);
         let deadline = async move {
             match timeout_ms {
@@ -265,7 +337,7 @@ impl WorkspaceService {
                 Err(_) => Err(RpcError::new("canceled", "request cancellation state closed")),
             },
         };
-        RpcResponse { id, result }
+        PreparedRpcResponse::from_result(id, result)
     }
 
     pub async fn handle_request(
@@ -280,50 +352,15 @@ impl WorkspaceService {
         scope: &ClientScope,
         request: WorkspaceRequest,
     ) -> Result<WorkspaceResponse, RpcError> {
+        self.prepare_request_for(scope, request).await.map(PreparedWorkspaceResponse::commit)
+    }
+
+    async fn prepare_request_for(
+        &self,
+        scope: &ClientScope,
+        request: WorkspaceRequest,
+    ) -> Result<PreparedWorkspaceResponse, RpcError> {
         match request {
-            WorkspaceRequest::Capabilities => {
-                let capabilities = vec![
-                    RemoteCapability::WorkspaceFilesV1,
-                    RemoteCapability::WorkspaceSearchV1,
-                    RemoteCapability::WorkspacePatchV1,
-                    RemoteCapability::WorkspaceDiffV1,
-                    RemoteCapability::ProcessPipesV1,
-                    RemoteCapability::TcpRoutesV1,
-                    RemoteCapability::ComputerUseNegotiationV1,
-                    RemoteCapability::WorkspacePaginationV1,
-                    RemoteCapability::WorkspacePatchV2,
-                    RemoteCapability::WorkspacePatchV3,
-                    RemoteCapability::StructuredDiffV1,
-                    RemoteCapability::ProcessLifecycleV2,
-                    RemoteCapability::ProcessReplayV1,
-                    RemoteCapability::ProcessHandlesV2,
-                    RemoteCapability::ProcessCatalogV1,
-                    RemoteCapability::RequestControlV1,
-                ];
-                #[cfg(unix)]
-                let capabilities = {
-                    let mut capabilities = capabilities;
-                    capabilities.push(RemoteCapability::ProcessPtyV1);
-                    capabilities.push(RemoteCapability::ProcessTerminalSnapshotV1);
-                    capabilities
-                };
-                Ok(WorkspaceResponse::Capabilities { capabilities })
-            }
-            WorkspaceRequest::OpenWorkspace { root } => self.open_workspace(scope, &root).await,
-            WorkspaceRequest::ListWorkspaces => self.list_workspaces(scope).await,
-            WorkspaceRequest::Stat { workspace, path, follow_symlinks } => {
-                let root = self.workspace_for(scope, &workspace).await?;
-                files::stat(&root, &path, follow_symlinks).await
-            }
-            WorkspaceRequest::ReadFile { workspace, path, offset, limit } => {
-                let root = self.workspace_for(scope, &workspace).await?;
-                let context = WorkspaceQueryContext::new(&self.inner.queries, scope, &root);
-                files::read_file(&context, &path, offset, limit).await
-            }
-            WorkspaceRequest::WriteFile { workspace, path, data, precondition, create_parents } => {
-                let root = self.workspace_for(scope, &workspace).await?;
-                files::write_file(&root, &path, &data, &precondition, create_parents).await
-            }
             WorkspaceRequest::ListDirectory { workspace, path, include_hidden, limit, cursor } => {
                 let root = self.workspace_for(scope, &workspace).await?;
                 let queries = Arc::clone(&self.inner.queries);
@@ -372,19 +409,6 @@ impl WorkspaceService {
                     })
                     .await
             }
-            WorkspaceRequest::ApplyPatch { workspace, patch: source, dry_run, preconditions } => {
-                let root = self.workspace_for(scope, &workspace).await?;
-                self.inner
-                    .blocking
-                    .run_async("apply-patch", move || async move {
-                        patch::apply_patch(&root, &source, dry_run, &preconditions).await
-                    })
-                    .await
-            }
-            WorkspaceRequest::GitStatus { workspace } => {
-                let root = self.workspace_for(scope, &workspace).await?;
-                git::status(&root).await
-            }
             WorkspaceRequest::Diff {
                 workspace,
                 paths,
@@ -413,6 +437,81 @@ impl WorkspaceService {
                         .await
                     })
                     .await
+            }
+            request => self
+                .handle_plain_request_for(scope, request)
+                .await
+                .map(PreparedWorkspaceResponse::plain),
+        }
+    }
+
+    async fn handle_plain_request_for(
+        &self,
+        scope: &ClientScope,
+        request: WorkspaceRequest,
+    ) -> Result<WorkspaceResponse, RpcError> {
+        match request {
+            WorkspaceRequest::Capabilities => {
+                let capabilities = vec![
+                    RemoteCapability::WorkspaceFilesV1,
+                    RemoteCapability::WorkspaceSearchV1,
+                    RemoteCapability::WorkspacePatchV1,
+                    RemoteCapability::WorkspaceDiffV1,
+                    RemoteCapability::ProcessPipesV1,
+                    RemoteCapability::TcpRoutesV1,
+                    RemoteCapability::ComputerUseNegotiationV1,
+                    RemoteCapability::WorkspacePaginationV1,
+                    RemoteCapability::WorkspacePatchV2,
+                    RemoteCapability::WorkspacePatchV3,
+                    RemoteCapability::StructuredDiffV1,
+                    RemoteCapability::ProcessLifecycleV2,
+                    RemoteCapability::ProcessReplayV1,
+                    RemoteCapability::ProcessHandlesV2,
+                    RemoteCapability::ProcessCatalogV1,
+                    RemoteCapability::RequestControlV1,
+                ];
+                #[cfg(unix)]
+                let capabilities = {
+                    let mut capabilities = capabilities;
+                    capabilities.push(RemoteCapability::ProcessPtyV1);
+                    capabilities.push(RemoteCapability::ProcessTerminalSnapshotV1);
+                    capabilities
+                };
+                Ok(WorkspaceResponse::Capabilities { capabilities })
+            }
+            WorkspaceRequest::OpenWorkspace { root } => self.open_workspace(scope, &root).await,
+            WorkspaceRequest::ListWorkspaces => self.list_workspaces(scope).await,
+            WorkspaceRequest::Stat { workspace, path, follow_symlinks } => {
+                let root = self.workspace_for(scope, &workspace).await?;
+                files::stat(&root, &path, follow_symlinks).await
+            }
+            WorkspaceRequest::ReadFile { workspace, path, offset, limit } => {
+                let root = self.workspace_for(scope, &workspace).await?;
+                let context = WorkspaceQueryContext::new(&self.inner.queries, scope, &root);
+                files::read_file(&context, &path, offset, limit).await
+            }
+            WorkspaceRequest::WriteFile { workspace, path, data, precondition, create_parents } => {
+                let root = self.workspace_for(scope, &workspace).await?;
+                files::write_file(&root, &path, &data, &precondition, create_parents).await
+            }
+            WorkspaceRequest::ListDirectory { .. } | WorkspaceRequest::Search { .. } => {
+                unreachable!("paginated requests are prepared before plain dispatch")
+            }
+            WorkspaceRequest::ApplyPatch { workspace, patch: source, dry_run, preconditions } => {
+                let root = self.workspace_for(scope, &workspace).await?;
+                self.inner
+                    .blocking
+                    .run_async("apply-patch", move || async move {
+                        patch::apply_patch(&root, &source, dry_run, &preconditions).await
+                    })
+                    .await
+            }
+            WorkspaceRequest::GitStatus { workspace } => {
+                let root = self.workspace_for(scope, &workspace).await?;
+                git::status(&root).await
+            }
+            WorkspaceRequest::Diff { .. } => {
+                unreachable!("paginated requests are prepared before plain dispatch")
             }
             WorkspaceRequest::SpawnProcess {
                 workspace,

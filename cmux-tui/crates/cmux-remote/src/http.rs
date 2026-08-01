@@ -11,8 +11,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, Path as AxumPath, Query, Request, State};
-use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONNECTION, WWW_AUTHENTICATE};
+use axum::http::header::{
+    AUTHORIZATION, CACHE_CONTROL, CONNECTION, CONTENT_TYPE, WWW_AUTHENTICATE,
+};
 use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -446,8 +449,25 @@ async fn authenticate_and_admit(
 async fn workspace_rpc(
     State(state): State<WorkspaceHttpState>,
     Json(request): Json<RpcRequest>,
-) -> Json<RpcResponse> {
-    Json(state.workspace.handle_rpc(request).await)
+) -> Response {
+    let mut prepared = state.workspace.prepare_rpc(request).await;
+    let response = prepared.take_response();
+    let response_id = response.id;
+    let encoded = match serde_json::to_vec(&response) {
+        Ok(encoded) => encoded,
+        Err(error) => {
+            drop(prepared);
+            return Json(RpcResponse {
+                id: response_id,
+                result: Err(RpcError::new("internal", format!("encode response: {error}"))),
+            })
+            .into_response();
+        }
+    };
+    prepared.commit_delivery();
+    let mut response = Response::new(Body::from(encoded));
+    response.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    response
 }
 
 async fn apply_patch(
