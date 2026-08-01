@@ -1786,26 +1786,29 @@ mod tests {
     }
 
     #[test]
-    fn terminal_bytes_metadata_rejects_missing_invalid_and_ambiguous_surfaces() {
+    fn terminal_bytes_metadata_requires_a_stable_terminal_id() {
+        const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
         assert!(matches!(
             terminal_bytes_metadata(&BTreeMap::new()),
             Err(ServicesError::Metadata(_))
         ));
         assert!(matches!(
-            terminal_bytes_metadata(&BTreeMap::from([("surface".into(), "pane-a".into())])),
+            terminal_bytes_metadata(&BTreeMap::from([("terminal".into(), "pane-a".into())])),
             Err(ServicesError::Metadata(_))
         ));
         assert!(matches!(
             terminal_bytes_metadata(&BTreeMap::from([
-                ("surface".into(), "9".into()),
+                ("terminal".into(), TERMINAL.into()),
                 ("after".into(), "3".into()),
             ])),
             Err(ServicesError::Metadata(_))
         ));
-        assert_eq!(
-            terminal_bytes_metadata(&BTreeMap::from([("surface".into(), "9".into())])).unwrap(),
-            9
-        );
+        assert!(terminal_bytes_metadata(&BTreeMap::from([("terminal".into(), TERMINAL.into())]))
+            .is_ok());
+        assert!(matches!(
+            terminal_bytes_metadata(&BTreeMap::from([("surface".into(), "9".into())])),
+            Err(ServicesError::Metadata(_))
+        ));
     }
 
     #[cfg(unix)]
