@@ -115,6 +115,7 @@ extension SimulatorPaneCoordinator {
         guard !closed else { return }
         closed = true
         releaseAllHeldUIAutomationTouches()
+        resetAgentCursorPresentation()
         let controlActionTasks = cancelControlActions()
         for task in controlActionTasks { await task.value }
         let locationRouteTeardownTask = beginLocationRouteTeardown()
@@ -229,6 +230,7 @@ extension SimulatorPaneCoordinator {
         let sessions = detachLongRunningSessions()
         let shouldDisableCamera = !cameraConfiguration.isDisabled
         let deviceScopedTasks = clearDeviceScopedState()
+        resetAgentCursorPresentation()
         selectionGeneration &+= 1
         requiresExplicitDeviceSelection = true
         selectActionHistory(deviceID: nil)
@@ -290,6 +292,9 @@ extension SimulatorPaneCoordinator {
         selectionGeneration &+= 1
         let generation = selectionGeneration
         selectActionHistory(deviceID: id)
+        if selectedDeviceID != id {
+            resetAgentCursorPresentation()
+        }
         selectedDeviceID = id
         let deviceScopedTasks = clearDeviceScopedState()
         chromeProfile = nil
@@ -437,6 +442,7 @@ extension SimulatorPaneCoordinator {
         activationTask?.cancel()
         activationTask = nil
         selectActionHistory(deviceID: nil)
+        resetAgentCursorPresentation()
         selectedDeviceID = nil
         status = .idle
     }

@@ -80,4 +80,10 @@ extension SimulatorPaneCoordinator {
         )
     }
 
+    /// Clears device-bound cursor state and invalidates in-flight presentations.
+    func resetAgentCursorPresentation() {
+        agentCursorGeneration &+= 1
+        agentCursorPresentation = nil
+    }
+
 }
