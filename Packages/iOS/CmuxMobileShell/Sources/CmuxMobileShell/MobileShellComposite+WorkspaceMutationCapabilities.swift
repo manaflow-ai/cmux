@@ -32,7 +32,8 @@ extension MobileShellComposite {
     }
 
     /// Whether the foreground Mac authorizes Mac-scoped workspace mutations by
-    /// the signed-in account (attach tickets only narrow while current).
+    /// the signed-in account. Requests using this capability omit attach-ticket
+    /// context so a saved workspace route cannot narrow the account authority.
     var hostAuthorizesAccountScopedMutations: Bool {
         supportedHostCapabilities.contains(Self.workspaceMutationAccountAuthCapability)
     }

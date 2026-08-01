@@ -236,7 +236,8 @@ extension MobileShellComposite {
             target: target,
             hostDisplayName: hostDisplayName,
             logID: id.rawValue,
-            actionName: "move"
+            actionName: "move",
+            isMacScoped: true
         )
     }
 
@@ -333,7 +334,8 @@ extension MobileShellComposite {
             target: target,
             hostDisplayName: hostDisplayName,
             logID: "foreground",
-            actionName: "create_group"
+            actionName: "create_group",
+            isMacScoped: true
         )
     }
 
@@ -365,6 +367,14 @@ extension MobileShellComposite {
             hostAuthorizesByAccount: subscription?.supportedHostCapabilities
                 .contains(Self.workspaceMutationAccountAuthCapability) ?? false
         )
+    }
+
+    private func hostAuthorizesAccountScopedMutations(target: WorkspaceMutationTarget) -> Bool {
+        if target.isForeground {
+            return hostAuthorizesAccountScopedMutations
+        }
+        return target.ownerKey.flatMap { secondaryMacSubscriptions[$0] }?
+            .supportedHostCapabilities.contains(Self.workspaceMutationAccountAuthCapability) ?? false
     }
 
     private func sendWorkspaceMutation(
@@ -415,7 +425,8 @@ extension MobileShellComposite {
             target: target,
             hostDisplayName: hostDisplayName,
             logID: id.rawValue,
-            actionName: actionName
+            actionName: actionName,
+            isMacScoped: true
         )
     }
 
@@ -426,7 +437,8 @@ extension MobileShellComposite {
         hostDisplayName: String?,
         logID: String,
         actionName: String,
-        refreshAfterMutation: Bool = true
+        refreshAfterMutation: Bool = true,
+        isMacScoped: Bool = false
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         // Route the mutation to the Mac that actually OWNS this workspace. The
         // aggregated list can include rows from secondary Macs, whose connection is
@@ -448,7 +460,14 @@ extension MobileShellComposite {
         MobileDebugLog.anchormux("workspace.mutation sending action=\(actionName) id=\(logID) foreground=\(target.isForeground)")
         do {
             let request = try MobileCoreRPCClient.requestData(method: method, params: params)
-            _ = try await client.sendRequest(request)
+            let attachTicketPolicy: MobileCoreRPCAttachTicketPolicy =
+                isMacScoped && hostAuthorizesAccountScopedMutations(target: target)
+                    ? .omit
+                    : .whenCovered
+            _ = try await client.sendRequest(
+                request,
+                attachTicketPolicy: attachTicketPolicy
+            )
         } catch {
             MobileDebugLog.anchormux("workspace.mutation failed action=\(actionName) id=\(logID) error=\(error)")
             if disconnectForAuthorizationFailureIfNeeded(error) {
