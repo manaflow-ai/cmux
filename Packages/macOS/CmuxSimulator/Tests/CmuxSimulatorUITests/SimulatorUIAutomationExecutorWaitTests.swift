@@ -299,6 +299,50 @@ struct SimulatorUIAutomationExecutorWaitTests {
         await coordinator.close()
     }
 
+    @Test("Read-only waits preserve refs from an unchanged published snapshot")
+    func unchangedWaitPreservesPublishedRef() async throws {
+        let snapshot = Self.actionSnapshot()
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let scheduler = AdvancingActionScheduler(nowMilliseconds: 1_000)
+        let record = try await coordinator.recordUIAutomationSnapshot(
+            snapshot,
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+        let elementRef = try #require(record.snapshot.elements.first {
+            $0.identifier == "continue"
+        }?.ref)
+        let wait = ControlSimulatorUIWait(
+            predicate: "exists",
+            elementRef: elementRef,
+            identifier: nil,
+            label: nil,
+            role: nil,
+            value: nil,
+            text: nil,
+            timeoutMilliseconds: 0,
+            pollIntervalMilliseconds: 100,
+            settledDurationMilliseconds: 0
+        )
+
+        _ = try await SimulatorUIAutomationExecutor(scheduler: scheduler).perform(
+            .uiWait(wait),
+            coordinator: coordinator
+        )
+
+        #expect(try coordinator.resolveUIAutomationElement(
+            ref: elementRef,
+            requiredActions: [.tap],
+            nowMilliseconds: 1_000
+        ).element.ref == elementRef)
+        await coordinator.close()
+    }
+
     @Test("Text-only gone waits reject heterogeneous matches")
     func textOnlyGoneRejectsAmbiguousMatches() async {
         let display = SimulatorDisplayMetadata(

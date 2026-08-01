@@ -27,6 +27,39 @@ struct SimulatorPaneCoordinatorOverflowTests {
         await coordinator.close()
     }
 
+    @Test("Rejected live input cleanup preserves a retained semantic touch")
+    @MainActor
+    func rejectedLiveInputPreservesRetainedTouch() {
+        let coordinator = SimulatorPaneCoordinator(
+            client: SimulatorPaneClientSpy(devices: [])
+        )
+        coordinator.holdUIAutomationTouch(
+            elementRef: "e1_1",
+            point: SimulatorPoint(x: 0.5, y: 0.5),
+            display: nil
+        )
+        let view = SimulatorRemoteSurfaceView()
+        var attempted: [SimulatorWorkerInbound] = []
+        view.onMessage = { message in
+            attempted.append(message)
+            return coordinator.enqueue(message)
+        }
+        let point = SimulatorPoint(x: 0.25, y: 0.25)
+        let pointerDown = view.input.pointerBegan(
+            at: point,
+            optionPinch: false
+        )
+
+        view.send(pointerDown)
+
+        #expect(coordinator.hasHeldUIAutomationTouch)
+        #expect(attempted.contains(.pointer(SimulatorPointerEvent(
+            phase: .cancelled,
+            primary: point
+        ))))
+        #expect(!attempted.contains(.releaseInputs))
+    }
+
     @Test("A retained semantic touch rejects a second coordinated gesture")
     @MainActor
     func retainedTouchRejectsCoordinatedGesture() async {
