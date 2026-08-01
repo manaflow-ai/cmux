@@ -30,18 +30,21 @@ extension SimulatorPaneCoordinator {
     ///   - snapshot: The native accessibility snapshot.
     ///   - simulatorID: The selected CoreSimulator device identifier.
     ///   - capturedAtMilliseconds: The capture time in Unix epoch milliseconds.
+    ///   - expectedMutationGeneration: The pane generation before capture began.
     /// - Returns: The public snapshot and its lookup metadata.
     /// - Throws: When no root has a usable viewport, the task is cancelled, or the pane
     ///   changes before the prepared snapshot can be committed.
     public func recordUIAutomationSnapshot(
         _ snapshot: SimulatorAccessibilitySnapshot,
         simulatorID: String,
-        capturedAtMilliseconds: Int64
+        capturedAtMilliseconds: Int64,
+        expectedMutationGeneration: UInt64
     ) async throws -> SimulatorUIAutomationSnapshotRecord {
         try await uiAutomationSession.record(
             snapshot,
             simulatorID: simulatorID,
-            capturedAtMilliseconds: capturedAtMilliseconds
+            capturedAtMilliseconds: capturedAtMilliseconds,
+            expectedMutationGeneration: expectedMutationGeneration
         )
     }
 

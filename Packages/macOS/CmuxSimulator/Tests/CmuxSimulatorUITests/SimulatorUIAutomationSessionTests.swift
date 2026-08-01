@@ -11,7 +11,8 @@ struct SimulatorUIAutomationSessionTests {
         let record = try await session.record(
             snapshot(),
             simulatorID: "SIM-1",
-            capturedAtMilliseconds: 1_000
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: session.mutationGeneration
         )
         let ref = try #require(record.snapshot.elements.first {
             $0.identifier == "continue"
@@ -42,7 +43,8 @@ struct SimulatorUIAutomationSessionTests {
         let record = try await session.record(
             snapshot(),
             simulatorID: "SIM-1",
-            capturedAtMilliseconds: 1_000
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: session.mutationGeneration
         )
         let ref = try #require(record.snapshot.elements.first {
             $0.identifier == "continue"
@@ -75,7 +77,8 @@ struct SimulatorUIAutomationSessionTests {
         let first = try await session.record(
             snapshot(),
             simulatorID: "SIM-1",
-            capturedAtMilliseconds: 1_000
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: session.mutationGeneration
         )
         let oldRef = try #require(first.snapshot.elements.first {
             $0.identifier == "continue"
@@ -83,7 +86,8 @@ struct SimulatorUIAutomationSessionTests {
         let second = try await session.record(
             snapshot(),
             simulatorID: "SIM-1",
-            capturedAtMilliseconds: 2_000
+            capturedAtMilliseconds: 2_000,
+            expectedMutationGeneration: session.mutationGeneration
         )
         let newRef = try #require(second.snapshot.elements.first {
             $0.identifier == "continue"
@@ -105,7 +109,8 @@ struct SimulatorUIAutomationSessionTests {
         let record = try await session.record(
             snapshotWithDuplicateIdentifiers(),
             simulatorID: "SIM-1",
-            capturedAtMilliseconds: 1_000
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: session.mutationGeneration
         )
         let ref = try #require(record.snapshot.elements.first {
             $0.identifier == "duplicate"
@@ -128,19 +133,22 @@ struct SimulatorUIAutomationSessionTests {
         #expect(try await session.record(
             snapshot(),
             simulatorID: "SIM-1",
-            capturedAtMilliseconds: 1
+            capturedAtMilliseconds: 1,
+            expectedMutationGeneration: session.mutationGeneration
         ).snapshot.sequence == 1)
         #expect(try await session.record(
             snapshot(),
             simulatorID: "SIM-1",
-            capturedAtMilliseconds: 2
+            capturedAtMilliseconds: 2,
+            expectedMutationGeneration: session.mutationGeneration
         ).snapshot.sequence == 2)
 
         session.reset()
         #expect(try await session.record(
             snapshot(),
             simulatorID: "SIM-2",
-            capturedAtMilliseconds: 3
+            capturedAtMilliseconds: 3,
+            expectedMutationGeneration: session.mutationGeneration
         ).snapshot.sequence == 3)
     }
 

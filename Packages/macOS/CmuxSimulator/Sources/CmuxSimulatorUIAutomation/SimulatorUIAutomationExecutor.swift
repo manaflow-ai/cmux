@@ -1039,7 +1039,8 @@ public struct SimulatorUIAutomationExecutor {
             return try await coordinator.recordUIAutomationSnapshot(
                 snapshot,
                 simulatorID: simulatorID,
-                capturedAtMilliseconds: simulatorUIWallTimeNowMilliseconds()
+                capturedAtMilliseconds: simulatorUIWallTimeNowMilliseconds(),
+                expectedMutationGeneration: mutationGeneration
             )
         } catch SimulatorUIAutomationSnapshotRecordingError.invalidatedDuringPreparation {
             throw simulatorUIStateChangedFailure()

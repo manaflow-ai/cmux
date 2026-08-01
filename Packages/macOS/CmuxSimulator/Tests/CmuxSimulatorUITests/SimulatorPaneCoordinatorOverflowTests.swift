@@ -64,7 +64,8 @@ struct SimulatorPaneCoordinatorOverflowTests {
                 _ = try await coordinator.recordUIAutomationSnapshot(
                     Self.maximumSnapshot(),
                     simulatorID: "DEVICE",
-                    capturedAtMilliseconds: Int64(capturedAtMilliseconds)
+                    capturedAtMilliseconds: Int64(capturedAtMilliseconds),
+                    expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
                 )
             }
             preparationFinished = true
@@ -91,7 +92,8 @@ struct SimulatorPaneCoordinatorOverflowTests {
         let record = try await coordinator.recordUIAutomationSnapshot(
             Self.snapshot(),
             simulatorID: "DEVICE",
-            capturedAtMilliseconds: 1_000
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
         )
 
         #expect(!coordinator.enqueue(.key(

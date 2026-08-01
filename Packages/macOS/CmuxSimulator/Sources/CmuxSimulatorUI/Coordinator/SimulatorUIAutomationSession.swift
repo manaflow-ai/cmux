@@ -25,11 +25,15 @@ final class SimulatorUIAutomationSession {
     func record(
         _ snapshot: SimulatorAccessibilitySnapshot,
         simulatorID: String,
-        capturedAtMilliseconds: Int64
+        capturedAtMilliseconds: Int64,
+        expectedMutationGeneration: UInt64
     ) async throws -> SimulatorUIAutomationSnapshotRecord {
+        guard mutationGeneration == expectedMutationGeneration else {
+            throw SimulatorUIAutomationSnapshotRecordingError
+                .invalidatedDuringPreparation
+        }
         let reservedSequence = nextSequence
         nextSequence &+= 1
-        let startingGeneration = mutationGeneration
         let preparation = Task.detached(priority: .userInitiated) {
             try Task.checkCancellation()
             let prepared = try snapshot.uiAutomationRecord(
@@ -46,7 +50,7 @@ final class SimulatorUIAutomationSession {
             preparation.cancel()
         }
         try Task.checkCancellation()
-        guard mutationGeneration == startingGeneration else {
+        guard mutationGeneration == expectedMutationGeneration else {
             throw SimulatorUIAutomationSnapshotRecordingError
                 .invalidatedDuringPreparation
         }
