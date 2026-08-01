@@ -13,15 +13,21 @@ actor PhonePushQueueStore {
     private let fileURL: URL
     private let capacity: Int
     private let fileManager: FileManager
+    private let beforeLockAttempt: (@Sendable () -> Void)?
+    private let lockAcquired: (@Sendable () -> Void)?
 
     init(
         fileURL: URL,
         capacity: Int = PhonePushSerialDeliveryQueue.defaultCapacity,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        beforeLockAttempt: (@Sendable () -> Void)? = nil,
+        lockAcquired: (@Sendable () -> Void)? = nil
     ) {
         self.fileURL = fileURL
         self.capacity = max(1, capacity)
         self.fileManager = fileManager
+        self.beforeLockAttempt = beforeLockAttempt
+        self.lockAcquired = lockAcquired
     }
 
     static func live() -> Self {
@@ -170,9 +176,11 @@ actor PhonePushQueueStore {
         try Self.retryingInterruptedCall(path: lockURL.path) {
             Darwin.fchmod(descriptor, S_IRUSR | S_IWUSR)
         }
+        beforeLockAttempt?()
         try Self.retryingInterruptedCall(path: lockURL.path) {
             Darwin.flock(descriptor, LOCK_EX)
         }
+        lockAcquired?()
         defer { _ = Darwin.flock(descriptor, LOCK_UN) }
         return try operation()
     }

@@ -426,17 +426,24 @@ import Testing
             _ = Darwin.close(descriptor)
         }
 
-        let store = PhonePushQueueStore(fileURL: fileURL)
+        let lockSequence = StoreLockSequenceProbe()
+        let store = PhonePushQueueStore(
+            fileURL: fileURL,
+            beforeLockAttempt: { lockSequence.noteAttempt() },
+            lockAcquired: { lockSequence.noteAcquired() }
+        )
         let load = Task { try await store.load(nowEpochSeconds: 1_000) }
-        try await Task.sleep(for: .milliseconds(250))
+        await lockSequence.waitForAttempt()
 
         #expect(
             FileManager.default.fileExists(atPath: liveWriterSnapshot.path),
             "An old temporary file is still live while its writer holds the lock"
         )
+        lockSequence.noteExternalRelease()
         _ = Darwin.flock(descriptor, LOCK_UN)
         lockHeld = false
         #expect(try await load.value.isEmpty)
+        #expect(!lockSequence.acquiredBeforeExternalRelease())
         #expect(!FileManager.default.fileExists(atPath: liveWriterSnapshot.path))
     }
 
@@ -488,6 +495,54 @@ import Testing
             expectedAccountID: expectedAccountID,
             expectedSessionGeneration: expectedSessionGeneration
         )
+    }
+}
+
+private final class StoreLockSequenceProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var attempted = false
+    private var externalReleased = false
+    private var acquiredBeforeRelease = false
+    private var attemptWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func noteAttempt() {
+        lock.lock()
+        attempted = true
+        let waiters = attemptWaiters
+        attemptWaiters.removeAll()
+        lock.unlock()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func waitForAttempt() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if attempted {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                attemptWaiters.append(continuation)
+                lock.unlock()
+            }
+        }
+    }
+
+    func noteExternalRelease() {
+        lock.lock()
+        externalReleased = true
+        lock.unlock()
+    }
+
+    func noteAcquired() {
+        lock.lock()
+        acquiredBeforeRelease = !externalReleased
+        lock.unlock()
+    }
+
+    func acquiredBeforeExternalRelease() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return acquiredBeforeRelease
     }
 }
 
