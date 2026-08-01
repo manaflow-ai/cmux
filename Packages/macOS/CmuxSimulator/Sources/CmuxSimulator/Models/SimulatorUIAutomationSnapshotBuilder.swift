@@ -126,7 +126,9 @@ struct SimulatorUIAutomationSnapshotBuilder {
         viewport: SimulatorRect,
         descendantFrameBounds: SimulatorRect?
     ) -> SimulatorUIAutomationElementRecord {
-        let frame = node.frame ?? SimulatorRect(x: 0, y: 0, width: 0, height: 0)
+        let frame = node.frame.flatMap {
+            $0.isValidUIAutomationFrame ? $0 : nil
+        } ?? SimulatorRect(x: 0, y: 0, width: 0, height: 0)
         let normalizedLabel = node.label?.normalizedUIAutomationText
         let normalizedValue = node.value?.normalizedUIAutomationText
         let normalizedIdentifier = node.identifier?.normalizedUIAutomationText
