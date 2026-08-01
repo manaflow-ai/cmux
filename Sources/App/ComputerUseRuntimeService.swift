@@ -2510,6 +2510,26 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }.value
     }
 
+    #if DEBUG
+    nonisolated static func sendDaemonRequestForTesting(
+        _ request: [String: Any],
+        paths: ComputerUseRuntimePaths,
+        transport: SocketTransport,
+        timeout: TimeInterval,
+        socketURL: URL,
+        persistentConnection: PersistentSocketLineConnection
+    ) async -> [String: Any]? {
+        await sendDaemonRequest(
+            request,
+            paths: paths,
+            transport: transport,
+            timeout: timeout,
+            socketURL: socketURL,
+            persistentConnection: persistentConnection
+        )
+    }
+    #endif
+
     nonisolated private static func performDaemonRequest(
         _ request: [String: Any],
         paths: ComputerUseRuntimePaths,

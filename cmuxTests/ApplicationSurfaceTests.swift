@@ -16,6 +16,72 @@ import Testing
 @MainActor
 @Suite("Application surfaces", .serialized)
 struct ApplicationSurfaceTests {
+    @Test func cancelledPaneRequestInterruptsPersistentHelperRead() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-application-cancel-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmux-app-cancel-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: sockets)
+        }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: sockets,
+            withIntermediateDirectories: true
+        )
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: root,
+            socketRootDirectoryURL: sockets,
+            environment: ["CMUX_TAG": "cancel-request"],
+            authenticationToken: "cancel-test-token"
+        )
+        try FileManager.default.createDirectory(
+            at: paths.runtimeDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let responder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":true}"#,
+            responseDelay: 2
+        )
+        defer { responder.stop() }
+        let connection = PersistentSocketLineConnection()
+        let request = Task {
+            await ComputerUseRuntimeService.sendDaemonRequestForTesting(
+                ["method": "application_surface_start"],
+                paths: paths,
+                transport: SocketTransport(),
+                timeout: 5,
+                socketURL: paths.daemonSocketURL,
+                persistentConnection: connection
+            )
+        }
+        let requestDeadline = ContinuousClock.now + .seconds(1)
+        while responder.receivedRequests.isEmpty,
+              ContinuousClock.now < requestDeadline {
+            try await ContinuousClock().sleep(for: .milliseconds(10))
+        }
+        #expect(!responder.receivedRequests.isEmpty)
+        let cancelledAt = ContinuousClock.now
+
+        request.cancel()
+        let response = await request.value
+
+        #expect(response == nil)
+        #expect(ContinuousClock.now - cancelledAt < .milliseconds(500))
+        await connection.invalidate()
+    }
+
     @Test func focusIntentWaitsForCaptureViewWindow() async {
         let runtime = FakeApplicationSurfaceRuntime()
         let panel = ApplicationPanel(
