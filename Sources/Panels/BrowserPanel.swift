@@ -3868,6 +3868,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
                     self.refreshFavicon(from: webView)
                 }
+                self.applyCurrentAppWebTheme(to: webView)
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
             }
@@ -5243,6 +5244,8 @@ final class BrowserPanel: Panel, ObservableObject {
             .sink { [weak self] notification in
                 guard let self else { return }
                 self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
+                guard self.supportsAppWebTheme(self.webView) else { return }
+                self.applyAppWebTheme(AppWebThemeSnapshot.current(notification: notification), to: self.webView)
             }
             .store(in: &webViewCancellables)
 
@@ -5255,6 +5258,27 @@ final class BrowserPanel: Panel, ObservableObject {
         // Apply the configured background for the freshly bound webview (covers
         // the initial bind and every post-crash replacement).
         applyConfiguredWebViewBackground()
+        applyCurrentAppWebTheme(to: webView)
+    }
+
+    private func applyCurrentAppWebTheme(to webView: WKWebView) {
+        guard supportsAppWebTheme(webView) else { return }
+        applyAppWebTheme(AppWebThemeSnapshot.current(), to: webView)
+    }
+
+    private func supportsAppWebTheme(_ webView: WKWebView) -> Bool {
+        BrowserAppTheme.supportsAppSurface(
+            url: webView.url,
+            trustedOrigin: AuthEnvironment.appWebOrigin
+        )
+    }
+
+    private func applyAppWebTheme(_ theme: AppWebThemeSnapshot, to webView: WKWebView) {
+        let browserTheme = theme.browserTheme
+        guard let script = browserTheme.applyingJavaScript() else {
+            return
+        }
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     /// Configures the live webview's background for the current Ghostty theme.
