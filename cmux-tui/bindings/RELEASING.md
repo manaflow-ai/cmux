@@ -146,8 +146,10 @@ version to be missing or byte-identical and usable. It also verifies that this
 repository's trusted publisher created the exact PyPI bootstrap files. Only
 then does the workflow create `cmux-sdk-vX.Y.Z` and
 `cmux-tui/bindings/go/vX.Y.Z` atomically on the same commit. Immediately before
-that atomic push, it rechecks the fetched SDK tag history so a newer release
-cannot overtake a long-running preflight.
+that atomic push, the environment-gated job repeats artifact, registry-history,
+ownership, and existing-provenance checks, including the exact npm source
+commit, then rechecks the fetched SDK tag history. An approval delay therefore
+cannot make the preflight authority stale or let a newer release overtake it.
 
 The Rust preflight uses the same pinned Cargo version as publishing. It packages
 both crates and tests the extracted `cmux-sidebar` archive with the extracted

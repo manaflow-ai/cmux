@@ -191,6 +191,7 @@ def _validate_attestation(
     integrity: str,
     workflow: str,
     workflow_ref: str,
+    expected_commit: Optional[str],
 ) -> None:
     attestations = metadata.get("attestations")
     if not isinstance(attestations, list):
@@ -245,6 +246,13 @@ def _validate_attestation(
         or workflow_identity.get("ref") != workflow_ref
     ):
         raise ProvenanceError("npm bootstrap provenance workflow does not match")
+    if expected_commit is not None:
+        expected_source = [{
+            "uri": f"git+{GITHUB_REPOSITORY}@{workflow_ref}",
+            "digest": {"gitCommit": expected_commit},
+        }]
+        if definition.get("resolvedDependencies") != expected_source:
+            raise ProvenanceError("npm provenance source commit does not match")
     internal = definition.get("internalParameters")
     github = internal.get("github") if isinstance(internal, dict) else None
     if not isinstance(github, dict) or (
@@ -358,6 +366,7 @@ def verify(
     workflow_ref: str,
     dist_tag: str,
     publisher: str,
+    expected_commit: Optional[str] = None,
     npm: str = "npm",
 ) -> None:
     if not all(
@@ -375,6 +384,14 @@ def verify(
         )
     ):
         raise ProvenanceError("npm provenance inputs must be non-empty")
+    if publisher == "github-actions" and expected_commit is None:
+        raise ProvenanceError(
+            "stable npm provenance requires an expected source commit"
+        )
+    if expected_commit is not None and re.fullmatch(
+        r"[0-9a-f]{40}", expected_commit
+    ) is None:
+        raise ProvenanceError("expected npm provenance source commit is invalid")
     integrity, attestation_url = _validate_metadata(
         _metadata(package),
         package,
@@ -397,6 +414,7 @@ def verify(
         integrity,
         workflow,
         workflow_ref,
+        expected_commit,
     )
     _run_npm(package, version, npm)
 
@@ -411,6 +429,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--owner", required=True)
     parser.add_argument("--workflow", required=True)
     parser.add_argument("--workflow-ref", required=True)
+    parser.add_argument("--expected-commit")
     parser.add_argument("--dist-tag", required=True)
     parser.add_argument(
         "--publisher",
@@ -433,6 +452,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             owner=args.owner,
             workflow=args.workflow,
             workflow_ref=args.workflow_ref,
+            expected_commit=args.expected_commit,
             dist_tag=args.dist_tag,
             publisher=args.publisher,
             npm=args.npm,

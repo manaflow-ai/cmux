@@ -303,6 +303,7 @@ jobs:
               --owner lawrencechen \
               --workflow .github/workflows/sdk-release-cut.yml \
               --workflow-ref refs/heads/main \
+              --expected-commit "$GITHUB_SHA" \
               --dist-tag latest \
               --publisher github-actions
           fi
@@ -337,6 +338,7 @@ jobs:
       - registry-preflight
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
+      actions: read
       contents: read
     environment:
       name: sdk-release
@@ -356,6 +358,48 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
+      - name: Download the validated cmux-client crate for final revalidation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-rust-client-crate
+          path: validated-client
+
+      - name: Download the validated cmux-sidebar crate for final revalidation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-rust-sidebar-crate
+          path: validated-sidebar
+
+      - name: Download the validated npm artifact for final revalidation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-npm-dist
+          path: validated-npm
+
+      - name: Download the validated Python distributions for final revalidation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-python-dist
+          path: validated-python
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          package-manager-cache: false
+
+      - name: Install pinned npm for final provenance revalidation
+        run: npm install --global npm@11.5.1
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12.8"
+
+      - name: Install the pinned final PyPI provenance verifier
+        run: |
+          python3 -m pip install \
+            --disable-pip-version-check \
+            "pypi-attestations==0.0.29"
+
       - name: Create or verify release tags
         env:
           VERSION: ${{ needs.validate-release.outputs.version }}
@@ -363,6 +407,10 @@ jobs:
           GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
         run: |
           set -euo pipefail
+          cmux-tui/bindings/verify_release_registry_state.sh \
+            "$VERSION" \
+            "$GITHUB_SHA"
+
           git fetch --force origin main --tags
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
             echo "validated release commit $GITHUB_SHA is no longer on protected main" >&2
@@ -990,6 +1038,7 @@ jobs:
             --owner lawrencechen \
             --workflow .github/workflows/sdk-release-cut.yml \
             --workflow-ref refs/heads/main \
+            --expected-commit "$GITHUB_SHA" \
             --dist-tag latest \
             --publisher github-actions
           python3 cmux-tui/bindings/verify_pypi_provenance.py \

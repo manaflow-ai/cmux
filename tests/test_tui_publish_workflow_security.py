@@ -320,7 +320,10 @@ def test_privileged_sdk_workflows_use_external_release_authority() -> None:
 
     cut_tags = workflow_job(release, "cut-tags")
     assert "    permissions:\n      contents: write" not in cut_tags
-    assert "    permissions:\n      contents: read" in cut_tags
+    assert (
+        "    permissions:\n      actions: read\n      contents: read"
+        in cut_tags
+    )
     assert "name: sdk-release" in cut_tags
     assert (
         "actions/create-github-app-token@"
@@ -414,6 +417,7 @@ def test_stable_registry_provenance_gates_recovery_and_completion() -> None:
     assert "--workflow .github/workflows/sdk-release-cut.yml" in registry
     assert "--workflow sdk-release-cut.yml" in registry
     assert "--environment pypi" in registry
+    assert '--expected-commit "$GITHUB_SHA"' in registry
 
     for dependency in (
         "publish-npm",
@@ -430,6 +434,7 @@ def test_stable_registry_provenance_gates_recovery_and_completion() -> None:
     assert "--workflow .github/workflows/sdk-release-cut.yml" in stable
     assert "--workflow sdk-release-cut.yml" in stable
     assert "--environment pypi" in stable
+    assert '--expected-commit "$GITHUB_SHA"' in stable
     assert "verify-stable-provenance" in summary
     assert "STABLE_PROVENANCE_RESULT" in summary
 
@@ -537,14 +542,14 @@ def test_registry_publishers_reuse_preflight_artifacts() -> None:
         assert release.count(f"name: {artifact}") >= 1
 
     assert npm.count("name: cmux-npm-dist") == 1
-    assert release.count("name: cmux-npm-dist") == 3
+    assert release.count("name: cmux-npm-dist") == 4
     assert "npm pack --pack-destination" in npm
     npm_publish = workflow_job(release, "publish-npm")
     assert "Download the validated npm artifact" in npm_publish
     assert "npm test" not in npm_publish
 
     assert python.count("name: cmux-python-dist") == 1
-    assert release.count("name: cmux-python-dist") == 4
+    assert release.count("name: cmux-python-dist") == 5
     for job in ("publish-python-wheel", "publish-python-sdist"):
         python_publish = workflow_job(release, job)
         assert "Download distributions" in python_publish
