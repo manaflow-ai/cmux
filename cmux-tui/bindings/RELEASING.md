@@ -30,10 +30,15 @@ events. The shared conformance suite verifies their common wire behavior.
 
 ## One-time registry setup
 
-- npm: the package must exist before npm allows a trusted publisher. Publish the
-  first `cmux-sdk` release interactively from the merged release commit, then
-  configure repository `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, and
-  allow `npm publish`. Keep the GitHub environment named `npm`.
+- npm: the package must exist before npm allows a trusted publisher. Create the
+  `npm-bootstrap` GitHub environment with a temporary `NPM_BOOTSTRAP_TOKEN`
+  secret, then run `sdk-bootstrap-npm.yml` once from current `main` with
+  `confirm_bootstrap=true`. The workflow tests and packs `0.0.0-bootstrap.0` on
+  a GitHub-hosted runner, publishes that exact artifact with provenance under
+  the `bootstrap` tag, and refuses to claim `latest`. Configure repository
+  `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, and the `npm` environment
+  as the trusted publisher, then delete the bootstrap token. Keep `1.0.0`
+  unpublished for the coordinated OIDC release.
 - PyPI: add a pending trusted publisher for project `cmux-sdk`, repository
   `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, environment `pypi`.
 - crates.io: configure trusted publishers for existing crate `cmux-client` with
@@ -47,7 +52,8 @@ events. The shared conformance suite verifies their common wire behavior.
 The npm and PyPI `cmux-sdk` names and the crates.io `cmux-sidebar` name were
 unclaimed when this release path was created. Recheck them immediately before
 the first publish. PyPI can claim its name through the pending publisher; npm
-and crates.io require the interactive bootstrap above.
+uses `sdk-bootstrap-npm.yml`, and crates.io requires the interactive bootstrap
+above.
 
 ## Cutting a release
 
@@ -90,9 +96,10 @@ isolation, and installs both the exact wheel and source distribution as clean
 consumers before either artifact is uploaded.
 
 The workflow next downloads the public Go module through the normal proxy and
-checksum database, then compiles clean consumers of both its root and `raw`
-packages. It publishes npm, the PyPI wheel, and the PyPI source distribution in
-separate jobs while publishing `cmux-client` before `cmux-sidebar`. Each
+checksum database, retrying propagation for up to 30 minutes before it compiles
+clean consumers of both its root and `raw` packages. It publishes npm, the PyPI
+wheel, and the PyPI source distribution in separate jobs while publishing
+`cmux-client` before `cmux-sidebar`. Each
 irreversible write has its own rerunnable job. Every job requires the exact
 latest release tag, verifies that its commit is on protected `main`, and binds
 provenance to that commit. Manual publisher dispatches validate only and cannot

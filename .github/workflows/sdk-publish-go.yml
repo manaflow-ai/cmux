@@ -203,9 +203,15 @@ jobs:
     if: inputs.verify_tag == true
     needs: version
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 35
     permissions:
       contents: read
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
@@ -228,6 +234,11 @@ jobs:
           mkdir "$scratch/consumer"
           cd "$scratch/consumer"
           go mod init cmux-release-consumer
+          python3 "$GITHUB_WORKSPACE/cmux-tui/bindings/wait_for_go_module.py" \
+            --module "$module" \
+            --version "$expected" \
+            --wait-seconds 1800 \
+            --retry-seconds 30
           go get "$module@$expected"
           go mod download "$module@$expected"
           go mod verify

@@ -16,15 +16,22 @@ const project = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const scratch = mkdtempSync(join(tmpdir(), "cmux-typescript-package-"));
 
 try {
-  const packed = JSON.parse(execFileSync("npm", [
-    "pack",
-    project,
-    "--json",
-    "--pack-destination",
-    scratch,
-  ], { encoding: "utf8" }));
-  const filename = packed[0]?.filename;
-  assert.equal(typeof filename, "string");
+  let archive;
+  if (process.env.CMUX_NPM_PACKAGE) {
+    archive = resolve(process.env.CMUX_NPM_PACKAGE);
+    assert.ok(existsSync(archive), `package archive does not exist: ${archive}`);
+  } else {
+    const packed = JSON.parse(execFileSync("npm", [
+      "pack",
+      project,
+      "--json",
+      "--pack-destination",
+      scratch,
+    ], { encoding: "utf8" }));
+    const filename = packed[0]?.filename;
+    assert.equal(typeof filename, "string");
+    archive = join(scratch, filename);
+  }
 
   const consumer = join(scratch, "consumer");
   mkdirSync(consumer);
@@ -157,7 +164,7 @@ void write;
     "--no-audit",
     "--no-fund",
     "--no-package-lock",
-    join(scratch, filename),
+    archive,
   ], { cwd: consumer, stdio: "pipe" });
 
   const compiler = resolve(project, "node_modules/typescript/bin/tsc");

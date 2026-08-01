@@ -120,11 +120,12 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
     assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
     assert "npm test" in bootstrap
     assert "npm pack --pack-destination" in bootstrap
+    assert "CMUX_NPM_PACKAGE" in bootstrap
     assert 'npm publish "${packages[0]}"' in bootstrap
     assert "--tag bootstrap" in bootstrap
     assert "--provenance" in bootstrap
     assert "--access public" in bootstrap
-    assert "name: sdk-bootstrap-npm.yml" in sdk_ci
+    assert sdk_ci.count('".github/workflows/sdk-bootstrap-npm.yml"') == 2
     assert "sdk-bootstrap-npm.yml" in releasing
     assert "0.0.0-bootstrap.0" in releasing
     assert "first `cmux-sdk` release interactively" not in releasing

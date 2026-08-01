@@ -345,6 +345,7 @@ def wait_for_status(
     *,
     allowed_artifacts: Optional[Sequence[Path]] = None,
     cancel_event: Optional[threading.Event] = None,
+    wait_for_match: bool = True,
 ) -> str:
     cancellation = cancel_event or threading.Event()
     deadline = time.monotonic() + wait_seconds
@@ -363,6 +364,8 @@ def wait_for_status(
             last_error = None
             if status == MATCH:
                 return MATCH
+            if not wait_for_match:
+                return MISSING
         except RegistryLookupError as error:
             last_error = error
         remaining = deadline - time.monotonic()
@@ -422,9 +425,10 @@ def main(
             args.package,
             args.version,
             args.artifact,
-            args.wait_seconds if args.mode == "check" else 0,
+            args.wait_seconds,
             allowed_artifacts=args.allowed_artifact,
             cancel_event=cancel_event,
+            wait_for_match=args.mode == "check" and args.require_match,
         )
         if args.write_github_output:
             _write_github_output(status)
