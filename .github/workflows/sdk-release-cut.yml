@@ -132,6 +132,98 @@ jobs:
     with:
       version: ${{ needs.validate-release.outputs.version }}
 
+  registry-preflight:
+    needs:
+      - validate-release
+      - rust-preflight
+      - typescript-preflight
+      - python-preflight
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Download the validated cmux-client crate
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-rust-client-crate
+          path: validated-client
+
+      - name: Download the validated cmux-sidebar crate
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-rust-sidebar-crate
+          path: validated-sidebar
+
+      - name: Download the validated npm artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-npm-dist
+          path: validated-npm
+
+      - name: Download the validated Python distributions
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-python-dist
+          path: validated-python
+
+      - name: Reject conflicting or unusable registry state
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          npm_packages=(validated-npm/*.tgz)
+          python_wheels=(validated-python/*.whl)
+          python_sdists=(validated-python/*.tar.gz)
+          [[ "${#npm_packages[@]}" == 1 ]] || {
+            echo "expected one validated npm artifact, found ${#npm_packages[@]}" >&2
+            exit 1
+          }
+          [[ "${#python_wheels[@]}" == 1 ]] || {
+            echo "expected one validated Python wheel, found ${#python_wheels[@]}" >&2
+            exit 1
+          }
+          [[ "${#python_sdists[@]}" == 1 ]] || {
+            echo "expected one validated Python source distribution, found ${#python_sdists[@]}" >&2
+            exit 1
+          }
+
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry crates \
+            --package cmux-client \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact "validated-client/cmux-client-$CMUX_SDK_VERSION.crate"
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry crates \
+            --package cmux-sidebar \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact "validated-sidebar/cmux-sidebar-$CMUX_SDK_VERSION.crate"
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry npm \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact "${npm_packages[0]}"
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry pypi \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact "${python_wheels[0]}" \
+            --allowed-artifact "${python_wheels[0]}" \
+            --allowed-artifact "${python_sdists[0]}"
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
+            --registry pypi \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact "${python_sdists[0]}" \
+            --allowed-artifact "${python_wheels[0]}" \
+            --allowed-artifact "${python_sdists[0]}"
+
   cut-tags:
     needs:
       - validate-release
@@ -139,6 +231,7 @@ jobs:
       - go-preflight
       - typescript-preflight
       - python-preflight
+      - registry-preflight
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: write
@@ -709,6 +802,7 @@ jobs:
       - go-preflight
       - typescript-preflight
       - python-preflight
+      - registry-preflight
       - cut-tags
       - verify-go-tag
       - publish-crate-client
@@ -729,6 +823,7 @@ jobs:
           GO_PREFLIGHT_RESULT: ${{ needs.go-preflight.result }}
           TYPESCRIPT_PREFLIGHT_RESULT: ${{ needs.typescript-preflight.result }}
           PYTHON_PREFLIGHT_RESULT: ${{ needs.python-preflight.result }}
+          REGISTRY_PREFLIGHT_RESULT: ${{ needs.registry-preflight.result }}
           CUT_TAGS_RESULT: ${{ needs.cut-tags.result }}
           GO_TAG_RESULT: ${{ needs.verify-go-tag.result }}
           CRATE_CLIENT_RESULT: ${{ needs.publish-crate-client.result }}
@@ -747,6 +842,7 @@ jobs:
             echo "- Go preflight: \`$GO_PREFLIGHT_RESULT\`"
             echo "- TypeScript preflight: \`$TYPESCRIPT_PREFLIGHT_RESULT\`"
             echo "- Python preflight: \`$PYTHON_PREFLIGHT_RESULT\`"
+            echo "- Registry preflight: \`$REGISTRY_PREFLIGHT_RESULT\`"
             echo "- Tag creation: \`$CUT_TAGS_RESULT\`"
             echo "- Public Go tag: \`$GO_TAG_RESULT\`"
             echo "- cmux-client publish: \`$CRATE_CLIENT_RESULT\`"

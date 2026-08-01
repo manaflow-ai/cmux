@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
@@ -23,6 +24,9 @@ from urllib.request import Request, urlopen
 MATCH = "match"
 MISSING = "missing"
 USER_AGENT = "cmux-sdk-release-reconciler/1"
+STABLE_VERSION = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$"
+)
 
 
 class RegistryError(RuntimeError):
@@ -60,6 +64,13 @@ def _integrity(path: Path, algorithm: str) -> str:
             digest.update(chunk)
     encoded = base64.b64encode(digest.digest()).decode("ascii")
     return f"{algorithm}-{encoded}"
+
+
+def _stable_version(value: str) -> Optional[tuple[int, int, int]]:
+    match = STABLE_VERSION.fullmatch(value)
+    if match is None:
+        return None
+    return tuple(int(part) for part in match.groups())
 
 
 def _request(url: str, accept: str) -> Optional[bytes]:
@@ -145,8 +156,43 @@ def _npm_status(package: str, version: str, artifact: Path) -> str:
     versions = metadata.get("versions")
     if not isinstance(versions, dict):
         raise RegistryError(f"npm metadata has no versions object for {package}")
+    candidate = _stable_version(version)
+    if candidate is None:
+        raise RegistryError(f"npm release version must match X.Y.Z: {version!r}")
+    dist_tags = metadata.get("dist-tags")
+    if not isinstance(dist_tags, dict):
+        raise RegistryError(f"npm metadata has no dist-tags object for {package}")
     release = versions.get(version)
     if release is None:
+        newer_or_equal: list[tuple[tuple[int, int, int], str]] = []
+        for existing in versions:
+            if not isinstance(existing, str):
+                continue
+            parsed = _stable_version(existing)
+            if parsed is not None and parsed >= candidate:
+                newer_or_equal.append((parsed, existing))
+        if newer_or_equal:
+            newest = max(newer_or_equal)[1]
+            raise ReleaseStateMismatch(
+                f"npm already contains stable version {newest!r}, "
+                f"which is not older than requested {version!r}"
+            )
+        latest = dist_tags.get("latest")
+        if latest is not None:
+            if not isinstance(latest, str):
+                raise RegistryError(
+                    f"npm dist-tag latest is malformed for {package}: {latest!r}"
+                )
+            latest_version = _stable_version(latest)
+            if latest_version is None:
+                raise ReleaseStateMismatch(
+                    f"npm dist-tag latest is not a stable X.Y.Z version: {latest!r}"
+                )
+            if latest_version >= candidate:
+                raise ReleaseStateMismatch(
+                    f"npm dist-tag latest points to {latest!r}, which is not older "
+                    f"than requested {version!r}"
+                )
         return MISSING
     if not isinstance(release, dict):
         raise RegistryError(f"npm metadata is malformed for {package}@{version}")
@@ -181,9 +227,6 @@ def _npm_status(package: str, version: str, artifact: Path) -> str:
                 f"npm already has different bytes for {package}@{version}: "
                 f"local sha1={local}, remote sha1={shasum}"
             )
-    dist_tags = metadata.get("dist-tags")
-    if not isinstance(dist_tags, dict):
-        raise RegistryError(f"npm metadata has no dist-tags object for {package}")
     latest = dist_tags.get("latest")
     if latest != version:
         raise ReleaseStateMismatch(

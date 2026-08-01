@@ -221,12 +221,34 @@ jobs:
           expected="v$CMUX_SDK_VERSION"
           scratch="$(mktemp -d)"
           trap 'rm -rf "$scratch"' EXIT
-          cd "$scratch"
-          resolved="$(
-            GOPROXY=direct \
-            GONOSUMDB=github.com/manaflow-ai/cmux \
-            go list -m -f '{{.Version}}' "$module@$expected"
-          )"
+          export GOPROXY=https://proxy.golang.org
+          export GOSUMDB=sum.golang.org
+          export GOMODCACHE="$scratch/modcache"
+          export GOCACHE="$scratch/buildcache"
+          mkdir "$scratch/consumer"
+          cd "$scratch/consumer"
+          go mod init cmux-release-consumer
+          go get "$module@$expected"
+          go mod download "$module@$expected"
+          go mod verify
+          cat > release_test.go <<EOF
+          package consumer
+
+          import (
+              "testing"
+
+              cmux "$module"
+              raw "$module/raw"
+          )
+
+          func TestReleasedPackagesCompile(t *testing.T) {
+              _ = cmux.ClientOptions{}
+              _ = raw.Options{}
+          }
+          EOF
+          gofmt -w release_test.go
+          go test -mod=readonly ./...
+          resolved="$(go list -m -f '{{.Version}}' "$module")"
           [[ "$resolved" == "$expected" ]] || {
             echo "resolved $module@$resolved, expected $expected" >&2
             exit 1

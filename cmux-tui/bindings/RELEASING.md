@@ -69,9 +69,10 @@ The cut workflow verifies current protected `main`, then runs Rust, Go,
 TypeScript, and Python package and live-conformance preflights in parallel
 against that exact commit. The TypeScript and Python preflights retain the
 validated registry artifacts, and the Rust preflight retains both verified
-crate archives. Only after all four preflights pass does the
-workflow create `cmux-sdk-vX.Y.Z` and `cmux-tui/bindings/go/vX.Y.Z` atomically
-on the same commit.
+crate archives. A credential-free registry preflight then requires each target
+version to be missing or byte-identical and usable, before the workflow creates
+`cmux-sdk-vX.Y.Z` and `cmux-tui/bindings/go/vX.Y.Z` atomically on the same
+commit.
 
 The Rust preflight uses the same pinned Cargo version as publishing. It packages
 both crates and tests the extracted `cmux-sidebar` archive with the extracted
@@ -84,19 +85,20 @@ The Python build pins `build`, `setuptools`, and `wheel`, disables build
 isolation, and installs both the exact wheel and source distribution as clean
 consumers before either artifact is uploaded.
 
-The workflow next resolves the public Go module from a clean consumer. It then
-publishes npm, the PyPI wheel, and the PyPI source distribution in separate
-jobs while publishing `cmux-client` before `cmux-sidebar`. Each irreversible
-write has its own rerunnable job. Every job requires the exact latest release
-tag, verifies that its commit is on protected `main`, and binds provenance to
-that commit. Manual publisher dispatches validate only and cannot write to a
-registry. Before publishing or recovering a failed publish, the workflow checks
-the registry digest and skips only an artifact whose bytes exactly match the
-validated local package. PyPI reconciliation also rejects unexpected or yanked
-files while allowing the expected wheel and source distribution to arrive in
-either order. Crates.io reconciliation rejects yanked versions, and npm
-reconciliation requires the requested stable version to own the `latest`
-distribution tag.
+The workflow next downloads the public Go module through the normal proxy and
+checksum database, then compiles clean consumers of both its root and `raw`
+packages. It publishes npm, the PyPI wheel, and the PyPI source distribution in
+separate jobs while publishing `cmux-client` before `cmux-sidebar`. Each
+irreversible write has its own rerunnable job. Every job requires the exact
+latest release tag, verifies that its commit is on protected `main`, and binds
+provenance to that commit. Manual publisher dispatches validate only and cannot
+write to a registry. Before publishing or recovering a failed publish, the
+workflow checks the registry digest and skips only an artifact whose bytes
+exactly match the validated local package. PyPI reconciliation also rejects
+unexpected or yanked files while allowing the expected wheel and source
+distribution to arrive in either order. Crates.io reconciliation rejects
+yanked versions, and npm reconciliation prevents stable-version downgrades and
+requires the requested version to own the `latest` distribution tag.
 
 The cut workflow holds one cross-version concurrency lock until the Go check and
 all registry jobs finish. If one publish job fails, use GitHub's **Re-run failed

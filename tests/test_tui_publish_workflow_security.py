@@ -4,6 +4,8 @@ import tomllib
 import unittest
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -23,6 +25,19 @@ def load_tests(
 
 def workflow(name: str) -> str:
     return (ROOT / ".github" / "workflows" / name).read_text()
+
+
+def workflow_triggers(text: str) -> dict[str, object]:
+    document = yaml.load(text, Loader=yaml.BaseLoader)
+    assert isinstance(document, dict)
+    triggers = document.get("on")
+    if isinstance(triggers, dict):
+        return triggers
+    if isinstance(triggers, list):
+        return {str(trigger): None for trigger in triggers}
+    if isinstance(triggers, str):
+        return {triggers: None}
+    raise AssertionError("workflow has no valid on trigger")
 
 
 def workflow_job(text: str, name: str) -> str:
@@ -140,6 +155,7 @@ def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
         "GO_PREFLIGHT_RESULT",
         "TYPESCRIPT_PREFLIGHT_RESULT",
         "PYTHON_PREFLIGHT_RESULT",
+        "REGISTRY_PREFLIGHT_RESULT",
         "CUT_TAGS_RESULT",
         "CRATE_CLIENT_RESULT",
         "CRATE_SIDEBAR_RESULT",
@@ -194,7 +210,7 @@ def test_sdk_preflight_workflows_cannot_write_to_registries() -> None:
         "sdk-publish-python.yml",
     ):
         text = workflow(name)
-        assert "push:\n    tags:" not in text
+        assert "push" not in workflow_triggers(text)
         assert "workflow_call:" in text
         dispatch_inputs = text.split("workflow_dispatch:", 1)[1].split(
             "permissions:", 1
@@ -231,6 +247,14 @@ def test_sdk_preflight_workflows_cannot_write_to_registries() -> None:
     assert "go test" in public_probe
 
 
+def test_workflow_trigger_guard_parses_flow_style_yaml() -> None:
+    triggers = workflow_triggers(
+        "name: fixture\non: {push: {tags: ['v*']}, workflow_dispatch: {}}\n"
+    )
+    assert "push" in triggers
+    assert "tags" in triggers["push"]
+
+
 def test_registry_publishers_reuse_preflight_artifacts() -> None:
     rust = workflow("sdk-publish-crates.yml")
     npm = workflow("sdk-publish-npm.yml")
@@ -242,14 +266,14 @@ def test_registry_publishers_reuse_preflight_artifacts() -> None:
         assert release.count(f"name: {artifact}") >= 1
 
     assert npm.count("name: cmux-npm-dist") == 1
-    assert release.count("name: cmux-npm-dist") == 1
+    assert release.count("name: cmux-npm-dist") == 2
     assert "npm pack --pack-destination" in npm
     npm_publish = workflow_job(release, "publish-npm")
     assert "Download the validated npm artifact" in npm_publish
     assert "npm test" not in npm_publish
 
     assert python.count("name: cmux-python-dist") == 1
-    assert release.count("name: cmux-python-dist") == 2
+    assert release.count("name: cmux-python-dist") == 3
     for job in ("publish-python-wheel", "publish-python-sdist"):
         python_publish = workflow_job(release, job)
         assert "Download distributions" in python_publish

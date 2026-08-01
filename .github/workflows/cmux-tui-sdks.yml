@@ -61,6 +61,12 @@ jobs:
         with:
           python-version: "3.12.8"
 
+      - name: Install workflow guard dependencies
+        run: |
+          python3 -m pip install \
+            --disable-pip-version-check \
+            "PyYAML==6.0.3"
+
       - name: Test protocol inventory
         run: python3 cmux-tui/scripts/test_check_spec_inventory.py
 
