@@ -72,9 +72,29 @@ async function delayedUnixFixture(
     | undefined;
   assert.ok(connectListener);
   socket.removeListener("connect", connectListener);
-  const physicallyConnected = new Promise<void>((resolve) => {
-    socket.once("connect", resolve);
+  const physicallyConnected = new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      socket.removeListener("connect", connected);
+      socket.removeListener("error", failed);
+      socket.removeListener("close", closed);
+    };
+    const connected = () => {
+      cleanup();
+      resolve();
+    };
+    const failed = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const closed = () => {
+      cleanup();
+      reject(new Error("fixture socket closed before connect"));
+    };
+    socket.once("connect", connected);
+    socket.prependOnceListener("error", failed);
+    socket.once("close", closed);
   });
+  void physicallyConnected.catch(() => undefined);
   let released = false;
   return {
     transport,
