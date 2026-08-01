@@ -400,6 +400,33 @@ import Testing
         #expect(!didAcknowledgeNotFound)
     }
 
+    /// A local display deadline is not an authoritative Sparkle no-update result. If the fresh
+    /// install check produces no callback, the shorter check deadline must surface a truthful,
+    /// retryable timeout rather than masquerading as “No Updates Available.”
+    @Test func freshInstallCheckTimeoutCannotMasqueradeAsNoUpdate() async {
+        let harness = Harness()
+
+        harness.controller.attemptUpdate()
+        #expect(harness.updater.checkForUpdatesCallCount == 1)
+        harness.controller.driver.showUserInitiatedUpdateCheck(cancellation: {})
+
+        await harness.clock.fireEarliestDeadlineWhenReady(expectedCount: 2)
+
+        await waitUntil("fresh install check timeout error") {
+            guard case .error = harness.model.state else { return false }
+            return true
+        }
+        guard case .error(let failure) = harness.model.state else {
+            Issue.record("check timeout produced \(harness.model.state)")
+            return
+        }
+        let error = failure.error as NSError
+        #expect(error.domain == NSURLErrorDomain)
+        #expect(error.code == NSURLErrorTimedOut)
+        #expect(!harness.controller.attemptCoordinator.isMonitoring)
+        #expect(!harness.controller.installWatchdog.isArmed)
+    }
+
     /// If the live prompt is still visible but already answered before the queued confirm
     /// hand-off runs, the controller must not log a fake install attempt or leave the watchdog
     /// armed for a prompt Sparkle will never accept again.
