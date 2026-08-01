@@ -323,6 +323,14 @@ class IrTests(unittest.TestCase):
         self.assertEqual(field["since"], 9)
         self.assertEqual(field["capability"], "clear-history-key-v1")
 
+    def test_live_raw_v10_tab_exposes_canonical_browser_url(self) -> None:
+        field = load_ir(LIVE_SCHEMA).type("Tab")["fields"]["url"]
+
+        self.assertEqual(dict(field["type"]), {"kind": "scalar", "name": "string"})
+        self.assertEqual(field["presence"], "optional")
+        self.assertTrue(field["nullable"])
+        self.assertEqual(field["since"], 10)
+
 
 if __name__ == "__main__":
     unittest.main()
