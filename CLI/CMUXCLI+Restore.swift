@@ -53,19 +53,13 @@ extension CMUXCLI {
             }
             params["surface_id"] = surfaceID
         } else if selector.usesCurrentSurface,
-                  let caller = uniqueCallerTerminalBindingByTTY(client: client) {
-            params["surface_id"] = caller.surfaceId
-        } else if selector.usesCurrentSurface,
-                  let surfaceID = processEnvironment["CMUX_SURFACE_ID"],
-                  !surfaceID.isEmpty {
+                  let surfaceID = try currentRestoreSurfaceID(
+                      client: client,
+                      processEnvironment: processEnvironment
+                  ) {
             params["surface_id"] = surfaceID
         } else {
-            throw CLIError(
-                message: String(
-                    localized: "cli.restore.error.currentSurfaceUnknown",
-                    defaultValue: "restore: the current cmux surface could not be identified. Retry from this terminal or pass --surface <id|ref>."
-                )
-            )
+            throw currentRestoreSurfaceUnknownError()
         }
 
         let payload = try client.sendV2(method: "surface.resume.get", params: params)
@@ -183,6 +177,59 @@ extension CMUXCLI {
         try execRestoreInvocation(
             invocation,
             appliedWorkingDirectory: effectiveWorkingDirectory
+        )
+    }
+
+    private func currentRestoreSurfaceID(
+        client: SocketClient,
+        processEnvironment: [String: String]
+    ) throws -> String? {
+        let ambientSurfaceID = processEnvironment["CMUX_SURFACE_ID"].flatMap { surfaceID in
+            surfaceID.isEmpty ? nil : surfaceID
+        }
+        // The remote relay and the local CLI do not share a PID namespace.
+        guard !client.isRelayBacked else { return ambientSurfaceID }
+
+        let resolution = AgentProcessBindingResolution.controllingTTY.rawValue
+        do {
+            let payload = try client.sendV2(
+                method: "agent.resolve_delivery_target",
+                params: [
+                    "pid": Int(ProcessInfo.processInfo.processIdentifier),
+                    "pid_resolution": resolution,
+                ]
+            )
+            guard payload["source"] as? String == "pid",
+                  payload["pid_resolution"] as? String == resolution,
+                  let workspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
+                  isUUID(workspaceID),
+                  let surfaceID = normalizedHandleValue(payload["surface_id"] as? String),
+                  isUUID(surfaceID) else {
+                throw currentRestoreSurfaceUnknownError()
+            }
+            return surfaceID
+        } catch let error as CLIError {
+            switch error.v2Code {
+            case "not_found", "method_not_found", "unrecognized_method":
+                // These protocol replies were consumed in full, so the socket
+                // remains synchronized for the restore request.
+                return ambientSurfaceID
+            default:
+                client.close()
+                throw error
+            }
+        } catch {
+            client.close()
+            throw error
+        }
+    }
+
+    private func currentRestoreSurfaceUnknownError() -> CLIError {
+        CLIError(
+            message: String(
+                localized: "cli.restore.error.currentSurfaceUnknown",
+                defaultValue: "restore: the current cmux surface could not be identified. Retry from this terminal or pass --surface <id|ref>."
+            )
         )
     }
 
