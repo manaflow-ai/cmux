@@ -315,8 +315,10 @@ private extension SimulatorWorkerInbound {
              .setAccessibilityHighlight, .requestAccessibility,
              .requestForegroundApplication, .requestWebInspectorTargets,
              .attachWebInspector, .releaseWebInspector, .setWebInspectorHighlight,
-             .sendWebInspectorMessage, .releaseInputs, .terminateRenderer, .shutdown:
+             .sendWebInspectorMessage, .terminateRenderer, .shutdown:
             false
+        case .releaseInputs:
+            true
         }
     }
 }

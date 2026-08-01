@@ -49,7 +49,20 @@ extension ControlCommandCoordinator {
             }
             operation = .gesture(events)
         case "simulator.tap":
-            if request.params["element_ref"] != nil {
+            let hasElementRef = request.params["element_ref"] != nil
+            let hasCoordinates = ["x", "y", "x1", "y1", "x2", "y2"].contains {
+                request.params[$0] != nil
+            }
+            let hasSelector = request.params["label"] != nil
+                || request.params["identifier"] != nil || request.params["role"] != nil
+            guard [hasElementRef, hasCoordinates, hasSelector]
+                .filter({ $0 }).count <= 1 else {
+                return invalidSimulatorOperation(String(
+                    localized: "cli.simulator.error.tapInputsExclusive",
+                    defaultValue: "Tap coordinates and accessibility selectors are mutually exclusive"
+                ))
+            }
+            if hasElementRef {
                 guard let action = simulatorUIAction(
                     method: request.method, params: request.params
                 ), action.fitsReceiptDeadline else {
@@ -57,17 +70,6 @@ extension ControlCommandCoordinator {
                 }
                 operation = .uiAction(action)
                 break
-            }
-            let hasCoordinates = ["x", "y", "x1", "y1", "x2", "y2"].contains {
-                request.params[$0] != nil
-            }
-            let hasSelector = request.params["label"] != nil
-                || request.params["identifier"] != nil || request.params["role"] != nil
-            guard !hasCoordinates || !hasSelector else {
-                return invalidSimulatorOperation(String(
-                    localized: "cli.simulator.error.tapInputsExclusive",
-                    defaultValue: "Tap coordinates and accessibility selectors are mutually exclusive"
-                ))
             }
             if hasSelector {
                 let label = string(request.params, "label")
@@ -96,7 +98,15 @@ extension ControlCommandCoordinator {
                 ])
             }
         case "simulator.swipe":
-            if request.params["within_element_ref"] != nil {
+            let hasElementRef = request.params["within_element_ref"] != nil
+            let hasCoordinates = [
+                "from_x", "from_y", "to_x", "to_y",
+                "from_x2", "from_y2", "to_x2", "to_y2",
+            ].contains { request.params[$0] != nil }
+            guard !hasElementRef || !hasCoordinates else {
+                return invalidSimulatorOperation("semantic swipe parameters are invalid")
+            }
+            if hasElementRef {
                 guard let action = simulatorUIAction(
                     method: request.method, params: request.params
                 ), action.fitsReceiptDeadline else {
