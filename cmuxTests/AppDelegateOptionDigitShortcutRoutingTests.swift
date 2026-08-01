@@ -169,7 +169,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let firstWorkspace = try #require(manager.selectedWorkspace)
-            let secondWorkspace = manager.addTab(select: true)
+            let secondWorkspace = try #require(manager.addTab(select: true))
             let terminalPanelId = try #require(secondWorkspace.focusedPanelId)
             let terminalPanel = try #require(secondWorkspace.terminalPanel(for: terminalPanelId))
             let back = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
@@ -243,7 +243,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let firstWorkspace = try #require(manager.selectedWorkspace)
-            let secondWorkspace = manager.addTab(select: true)
+            let secondWorkspace = try #require(manager.addTab(select: true))
             let back = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
             let forward = KeyboardShortcutSettings.shortcut(for: .focusHistoryForward)
             let originalGhosttyPrevious = appDelegate.ghosttyGotoSplitPreviousShortcut
@@ -278,7 +278,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
 
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            let secondWorkspace = manager.addTab(select: true)
+            let secondWorkspace = try #require(manager.addTab(select: true))
             let browserPanelId = try #require(manager.openBrowser(inWorkspace: secondWorkspace.id))
             let browserPanel = try #require(secondWorkspace.browserPanel(for: browserPanelId))
             let back = KeyboardShortcutSettings.shortcut(for: .browserBack)
