@@ -3524,7 +3524,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "O faturamento não está disponível no momento. Tente novamente mais tarde."
+    "billingUnavailable": "O faturamento não está disponível no momento. Tente novamente mais tarde.",
+    "signedOutNotice": "Você não iniciou sessão. Entre para ver seu plano atual ou restaurar uma compra existente.",
+    "signedOutSignIn": "Entrar"
   },
   "platforms": {
     "macos": "macOS",
