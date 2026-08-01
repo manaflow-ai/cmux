@@ -187,6 +187,32 @@ describe("billing checkout route", () => {
     expect(createStripeSession).not.toHaveBeenCalled();
   });
 
+  test("relays an app-pricing checkout through the server-configured destination", async () => {
+    const previous = process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+    process.env.CMUX_APP_PRICING_CHECKOUT_URL =
+      "https://billing.example/checkout?campaign=annual";
+    try {
+      const response = await GET(
+        new NextRequest(
+          "https://cmux.test/api/billing/checkout?plan=team&interval=year&cmux_scheme=cmux-dev-test&cmux_app_checkout=1",
+        ),
+      );
+
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe(
+        "https://billing.example/checkout?campaign=annual&plan=team&interval=year&cmux_scheme=cmux-dev-test",
+      );
+      expect(getUser).not.toHaveBeenCalled();
+      expect(createStripeSession).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+      } else {
+        process.env.CMUX_APP_PRICING_CHECKOUT_URL = previous;
+      }
+    }
+  });
+
   test("creates Stripe checkout for anonymous Pro visitors when configured", async () => {
     stripeConfigured = true;
     userResponses = [null, anonymousUser];
