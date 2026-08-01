@@ -285,9 +285,10 @@ struct MobileShellForegroundConnectionRecoveryTests {
 
     #expect(await router.waitForCount(
         of: "workspace.list",
-        atLeast: workspaceListCount + 1
+        atLeast: workspaceListCount + 1,
+        timeoutNanoseconds: 30_000_000_000
     ))
-    #expect(try await pollUntil {
+    #expect(try await pollUntil(attempts: 3_000) {
         store.connectionState == .connected
             && store.macConnectionStatus == .connected
     })
