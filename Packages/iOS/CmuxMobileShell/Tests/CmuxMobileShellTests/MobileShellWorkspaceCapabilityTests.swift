@@ -139,6 +139,86 @@ import Testing
         #expect(await router.count(of: "workspace.group.create") == 0)
     }
 
+    @Test func expiredMacWideTicketKeepsAdvertisedCreateActionsDiscoverable() async throws {
+        let connected = try await connectedStore(
+            capabilities: [
+                "events.v1",
+                "terminal.render_grid.v1",
+                "terminal.replay.v1",
+                "workspace.create_in_group.v1",
+                "workspace.group_create.v1",
+            ],
+            ticketWorkspaceID: "",
+            ticketTerminalID: nil,
+            ticketLifetime: 1
+        )
+
+        connected.clock.advance(by: 2)
+
+        #expect(connected.store.supportsWorkspaceCreateInGroup)
+        #expect(connected.store.supportsWorkspaceGroupCreate)
+    }
+
+    @Test func accountAuthorizedGroupRenameSurvivesExpiredMacWideTicket() async throws {
+        let connected = try await connectedStore(
+            capabilities: [
+                "events.v1",
+                "terminal.render_grid.v1",
+                "terminal.replay.v1",
+                "workspace.group_actions.v1",
+                "workspace.mutations.account_auth.v1",
+            ],
+            ticketWorkspaceID: "",
+            ticketTerminalID: nil,
+            ticketLifetime: 1
+        )
+        let store = connected.store
+        let workspaceID = try #require(store.workspaces.first?.id)
+        store.workspaceGroups = [
+            MobileWorkspaceGroupPreview(id: "group-a", name: "Before", anchorWorkspaceID: workspaceID),
+        ]
+
+        connected.clock.advance(by: 2)
+
+        guard case .success = await store.renameWorkspaceGroup(id: "group-a", title: "  yu  ") else {
+            return #expect(Bool(false), "same-account group rename should outlive the route ticket")
+        }
+        let requests = await connected.router.groupActions()
+        #expect(requests.count == 1)
+        #expect(requests.first?.groupID == "group-a")
+        #expect(requests.first?.action == "rename")
+        #expect(requests.first?.title == "yu")
+        let authorization = await connected.router.authorization(for: "workspace.group.action")
+        #expect(authorization.count == 1)
+        #expect(authorization.first?.attachToken == nil)
+        #expect(authorization.first?.stackAccessToken == "test-stack-token")
+    }
+
+    @Test func accountAuthorizedGroupRenameIgnoresCurrentWorkspaceScopedRouteTicket() async throws {
+        let connected = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "workspace.group_actions.v1",
+            "workspace.mutations.account_auth.v1",
+        ])
+        let store = connected.store
+        let workspaceID = try #require(store.workspaces.first?.id)
+        store.workspaceGroups = [
+            MobileWorkspaceGroupPreview(id: "group-a", name: "Before", anchorWorkspaceID: workspaceID),
+        ]
+
+        #expect(store.supportsWorkspaceGroupActions)
+        #expect(store.workspaces.first?.actionCapabilities.supportsGroupActions == true)
+        guard case .success = await store.renameWorkspaceGroup(id: "group-a", title: "yu") else {
+            return #expect(Bool(false), "same-account group rename should not be narrowed by a saved route ticket")
+        }
+        let authorization = await connected.router.authorization(for: "workspace.group.action")
+        #expect(authorization.count == 1)
+        #expect(authorization.first?.attachToken == nil)
+        #expect(authorization.first?.stackAccessToken == "test-stack-token")
+    }
+
     @Test func macScopedMutationsSurviveTicketExpiryOnAccountAuthHosts() async throws {
         let connected = try await connectedStore(
             capabilities: [

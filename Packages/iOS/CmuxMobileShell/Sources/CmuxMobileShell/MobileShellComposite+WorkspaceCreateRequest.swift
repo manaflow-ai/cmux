@@ -99,7 +99,11 @@ extension MobileShellComposite {
                 return .failure(.notConnected(hostDisplayName: context.hostDisplayName))
             }
             let resultData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(method: "workspace.create", params: params)
+                MobileCoreRPCClient.requestData(method: "workspace.create", params: params),
+                attachTicketPolicy: groupID != nil
+                    && context.supportedHostCapabilities.contains(Self.workspaceMutationAccountAuthCapability)
+                    ? .omit
+                    : .whenCovered
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             let createdWorkspace: MobileWorkspacePreview.ID?

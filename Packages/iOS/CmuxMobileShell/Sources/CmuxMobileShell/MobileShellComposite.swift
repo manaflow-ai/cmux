@@ -302,6 +302,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         scope: MobileShellScopeSnapshot,
         instances: [MobilePresenceReconnectEvidence]
     )?
+    var presencePushRecoveryThrottle = MobilePresencePushRecoveryThrottle()
     /// Whether the current attach ticket has a non-empty auth token and has not expired.
     public var hasActiveUnexpiredAttachTicket: Bool {
         guard let activeTicket,
@@ -852,9 +853,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// consumed, not buffered invisibly behind the await.
     private var terminalSubscriptionStartTask: Task<Void, Never>?
     /// Subscription success is the final validation edge for a replacement
-    /// connection. This generation record closes the race where the ack arrives
-    /// before the stored-Mac redial task returns from `connect`.
-    var lastSuccessfulTerminalSubscriptionGeneration: UUID?
+    /// connection or listener. This snapshot closes the race where an old
+    /// acknowledgement arrives after a newer listener has taken ownership.
+    var lastSuccessfulTerminalSubscription: MobileTerminalSubscriptionValidation?
     /// The focused client whose terminal subscribe/reassert operations are
     /// fenced while its final unsubscribe is prepared. Existing wire requests
     /// drain before unsubscribe; new ones cannot start.
@@ -1589,6 +1590,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // projections.
         resetStateSyncForAccountBoundary()
         lastPresenceReconnectEvidence = nil
+        presencePushRecoveryThrottle.reset()
+        pendingInactiveRecoveryTrigger = nil
         connectionRecoveryOwner.cancel()
         applyConnectionRecoveryOwnerState()
         invalidatePairingAttempt()
@@ -1972,6 +1975,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var networkPathObservationTask: Task<Void, Never>?
     let connectionRecoveryOwner = MobileConnectionRecoveryOwner()
     var lastReconnectStackUserID: String?
+    var foregroundRefreshIsActive = true
+    var pendingInactiveRecoveryTrigger: RecoveryTrigger?
 
     enum RecoveryTrigger: CustomStringConvertible {
         case networkChange
@@ -4980,9 +4985,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             supportedKinds: supportedRouteKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
-        let foregroundIDSet: Set<String>
+        // During a bounded foreground redial, `clearRemoteConnectionContext()`
+        // has already nil'd `foregroundMacDeviceID`, which would make the very
+        // Mac being redialed eligible as a "secondary". That opens a duplicate
+        // background-control session the redial must then drain — one wasted
+        // QUIC dial plus up to the handoff-drain timeout of added reconnect
+        // latency. Exclude the in-flight recovery target exactly like a live
+        // foreground; once recovery settles the normal exclusion (success) or
+        // eligibility (terminal failure) resumes.
+        let exclusionMacDeviceID: String?
+        let exclusionTag: String?
         if let foregroundMacDeviceID {
-            let canonicalID = cmxCanonicalDeviceID(foregroundMacDeviceID)
+            exclusionMacDeviceID = foregroundMacDeviceID
+            exclusionTag = activeMacInstanceTag
+        } else if isReconnectingStoredMac || connectionRecoveryOwner.isActive {
+            exclusionMacDeviceID = recoveryTargetMacDeviceID
+            exclusionTag = recoveryTargetInstanceTag
+        } else {
+            exclusionMacDeviceID = nil
+            exclusionTag = nil
+        }
+        let foregroundIDSet: Set<String>
+        if let exclusionMacDeviceID {
+            let canonicalID = cmxCanonicalDeviceID(exclusionMacDeviceID)
             foregroundIDSet = physicalAliasIDsByCanonicalID[canonicalID]
                 ?? Set([canonicalID])
         } else {
@@ -4992,9 +5017,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if case let .peer(identity, _)? = activeRoute?.endpoint {
             foregroundIrohEndpointIDs.insert(identity.endpointID)
         }
-        let activeTag = activeMacInstanceTag
-        if let foregroundMacDeviceID {
-            let canonicalForegroundID = cmxCanonicalDeviceID(foregroundMacDeviceID)
+        let activeTag = exclusionTag
+        if let exclusionMacDeviceID {
+            let canonicalForegroundID = cmxCanonicalDeviceID(exclusionMacDeviceID)
             // With no authenticated tag the foreground could be any of the
             // device's rows, so every row's endpoint is treated as the
             // foreground's own; with a tag, only the exact pairing's endpoints
@@ -8958,6 +8983,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func preparePairingConnectionAttempt() {
         // Any explicit connect supersedes launch/network recovery, including a
         // recovery suspended in a registry refresh for the same device id.
+        pendingInactiveRecoveryTrigger = nil
         connectionRecoveryOwner.cancel()
         applyConnectionRecoveryOwnerState()
         invalidateStoredMacReconnectAttempt()
@@ -9263,10 +9289,53 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macConnectionStatus = .unavailable
             return
         }
+        let subscriptionIsValidated =
+            terminalEventListenerID.map { listenerID in
+                lastSuccessfulTerminalSubscription
+                    == MobileTerminalSubscriptionValidation(
+                        connectionGeneration: connectionGeneration,
+                        listenerID: listenerID
+                    )
+            } ?? false
+        let requiresSubscriptionValidation =
+            runtime?.supportsServerPushEvents == true
+                || terminalEventListenerID != nil
+        guard !requiresSubscriptionValidation
+                || subscriptionIsValidated else {
+            macConnectionStatus = .reconnecting
+            connectionRecoveryFailed = false
+            return
+        }
+        let foregroundKey = foregroundMacKey
+        if var foregroundState = workspacesByMac[foregroundKey],
+           foregroundState.status != .connected {
+            foregroundState.status = .connected
+            workspacesByMac[foregroundKey] = foregroundState
+        }
         macConnectionStatus = .connected
         isRecoveringConnection = false
         connectionRecoveryFailed = false
         connectionRequiresReauth = false
+    }
+
+    @discardableResult
+    func recordUsableTerminalSubscription(
+        client: MobileCoreRPCClient,
+        connectionGeneration: UUID,
+        listenerID: UUID
+    ) -> Bool {
+        guard isCurrentRemoteOperation(
+            client: client,
+            generation: connectionGeneration
+        ) else {
+            return false
+        }
+        recordSuccessfulTerminalSubscription(
+            connectionGeneration: connectionGeneration,
+            listenerID: listenerID
+        )
+        markMacConnectionHealthy()
+        return true
     }
 
     func markMacConnectionReconnecting() {
@@ -9995,6 +10064,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    private enum TerminalEventSubscriptionProbeResult {
+        case active
+        case missing
+        case unsupported
+        case failed
+    }
+
     private func requestTerminalEventSubscription(
         client: MobileCoreRPCClient,
         reason: String,
@@ -10004,6 +10080,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let requestData: Data
         do {
             var params: [String: Any] = [
+                "client_id": clientID,
                 "stream_id": terminalEventStreamID,
                 "topics": topics,
             ]
@@ -10218,7 +10295,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalSubscriptionHandoffFenceClientID = nil
         }
         let listenerID = UUID()
+        let listenerConnectionGeneration = connectionGeneration
         terminalEventListenerID = listenerID
+        markMacConnectionHealthy()
         // Arm the liveness watchdog for this subscription generation. Done only
         // inside the push-events path (after the guard above) so scripted
         // transport tests, which set `supportsServerPushEvents = false`, never
@@ -10271,6 +10350,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self?.beginTerminalEventSubscriptionStart(
                 client: client,
                 listenerID: listenerID,
+                connectionGeneration: listenerConnectionGeneration,
                 topics: topics,
                 transport: outputTransport,
                 subscriptionReadiness: subscriptionReadiness,
@@ -10281,7 +10361,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             for await event in stream {
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
-                guard self.remoteClient === client, self.connectionState == .connected else { return }
+                guard self.isCurrentRemoteOperation(
+                    client: client,
+                    generation: listenerConnectionGeneration
+                ) else {
+                    return
+                }
                 // Any yielded envelope proves the transport is still pushing, so
                 // it resets the liveness window (not just render_grid events).
                 self.cancelTerminalInputAckResubscribeRetry()
@@ -10352,6 +10437,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func beginTerminalEventSubscriptionStart(
         client: MobileCoreRPCClient,
         listenerID: UUID,
+        connectionGeneration: UUID,
         topics: [String],
         transport: TerminalOutputTransport,
         subscriptionReadiness: MobileTerminalEventSubscriptionReadiness? = nil,
@@ -10386,7 +10472,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 topics: topics
             ) ?? .failed
             guard let self else { return }
-            guard !Task.isCancelled, self.terminalEventListenerID == listenerID else { return }
+            guard !Task.isCancelled,
+                  self.terminalEventListenerID == listenerID,
+                  self.isCurrentRemoteOperation(
+                      client: client,
+                      generation: connectionGeneration
+                  ) else {
+                return
+            }
             self.terminalSubscriptionStartTask = nil
             guard ack.isSubscribed else {
                 MobileDebugLog.anchormux("sync.subscribe_failed reason=start")
@@ -10403,8 +10496,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // cross-actor readiness hop can admit a cancellation or newer
             // listener, and a stale acknowledgement must never mutate that
             // replacement connection after it resumes.
-            self.recordSuccessfulTerminalSubscription()
-            self.markMacConnectionHealthy()
+            guard self.recordUsableTerminalSubscription(
+                client: client,
+                connectionGeneration: connectionGeneration,
+                listenerID: listenerID
+            ) else {
+                return
+            }
             didSubscribe = true
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
             // Negotiate state sync v2 only from the subscription
@@ -10564,15 +10662,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// every healthy idle subscription every ~10.5s, forever (the 2026-06-10
     /// Release-sim bisect finding).
     ///
-    /// The probe is an idempotent `mobile.events.subscribe` for the SAME
-    /// stream id and current topics, not a generic ping: a completed
-    /// round-trip proves the transport the events ride on is alive AND that
-    /// the server-side registration is (re)installed, and the host's
-    /// subscription tracker re-evaluates producer demand on every replace. A
-    /// generic `mobile.host.status` answer could mask a dropped registration
-    /// behind a live RPC channel forever. Unlike the resync recovery, the
-    /// probe restarts nothing: no listener teardown, no replay, no stream
-    /// interruption.
+    /// The read-only `mobile.events.probe` checks the SAME stream id: a
+    /// completed response proves the control channel is alive and reports
+    /// whether the host still owns the registration without replacing it or
+    /// churning producer demand. A missing registration is repaired with one
+    /// subscribe and replay; an older host that lacks the probe verb falls
+    /// back to the former idempotent subscribe behavior.
     private func checkRenderGridLiveness(listenerID: UUID) {
         guard renderGridLivenessListenerID == listenerID else { return }
         guard let client = remoteClient, connectionState == .connected else { return }
@@ -10666,10 +10761,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Bounded positive-liveness probe: re-assert the event subscription and
-    /// only count a completed round-trip as alive. Any failure (timeout,
-    /// closed connection, rpc rejection) reports dead and lets the watchdog
-    /// run its recovery.
+    /// Bounded positive-liveness probe: inspect the existing event
+    /// registration without mutating it, repairing it only when missing.
     ///
     /// The deadline bounds the WHOLE attempt, including any Stack token work
     /// that precedes the wire write inside `sendRequest`; an unbounded hang
@@ -10681,12 +10774,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         timeoutNanoseconds: UInt64
     ) async -> TerminalEventSubscriptionAck {
         let probe = Task { @MainActor [weak self] in
-            await self?.requestTerminalEventSubscription(
+            guard let self else { return TerminalEventSubscriptionAck.failed }
+            switch await self.requestTerminalEventSubscriptionProbe(
                 client: client,
-                reason: "liveness_probe",
-                topics: topics,
                 timeoutNanoseconds: timeoutNanoseconds
-            ) ?? .failed
+            ) {
+            case .active:
+                return .subscribed(alreadySubscribed: true)
+            case .missing, .unsupported:
+                return await self.requestTerminalEventSubscription(
+                    client: client,
+                    reason: "liveness_probe_repair",
+                    topics: topics,
+                    timeoutNanoseconds: timeoutNanoseconds
+                )
+            case .failed:
+                return .failed
+            }
         }
         // Bounded deadline via a one-shot DispatchSourceTimer — the same
         // sanctioned primitive the watchdog tick uses — with cancellation
@@ -10700,6 +10804,45 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let ack = await probe.value
         deadline.cancel()
         return ack
+    }
+
+    private func requestTerminalEventSubscriptionProbe(
+        client: MobileCoreRPCClient,
+        timeoutNanoseconds: UInt64
+    ) async -> TerminalEventSubscriptionProbeResult {
+        let requestData: Data
+        do {
+            requestData = try MobileCoreRPCClient.requestData(
+                method: "mobile.events.probe",
+                params: [
+                    "client_id": clientID,
+                    "stream_id": terminalEventStreamID,
+                ]
+            )
+        } catch {
+            return .failed
+        }
+        do {
+            let data = try await client.sendRequest(
+                requestData,
+                timeoutNanoseconds: timeoutNanoseconds
+            )
+            guard let object = try JSONSerialization.jsonObject(with: data)
+                    as? [String: Any],
+                  object["stream_id"] as? String == terminalEventStreamID,
+                  let subscribed = object["subscribed"] as? Bool else {
+                return .failed
+            }
+            return subscribed ? .active : .missing
+        } catch MobileShellConnectionError.rpcError(let code, _)
+            where code == "method_not_found" {
+            return .unsupported
+        } catch {
+            if remoteClient === client {
+                _ = disconnectForAuthorizationFailureIfNeeded(error)
+            }
+            return .failed
+        }
     }
 
     func resyncTerminalOutput(
@@ -11976,7 +12119,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 || normalizedMessage.contains("expired token")
                 || normalizedMessage.contains("token expired")
         case .invalidResponse, .connectionClosed, .requestTimedOut,
-             .transportWriteTimedOut, .routeCleanupBlocked,
+             .transportWriteTimedOut, .routeCleanupBlocked, .connectAttemptGated,
              .insecureManualRoute:
             return false
         }

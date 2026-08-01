@@ -123,6 +123,12 @@ final class MobileHostIrohRuntime {
     var failureRecoveryFailureCount = 0
     var failureRecoveryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     var failureRecoverySchedule = CmxIrohRetrySchedule()
+    var failureRecoveryJitter: @Sendable () -> Double = {
+        Double.random(in: 0 ... 1)
+    }
+    var relayPolicyRetryJitter: @Sendable () -> Double = {
+        Double.random(in: 0 ... 1)
+    }
     /// Single-flight owner for revision reconciliation: one task in flight,
     /// later signals coalesce at the greatest observed revision.
     var serverSignalRefreshTask: Task<Void, Never>?

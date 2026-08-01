@@ -60,10 +60,37 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
             || cause.contains("ConnectionLost(Reset)") {
             return .remote
         }
+        // Connection.closed()/close_reason() cross the uniffi boundary as
+        // quinn ConnectionError DISPLAY strings, which start with the variant
+        // text. Prefix-anchoring keeps a peer-chosen close reason from
+        // spoofing a different initiator.
+        if cause.hasPrefix("closed by peer")
+            || cause.hasPrefix("aborted by peer")
+            || cause.hasPrefix("reset by peer") {
+            return .remote
+        }
+        if cause == "timed out" {
+            return .timedOut
+        }
+        if cause == "closed" {
+            return .local
+        }
         return .unknown
     }
 
     private static func applicationErrorCode(in cause: String) -> Int64? {
+        // Display format of a peer application close is either
+        // "closed by peer: {code}" or "closed by peer: {reason} (code {code})";
+        // the formatter always appends the authentic code last, so a code-like
+        // fragment inside the peer-chosen reason cannot shadow it.
+        let displayPeerClose = "closed by peer: "
+        if cause.hasPrefix(displayPeerClose) {
+            let payload = cause.dropFirst(displayPeerClose.count)
+            if let range = payload.range(of: "(code ", options: .backwards) {
+                return firstInteger(in: payload[range.upperBound...])
+            }
+            return firstInteger(in: payload)
+        }
         guard cause.contains("ApplicationClosed(") else { return nil }
         for label in [
             "application error code",
@@ -103,11 +130,18 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
     }
 
     private static func failureKind(in cause: String) -> DiagnosticFailureKind {
-        if cause.contains("ConnectionLost(TimedOut)") {
+        if cause.contains("ConnectionLost(TimedOut)") || cause == "timed out" {
             return .transportIdleTimedOut
         }
-        if cause.contains("ConnectionLost(LocallyClosed)") {
+        if cause.contains("ConnectionLost(LocallyClosed)") || cause == "closed" {
             return .cancelled
+        }
+        // Display-format peer closes are prefix-anchored so a peer-chosen
+        // reason cannot rewrite the kind via the keyword fallbacks below.
+        if cause.hasPrefix("closed by peer")
+            || cause.hasPrefix("aborted by peer")
+            || cause.hasPrefix("reset by peer") {
+            return .connectionClosed
         }
         if cause.contains("ConnectionLost(TransportError(")
             && (cause.contains("Code::crypto(")

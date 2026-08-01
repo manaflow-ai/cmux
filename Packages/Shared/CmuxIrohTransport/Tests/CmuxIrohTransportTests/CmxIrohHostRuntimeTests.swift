@@ -542,9 +542,62 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
 
 actor HostRuntimeBindingRecorder {
     private var recordedCount = 0
+    private var waiters: [
+        UUID: (minimum: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = [:]
 
-    func record() { recordedCount += 1 }
+    func record() {
+        recordedCount += 1
+        let readyIDs = waiters.compactMap { id, waiter in
+            recordedCount >= waiter.minimum ? id : nil
+        }
+        for id in readyIDs {
+            waiters.removeValue(forKey: id)?.continuation.resume()
+        }
+    }
+
     func count() -> Int { recordedCount }
+
+    func waitForCount(_ count: Int, timeout: Duration) async -> Bool {
+        if recordedCount >= count { return true }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await self.waitForCount(count)
+                return !Task.isCancelled
+            }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: timeout)
+                } catch {
+                    return false
+                }
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+    }
+
+    private func waitForCount(_ count: Int) async {
+        if recordedCount >= count { return }
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume()
+                } else {
+                    waiters[id] = (count, continuation)
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id) }
+        }
+    }
+
+    private func cancelWaiter(_ id: UUID) {
+        waiters.removeValue(forKey: id)?.continuation.resume()
+    }
 }
 
 actor HostRuntimeRouteRecorder {

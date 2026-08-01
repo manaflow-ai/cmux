@@ -28,6 +28,7 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
     private var isAnchorSelected: Bool { value.isAnchorSelected }
 
     @State private var isRenaming = false
+    @State private var renameDraft = ""
     @State private var pendingDestructiveAction: WorkspaceGroupHeaderPendingDestructiveAction?
 
     /// The leading disclosure chevron. Its own hit target, so tapping it only
@@ -68,7 +69,7 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
     /// the desktop header whose body focuses the anchor.
     private var nameLabel: some View {
         HStack(spacing: 6) {
-            Image(systemName: "folder.fill")
+            Image(systemName: group.iconSymbol ?? "folder.fill")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
@@ -133,11 +134,12 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
                 : Color.clear
         )
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .contextMenu { contextMenu }
-        .sheet(isPresented: $isRenaming) {
-            WorkspaceGroupRenameSheet(currentName: group.name) { newName in
-                actions.renameGroup?(group.id, newName)
-            }
+        .workspaceGroupRowContextMenu { contextMenu }
+        .workspaceGroupRenameDialog(
+            isPresented: $isRenaming,
+            text: $renameDraft
+        ) { newName in
+            actions.renameGroup?(group.id, newName)
         }
         .confirmationDialog(
             destructiveDialogTitle,
@@ -196,6 +198,7 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
                 }
                 if value.canRenameGroup {
                     Button {
+                        renameDraft = group.name
                         isRenaming = true
                     } label: {
                         Label(L10n.string("mobile.workspaceGroup.rename.action", defaultValue: "Rename Group"), systemImage: "pencil")
@@ -283,5 +286,21 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
                 }
             }
         )
+    }
+}
+
+private extension View {
+    /// The iOS workspace list is backed by `UITableView`, whose delegate owns
+    /// the group-scoped context menu. The non-iOS list has no UIKit delegate,
+    /// so it keeps this row-local menu.
+    @ViewBuilder
+    func workspaceGroupRowContextMenu<MenuContent: View>(
+        @ViewBuilder content: () -> MenuContent
+    ) -> some View {
+        #if os(iOS)
+        self
+        #else
+        contextMenu(menuItems: content)
+        #endif
     }
 }
