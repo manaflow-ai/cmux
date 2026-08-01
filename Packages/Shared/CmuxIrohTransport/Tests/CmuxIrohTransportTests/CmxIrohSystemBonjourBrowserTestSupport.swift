@@ -89,6 +89,20 @@ final class TestBonjourDNSService: CmxIrohBonjourDNSService, @unchecked Sendable
         )
     }
 
+    func emitAddedBurst(serviceNames: [String], interfaceIndex: UInt32 = 4) {
+        let handler = lock.withLock { browseHandler }
+        for serviceName in serviceNames {
+            handler?(
+                DNSServiceFlags(kDNSServiceFlagsAdd),
+                interfaceIndex,
+                Int32(kDNSServiceErr_NoError),
+                serviceName,
+                "\(CmxIrohLANAdvertisement.serviceType).",
+                CmxIrohLANAdvertisement.domain
+            )
+        }
+    }
+
     func emitResolved(serviceName: String, interfaceIndex: UInt32 = 4) async {
         let handler = lock.withLock {
             resolves.values.first(where: { $0.serviceName == serviceName })?.handler

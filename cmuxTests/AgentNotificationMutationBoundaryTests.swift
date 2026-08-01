@@ -207,6 +207,7 @@ extension AgentNotificationRegressionTests {
             panelID: fixture.panelId
         )
         bus.drainForTesting()
+        #expect(dock.agentRuntimeByPanelId[fixture.panelId]?.agentLifecycleStates["omp"] == .running)
 
         let workspaceTransfer = try #require(dock.detachSurface(panelId: fixture.panelId))
         #expect(dock.agentRuntimeByPanelId[fixture.panelId] == nil)

@@ -6,12 +6,32 @@ import UIKit
 
 @MainActor
 @Suite struct WorkspaceListScrollUpdateTests {
-    @Test func workspaceTableUsesNativeSoftTopScrollEdgeEffect() {
+    @Test func workspaceTableUsesSoftBarScrollEdgeEffectsAndUIKitInsets() {
         guard #available(iOS 26.0, *) else { return }
 
         let tableView = makeTableView()
 
         #expect(tableView.topEdgeEffect.style == .soft)
+        #expect(
+            tableView.bottomEdgeEffect.style == .soft,
+            "The tab bar must own the native soft bottom edge instead of an accessory safe-area bar."
+        )
+        #expect(
+            tableView.contentInsetAdjustmentBehavior == .automatic,
+            "UIKit must own adjusted insets so table layout never rewrites the native pan offset."
+        )
+    }
+
+    @Test func workspaceTableAddsNoGestureRecognizers() {
+        let stockTable = UITableView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 844)
+        )
+        let workspaceTable = makeTableView()
+
+        #expect(
+            gestureRecognizerTypes(in: workspaceTable)
+                == gestureRecognizerTypes(in: stockTable)
+        )
     }
 
     @Test func coordinatorLeavesPanLifecycleToUIKit() {
@@ -100,7 +120,7 @@ import UIKit
         )
     }
 
-    @Test func previewTextChangeReconfiguresInPlaceWithoutSnapshotApply() {
+    @Test func previewTextChangeReconfiguresInPlaceWithoutTableReload() {
         var workspace = preview(id: "workspace-1", activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020))
         let coordinator = WorkspaceListTableCoordinator(
             configuration: configuration(workspaces: [workspace])
@@ -117,7 +137,7 @@ import UIKit
         )
     }
 
-    @Test func descriptionArrivalChangesRowHeightThroughSnapshotApply() {
+    @Test func descriptionArrivalChangesRowHeightThroughTableReload() {
         // A durable description adds a text line, changing the row's height
         // key: this payload change must keep riding the snapshot apply so
         // UITableView re-queries the row height.
@@ -131,7 +151,7 @@ import UIKit
         workspace.customDescription = "Durable workspace context"
         coordinator.update(configuration: configuration(workspaces: [workspace]), in: tableView)
 
-        #expect(coordinator.lastPayloadApplyRoute == .snapshotApply)
+        #expect(coordinator.lastPayloadApplyRoute == .tableReload)
     }
 
     @Test func workspaceRenderEquivalenceQuantizesOnlyTimestamps() {
@@ -173,7 +193,6 @@ import UIKit
         let initial = configuration(
             workspaceIDs: ["workspace-1"],
             actionCapabilities: capabilities,
-            requestWorkspaceClose: { _ in },
             closeWorkspace: { _ in },
             setUnread: { _, _ in },
             setPinned: { _, _ in },
@@ -215,6 +234,12 @@ import UIKit
         )
     }
 
+    private func gestureRecognizerTypes(in tableView: UITableView) -> [String] {
+        (tableView.gestureRecognizers ?? [])
+            .map { String(reflecting: type(of: $0)) }
+            .sorted()
+    }
+
     private func preview(id: String, activityAt: Date) -> MobileWorkspacePreview {
         MobileWorkspacePreview(
             id: .init(rawValue: id),
@@ -229,7 +254,6 @@ import UIKit
     private func configuration(
         workspaceIDs: [String],
         actionCapabilities: MobileWorkspaceActionCapabilities = .none,
-        requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
@@ -247,7 +271,6 @@ import UIKit
         }
         return configuration(
             workspaces: workspaces,
-            requestWorkspaceClose: requestWorkspaceClose,
             closeWorkspace: closeWorkspace,
             setUnread: setUnread,
             setPinned: setPinned,
@@ -258,7 +281,6 @@ import UIKit
 
     private func configuration(
         workspaces: [MobileWorkspacePreview],
-        requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
@@ -281,8 +303,6 @@ import UIKit
             workspaceChangeChipsByWorkspaceID: [:],
             openWorkspaceChanges: nil,
             connectionRequiresReauth: false,
-            connectionRecoveryFailed: false,
-            isRecoveringConnection: false,
             connectionError: nil,
             host: "Test Mac",
             isInitialConnectionLoading: false,
@@ -290,8 +310,9 @@ import UIKit
             initialConnectionDescription: nil,
             enablesReorder: false,
             moveRows: nil,
+            canDropIntoGroup: nil,
+            dropIntoGroup: nil,
             selectWorkspace: { _ in },
-            requestWorkspaceClose: requestWorkspaceClose,
             closeWorkspace: closeWorkspace,
             setUnread: setUnread,
             setPinned: setPinned,
@@ -304,7 +325,6 @@ import UIKit
             deleteWorkspaceGroup: nil,
             toggleGroupCollapsed: nil,
             showAll: {},
-            retryConnectionRecovery: nil,
             signOut: nil,
             retryInitialConnection: nil,
             showAddDevice: nil,

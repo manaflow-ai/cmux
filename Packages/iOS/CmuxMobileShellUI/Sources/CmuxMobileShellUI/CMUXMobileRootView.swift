@@ -20,6 +20,9 @@ struct CMUXMobileRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(ToastCenter.self) private var toasts
+    /// Optional so previews and hosts without the app root still render.
+    @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
+        MobileConnectionMethodStore?
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
@@ -102,6 +105,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowHiddenComputersPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.hiddenComputersPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
     private var shouldShowOnboardingPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.onboardingPreviewEnabled
@@ -149,6 +160,14 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var changesPreview: some View {
         #if os(iOS) && DEBUG
         ChangesPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var hiddenComputersPreview: some View {
+        #if os(iOS) && DEBUG
+        HiddenComputersPreviewView()
         #else
         EmptyView()
         #endif
@@ -293,6 +312,8 @@ struct CMUXMobileRootView: View {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
+        } else if shouldShowHiddenComputersPreview {
+            hiddenComputersPreview
         } else if shouldShowStreamingChatPreview {
             streamingChatPreview
         } else if shouldShowOnboardingPreview {
@@ -454,6 +475,8 @@ struct CMUXMobileRootView: View {
             context: .firstRun,
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
+            connectionMethod: connectionMethodStore?.method ?? .automatic,
+            onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: retryAutomaticConnection,

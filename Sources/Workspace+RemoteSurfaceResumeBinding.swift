@@ -63,7 +63,7 @@ extension Workspace {
               !configuration.skipDaemonBootstrap,
               configuration.persistentDaemonSlot != nil,
               let relayPort = configuration.relayPort,
-              let startupInput = binding.remoteStartupInputWithLauncherScript(allowLauncherScript: false) else {
+              let startupInput = binding.remoteStartupInput() else {
             return nil
         }
         return SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(

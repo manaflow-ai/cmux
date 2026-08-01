@@ -27,6 +27,15 @@ export default function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // cmux consumes this marker before navigation. If an ordinary browser
+  // reaches the server, canonicalize the URL while preserving every public
+  // query parameter.
+  if (request.nextUrl.searchParams.get("cmux_open_in_browser") === "split-right") {
+    const url = request.nextUrl.clone();
+    url.searchParams.delete("cmux_open_in_browser");
+    return NextResponse.redirect(url, 307);
+  }
+
   // The public site only routes docs traffic to the release/nightly origins.
   // Locale handling belongs to those origins; rewriting it here first causes
   // the origin to normalize the path back through the router in a loop.
@@ -74,7 +83,12 @@ export default function middleware(request: NextRequest) {
   }
 
   if (pathname === "/app-pro-welcome" || pathname === "/app-pro-welcome/") {
-    return NextResponse.next();
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(
+      "x-next-intl-locale",
+      preferredAppRouteLocale(request),
+    );
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // Post-checkout pages live outside the [locale] tree, like /app-pricing.
@@ -252,6 +266,20 @@ function preferredFallbackContentLocale(
     request.headers.get("accept-language") ?? "",
     availableLocales,
     availableLocales[0] ?? routing.defaultLocale,
+  );
+}
+
+function preferredAppRouteLocale(
+  request: NextRequest,
+): (typeof routing.locales)[number] {
+  const cookieLocale = request.cookies.get("NEXT_LOCALE")?.value;
+  if (cookieLocale && routing.locales.some((locale) => locale === cookieLocale)) {
+    return cookieLocale as (typeof routing.locales)[number];
+  }
+  return preferredLocaleFromAcceptLanguage(
+    request.headers.get("accept-language") ?? "",
+    routing.locales,
+    routing.defaultLocale,
   );
 }
 
