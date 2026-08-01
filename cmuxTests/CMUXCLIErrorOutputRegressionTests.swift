@@ -636,9 +636,10 @@ import Testing
         XCTAssertEqual(requiredResponder.receivedRequests.count, 2)
     }
 
-    @Test func testRestorePrefersLiveProcessTargetOverStaleAmbientRouting() throws {
+    @Test(arguments: ["pi", "grok"])
+    func testRestorePrefersLiveProcessTargetOverStaleAmbientRouting(kind: String) throws {
         let cliPath = try bundledCLIPath()
-        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let checkpointID = "\(kind)-\(UUID().uuidString.lowercased())"
         let staleSurfaceID = UUID().uuidString
         let staleTTYSurfaceID = UUID().uuidString
         let currentSurfaceID = UUID().uuidString
@@ -657,7 +658,7 @@ import Testing
         let restoreResponse = try restoreResponse(result: [
             "restore_record": [
                 "mode": "direct",
-                "kind": "pi",
+                "kind": kind,
                 "checkpoint_id": checkpointID,
                 "environment": [:],
                 "launch_command": [
@@ -684,7 +685,7 @@ import Testing
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["restore", "pi", checkpointID],
+            arguments: ["restore", kind, checkpointID],
             environment: environment,
             timeout: 5
         )
