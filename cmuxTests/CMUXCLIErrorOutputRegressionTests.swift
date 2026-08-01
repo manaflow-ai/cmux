@@ -889,6 +889,86 @@ import Testing
         #expect(restoreParams["surface_id"] as? String == surfaceID)
     }
 
+    @Test func testRestoreScopesRelayTTYResolutionToAuthenticatedWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let siblingWorkspaceID = UUID().uuidString
+        let siblingSurfaceID = UUID().uuidString
+        let liveTargetResponse = try jsonResponse(result: [
+            "terminals": [
+                [
+                    "tty": "0",
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                ],
+                [
+                    "tty": "0",
+                    "workspace_id": siblingWorkspaceID,
+                    "surface_id": siblingSurfaceID,
+                ],
+            ],
+            "source": "tty",
+            "tty_resolution": "reported_tty",
+            "workspace_id": workspaceID,
+            "surface_id": surfaceID,
+        ])
+        let recordResponse = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let relayID = "relay-\(UUID().uuidString.lowercased())"
+        let responder = try RelaySocketResponder(
+            relayID: relayID,
+            responses: [liveTargetResponse, recordResponse]
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = responder.endpoint
+        environment["CMUX_RELAY_ID"] = relayID
+        environment["CMUX_RELAY_TOKEN"] = String(repeating: "11", count: 32)
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_CLI_TTY_NAME"] = "0"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "agent.resolve_delivery_target",
+            "surface.resume.get",
+        ])
+        let targetParams = try #require(requests.first?["params"] as? [String: Any])
+        #expect(targetParams["tty_name"] as? String == "0")
+        #expect(targetParams["tty_resolution"] as? String == "reported_tty")
+        let restoreParams = try #require(requests.last?["params"] as? [String: Any])
+        #expect(restoreParams["surface_id"] as? String == surfaceID)
+        #expect(restoreParams["surface_id"] as? String != siblingSurfaceID)
+    }
+
     @Test func testRestoreRejectsMalformedLiveProcessTargetWithoutFallingBack() throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = "pi-\(UUID().uuidString.lowercased())"
@@ -2664,6 +2744,167 @@ final class UnixSocketResponder {
             payload.withCString { pointer in
                 _ = write(clientFD, pointer, strlen(pointer))
             }
+        }
+    }
+
+    private static func posixError(_ operation: String) -> NSError {
+        NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(errno),
+            userInfo: [NSLocalizedDescriptionKey: "\(operation) failed: \(String(cString: strerror(errno)))"]
+        )
+    }
+}
+
+final class RelaySocketResponder {
+    let endpoint: String
+    private let relayID: String
+    private let responses: [String]
+    private let queue = DispatchQueue(label: "com.cmux.tests.relay-socket-responder")
+    private let lock = NSLock()
+    private var stopped = false
+    private var requests: [String] = []
+    private var listenerFD: Int32 = -1
+
+    init(relayID: String, responses: [String]) throws {
+        guard !responses.isEmpty else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: CocoaError.validationMissingMandatoryProperty.rawValue,
+                userInfo: [NSLocalizedDescriptionKey: "At least one relay response is required"]
+            )
+        }
+        self.relayID = relayID
+        self.responses = responses
+
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw Self.posixError("socket") }
+        var reuse: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = 0
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                Darwin.bind(fd, socketPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bindResult == 0, listen(fd, 8) == 0 else {
+            let error = Self.posixError("bind/listen")
+            close(fd)
+            throw error
+        }
+
+        var boundAddress = sockaddr_in()
+        var boundLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let nameResult = withUnsafeMutablePointer(to: &boundAddress) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                getsockname(fd, socketPointer, &boundLength)
+            }
+        }
+        guard nameResult == 0 else {
+            let error = Self.posixError("getsockname")
+            close(fd)
+            throw error
+        }
+
+        listenerFD = fd
+        endpoint = "127.0.0.1:\(UInt16(bigEndian: boundAddress.sin_port))"
+        queue.async { [weak self] in
+            self?.acceptLoop(listenerFD: fd)
+        }
+    }
+
+    deinit {
+        stop()
+    }
+
+    var receivedRequests: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return requests
+    }
+
+    func stop() {
+        lock.lock()
+        guard !stopped else {
+            lock.unlock()
+            return
+        }
+        stopped = true
+        let fd = listenerFD
+        listenerFD = -1
+        lock.unlock()
+        if fd >= 0 { close(fd) }
+    }
+
+    private var isStopped: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return stopped
+    }
+
+    private func acceptLoop(listenerFD: Int32) {
+        while !isStopped {
+            let clientFD = accept(listenerFD, nil, nil)
+            if clientFD < 0 {
+                if isStopped { return }
+                continue
+            }
+            handle(clientFD: clientFD)
+        }
+    }
+
+    private func handle(clientFD: Int32) {
+        defer { close(clientFD) }
+        var noSigPipe: Int32 = 1
+        setsockopt(
+            clientFD,
+            SOL_SOCKET,
+            SO_NOSIGPIPE,
+            &noSigPipe,
+            socklen_t(MemoryLayout<Int32>.size)
+        )
+        let challenge = #"{"protocol":"cmux-relay-auth","version":1,"relay_id":"\#(relayID)","nonce":"test-nonce"}"#
+        guard writeLine(challenge, to: clientFD), readLine(from: clientFD) != nil else { return }
+        guard writeLine(#"{"ok":true}"#, to: clientFD),
+              let request = readLine(from: clientFD) else { return }
+
+        lock.lock()
+        let responseIndex = requests.count
+        requests.append(request)
+        lock.unlock()
+        _ = writeLine(responses[min(responseIndex, responses.count - 1)], to: clientFD)
+    }
+
+    private func readLine(from fd: Int32) -> String? {
+        var data = Data()
+        while true {
+            var byte: UInt8 = 0
+            let count = read(fd, &byte, 1)
+            if count < 0, errno == EINTR { continue }
+            guard count > 0 else { return nil }
+            if byte == 0x0A { return String(data: data, encoding: .utf8) }
+            data.append(byte)
+        }
+    }
+
+    private func writeLine(_ line: String, to fd: Int32) -> Bool {
+        let data = Data((line + "\n").utf8)
+        return data.withUnsafeBytes { rawBuffer in
+            guard var pointer = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return false }
+            var remaining = rawBuffer.count
+            while remaining > 0 {
+                let count = write(fd, pointer, remaining)
+                if count < 0, errno == EINTR { continue }
+                guard count > 0 else { return false }
+                pointer = pointer.advanced(by: count)
+                remaining -= count
+            }
+            return true
         }
     }
 
