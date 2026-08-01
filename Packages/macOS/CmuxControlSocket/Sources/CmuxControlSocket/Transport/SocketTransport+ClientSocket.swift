@@ -2,6 +2,53 @@ public import Foundation
 internal import Darwin
 
 extension SocketTransport {
+    /// Configures a newly created Unix client socket before connecting it.
+    func configureUnixClientSocket(
+        _ fd: Int32,
+        timeout: TimeInterval,
+        nonBlocking: Bool
+    ) -> Bool {
+        guard
+            configureCloseOnExec(fd) == nil,
+            configureNoSigPipe(fd) == nil,
+            !nonBlocking || configureNonBlocking(fd) == nil
+        else {
+            return false
+        }
+        configureSocketTimeouts(fd, timeout: timeout)
+        return true
+    }
+
+    /// Connects an existing descriptor to a validated Unix-domain socket path.
+    func connectUnixSocket(_ fd: Int32, to path: String) -> Int32 {
+        let pathBytes = Array(path.utf8CString)
+        guard !pathBytes.dropLast().contains(0) else {
+            Darwin.__error().pointee = EINVAL
+            return -1
+        }
+        guard
+            pathBytes.count
+                <= MemoryLayout.size(ofValue: sockaddr_un().sun_path),
+            var address = unixSocketAddress(path: path)
+        else {
+            Darwin.__error().pointee = ENAMETOOLONG
+            return -1
+        }
+        let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+        let addressLength = socklen_t(pathOffset + pathBytes.count)
+#if os(macOS)
+        address.sun_len = UInt8(min(Int(addressLength), 255))
+#endif
+        return withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(
+                to: sockaddr.self,
+                capacity: 1
+            ) { socketAddress in
+                Darwin.connect(fd, socketAddress, addressLength)
+            }
+        }
+    }
+
     /// Creates the listener socket (`AF_UNIX`/`SOCK_STREAM`) with `FD_CLOEXEC`
     /// set so it is not inherited by PTY-child forks.
     ///

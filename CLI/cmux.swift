@@ -3387,17 +3387,15 @@ struct CMUXCLI {
                 }
             )
         }
-        let windows = rawWindows.compactMap { window in
-            ApplicationWindowListFilter.entry(
-                window,
-                excludedProcessIDs: excludedProcessIDs,
-                isRegularApplication: { processID in
-                    NSRunningApplication(
-                        processIdentifier: processID
-                    )?.activationPolicy == .regular
-                }
-            )
-        }
+        let filter = ApplicationWindowListFilter(
+            excludedProcessIDs: excludedProcessIDs,
+            isRegularApplication: { processID in
+                NSRunningApplication(
+                    processIdentifier: processID
+                )?.activationPolicy == .regular
+            }
+        )
+        let windows = rawWindows.compactMap(filter.entry)
         if jsonOutput {
             print(jsonString(["windows": windows]))
         } else if windows.isEmpty {

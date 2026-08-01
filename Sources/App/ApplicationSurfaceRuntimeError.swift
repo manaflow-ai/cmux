@@ -8,7 +8,6 @@ enum ApplicationSurfaceRuntimeError: LocalizedError, Equatable, Sendable {
     case captureUnavailable
     case resourceLimit
     case invalidResponse
-    case failed(String)
 
     var errorDescription: String? {
         switch self {
@@ -39,8 +38,6 @@ enum ApplicationSurfaceRuntimeError: LocalizedError, Equatable, Sendable {
                 localized: "applicationSurface.error.invalidResponse",
                 defaultValue: "The cmux Computer Use helper returned an invalid response."
             )
-        case .failed(let detail):
-            detail
         }
     }
 }

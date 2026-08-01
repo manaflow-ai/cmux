@@ -154,7 +154,6 @@ struct ApplicationSurfacePickerView: View {
                         ApplicationSurfacePickerButton(
                             window: window,
                             action: {
-                                model.selectedWindowID = window.windowID
                                 onSelect(window)
                             }
                         )

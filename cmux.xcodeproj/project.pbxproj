@@ -247,6 +247,7 @@
 		A88500000000000000000014 /* ApplicationCaptureState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000013 /* ApplicationCaptureState.swift */; };
 		A88500000000000000000016 /* ApplicationCaptureTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000015 /* ApplicationCaptureTarget.swift */; };
 		2689CA2841799FCD2BEDD8F5 /* ApplicationCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C9E9ACA5B0AD0E936281E89 /* ApplicationCaptureView.swift */; };
+		D1C0A44E0E914F45B8D6E8A2 /* ApplicationCommandEquivalentRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1C0A44E0E914F45B8D6E8A1 /* ApplicationCommandEquivalentRoutingPolicy.swift */; };
 		A88100000000000000000008 /* ApplicationNamedKeySendResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88100000000000000000007 /* ApplicationNamedKeySendResult.swift */; };
 		B9C454C9A61C652B239187F5 /* ApplicationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB02C91CE0E90EF1C486B9EB /* ApplicationPanel.swift */; };
 		86EA36CE72323E5D628A65A2 /* ApplicationPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B78BEC351B28EBD42C1DCA8 /* ApplicationPanelView.swift */; };
@@ -2982,6 +2983,7 @@
 		A88500000000000000000013 /* ApplicationCaptureState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureState.swift; sourceTree = "<group>"; };
 		A88500000000000000000015 /* ApplicationCaptureTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureTarget.swift; sourceTree = "<group>"; };
 		3C9E9ACA5B0AD0E936281E89 /* ApplicationCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureView.swift; sourceTree = "<group>"; };
+		D1C0A44E0E914F45B8D6E8A1 /* ApplicationCommandEquivalentRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCommandEquivalentRoutingPolicy.swift; sourceTree = "<group>"; };
 		A88100000000000000000007 /* ApplicationNamedKeySendResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationNamedKeySendResult.swift; sourceTree = "<group>"; };
 		FB02C91CE0E90EF1C486B9EB /* ApplicationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationPanel.swift; sourceTree = "<group>"; };
 		1B78BEC351B28EBD42C1DCA8 /* ApplicationPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationPanelView.swift; sourceTree = "<group>"; };
@@ -6968,6 +6970,7 @@
 				FB02C91CE0E90EF1C486B9EB /* ApplicationPanel.swift */,
 				1B78BEC351B28EBD42C1DCA8 /* ApplicationPanelView.swift */,
 				A88100000000000000000001 /* ApplicationCaptureRepresentable.swift */,
+				D1C0A44E0E914F45B8D6E8A1 /* ApplicationCommandEquivalentRoutingPolicy.swift */,
 				A88500000000000000000013 /* ApplicationCaptureState.swift */,
 				A88500000000000000000015 /* ApplicationCaptureTarget.swift */,
 				A88500000000000000000017 /* ApplicationSurfaceInputEnqueueResult.swift */,
@@ -8764,6 +8767,7 @@
 				A88500000000000000000014 /* ApplicationCaptureState.swift in Sources */,
 				A88500000000000000000016 /* ApplicationCaptureTarget.swift in Sources */,
 				2689CA2841799FCD2BEDD8F5 /* ApplicationCaptureView.swift in Sources */,
+				D1C0A44E0E914F45B8D6E8A2 /* ApplicationCommandEquivalentRoutingPolicy.swift in Sources */,
 				A88100000000000000000008 /* ApplicationNamedKeySendResult.swift in Sources */,
 				B9C454C9A61C652B239187F5 /* ApplicationPanel.swift in Sources */,
 				86EA36CE72323E5D628A65A2 /* ApplicationPanelView.swift in Sources */,

@@ -961,7 +961,10 @@ struct ApplicationSurfaceTests {
             keyCode: UInt16(kVK_ANSI_Q)
         ))
 
-        #expect(shouldRouteApplicationCommandEquivalentThroughContentFirst(event))
+        #expect(
+            ApplicationCommandEquivalentRoutingPolicy()
+                .shouldRouteThroughContentFirst(event)
+        )
     }
 
     @Test func explicitCmuxShortcutWinsOverFocusedApplicationPane() throws {
@@ -1082,7 +1085,7 @@ struct ApplicationSurfaceTests {
         #expect(restoredPanel.targetFrameRate == 45)
         #expect(restoredPanel.runtime === runtime)
         #expect(
-            restoredPanel.displayTitle
+            restored.panelTitle(panelId: restoredPanel.id)
                 == String(
                     localized: "panel.application.defaultTitle",
                     defaultValue: "Application"
@@ -1375,12 +1378,12 @@ struct ApplicationSurfaceTests {
         let regularApplication: (pid_t) -> Bool = {
             $0 == applicationProcessID
         }
-
-        let listed = try #require(ApplicationWindowListFilter.entry(
-            base,
+        let filter = ApplicationWindowListFilter(
             excludedProcessIDs: excludedProcessIDs,
             isRegularApplication: regularApplication
-        ))
+        )
+
+        let listed = try #require(filter.entry(base))
         #expect(listed["window_id"] as? Int == 42)
         #expect((listed["width"] as? NSNumber)?.doubleValue == 800)
         #expect((listed["height"] as? NSNumber)?.doubleValue == 600)
@@ -1389,61 +1392,36 @@ struct ApplicationSurfaceTests {
         invalid[kCGWindowOwnerPID as String] = NSNumber(
             value: cliProcessID
         )
-        #expect(ApplicationWindowListFilter.entry(
-            invalid,
-            excludedProcessIDs: excludedProcessIDs,
-            isRegularApplication: regularApplication
-        ) == nil)
+        #expect(filter.entry(invalid) == nil)
 
         invalid = base
         invalid[kCGWindowOwnerPID as String] = NSNumber(
             value: hostProcessID
         )
-        #expect(ApplicationWindowListFilter.entry(
-            invalid,
+        #expect(ApplicationWindowListFilter(
             excludedProcessIDs: excludedProcessIDs,
             isRegularApplication: { _ in true }
-        ) == nil)
+        ).entry(invalid) == nil)
 
         invalid = base
         invalid[kCGWindowSharingState as String] = NSNumber(value: 0)
-        #expect(ApplicationWindowListFilter.entry(
-            invalid,
-            excludedProcessIDs: excludedProcessIDs,
-            isRegularApplication: regularApplication
-        ) == nil)
+        #expect(filter.entry(invalid) == nil)
 
         invalid = base
         invalid.removeValue(forKey: kCGWindowSharingState as String)
-        #expect(ApplicationWindowListFilter.entry(
-            invalid,
-            excludedProcessIDs: excludedProcessIDs,
-            isRegularApplication: regularApplication
-        ) == nil)
+        #expect(filter.entry(invalid) == nil)
 
         invalid = base
         invalid[kCGWindowSharingState as String] = "1"
-        #expect(ApplicationWindowListFilter.entry(
-            invalid,
-            excludedProcessIDs: excludedProcessIDs,
-            isRegularApplication: regularApplication
-        ) == nil)
+        #expect(filter.entry(invalid) == nil)
 
         invalid = base
         invalid[kCGWindowAlpha as String] = NSNumber(value: 0)
-        #expect(ApplicationWindowListFilter.entry(
-            invalid,
-            excludedProcessIDs: excludedProcessIDs,
-            isRegularApplication: regularApplication
-        ) == nil)
+        #expect(filter.entry(invalid) == nil)
 
         invalid = base
         invalid[kCGWindowIsOnscreen as String] = false
-        #expect(ApplicationWindowListFilter.entry(
-            invalid,
-            excludedProcessIDs: excludedProcessIDs,
-            isRegularApplication: regularApplication
-        ) == nil)
+        #expect(filter.entry(invalid) == nil)
 
         invalid = base
         invalid[kCGWindowBounds as String] = [
@@ -1452,17 +1430,12 @@ struct ApplicationSurfaceTests {
             "Width": 0,
             "Height": 600,
         ] as NSDictionary
-        #expect(ApplicationWindowListFilter.entry(
-            invalid,
-            excludedProcessIDs: excludedProcessIDs,
-            isRegularApplication: regularApplication
-        ) == nil)
+        #expect(filter.entry(invalid) == nil)
 
-        #expect(ApplicationWindowListFilter.entry(
-            base,
+        #expect(ApplicationWindowListFilter(
             excludedProcessIDs: excludedProcessIDs,
             isRegularApplication: { _ in false }
-        ) == nil)
+        ).entry(base) == nil)
     }
 
     @Test func applicationTargetsRejectTheCurrentCmuxProcess() throws {

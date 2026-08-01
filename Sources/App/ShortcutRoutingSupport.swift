@@ -717,45 +717,6 @@ func shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(
     return true
 }
 
-/// Native application panes own standard document and navigation commands.
-/// cmux keeps every other configured shortcut, including pane navigation,
-/// surface creation, closing, Settings, and Quit.
-func shouldRouteApplicationCommandEquivalentThroughContentFirst(
-    _ event: NSEvent
-) -> Bool {
-    guard event.type == .keyDown else { return false }
-    let flags = browserOmnibarNormalizedModifierFlags(event.modifierFlags)
-    let keyCode = Int(event.keyCode)
-    switch flags {
-    case [.command]:
-        return [
-            kVK_ANSI_A,
-            kVK_ANSI_B,
-            kVK_ANSI_C,
-            kVK_ANSI_F,
-            kVK_ANSI_G,
-            kVK_ANSI_I,
-            kVK_ANSI_L,
-            kVK_ANSI_O,
-            kVK_ANSI_P,
-            kVK_ANSI_R,
-            kVK_ANSI_S,
-            kVK_ANSI_U,
-            kVK_ANSI_V,
-            kVK_ANSI_X,
-            kVK_ANSI_Z,
-        ].contains(keyCode)
-    case [.command, .shift]:
-        return [
-            kVK_ANSI_F,
-            kVK_ANSI_G,
-            kVK_ANSI_Z,
-        ].contains(keyCode)
-    default:
-        return false
-    }
-}
-
 /// For browser content, let the page try browser-local Find-family commands before cmux's menu fallback.
 /// Cmd+F is excluded because cmux chooses terminal, browser, or right-sidebar
 /// find from the current focus owner.

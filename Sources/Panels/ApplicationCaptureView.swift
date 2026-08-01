@@ -52,6 +52,8 @@ final class ApplicationCaptureView: NSView {
     private let onStateChanged: (ApplicationCaptureState, String?) -> Void
     private let onMovedToWindow: (ApplicationCaptureView) -> Void
     private let onPointerDown: () -> Void
+    private let onRepresentableDismantled: (ApplicationCaptureView) -> Void
+    private let commandEquivalentRoutingPolicy: ApplicationCommandEquivalentRoutingPolicy
     private let remoteFrameView = CmuxRemoteFrameView(frame: .zero)
     private lazy var inputPump = ApplicationSurfaceInputPump { [weak self] events in
         guard
@@ -157,7 +159,10 @@ final class ApplicationCaptureView: NSView {
         leaseProvider: @escaping @MainActor () async -> ApplicationSurfaceRuntimeLease?,
         onStateChanged: @escaping (ApplicationCaptureState, String?) -> Void,
         onMovedToWindow: @escaping (ApplicationCaptureView) -> Void,
-        onPointerDown: @escaping () -> Void = {}
+        onPointerDown: @escaping () -> Void = {},
+        onRepresentableDismantled:
+            @escaping (ApplicationCaptureView) -> Void = { _ in },
+        commandEquivalentRoutingPolicy: ApplicationCommandEquivalentRoutingPolicy = .init()
     ) {
         sourceWindowID = windowID
         self.processID = processID
@@ -167,6 +172,8 @@ final class ApplicationCaptureView: NSView {
         self.onStateChanged = onStateChanged
         self.onMovedToWindow = onMovedToWindow
         self.onPointerDown = onPointerDown
+        self.onRepresentableDismantled = onRepresentableDismantled
+        self.commandEquivalentRoutingPolicy = commandEquivalentRoutingPolicy
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
@@ -262,6 +269,10 @@ final class ApplicationCaptureView: NSView {
         if !ownsInput {
             releaseForwardedInputs()
         }
+    }
+
+    func representableWasDismantled() {
+        onRepresentableDismantled(self)
     }
 
     func startCapture() {
@@ -548,7 +559,9 @@ final class ApplicationCaptureView: NSView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard shouldRouteApplicationCommandEquivalentThroughContentFirst(event)
+        guard commandEquivalentRoutingPolicy.shouldRouteThroughContentFirst(
+            event
+        )
         else {
             return super.performKeyEquivalent(with: event)
         }
@@ -767,39 +780,34 @@ final class ApplicationCaptureView: NSView {
         )
         let clock = ContinuousClock()
         livenessTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await clock.sleep(for: .seconds(1))
-                } catch {
-                    return
-                }
-                guard
-                    let self,
-                    self.captureGeneration == generation,
-                    self.shouldCaptureNow,
-                    self.session != nil
-                else {
-                    return
-                }
-                if let failure = self.livenessState?.failure(
+            do {
+                try await clock.sleep(
+                    for: .seconds(Self.firstFrameTimeout)
+                )
+            } catch {
+                return
+            }
+            guard
+                let self,
+                self.captureGeneration == generation,
+                self.shouldCaptureNow,
+                self.session != nil,
+                let failure = self.livenessState?.failure(
                     at: ProcessInfo.processInfo.systemUptime,
                     firstFrameTimeout: Self.firstFrameTimeout
-                ) {
-                    cmuxDebugLog(
-                        "applicationSurface.frames.failed"
-                            + " window=\(self.sourceWindowID)"
-                            + " reason=\(String(describing: failure))"
-                    )
-                    self.handleRuntimeFailure(
-                        .failed,
-                        failureDetail: Self.genericCaptureFailureDetail
-                    )
-                    return
-                }
-                if self.livenessState?.hasPresentedFrame == true {
-                    return
-                }
+                )
+            else {
+                return
             }
+            cmuxDebugLog(
+                "applicationSurface.frames.failed"
+                    + " window=\(self.sourceWindowID)"
+                    + " reason=\(String(describing: failure))"
+            )
+            self.handleRuntimeFailure(
+                .failed,
+                failureDetail: Self.genericCaptureFailureDetail
+            )
         }
     }
 
@@ -834,7 +842,7 @@ final class ApplicationCaptureView: NSView {
                         .windowUnavailable,
                         failureDetail: failure.localizedDescription
                     )
-                case .helperUnavailable, .resourceLimit, .invalidResponse, .failed:
+                case .helperUnavailable, .resourceLimit, .invalidResponse:
                     self.handleRuntimeFailure(
                         .failed,
                         failureDetail: failure.localizedDescription

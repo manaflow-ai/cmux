@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 final class ApplicationSurfaceInputPump {
     typealias BatchSender = @MainActor ([ApplicationSurfaceInputEvent]) async -> Bool
+    private static let maximumProtocolBatchEventCount = 64
 
     private let maximumQueuedEventCount: Int
     private let batchSender: BatchSender
@@ -121,17 +122,28 @@ final class ApplicationSurfaceInputPump {
         drainTask = Task { @MainActor [weak self] in
             guard let self else { return }
             while !self.queue.isEmpty {
-                let batch = self.queue
+                let pending = self.queue
                 self.queue.removeAll(keepingCapacity: true)
-                for event in batch {
-                    self.recordPossibleDelivery(of: event)
-                }
-                let delivered = await self.batchSender(batch)
-                for event in batch {
-                    self.recordAcknowledgedDelivery(
-                        of: event,
-                        delivered: delivered
+                for startIndex in stride(
+                    from: 0,
+                    to: pending.count,
+                    by: Self.maximumProtocolBatchEventCount
+                ) {
+                    let endIndex = min(
+                        startIndex + Self.maximumProtocolBatchEventCount,
+                        pending.count
                     )
+                    let batch = Array(pending[startIndex ..< endIndex])
+                    for event in batch {
+                        self.recordPossibleDelivery(of: event)
+                    }
+                    let delivered = await self.batchSender(batch)
+                    for event in batch {
+                        self.recordAcknowledgedDelivery(
+                            of: event,
+                            delivered: delivered
+                        )
+                    }
                 }
             }
             self.drainTask = nil

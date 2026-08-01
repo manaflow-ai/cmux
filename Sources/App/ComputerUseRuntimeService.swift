@@ -733,17 +733,6 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         return result["attached"] as? Bool == true
     }
 
-    nonisolated static func applicationSurfaceStopShouldRetry(
-        _ response: [String: Any]?,
-        failedAttemptCount: Int
-    ) -> Bool {
-        !applicationSurfaceStopWasAcknowledged(response)
-            && applicationSurfaceStopFailureAction(
-                failedAttemptCount: failedAttemptCount,
-                helperRestartAttempted: false
-            ) == .retry
-    }
-
     nonisolated static func applicationSurfaceStopFailureAction(
         failedAttemptCount: Int,
         helperRestartAttempted: Bool
@@ -1001,7 +990,6 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         _ response: [String: Any]
     ) throws {
         guard response["ok"] as? Bool == true else {
-            let detail = response["error"] as? String ?? ""
             switch response["error_code"] as? String {
             case "permission_required":
                 throw ApplicationSurfaceRuntimeError.permissionRequired
@@ -1016,9 +1004,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             case "session_unavailable":
                 throw ApplicationSurfaceRuntimeError.helperUnavailable
             default:
-                throw detail.isEmpty
-                    ? ApplicationSurfaceRuntimeError.invalidResponse
-                    : ApplicationSurfaceRuntimeError.failed(detail)
+                throw ApplicationSurfaceRuntimeError.invalidResponse
             }
         }
     }

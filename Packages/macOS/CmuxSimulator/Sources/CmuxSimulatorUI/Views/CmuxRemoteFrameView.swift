@@ -24,9 +24,9 @@ public final class CmuxRemoteFrameView: NSView {
     public private(set) var presentedFrameSequence: UInt64?
 
     private var frameLayer: CALayer?
-    private var framePipeline: SimulatorFramePresentationPipeline?
+    private var framePresentationController:
+        SimulatorFramePresentationController?
     private var frameTransportDescriptor: SimulatorFrameTransportDescriptor?
-    private var presentationTimer: DispatchSourceTimer?
     private var hostWindowVisible = false
     private var isActive = true
     private var isTornDown = false
@@ -75,10 +75,10 @@ public final class CmuxRemoteFrameView: NSView {
         frameLayer.magnificationFilter = .linear
         layer?.addSublayer(frameLayer)
         self.frameLayer = frameLayer
-        framePipeline = SimulatorFramePresentationPipeline(
+        framePresentationController = SimulatorFramePresentationController(
             source: source,
-            presentationDidComplete: { [weak self] in
-                self?.renderLatestFrame()
+            presentationDidComplete: { [weak self] presentation in
+                self?.render(presentation)
             },
             sourceFailureDidOccur: { [weak self] in
                 self?.onTransportFailure?(.producerFailed)
@@ -167,15 +167,16 @@ public final class CmuxRemoteFrameView: NSView {
     }
 
     private func renderLatestFrame() {
+        guard isActive else { return }
+        framePresentationController?.presentLatestFrame()
+    }
+
+    private func render(_ presentation: SimulatorFramePresentation) {
         guard
             isActive,
-            let pipeline = framePipeline,
-            let presentation = pipeline.displayTick(),
             presentation.sequence != presentedFrameSequence,
             let frameLayer
-        else {
-            return
-        }
+        else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         frameLayer.contents = presentation.image
@@ -201,7 +202,7 @@ public final class CmuxRemoteFrameView: NSView {
         publishHostVisibility(hostWindowVisible)
         let shouldPresent = isActive
             && !isTornDown
-            && framePipeline != nil
+            && framePresentationController != nil
             && hostWindowVisible
         if shouldPresent {
             startPresentationTimer()
@@ -212,44 +213,29 @@ public final class CmuxRemoteFrameView: NSView {
     }
 
     private func startPresentationTimer() {
-        guard presentationTimer == nil, let framePipeline else { return }
-        if framePipeline.setFramePublicationNotificationsEnabled(true) {
-            return
-        }
-        let interval = simulatorPresentationTimerIntervalNanoseconds(
+        framePresentationController?.startPresenting(
             maximumFramesPerSecond: window?.screen?.maximumFramesPerSecond
         )
-        let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
-        timer.schedule(
-            deadline: .now(),
-            repeating: .nanoseconds(interval),
-            leeway: .milliseconds(1)
-        )
-        timer.setEventHandler { [weak self] in
-            self?.renderLatestFrame()
-        }
-        presentationTimer = timer
-        timer.activate()
     }
 
     private func stopPresentationTimer() {
-        presentationTimer?.setEventHandler(handler: nil)
-        presentationTimer?.cancel()
-        presentationTimer = nil
-        framePipeline?.setFramePublicationNotificationsEnabled(false)
+        framePresentationController?.stopPresenting()
     }
 
     private func rebuildPresentationTimer() {
-        guard !isTornDown, framePipeline != nil else { return }
-        stopPresentationTimer()
-        reconcilePresentation()
+        guard !isTornDown else { return }
+        framePresentationController?.rebuildPresentationCadence(
+            isVisible: isActive && hostWindowVisible,
+            maximumFramesPerSecond: window?.screen?.maximumFramesPerSecond
+        )
+        renderLatestFrame()
     }
 
     private func retireFramePipeline() {
-        let pipeline = framePipeline
-        framePipeline = nil
+        let controller = framePresentationController
+        framePresentationController = nil
         frameLayer?.contents = nil
-        pipeline?.invalidate()
+        controller?.invalidate()
     }
 
     @objc private func hostWindowVisibilityDidChange(_ notification: Notification) {

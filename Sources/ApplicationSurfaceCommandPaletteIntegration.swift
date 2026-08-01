@@ -19,7 +19,7 @@ extension CommandPaletteCommandContribution {
             },
             keywords: [
                 "new", "application", "app", "window", "pane", "capture",
-                "screen", "mirror", "minecraft",
+                "screen", "mirror",
             ]
         )
     }

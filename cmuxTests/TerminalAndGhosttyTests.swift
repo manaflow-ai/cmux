@@ -2715,8 +2715,9 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
 }
 
 @MainActor
-final class ApplicationSurfacePickerThemeTests: XCTestCase {
-    func testPickerAllowsGhosttyThemeBackgroundToShowThrough() throws {
+@Suite("Application surface picker theme")
+struct ApplicationSurfacePickerThemeTests {
+    @Test func pickerAllowsGhosttyThemeBackgroundToShowThrough() throws {
         let themeColor = NSColor(
             srgbRed: 39.0 / 255.0,
             green: 40.0 / 255.0,
@@ -2745,9 +2746,9 @@ final class ApplicationSurfacePickerThemeTests: XCTestCase {
             size: size
         )
 
-        XCTAssertEqual(sampled.redComponent, expected.redComponent, accuracy: 0.01)
-        XCTAssertEqual(sampled.greenComponent, expected.greenComponent, accuracy: 0.01)
-        XCTAssertEqual(sampled.blueComponent, expected.blueComponent, accuracy: 0.01)
+        #expect(abs(sampled.redComponent - expected.redComponent) < 0.01)
+        #expect(abs(sampled.greenComponent - expected.greenComponent) < 0.01)
+        #expect(abs(sampled.blueComponent - expected.blueComponent) < 0.01)
     }
 
     private func renderedCornerColor<Content: View>(
@@ -2776,10 +2777,14 @@ final class ApplicationSurfacePickerThemeTests: XCTestCase {
             RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         }
 
-        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        let bitmap = try #require(
+            host.bitmapImageRepForCachingDisplay(in: host.bounds)
+        )
         bitmap.size = host.bounds.size
         host.cacheDisplay(in: host.bounds, to: bitmap)
-        return try XCTUnwrap(bitmap.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB))
+        return try #require(
+            bitmap.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB)
+        )
     }
 }
 

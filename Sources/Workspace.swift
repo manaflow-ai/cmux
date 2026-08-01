@@ -1764,7 +1764,8 @@ extension Workspace {
             }
             applySessionPanelMetadata(
                 snapshot,
-                toPanelId: applicationPanel.id
+                toPanelId: applicationPanel.id,
+                restoreDynamicTitle: false
             )
             return applicationPanel.id
         case .markdown:
@@ -1842,10 +1843,18 @@ extension Workspace {
         }
     }
 
-    func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
+    func applySessionPanelMetadata(
+        _ snapshot: SessionPanelSnapshot,
+        toPanelId panelId: UUID,
+        restoreDynamicTitle: Bool = true
+    ) {
         adoptPersistedStableSurfaceId(from: snapshot, panelId: panelId)
 
-        if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+        if restoreDynamicTitle,
+           let title = snapshot.title?.trimmingCharacters(
+               in: .whitespacesAndNewlines
+           ),
+           !title.isEmpty {
             panelTitles[panelId] = title
         }
 

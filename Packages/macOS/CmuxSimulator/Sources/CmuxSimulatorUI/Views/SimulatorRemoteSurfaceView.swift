@@ -12,13 +12,13 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     var onFrameTransportAdopted: ((SimulatorFrameTransportDescriptor) -> Void)?
 
     var frameLayer: CALayer?
-    private var framePipeline: SimulatorFramePresentationPipeline?
+    private var framePresentationController:
+        SimulatorFramePresentationController?
     private var frameTransportDescriptor: SimulatorFrameTransportDescriptor?
     private let frameSourceFactory:
         @MainActor (
             SimulatorFrameTransportDescriptor
         ) throws -> any SimulatorFrameSurfaceReading
-    private var presentationTimer: DispatchSourceTimer?
     private var lastFrameSequence: UInt64?
     private var isTornDown = false
     var display: SimulatorDisplayMetadata?
@@ -370,10 +370,26 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
             self.frameLayer = frameLayer
         }
         updateFrameLayerBackingScale()
-        framePipeline = SimulatorFramePresentationPipeline(
+        framePresentationController = SimulatorFramePresentationController(
             source: source,
-            presentationDidComplete: { [weak self] in
-                self?.renderLatestFrame()
+            presentationDidComplete: { [weak self] presentation in
+                self?.render(presentation)
+            },
+            sourceFailureDidOccur: { [weak self] in
+                guard
+                    let self,
+                    self.frameTransportDescriptor == frameTransport
+                else {
+                    return
+                }
+                self.onFrameTransportFailure?(
+                    frameTransport,
+                    SimulatorFailure(
+                        code: "framebuffer_unavailable",
+                        message: "Simulator frame producer stopped",
+                        isRecoverable: true
+                    )
+                )
             }
         )
         frameTransportDescriptor = frameTransport
@@ -397,10 +413,14 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     func renderLatestFrame() {
-        guard let pipeline = framePipeline,
-              let presentation = pipeline.displayTick(),
-              presentation.sequence != lastFrameSequence,
-              let frameLayer else { return }
+        framePresentationController?.presentLatestFrame()
+    }
+
+    private func render(_ presentation: SimulatorFramePresentation) {
+        guard
+            presentation.sequence != lastFrameSequence,
+            let frameLayer
+        else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         frameLayer.contents = presentation.image
@@ -409,40 +429,25 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     private func startPresentationTimer() {
-        guard presentationTimer == nil, let framePipeline else { return }
         guard let window, simulatorHostWindowIsVisible(window) else {
-            framePipeline.setFramePublicationNotificationsEnabled(false)
+            framePresentationController?.stopPresenting()
             return
         }
-        if framePipeline.setFramePublicationNotificationsEnabled(true) {
-            return
-        }
-        let interval = simulatorPresentationTimerIntervalNanoseconds(
+        framePresentationController?.startPresenting(
             maximumFramesPerSecond: window.screen?.maximumFramesPerSecond
         )
-        let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
-        timer.schedule(
-            deadline: .now(),
-            repeating: .nanoseconds(interval),
-            leeway: .milliseconds(1)
-        )
-        timer.setEventHandler { [weak self] in
-            self?.presentationTimerDidFire()
-        }
-        presentationTimer = timer
-        timer.activate()
     }
 
     private func stopPresentationTimer() {
-        presentationTimer?.setEventHandler(handler: nil)
-        presentationTimer?.cancel()
-        presentationTimer = nil
-        framePipeline?.setFramePublicationNotificationsEnabled(false)
+        framePresentationController?.stopPresenting()
     }
     private func rebuildPresentationTimer() {
-        guard !isTornDown, framePipeline != nil else { return }
-        stopPresentationTimer()
-        startPresentationTimer()
+        guard !isTornDown else { return }
+        framePresentationController?.rebuildPresentationCadence(
+            isVisible: window.map(simulatorHostWindowIsVisible) == true,
+            maximumFramesPerSecond: window?.screen?.maximumFramesPerSecond
+        )
+        renderLatestFrame()
     }
 
     private func reconcileHostWindowVisibility() {
@@ -460,16 +465,11 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         reconcileHostWindowVisibility()
     }
 
-    private func presentationTimerDidFire() {
-        flushPendingInputMotion()
-        renderLatestFrame()
-    }
-
     private func retireFramePipeline(clearPresentedFrame: Bool = true) {
-        let pipeline = framePipeline
-        framePipeline = nil
+        let controller = framePresentationController
+        framePresentationController = nil
         if clearPresentedFrame { frameLayer?.contents = nil }
-        pipeline?.invalidate()
+        controller?.invalidate()
     }
 
     func normalizedPoint(for event: NSEvent, clamped: Bool = false) -> SimulatorPoint? {

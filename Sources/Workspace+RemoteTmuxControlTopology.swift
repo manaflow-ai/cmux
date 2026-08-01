@@ -352,8 +352,9 @@ extension Workspace {
         focusedTerminalInputTarget()?.surfaceID == surfaceID
     }
 
-    /// Resolves the selected terminal target. A mirror container projects its
-    /// active inner pane; a requested pane projects that pane's selected surface.
+    /// Resolves the selected surface target. A mirror container projects its
+    /// active inner pane; a requested pane projects that pane's selected surface,
+    /// including nonterminal panels such as application panes.
     func controlDefaultSurfaceTarget(
         paneID requestedPaneID: UUID?
     ) -> ControlSurfaceProjection? {

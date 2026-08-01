@@ -186,7 +186,14 @@ final class ApplicationPanel: Panel {
                 guard self.pickerRequestID == requestID, !Task.isCancelled else {
                     return
                 }
-                self.pickerModel.phase = .failed(error.localizedDescription)
+                cmuxDebugLog(
+                    "applicationSurface.windows.failed"
+                        + " error=\(error.localizedDescription)"
+                )
+                self.pickerModel.phase = .failed(String(
+                    localized: "applicationSurface.picker.failed",
+                    defaultValue: "Application windows could not be loaded."
+                ))
             }
         }
     }
@@ -273,6 +280,9 @@ final class ApplicationPanel: Panel {
             },
             onPointerDown: { [weak self] in
                 self?.hostFocusRequestHandler?()
+            },
+            onRepresentableDismantled: { [weak self] view in
+                self?.setCaptureVisibleInUI(false, view: view)
             }
         )
         attach(view, token: captureToken)

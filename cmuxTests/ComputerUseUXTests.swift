@@ -1880,14 +1880,10 @@ struct ComputerUseUXTests {
         #expect(!ComputerUseRuntimeService.applicationSurfaceStopWasAcknowledged([
             "ok": true,
         ]))
-        #expect(ComputerUseRuntimeService.applicationSurfaceStopShouldRetry(
-            nil,
-            failedAttemptCount: 1
-        ))
-        #expect(!ComputerUseRuntimeService.applicationSurfaceStopShouldRetry(
-            nil,
-            failedAttemptCount: 3
-        ))
+        #expect(ComputerUseRuntimeService.applicationSurfaceStopFailureAction(
+            failedAttemptCount: 1,
+            helperRestartAttempted: false
+        ) == .retry)
         #expect(ComputerUseRuntimeService.applicationSurfaceStopFailureAction(
             failedAttemptCount: 3,
             helperRestartAttempted: false

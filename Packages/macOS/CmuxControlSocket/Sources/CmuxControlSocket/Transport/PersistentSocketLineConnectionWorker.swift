@@ -132,7 +132,15 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
         }
         guard transport.writeAll(
             Data((command + "\n").utf8),
-            to: current.socket
+            to: current.socket,
+            deadline: deadline,
+            isInterrupted: { [self] in
+                operationWasInterrupted(
+                    cancellation,
+                    cancellationGeneration: cancellationGeneration,
+                    activeGeneration: activeGeneration
+                )
+            }
         ), let response = readResponseLine(
             from: &current,
             deadline: deadline,
@@ -209,14 +217,13 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
                 closeSocket(socket)
             }
         }
-        guard
-            transport.configureCloseOnExec(socket) == nil,
-            transport.configureNoSigPipe(socket) == nil,
-            transport.configureNonBlocking(socket) == nil
-        else {
+        guard transport.configureUnixClientSocket(
+            socket,
+            timeout: timeout,
+            nonBlocking: true
+        ) else {
             return nil
         }
-        transport.configureSocketTimeouts(socket, timeout: timeout)
         guard
             publishActiveSocket(
                 socket,

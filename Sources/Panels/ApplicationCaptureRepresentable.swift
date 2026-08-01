@@ -28,5 +28,6 @@ struct ApplicationCaptureRepresentable: NSViewRepresentable {
         coordinator: ()
     ) {
         nsView.setInputOwnership(false)
+        nsView.representableWasDismantled()
     }
 }

@@ -70,7 +70,8 @@ extension KeyboardShortcutSettings {
                 action.resolvedRecordedShortcutIgnoringConflicts(
                     configuredShortcut,
                     checkingSystemWideConflicts: false
-                )
+                ),
+            shortcutIfBound(for: action) == normalizedShortcut
         else {
             return nil
         }

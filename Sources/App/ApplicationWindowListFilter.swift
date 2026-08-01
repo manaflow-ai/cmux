@@ -2,12 +2,20 @@ import CoreGraphics
 import Darwin
 import Foundation
 
-enum ApplicationWindowListFilter {
-    static func entry(
-        _ window: [String: Any],
+/// Applies the host-owned policy for exposing native windows to application panes.
+struct ApplicationWindowListFilter {
+    private let excludedProcessIDs: Set<pid_t>
+    private let isRegularApplication: (pid_t) -> Bool
+
+    init(
         excludedProcessIDs: Set<pid_t>,
-        isRegularApplication: (pid_t) -> Bool
-    ) -> [String: Any]? {
+        isRegularApplication: @escaping (pid_t) -> Bool
+    ) {
+        self.excludedProcessIDs = excludedProcessIDs
+        self.isRegularApplication = isRegularApplication
+    }
+
+    func entry(_ window: [String: Any]) -> [String: Any]? {
         guard
             let rawWindowID = window[kCGWindowNumber as String] as? NSNumber,
             rawWindowID.uint64Value > 0,
