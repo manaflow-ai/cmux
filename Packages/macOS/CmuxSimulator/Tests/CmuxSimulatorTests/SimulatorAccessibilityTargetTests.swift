@@ -108,6 +108,35 @@ struct SimulatorAccessibilityTargetTests {
         ).isEmpty)
     }
 
+    @Test("Truncated selector fields fail closed without hiding complete fields")
+    func rejectsTruncatedSelectorFields() {
+        let snapshot = makeSnapshot(children: [
+            node(
+                id: "complete-identifier",
+                identifier: "continue.button",
+                role: "Button",
+                label: "Continue",
+                isLabelTruncated: true,
+                frame: SimulatorRect(x: 20, y: 200, width: 100, height: 44)
+            ),
+            node(
+                id: "complete-label",
+                identifier: "continue.button",
+                isIdentifierTruncated: true,
+                role: "Button",
+                label: "Continue",
+                frame: SimulatorRect(x: 20, y: 300, width: 100, height: 44)
+            ),
+        ])
+
+        #expect(snapshot.interactionTargets(
+            label: "Continue", identifier: nil, role: nil
+        ).map(\.node.id) == ["complete-label"])
+        #expect(snapshot.interactionTargets(
+            label: nil, identifier: "continue.button", role: nil
+        ).map(\.node.id) == ["complete-identifier"])
+    }
+
     private func makeSnapshot(
         children: [SimulatorAccessibilityNode]
     ) -> SimulatorAccessibilitySnapshot {
@@ -129,8 +158,10 @@ struct SimulatorAccessibilityTargetTests {
     private func node(
         id: String,
         identifier: String? = nil,
+        isIdentifierTruncated: Bool = false,
         role: String,
         label: String,
+        isLabelTruncated: Bool = false,
         frame: SimulatorRect,
         enabled: Bool = true,
         children: [SimulatorAccessibilityNode] = []
@@ -138,8 +169,10 @@ struct SimulatorAccessibilityTargetTests {
         SimulatorAccessibilityNode(
             id: id,
             identifier: identifier,
+            isIdentifierTruncated: isIdentifierTruncated,
             role: role,
             label: label,
+            isLabelTruncated: isLabelTruncated,
             value: nil,
             frame: frame,
             isEnabled: enabled,
