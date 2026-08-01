@@ -168,6 +168,23 @@ struct SessionIndexTableViewportTests {
 
     @MainActor
     @Test
+    func transcriptPresentationWinsWhenBothVaultStatesAreSet() throws {
+        let section = Self.makeSection()
+        let entry = try #require(section.entries.first)
+        let row = Self.makeSectionRow(
+            section: section,
+            previewEntryId: entry.id,
+            isPopoverOpen: true
+        )
+
+        #expect(
+            row.popoverPresentation?.identity
+                == .transcript(section: section.key, entry: entry.id)
+        )
+    }
+
+    @MainActor
+    @Test
     func vaultUsesViewportBoundedAppKitRowsAtScale() async throws {
         let defaults = SessionIndexDefaultsSnapshot()
         defer { defaults.restore() }

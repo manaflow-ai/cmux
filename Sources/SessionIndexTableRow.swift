@@ -39,17 +39,16 @@ enum SessionIndexTableRow {
     func hasEquivalentContent(to other: SessionIndexTableRow) -> Bool {
         switch (self, other) {
         case let (
-            .section(lhsSection, lhsLimit, lhsDragged, lhsPreview, lhsCollapsed, lhsPopover, _, _, _),
-            .section(rhsSection, rhsLimit, rhsDragged, rhsPreview, rhsCollapsed, rhsPopover, _, _, _)
+            .section(lhsSection, lhsLimit, lhsDragged, _, lhsCollapsed, _, _, _, _),
+            .section(rhsSection, rhsLimit, rhsDragged, _, rhsCollapsed, _, _, _, _)
         ):
-            let lhsContainedPreview = Self.containedPreviewEntryID(lhsPreview, in: lhsSection)
-            let rhsContainedPreview = Self.containedPreviewEntryID(rhsPreview, in: rhsSection)
+            // Popover and preview selection are presentation state owned by
+            // SessionIndexTableController. They must not replace this row's
+            // NSHostingView root while AppKit is applying or laying out rows.
             return lhsSection == rhsSection
                 && lhsLimit == rhsLimit
                 && lhsDragged == rhsDragged
-                && lhsContainedPreview == rhsContainedPreview
                 && lhsCollapsed == rhsCollapsed
-                && lhsPopover == rhsPopover
         case let (.gap(lhsKey, lhsValid, _), .gap(rhsKey, rhsValid, _)):
             return lhsKey == rhsKey && lhsValid == rhsValid
         default:

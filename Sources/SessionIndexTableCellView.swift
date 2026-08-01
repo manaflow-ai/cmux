@@ -4,14 +4,16 @@ import SwiftUI
 /// Recycled AppKit cell containing one stable Vault row hosting view.
 @MainActor
 final class SessionIndexTableCellView: NSTableCellView {
-    private let hostingView = NSHostingView(
+    private let presentationModel = SessionIndexTableCellPresentationModel()
+    private lazy var hostingView = NSHostingView(
         rootView: SessionIndexTableCellRootView(
             row: .gap(beforeKey: nil, isValidDrop: true, actions: SectionGapActions(
                 currentDraggedKey: { nil },
                 moveSection: { _, _ in },
                 clearDraggedKey: {}
             )),
-            environment: .fallback
+            environment: .fallback,
+            presentation: presentationModel
         )
     )
     private var configuredRow: SessionIndexTableRow?
@@ -43,6 +45,7 @@ final class SessionIndexTableCellView: NSTableCellView {
         row: SessionIndexTableRow,
         environment: SessionIndexTableEnvironmentSnapshot
     ) {
+        presentationModel.update(from: row)
         if let configuredRow,
            let configuredEnvironment,
            configuredRow.hasEquivalentContent(to: row),
@@ -53,7 +56,12 @@ final class SessionIndexTableCellView: NSTableCellView {
         configuredEnvironment = environment
         hostingView.rootView = SessionIndexTableCellRootView(
             row: row,
-            environment: environment
+            environment: environment,
+            presentation: presentationModel
         )
+    }
+
+    func updatePresentation(from row: SessionIndexTableRow) {
+        presentationModel.update(from: row)
     }
 }

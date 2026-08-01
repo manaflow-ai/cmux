@@ -11,6 +11,8 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
     private var rows: [SessionIndexTableRow] = []
     private var environment: SessionIndexTableEnvironmentSnapshot?
     private let rowHeightCalculator = SessionIndexTableRowHeightCalculator()
+    private let popoverPresenter = SessionIndexTablePopoverPresenter()
+    private var isApplyingRows = false
     private lazy var mutationScheduler = SessionIndexTableMutationScheduler(
         applyFlush: { [weak self] in self?.flushApply($0) }
     )
@@ -65,6 +67,10 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
         )
     }
 
+    func dismantle() {
+        popoverPresenter.dismiss()
+    }
+
     private func flushApply(_ input: SessionIndexTableApplyInput) {
         guard let table = containerView?.tableView else { return }
         let nextRows = input.rows
@@ -76,6 +82,12 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
         ) != true
         rows = nextRows
         environment = nextEnvironment
+        isApplyingRows = true
+        defer {
+            isApplyingRows = false
+            refreshVisibleCellPresentations(in: table)
+            reconcilePresentation(in: table)
+        }
 
         if hasStructuralChanges || hasEnvironmentChanges {
             table.reloadData()
@@ -88,6 +100,44 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
         guard !changedRows.isEmpty else { return }
         table.reloadData(forRowIndexes: changedRows, columnIndexes: IndexSet(integer: 0))
         table.noteHeightOfRows(withIndexesChanged: changedRows)
+    }
+
+    private func refreshVisibleCellPresentations(in table: NSTableView) {
+        let visibleRows = table.rows(in: table.visibleRect)
+        guard visibleRows.location != NSNotFound else { return }
+        let visibleIndexes = visibleRows.location..<NSMaxRange(visibleRows)
+        for rowIndex in visibleIndexes where rows.indices.contains(rowIndex) {
+            (table.view(
+                atColumn: 0,
+                row: rowIndex,
+                makeIfNecessary: false
+            ) as? SessionIndexTableCellView)?.updatePresentation(from: rows[rowIndex])
+        }
+    }
+
+    private func reconcilePresentation(in table: NSTableView) {
+        guard let presentation = rows.lazy.compactMap(\.popoverPresentation).first else {
+            popoverPresenter.dismiss()
+            return
+        }
+        guard let rowIndex = rows.firstIndex(where: {
+            $0.id == .section(presentation.identity.sectionKey)
+        }) else {
+            popoverPresenter.dismiss()
+            return
+        }
+        guard let cell = table.view(
+            atColumn: 0,
+            row: rowIndex,
+            makeIfNecessary: false
+        ) as? SessionIndexTableCellView else {
+            return
+        }
+        popoverPresenter.reconcile(
+            presentation,
+            relativeTo: cell.bounds,
+            of: cell
+        )
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
@@ -116,5 +166,19 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
             environment: environment ?? .fallback
         )
         return cell
+    }
+
+    func tableView(_ tableView: NSTableView, didAdd rowView: NSView, forRow row: Int) {
+        guard !isApplyingRows else { return }
+        reconcilePresentation(in: tableView)
+    }
+
+    func tableView(_ tableView: NSTableView, didRemove rowView: NSView, forRow row: Int) {
+        guard popoverPresenter.isAnchored(in: rowView) else { return }
+        if isApplyingRows {
+            popoverPresenter.dismiss()
+        } else {
+            popoverPresenter.dismissAndNotify()
+        }
     }
 }

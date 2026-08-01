@@ -1,9 +1,32 @@
 import SwiftUI
 
+/// Cell-local visual state that can repaint selection without replacing the
+/// recycled cell's hosted root or owning the popover lifecycle.
+@MainActor
+final class SessionIndexTableCellPresentationModel: ObservableObject {
+    @Published private(set) var previewEntryId: SessionEntry.ID?
+
+    func update(from row: SessionIndexTableRow) {
+        let nextPreviewEntryId: SessionEntry.ID?
+        switch row {
+        case let .section(section, _, _, previewEntryId, _, _, _, _, _):
+            nextPreviewEntryId = SessionIndexTableRow.containedPreviewEntryID(
+                previewEntryId,
+                in: section
+            )
+        case .gap:
+            nextPreviewEntryId = nil
+        }
+        guard previewEntryId != nextPreviewEntryId else { return }
+        previewEntryId = nextPreviewEntryId
+    }
+}
+
 /// Isolated SwiftUI graph hosted by one recycled Vault table cell.
 struct SessionIndexTableCellRootView: View {
     let row: SessionIndexTableRow
     let environment: SessionIndexTableEnvironmentSnapshot
+    @ObservedObject var presentation: SessionIndexTableCellPresentationModel
 
     var body: some View {
         environment.apply(to: rowContent)
@@ -17,9 +40,9 @@ struct SessionIndexTableCellRootView: View {
                 section,
                 rowLimit,
                 isDragged,
-                previewEntryId,
+                _,
                 isCollapsed,
-                isPopoverOpen,
+                _,
                 actions,
                 setCollapsed,
                 setPopoverOpen
@@ -28,15 +51,12 @@ struct SessionIndexTableCellRootView: View {
                     section: section,
                     rowLimit: rowLimit,
                     isDragged: isDragged,
-                    previewEntryId: previewEntryId,
+                    previewEntryId: presentation.previewEntryId,
                     isCollapsed: Binding(
                         get: { isCollapsed },
                         set: setCollapsed
                     ),
-                    isPopoverOpen: Binding(
-                        get: { isPopoverOpen },
-                        set: setPopoverOpen
-                    ),
+                    onShowMore: { setPopoverOpen(true) },
                     actions: actions
                 )
                 .equatable()

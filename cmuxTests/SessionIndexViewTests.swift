@@ -417,29 +417,12 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertTrue(over.shouldOfferShowMore(rowLimit: 5))
     }
 
-    func testSectionPopoverHostCoordinatorSkipsHiddenRefreshes() {
-        let harness = makeHarness()
-        let coordinator = harness.host.makeCoordinator()
-
-        coordinator.update(
-            section: harness.section,
-            search: harness.search,
-            loadSnapshot: harness.loadSnapshot,
-            onResume: nil
-        )
-        coordinator.update(
-            section: harness.section,
-            search: harness.search,
-            loadSnapshot: harness.loadSnapshot,
-            onResume: nil
-        )
-
-        XCTAssertEqual(coordinator.refreshContentCallCount, 0)
-    }
-
-    func testSectionPopoverHostCoordinatorRefreshesOnceWhenPresented() {
-        let harness = makeHarness(isPresented: true)
-        let coordinator = harness.host.makeCoordinator()
+    func testTablePopoverPresenterRefreshesOnceAndWritesDismissalBack() {
+        var dismissalCount = 0
+        let harness = makeHarness {
+            dismissalCount += 1
+        }
+        let presenter = SessionIndexTablePopoverPresenter()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.titled, .closable],
@@ -448,10 +431,9 @@ final class SessionIndexViewTests: XCTestCase {
         )
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 160, height: 80))
         window.contentView?.addSubview(anchor)
-        coordinator.anchorView = anchor
 
         defer {
-            coordinator.dismiss()
+            presenter.dismiss()
             pumpRunLoop()
             window.orderOut(nil)
         }
@@ -461,36 +443,33 @@ final class SessionIndexViewTests: XCTestCase {
         window.contentView?.layoutSubtreeIfNeeded()
         pumpRunLoop()
 
-        coordinator.update(
-            section: harness.section,
-            search: harness.search,
-            loadSnapshot: harness.loadSnapshot,
-            onResume: nil
+        presenter.reconcile(
+            harness.presentation,
+            relativeTo: anchor.bounds,
+            of: anchor
         )
-        XCTAssertEqual(coordinator.refreshContentCallCount, 0)
-
-        coordinator.present()
         pumpRunLoop()
 
-        XCTAssertTrue(coordinator.isPopoverShown)
-        XCTAssertEqual(coordinator.refreshContentCallCount, 1)
+        XCTAssertTrue(presenter.isPopoverShown)
+        XCTAssertEqual(presenter.refreshContentCallCount, 1)
 
-        coordinator.update(
-            section: harness.section,
-            search: harness.search,
-            loadSnapshot: harness.loadSnapshot,
-            onResume: nil
+        presenter.reconcile(
+            harness.presentation,
+            relativeTo: anchor.bounds,
+            of: anchor
         )
+        pumpRunLoop()
 
-        XCTAssertEqual(coordinator.refreshContentCallCount, 1)
+        XCTAssertEqual(presenter.refreshContentCallCount, 1)
+
+        presenter.dismissAndNotify()
+        pumpRunLoop()
+        XCTAssertEqual(dismissalCount, 1)
     }
 
-    private func makeHarness(isPresented: Bool = false) -> SessionPopoverHarness {
-        var isPresented = isPresented
-        let binding = Binding(
-            get: { isPresented },
-            set: { isPresented = $0 }
-        )
+    private func makeHarness(
+        onDismiss: @escaping @MainActor () -> Void = {}
+    ) -> SessionPopoverHarness {
         let section = IndexSection(
             key: .directory("/tmp"),
             title: "tmp",
@@ -503,14 +482,17 @@ final class SessionIndexViewTests: XCTestCase {
         let loadSnapshot: DirectorySnapshotFn = { cwd in
             DirectorySnapshot(cwd: cwd ?? "", entries: [], errors: [])
         }
-        let host = SectionPopoverHost(
-            isPresented: binding,
-            section: section,
-            search: search,
-            loadSnapshot: loadSnapshot,
-            onResume: nil
+        let presentation = SessionIndexTablePopoverPresentation(
+            identity: .section(section.key),
+            content: .section(
+                section: section,
+                search: search,
+                loadSnapshot: loadSnapshot,
+                onResume: nil
+            ),
+            onDismiss: onDismiss
         )
-        return SessionPopoverHarness(host: host, section: section, search: search, loadSnapshot: loadSnapshot)
+        return SessionPopoverHarness(presentation: presentation)
     }
 
     private func makeEntry(
@@ -679,10 +661,7 @@ private extension SessionAgent {
 }
 
 private struct SessionPopoverHarness {
-    let host: SectionPopoverHost
-    let section: IndexSection
-    let search: SessionSearchFn
-    let loadSnapshot: DirectorySnapshotFn
+    let presentation: SessionIndexTablePopoverPresentation
 }
 
 private struct SQLiteTestError: Error {
