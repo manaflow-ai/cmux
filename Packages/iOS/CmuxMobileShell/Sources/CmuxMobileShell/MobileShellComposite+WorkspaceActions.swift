@@ -483,7 +483,15 @@ extension MobileShellComposite {
                 attachTicketPolicy: attachTicketPolicy
             )
         } catch {
-            MobileDebugLog.anchormux("workspace.mutation failed action=\(actionName) id=\(logID) error=\(error)")
+            // Diagnostics carry only the bounded failure vocabulary plus the
+            // short RPC code: an rpcError message is an arbitrary host string
+            // and must never be retained in exported diagnostics.
+            let failureKind = DiagnosticFailureKind.classify(error)
+            var rpcCode = "none"
+            if case let MobileShellConnectionError.rpcError(code, _) = error {
+                rpcCode = code ?? "unknown"
+            }
+            MobileDebugLog.anchormux("workspace.mutation failed action=\(actionName) id=\(logID) kind=\(failureKind) code=\(rpcCode)")
             if disconnectForAuthorizationFailureIfNeeded(error) {
                 return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
             }
@@ -497,7 +505,7 @@ extension MobileShellComposite {
                     expectedGeneration: generation
                 )
             }
-            mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(logID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(logID, privacy: .public) kind=\(String(describing: failureKind), privacy: .public) error=\(String(describing: error), privacy: .private)")
             if refreshAfterMutation {
                 await refreshAfterWorkspaceMutation(target)
             }
