@@ -63,22 +63,56 @@ struct SimulatorLocalizationCatalogTests {
         ])
     }
 
+    @Test("Accessibility tap copy uses the touch action in every affected locale")
+    func accessibilityTapCopyUsesTouchLanguage() throws {
+        let expected = [
+            "ar": "يتطلب النقر عبر إمكانية الوصول تسمية أو معرّفًا",
+            "bs": "Dodir pristupačnosti zahtijeva oznaku ili identifikator",
+            "da": "Et tilgængelighedstryk kræver en etiket eller identifikator",
+            "de": "Für ein Tippen per Bedienungshilfe ist eine Beschriftung oder Kennung erforderlich",
+            "es": "Un toque de accesibilidad requiere una etiqueta o un identificador",
+            "fr": "Un toucher d’accessibilité nécessite une étiquette ou un identifiant",
+            "pt-BR": "Um toque de acessibilidade requer um rótulo ou identificador",
+            "uk": "Для дотику через функції доступності потрібна мітка або ідентифікатор",
+            "zh-Hans": "辅助功能轻点需要标签或标识符",
+            "zh-Hant": "輔助功能點按需要標籤或識別符",
+        ]
+
+        for (language, value) in expected {
+            #expect(try localizedValue(
+                key: "cli.simulator.error.tapSelectorRequired",
+                language: language
+            ) == value)
+        }
+        #expect(try localizedValue(
+            key: "cli.simulator.error.tapInputsExclusive",
+            language: "fr"
+        ) == "Les coordonnées de toucher et les sélecteurs d’accessibilité s’excluent mutuellement")
+    }
+
+    @Test("Ambiguous tap recovery preserves literal CLI flags")
+    func ambiguousTapRecoveryPreservesLiteralFlags() throws {
+        let languages = [
+            "ar", "bs", "da", "de", "en", "es", "fr", "it", "ja", "km",
+            "ko", "nb", "pl", "pt-BR", "ru", "th", "tr", "uk", "zh-Hans",
+            "zh-Hant",
+        ]
+
+        for language in languages {
+            let value = try localizedValue(
+                key: "cli.simulator.error.tapTargetAmbiguous",
+                language: language
+            )
+            #expect(value.contains("--identifier"))
+            #expect(value.contains("--role"))
+        }
+    }
+
     private func expectLocalized(
         _ keys: [String],
         languages: [String]
     ) throws {
-        var repositoryRoot = URL(fileURLWithPath: #filePath)
-        for _ in 0..<6 {
-            repositoryRoot.deleteLastPathComponent()
-        }
-        let catalogURL = repositoryRoot
-            .appendingPathComponent("Resources")
-            .appendingPathComponent("Localizable.xcstrings")
-        let data = try Data(contentsOf: catalogURL)
-        let catalog = try #require(
-            JSONSerialization.jsonObject(with: data) as? [String: Any]
-        )
-        let strings = try #require(catalog["strings"] as? [String: Any])
+        let strings = try catalogStrings()
 
         for key in keys {
             let entry = strings[key] as? [String: Any]
@@ -91,5 +125,32 @@ struct SimulatorLocalizationCatalogTests {
                 #expect(value?.isEmpty == false)
             }
         }
+    }
+
+    private func localizedValue(
+        key: String,
+        language: String
+    ) throws -> String {
+        let strings = try catalogStrings()
+        let entry = try #require(strings[key] as? [String: Any])
+        let localizations = try #require(entry["localizations"] as? [String: Any])
+        let localization = try #require(localizations[language] as? [String: Any])
+        let stringUnit = try #require(localization["stringUnit"] as? [String: Any])
+        return try #require(stringUnit["value"] as? String)
+    }
+
+    private func catalogStrings() throws -> [String: Any] {
+        var repositoryRoot = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 {
+            repositoryRoot.deleteLastPathComponent()
+        }
+        let catalogURL = repositoryRoot
+            .appendingPathComponent("Resources")
+            .appendingPathComponent("Localizable.xcstrings")
+        let data = try Data(contentsOf: catalogURL)
+        let catalog = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        return try #require(catalog["strings"] as? [String: Any])
     }
 }

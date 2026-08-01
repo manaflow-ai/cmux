@@ -127,6 +127,34 @@ struct SimulatorUIAutomationSessionTests {
         }
     }
 
+    @Test("A truncated snapshot cannot provide a stable selector")
+    func stableSelectorRejectsTruncatedSource() async throws {
+        let session = SimulatorUIAutomationSession()
+        let complete = snapshot()
+        let truncated = SimulatorAccessibilitySnapshot(
+            roots: complete.roots,
+            display: complete.display,
+            nodeCount: complete.nodeCount,
+            isTruncated: true
+        )
+        let record = try await session.record(
+            truncated,
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: session.mutationGeneration
+        )
+        let ref = try #require(record.snapshot.elements.first {
+            $0.identifier == "continue"
+        }?.ref)
+
+        #expect(throws: SimulatorUIAutomationReferenceError.stableSelectorUnavailable(ref)) {
+            _ = try session.stableSelector(
+                elementRef: ref,
+                nowMilliseconds: 1_001
+            )
+        }
+    }
+
     @Test("Recording and device reset preserve a monotonic sequence")
     func sequenceRemainsMonotonicAcrossReset() async throws {
         let session = SimulatorUIAutomationSession()

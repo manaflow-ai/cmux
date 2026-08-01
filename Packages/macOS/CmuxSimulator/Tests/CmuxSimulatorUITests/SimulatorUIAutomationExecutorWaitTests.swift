@@ -191,6 +191,75 @@ struct SimulatorUIAutomationExecutorWaitTests {
         await coordinator.close()
     }
 
+    @Test("Accessibility taps fail closed on truncated snapshots")
+    func truncatedAccessibilityTapDoesNotSendInput() async {
+        let snapshot = Self.truncated(Self.actionSnapshot())
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+
+        do {
+            _ = try await SimulatorUIAutomationExecutor(
+                scheduler: AdvancingActionScheduler(nowMilliseconds: 1_000)
+            ).perform(
+                .accessibilityTap(
+                    label: "Continue",
+                    identifier: nil,
+                    role: nil
+                ),
+                coordinator: coordinator
+            )
+            Issue.record("Expected the truncated snapshot to be rejected")
+        } catch let failure as SimulatorUIAutomationFailure {
+            #expect(failure.code == "snapshot_truncated")
+        } catch {
+            Issue.record("Expected a structured UI failure, got \(error)")
+        }
+
+        #expect(!(await client.actions().contains { action in
+            if case .interactive = action { return true }
+            return false
+        }))
+        await coordinator.close()
+    }
+
+    @Test("Selector waits fail closed on truncated snapshots")
+    func truncatedSelectorWaitIsRejected() async {
+        let snapshot = Self.truncated(Self.actionSnapshot())
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let wait = ControlSimulatorUIWait(
+            predicate: "exists",
+            elementRef: nil,
+            identifier: nil,
+            label: "Continue",
+            role: nil,
+            value: nil,
+            text: nil,
+            timeoutMilliseconds: 0,
+            pollIntervalMilliseconds: 100,
+            settledDurationMilliseconds: 0
+        )
+
+        do {
+            _ = try await SimulatorUIAutomationExecutor().perform(
+                .uiWait(wait),
+                coordinator: coordinator
+            )
+            Issue.record("Expected the truncated snapshot to be rejected")
+        } catch let failure as SimulatorUIAutomationFailure {
+            #expect(failure.code == "snapshot_truncated")
+        } catch {
+            Issue.record("Expected snapshot_truncated, got \(error)")
+        }
+        await coordinator.close()
+    }
+
     @Test("Text-only gone waits reject heterogeneous matches")
     func textOnlyGoneRejectsAmbiguousMatches() async {
         let display = SimulatorDisplayMetadata(
@@ -302,6 +371,17 @@ struct SimulatorUIAutomationExecutorWaitTests {
                 orientation: .portrait,
                 scale: 3
             )
+        )
+    }
+
+    private static func truncated(
+        _ snapshot: SimulatorAccessibilitySnapshot
+    ) -> SimulatorAccessibilitySnapshot {
+        SimulatorAccessibilitySnapshot(
+            roots: snapshot.roots,
+            display: snapshot.display,
+            nodeCount: snapshot.nodeCount,
+            isTruncated: true
         )
     }
 

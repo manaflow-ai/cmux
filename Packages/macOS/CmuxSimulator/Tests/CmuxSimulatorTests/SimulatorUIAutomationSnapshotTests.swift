@@ -211,6 +211,28 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect(!record.snapshot.actions.contains { $0.action == .typeText })
     }
 
+    @Test("Truncated snapshots never advertise selector-dependent typing")
+    func typeTextRequiresCompleteSnapshot() throws {
+        let complete = snapshot()
+        let source = SimulatorAccessibilitySnapshot(
+            roots: complete.roots,
+            display: complete.display,
+            nodeCount: complete.nodeCount,
+            isTruncated: true
+        )
+        let record = try source.uiAutomationRecord(
+            simulatorID: "SIM-1",
+            sequence: 1,
+            capturedAtMilliseconds: 1_000
+        )
+        let textField = try #require(record.snapshot.elements.first {
+            $0.role == .textField
+        })
+
+        #expect(!textField.actions.contains(.typeText))
+        #expect(!record.snapshot.actions.contains { $0.action == .typeText })
+    }
+
     @Test("Stable selectors prefer runtime identifiers and directional points stay bounded")
     func selectorsAndGesturePoints() throws {
         let record = try snapshot().uiAutomationRecord(
