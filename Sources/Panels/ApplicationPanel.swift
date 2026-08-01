@@ -32,6 +32,8 @@ final class ApplicationPanel: Panel {
     @ObservationIgnored
     private var captureVisibleInUI = false
     @ObservationIgnored
+    private var activeCaptureMountID: UUID?
+    @ObservationIgnored
     private var canvasRendering: Bool?
     @ObservationIgnored
     private var runtimeLease: ApplicationSurfaceRuntimeLease?
@@ -186,10 +188,12 @@ final class ApplicationPanel: Panel {
                 guard self.pickerRequestID == requestID, !Task.isCancelled else {
                     return
                 }
+#if DEBUG
                 cmuxDebugLog(
                     "applicationSurface.windows.failed"
                         + " error=\(error.localizedDescription)"
                 )
+#endif
                 self.pickerModel.phase = .failed(String(
                     localized: "applicationSurface.picker.failed",
                     defaultValue: "Application windows could not be loaded."
@@ -246,6 +250,7 @@ final class ApplicationPanel: Panel {
     func beginCaptureSession() -> UUID {
         stopHostedCapture()
         captureVisibleInUI = false
+        activeCaptureMountID = nil
         canvasRendering = true
         let token = UUID()
         activeCaptureToken = token
@@ -281,8 +286,8 @@ final class ApplicationPanel: Panel {
             onPointerDown: { [weak self] in
                 self?.hostFocusRequestHandler?()
             },
-            onRepresentableDismantled: { [weak self] view in
-                self?.setCaptureVisibleInUI(false, view: view)
+            onRepresentableDismantled: { [weak self] view, mountID in
+                self?.endCaptureViewMount(mountID, view: view)
             }
         )
         attach(view, token: captureToken)
@@ -320,6 +325,7 @@ final class ApplicationPanel: Panel {
         hostedView = nil
         activeCaptureToken = nil
         captureVisibleInUI = false
+        activeCaptureMountID = nil
     }
 
     func captureViewDidMoveToWindow(_ view: ApplicationCaptureView, token: UUID) {
@@ -341,7 +347,31 @@ final class ApplicationPanel: Panel {
         view: ApplicationCaptureView
     ) {
         guard hostedView === view else { return }
+        activeCaptureMountID = nil
         captureVisibleInUI = visible
+        applyCaptureVisibility()
+    }
+
+    func setCaptureVisibleInUI(
+        _ visible: Bool,
+        view: ApplicationCaptureView,
+        mountID: UUID
+    ) {
+        guard hostedView === view else { return }
+        activeCaptureMountID = mountID
+        captureVisibleInUI = visible
+        applyCaptureVisibility()
+    }
+
+    func endCaptureViewMount(
+        _ mountID: UUID,
+        view: ApplicationCaptureView
+    ) {
+        guard hostedView === view, activeCaptureMountID == mountID else {
+            return
+        }
+        activeCaptureMountID = nil
+        captureVisibleInUI = false
         applyCaptureVisibility()
     }
 
@@ -458,6 +488,7 @@ final class ApplicationPanel: Panel {
             hostedView = nil
             activeCaptureToken = nil
             captureVisibleInUI = false
+            activeCaptureMountID = nil
         }
     }
 

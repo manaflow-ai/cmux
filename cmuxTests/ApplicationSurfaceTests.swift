@@ -762,12 +762,17 @@ struct ApplicationSurfaceTests {
             runtime: FakeApplicationSurfaceRuntime()
         )!
         let view = panel.captureView(windowID: 42, processID: 43)
-        panel.setCaptureVisibleInUI(true, view: view)
+        let mountID = UUID()
+        panel.setCaptureVisibleInUI(
+            true,
+            view: view,
+            mountID: mountID
+        )
         #expect(panel.captureEligibleForCurrentVisibility)
 
         ApplicationCaptureRepresentable.dismantleNSView(
             view,
-            coordinator: ()
+            coordinator: mountID
         )
 
         #expect(!panel.captureEligibleForCurrentVisibility)
@@ -784,14 +789,24 @@ struct ApplicationSurfaceTests {
             runtime: FakeApplicationSurfaceRuntime()
         )!
         let staleView = panel.captureView(windowID: 42, processID: 43)
-        panel.setCaptureVisibleInUI(true, view: staleView)
+        let staleMountID = UUID()
+        panel.setCaptureVisibleInUI(
+            true,
+            view: staleView,
+            mountID: staleMountID
+        )
         let replacementView = panel.captureView(windowID: 42, processID: 43)
-        panel.setCaptureVisibleInUI(true, view: replacementView)
+        let replacementMountID = UUID()
+        panel.setCaptureVisibleInUI(
+            true,
+            view: replacementView,
+            mountID: replacementMountID
+        )
         #expect(staleView === replacementView)
 
         ApplicationCaptureRepresentable.dismantleNSView(
             staleView,
-            coordinator: ()
+            coordinator: staleMountID
         )
 
         #expect(panel.captureEligibleForCurrentVisibility)

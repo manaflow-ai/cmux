@@ -13678,8 +13678,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Application panes own standard document commands. Preserve configured
         // chord prefixes before yielding the command to the capture view, then let
         // the window's content-first key-equivalent path forward it to the helper.
-        if shouldRouteApplicationCommandEquivalentThroughContentFirst(event),
-           shortcutEventFirstResponderOwnsApplicationCaptureView(event),
+        if let applicationCaptureView = shortcutEventFirstResponderApplicationCaptureView(event),
+           applicationCaptureView.shouldRouteCommandEquivalentThroughContentFirst(
+               event
+           ),
            activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
             let shortcutContext = shortcutEventFocusContext(event).shortcutContext
             let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
@@ -17650,7 +17652,8 @@ private extension NSWindow {
         }
         if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(event, terminalView: firstResponderGhosttyView, webView: firstResponderWebView, browserWebKitKeyDownReentry: browserWebKitKeyDownReentry) { return true }
         if let firstResponderApplicationCaptureView,
-           shouldRouteApplicationCommandEquivalentThroughContentFirst(event) {
+           firstResponderApplicationCaptureView
+               .shouldRouteCommandEquivalentThroughContentFirst(event) {
             return firstResponderApplicationCaptureView.performKeyEquivalent(
                 with: event
             ) {

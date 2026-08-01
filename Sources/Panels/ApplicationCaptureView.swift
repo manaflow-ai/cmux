@@ -52,7 +52,7 @@ final class ApplicationCaptureView: NSView {
     private let onStateChanged: (ApplicationCaptureState, String?) -> Void
     private let onMovedToWindow: (ApplicationCaptureView) -> Void
     private let onPointerDown: () -> Void
-    private let onRepresentableDismantled: (ApplicationCaptureView) -> Void
+    private let onRepresentableDismantled: (ApplicationCaptureView, UUID) -> Void
     private let commandEquivalentRoutingPolicy: ApplicationCommandEquivalentRoutingPolicy
     private let remoteFrameView = CmuxRemoteFrameView(frame: .zero)
     private lazy var inputPump = ApplicationSurfaceInputPump { [weak self] events in
@@ -161,7 +161,7 @@ final class ApplicationCaptureView: NSView {
         onMovedToWindow: @escaping (ApplicationCaptureView) -> Void,
         onPointerDown: @escaping () -> Void = {},
         onRepresentableDismantled:
-            @escaping (ApplicationCaptureView) -> Void = { _ in },
+            @escaping (ApplicationCaptureView, UUID) -> Void = { _, _ in },
         commandEquivalentRoutingPolicy: ApplicationCommandEquivalentRoutingPolicy = .init()
     ) {
         sourceWindowID = windowID
@@ -271,8 +271,8 @@ final class ApplicationCaptureView: NSView {
         }
     }
 
-    func representableWasDismantled() {
-        onRepresentableDismantled(self)
+    func representableWasDismantled(mountID: UUID) {
+        onRepresentableDismantled(self, mountID)
     }
 
     func startCapture() {
@@ -559,13 +559,17 @@ final class ApplicationCaptureView: NSView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard commandEquivalentRoutingPolicy.shouldRouteThroughContentFirst(
-            event
-        )
+        guard shouldRouteCommandEquivalentThroughContentFirst(event)
         else {
             return super.performKeyEquivalent(with: event)
         }
         return enqueueKey(event, keyDown: true)
+    }
+
+    func shouldRouteCommandEquivalentThroughContentFirst(
+        _ event: NSEvent
+    ) -> Bool {
+        commandEquivalentRoutingPolicy.shouldRouteThroughContentFirst(event)
     }
 
     func performKeyEquivalent(

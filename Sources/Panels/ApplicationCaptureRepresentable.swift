@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import SwiftUI
 
 struct ApplicationCaptureRepresentable: NSViewRepresentable {
@@ -8,26 +9,38 @@ struct ApplicationCaptureRepresentable: NSViewRepresentable {
     let isVisibleInUI: Bool
     let allowsPointerInput: Bool
 
+    func makeCoordinator() -> UUID {
+        UUID()
+    }
+
     func makeNSView(context: Context) -> ApplicationCaptureView {
         let view = panel.captureView(
             windowID: windowID,
             processID: processID
         )
         view.setInputOwnership(allowsPointerInput)
-        panel.setCaptureVisibleInUI(isVisibleInUI, view: view)
+        panel.setCaptureVisibleInUI(
+            isVisibleInUI,
+            view: view,
+            mountID: context.coordinator
+        )
         return view
     }
 
     func updateNSView(_ nsView: ApplicationCaptureView, context: Context) {
         nsView.setInputOwnership(allowsPointerInput)
-        panel.setCaptureVisibleInUI(isVisibleInUI, view: nsView)
+        panel.setCaptureVisibleInUI(
+            isVisibleInUI,
+            view: nsView,
+            mountID: context.coordinator
+        )
     }
 
     static func dismantleNSView(
         _ nsView: ApplicationCaptureView,
-        coordinator: ()
+        coordinator: UUID
     ) {
         nsView.setInputOwnership(false)
-        nsView.representableWasDismantled()
+        nsView.representableWasDismantled(mountID: coordinator)
     }
 }
