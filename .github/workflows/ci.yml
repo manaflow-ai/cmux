@@ -1090,6 +1090,30 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_campfire_extension_install.py
 
+      - name: TEMP crash magnet — loop remote tmux mirror suite (issue 9348)
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Diagnostic-only, never merge: the app-host process crashes
+          # nondeterministically under dedicated-window churn
+          # (https://github.com/manaflow-ai/cmux/issues/9348). Loop the
+          # highest-yield suite so a crash happens inside this job and the
+          # collection step below captures a symbolicated report.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          for i in $(seq 1 20); do
+            echo "=== crash magnet iteration $i ==="
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests \
+              test
+          done
+
       - name: Collect crash reports
         if: failure()
         run: |
