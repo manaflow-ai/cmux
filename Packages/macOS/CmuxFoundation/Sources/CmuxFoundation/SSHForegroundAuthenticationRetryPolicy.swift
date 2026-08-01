@@ -158,19 +158,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               cmux_ssh_auth_tree_process_pids="$cmux_ssh_auth_tree_process_pids ${cmux_ssh_auth_tree_token%%:*}"
             done
             /bin/kill -STOP $cmux_ssh_auth_tree_process_pids >/dev/null 2>&1 || true
-            cmux_ssh_auth_identity_snapshot=$(cmux_ssh_auth_process_identity_snapshot)
-            for cmux_ssh_auth_tree_token in $1; do
-              cmux_ssh_auth_tree_process_pid=${cmux_ssh_auth_tree_token%%:*}
-              cmux_ssh_auth_tree_process_identity=${cmux_ssh_auth_tree_token#*:}
-              if cmux_ssh_auth_process_has_identity \
-                "$cmux_ssh_auth_tree_process_pid" \
-                "$cmux_ssh_auth_tree_process_identity" \
-                "$cmux_ssh_auth_identity_snapshot"; then
-                printf "%s " "$cmux_ssh_auth_tree_token"
-              else
-                /bin/kill -CONT "$cmux_ssh_auth_tree_process_pid" >/dev/null 2>&1 || true
-              fi
-            done
+            printf "%s" "$cmux_ssh_auth_tree_processes"
           )
 
           cmux_ssh_force_kill_auth_tree() (
@@ -190,6 +178,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_tree_second_frozen_processes=$(cmux_ssh_freeze_auth_processes "$cmux_ssh_auth_tree_second_snapshot")
             cmux_ssh_auth_tree_seen_processes=" "
             cmux_ssh_auth_identity_snapshot=$(cmux_ssh_auth_process_identity_snapshot)
+            cmux_ssh_auth_tree_verified_processes=
+            cmux_ssh_auth_tree_verified_pids=
             for cmux_ssh_auth_tree_token in \
               $cmux_ssh_auth_tree_first_frozen_processes \
               $cmux_ssh_auth_tree_second_frozen_processes; do
@@ -203,17 +193,24 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 "$cmux_ssh_auth_tree_process_pid" \
                 "$cmux_ssh_auth_tree_process_identity" \
                 "$cmux_ssh_auth_identity_snapshot"; then
-                if ! /bin/kill -KILL "$cmux_ssh_auth_tree_process_pid" >/dev/null 2>&1; then
-                  cmux_ssh_auth_latest_identity_snapshot=$(cmux_ssh_auth_process_identity_snapshot)
-                  if cmux_ssh_auth_process_has_identity \
-                    "$cmux_ssh_auth_tree_process_pid" \
-                    "$cmux_ssh_auth_tree_process_identity" \
-                    "$cmux_ssh_auth_latest_identity_snapshot"; then
-                    /bin/kill -CONT "$cmux_ssh_auth_tree_process_pid" >/dev/null 2>&1 || true
-                  fi
-                fi
+                cmux_ssh_auth_tree_verified_processes="$cmux_ssh_auth_tree_verified_processes $cmux_ssh_auth_tree_token"
+                cmux_ssh_auth_tree_verified_pids="$cmux_ssh_auth_tree_verified_pids $cmux_ssh_auth_tree_process_pid"
               fi
             done
+            if [ -n "$cmux_ssh_auth_tree_verified_pids" ] \
+              && ! /bin/kill -KILL $cmux_ssh_auth_tree_verified_pids >/dev/null 2>&1; then
+              cmux_ssh_auth_latest_identity_snapshot=$(cmux_ssh_auth_process_identity_snapshot)
+              for cmux_ssh_auth_tree_token in $cmux_ssh_auth_tree_verified_processes; do
+                cmux_ssh_auth_tree_process_pid=${cmux_ssh_auth_tree_token%%:*}
+                cmux_ssh_auth_tree_process_identity=${cmux_ssh_auth_tree_token#*:}
+                if cmux_ssh_auth_process_has_identity \
+                  "$cmux_ssh_auth_tree_process_pid" \
+                  "$cmux_ssh_auth_tree_process_identity" \
+                  "$cmux_ssh_auth_latest_identity_snapshot"; then
+                  /bin/kill -CONT "$cmux_ssh_auth_tree_process_pid" >/dev/null 2>&1 || true
+                fi
+              done
+            fi
           )
 
           cmux_ssh_terminate_auth_process() (
