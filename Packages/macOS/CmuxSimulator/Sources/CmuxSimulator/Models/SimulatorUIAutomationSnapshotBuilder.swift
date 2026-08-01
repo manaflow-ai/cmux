@@ -392,11 +392,13 @@ struct SimulatorUIAutomationSnapshotBuilder {
         return records.map { record in
             let element = record.element
             guard element.actions.contains(.typeText) else { return record }
-            let hasUniqueSelector = element.stableSelector.map { selector in
-                elements.lazy.filter {
-                    $0.state.isVisible && selector.matches($0)
-                }.prefix(2).count == 1
-            } ?? false
+            let hasUniqueSelector = !source.isTruncated && (
+                element.stableSelector.map { selector in
+                    elements.lazy.filter {
+                        $0.state.isVisible && selector.matches($0)
+                    }.prefix(2).count == 1
+                } ?? false
+            )
             guard !hasUniqueSelector else {
                 return record
             }

@@ -129,10 +129,12 @@ public struct SimulatorUIAutomationExecutor {
             coordinator: coordinator,
             retryingUntil: simulatorUIMonotonicNowMilliseconds() + 2_500
         )
+        try requireCompleteSimulatorUISnapshot(initial)
         let refreshed = try await captureSimulatorUIAutomationSnapshot(
             coordinator: coordinator,
             retryingUntil: simulatorUIMonotonicNowMilliseconds() + 2_500
         )
+        try requireCompleteSimulatorUISnapshot(refreshed)
         guard refreshed.snapshot.screenHash == initial.snapshot.screenHash else {
             throw simulatorUIStateChangedFailure()
         }
@@ -904,6 +906,7 @@ public struct SimulatorUIAutomationExecutor {
         stableHash: inout String?,
         stableSince: inout Int64?
     ) throws -> (didMatch: Bool, elements: [SimulatorUIAutomationElement]) {
+        try requireCompleteSimulatorUISnapshot(record)
         if wait.predicate == "settled" {
             if stableHash != record.snapshot.screenHash {
                 stableHash = record.snapshot.screenHash
@@ -1286,6 +1289,21 @@ public struct SimulatorUIAutomationExecutor {
             message: message,
             recoveryHint: simulatorUICaptureRecoveryHint()
         )
+    }
+
+    private func requireCompleteSimulatorUISnapshot(
+        _ record: SimulatorUIAutomationSnapshotRecord
+    ) throws {
+        guard !record.snapshot.isTruncated else {
+            throw SimulatorUIAutomationFailure(
+                code: "snapshot_truncated",
+                message: String(
+                    localized: "cli.simulator.output.uiSnapshotTruncated",
+                    defaultValue: "The Simulator UI snapshot reached its element limit"
+                ),
+                recoveryHint: simulatorUICaptureRecoveryHint()
+            )
+        }
     }
 
     private func simulatorUIStateChangedFailure(

@@ -100,7 +100,8 @@ extension SimulatorUIAutomationSnapshotRecord {
     public func stableSelector(
         for elementRef: String
     ) -> SimulatorUIAutomationSelector? {
-        elementsByRef[elementRef]?.element.stableSelector
+        guard !snapshot.isTruncated else { return nil }
+        return elementsByRef[elementRef]?.element.stableSelector
     }
 
     /// Resolves a swipe wholly inside the target's visible frame.

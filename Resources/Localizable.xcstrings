@@ -49387,7 +49387,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les coordonnées du robinet et les sélecteurs d'accessibilité s'excluent mutuellement"
+            "value": "Les coordonnées de toucher et les sélecteurs d’accessibilité s’excluent mutuellement"
           }
         },
         "pl": {
@@ -49422,31 +49422,31 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap za pristupačnost zahtijeva oznaku ili identifikator"
+            "value": "Dodir pristupačnosti zahtijeva oznaku ili identifikator"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Für einen barrierefreien Wasserhahn ist eine Beschriftung oder Kennzeichnung erforderlich"
+            "value": "Für ein Tippen per Bedienungshilfe ist eine Beschriftung oder Kennung erforderlich"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتطلب صنبور إمكانية الوصول تسمية أو معرفًا"
+            "value": "يتطلب النقر عبر إمكانية الوصول تسمية أو معرّفًا"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En tilgængelighedshane kræver en etiket eller identifikator"
+            "value": "Et tilgængelighedstryk kræver en etiket eller identifikator"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un grifo de accesibilidad requiere una etiqueta o identificador"
+            "value": "Un toque de accesibilidad requiere una etiqueta o un identificador"
           }
         },
         "it": {
@@ -49470,7 +49470,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un robinet d'accessibilité nécessite une étiquette ou un identifiant"
+            "value": "Un toucher d’accessibilité nécessite une étiquette ou un identifiant"
           }
         },
         "nb": {
@@ -49482,7 +49482,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uma torneira de acessibilidade requer um rótulo ou identificador"
+            "value": "Um toque de acessibilidade requer um rótulo ou identificador"
           }
         },
         "th": {
@@ -49494,13 +49494,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无障碍水龙头需要标签或标识符"
+            "value": "辅助功能轻点需要标签或标识符"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無障礙水龍頭需要標籤或識別符"
+            "value": "輔助功能點按需要標籤或識別符"
           }
         },
         "pl": {
@@ -49518,7 +49518,7 @@
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Для крана доступності потрібна мітка або ідентифікатор"
+            "value": "Для дотику через функції доступності потрібна мітка або ідентифікатор"
           }
         },
         "tr": {
@@ -49547,109 +49547,109 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تمت مطابقة العديد من عناصر المحاكاة المرئية؛أضف --معرف أو --role"
+            "value": "تطابقت عدة عناصر مرئية في Simulator؛ أضف --identifier أو --role"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Više vidljivih elemenata simulatora usklađeno;dodajte --identifikator ili --role"
+            "value": "Podudara se više vidljivih elemenata Simulatora; dodajte --identifier ili --role"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Flere synlige simulatorelementer matchede;tilføje --identifier eller --role"
+            "value": "Flere synlige Simulator-elementer matchede; tilføj --identifier eller --role"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mehrere sichtbare Simulatorelemente stimmten überein;--identifier oder --role hinzufügen"
+            "value": "Mehrere sichtbare Simulator-Elemente stimmten überein; fügen Sie --identifier oder --role hinzu"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Più elementi visibili del simulatore corrispondono;aggiungi --identifier o --role"
+            "value": "Più elementi visibili del simulatore corrispondono; aggiungi --identifier o --role"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ធាតុក្លែងធ្វើដែលមើលឃើញច្រើនត្រូវគ្នា;បន្ថែម --កំណត់អត្តសញ្ញាណ ឬ --តួនាទី"
+            "value": "ធាតុ Simulator ដែលមើលឃើញច្រើនត្រូវគ្នា; បន្ថែម --identifier ឬ --role"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dopasowano wiele widocznych elementów symulatora;dodaj --identifier lub --role"
+            "value": "Dopasowano wiele widocznych elementów symulatora; dodaj --identifier lub --role"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vários elementos visíveis do Simulador correspondidos;adicione --identifier ou --role"
+            "value": "Vários elementos visíveis do Simulador corresponderam; adicione --identifier ou --role"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Birden çok görünür Simülatör öğesi eşleşti;--identifier veya --role ekle"
+            "value": "Birden çok görünür Simülatör öğesi eşleşti; --identifier veya --role ekleyin"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Кілька видимих ​​елементів Симулятора зіставлено;додати --identifier або --role"
+            "value": "Збіглося кілька видимих елементів симулятора; додайте --identifier або --role"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Múltiples elementos visibles del Simulador coinciden;agregar --identificador o --role"
+            "value": "Coincidieron varios elementos visibles del simulador; añade --identifier o --role"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "จับคู่องค์ประกอบ Simulator ที่มองเห็นได้หลายรายการเพิ่ม --identifier หรือ --role"
+            "value": "พบองค์ประกอบ Simulator ที่มองเห็นได้หลายรายการ; เพิ่ม --identifier หรือ --role"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plusieurs éléments visibles du simulateur correspondant ;ajouter --identifier ou --role"
+            "value": "Plusieurs éléments visibles du simulateur correspondent; ajoutez --identifier ou --role"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "匹配多個可見的模擬器元素；添加 --identifier 或 --role"
+            "value": "比對到多個可見的模擬器元素；請加入 --identifier 或 --role"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "匹配多个可见的模拟器元素；添加 --identifier 或 --role"
+            "value": "匹配到多个可见的模拟器元素；请添加 --identifier 或 --role"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Совпало несколько видимых элементов симулятора;добавить --identifier или --role"
+            "value": "Совпало несколько видимых элементов симулятора; добавьте --identifier или --role"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Flere synlige simulatorelementer matchet;legg til --identifier eller --role"
+            "value": "Flere synlige Simulator-elementer samsvarte; legg til --identifier eller --role"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "여러 개의 가시적 시뮬레이터 요소가 일치합니다.--identifier 또는 --role 추가"
+            "value": "여러 개의 보이는 시뮬레이터 요소가 일치합니다. --identifier 또는 --role을 추가하세요."
           }
         }
       }
