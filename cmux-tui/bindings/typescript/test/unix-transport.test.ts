@@ -36,6 +36,7 @@ interface DelayedUnixFixture {
   readonly received: string[];
   ready(): Promise<void>;
   release(): Promise<void>;
+  respond(json: string): void;
   close(): Promise<void>;
 }
 
@@ -87,6 +88,10 @@ async function delayedUnixFixture(
       await physicallyConnected;
       connectListener.call(socket);
       await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    },
+    respond(json: string) {
+      assert.ok(peer);
+      peer.write(`${json}\n`);
     },
     async close() {
       transport.close();
@@ -240,6 +245,40 @@ test("raw Unix transport vetoes a mutation whose timer was synchronously starved
 
     assert.ok(failure instanceof RawCmuxTimeoutError);
     assert.deepEqual(fixture.received, []);
+  } finally {
+    await client.close();
+    await fixture.close();
+  }
+});
+
+test("raw Unix zero timeout dispatches once before timer settlement", async () => {
+  const fixture = await delayedUnixFixture();
+  const client = new CmuxClient({
+    transport: fixture.transport,
+    timeoutMs: 1_000,
+    maxPendingResponses: 1,
+  });
+  try {
+    await fixture.release();
+    const request = client.sendRaw(
+      rawMutation(204) as never,
+      { timeoutMs: 0 },
+    );
+    await assert.rejects(() => request, RawCmuxTimeoutError);
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(
+      fixture.received.map((json) => (JSON.parse(json) as { id?: unknown }).id),
+      [204],
+    );
+
+    const followup = client.sendRaw({ id: 205, cmd: "ping" });
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    fixture.respond('{"id":205,"ok":true,"data":{"alive":true}}');
+    assert.equal((await followup).ok, true);
+    assert.deepEqual(
+      fixture.received.map((json) => (JSON.parse(json) as { id?: unknown }).id),
+      [204, 205],
+    );
   } finally {
     await client.close();
     await fixture.close();

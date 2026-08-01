@@ -506,6 +506,43 @@ test("raw WebSocket vetoes a mutation whose timer was synchronously starved", as
   await client.close();
 });
 
+test("raw WebSocket zero timeout dispatches synchronously before timer settlement", async () => {
+  const transport = new WebSocketTransport("ws://localhost/cmux", {
+    WebSocket: Constructor,
+    authToken: "shared-token",
+  });
+  const client = new RawClient({
+    transport,
+    timeoutMs: 1_000,
+    maxPendingResponses: 1,
+  });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  socket.open();
+  const request = client.sendRaw(
+    rawMutation(104) as never,
+    { timeoutMs: 0 },
+  );
+  const outcome = request.then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+
+  try {
+    assert.equal(socket.sent.length, 2);
+    assert.equal((JSON.parse(socket.sent[1]!) as { id?: unknown }).id, 104);
+    const failure = await outcome;
+    assert.ok(failure instanceof RawCmuxTimeoutError);
+
+    const followup = client.sendRaw({ id: 105, cmd: "ping" });
+    assert.equal(socket.sent.length, 3);
+    assert.equal((JSON.parse(socket.sent[2]!) as { id?: unknown }).id, 105);
+    socket.message('{"id":105,"ok":true,"data":{"alive":true}}');
+    assert.equal((await followup).ok, true);
+  } finally {
+    await client.close();
+  }
+});
+
 test("WebSocketTransport reports a rejected credential", () => {
   let rejected = 0;
   const transport = new WebSocketTransport("ws://localhost/cmux", {
