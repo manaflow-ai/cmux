@@ -160,8 +160,12 @@ private actor LifecycleSyncGate {
     @Test func callbackFailureOffersRetryAndSuccessfulTokenRecoversReadiness() async {
         let registration = LifecyclePushRegistration()
         var registrationRequests = 0
+        let suiteName = "push-coordinator-callback-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let coordinator = MobilePushCoordinator(
             registration: registration,
+            defaults: defaults,
             authorizationStatus: { .authorized },
             requestAuthorization: { true },
             registerForRemoteNotifications: { registrationRequests += 1 }
@@ -295,8 +299,12 @@ private actor LifecycleSyncGate {
             ),
             syncGate: gate
         )
+        let suiteName = "push-coordinator-shared-retry-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let coordinator = MobilePushCoordinator(
             registration: registration,
+            defaults: defaults,
             authorizationStatus: { .authorized }
         )
 

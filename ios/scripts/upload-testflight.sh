@@ -36,7 +36,7 @@ verify_ipa_aps_environment_production() {
   # Read the signed entitlements and assert aps-environment == production.
   ent="$workdir/signed-entitlements.plist"
   if ! codesign -d --entitlements :- --xml "$app" > "$ent" 2>/dev/null; then
-    echo "error: could not read entitlements from signed app: $app" >&2
+    echo "error: could not read entitlements from signed app: $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
@@ -44,21 +44,21 @@ verify_ipa_aps_environment_production() {
   # require exact entitlement values so the error explains the missing capability.
   aps="$("$PLISTBUDDY" -c 'Print :aps-environment' "$ent" 2>/dev/null || true)"
   if [[ "$aps" != "production" ]]; then
-    echo "error: signed app aps-environment is '${aps:-<absent>}', expected 'production' (push would silently fail): $app" >&2
+    echo "error: signed app aps-environment is '${aps:-<absent>}', expected 'production' (push would silently fail): $ipa" >&2
     plutil -p "$ent" >&2 || true
     rm -rf "$workdir"
     return 1
   fi
   time_sensitive="$("$PLISTBUDDY" -c 'Print :com.apple.developer.usernotifications.time-sensitive' "$ent" 2>/dev/null || true)"
   if [[ "$time_sensitive" != "true" ]]; then
-    echo "error: signed app com.apple.developer.usernotifications.time-sensitive is '${time_sensitive:-<absent>}', expected 'true' (Time Sensitive delivery would be stripped): $app" >&2
+    echo "error: signed app com.apple.developer.usernotifications.time-sensitive is '${time_sensitive:-<absent>}', expected 'true' (Time Sensitive delivery would be stripped): $ipa" >&2
     plutil -p "$ent" >&2 || true
     rm -rf "$workdir"
     return 1
   fi
   apple_sign_in="$("$PLISTBUDDY" -c 'Print :com.apple.developer.applesignin:0' "$ent" 2>/dev/null || true)"
   if [[ "$apple_sign_in" != "Default" ]]; then
-    echo "error: signed app com.apple.developer.applesignin is '${apple_sign_in:-<absent>}', expected 'Default' (Sign in with Apple would fail): $app" >&2
+    echo "error: signed app com.apple.developer.applesignin is '${apple_sign_in:-<absent>}', expected 'Default' (Sign in with Apple would fail): $ipa" >&2
     plutil -p "$ent" >&2 || true
     rm -rf "$workdir"
     return 1
@@ -90,14 +90,14 @@ verify_ipa_bundle_identity() {
 
   plist_bundle_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null || true)"
   if [[ "$plist_bundle_id" != "$expected_bundle_id" ]]; then
-    echo "error: signed IPA CFBundleIdentifier is '${plist_bundle_id:-<absent>}', expected '$expected_bundle_id': $app" >&2
+    echo "error: signed IPA CFBundleIdentifier is '${plist_bundle_id:-<absent>}', expected '$expected_bundle_id': $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
   if [[ -n "$expected_crash_reporting" ]]; then
     plist_crash_reporting="$("$PLISTBUDDY" -c 'Print :CMUXCrashReportingEnabled' "$app/Info.plist" 2>/dev/null || true)"
     if [[ "$plist_crash_reporting" != "$expected_crash_reporting" ]]; then
-      echo "error: signed IPA CMUXCrashReportingEnabled is '${plist_crash_reporting:-<absent>}', expected '$expected_crash_reporting': $app" >&2
+      echo "error: signed IPA CMUXCrashReportingEnabled is '${plist_crash_reporting:-<absent>}', expected '$expected_crash_reporting': $ipa" >&2
       rm -rf "$workdir"
       return 1
     fi
@@ -105,38 +105,38 @@ verify_ipa_bundle_identity() {
 
   profile_plist="$workdir/profile.plist"
   if ! security cms -D -i "$app/embedded.mobileprovision" > "$profile_plist"; then
-    echo "error: could not decode embedded.mobileprovision from signed IPA: $app" >&2
+    echo "error: could not decode embedded.mobileprovision from signed IPA: $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
   profile_app_id="$("$PLISTBUDDY" -c 'Print :Entitlements:application-identifier' "$profile_plist" 2>/dev/null || true)"
   if [[ "$profile_app_id" != "$expected_app_id" ]]; then
-    echo "error: signed IPA provisioning profile application-identifier is '${profile_app_id:-<absent>}', expected '$expected_app_id': $app" >&2
+    echo "error: signed IPA provisioning profile application-identifier is '${profile_app_id:-<absent>}', expected '$expected_app_id': $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
   profile_aps="$("$PLISTBUDDY" -c 'Print :Entitlements:aps-environment' "$profile_plist" 2>/dev/null || true)"
   if [[ "$profile_aps" != "production" ]]; then
-    echo "error: signed IPA provisioning profile aps-environment is '${profile_aps:-<absent>}', expected 'production': $app" >&2
+    echo "error: signed IPA provisioning profile aps-environment is '${profile_aps:-<absent>}', expected 'production': $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
   profile_time_sensitive="$("$PLISTBUDDY" -c 'Print :Entitlements:com.apple.developer.usernotifications.time-sensitive' "$profile_plist" 2>/dev/null || true)"
   if [[ "$profile_time_sensitive" != "true" ]]; then
-    echo "error: signed IPA provisioning profile com.apple.developer.usernotifications.time-sensitive is '${profile_time_sensitive:-<absent>}', expected 'true': $app" >&2
+    echo "error: signed IPA provisioning profile com.apple.developer.usernotifications.time-sensitive is '${profile_time_sensitive:-<absent>}', expected 'true': $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
 
   ent="$workdir/signed-entitlements.plist"
   if ! codesign -d --entitlements :- --xml "$app" > "$ent" 2>/dev/null; then
-    echo "error: could not read signed IPA entitlements: $app" >&2
+    echo "error: could not read signed IPA entitlements: $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
   ent_app_id="$("$PLISTBUDDY" -c 'Print :application-identifier' "$ent" 2>/dev/null || true)"
   if [[ "$ent_app_id" != "$expected_app_id" ]]; then
-    echo "error: signed IPA entitlement application-identifier is '${ent_app_id:-<absent>}', expected '$expected_app_id': $app" >&2
+    echo "error: signed IPA entitlement application-identifier is '${ent_app_id:-<absent>}', expected '$expected_app_id': $ipa" >&2
     plutil -p "$ent" >&2 || true
     rm -rf "$workdir"
     return 1

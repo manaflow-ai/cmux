@@ -337,6 +337,14 @@ def main() -> int:
         )
         previous_graph = package_graph(previous_manifests, ref=merge_base)
         previous_remote_memo: dict[str, bool] = {}
+        root_by_resolved_path = {
+            manifest.parent.resolve(): manifest_root
+            for manifest_root, manifest in all_manifests.items()
+        }
+        previous_root_by_resolved_path = {
+            manifest.parent.resolve(): manifest_root
+            for manifest_root, manifest in previous_manifests.items()
+        }
         for root, manifest in all_manifests.items():
             if manifest.as_posix() not in changed_files:
                 continue
@@ -348,20 +356,59 @@ def main() -> int:
             )
             if current_calls == previous_calls:
                 continue
-            # Local path-only dependency edits do not always change the resolved
-            # external pins. Require a matching Package.resolved diff only when
-            # the edited manifest's graph currently has, previously had, or
-            # directly changes a remote dependency.
-            if (
-                dependency_calls_include_url(current_calls + previous_calls)
-                or has_remote_dependency(root, graph, current_remote_memo, set())
-                or has_remote_dependency(
-                    root,
-                    previous_graph,
-                    previous_remote_memo,
-                    set(),
+            # A dependency edit requires lockfile diffs only when it can move
+            # the externally pinned set. Xcode's originHash covers the
+            # resolved remote inputs, not the raw dependency list: adding or
+            # removing a path dependency whose packages were already reachable
+            # from this manifest leaves every affected Package.resolved
+            # byte-identical (verified against Xcode 26.6), so requiring a
+            # diff there demands an edit no honest resolution can produce.
+            # A changed remote requirement always counts, and so does a path
+            # dependency that pulls previously unreachable remote pins into
+            # (or drops still-pinned ones out of) this manifest's graph.
+            added_calls = [
+                call for call in current_calls if call not in previous_calls
+            ]
+            removed_calls = [
+                call for call in previous_calls if call not in current_calls
+            ]
+            if dependency_calls_include_url(added_calls + removed_calls):
+                changed_dependency_roots.add(root)
+                continue
+            previous_closure = package_dependency_closure(root, previous_graph)
+            current_closure = package_dependency_closure(root, graph)
+            requires_lockfile_diff = False
+            for call in added_calls:
+                path_match = PACKAGE_PATH_ARGUMENT_RE.search(call)
+                if path_match is None:
+                    continue
+                added_root = root_by_resolved_path.get(
+                    (manifest.parent / path_match.group(1)).resolve()
                 )
-            ):
+                if added_root is None:
+                    continue
+                if added_root not in previous_closure and has_remote_dependency(
+                    added_root, graph, current_remote_memo, set()
+                ):
+                    requires_lockfile_diff = True
+                    break
+            for call in removed_calls:
+                if requires_lockfile_diff:
+                    break
+                path_match = PACKAGE_PATH_ARGUMENT_RE.search(call)
+                if path_match is None:
+                    continue
+                removed_root = previous_root_by_resolved_path.get(
+                    (manifest.parent / path_match.group(1)).resolve()
+                )
+                if removed_root is None:
+                    continue
+                if removed_root not in current_closure and has_remote_dependency(
+                    removed_root, previous_graph, previous_remote_memo, set()
+                ):
+                    requires_lockfile_diff = True
+                    break
+            if requires_lockfile_diff:
                 changed_dependency_roots.add(root)
 
     if (
