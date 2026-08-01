@@ -14,6 +14,8 @@ extension CMUXCLI {
         switch output {
         case .completed:
             print(String(localized: "cli.simulator.output.accepted", defaultValue: "Completed"))
+        case .uiAction:
+            print(simulatorUIActionOutput(payload))
         case .eventLog:
             for event in payload["events"] as? [[String: Any]] ?? [] {
                 let timestamp = simulatorTerminalText(event["timestamp"] as? String ?? "")
@@ -69,6 +71,24 @@ extension CMUXCLI {
         case .foregroundApplication:
             printSimulatorForegroundApplication(payload)
         }
+    }
+
+    func simulatorUIActionOutput(_ payload: [String: Any]) -> String {
+        guard payload["snapshot_warning"] != nil || payload["ui_error"] != nil else {
+            return String(
+                localized: "cli.simulator.output.accepted",
+                defaultValue: "Completed"
+            )
+        }
+        let reportedKeys = [
+            "completed",
+            "snapshot_warning",
+            "action",
+            "ui_error",
+        ]
+        return jsonString(reportedKeys.reduce(into: [String: Any]()) { result, key in
+            if let value = payload[key] { result[key] = value }
+        })
     }
 
     func printSimulatorPermissions(_ payload: [String: Any]) {
