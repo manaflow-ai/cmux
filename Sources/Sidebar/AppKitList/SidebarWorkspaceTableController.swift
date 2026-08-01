@@ -1375,13 +1375,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let configuration = rows[row]
         guard let model = configuration.appKitWorkspaceRowModel else { return }
         guard let actions = configuration.appKitWorkspaceRowActions else {
-            cell.configurePresentation(model: model)
+            cell.configurePresentation(
+                model: model,
+                environment: configuration.environment
+            )
             return
         }
         let rowId = configuration.id
         cell.setPresentationActive(isPresentationActive)
         cell.configure(
             model: model,
+            environment: configuration.environment,
             actions: actions,
             isPointerHovering: hoveredRowId == rowId && contextMenuRowId != rowId,
             contextMenuDidOpen: { [weak self] in
@@ -1432,12 +1436,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let configuration = rows[row]
         guard let model = configuration.appKitGroupHeaderModel else { return }
         guard let actions = configuration.appKitGroupHeaderActions else {
-            cell.configurePresentation(model: model)
+            cell.configurePresentation(
+                model: model,
+                environment: configuration.environment
+            )
             return
         }
         let rowId = configuration.id
         cell.configure(
             model: model,
+            environment: configuration.environment,
             actions: actions,
             isPointerHovering: hoveredRowId == rowId && contextMenuRowId != rowId,
             contextMenuDidOpen: { [weak self] in

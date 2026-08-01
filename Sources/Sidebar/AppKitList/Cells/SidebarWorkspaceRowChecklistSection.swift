@@ -117,7 +117,7 @@ final class SidebarRowChecklistSection: NSView {
             firstUncheckedText: model.snapshot.checklistFirstUncheckedText,
             isActive: model.isActive,
             isMultiSelected: model.isMultiSelected,
-            colorSchemeIsDark: model.colorSchemeIsDark,
+            colorSchemeIsDark: palette.colorScheme == .dark,
             settings: model.settings,
             magnificationPercent: model.globalFontMagnificationPercent,
             isExpanded: model.isChecklistExpanded,

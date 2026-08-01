@@ -27,6 +27,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private let hintPill = SidebarShortcutHintPillView()
 
     private var model: SidebarGroupHeaderRowModel?
+    private var environment: SidebarWorkspaceTableEnvironmentSnapshot?
     private var actions: SidebarGroupHeaderRowActions?
     private var isPointerHovering = false
     private var contextMenuVisible = false
@@ -59,7 +60,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         addSubview(backgroundView)
 
         pinImageView.imageScaling = .scaleProportionallyDown
-        pinImageView.contentTintColor = NSColor.secondaryLabelColor.withAlphaComponent(0.8)
         addSubview(pinImageView)
 
         chevronButton.onClick = { [weak self] in self?.actions?.onToggleCollapsed() }
@@ -95,6 +95,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         super.prepareForReuse()
         suspendPresentation()
         model = nil
+        environment = nil
         hintPill.resetForReuse()
     }
 
@@ -105,11 +106,18 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         contextMenuVisible = false
     }
 
-    func configurePresentation(model: SidebarGroupHeaderRowModel) {
+    func configurePresentation(
+        model: SidebarGroupHeaderRowModel,
+        environment: SidebarWorkspaceTableEnvironmentSnapshot
+    ) {
         suspendPresentation()
-        guard self.model != model else { return }
+        let environmentChanged = self.environment.map {
+            !$0.hasEquivalentPresentation(to: environment)
+        } ?? true
+        guard self.model != model || environmentChanged else { return }
         self.model = model
-        applyModel(model)
+        self.environment = environment
+        applyModel(model, environment: environment)
         needsLayout = true
     }
 
@@ -117,6 +125,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     func configure(
         model: SidebarGroupHeaderRowModel,
+        environment: SidebarWorkspaceTableEnvironmentSnapshot,
         actions: SidebarGroupHeaderRowActions,
         isPointerHovering: Bool,
         contextMenuDidOpen: @escaping () -> Void,
@@ -124,18 +133,25 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     ) {
         let requiresFullApply = self.actions == nil
         let previous = self.model
+        let environmentChanged = self.environment.map {
+            !$0.hasEquivalentPresentation(to: environment)
+        } ?? true
         self.actions = actions
+        self.environment = environment
         self.contextMenuDidOpen = contextMenuDidOpen
         self.contextMenuDidClose = contextMenuDidClose
         let hoverChanged = self.isPointerHovering != isPointerHovering
         self.isPointerHovering = isPointerHovering
-        guard requiresFullApply || previous != model || hoverChanged else { return }
+        guard requiresFullApply || previous != model || hoverChanged || environmentChanged else { return }
         self.model = model
-        applyModel(model)
+        applyModel(model, environment: environment)
         needsLayout = true
     }
 
-    private func applyModel(_ model: SidebarGroupHeaderRowModel) {
+    private func applyModel(
+        _ model: SidebarGroupHeaderRowModel,
+        environment: SidebarWorkspaceTableEnvironmentSnapshot
+    ) {
         // Legacy parity: no implicit layer actions on content/color changes.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -150,6 +166,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 pointSize: GlobalFontMagnification.scaledSize(metrics.pinnedIconFontSize, percent: percent),
                 weight: .semibold
             )
+            pinImageView.contentTintColor = environment.secondaryTextColor.withAlphaComponent(0.8)
             pinImageView.toolTip = String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
         }
 
@@ -158,7 +175,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.chevronFontSize, percent: percent),
             weight: .semibold
         )
-        chevronButton.contentTintColor = .secondaryLabelColor
+        chevronButton.contentTintColor = environment.secondaryTextColor
         chevronButton.setAccessibilityLabel(
             model.isCollapsed
                 ? String(localized: "workspaceGroup.expand.a11y", defaultValue: "Expand group")
@@ -171,14 +188,17 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: percent),
             weight: .semibold
         )
-        iconImageView.contentTintColor = model.tintHex.flatMap { NSColor(hex: $0) } ?? .secondaryLabelColor
+        iconImageView.contentTintColor = model.tintHex.flatMap { NSColor(hex: $0) }
+            ?? environment.secondaryTextColor
 
         nameField.stringValue = model.name
         nameField.font = .systemFont(
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
             weight: .semibold
         )
-        nameField.textColor = model.isAnchorActive ? .labelColor : NSColor.labelColor.withAlphaComponent(0.9)
+        nameField.textColor = model.isAnchorActive
+            ? environment.primaryTextColor
+            : environment.primaryTextColor.withAlphaComponent(0.9)
 
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
@@ -204,7 +224,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             pointSize: GlobalFontMagnification.scaledSize(metrics.plusFontSize, percent: percent),
             weight: .medium
         )
-        plusButton.contentTintColor = .secondaryLabelColor
+        plusButton.contentTintColor = environment.secondaryTextColor
         plusButton.setAccessibilityLabel(String(
             localized: "workspaceGroup.newWorkspaceInGroup.a11y",
             defaultValue: "New workspace in group"
@@ -213,7 +233,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         backgroundView.layer?.cornerRadius = model.isMultiSelected && !model.isAnchorActive
             ? 6
             : 4
-        backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
+        backgroundView.layer?.backgroundColor = headerBackgroundColor(
+            for: model,
+            environment: environment
+        ).cgColor
 
         topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
         bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
@@ -224,6 +247,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             text: model.shortcutHintText,
             fontSize: GlobalFontMagnification.scaledSize(9, percent: percent),
             emphasis: model.isAnchorActive ? 1.0 : 0.9,
+            textColor: environment.primaryTextColor,
             representedIdentity: model.groupId
         )
 
@@ -266,13 +290,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// instantly (group clicks focus the anchor workspace); the next
     /// authoritative configure reconciles.
     func showOptimisticAnchorActive() {
-        guard let model, !model.isAnchorActive else { return }
+        guard let model, let environment, !model.isAnchorActive else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 4
-        backgroundView.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        backgroundView.layer?.backgroundColor = environment.primaryTextColor
+            .withAlphaComponent(0.08).cgColor
         CATransaction.commit()
-        nameField.textColor = .labelColor
+        nameField.textColor = environment.primaryTextColor
     }
 
     /// Modifier-click preview: paints the same dim membership tint as an
@@ -289,13 +314,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// Plain-click counterpart: clears active and multi-selected header paint
     /// while the authoritative single selection is applied.
     func showOptimisticDeselection() {
-        guard let model, model.isAnchorActive || model.isMultiSelected else { return }
+        guard let model, let environment,
+              model.isAnchorActive || model.isMultiSelected else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 4
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         CATransaction.commit()
-        nameField.textColor = NSColor.labelColor.withAlphaComponent(0.9)
+        nameField.textColor = environment.primaryTextColor.withAlphaComponent(0.9)
     }
 
     /// Inverse of the press treatment: previewing a different row must peel a
@@ -304,13 +330,16 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// preview never changes this header's model — without an explicit clear
     /// the painted treatment would linger indefinitely.
     func clearOptimisticAnchorActive() {
-        guard let model, !model.isAnchorActive else { return }
-        applyModel(model)
+        guard let model, let environment, !model.isAnchorActive else { return }
+        applyModel(model, environment: environment)
     }
 
-    private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel) -> NSColor {
+    private func headerBackgroundColor(
+        for model: SidebarGroupHeaderRowModel,
+        environment: SidebarWorkspaceTableEnvironmentSnapshot
+    ) -> NSColor {
         if model.isAnchorActive {
-            return NSColor.labelColor.withAlphaComponent(0.08)
+            return environment.primaryTextColor.withAlphaComponent(0.08)
         }
         if model.isMultiSelected {
             return headerMultiSelectionBackgroundColor(for: model)
@@ -703,6 +732,7 @@ final class SidebarShortcutHintPillView: NSView {
         text: String?,
         fontSize: CGFloat,
         emphasis: Double,
+        textColor: NSColor,
         representedIdentity: UUID? = nil
     ) {
         let identityChanged = self.representedIdentity != representedIdentity
@@ -714,7 +744,7 @@ final class SidebarShortcutHintPillView: NSView {
         self.emphasis = emphasis
         label.stringValue = text
         label.font = .monospacedDigitSystemFont(ofSize: fontSize, weight: .semibold)
-        label.textColor = .labelColor
+        label.textColor = textColor
         materialView.layer?.borderColor = NSColor.white.withAlphaComponent(0.30 * emphasis).cgColor
         layer?.shadowColor = NSColor.black.withAlphaComponent(0.22 * emphasis).cgColor
         setRevealed(true, animated: !identityChanged)
