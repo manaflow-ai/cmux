@@ -303,11 +303,9 @@ import UIKit
     }
 
     @Test func performDropSurvivesNilSourceIndexPath() {
-        // UIKit nils UITableViewDropItem.sourceIndexPath as soon as the data
-        // source applies ANY snapshot during the drag session — which the
-        // footer-boundary reconfigure does on every drag, and live list
-        // updates do sporadically. The drop must fall back to the dragged
-        // item's identity instead of silently cancelling.
+        // UIKit can nil UITableViewDropItem.sourceIndexPath when the table is
+        // reloaded during a drag. The drop must fall back to the dragged item's
+        // identity instead of silently cancelling.
         let recorder = DropRecorder()
         let (coordinator, tableView, dragItem) = makeFixture(recorder: recorder)
         let session = FakeDropSession(

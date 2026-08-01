@@ -5,7 +5,7 @@ import CmuxMobileSupport
 import SwiftUI
 import UIKit
 
-/// Diffable data source, exact sizing, and UIKit interactions for ``WorkspaceListTable``.
+/// Array-backed data source, exact sizing, and UIKit interactions for ``WorkspaceListTable``.
 @MainActor
 final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     UITableViewDragDelegate, UITableViewDropDelegate
@@ -61,8 +61,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         workspaceID: MobileWorkspacePreview.ID
     )?
     /// The order last applied to the native data source. Keeping this compact
-    /// value avoids materializing a full diffable snapshot on every live
-    /// workspace payload update merely to ask whether row identity moved.
+    /// value avoids comparing against the data source's full item array on
+    /// every live workspace payload update merely to ask whether identity moved.
     private var appliedItems: [WorkspaceListTableItem] = []
     private var pendingContextMenuWorkspaceClose: (
         workspace: MobileWorkspacePreview,
@@ -123,10 +123,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {
         guard !isDragSessionActive else {
             // UIKit owns the lifted source cell until its drop animator
-            // completes. Any diffable apply during that interval invalidates
-            // the source index path and can leave the animator waiting forever
-            // on a cell that the snapshot removed. Keep only the latest model
-            // value and reconcile it when the native drag session closes.
+            // completes. Reloading or structurally updating the table during
+            // that interval invalidates the source index path and can leave the
+            // animator waiting forever on a removed cell. Keep only the latest
+            // model value and reconcile it when the native drag session closes.
             deferredConfigurationDuringDrag = next
             return
         }
@@ -191,14 +191,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
 
         if !structureChanged, changedRowHeightsStable {
-            // Payload-only update: no row identity moved and no row height
-            // changed, so the snapshot has nothing to diff. Routing this
-            // through apply(_:animatingDifferences:) would still run the
-            // diffable apply queue plus UITableView's whole batch-update
-            // pass on every live preview/unread/chip tick while agents
-            // stream. Re-configure the visible changed cells in place (the
-            // exact work reconfigure performs); offscreen rows pick up the
-            // new payload from `configuredItemsByID` when they dequeue.
+            // Payload-only update: no row identity or height changed, so a
+            // table reload would add a whole update pass to every live preview,
+            // unread, or chip tick while agents stream. Re-configure visible
+            // changed cells in place; offscreen rows pick up the new payload
+            // from `configuredItemsByID` when they dequeue.
             for item in changed {
                 guard
                     let indexPath = dataSource.indexPath(for: item),
@@ -222,7 +219,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             }
         }
         #if DEBUG
-        recordPayloadApplyRoute(.snapshotApply)
+        recordPayloadApplyRoute(.tableReload)
         #endif
     }
 
@@ -231,9 +228,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         isDragSessionActive = active
 
         // Updating visible footer cells directly preserves UIKit's drag
-        // lifecycle. Applying even a payload-only diffable snapshot during a
-        // lift invalidates UITableViewDropItem.sourceIndexPath and can flash or
-        // replace the source cell underneath the native preview.
+        // lifecycle. Reloading even a payload-only row during a lift can
+        // invalidate UITableViewDropItem.sourceIndexPath and flash or replace
+        // the source cell underneath the native preview.
         for indexPath in tableView.indexPathsForVisibleRows ?? [] {
             guard
                 let item = dataSource?.itemIdentifier(for: indexPath),
