@@ -28,13 +28,29 @@ use zeroize::Zeroizing;
 
 pub struct CmuxTerminalClient {
     runtime: Runtime,
-    stream: Arc<ServiceStream>,
     connection: Arc<ClientConnection>,
     provider: Arc<IrohProvider>,
     multiplexer: Arc<ServiceMultiplexer>,
     state: Arc<Mutex<ClientState>>,
-    command_sender: tokio::sync::mpsc::Sender<Bytes>,
+    terminal: Mutex<Option<ActiveTerminal>>,
     next_request: AtomicU64,
+}
+
+struct ActiveTerminal {
+    stream: Arc<ServiceStream>,
+    command_sender: tokio::sync::mpsc::Sender<Bytes>,
+    receiver_task: tokio::task::JoinHandle<()>,
+    command_task: tokio::task::JoinHandle<()>,
+}
+
+impl ActiveTerminal {
+    async fn close(self) {
+        self.command_task.abort();
+        let _ = self.command_task.await;
+        let _ = self.stream.close().await;
+        self.receiver_task.abort();
+        let _ = self.receiver_task.await;
+    }
 }
 
 struct ClientState {
@@ -286,6 +302,31 @@ fn resolve_iroh_route(route: &str) -> Result<(Url, BTreeMap<String, String>), St
     Ok((endpoint, routing))
 }
 
+async fn open_terminal_stream(
+    multiplexer: &Arc<ServiceMultiplexer>,
+    surface: u64,
+) -> Result<Arc<ServiceStream>, String> {
+    let stream = Arc::new(
+        multiplexer
+            .open(Service::TerminalBytes, BTreeMap::from([("surface".into(), surface.to_string())]))
+            .await
+            .map_err(|error| format!("open terminal-bytes-v1: {error}"))?,
+    );
+    let opened = stream
+        .receive()
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "terminal service closed before Opened".to_string())?;
+    let control: ServiceControl =
+        serde_json::from_slice(&opened.payload).map_err(|error| error.to_string())?;
+    if opened.lane != Lane::Interactive
+        || control != (ServiceControl::Opened { service: Service::TerminalBytes })
+    {
+        return Err("terminal service returned an invalid Opened acknowledgement".into());
+    }
+    Ok(stream)
+}
+
 async fn connect_client(
     invitation_uri: &str,
     surface: u64,
@@ -357,24 +398,7 @@ async fn connect_client(
             .map_err(|error| format!("libghostty: {error}"))?,
     ));
     let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
-    let stream = Arc::new(
-        multiplexer
-            .open(Service::TerminalBytes, BTreeMap::from([("surface".into(), surface.to_string())]))
-            .await
-            .map_err(|error| format!("open terminal-bytes-v1: {error}"))?,
-    );
-    let opened = stream
-        .receive()
-        .await
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "terminal service closed before Opened".to_string())?;
-    let control: ServiceControl =
-        serde_json::from_slice(&opened.payload).map_err(|error| error.to_string())?;
-    if opened.lane != Lane::Interactive
-        || control != (ServiceControl::Opened { service: Service::TerminalBytes })
-    {
-        return Err("terminal service returned an invalid Opened acknowledgement".into());
-    }
+    let stream = open_terminal_stream(&multiplexer, surface).await?;
     Ok((stream, connection, provider, multiplexer, state))
 }
 
@@ -414,6 +438,57 @@ async fn receive_frames(stream: Arc<ServiceStream>, state: Arc<Mutex<ClientState
     }
 }
 
+fn start_terminal_tasks(
+    runtime: &Runtime,
+    stream: Arc<ServiceStream>,
+    state: Arc<Mutex<ClientState>>,
+) -> ActiveTerminal {
+    let receiver_task = runtime.spawn(receive_frames(stream.clone(), state.clone()));
+    let (command_sender, mut commands) = tokio::sync::mpsc::channel::<Bytes>(256);
+    let command_stream = stream.clone();
+    let command_state = state;
+    let command_task = runtime.spawn(async move {
+        while let Some(command) = commands.recv().await {
+            if let Err(error) = command_stream.send(command).await {
+                command_state.lock().unwrap().status = format!("write: {error}");
+                break;
+            }
+        }
+    });
+    ActiveTerminal { stream, command_sender, receiver_task, command_task }
+}
+
+impl CmuxTerminalClient {
+    fn attach_terminal(&self, surface: u64) -> Result<(), String> {
+        let mut terminal = self.terminal.lock().unwrap();
+        if terminal.is_some() {
+            return Ok(());
+        }
+        let stream = self.runtime.block_on(open_terminal_stream(&self.multiplexer, surface))?;
+        let snapshot = self.runtime.block_on(self.connection.snapshot());
+        let path = snapshot
+            .transport
+            .selected_path
+            .as_ref()
+            .map(|path| format!("{:?}", path.kind).to_lowercase())
+            .unwrap_or_else(|| snapshot.transport.route.clone());
+        *self.state.lock().unwrap() =
+            ClientState::new(snapshot.transport.provider, path, snapshot.generation, surface)?;
+        *terminal = Some(start_terminal_tasks(&self.runtime, stream, self.state.clone()));
+        Ok(())
+    }
+
+    fn detach_terminal(&self) {
+        let terminal = self.terminal.lock().unwrap().take();
+        if let Some(terminal) = terminal {
+            self.runtime.block_on(terminal.close());
+        }
+        let mut state = self.state.lock().unwrap();
+        state.ready = false;
+        state.status = "detached".into();
+    }
+}
+
 fn copy_utf8(value: &str, buffer: *mut c_char, capacity: usize) -> usize {
     if !buffer.is_null() && capacity > 0 {
         let count = value.len().min(capacity - 1);
@@ -429,7 +504,9 @@ fn copy_utf8(value: &str, buffer: *mut c_char, capacity: usize) -> usize {
 
 fn enqueue_command(client: &CmuxTerminalClient, frame: Frame) -> bool {
     let Ok(encoded) = encode_frame(&frame) else { return false };
-    client.command_sender.try_send(Bytes::from(encoded)).is_ok()
+    let sender =
+        client.terminal.lock().unwrap().as_ref().map(|terminal| terminal.command_sender.clone());
+    sender.is_some_and(|sender| sender.try_send(Bytes::from(encoded)).is_ok())
 }
 
 /// Connects a terminal client and returns an owning handle, or null on failure.
@@ -474,7 +551,6 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
     };
     match runtime.block_on(connect_client(invitation, surface)) {
         Ok((stream, connection, provider, multiplexer, state)) => {
-            runtime.spawn(receive_frames(stream.clone(), state.clone()));
             let diagnostics_connection = connection.clone();
             let diagnostics_state = state.clone();
             let mut generation = connection.subscribe_generation();
@@ -493,25 +569,14 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
                     state.generation = snapshot.generation;
                 }
             });
-            let (command_sender, mut commands) = tokio::sync::mpsc::channel::<Bytes>(256);
-            let command_stream = stream.clone();
-            let command_state = state.clone();
-            runtime.spawn(async move {
-                while let Some(command) = commands.recv().await {
-                    if let Err(error) = command_stream.send(command).await {
-                        command_state.lock().unwrap().status = format!("write: {error}");
-                        break;
-                    }
-                }
-            });
+            let terminal = start_terminal_tasks(&runtime, stream, state.clone());
             Box::into_raw(Box::new(CmuxTerminalClient {
                 runtime,
-                stream,
                 connection,
                 provider,
                 multiplexer,
                 state,
-                command_sender,
+                terminal: Mutex::new(Some(terminal)),
                 next_request: AtomicU64::new(1),
             }))
         }
@@ -520,6 +585,45 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
             std::ptr::null_mut()
         }
     }
+}
+
+/// Reopens the terminal service on an already enrolled transport.
+///
+/// # Safety
+///
+/// `client` must be a live handle returned by
+/// [`cmux_terminal_client_connect`]. `error_buffer` follows the same writable
+/// buffer contract as the connect function.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_attach(
+    client: *mut CmuxTerminalClient,
+    surface: u64,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+) -> bool {
+    let Some(client) = (unsafe { client.as_ref() }) else {
+        copy_utf8("terminal client is null", error_buffer, error_capacity);
+        return false;
+    };
+    match client.attach_terminal(surface) {
+        Ok(()) => true,
+        Err(error) => {
+            copy_utf8(&error, error_buffer, error_capacity);
+            false
+        }
+    }
+}
+
+/// Closes only the terminal service while retaining the enrolled transport.
+///
+/// # Safety
+///
+/// `client` must be null or a live handle returned by
+/// [`cmux_terminal_client_connect`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_detach(client: *mut CmuxTerminalClient) {
+    let Some(client) = (unsafe { client.as_ref() }) else { return };
+    client.detach_terminal();
 }
 
 /// Disconnects and consumes an owning terminal client handle.
@@ -540,10 +644,15 @@ pub unsafe extern "C" fn cmux_terminal_client_disconnect(client: *mut CmuxTermin
     // Connection teardown may wait on the carrier. Transfer ownership to a
     // background thread so the C call is nonblocking for AppKit.
     let _ = std::thread::Builder::new().name("cmux-terminal-disconnect".into()).spawn(move || {
-        let _ = client.runtime.block_on(client.stream.close());
-        client.runtime.block_on(client.multiplexer.shutdown());
-        let _ = client.runtime.block_on(client.connection.close());
-        client.runtime.block_on(client.provider.close());
+        let terminal = client.terminal.lock().unwrap().take();
+        client.runtime.block_on(async {
+            if let Some(terminal) = terminal {
+                terminal.close().await;
+            }
+            client.multiplexer.shutdown().await;
+            let _ = client.connection.close().await;
+            client.provider.close().await;
+        });
     });
 }
 
@@ -805,6 +914,44 @@ mod tests {
                     .unwrap();
             assert_eq!(received.payload, Bytes::from_static(b"after-return"));
             owned_multiplexer.shutdown().await;
+            daemon.shutdown().await;
+        });
+    }
+
+    #[test]
+    fn terminal_service_reopens_without_a_second_enrollment() {
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(async {
+            let (client_endpoint, daemon_endpoint) = endpoint_pair();
+            let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+            let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+            let daemon_task = tokio::spawn({
+                let daemon = daemon.clone();
+                async move {
+                    for _ in 0..2 {
+                        let incoming = daemon.accept().await.unwrap().unwrap();
+                        let opened = serde_json::to_vec(&ServiceControl::Opened {
+                            service: Service::TerminalBytes,
+                        })
+                        .unwrap();
+                        incoming
+                            .stream
+                            .send_on(Lane::Interactive, Bytes::from(opened))
+                            .await
+                            .unwrap();
+                        assert!(incoming.stream.receive().await.unwrap().unwrap().finished);
+                    }
+                }
+            });
+
+            let first = open_terminal_stream(&client, 73).await.unwrap();
+            first.close().await.unwrap();
+            let second = open_terminal_stream(&client, 73).await.unwrap();
+            assert_ne!(first.id(), second.id());
+            second.close().await.unwrap();
+
+            daemon_task.await.unwrap();
+            client.shutdown().await;
             daemon.shutdown().await;
         });
     }

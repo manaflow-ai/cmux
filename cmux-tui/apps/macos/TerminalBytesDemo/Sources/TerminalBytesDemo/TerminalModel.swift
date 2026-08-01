@@ -22,16 +22,37 @@ private struct ConnectedHandle: @unchecked Sendable {
 @MainActor
 final class TerminalClientHandle {
     private var raw: OpaquePointer?
-    private let disconnectClient: (OpaquePointer) -> Void
+    private var isAttached = true
+    private let attachClient: (
+        OpaquePointer,
+        UInt64,
+        UnsafeMutablePointer<CChar>?,
+        Int
+    ) -> Bool
+    private let destroyClient: (OpaquePointer) -> Void
+    private let detachClient: (OpaquePointer) -> Void
 
     init(
         raw: OpaquePointer,
-        disconnectClient: @escaping (OpaquePointer) -> Void = {
+        attachClient: @escaping (
+            OpaquePointer,
+            UInt64,
+            UnsafeMutablePointer<CChar>?,
+            Int
+        ) -> Bool = {
+            cmux_terminal_client_attach($0, $1, $2, $3)
+        },
+        destroyClient: @escaping (OpaquePointer) -> Void = {
             cmux_terminal_client_disconnect($0)
+        },
+        detachClient: @escaping (OpaquePointer) -> Void = {
+            cmux_terminal_client_detach($0)
         }
     ) {
         self.raw = raw
-        self.disconnectClient = disconnectClient
+        self.attachClient = attachClient
+        self.destroyClient = destroyClient
+        self.detachClient = detachClient
     }
 
     func withRaw<Result>(_ operation: (OpaquePointer) -> Result) -> Result? {
@@ -40,9 +61,32 @@ final class TerminalClientHandle {
     }
 
     func disconnect() {
+        guard let raw, isAttached else { return }
+        isAttached = false
+        detachClient(raw)
+    }
+
+    func reconnect(surface: UInt64) -> String? {
+        guard let raw else {
+            return L10n.text("error.client.closed", "The terminal client is closed.")
+        }
+        guard !isAttached else { return nil }
+        var error = [CChar](repeating: 0, count: 1_024)
+        guard attachClient(raw, surface, &error, error.count) else {
+            return String(
+                decoding: error.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
+                as: UTF8.self
+            )
+        }
+        isAttached = true
+        return nil
+    }
+
+    func shutdown() {
         guard let raw else { return }
         self.raw = nil
-        disconnectClient(raw)
+        isAttached = false
+        destroyClient(raw)
     }
 }
 
@@ -115,9 +159,23 @@ final class TerminalModel: ObservableObject {
     }
 
     func connect() {
-        guard client == nil, !isConnecting, !isShuttingDown else { return }
+        guard !isConnecting, !isShuttingDown else { return }
         guard let surfaceID = UInt64(surface) else {
             errorMessage = L10n.text("error.surface", "Enter a numeric surface ID.")
+            return
+        }
+        if let client {
+            errorMessage = ""
+            isConnecting = true
+            let reconnectError = client.reconnect(surface: surfaceID)
+            isConnecting = false
+            if let reconnectError {
+                errorMessage = reconnectError
+                return
+            }
+            isConnected = true
+            sendLastGeometry()
+            beginPolling()
             return
         }
         let invitation = invitation.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -157,11 +215,12 @@ final class TerminalModel: ObservableObject {
             }
             let client = TerminalClientHandle(raw: handle)
             guard !isShuttingDown else {
-                client.disconnect()
+                client.shutdown()
                 return
             }
             self.client = client
             isConnected = true
+            sendLastGeometry()
             beginPolling()
         }
     }
@@ -172,16 +231,23 @@ final class TerminalModel: ObservableObject {
 
     func shutdown() {
         isShuttingDown = true
-        endConnection(updatePublishedState: false)
+        endConnection(updatePublishedState: false, destroyClient: true)
     }
 
-    private func endConnection(updatePublishedState: Bool) {
+    private func endConnection(
+        updatePublishedState: Bool,
+        destroyClient: Bool = false
+    ) {
         pollingTask?.cancel()
         pollingTask = nil
-        let ownedClient = client
-        client = nil
-        lastGeometry = nil
-        ownedClient?.disconnect()
+        if destroyClient {
+            lastGeometry = nil
+            let ownedClient = client
+            client = nil
+            ownedClient?.shutdown()
+        } else {
+            client?.disconnect()
+        }
         if updatePublishedState {
             isConnected = false
             diagnostics = ""
@@ -189,7 +255,7 @@ final class TerminalModel: ObservableObject {
     }
 
     func submit(_ input: TerminalInput) {
-        guard let client else { return }
+        guard isConnected, let client else { return }
         client.withRaw { rawClient in
             switch input {
             case let .bytes(bytes):
@@ -214,8 +280,19 @@ final class TerminalModel: ObservableObject {
     }
 
     func resize(to geometry: TerminalGeometry) {
-        guard geometry != lastGeometry, let client else { return }
+        guard geometry != lastGeometry else { return }
         lastGeometry = geometry
+        guard isConnected else { return }
+        sendGeometry(geometry)
+    }
+
+    private func sendLastGeometry() {
+        guard let geometry = lastGeometry else { return }
+        sendGeometry(geometry)
+    }
+
+    private func sendGeometry(_ geometry: TerminalGeometry) {
+        guard let client else { return }
         client.withRaw {
             _ = cmux_terminal_client_resize($0, geometry.cols, geometry.rows)
         }

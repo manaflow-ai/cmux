@@ -158,10 +158,20 @@ final class TerminalBytesDemoTests: XCTestCase {
     @MainActor
     func testTerminalClientHandleRetainsEnrollmentAcrossLogicalDisconnect() throws {
         let raw = try XCTUnwrap(OpaquePointer(bitPattern: 1))
+        var attached: [OpaquePointer] = []
+        var attachedSurfaces: [UInt64] = []
         var disconnected: [OpaquePointer] = []
-        let handle = TerminalClientHandle(raw: raw) {
-            disconnected.append($0)
-        }
+        var destroyed: [OpaquePointer] = []
+        let handle = TerminalClientHandle(
+            raw: raw,
+            attachClient: { client, surface, _, _ in
+                attached.append(client)
+                attachedSurfaces.append(surface)
+                return true
+            },
+            destroyClient: { destroyed.append($0) },
+            detachClient: { disconnected.append($0) }
+        )
 
         XCTAssertEqual(handle.withRaw { $0 }, raw)
         handle.disconnect()
@@ -169,6 +179,15 @@ final class TerminalBytesDemoTests: XCTestCase {
 
         XCTAssertEqual(handle.withRaw { $0 }, raw)
         XCTAssertEqual(disconnected, [raw])
+        XCTAssertNil(handle.reconnect(surface: 73))
+        XCTAssertNil(handle.reconnect(surface: 73))
+        XCTAssertEqual(attached, [raw])
+        XCTAssertEqual(attachedSurfaces, [73])
+
+        handle.shutdown()
+        handle.shutdown()
+        XCTAssertNil(handle.withRaw { $0 })
+        XCTAssertEqual(destroyed, [raw])
     }
 
     @MainActor
