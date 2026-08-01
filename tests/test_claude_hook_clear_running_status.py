@@ -39,6 +39,9 @@ class HookSocketServer:
         self.ready = threading.Event()
         self.stop = threading.Event()
         self.error: Exception | None = None
+        self.connection_condition = threading.Condition()
+        self.next_connection_id = 0
+        self.completed_connection_ids: set[int] = set()
         self.delivery_target_available = True
         self.listed_surface_ids = [surface_id]
         self.root = tempfile.TemporaryDirectory(prefix="cmux-claude-clear-")
@@ -76,40 +79,74 @@ class HookSocketServer:
                         continue
                     except OSError:
                         return
-                    threading.Thread(target=self._handle, args=(conn,), daemon=True).start()
+                    with self.connection_condition:
+                        connection_id = self.next_connection_id
+                        self.next_connection_id += 1
+                    threading.Thread(
+                        target=self._handle,
+                        args=(conn, connection_id),
+                        daemon=True,
+                    ).start()
         except Exception as exc:
             self.error = exc
             self.ready.set()
 
-    def _handle(self, conn: socket.socket) -> None:
-        with conn:
-            conn.settimeout(0.1)
-            buffer = b""
-            idle_deadline = time.time() + 6.0
-            while not self.stop.is_set() and time.time() < idle_deadline:
-                try:
-                    chunk = conn.recv(4096)
-                except socket.timeout:
-                    continue
-                if not chunk:
-                    break
-                idle_deadline = time.time() + 2.0
-                buffer += chunk
-                while b"\n" in buffer:
-                    raw_line, buffer = buffer.split(b"\n", 1)
-                    if not raw_line:
+    def _handle(self, conn: socket.socket, connection_id: int) -> None:
+        try:
+            with conn:
+                conn.settimeout(0.1)
+                buffer = b""
+                while not self.stop.is_set():
+                    try:
+                        chunk = conn.recv(4096)
+                    except socket.timeout:
                         continue
-                    line = raw_line.decode("utf-8", errors="replace")
-                    self.commands.append(line)
-                    conn.sendall((self._response_for(line) + "\n").encode("utf-8"))
+                    if not chunk:
+                        break
+                    buffer += chunk
+                    while b"\n" in buffer:
+                        raw_line, buffer = buffer.split(b"\n", 1)
+                        if not raw_line:
+                            continue
+                        line = raw_line.decode("utf-8", errors="replace")
+                        if line == "__test_barrier__":
+                            self._wait_for_earlier_connections(connection_id)
+                            conn.sendall(b"OK\n")
+                            continue
+                        self.commands.append(line)
+                        response = self._response_for(line)
+                        if response is not None:
+                            conn.sendall((response + "\n").encode("utf-8"))
+        finally:
+            with self.connection_condition:
+                self.completed_connection_ids.add(connection_id)
+                self.connection_condition.notify_all()
 
-    def _response_for(self, line: str) -> str:
+    def _wait_for_earlier_connections(self, connection_id: int) -> None:
+        with self.connection_condition:
+            drained = self.connection_condition.wait_for(
+                lambda: all(
+                    earlier_id in self.completed_connection_ids
+                    for earlier_id in range(connection_id)
+                ),
+                timeout=2.0,
+            )
+        if not drained:
+            raise RuntimeError("hook socket connections did not drain")
+
+    def _response_for(self, line: str) -> str | None:
         if not line.startswith("{"):
             return "OK"
         try:
             request = json.loads(line)
         except json.JSONDecodeError:
             return "OK"
+
+        # JSON-RPC notifications intentionally omit an id and receive no reply.
+        # Replying races the one-way client closing its socket and can starve the
+        # immediately following hook connection under load.
+        if "id" not in request:
+            return None
 
         method = request.get("method")
         result: dict[str, object] = {}
@@ -196,6 +233,18 @@ def run_claude_hook(
         timeout=8,
         check=False,
     )
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as barrier:
+        barrier.settimeout(2.0)
+        barrier.connect(socket_path)
+        barrier.sendall(b"__test_barrier__\n")
+        response = b""
+        while not response.endswith(b"\n") and len(response) <= 16:
+            chunk = barrier.recv(16)
+            if not chunk:
+                break
+            response += chunk
+        if response != b"OK\n":
+            raise RuntimeError("hook socket barrier failed")
     if proc.returncode != 0:
         raise RuntimeError(
             f"cmux claude-hook {subcommand} failed:\n"
