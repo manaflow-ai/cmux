@@ -43,7 +43,7 @@ struct NestedTopologyCodableTests {
     @Test("events round-trip as typed structured mutations")
     func eventRoundTrip() throws {
         let fixture = NestedTopologyTestFixture()
-        let event = fixture.event(.paneUpdated(fixture.pane(
+        let event = fixture.event(.paneUpdated(node: fixture.pane(
             title: NestedNodeTitle(value: "Renamed", authority: .provider)
         )))
         let data = try JSONEncoder().encode(event)

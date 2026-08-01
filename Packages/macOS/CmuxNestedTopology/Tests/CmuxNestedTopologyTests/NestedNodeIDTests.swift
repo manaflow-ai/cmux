@@ -42,6 +42,22 @@ struct NestedNodeIDTests {
         #expect(ids.count == NestedNodeKind.allCases.count)
     }
 
+    @Test("identical raw IDs at every level coexist in one validated snapshot")
+    func nodeKindCollisionResistanceInSnapshot() throws {
+        let fixture = NestedTopologyTestFixture()
+        let snapshot = try fixture.snapshot(
+            workspaces: [fixture.workspace("shared")],
+            tabs: [fixture.tab("shared", workspaceRawID: "shared")],
+            panes: [fixture.pane("shared", tabRawID: "shared")],
+            agents: [fixture.agent("shared", paneRawID: "shared")]
+        )
+
+        #expect(snapshot.workspaces[0].id.rawID == "shared")
+        #expect(snapshot.tabs[0].id.rawID == "shared")
+        #expect(snapshot.panes[0].id.rawID == "shared")
+        #expect(snapshot.agents[0].id.rawID == "shared")
+    }
+
     @Test("opaque provider IDs retain delimiter-like content")
     func opaqueRawIDRoundTrip() throws {
         let fixture = NestedTopologyTestFixture()

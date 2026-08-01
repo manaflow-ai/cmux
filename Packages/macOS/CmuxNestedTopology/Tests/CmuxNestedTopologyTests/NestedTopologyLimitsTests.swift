@@ -168,4 +168,23 @@ struct NestedTopologyLimitsTests {
             )])
         }
     }
+
+    @Test("authority-suppressed event fields are still validated at the trust boundary")
+    func validatesSuppressedEventFields() throws {
+        let fixture = NestedTopologyTestFixture()
+        let snapshot = try fixture.snapshot(panes: [fixture.pane(
+            title: NestedNodeTitle(value: "Provider title", authority: .provider)
+        )])
+        let oversizedInference = fixture.pane(title: NestedNodeTitle(
+            value: String(repeating: "x", count: NestedTopologyLimits.standard.maximumTitleBytes + 1),
+            authority: .inferred
+        ))
+
+        #expect(throws: NestedTopologyError.self) {
+            try NestedTopologyReducer().applying(
+                fixture.event(.paneUpdated(node: oversizedInference)),
+                to: snapshot
+            )
+        }
+    }
 }

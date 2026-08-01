@@ -27,7 +27,7 @@ struct NestedTopologyAssociationTests {
         )
 
         let result = try reducer.applying(
-            fixture.event(.paneUpdated(laterGuess)),
+            fixture.event(.paneUpdated(node: laterGuess)),
             to: snapshot
         )
 
@@ -58,7 +58,7 @@ struct NestedTopologyAssociationTests {
         )
 
         let result = try reducer.applying(
-            fixture.event(.paneUpdated(authoritative)),
+            fixture.event(.paneUpdated(node: authoritative)),
             to: snapshot
         )
 
@@ -92,7 +92,7 @@ struct NestedTopologyAssociationTests {
         )
 
         let result = try reducer.applying(
-            fixture.event(.paneUpdated(replacementSession)),
+            fixture.event(.paneUpdated(node: replacementSession)),
             to: snapshot
         )
 
@@ -113,7 +113,7 @@ struct NestedTopologyAssociationTests {
         )
 
         let result = try reducer.applying(
-            fixture.event(.paneUpdated(inferred)),
+            fixture.event(.paneUpdated(node: inferred)),
             to: snapshot
         )
 
@@ -131,7 +131,7 @@ struct NestedTopologyAssociationTests {
         )
 
         let result = try reducer.applying(
-            fixture.event(.paneUpdated(providerUpdate)),
+            fixture.event(.paneUpdated(node: providerUpdate)),
             to: snapshot
         )
 
@@ -148,7 +148,7 @@ struct NestedTopologyAssociationTests {
         let providerTitle = NestedNodeTitle(value: "Canonical", authority: .provider)
 
         let result = try reducer.applying(
-            fixture.event(.paneUpdated(fixture.pane(title: providerTitle))),
+            fixture.event(.paneUpdated(node: fixture.pane(title: providerTitle))),
             to: snapshot
         )
 
@@ -171,12 +171,12 @@ struct NestedTopologyAssociationTests {
             ],
             panes: [original]
         )
-        let repeatedGuess = fixture.event(.paneUpdated(fixture.pane(
+        let repeatedGuess = fixture.event(.paneUpdated(node: fixture.pane(
             tabRawID: "tab-2",
             associationAuthority: .heuristic,
             heuristicAlreadySatisfied: true
         )))
-        let statusUpdate = fixture.event(.agentUpdated(fixture.agent(
+        let statusUpdate = fixture.event(.agentUpdated(node: fixture.agent(
             status: NestedAgentStatus(presentation: .done, providerRawValue: "done")
         )))
 

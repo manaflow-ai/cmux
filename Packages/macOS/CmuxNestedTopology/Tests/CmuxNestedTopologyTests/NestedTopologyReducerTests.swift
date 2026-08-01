@@ -59,20 +59,37 @@ struct NestedTopologyReducerTests {
         }
     }
 
+    @Test("duplicate identities are rejected at full-snapshot boundaries")
+    func rejectsDuplicateSnapshotNodes() {
+        let fixture = NestedTopologyTestFixture()
+
+        #expect(throws: NestedTopologyError.self) {
+            try fixture.snapshot(
+                workspaces: [fixture.workspace(), fixture.workspace()],
+                tabs: [],
+                panes: [],
+                agents: []
+            )
+        }
+    }
+
     @Test("duplicate creates are idempotent only when their content matches")
     func duplicateCreateBehavior() throws {
         let fixture = NestedTopologyTestFixture()
         let reducer = NestedTopologyReducer()
         let empty = try fixture.snapshot(workspaces: [], tabs: [], panes: [], agents: [])
         let workspace = fixture.workspace()
-        let event = fixture.event(.workspaceCreated(workspace))
+        let event = fixture.event(.workspaceCreated(node: workspace))
 
         let created = try reducer.applying(event, to: empty)
         let duplicated = try reducer.applying(event, to: created)
         #expect(duplicated == created)
 
         let conflicting = fixture.event(.workspaceCreated(
-            fixture.workspace(order: 7, title: NestedNodeTitle(value: "Conflict", authority: .provider))
+            node: fixture.workspace(
+                order: 7,
+                title: NestedNodeTitle(value: "Conflict", authority: .provider)
+            )
         ))
         #expect(throws: NestedTopologyError.self) {
             try reducer.applying(conflicting, to: created)
@@ -87,7 +104,7 @@ struct NestedTopologyReducerTests {
 
         #expect(throws: NestedTopologyError.self) {
             try reducer.applying(
-                fixture.event(.workspaceUpdated(fixture.workspace())),
+                fixture.event(.workspaceUpdated(node: fixture.workspace())),
                 to: empty
             )
         }
@@ -107,7 +124,7 @@ struct NestedTopologyReducerTests {
         )
 
         let result = try reducer.applying(
-            fixture.event(.nodeClosed(fixture.id("tab-1", kind: .tab))),
+            fixture.event(.nodeClosed(id: fixture.id("tab-1", kind: .tab))),
             to: focused
         )
 
@@ -123,7 +140,7 @@ struct NestedTopologyReducerTests {
         ))
 
         let duplicateClose = try reducer.applying(
-            fixture.event(.nodeClosed(fixture.id("tab-1", kind: .tab))),
+            fixture.event(.nodeClosed(id: fixture.id("tab-1", kind: .tab))),
             to: result
         )
         #expect(duplicateClose == result)
@@ -142,7 +159,7 @@ struct NestedTopologyReducerTests {
         )
 
         let agentFocused = try reducer.applying(
-            fixture.event(.focusChanged(fixture.id("agent-1", kind: .agent))),
+            fixture.event(.focusChanged(id: fixture.id("agent-1", kind: .agent))),
             to: snapshot
         )
         #expect(agentFocused.focus == NestedTopologyFocus(
@@ -153,7 +170,7 @@ struct NestedTopologyReducerTests {
         ))
 
         let paneFocused = try reducer.applying(
-            fixture.event(.focusChanged(fixture.id("pane-2", kind: .pane))),
+            fixture.event(.focusChanged(id: fixture.id("pane-2", kind: .pane))),
             to: agentFocused
         )
         #expect(paneFocused.focus.paneID == fixture.id("pane-2", kind: .pane))
@@ -191,7 +208,13 @@ struct NestedTopologyReducerTests {
 
         #expect(throws: NestedTopologyError.self) {
             try NestedTopologyReducer().applying(
-                stale.event(.nodeClosed(stale.id("pane-1", kind: .pane))),
+                stale.event(.nodeClosed(id: stale.id("pane-1", kind: .pane))),
+                to: snapshot
+            )
+        }
+        #expect(throws: NestedTopologyError.self) {
+            try NestedTopologyReducer().applying(
+                stale.event(.focusChanged(id: nil)),
                 to: snapshot
             )
         }
@@ -203,13 +226,65 @@ struct NestedTopologyReducerTests {
         let reducer = NestedTopologyReducer()
         let empty = try fixture.snapshot(workspaces: [], tabs: [], panes: [], agents: [])
         let events = [
-            fixture.event(.workspaceCreated(fixture.workspace())),
-            fixture.event(.tabUpdated(fixture.tab())),
+            fixture.event(.workspaceCreated(node: fixture.workspace())),
+            fixture.event(.tabUpdated(node: fixture.tab())),
         ]
 
         #expect(throws: NestedTopologyError.self) {
             try reducer.applying(events, to: empty)
         }
         #expect(empty.workspaces.isEmpty)
+    }
+
+    @Test("a production-sized provider tree validates and reduces without special paths")
+    func productionSizedFixture() throws {
+        let fixture = NestedTopologyTestFixture()
+        let workspaces = (0 ..< 20).map {
+            fixture.workspace("workspace-\($0)", order: $0)
+        }
+        let tabs = (0 ..< 100).map {
+            fixture.tab(
+                "tab-\($0)",
+                workspaceRawID: "workspace-\($0 % 20)",
+                order: $0 / 20
+            )
+        }
+        let panes = (0 ..< 500).map {
+            fixture.pane(
+                "pane-\($0)",
+                tabRawID: "tab-\($0 % 100)",
+                sessionID: "session-\($0)",
+                order: $0 / 100
+            )
+        }
+        let agents = (0 ..< 500).map {
+            fixture.agent(
+                "agent-\($0)",
+                paneRawID: "pane-\($0)",
+                sessionID: "session-\($0)"
+            )
+        }
+        let snapshot = try fixture.snapshot(
+            workspaces: Array(workspaces.reversed()),
+            tabs: Array(tabs.reversed()),
+            panes: Array(panes.reversed()),
+            agents: Array(agents.reversed())
+        )
+
+        let updated = try NestedTopologyReducer().applying(
+            fixture.event(.agentUpdated(node: fixture.agent(
+                "agent-499",
+                paneRawID: "pane-499",
+                sessionID: "session-499",
+                status: NestedAgentStatus(presentation: .done, providerRawValue: "done")
+            ))),
+            to: snapshot
+        )
+
+        #expect(updated.workspaces.count == 20)
+        #expect(updated.tabs.count == 100)
+        #expect(updated.panes.count == 500)
+        #expect(updated.agents.count == 500)
+        #expect(updated.agents.first(where: { $0.id.rawID == "agent-499" })?.status.presentation == .done)
     }
 }

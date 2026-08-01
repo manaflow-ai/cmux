@@ -1,0 +1,23 @@
+/// Provenance and overwrite authority for a virtual-node title.
+public enum NestedTitleAuthority: String, Codable, Sendable {
+    /// Best-effort title inferred from prompts, environment, or other hints.
+    case inferred
+
+    /// Title emitted by the provider topology protocol.
+    case provider
+
+    /// Title locked by a cmux host-surface policy.
+    case host
+
+    /// Explicit user-owned title.
+    case user
+
+    var precedence: Int {
+        switch self {
+        case .inferred: 0
+        case .provider: 1
+        case .host: 2
+        case .user: 3
+        }
+    }
+}

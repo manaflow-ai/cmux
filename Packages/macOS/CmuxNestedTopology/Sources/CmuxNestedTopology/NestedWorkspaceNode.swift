@@ -1,0 +1,31 @@
+/// Immutable provider-owned workspace value.
+public struct NestedWorkspaceNode: Codable, Equatable, Sendable {
+    /// Compound workspace identity.
+    public let id: NestedNodeID
+
+    /// Provider order among sibling workspaces.
+    public let order: Int
+
+    /// Optional display title with explicit authority.
+    public let title: NestedNodeTitle?
+
+    /// Creates a provider-owned workspace value.
+    ///
+    /// - Parameters:
+    ///   - id: Compound workspace identity.
+    ///   - order: Provider order among sibling workspaces.
+    ///   - title: Optional display title.
+    public init(id: NestedNodeID, order: Int, title: NestedNodeTitle?) {
+        self.id = id
+        self.order = order
+        self.title = title
+    }
+
+    func mergingUpdate(_ candidate: NestedWorkspaceNode) -> NestedWorkspaceNode {
+        NestedWorkspaceNode(
+            id: id,
+            order: candidate.order,
+            title: title?.replacing(with: candidate.title) ?? candidate.title
+        )
+    }
+}
