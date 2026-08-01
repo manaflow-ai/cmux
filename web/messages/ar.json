@@ -968,7 +968,9 @@
         "browser": {
           "defaultSearchEngine": "محرك البحث الافتراضي لاستعلامات شريط عنوان المتصفح التي ليست عناوين URL. استخدم custom مع customSearchEngineURLTemplate لموفري بحث آخرين.",
           "customSearchEngineName": "اسم العرض المستخدم عندما تكون defaultSearchEngine هي custom.",
-          "customSearchEngineURLTemplate": "عنوان URL للبحث عند استخدام custom. أدرج موضع الاستعلام أو %s لعبارة البحث المرمزة. عند عدم وجود موضع، يضيف cmux q= إلى العنوان."
+          "customSearchEngineURLTemplate": "عنوان URL للبحث عند استخدام custom. أدرج موضع الاستعلام أو %s لعبارة البحث المرمزة. عند عدم وجود موضع، يضيف cmux q= إلى العنوان.",
+          "openTerminalLinksInCmuxBrowser": "افتح روابط الويب التي يتم النقر عليها في الطرفية داخل المتصفح المضمّن. عند ضبط القيمة على false، تُفتح جميع روابط الويب في الطرفية خارجيًا، بما في ذلك المضيفات المدرجة في hostsToOpenInEmbeddedBrowser.",
+          "hostsToOpenInEmbeddedBrowser": "قائمة اختيارية بالمضيفات التي يجوز إبقاؤها داخل المتصفح المضمّن عندما تكون openTerminalLinksInCmuxBrowser بالقيمة true. لا تتجاوز القيمة false؛ وتسمح القائمة الفارغة بجميع المضيفات."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "الإعداد الافتراضي العام لمكان وضع مساحة العمل الجديدة عند استخدام Cmd-N داخل مجموعة أو زر + في رأس المجموعة أو إجراءات المجموعة المضبوطة: `afterCurrent` (بعد مساحة العمل النشطة داخل المجموعة، مع الرجوع إلى top)، أو `top` (الموضع الثاني بعد المرساة مباشرة)، أو `end` (بعد آخر عضو).",

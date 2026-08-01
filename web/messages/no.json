@@ -968,7 +968,9 @@
         "browser": {
           "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
           "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
-          "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen."
+          "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen.",
+          "openTerminalLinksInCmuxBrowser": "Åpne nettlenker som klikkes i terminalen, i den innebygde nettleseren. Når verdien er false, åpnes alle nettlenker fra terminalen eksternt, også verter oppført i hostsToOpenInEmbeddedBrowser.",
+          "hostsToOpenInEmbeddedBrowser": "Valgfri tillatelsesliste over verter som kan bli i den innebygde nettleseren når openTerminalLinksInCmuxBrowser er true. Den overstyrer ikke false; en tom liste tillater alle verter."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global standard for hvor Cmd-N i en gruppe, + knappen i gruppehodet og konfigurerte gruppehandlinger plasserer det nye workspace: `afterCurrent` (etter aktivt workspace i gruppen, med top som fallback), `top` (andre plass, rett etter ankeret) eller `end` (etter siste medlem).",
