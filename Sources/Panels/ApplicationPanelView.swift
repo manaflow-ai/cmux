@@ -193,9 +193,8 @@ struct ApplicationPanelView: View {
                     localized: "panel.application.captureFailed.title",
                     defaultValue: "Application capture failed"
                 ),
-                detail: String(
-                    localized: "panel.application.captureFailed.detail",
-                    defaultValue: "cmux could not capture this window. Try again or choose another window."
+                detail: Self.localizedCaptureFailureDetail(
+                    panel.captureFailureDetail
                 ),
                 primaryTitle: String(
                     localized: "applicationSurface.picker.tryAgain",
@@ -213,6 +212,16 @@ struct ApplicationPanelView: View {
                 }
             )
         }
+    }
+
+    static func localizedCaptureFailureDetail(_ runtimeDetail: String?) -> String {
+        if let runtimeDetail, !runtimeDetail.isEmpty {
+            return runtimeDetail
+        }
+        return String(
+            localized: "panel.application.captureFailed.detail",
+            defaultValue: "cmux could not capture this window. Try again or choose another window."
+        )
     }
 
     private func statusMessage(
