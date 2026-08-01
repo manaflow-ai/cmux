@@ -19,7 +19,7 @@ struct SimulatorUIAutomationCaptureRetry {
         retrying failureCodes: Set<String> = ["snapshot_capture_failed"],
         operation: @MainActor (Duration) async throws -> Value
     ) async throws -> Value {
-        let beforeCapture = scheduler.nowMilliseconds()
+        let beforeCapture = scheduler.monotonicNowMilliseconds()
         guard beforeCapture < deadlineMilliseconds else {
             throw SimulatorUIAutomationCaptureDeadlineExceeded()
         }

@@ -95,6 +95,9 @@ final class SimulatorUIAutomationSession {
         guard let selector = record.stableSelector(for: elementRef) else {
             throw SimulatorUIAutomationReferenceError.stableSelectorUnavailable(elementRef)
         }
+        guard record.matching(selector).count == 1 else {
+            throw SimulatorUIAutomationReferenceError.stableSelectorAmbiguous(elementRef)
+        }
         return selector
     }
 

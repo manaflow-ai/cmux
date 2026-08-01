@@ -1,7 +1,9 @@
 /// Schedules cancellation-aware sampling without coupling automation to a clock.
 public protocol SimulatorUIAutomationScheduling: Sendable {
-    /// Returns Unix epoch time in milliseconds.
-    func nowMilliseconds() -> Int64
+    /// Returns monotonic elapsed time in milliseconds for deadlines.
+    func monotonicNowMilliseconds() -> Int64
+    /// Returns Unix epoch time in milliseconds for serialized snapshots.
+    func wallTimeNowMilliseconds() -> Int64
     /// Produces the next scheduled event or throws when cancellation wins.
     func nextEvent(after duration: Duration) async throws
 }
@@ -61,7 +63,7 @@ public struct SimulatorUIAutomationTickSequence: AsyncSequence, Sendable {
 
         public mutating func next() async throws -> Int64? {
             try Task.checkCancellation()
-            let beforeWait = scheduler.nowMilliseconds()
+            let beforeWait = scheduler.monotonicNowMilliseconds()
             if isFirstEvent, includesImmediateEvent {
                 isFirstEvent = false
                 guard beforeWait <= deadlineMilliseconds else { return nil }
@@ -73,7 +75,7 @@ public struct SimulatorUIAutomationTickSequence: AsyncSequence, Sendable {
                 intervalMilliseconds,
                 deadlineMilliseconds - beforeWait
             )))
-            let afterWait = scheduler.nowMilliseconds()
+            let afterWait = scheduler.monotonicNowMilliseconds()
             guard afterWait < deadlineMilliseconds else { return nil }
             return afterWait
         }

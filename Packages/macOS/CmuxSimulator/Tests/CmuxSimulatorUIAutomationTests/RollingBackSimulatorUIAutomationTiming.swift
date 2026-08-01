@@ -6,19 +6,25 @@ final class RollingBackSimulatorUIAutomationTiming:
     @unchecked Sendable
 {
     private let lock = NSLock()
-    private var currentMilliseconds: Int64
+    private var monotonicMilliseconds: Int64
+    private var wallTimeMilliseconds: Int64
     private var recordedSleepCount = 0
 
     init(nowMilliseconds: Int64) {
-        currentMilliseconds = nowMilliseconds
+        monotonicMilliseconds = nowMilliseconds
+        wallTimeMilliseconds = nowMilliseconds
     }
 
     var sleepCount: Int {
         lock.withLock { recordedSleepCount }
     }
 
-    func nowMilliseconds() -> Int64 {
-        lock.withLock { currentMilliseconds }
+    func monotonicNowMilliseconds() -> Int64 {
+        lock.withLock { monotonicMilliseconds }
+    }
+
+    func wallTimeNowMilliseconds() -> Int64 {
+        lock.withLock { wallTimeMilliseconds }
     }
 
     func nextEvent(after duration: Duration) async throws {
@@ -26,7 +32,8 @@ final class RollingBackSimulatorUIAutomationTiming:
         let milliseconds = components.seconds * 1_000
             + components.attoseconds / 1_000_000_000_000_000
         lock.withLock {
-            currentMilliseconds += milliseconds - 5_000
+            monotonicMilliseconds += milliseconds
+            wallTimeMilliseconds += milliseconds - 5_000
             recordedSleepCount += 1
         }
     }

@@ -984,7 +984,7 @@ struct SimulatorPanelIntegrationTests {
             return
         }
         #expect(payload["completed"] == .bool(true))
-        #expect(timing.nowMilliseconds() == 1_000)
+        #expect(timing.monotonicNowMilliseconds() == 1_000)
         await coordinator.close()
     }
 
@@ -1080,7 +1080,7 @@ struct SimulatorPanelIntegrationTests {
             in: snapshot,
             identifier: "continue"
         )
-        let startedAt = timing.nowMilliseconds()
+        let startedAt = timing.monotonicNowMilliseconds()
 
         _ = try await executor.perform(
             .uiAction(.touch(
@@ -1094,7 +1094,7 @@ struct SimulatorPanelIntegrationTests {
 
         #expect(await client.touchPhases() == [["began", "ended"]])
         #expect(
-            timing.nowMilliseconds() - startedAt
+            timing.monotonicNowMilliseconds() - startedAt
                 >= SimulatorUIAutomationExecutor
                     .postMutationAccessibilityQuiescenceMilliseconds + 100
         )
@@ -1192,7 +1192,7 @@ struct SimulatorPanelIntegrationTests {
         }
         #expect(payload["type"] == .string("runtime-snapshot-unchanged"))
         let preserved = try coordinator.currentUIAutomationSnapshot(
-            nowMilliseconds: timing.nowMilliseconds()
+            nowMilliseconds: timing.wallTimeNowMilliseconds()
         )
         #expect(preserved.display == refreshedDisplay)
         #expect(preserved.element(ref: elementRef) != nil)
@@ -1416,7 +1416,7 @@ private actor SimulatorSemanticAutomationPaneClient: SimulatorPaneClient {
         case .readAccessibility:
             accessibilityReadCount += 1
             if let typedAtMilliseconds, let timing,
-               timing.nowMilliseconds() - typedAtMilliseconds < 500 {
+               timing.monotonicNowMilliseconds() - typedAtMilliseconds < 500 {
                 observedEarlyPostTypeRead = true
             }
             if didTap { postTapReadCount += 1 }
@@ -1441,7 +1441,7 @@ private actor SimulatorSemanticAutomationPaneClient: SimulatorPaneClient {
             recordedTimeline.append(contentsOf: events.map { $0.phase.rawValue })
             return .none
         case .interactive(.typeText):
-            typedAtMilliseconds = timing?.nowMilliseconds()
+            typedAtMilliseconds = timing?.monotonicNowMilliseconds()
             recordedTimeline.append("type")
             return .none
         case .interactive(.keyChord):
@@ -1546,7 +1546,11 @@ private final class InstantSimulatorUIAutomationTiming:
     private let lock = NSLock()
     private var currentMilliseconds: Int64 = 1_000
 
-    func nowMilliseconds() -> Int64 {
+    func monotonicNowMilliseconds() -> Int64 {
+        lock.withLock { currentMilliseconds }
+    }
+
+    func wallTimeNowMilliseconds() -> Int64 {
         lock.withLock { currentMilliseconds }
     }
 
@@ -1849,7 +1853,11 @@ private final class SimulatorPreActionMutationTiming:
         self.client = client
     }
 
-    func nowMilliseconds() -> Int64 {
+    func monotonicNowMilliseconds() -> Int64 {
+        lock.withLock { currentMilliseconds }
+    }
+
+    func wallTimeNowMilliseconds() -> Int64 {
         lock.withLock { currentMilliseconds }
     }
 

@@ -34,11 +34,11 @@ public struct SimulatorUIAutomationExecutor {
         case let .uiSnapshot(sinceScreenHash):
             return try await coordinator.withUIAutomationTransaction {
                 let previousRecord = try? coordinator.currentUIAutomationSnapshot(
-                    nowMilliseconds: simulatorUINowMilliseconds()
+                    nowMilliseconds: simulatorUIWallTimeNowMilliseconds()
                 )
                 let record = try await captureSimulatorUIAutomationSnapshot(
                     coordinator: coordinator,
-                    retryingUntil: simulatorUINowMilliseconds() + 2_500
+                    retryingUntil: simulatorUIMonotonicNowMilliseconds() + 2_500
                 )
                 if sinceScreenHash == record.snapshot.screenHash,
                    let previousRecord,
@@ -103,11 +103,11 @@ public struct SimulatorUIAutomationExecutor {
         try requireSimulatorCapability(.touch, coordinator: coordinator)
         let initial = try await captureSimulatorUIAutomationSnapshot(
             coordinator: coordinator,
-            retryingUntil: simulatorUINowMilliseconds() + 2_500
+            retryingUntil: simulatorUIMonotonicNowMilliseconds() + 2_500
         )
         let refreshed = try await captureSimulatorUIAutomationSnapshot(
             coordinator: coordinator,
-            retryingUntil: simulatorUINowMilliseconds() + 2_500
+            retryingUntil: simulatorUIMonotonicNowMilliseconds() + 2_500
         )
         guard refreshed.snapshot.screenHash == initial.snapshot.screenHash else {
             throw simulatorUIStateChangedFailure()
@@ -574,7 +574,7 @@ public struct SimulatorUIAutomationExecutor {
             return ActionPreflight(
                 sourceRecord: nil,
                 previousScreenHash: try? coordinator.currentUIAutomationSnapshot(
-                    nowMilliseconds: simulatorUINowMilliseconds()
+                    nowMilliseconds: simulatorUIWallTimeNowMilliseconds()
                 ).snapshot.screenHash
             )
         }
@@ -583,7 +583,7 @@ public struct SimulatorUIAutomationExecutor {
             return ActionPreflight(
                 sourceRecord: nil,
                 previousScreenHash: try? coordinator.currentUIAutomationSnapshot(
-                    nowMilliseconds: simulatorUINowMilliseconds()
+                    nowMilliseconds: simulatorUIWallTimeNowMilliseconds()
                 ).snapshot.screenHash
             )
         }
@@ -618,7 +618,7 @@ public struct SimulatorUIAutomationExecutor {
     ) async throws {
         let refreshed = try await captureSimulatorUIAutomationSnapshot(
             coordinator: coordinator,
-            retryingUntil: simulatorUINowMilliseconds() + 2_500
+            retryingUntil: simulatorUIMonotonicNowMilliseconds() + 2_500
         )
         guard refreshed.snapshot.screenHash == sourceRecord.snapshot.screenHash else {
             throw simulatorUIStateChangedFailure(elementRef: elementRef)
@@ -673,7 +673,7 @@ public struct SimulatorUIAutomationExecutor {
         coordinator: SimulatorPaneCoordinator
     ) async throws -> JSONValue {
         try requireSimulatorCapability(.accessibility, coordinator: coordinator)
-        let startedAt = simulatorUINowMilliseconds()
+        let startedAt = simulatorUIMonotonicNowMilliseconds()
         let deadline = startedAt + Int64(wait.timeoutMilliseconds)
         // Zero means one current sample rather than no samples. Keep that
         // sample's worker response bounded by the standard capture timeout.
@@ -685,7 +685,7 @@ public struct SimulatorUIAutomationExecutor {
             do {
                 selector = try coordinator.stableUIAutomationSelector(
                     ref: elementRef,
-                    nowMilliseconds: startedAt
+                    nowMilliseconds: simulatorUIWallTimeNowMilliseconds()
                 )
             } catch {
                 throw simulatorUIReferenceFailure(error)
@@ -717,7 +717,7 @@ public struct SimulatorUIAutomationExecutor {
                 retryingUIStateChanges: true
             )
             latestRecord = record
-            let now = simulatorUINowMilliseconds()
+            let now = simulatorUIMonotonicNowMilliseconds()
             let matches = try simulatorUIWaitMatches(
                 wait,
                 selector: selector,
@@ -762,7 +762,7 @@ public struct SimulatorUIAutomationExecutor {
         coordinator: SimulatorPaneCoordinator
     ) async throws {
         let timeoutMilliseconds: Int64 = 2_500
-        let deadline = simulatorUINowMilliseconds() + timeoutMilliseconds
+        let deadline = simulatorUIMonotonicNowMilliseconds() + timeoutMilliseconds
         var latestCandidates: [SimulatorUIAutomationElement] = []
 
         let events = SimulatorUIAutomationTickSequence(
@@ -841,6 +841,9 @@ public struct SimulatorUIAutomationExecutor {
         if let text = wait.text {
             let textMatches = Set(record.containingText(text).map(\.ref))
             candidates = candidates.filter { textMatches.contains($0.ref) }
+        }
+        if selector?.sourceElementRef != nil {
+            try requireUniqueSimulatorUIWaitCandidate(candidates)
         }
         switch wait.predicate {
         case "exists":
@@ -999,7 +1002,7 @@ public struct SimulatorUIAutomationExecutor {
             return try coordinator.recordUIAutomationSnapshot(
                 snapshot,
                 simulatorID: simulatorID,
-                capturedAtMilliseconds: simulatorUINowMilliseconds()
+                capturedAtMilliseconds: simulatorUIWallTimeNowMilliseconds()
             )
         } catch {
             throw simulatorUISnapshotCaptureFailure(String(
@@ -1012,7 +1015,7 @@ public struct SimulatorUIAutomationExecutor {
     private func captureSettledSimulatorUISnapshot(
         coordinator: SimulatorPaneCoordinator
     ) async throws -> SimulatorUIAutomationSnapshotRecord {
-        let deadline = simulatorUINowMilliseconds() + 2_500
+        let deadline = simulatorUIMonotonicNowMilliseconds() + 2_500
         var previousHash: String?
         var stableSince: Int64?
         // The accessibility bridge has no event stream. Sampling is bounded,
@@ -1027,7 +1030,7 @@ public struct SimulatorUIAutomationExecutor {
                 coordinator: coordinator,
                 retryingUntil: deadline
             )
-            let now = simulatorUINowMilliseconds()
+            let now = simulatorUIMonotonicNowMilliseconds()
             if previousHash == record.snapshot.screenHash {
                 if now - (stableSince ?? now) >= 100 {
                     return record
@@ -1048,7 +1051,7 @@ public struct SimulatorUIAutomationExecutor {
     ) throws -> SimulatorUIAutomationSnapshotRecord {
         do {
             return try coordinator.currentUIAutomationSnapshot(
-                nowMilliseconds: simulatorUINowMilliseconds()
+                nowMilliseconds: simulatorUIWallTimeNowMilliseconds()
             )
         } catch {
             throw simulatorUIReferenceFailure(error)
@@ -1137,6 +1140,16 @@ public struct SimulatorUIAutomationExecutor {
                         defaultValue: "Element ref '%@' has no stable fields for a UI wait"
                     ),
                     ref
+                ),
+                recoveryHint: simulatorUIWaitRecoveryHint(),
+                elementRef: ref
+            )
+        case let .stableSelectorAmbiguous(ref):
+            return SimulatorUIAutomationFailure(
+                code: "target_ambiguous",
+                message: String(
+                    localized: "cli.simulator.error.uiWaitTargetAmbiguous",
+                    defaultValue: "The Simulator UI wait selector matched multiple elements"
                 ),
                 recoveryHint: simulatorUIWaitRecoveryHint(),
                 elementRef: ref
@@ -1433,8 +1446,12 @@ public struct SimulatorUIAutomationExecutor {
         try await scheduler.nextEvent(after: .milliseconds(milliseconds))
     }
 
-    private func simulatorUINowMilliseconds() -> Int64 {
-        scheduler.nowMilliseconds()
+    private func simulatorUIMonotonicNowMilliseconds() -> Int64 {
+        scheduler.monotonicNowMilliseconds()
+    }
+
+    private func simulatorUIWallTimeNowMilliseconds() -> Int64 {
+        scheduler.wallTimeNowMilliseconds()
     }
 
     private func simulatorUIGestureActionPayload(

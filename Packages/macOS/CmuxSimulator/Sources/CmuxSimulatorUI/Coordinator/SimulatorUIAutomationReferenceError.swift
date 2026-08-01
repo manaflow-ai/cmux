@@ -16,4 +16,6 @@ public enum SimulatorUIAutomationReferenceError: Error, Equatable, Sendable {
     )
     /// The target has no stable semantic fields suitable for a refreshed wait.
     case stableSelectorUnavailable(String)
+    /// The ref's stable semantic fields identify multiple source elements.
+    case stableSelectorAmbiguous(String)
 }

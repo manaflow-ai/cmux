@@ -145,7 +145,11 @@ private final class AdvancingSimulatorUIAutomationTiming:
         lock.withLock { recordedSleepCount }
     }
 
-    func nowMilliseconds() -> Int64 {
+    func monotonicNowMilliseconds() -> Int64 {
+        lock.withLock { currentMilliseconds }
+    }
+
+    func wallTimeNowMilliseconds() -> Int64 {
         lock.withLock { currentMilliseconds }
     }
 
