@@ -156,7 +156,11 @@ public struct WorkspaceListLayoutPreviewView: View {
         let id: MobileWorkspacePreview.ID
     }
 
-    @State private var fixtureRoute: FixtureWorkspaceRoute?
+    /// Path-based like the production shell's `compactNavigationPath`: a
+    /// path set while the workspaces tab is off-screen still presents when
+    /// the tab returns, whereas `navigationDestination(item:)` drops pushes
+    /// requested during the search-tab transition on iOS 26.
+    @State private var fixturePath: [FixtureWorkspaceRoute] = []
     @State private var pendingSearchFixtureRoute: FixtureWorkspaceRoute?
 
     private var scrollMetricsEnabled: Bool {
@@ -382,14 +386,14 @@ public struct WorkspaceListLayoutPreviewView: View {
             } else if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
                 WorkspaceDetailDelayedTerminalPreviewView()
             } else {
-                let workspaceListStack = NavigationStack {
+                let workspaceListStack = NavigationStack(path: $fixturePath) {
                     MobilePrimaryWorkspaceSearchHost(
                         searchCoordinator: primarySearchCoordinator,
                         taskComposerAction: showsTabScaffold ? {} : nil
                     ) { searchText in
                         workspaceListFixture(searchText: searchText)
                     }
-                    .navigationDestination(item: $fixtureRoute) { route in
+                    .navigationDestination(for: FixtureWorkspaceRoute.self) { route in
                         VStack(spacing: 12) {
                             Text(
                                 model.workspaces.first(where: { $0.id == route.id })?.name
@@ -405,7 +409,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                         .toolbar {
                             ToolbarItem(placement: .topBarLeading) {
                                 WorkspaceBackButton(unreadCount: 0) {
-                                    fixtureRoute = nil
+                                    fixturePath = []
                                 }
                             }
                         }
@@ -497,8 +501,8 @@ public struct WorkspaceListLayoutPreviewView: View {
            selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
             pendingSearchFixtureRoute = route
             transitionPrimaryTab(to: .workspaces)
-        } else {
-            fixtureRoute = route
+        } else if fixturePath.last != route {
+            fixturePath = [route]
         }
     }
 
@@ -507,7 +511,9 @@ public struct WorkspaceListLayoutPreviewView: View {
               selectedPrimaryTab == .workspaces,
               let route = pendingSearchFixtureRoute else { return }
         pendingSearchFixtureRoute = nil
-        fixtureRoute = route
+        if fixturePath.last != route {
+            fixturePath = [route]
+        }
     }
 
     @discardableResult
