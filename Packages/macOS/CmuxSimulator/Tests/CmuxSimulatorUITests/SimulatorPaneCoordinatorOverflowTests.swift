@@ -4,6 +4,52 @@ import Testing
 
 @Suite("Simulator pane bounded output")
 struct SimulatorPaneCoordinatorOverflowTests {
+    @Test("Input release clears a retained semantic touch")
+    @MainActor
+    func inputReleaseClearsRetainedSemanticTouch() {
+        let coordinator = SimulatorPaneCoordinator(
+            client: SimulatorPaneClientSpy(devices: [])
+        )
+        coordinator.holdUIAutomationTouch(
+            elementRef: "e1_1",
+            point: SimulatorPoint(x: 0.5, y: 0.5),
+            display: nil
+        )
+
+        coordinator.setActive(false)
+
+        #expect(!coordinator.hasHeldUIAutomationTouch)
+    }
+
+    @Test("Failed worker touch recovery clears a retained semantic touch")
+    @MainActor
+    func failedWorkerTouchClearsRetainedSemanticTouch() async {
+        let coordinator = SimulatorPaneCoordinator(
+            client: SimulatorPaneClientSpy(
+                devices: [],
+                failsInteractiveAction: true
+            )
+        )
+        coordinator.holdUIAutomationTouch(
+            elementRef: "e1_1",
+            point: SimulatorPoint(x: 0.5, y: 0.5),
+            display: nil
+        )
+
+        do {
+            _ = try await coordinator.perform(.interactive(.touch(
+                events: [SimulatorPointerEvent(
+                    phase: .ended,
+                    primary: SimulatorPoint(x: 0.5, y: 0.5)
+                )],
+                holdMilliseconds: 0
+            )))
+            Issue.record("Expected the fixture touch to fail")
+        } catch {}
+
+        #expect(!coordinator.hasHeldUIAutomationTouch)
+    }
+
     @Test("Semantic snapshot preparation yields the main actor")
     @MainActor
     func semanticSnapshotPreparationYieldsMainActor() async throws {

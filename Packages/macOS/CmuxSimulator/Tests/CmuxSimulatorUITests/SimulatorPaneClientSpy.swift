@@ -14,6 +14,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private let failsCameraDisable: Bool
     private let failsWebInspectorHighlight: Bool
     private let failsWebInspectorRelease: Bool
+    private let failsInteractiveAction: Bool
     private let cancelsControlActionBeforeReturning: Bool
     private let eventStream: SimulatorWorkerEventStream
     private let eventContinuation: SimulatorWorkerEventStream.Continuation
@@ -40,6 +41,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         failsCameraDisable: Bool = false,
         failsWebInspectorHighlight: Bool = false,
         failsWebInspectorRelease: Bool = false,
+        failsInteractiveAction: Bool = false,
         cancelsControlActionBeforeReturning: Bool = false
     ) {
         self.devicesValue = devices
@@ -52,6 +54,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         self.failsCameraDisable = failsCameraDisable
         self.failsWebInspectorHighlight = failsWebInspectorHighlight
         self.failsWebInspectorRelease = failsWebInspectorRelease
+        self.failsInteractiveAction = failsInteractiveAction
         self.cancelsControlActionBeforeReturning = cancelsControlActionBeforeReturning
         let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 1_024 * 1_024,
@@ -146,6 +149,13 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
             throw SimulatorFailure(
                 code: "fixture_release_failed",
                 message: "The target rejected Inspector release.",
+                isRecoverable: true
+            )
+        }
+        if case .interactive = action, failsInteractiveAction {
+            throw SimulatorFailure(
+                code: "fixture_interactive_failed",
+                message: "The fixture input failed.",
                 isRecoverable: true
             )
         }

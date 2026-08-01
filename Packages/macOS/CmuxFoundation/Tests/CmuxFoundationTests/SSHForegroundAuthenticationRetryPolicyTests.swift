@@ -310,6 +310,17 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(!shell.contains("lstart"))
     }
 
+    @Test func forceKillOwnsAndReleasesEveryStoppedCandidate() {
+        let shell = SSHForegroundAuthenticationRetryPolicy()
+            .processTreeTerminationShellFunction()
+
+        #expect(!shell.contains("/bin/kill -STOP $cmux_ssh_auth_tree_process_pids"))
+        #expect(shell.contains("cmux_ssh_auth_tree_frozen_processes="))
+        #expect(shell.contains("cmux_ssh_resume_frozen_auth_processes"))
+        #expect(shell.contains("cmux_ssh_auth_process_is_original"))
+        #expect(shell.contains("/bin/kill -CONT \"$cmux_ssh_auth_tree_token\""))
+    }
+
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
