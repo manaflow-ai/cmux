@@ -1,6 +1,9 @@
 import CoreGraphics
 import CmuxMobileShellModel
 import Testing
+#if os(iOS)
+import UIKit
+#endif
 @testable import CmuxMobileShellUI
 
 @Suite struct PaneMapCollectionLayoutEngineTests {
@@ -207,6 +210,41 @@ import Testing
         #expect(state.sourceSurfaceID == "terminal-a")
     }
 }
+
+#if os(iOS)
+@MainActor
+@Suite struct PaneZoomNavigationBackgroundBridgeTests {
+    @Test func restoresOwnedAncestorBackgroundsWithoutClobberingNewOwners() {
+        let originalRootColor = UIColor.red
+        let originalContainerColor = UIColor.orange
+        let root = UIViewController()
+        root.view.backgroundColor = originalRootColor
+        let container = UIView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        container.backgroundColor = originalContainerColor
+        root.view.addSubview(container)
+        let bridge = PaneZoomNavigationBackgroundBridgeView(
+            frame: CGRect(x: 0, y: 0, width: 1, height: 1)
+        )
+        container.addSubview(bridge)
+        let window = UIWindow(frame: root.view.bounds)
+        window.rootViewController = root
+        window.isHidden = false
+
+        bridge.color = .blue
+        bridge.applyBackground()
+
+        #expect(container.backgroundColor == .blue)
+        #expect(root.view.backgroundColor == .blue)
+
+        container.backgroundColor = .green
+        bridge.restoreBackgrounds()
+
+        #expect(container.backgroundColor == .green)
+        #expect(root.view.backgroundColor == originalRootColor)
+        window.isHidden = true
+    }
+}
+#endif
 
 @Suite struct PaneMapReorderStateTests {
     @Test func failureRollsBackToTheLatestAuthoritativeOrder() throws {

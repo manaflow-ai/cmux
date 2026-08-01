@@ -96,99 +96,105 @@ struct PaneZoomNavigationStack<Root: View, Terminal: View>: View {
 private struct PaneZoomNavigationHostBackground: UIViewRepresentable {
     let color: UIColor
 
-    func makeUIView(context: Context) -> BackgroundBridgeView {
-        let view = BackgroundBridgeView()
+    func makeUIView(context: Context) -> PaneZoomNavigationBackgroundBridgeView {
+        let view = PaneZoomNavigationBackgroundBridgeView()
         view.color = color
         return view
     }
 
-    func updateUIView(_ uiView: BackgroundBridgeView, context: Context) {
+    func updateUIView(
+        _ uiView: PaneZoomNavigationBackgroundBridgeView,
+        context: Context
+    ) {
         uiView.color = color
         uiView.applyBackground()
     }
 
-    static func dismantleUIView(_ uiView: BackgroundBridgeView, coordinator: ()) {
+    static func dismantleUIView(
+        _ uiView: PaneZoomNavigationBackgroundBridgeView,
+        coordinator: ()
+    ) {
         uiView.restoreBackgrounds()
     }
+}
 
-    final class BackgroundBridgeView: UIView {
-        private final class BackgroundSnapshot {
-            weak var view: UIView?
-            let originalColor: UIColor?
-            var appliedColor: UIColor?
+final class PaneZoomNavigationBackgroundBridgeView: UIView {
+    private final class BackgroundSnapshot {
+        weak var view: UIView?
+        let originalColor: UIColor?
+        var appliedColor: UIColor?
 
-            init(view: UIView) {
-                self.view = view
-                self.originalColor = view.backgroundColor
-            }
+        init(view: UIView) {
+            self.view = view
+            self.originalColor = view.backgroundColor
+        }
+    }
+
+    private var backgroundSnapshots: [ObjectIdentifier: BackgroundSnapshot] = [:]
+
+    var color: UIColor = .clear {
+        didSet { applyBackground() }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        applyBackground()
+    }
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        applyBackground()
+    }
+
+    func applyBackground() {
+        backgroundColor = .clear
+        guard window != nil else {
+            restoreBackgrounds()
+            return
         }
 
-        private var backgroundSnapshots: [ObjectIdentifier: BackgroundSnapshot] = [:]
-
-        var color: UIColor = .clear {
-            didSet { applyBackground() }
+        var ancestor = superview
+        var hops = 0
+        while let view = ancestor, !(view is UIWindow), hops < 16 {
+            applyColor(to: view)
+            ancestor = view.superview
+            hops += 1
         }
 
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            applyBackground()
-        }
-
-        override func didMoveToSuperview() {
-            super.didMoveToSuperview()
-            applyBackground()
-        }
-
-        func applyBackground() {
-            backgroundColor = .clear
-            guard window != nil else {
-                restoreBackgrounds()
-                return
-            }
-
-            var ancestor = superview
-            var hops = 0
-            while let view = ancestor, !(view is UIWindow), hops < 16 {
-                applyColor(to: view)
-                ancestor = view.superview
-                hops += 1
-            }
-
-            var responder: UIResponder? = self
-            var responderHops = 0
-            while let current = responder, responderHops < 32 {
-                if let viewController = current as? UIViewController {
-                    applyColor(to: viewController.view)
-                    if let navigationView = viewController.navigationController?.view {
-                        applyColor(to: navigationView)
-                    }
+        var responder: UIResponder? = self
+        var responderHops = 0
+        while let current = responder, responderHops < 32 {
+            if let viewController = current as? UIViewController {
+                applyColor(to: viewController.view)
+                if let navigationView = viewController.navigationController?.view {
+                    applyColor(to: navigationView)
                 }
-                if let navigationController = current as? UINavigationController {
-                    applyColor(to: navigationController.view)
-                }
-                responder = current.next
-                responderHops += 1
             }
-        }
-
-        func restoreBackgrounds() {
-            for snapshot in backgroundSnapshots.values {
-                guard let view = snapshot.view,
-                      view.backgroundColor == snapshot.appliedColor else {
-                    continue
-                }
-                view.backgroundColor = snapshot.originalColor
+            if let navigationController = current as? UINavigationController {
+                applyColor(to: navigationController.view)
             }
-            backgroundSnapshots.removeAll()
+            responder = current.next
+            responderHops += 1
         }
+    }
 
-        private func applyColor(to view: UIView) {
-            let key = ObjectIdentifier(view)
-            let snapshot = backgroundSnapshots[key] ?? BackgroundSnapshot(view: view)
-            snapshot.appliedColor = color
-            backgroundSnapshots[key] = snapshot
-            view.backgroundColor = color
+    func restoreBackgrounds() {
+        for snapshot in backgroundSnapshots.values {
+            guard let view = snapshot.view,
+                  view.backgroundColor == snapshot.appliedColor else {
+                continue
+            }
+            view.backgroundColor = snapshot.originalColor
         }
+        backgroundSnapshots.removeAll()
+    }
+
+    private func applyColor(to view: UIView) {
+        let key = ObjectIdentifier(view)
+        let snapshot = backgroundSnapshots[key] ?? BackgroundSnapshot(view: view)
+        snapshot.appliedColor = color
+        backgroundSnapshots[key] = snapshot
+        view.backgroundColor = color
     }
 }
 #endif
