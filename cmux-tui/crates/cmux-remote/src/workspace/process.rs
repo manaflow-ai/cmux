@@ -2567,6 +2567,53 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pipe_spawn_waits_for_process_creation_barrier() {
+        let (directory, root) = root().await;
+        let manager = Arc::new(ProcessManager::default());
+        let pid_file = directory.path().join("barrier-pipe.pid");
+        let (barrier_held_sender, barrier_held_receiver) = std::sync::mpsc::channel();
+        let (release_sender, release_receiver) = std::sync::mpsc::channel();
+        let barrier_holder = std::thread::spawn(move || {
+            let _barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+            barrier_held_sender.send(()).unwrap();
+            release_receiver.recv().unwrap();
+        });
+        barrier_held_receiver
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("process creation barrier was not acquired");
+
+        let mut options = spawn_options(
+            vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                "printf '%s' \"$$\" > \"$PIDFILE\"; exec sleep 30".into(),
+            ],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        options.env.insert("PIDFILE".into(), pid_file.to_string_lossy().into_owned());
+        let spawn_manager = manager.clone();
+        let spawn = tokio::spawn(async move { spawn_manager.spawn(root, options).await });
+
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        let spawned_while_barrier_held = pid_file.exists();
+        release_sender.send(()).unwrap();
+        barrier_holder.join().unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), spawn)
+            .await
+            .expect("pipe spawn did not resume after the process barrier was released")
+            .unwrap()
+            .unwrap();
+        manager.shutdown().await;
+        assert!(
+            !spawned_while_barrier_held,
+            "remote pipe child started while the process barrier was held"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn pty_identity_uses_the_direct_child_instead_of_the_foreground_job() {

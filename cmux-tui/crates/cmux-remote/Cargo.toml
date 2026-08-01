@@ -46,6 +46,7 @@ zeroize.workspace = true
 
 [dev-dependencies]
 cmux-relay = { path = "../cmux-relay" }
+cmux-tui-process.workspace = true
 rcgen = "0.14"
 tempfile = "3"
  tower = { version = "0.5", features = ["util"] }

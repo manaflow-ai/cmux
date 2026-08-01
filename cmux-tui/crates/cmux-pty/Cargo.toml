@@ -14,3 +14,6 @@ workspace = true
 anyhow.workspace = true
 libc.workspace = true
 portable-pty.workspace = true
+
+[dev-dependencies]
+cmux-tui-process.workspace = true

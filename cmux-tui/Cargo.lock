@@ -548,6 +548,7 @@ name = "cmux-pty"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-tui-process",
  "libc",
  "portable-pty",
 ]
@@ -584,6 +585,7 @@ dependencies = [
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
+ "cmux-tui-process",
  "diffy",
  "fs4",
  "futures-util",
