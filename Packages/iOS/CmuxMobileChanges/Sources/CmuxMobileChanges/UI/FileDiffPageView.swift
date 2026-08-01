@@ -122,6 +122,7 @@ public struct FileDiffPageView: View {
                 }
                 .modifier(SettledScrollRowReporter(
                     tracker: rowTracker,
+                    rowOrderIndex: presentation.rowOrderIndex,
                     onSettled: onScrollRowIDChanged
                 ))
                 .refreshable { await load(forceRefresh: true) }

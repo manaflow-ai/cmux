@@ -123,10 +123,10 @@ struct ChangesPreviewFixture: Sendable {
         var lines = ["@@ -1,4 +1,404 @@"]
         lines.append(" import Metal")
         lines.append(" ")
+        lines.append(" final class RenderPipeline {")
         for index in 1...400 {
             lines.append("+    func renderPass\(index)() { encoder.dispatch(\(index)) }")
         }
-        lines.append(" final class RenderPipeline {}")
         lines.append(" }")
         return lines.joined(separator: "\n")
     }()
