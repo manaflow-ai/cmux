@@ -312,10 +312,15 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 guard !Task.isCancelled else { return }
                 // Rebuild rich metadata only when workspace membership changed.
                 // The common unread-only path stays a cheap cache patch.
+                let membershipRefresh: CmuxSidebarSnapshot?
                 if !snapshotCache.containsWorkspaces(workspaceIDsProvider()) {
-                    _ = snapshotCache.replace(with: snapshotProvider())
+                    membershipRefresh = snapshotCache.replace(with: snapshotProvider())
+                } else {
+                    membershipRefresh = nil
                 }
-                guard let snapshot = snapshotCache.applyUnread(unreadSnapshot) else { continue }
+                guard let snapshot = snapshotCache.applyUnread(unreadSnapshot) ?? membershipRefresh else {
+                    continue
+                }
                 xpcHost.sendSnapshotDidChange(snapshot)
             }
         }
