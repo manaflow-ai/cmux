@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ghostty_vt_sys as sys;
 
-use crate::render::{Cell, CursorShape, read_grid_ref_cell, terminal_palette};
+use crate::render::{Cell, CellWidth, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Result, check};
 
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
@@ -1239,6 +1239,14 @@ impl Terminal {
         normalized
     }
 
+    /// Whether the persistent VT stream has no incomplete control sequence or
+    /// UTF-8 codepoint. A formatter replay is safe to hand to a fresh parser
+    /// only while this is true, serialized with [`Self::vt_write`].
+    pub fn vt_stream_is_ground(&self) -> bool {
+        self.c1_normalizer.utf8_remaining == 0
+            && unsafe { sys::ghostty_terminal_vt_stream_is_ground(self.raw) }
+    }
+
     /// Whether the current cursor style/blink came from an active DECSCUSR
     /// override rather than the embedder defaults.
     pub fn cursor_overridden(&self) -> bool {
@@ -1863,7 +1871,7 @@ impl Terminal {
         selection: Option<&sys::GhosttySelection>,
         include_palette: bool,
     ) -> Result<Vec<u8>> {
-        let suffix = self.cursor_position_escape();
+        let suffix = self.cursor_position_escape()?;
         let mut replay = self.format(Self::vt_replay_options(selection, include_palette))?;
         if let Some(suffix) = suffix {
             replay.extend_from_slice(&suffix);
@@ -1877,7 +1885,7 @@ impl Terminal {
         max_bytes: usize,
         include_palette: bool,
     ) -> Result<Option<Vec<u8>>> {
-        let suffix = self.cursor_position_escape().unwrap_or_default();
+        let suffix = self.cursor_position_escape()?.unwrap_or_default();
         let Some(format_max_bytes) = max_bytes.checked_sub(suffix.len()) else {
             return Ok(None);
         };
@@ -1892,9 +1900,66 @@ impl Terminal {
         Ok(Some(replay))
     }
 
-    fn cursor_position_escape(&self) -> Option<Vec<u8>> {
-        let (x, y) = self.cursor_position()?;
-        Some(format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(x) + 1).into_bytes())
+    fn cursor_position_escape(&mut self) -> Result<Option<Vec<u8>>> {
+        let Some((x, y)) = self.cursor_position() else { return Ok(None) };
+        if !self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(false) {
+            return Ok(Some(
+                format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(x) + 1).into_bytes(),
+            ));
+        }
+
+        // No standard cursor-positioning sequence can restore pending wrap:
+        // CUP clears it. Reprint the authoritative cursor cell last instead.
+        // The one-cell formatter includes a wide cell's lead grapheme, then
+        // restores active cursor state without moving the cursor again.
+        let cursor_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, x, u64::from(y))
+            .ok_or(crate::Error::InvalidValue)?;
+        let palette = terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
+        let mut grapheme = Vec::new();
+        let cursor_cell = read_grid_ref_cell(&cursor_ref, &palette, &mut grapheme)?;
+        let start_x = if cursor_cell.width == CellWidth::SpacerTail {
+            x.checked_sub(1).ok_or(crate::Error::InvalidValue)?
+        } else {
+            x
+        };
+        let selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            start: self
+                .grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, start_x, u64::from(y))
+                .ok_or(crate::Error::InvalidValue)?,
+            end: cursor_ref,
+            rectangle: false,
+        };
+        let opts = sys::GhosttyFormatterTerminalOptions {
+            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+            emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
+            unwrap: false,
+            trim: false,
+            extra: sys::GhosttyFormatterTerminalExtra {
+                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
+                palette: false,
+                modes: false,
+                scrolling_region: false,
+                tabstops: false,
+                pwd: false,
+                keyboard: false,
+                screen: sys::GhosttyFormatterScreenExtra {
+                    size: size_of::<sys::GhosttyFormatterScreenExtra>(),
+                    cursor: false,
+                    style: true,
+                    hyperlink: true,
+                    protection: true,
+                    kitty_keyboard: true,
+                    charsets: true,
+                },
+            },
+            selection: &selection,
+        };
+        let mut suffix =
+            format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(start_x) + 1).into_bytes();
+        suffix.extend_from_slice(&self.format(opts)?);
+        Ok(Some(suffix))
     }
 
     fn vt_replay_options(

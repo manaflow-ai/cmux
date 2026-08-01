@@ -29,6 +29,7 @@ const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 const CAPABILITY_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const HOST_SNAPSHOT_BOUNDARY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
 const MAX_HOST_CLIENT_QUEUED_BYTES: usize = 8 * 1024 * 1024;
 const MAX_SMART_RETAINED_BYTES: usize = 8 * 1024 * 1024;
 const MAX_SMART_RETAINED_FRAMES: usize = 4096;
@@ -1627,6 +1628,10 @@ mod unix {
         source_order_lock: Mutex<()>,
         parser_commands: SyncSender<ParserCommand>,
         parser_budget: ParserBudget,
+        /// Generation advanced after each parser write. Snapshot admission
+        /// waits here when a PTY read ends inside UTF-8 or a control sequence,
+        /// without blocking the reader from enqueueing the completing bytes.
+        parser_progress: (Mutex<u64>, Condvar),
         next_client: AtomicU64,
         dead: AtomicBool,
         launch_owner_claimed: AtomicBool,
@@ -1751,6 +1756,52 @@ mod unix {
     }
 
     impl HostShared {
+        fn note_parser_progress(&self) {
+            let mut generation = self.parser_progress.0.lock().unwrap();
+            *generation = generation.wrapping_add(1);
+            self.parser_progress.1.notify_all();
+        }
+
+        fn terminal_at_snapshot_boundary(
+            &self,
+            timeout: Duration,
+        ) -> anyhow::Result<std::sync::MutexGuard<'_, Terminal>> {
+            let deadline = Instant::now() + timeout;
+            let mut generation = self.parser_progress.0.lock().unwrap();
+            loop {
+                let term = self.term.lock().unwrap();
+                if term.vt_stream_is_ground() {
+                    drop(generation);
+                    return Ok(term);
+                }
+                drop(term);
+                if self.dead.load(Ordering::Acquire) {
+                    anyhow::bail!("terminal host exited before a safe snapshot boundary");
+                }
+
+                let now = Instant::now();
+                if now >= deadline {
+                    anyhow::bail!(
+                        "terminal VT stream did not reach a safe snapshot boundary before timeout"
+                    );
+                }
+                let observed = *generation;
+                let (next, wait) = self
+                    .parser_progress
+                    .1
+                    .wait_timeout_while(generation, deadline - now, |current| {
+                        *current == observed && !self.dead.load(Ordering::Acquire)
+                    })
+                    .unwrap();
+                generation = next;
+                if wait.timed_out() && *generation == observed {
+                    anyhow::bail!(
+                        "terminal VT stream did not reach a safe snapshot boundary before timeout"
+                    );
+                }
+            }
+        }
+
         fn broadcast(&self, kind: MessageKind, payload: Vec<u8>) {
             self.broadcast_frames([Frame::new(kind, payload)]);
         }
@@ -2106,16 +2157,24 @@ mod unix {
             // tap insertion. Publish the terminal transition under that same
             // lock so an attach either joins before Exit or observes `dead`;
             // it can never advance its boundary past an Exit it did not see.
-            let _term = self.term.lock().unwrap();
-            if claim_host_exit_after_drain(
-                &self.child_exit.0,
-                &self.pty_drained,
-                &self.exit_published,
-            ) {
-                self.dead.store(true, Ordering::Release);
-                let cursor = self.smart.publish(Frame::new(MessageKind::Exit, Vec::new()));
-                self.smart.mark_applied(cursor);
-                self.broadcast(MessageKind::Exit, Vec::new());
+            let published = {
+                let _term = self.term.lock().unwrap();
+                if claim_host_exit_after_drain(
+                    &self.child_exit.0,
+                    &self.pty_drained,
+                    &self.exit_published,
+                ) {
+                    self.dead.store(true, Ordering::Release);
+                    let cursor = self.smart.publish(Frame::new(MessageKind::Exit, Vec::new()));
+                    self.smart.mark_applied(cursor);
+                    self.broadcast(MessageKind::Exit, Vec::new());
+                    true
+                } else {
+                    false
+                }
+            };
+            if published {
+                self.note_parser_progress();
             }
         }
 
@@ -2528,6 +2587,7 @@ mod unix {
             source_order_lock: Mutex::new(()),
             parser_commands,
             parser_budget: ParserBudget::new(MAX_HOST_PARSER_QUEUED_BYTES),
+            parser_progress: (Mutex::new(0), Condvar::new()),
             next_client: AtomicU64::new(1),
             dead: AtomicBool::new(false),
             launch_owner_claimed: AtomicBool::new(false),
@@ -2585,6 +2645,7 @@ mod unix {
                             parser_host.smart.mark_applied(source_cursor);
                             title
                         };
+                        parser_host.note_parser_progress();
                         parser_host.parser_budget.release(accounted_bytes);
                         if let Some(title) = title {
                             parser_host.broadcast(MessageKind::Title, title.into_bytes());
@@ -2724,7 +2785,15 @@ mod unix {
         Ok(shared)
     }
 
-    fn serve_client(host: Arc<HostShared>, mut stream: UnixStream) -> anyhow::Result<()> {
+    fn serve_client(host: Arc<HostShared>, stream: UnixStream) -> anyhow::Result<()> {
+        serve_client_with_snapshot_timeout(host, stream, HOST_SNAPSHOT_BOUNDARY_TIMEOUT)
+    }
+
+    fn serve_client_with_snapshot_timeout(
+        host: Arc<HostShared>,
+        mut stream: UnixStream,
+        snapshot_timeout: Duration,
+    ) -> anyhow::Result<()> {
         let hello_frame = read_required_frame(&mut stream, "client hello")?;
         if hello_frame.kind != MessageKind::ClientHello
             || hello_frame.sequence != 0
@@ -2770,7 +2839,20 @@ mod unix {
             // broadcast lock order as resize application. This makes the
             // initial snapshot an atomic member of size arbitration too.
             let mut viewer_sizes = host.viewer_sizes.lock().unwrap();
-            let mut term = host.term.lock().unwrap();
+            let mut term = match host.terminal_at_snapshot_boundary(snapshot_timeout) {
+                Ok(term) => term,
+                Err(error) => {
+                    drop(viewer_sizes);
+                    let mut resync = Frame::new(MessageKind::ResyncRequired, Vec::new());
+                    resync.sequence = if smart_renderer {
+                        host.smart.applied_cursor.load(Ordering::Acquire)
+                    } else {
+                        host.sequence.load(Ordering::Acquire)
+                    };
+                    let _ = write_frame(&mut stream, &resync);
+                    return Err(error);
+                }
+            };
             let replay =
                 term.vt_replay_bounded_theme_portable(crate::surface::VT_REPLAY_MAX_BYTES)?;
             let colors = term.color_overrides();
@@ -3340,6 +3422,7 @@ mod unix {
                 source_order_lock: Mutex::new(()),
                 parser_commands,
                 parser_budget: ParserBudget::new(1),
+                parser_progress: (Mutex::new(0), Condvar::new()),
                 next_client: AtomicU64::new(1),
                 dead: AtomicBool::new(false),
                 launch_owner_claimed: AtomicBool::new(true),
@@ -3567,6 +3650,192 @@ mod unix {
             drop(lease);
             assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
             let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
+        fn snapshot_boundary_waits_for_parser_progress_and_times_out() {
+            let host = exited_host_fixture();
+            let mut term = host.term.lock().unwrap();
+            term.vt_write(b"\xce");
+            assert!(!term.vt_stream_is_ground());
+
+            let waiter_host = host.clone();
+            let (result_sender, result_receiver) = std::sync::mpsc::channel();
+            let waiter = thread::spawn(move || {
+                let result = waiter_host
+                    .terminal_at_snapshot_boundary(Duration::from_secs(1))
+                    .and_then(|mut term| term.viewport_text().map_err(anyhow::Error::from));
+                result_sender.send(result).unwrap();
+            });
+
+            let deadline = Instant::now() + Duration::from_secs(1);
+            loop {
+                match host.parser_progress.0.try_lock() {
+                    Err(std::sync::TryLockError::WouldBlock) => break,
+                    Err(std::sync::TryLockError::Poisoned(error)) => panic!("{error}"),
+                    Ok(guard) => drop(guard),
+                }
+                assert!(Instant::now() < deadline, "snapshot waiter never inspected the parser");
+                thread::yield_now();
+            }
+            drop(term);
+
+            loop {
+                match host.parser_progress.0.try_lock() {
+                    Ok(guard) => {
+                        drop(guard);
+                        break;
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => {}
+                    Err(std::sync::TryLockError::Poisoned(error)) => panic!("{error}"),
+                }
+                assert!(Instant::now() < deadline, "snapshot waiter never entered its wait");
+                thread::yield_now();
+            }
+            host.term.lock().unwrap().vt_write(b"\xbb");
+            host.note_parser_progress();
+
+            assert!(result_receiver.recv().unwrap().unwrap().contains('λ'));
+            waiter.join().unwrap();
+
+            let timed_out = exited_host_fixture();
+            timed_out.term.lock().unwrap().vt_write(b"\x1b");
+            let started = Instant::now();
+            let error = match timed_out.terminal_at_snapshot_boundary(Duration::from_millis(20)) {
+                Ok(_) => panic!("unterminated VT sequence was admitted for a snapshot"),
+                Err(error) => error,
+            };
+            assert!(error.to_string().contains("safe snapshot boundary"));
+            assert!(started.elapsed() < Duration::from_secs(1));
+        }
+
+        fn snapshot_boundary_client_hello(host: &HostShared, smart: bool) -> anyhow::Result<Frame> {
+            let (role, rights, token) = if smart {
+                (
+                    ClientRole::Renderer,
+                    CapabilityRights::RENDERER,
+                    host.capabilities.mint(
+                        host.terminal_id,
+                        CapabilityRights::RENDERER,
+                        Duration::from_secs(1),
+                    )?,
+                )
+            } else {
+                (ClientRole::Admin, CapabilityRights::ADMIN, host.owner_token)
+            };
+            let mut hello = ClientHello {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                role,
+                requested_rights: rights,
+                terminal_id: host.terminal_id,
+                token,
+            }
+            .into_frame(1);
+            if smart {
+                hello.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+            }
+            Ok(hello)
+        }
+
+        #[test]
+        fn snapshot_boundary_protects_legacy_and_smart_bootstraps() {
+            for smart in [false, true] {
+                let host = exited_host_fixture();
+                host.term.lock().unwrap().vt_write(b"before \xce");
+                let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+                client_stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+                let server_host = host.clone();
+                let server = thread::spawn(move || {
+                    serve_client_with_snapshot_timeout(
+                        server_host,
+                        server_stream,
+                        Duration::from_secs(1),
+                    )
+                });
+
+                write_frame(
+                    &mut client_stream,
+                    &snapshot_boundary_client_hello(&host, smart).unwrap(),
+                )
+                .unwrap();
+                let hello = read_required_frame(&mut client_stream, "host hello").unwrap();
+                assert_eq!(hello.kind, MessageKind::HostHello);
+                assert_eq!(hello.flags & FLAG_SMART_RENDERER != 0, smart);
+
+                host.term.lock().unwrap().vt_write(b"\xbb after");
+                host.note_parser_progress();
+
+                let snapshot = read_required_frame(&mut client_stream, "snapshot").unwrap();
+                assert_eq!(snapshot.kind, MessageKind::Snapshot);
+                let snapshot = decode_host_snapshot_payload(&snapshot.payload).unwrap();
+                let colors = read_required_frame(&mut client_stream, "colors").unwrap();
+                assert_eq!(colors.kind, MessageKind::Colors);
+                if smart {
+                    assert_eq!(
+                        read_required_frame(&mut client_stream, "ready").unwrap().kind,
+                        MessageKind::Ready
+                    );
+                }
+
+                let mut mirror = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+                mirror.vt_write(&snapshot.replay);
+                let text = mirror.viewport_text().unwrap();
+                assert!(text.contains("before λ after"), "smart={smart} snapshot={text:?}");
+                assert!(!text.contains('\u{fffd}'), "smart={smart} snapshot={text:?}");
+
+                if smart {
+                    let cursor = host.smart.publish(Frame::new(MessageKind::Exit, Vec::new()));
+                    host.smart.mark_applied(cursor);
+                } else {
+                    host.broadcast(MessageKind::Exit, Vec::new());
+                }
+                assert_eq!(
+                    read_required_frame(&mut client_stream, "exit").unwrap().kind,
+                    MessageKind::Exit
+                );
+                let _ = client_stream.shutdown(std::net::Shutdown::Both);
+                server.join().unwrap().unwrap();
+            }
+        }
+
+        #[test]
+        fn unterminated_snapshot_boundary_resyncs_legacy_and_smart_clients() {
+            for smart in [false, true] {
+                let host = exited_host_fixture();
+                host.term.lock().unwrap().vt_write(b"\x1b]0;unterminated");
+                let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+                client_stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+                let server_host = host.clone();
+                let server = thread::spawn(move || {
+                    serve_client_with_snapshot_timeout(
+                        server_host,
+                        server_stream,
+                        Duration::from_millis(20),
+                    )
+                });
+
+                write_frame(
+                    &mut client_stream,
+                    &snapshot_boundary_client_hello(&host, smart).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    read_required_frame(&mut client_stream, "host hello").unwrap().kind,
+                    MessageKind::HostHello
+                );
+                let resync = read_required_frame(&mut client_stream, "resync").unwrap();
+                assert_eq!(resync.kind, MessageKind::ResyncRequired);
+                assert!(resync.payload.is_empty());
+                assert!(
+                    server
+                        .join()
+                        .unwrap()
+                        .unwrap_err()
+                        .to_string()
+                        .contains("safe snapshot boundary")
+                );
+            }
         }
 
         #[test]
