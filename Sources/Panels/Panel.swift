@@ -1,7 +1,6 @@
 import Foundation
 import Combine
 import AppKit
-import CmuxFoundation
 
 /// Type of panel content
 public enum PanelType: String, Codable, Sendable {
@@ -116,37 +115,13 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
 }
 
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
-    /// The attention accent. Resolves to `notifications.paneFlashColor` when the
-    /// user set a valid `#RRGGBB` hex, and falls back to `systemBlue` otherwise,
-    /// so the default appearance is unchanged.
-    case notificationBlue
+    case notification
 
-    var strokeColor: NSColor {
+    func resolvedColor(configuredHex: String?) -> WorkspaceAttentionColor {
         switch self {
-        case .notificationBlue:
-            return WorkspaceAttentionFlashColorSettings.resolvedColor()
+        case .notification:
+            return WorkspaceAttentionColor(configuredHex: configuredHex)
         }
-    }
-}
-
-enum WorkspaceAttentionFlashColorSettings {
-    static let colorHexKey = "notificationPaneFlashColorHex"
-    static let defaultColor = NSColor.systemBlue
-
-    /// Resolves the configured accent, rejecting anything the schema would not
-    /// accept. `NSColor(hex:)` tolerates a missing `#`, so the prefix and length
-    /// are checked here to keep this in step with `colorHexOrNull` (`#RRGGBB`,
-    /// no alpha).
-    static func resolvedColor(defaults: UserDefaults = .standard) -> NSColor {
-        guard
-            let hex = defaults.string(forKey: colorHexKey),
-            hex.count == 7,
-            hex.hasPrefix("#"),
-            let color = NSColor(hex: hex)
-        else {
-            return defaultColor
-        }
-        return color
     }
 }
 
@@ -182,13 +157,13 @@ struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
 
 enum WorkspaceAttentionCoordinator {
     static let notificationRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
+        accent: .notification,
         glowOpacity: 0.35,
         glowRadius: 3
     )
 
     static let flashRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
+        accent: .notification,
         glowOpacity: 0.6,
         glowRadius: 6
     )

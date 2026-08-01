@@ -1,3 +1,4 @@
+import AppKit
 import CmuxFoundation
 import Foundation
 import Testing
@@ -166,5 +167,31 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
         )
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+}
+
+@Suite("Pane attention color")
+struct PaneAttentionColorTests {
+    @Test
+    func fallsBackToSystemBlueWhenUnset() {
+        #expect(
+            WorkspaceAttentionColor(configuredHex: nil).nsColor.hexString() ==
+                NSColor.systemBlue.hexString()
+        )
+    }
+
+    @Test
+    func usesConfiguredHex() {
+        #expect(
+            WorkspaceAttentionColor(configuredHex: "#ff69b4").nsColor.hexString() == "#FF69B4"
+        )
+    }
+
+    @Test(arguments: ["not-a-color", "#FFZZZZ", "FF69B4", "#FF69B4AA"])
+    func rejectsValuesOutsideSchema(configuredHex: String) {
+        #expect(
+            WorkspaceAttentionColor(configuredHex: configuredHex).nsColor.hexString() ==
+                NSColor.systemBlue.hexString()
+        )
     }
 }

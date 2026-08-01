@@ -199699,6 +199699,57 @@
         }
       }
     },
+    "settings.workspaceColors.paneFlashColor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane Flash"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインのフラッシュ"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.paneFlashColor.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.paneFlashColor.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color of the attention ring and pane flash when a pane needs input."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインが入力を必要とするときに表示される注意リングとフラッシュの色。"
+          }
+        }
+      }
+    },
     "settings.workspaceColors.paletteNote": {
       "extractionState": "manual",
       "localizations": {

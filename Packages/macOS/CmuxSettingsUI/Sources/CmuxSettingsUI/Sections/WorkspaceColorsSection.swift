@@ -5,8 +5,8 @@ import SwiftUI
 
 /// **Workspace Colors** section — mirrors the legacy in-app section:
 /// indicator-style picker, selection highlight color, notification
-/// badge color, then a per-palette-entry editor and a Reset Palette
-/// action.
+/// badge color, pane attention color, then a per-palette-entry editor
+/// and a Reset Palette action.
 @MainActor
 public struct WorkspaceColorsSection: View {
     private let jsonStore: JSONConfigStore
@@ -125,7 +125,7 @@ public struct WorkspaceColorsSection: View {
                 json: "notifications.paneFlashColor",
                 resetLabel: String(localized: "settings.workspaceColors.paneFlashColor.reset", defaultValue: "Reset"),
                 model: paneFlashHex,
-                // Matches the runtime fallback in `WorkspaceAttentionFlashColorSettings`.
+                // Matches the runtime's system-blue fallback.
                 fallback: Color(nsColor: .systemBlue)
             )
             SettingsCardDivider()
