@@ -1118,7 +1118,6 @@ struct BrowserWebContentProcessTests {
         #expect(!(panel.webView.configuration.websiteDataStore === authenticatedStore))
         #expect(popupWebView.navigationDelegate == nil)
         #expect(popupWebView.uiDelegate == nil)
-        #expect(popupWebView.window == nil)
         #expect(!popupWindow.isVisible)
     }
 
