@@ -42,6 +42,7 @@ extension FileDiffPageView {
         self.inlinePreview = inlinePreview
         loadState = initialPresentation.map(FileDiffLoadState.loaded) ?? .loading
         rowTracker = ScrollRowTracker(topRowID: initialScrollRowID)
+        pendingRestoreRowID = initialScrollRowID
         previewRevision = FileDiffPreviewPolicy(kind: file.kind).defaultRevision
     }
 }

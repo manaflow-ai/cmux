@@ -16,6 +16,12 @@ public struct FileDiffPageView: View {
     var initialScrollRowID: String?
     @State var loadState: FileDiffLoadState = .loading
     @State var rowTracker = ScrollRowTracker(topRowID: nil)
+    /// Row to anchor on the next one-shot restore. Captured explicitly (from
+    /// the pager at mount, from the live tracker when a refresh re-arms the
+    /// restore) because the tracker itself is overwritten by every visibility
+    /// callback, including the ones that fire for the unrestored top of the
+    /// list before `onAppear` runs.
+    @State var pendingRestoreRowID: String?
     @State private var didRestoreScroll = false
     @State private var magnificationStart: Double?
     @State var previewRevision: FileDiffPreviewRevision = .current
@@ -132,7 +138,12 @@ public struct FileDiffPageView: View {
                     // offset has a single owner (the scroll view's physics).
                     guard !didRestoreScroll else { return }
                     didRestoreScroll = true
-                    if let restoreRowID = rowTracker.topRowID ?? initialScrollRowID {
+                    guard let restoreRowID = pendingRestoreRowID else { return }
+                    proxy.scrollTo(restoreRowID, anchor: .top)
+                    // LazyVStack can only estimate the offset of a row it has
+                    // not realized yet; re-apply once after the first layout
+                    // pass so the anchor lands on the realized row.
+                    Task { @MainActor in
                         proxy.scrollTo(restoreRowID, anchor: .top)
                     }
                 }
@@ -202,6 +213,9 @@ public struct FileDiffPageView: View {
         case .loading:
             break
         case .failed, .loaded(_):
+            // Refresh keeps the user's place: restore to where they are now,
+            // not to the row persisted when the page originally mounted.
+            pendingRestoreRowID = rowTracker.topRowID ?? pendingRestoreRowID
             didRestoreScroll = false
         }
         loadState = .loading
