@@ -93,7 +93,7 @@ ghostty_string_s ghostty_surface_tty_name(void *surface);
 void cmux_test_ghostty_runtime_stubs_reset(void);
 void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name);
 void cmux_test_ghostty_surface_free_blocking_begin(void);
-void cmux_test_ghostty_surface_free_wait_until_started(void);
+bool cmux_test_ghostty_surface_free_wait_until_started(void);
 void cmux_test_ghostty_surface_free_release(void);
 void cmux_test_ghostty_surface_free_blocking_reset(void);
 void cmux_test_ghostty_renderer_realized_begin(void *surface);

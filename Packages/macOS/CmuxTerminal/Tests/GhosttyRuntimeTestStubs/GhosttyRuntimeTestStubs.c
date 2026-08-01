@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 
 typedef struct {
     uint8_t r;
@@ -41,6 +42,13 @@ static bool cmux_test_surface_free_should_block = false;
 static bool cmux_test_surface_free_started = false;
 static bool cmux_test_surface_free_released = false;
 
+static struct timespec cmux_test_surface_free_deadline(void) {
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += 5;
+    return deadline;
+}
+
 void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_needs_confirm_quit = false;
     cmux_test_foreground_pid = 0;
@@ -55,15 +63,20 @@ void cmux_test_ghostty_surface_free_blocking_begin(void) {
     pthread_mutex_unlock(&cmux_test_surface_free_mutex);
 }
 
-void cmux_test_ghostty_surface_free_wait_until_started(void) {
+bool cmux_test_ghostty_surface_free_wait_until_started(void) {
+    const struct timespec deadline = cmux_test_surface_free_deadline();
     pthread_mutex_lock(&cmux_test_surface_free_mutex);
     while (!cmux_test_surface_free_started) {
-        pthread_cond_wait(
+        const int result = pthread_cond_timedwait(
             &cmux_test_surface_free_condition,
-            &cmux_test_surface_free_mutex
+            &cmux_test_surface_free_mutex,
+            &deadline
         );
+        if (result != 0) break;
     }
+    const bool started = cmux_test_surface_free_started;
     pthread_mutex_unlock(&cmux_test_surface_free_mutex);
+    return started;
 }
 
 void cmux_test_ghostty_surface_free_release(void) {
@@ -270,15 +283,18 @@ bool ghostty_surface_set_font_size_action_callback(
 
 void ghostty_surface_config_new(void) {}
 void ghostty_surface_free(void *surface) {
+    const struct timespec deadline = cmux_test_surface_free_deadline();
     pthread_mutex_lock(&cmux_test_surface_free_mutex);
     if (cmux_test_surface_free_should_block) {
         cmux_test_surface_free_started = true;
         pthread_cond_broadcast(&cmux_test_surface_free_condition);
         while (!cmux_test_surface_free_released) {
-            pthread_cond_wait(
+            const int result = pthread_cond_timedwait(
                 &cmux_test_surface_free_condition,
-                &cmux_test_surface_free_mutex
+                &cmux_test_surface_free_mutex,
+                &deadline
             );
+            if (result != 0) break;
         }
     }
     pthread_mutex_unlock(&cmux_test_surface_free_mutex);
