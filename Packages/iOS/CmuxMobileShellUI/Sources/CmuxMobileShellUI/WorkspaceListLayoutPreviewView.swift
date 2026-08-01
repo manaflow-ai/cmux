@@ -162,6 +162,9 @@ public struct WorkspaceListLayoutPreviewView: View {
     /// requested during the search-tab transition on iOS 26.
     @State private var fixturePath: [FixtureWorkspaceRoute] = []
     @State private var pendingSearchFixtureRoute: FixtureWorkspaceRoute?
+    /// UITest probe: proves whether a row's select action actually fired,
+    /// distinguishing a swallowed tap from a dropped navigation push.
+    @State private var fixtureSelectCount = 0
 
     private var scrollMetricsEnabled: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_METRICS"] == "1"
@@ -467,6 +470,10 @@ public struct WorkspaceListLayoutPreviewView: View {
                     .frame(width: 1, height: 1)
                     .accessibilityElement()
                     .accessibilityIdentifier("MobileWorkspaceListRefreshGeneration-\(refreshGeneration)")
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement()
+                    .accessibilityIdentifier("FixtureWorkspaceSelectCount-\(fixtureSelectCount)")
                 if showsTabScaffold {
                     Button {
                         performPreviewRefresh()
@@ -495,6 +502,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     }
 
     private func selectFixtureWorkspace(_ id: MobileWorkspacePreview.ID) {
+        fixtureSelectCount += 1
         selectedWorkspaceID = id
         let route = FixtureWorkspaceRoute(id: id)
         if showsTabScaffold,

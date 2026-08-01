@@ -761,7 +761,15 @@ final class cmuxUITests: XCTestCase {
 
         tap(docsRow, in: app)
         let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
-        XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
+        if !workspaceDetail.waitForExistence(timeout: 3) {
+            let selectFired = app.descendants(matching: .any)["FixtureWorkspaceSelectCount-1"].exists
+            let keyboardUp = app.keyboards.firstMatch.exists
+            XCTFail(
+                "Detail never appeared after tapping a filtered search row: "
+                    + "selectActionFired=\(selectFired) keyboardStillUp=\(keyboardUp) "
+                    + "searchFieldExists=\(searchField.exists) docsRowStillHittable=\(docsRow.isHittable)"
+            )
+        }
         XCTAssertTrue(minimizedSearch.waitForNonExistence(timeout: 3))
 
         let backButton = app.buttons["MobileWorkspaceBackButton"]
