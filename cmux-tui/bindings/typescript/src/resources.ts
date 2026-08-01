@@ -3445,7 +3445,17 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
     timeoutMs?: DecimalString,
     options: RequestOptions = {},
   ): Promise<TerminalWaitExitResult> {
-    const result = terminalWaitExitResult(
+    const expectedId = this.cached?.id ?? this.id;
+    const decodeResult = (value: unknown): TerminalWaitExitResult => {
+      const result = terminalWaitExitResult(value);
+      if (expectedId !== undefined && result.terminalId !== expectedId) {
+        throw new CmuxProtocolError(
+          `terminal wait_exit returned ${result.terminalId} for ${expectedId}`,
+        );
+      }
+      return result;
+    };
+    return decodeResult(
       await this.client[readOperation](
         operations.terminalWaitExit,
         {
@@ -3453,16 +3463,9 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
           ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
         },
         options,
-        terminalWaitExitResult,
+        decodeResult,
       ),
     );
-    const expectedId = this.cached?.id ?? this.id;
-    if (expectedId !== undefined && result.terminalId !== expectedId) {
-      throw new CmuxProtocolError(
-        `terminal wait_exit returned ${result.terminalId} for ${expectedId}`,
-      );
-    }
-    return result;
   }
 
   async copy(

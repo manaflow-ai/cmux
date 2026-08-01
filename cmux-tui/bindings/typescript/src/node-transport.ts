@@ -45,6 +45,7 @@ interface PendingMessage {
 
 /** Unix-socket JSON-lines transport for Node.js. */
 export class UnixSocketTransport implements Transport {
+  readonly supportsDispatchGuard: true = true;
   private readonly socket: net.Socket;
   private readonly pending: PendingMessage[] = [];
   private readonly messageHandlers = new Set<(json: string) => void>();

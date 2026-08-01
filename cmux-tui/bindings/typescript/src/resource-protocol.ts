@@ -592,7 +592,10 @@ export class ResourceProtocol {
       try {
         this.activeTransportSends += 1;
         try {
-          if (this.transport.sendCancellable) {
+          if (
+            this.transport.supportsDispatchGuard === true
+            && this.transport.sendCancellable
+          ) {
             const cancelUndispatched = this.transport.sendCancellable(
               json,
               () => {

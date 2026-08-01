@@ -78,6 +78,7 @@ interface PendingMessage {
 
 /** Browser-safe text-frame transport with bounded pre-open buffering. */
 export class WebSocketTransport implements Transport {
+  readonly supportsDispatchGuard: true = true;
   private readonly socket: WebSocketLike;
   private readonly lifecycle: WebSocketLifecycle;
   private readonly pending: PendingMessage[] = [];

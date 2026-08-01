@@ -80,6 +80,7 @@ interface PendingMessage {
 
 /** Sends and receives one JSON message per WebSocket text frame. */
 export class WebSocketTransport implements Transport {
+  readonly supportsDispatchGuard: true = true;
   private readonly socket: WebSocketLike;
   private readonly lifecycle: WebSocketLifecycle;
   private readonly pending: PendingMessage[] = [];

@@ -12,11 +12,16 @@ export interface Transport {
   /** Sends one complete JSON message. */
   send(json: string): void;
   /**
+   * Advertises that `sendCancellable` honors its dispatch guard immediately
+   * before a deferred write. Omit this marker on legacy two-argument adapters.
+   */
+  readonly supportsDispatchGuard?: true;
+  /**
    * Queues one complete JSON message and returns a function that cancels it if
    * dispatch has not started. Transports that buffer before authentication
    * should implement this so request deadlines cannot leave late frames behind.
-   * The optional guard runs immediately before `onDispatched`; false removes
-   * the queued frame without writing it.
+   * When `supportsDispatchGuard` is true, the optional guard runs immediately
+   * before `onDispatched`; false removes the queued frame without writing it.
    */
   sendCancellable?(
     json: string,

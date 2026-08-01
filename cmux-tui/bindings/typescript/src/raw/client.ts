@@ -83,6 +83,7 @@ import {
   type CmuxAuthority,
 } from "./generated/metadata.js";
 import type { Transport, Unsubscribe } from "../transport.js";
+import { validateRequestTimeout } from "../internal/request-timeout.js";
 import { parseWireJson, stringifyWireJson } from "../wire-json.js";
 
 export interface CmuxClientOptions {
@@ -129,7 +130,6 @@ export interface SendRawOptions {
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
 export const DEFAULT_MAX_PENDING_RESPONSES = 256;
-const MAX_TIMEOUT_MS = 0x7fff_ffff;
 const DEFAULT_CLIENT_AUTHORITIES =
   Object.freeze(["control", "frontend"] as const satisfies readonly CmuxAuthority[]);
 
@@ -242,7 +242,7 @@ class MessageRouter {
     const key = this.idKey(request.id);
     if (this.terminalError) return Promise.reject(this.terminalError);
     if (signal?.aborted) return Promise.reject(new CmuxAbortError("operation aborted"));
-    validateTimeout(timeoutMs);
+    validateRequestTimeout(timeoutMs);
     if (this.pending.has(key)) return Promise.reject(new CmuxProtocolError(`duplicate request id ${key}`));
     if (this.pending.size >= this.maxPendingResponses) {
       return Promise.reject(new CmuxProtocolError("pending response buffer is full"));
@@ -276,7 +276,10 @@ class MessageRouter {
       }
       try {
         const json = stringifyWireJson(request);
-        if (this.transport.sendCancellable) {
+        if (
+          this.transport.supportsDispatchGuard === true
+          && this.transport.sendCancellable
+        ) {
           let dispatchStarted = false;
           let synchronousDispatchWindow = true;
           const cancelUndispatched = this.transport.sendCancellable(
@@ -393,16 +396,6 @@ class MessageRouter {
   private connectionError(error: unknown): Error {
     if (error instanceof CmuxError) return error;
     return new CmuxConnectionError(error instanceof Error ? error.message : String(error));
-  }
-}
-
-function validateTimeout(timeoutMs: number): void {
-  if (
-    !Number.isFinite(timeoutMs)
-    || timeoutMs < 0
-    || timeoutMs > MAX_TIMEOUT_MS
-  ) {
-    throw new TypeError("timeoutMs must be between 0 and 2147483647");
   }
 }
 
@@ -599,13 +592,14 @@ export class CmuxClient {
   private sharedSubscriptionActive = false;
 
   constructor(options: CmuxClientOptions) {
+    const timeoutMs = validateRequestTimeout(options.timeoutMs ?? 10_000);
     this.transport = options.transport;
     this.authoritySet = this.resolveAuthorities(
       options.authorities ?? DEFAULT_CLIENT_AUTHORITIES,
       options.enableProviderAuthority ?? false,
     );
     this.authorities = Object.freeze([...this.authoritySet]);
-    this.timeoutMs = options.timeoutMs ?? 10_000;
+    this.timeoutMs = timeoutMs;
     this.streamIdleTimeoutMs = options.streamIdleTimeoutMs;
     if (this.streamIdleTimeoutMs !== undefined) {
       this.streamIdleTimeout(
