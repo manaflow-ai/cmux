@@ -319,7 +319,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(shell.contains("cmux_ssh_auth_tree_frozen_processes="))
         #expect(shell.contains("cmux_ssh_resume_frozen_auth_processes"))
         #expect(shell.contains("cmux_ssh_auth_process_is_original"))
-        #expect(shell.contains("/bin/kill -CONT \"$cmux_ssh_auth_tree_token\""))
+        #expect(shell.contains("command kill -CONT \"$cmux_ssh_auth_tree_token\""))
     }
 
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
