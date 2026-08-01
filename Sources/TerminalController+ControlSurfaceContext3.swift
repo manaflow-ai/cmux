@@ -363,7 +363,8 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        key: String
+        key: String,
+        authorization: ControlSocketRequestAuthorization?
     ) -> ControlSurfaceSendResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -421,9 +422,7 @@ extension TerminalController {
         }
         if let target = ws.controlSurfaceTarget(for: requestedSurfaceID),
            let applicationPanel = target.panel as? ApplicationPanel {
-            guard Self.applicationSurfaceSocketControlIsAllowed(
-                accessMode: socketServer.accessMode
-            ) else {
+            guard applicationSurfaceSocketControlIsAuthorized(authorization) else {
                 return .applicationInputUnavailable(
                     target.surfaceID,
                     message: Self.applicationSurfaceSocketControlUnavailableMessage

@@ -13,9 +13,14 @@ extension ControlCommandCoordinator {
     /// typed result; returns `nil` otherwise so the caller can fall through. The
     /// integrator calls this from the core `handle`.
     ///
-    /// - Parameter request: The decoded request envelope.
+    /// - Parameters:
+    ///   - request: The decoded request envelope.
+    ///   - authorization: The socket authorization accepted for this request.
     /// - Returns: The command result, or `nil` if not a surface method.
-    func handleSurface(_ request: ControlRequest) -> ControlCallResult? {
+    func handleSurface(
+        _ request: ControlRequest,
+        authorization: ControlSocketRequestAuthorization?
+    ) -> ControlCallResult? {
         switch request.method {
         case "surface.list":
             // Worker-lane resolution read (tranche D): the nonisolated body is
@@ -31,7 +36,7 @@ extension ControlCommandCoordinator {
         case "surface.respawn":
             return surfaceRespawn(request.params)
         case "surface.create":
-            return surfaceCreate(request.params)
+            return surfaceCreate(request.params, authorization: authorization)
         case "surface.close":
             return surfaceClose(request.params)
         case "surface.move":
@@ -54,7 +59,11 @@ extension ControlCommandCoordinator {
             // dispatch their hop collapses inline.
             return surfaceSendText(request.params, context: context)
         case "surface.send_key":
-            return surfaceSendKey(request.params, context: context)
+            return surfaceSendKey(
+                request.params,
+                context: context,
+                authorization: authorization
+            )
         case "surface.report_tty": return surfaceReportTTY(request.params)
         case "surface.report_pwd": return surfaceReportPWD(request.params)
         case "surface.report_git_branch": return surfaceReportGitBranch(request.params)
@@ -526,7 +535,10 @@ extension ControlCommandCoordinator {
     // MARK: - create
 
     /// `surface.create` — create a surface in a pane.
-    func surfaceCreate(_ params: [String: JSONValue]) -> ControlCallResult {
+    func surfaceCreate(
+        _ params: [String: JSONValue],
+        authorization: ControlSocketRequestAuthorization?
+    ) -> ControlCallResult {
         let routing = routingSelectors(params)
         let applicationStrings = context?.controlSurfaceApplicationStrings()
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
@@ -600,7 +612,11 @@ extension ControlCommandCoordinator {
             placementRaw: string(params, "placement")
         )
 
-        let resolution = context?.controlSurfaceCreate(routing: routing, inputs: inputs)
+        let resolution = context?.controlSurfaceCreate(
+            routing: routing,
+            inputs: inputs,
+            authorization: authorization
+        )
             ?? .tabManagerUnavailable
         switch resolution {
         case .tabManagerUnavailable:

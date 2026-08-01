@@ -441,7 +441,8 @@ extension ControlSurfaceContext {
 
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
-        inputs: ControlSurfaceCreateInputs
+        inputs: ControlSurfaceCreateInputs,
+        authorization: ControlSocketRequestAuthorization?
     ) -> ControlSurfaceCreateResolution { .tabManagerUnavailable }
 
     func controlSurfaceClose(
@@ -496,7 +497,8 @@ extension ControlSurfaceContext {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        key: String
+        key: String,
+        authorization: ControlSocketRequestAuthorization?
     ) -> ControlSurfaceSendResolution { .tabManagerUnavailable }
 
     func controlSurfaceResumeSet(

@@ -100,10 +100,13 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Parameters:
     ///   - routing: The routing selectors.
     ///   - inputs: The pre-parsed create inputs.
+    ///   - authorization: The socket authorization accepted for this request,
+    ///     or `nil` for an in-process caller.
     /// - Returns: The create resolution.
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
-        inputs: ControlSurfaceCreateInputs
+        inputs: ControlSurfaceCreateInputs,
+        authorization: ControlSocketRequestAuthorization?
     ) -> ControlSurfaceCreateResolution
 
     /// Closes a surface for `surface.close`.
@@ -216,12 +219,15 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - surfaceID: The explicit `surface_id`, or `nil` for the focused surface.
     ///   - hasSurfaceIDParam: Whether a `surface_id` param was present at all.
     ///   - key: The named key to send.
+    ///   - authorization: The socket authorization accepted for this request,
+    ///     or `nil` for an in-process caller.
     /// - Returns: The send resolution.
     func controlSurfaceSendKey(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        key: String
+        key: String,
+        authorization: ControlSocketRequestAuthorization?
     ) -> ControlSurfaceSendResolution
 
     // `surface.read_text` has no witness here: it runs on the socket-worker lane

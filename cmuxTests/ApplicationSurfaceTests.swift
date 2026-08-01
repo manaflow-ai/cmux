@@ -1337,6 +1337,38 @@ struct ApplicationSurfaceTests {
         #expect(!controller.applicationSurfaceSocketControlIsAuthorized(
             staleAuthorization
         ))
+        let staleCreateResolution = controller.controlSurfaceCreate(
+            routing: ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: nil,
+                surfaceID: nil,
+                paneID: nil
+            ),
+            inputs: ControlSurfaceCreateInputs(
+                typeRaw: "application",
+                providerRaw: nil,
+                rendererRaw: nil,
+                urlRaw: nil,
+                applicationWindowID: 42,
+                applicationProcessID: 43,
+                applicationTitle: "Preview",
+                applicationFrameRate: 60,
+                workingDirectory: nil,
+                initialCommand: nil,
+                tmuxStartCommand: nil,
+                remotePTYSessionID: nil,
+                remoteContextRaw: nil,
+                startupEnvironment: [:],
+                requestedPaneID: nil,
+                requestedFocus: false
+            ),
+            authorization: staleAuthorization
+        )
+        #expect(staleCreateResolution == .applicationControlUnavailable(
+            message: TerminalController.applicationSurfaceSocketControlUnavailableMessage
+        ))
 
         let currentAuthorization = ControlSocketRequestAuthorization(
             acceptedAccessMode: .cmuxOnly,

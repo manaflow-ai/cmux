@@ -350,7 +350,8 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
                     startupEnvironment: [:],
                     requestedPaneID: firstPaneID,
                     requestedFocus: false
-                )
+                ),
+                authorization: nil
             )
 
             // A projected pane is a valid target. `new-surface` maps to a tmux

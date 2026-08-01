@@ -302,7 +302,8 @@ extension TerminalController {
 
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
-        inputs: ControlSurfaceCreateInputs
+        inputs: ControlSurfaceCreateInputs,
+        authorization: ControlSocketRequestAuthorization?
     ) -> ControlSurfaceCreateResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -350,7 +351,7 @@ extension TerminalController {
             ))
         }
         if panelType == .application,
-           !Self.applicationSurfaceSocketControlIsAllowed(accessMode: socketServer.accessMode) {
+           !applicationSurfaceSocketControlIsAuthorized(authorization) {
             return .applicationControlUnavailable(
                 message: Self.applicationSurfaceSocketControlUnavailableMessage
             )

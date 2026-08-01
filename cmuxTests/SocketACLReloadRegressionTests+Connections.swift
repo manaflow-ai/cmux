@@ -40,6 +40,7 @@ extension SocketACLReloadRegressionTests {
             ControlConnection(
                 socket: sockets.server,
                 peerProcessID: revokedBeforeHandling ? getpid() : 1,
+                acceptedAccessMode: .cmuxOnly,
                 authorizationGeneration: authorizationGeneration
             )
         )
@@ -82,6 +83,7 @@ extension SocketACLReloadRegressionTests {
             ControlConnection(
                 socket: sockets.server,
                 peerProcessID: getpid(),
+                acceptedAccessMode: authorization.accessMode,
                 authorizationGeneration: authorization.generation,
                 authorizationRevocationSignal: authorization.revocationSignal
             )

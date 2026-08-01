@@ -65,9 +65,15 @@ public final class ControlCommandCoordinator {
     /// owns, returning the typed result; returns `nil` for methods still served
     /// by the legacy app-side dispatcher so the caller can fall through.
     ///
-    /// - Parameter request: The decoded request envelope.
+    /// - Parameters:
+    ///   - request: The decoded request envelope.
+    ///   - authorization: The socket authorization accepted for this request,
+    ///     or `nil` for an in-process caller.
     /// - Returns: The command result, or `nil` if not owned here.
-    public func handle(_ request: ControlRequest) -> ControlCallResult? {
+    public func handle(
+        _ request: ControlRequest,
+        authorization: ControlSocketRequestAuthorization? = nil
+    ) -> ControlCallResult? {
         // Each domain's handler (in its own `+<Domain>.swift` extension) owns its
         // methods and returns `nil` for anything else, so the chain falls through
         // to the next domain and finally to the legacy app-side dispatcher.
@@ -82,7 +88,10 @@ public final class ControlCommandCoordinator {
         if let result = handleCanvas(request) { return result }
         if let result = handleMobileHost(request) { return result }
         if let result = handleWorkspace(request) { return result }
-        if let result = handleSurface(request) { return result }
+        if let result = handleSurface(
+            request,
+            authorization: authorization
+        ) { return result }
         if let result = handleSystem(request) { return result }
         if let result = handleProject(request) { return result }
         if let result = handleDebug(request) { return result }
@@ -114,11 +123,14 @@ public final class ControlCommandCoordinator {
     ///   - context: The live app seam (the app's composition owner, passed
     ///     explicitly because the coordinator's `context` property is
     ///     main-actor-isolated).
+    ///   - authorization: The socket authorization accepted for this request,
+    ///     or `nil` for an in-process caller.
     /// - Returns: The command result, or `nil` if not a coordinator-owned
     ///   worker-lane method.
     public nonisolated func handleSocketWorkerV2(
         _ request: ControlRequest,
-        context: (any ControlCommandContext)?
+        context: (any ControlCommandContext)?,
+        authorization: ControlSocketRequestAuthorization? = nil
     ) -> ControlCallResult? {
         switch request.method {
         case "surface.list":
@@ -156,7 +168,11 @@ public final class ControlCommandCoordinator {
         case "surface.send_text":
             return surfaceSendText(request.params, context: context)
         case "surface.send_key":
-            return surfaceSendKey(request.params, context: context)
+            return surfaceSendKey(
+                request.params,
+                context: context,
+                authorization: authorization
+            )
         case "simulator.type":
             return simulatorType(request.params, context: context)
         case "simulator.web_inspector.targets",

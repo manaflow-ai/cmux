@@ -438,6 +438,7 @@ class TerminalController {
                 await controller.spawnClientHandler(
                     socket: connection.socket,
                     peerPid: connection.peerProcessID,
+                    acceptedAccessMode: connection.acceptedAccessMode,
                     authorizationGeneration: connection.authorizationGeneration,
                     authorizationRevocationSignal: connection.authorizationRevocationSignal
                 )
@@ -1049,7 +1050,10 @@ class TerminalController {
         "workspace.set_auto_title",
     ]
 
-    private nonisolated func socketWorkerV2Response(handling parsedRequest: ControlRequest) -> String? {
+    private nonisolated func socketWorkerV2Response(
+        handling parsedRequest: ControlRequest,
+        authorization: ControlSocketRequestAuthorization?
+    ) -> String? {
         let request = V2SocketRequest(bridging: parsedRequest)
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
@@ -1063,7 +1067,8 @@ class TerminalController {
                         request: parsedRequest,
                         id: request.id,
                         method: request.method,
-                        params: request.params
+                        params: request.params,
+                        authorization: authorization
                     )
                 }
                 switch outcome {
@@ -1083,7 +1088,8 @@ class TerminalController {
             // coordinator's `context` property is main-actor-isolated.
             if let coordinatorResult = controlCommandCoordinator.handleSocketWorkerV2(
                 parsedRequest,
-                context: self
+                context: self,
+                authorization: authorization
             ) {
                 return Self.v2Encoder.response(id: parsedRequest.id, coordinatorResult)
             }
@@ -1476,6 +1482,7 @@ class TerminalController {
     private nonisolated func spawnClientHandler(
         socket clientSocket: Int32,
         peerPid: pid_t?,
+        acceptedAccessMode: SocketControlMode,
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal
     ) async {
@@ -1498,6 +1505,7 @@ class TerminalController {
             self.handleClient(
                 clientSocket,
                 peerPid: peerPid,
+                acceptedAccessMode: acceptedAccessMode,
                 authorizationGeneration: authorizationGeneration,
                 authorizationRevocationSignal: authorizationRevocationSignal,
                 initialReadLimits: initialReadLimits,
@@ -1509,6 +1517,7 @@ class TerminalController {
     private nonisolated func handleClient(
         _ socket: Int32,
         peerPid: pid_t? = nil,
+        acceptedAccessMode: SocketControlMode,
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
         initialReadLimits: ControlClientLineReadLimits? = nil,
@@ -1585,6 +1594,8 @@ class TerminalController {
 
                 let result = processSocketLine(
                     trimmed,
+                    acceptedAccessMode: acceptedAccessMode,
+                    authorizationGeneration: authorizationGeneration,
                     passwordAuthorization: passwordAuthorization
                 )
                 passwordAuthorization = result.passwordAuthorization
@@ -1605,6 +1616,8 @@ class TerminalController {
 
     private nonisolated func processSocketLine(
         _ command: String,
+        acceptedAccessMode: SocketControlMode,
+        authorizationGeneration: UInt64,
         passwordAuthorization: SocketPasswordAuthorization
     ) -> SocketLineProcessingResult {
 #if DEBUG
@@ -1637,7 +1650,14 @@ class TerminalController {
             )
         }
 
-        let response = processCommandUsingSocketExecutionPolicy(command)
+        let response = processCommandUsingSocketExecutionPolicy(
+            command,
+            authorization: ControlSocketRequestAuthorization(
+                acceptedAccessMode: acceptedAccessMode,
+                generation: authorizationGeneration,
+                passwordAuthorization: nextPasswordAuthorization
+            )
+        )
 #if DEBUG
         if let response {
             Self.debugLogSocketCommandEndIfNeeded(
@@ -1899,7 +1919,10 @@ class TerminalController {
     }
 #endif
 
-    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String? {
+    private nonisolated func processCommandUsingSocketExecutionPolicy(
+        _ command: String,
+        authorization: ControlSocketRequestAuthorization?
+    ) -> String? {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if trimmed.hasPrefix("{") {
@@ -1924,9 +1947,12 @@ class TerminalController {
                 )
             }
             if policy.runsOnSocketWorker {
-                return socketWorkerV2Response(handling: request)
+                return socketWorkerV2Response(
+                    handling: request,
+                    authorization: authorization
+                )
             }
-            return processParsedV2Command(request)
+            return processParsedV2Command(request, authorization: authorization)
         }
 
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
@@ -1960,7 +1986,10 @@ class TerminalController {
     /// request) can reuse the full V1/V2 dispatcher without duplicating
     /// its auth/policy wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
-        return processCommandUsingSocketExecutionPolicy(line) ?? ""
+        return processCommandUsingSocketExecutionPolicy(
+            line,
+            authorization: nil
+        ) ?? ""
     }
 
     private func processCommand(_ command: String) -> String {
@@ -2191,7 +2220,7 @@ class TerminalController {
         case .failure(let parseError):
             return Self.v2Encoder.response(for: parseError)
         case .success(let request):
-            return processParsedV2Command(request)
+            return processParsedV2Command(request, authorization: nil)
         }
     }
 
@@ -2209,7 +2238,10 @@ class TerminalController {
     /// for in-process callers). Policy checks and response encoding stay on
     /// the calling thread; only the command body crosses to the main actor,
     /// via a single `v2MainSync` hop.
-    private nonisolated func processParsedV2Command(_ request: ControlRequest) -> String {
+    private nonisolated func processParsedV2Command(
+        _ request: ControlRequest,
+        authorization: ControlSocketRequestAuthorization?
+    ) -> String {
         let bridged = V2SocketRequest(bridging: request)
         let id: Any? = bridged.id
         let method = bridged.method
@@ -2229,7 +2261,13 @@ class TerminalController {
             }
 
             let outcome = v2MainSync {
-                self.v2MainActorResponse(request: request, id: id, method: method, params: params)
+                self.v2MainActorResponse(
+                    request: request,
+                    id: id,
+                    method: method,
+                    params: params,
+                    authorization: authorization
+                )
             }
             switch outcome {
             case .callResult(let result):
@@ -2250,14 +2288,23 @@ class TerminalController {
     /// before `controlCommandCoordinator.handle` here must also be added
     /// there, or the tranche-D worker-lane verbs silently fork from the
     /// main lane.
-    private func v2MainActorResponse(request: ControlRequest, id: Any?, method: String, params: [String: Any]) -> V2MainHopOutcome {
+    private func v2MainActorResponse(
+        request: ControlRequest,
+        id: Any?,
+        method: String,
+        params: [String: Any],
+        authorization: ControlSocketRequestAuthorization?
+    ) -> V2MainHopOutcome {
         v2RefreshKnownRefs()
 
         // Domains migrated into CmuxControlSocket's ControlCommandCoordinator
         // answer here, on the main actor, through the same encoder/id as the
         // legacy switch (the worker encodes the typed result after the hop);
         // everything else falls through to the legacy switch below.
-        if let coordinatorResult = controlCommandCoordinator.handle(request) {
+        if let coordinatorResult = controlCommandCoordinator.handle(
+            request,
+            authorization: authorization
+        ) {
             return .callResult(coordinatorResult)
         }
         return .encoded(v2LegacyMainActorResponse(id: id, method: method, params: params))
