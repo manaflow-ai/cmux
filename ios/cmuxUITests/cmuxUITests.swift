@@ -672,6 +672,11 @@ final class cmuxUITests: XCTestCase {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("The detached workspace search control requires iOS 26.")
         }
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            throw XCTSkip(
+                "The detached bottom Search control only exists in compact presentation; iPad hosts search in the top tab strip."
+            )
+        }
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
@@ -1185,6 +1190,11 @@ final class cmuxUITests: XCTestCase {
     func testSearchRemainsStableAcrossPrimaryRoots() throws {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("The detached workspace search control requires iOS 26.")
+        }
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            throw XCTSkip(
+                "The detached bottom Search control only exists in compact presentation; iPad hosts search in the top tab strip."
+            )
         }
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
