@@ -1,0 +1,1 @@
+PASS: built app does not link legacy image-capture symbols

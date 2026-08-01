@@ -1,0 +1,17 @@
+{
+  "app_bundle_path" : "/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app",
+  "app_cli_path" : "/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/Resources/bin/cmux",
+  "app_executable_path" : "/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV",
+  "bundle_identifier" : "com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage",
+  "caller" : null,
+  "focused" : {
+    "is_browser_surface" : false,
+    "pane_ref" : "pane:1",
+    "surface_ref" : "surface:1",
+    "surface_type" : "terminal",
+    "tab_ref" : "tab:1",
+    "window_ref" : "window:1",
+    "workspace_ref" : "workspace:1"
+  },
+  "socket_path" : "/tmp/cmux-debug-issue-9065-remove-cgwindowlistcreateimage.sock"
+}

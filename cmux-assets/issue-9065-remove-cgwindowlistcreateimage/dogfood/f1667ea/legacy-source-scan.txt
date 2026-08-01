@@ -1,0 +1,1 @@
+PASS: no legacy image-capture references outside ghostty
