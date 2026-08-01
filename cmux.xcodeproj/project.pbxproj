@@ -1771,7 +1771,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		850000000000000000000029 /* SessionIndexJSONLReadMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000019 /* SessionIndexJSONLReadMetrics.swift */; };
 		B3575000000000000000000C /* SessionIndexModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000B /* SessionIndexModels.swift */; };
 		B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */; };
-		FE003108 /* SessionIndexSectionPopoverHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003008 /* SessionIndexSectionPopoverHost.swift */; };
 		850000000000000000000027 /* SessionIndexSnapshotLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000017 /* SessionIndexSnapshotLoader.swift */; };
 		850000000000000000000006 /* SessionIndexSnapshotLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000005 /* SessionIndexSnapshotLoaderTests.swift */; };
 		FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003004 /* SessionIndexStore+CodexSQL.swift */; };
@@ -1784,6 +1783,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		850000000000000000000023 /* SessionIndexTableController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000013 /* SessionIndexTableController.swift */; };
 		85000000000000000000002B /* SessionIndexTableEnvironmentSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85000000000000000000001B /* SessionIndexTableEnvironmentSnapshot.swift */; };
 		85000000000000000000002E /* SessionIndexTableMutationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85000000000000000000001E /* SessionIndexTableMutationScheduler.swift */; };
+		FE003109 /* SessionIndexTablePopoverIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003009 /* SessionIndexTablePopoverIdentity.swift */; };
+		FE00310A /* SessionIndexTablePopoverPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300A /* SessionIndexTablePopoverPresentation.swift */; };
+		FE003108 /* SessionIndexTablePopoverPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003008 /* SessionIndexTablePopoverPresenter.swift */; };
 		850000000000000000000024 /* SessionIndexTableRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000014 /* SessionIndexTableRow.swift */; };
 		85000000000000000000002C /* SessionIndexTableRowHeightCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85000000000000000000001C /* SessionIndexTableRowHeightCalculator.swift */; };
 		850000000000000000000025 /* SessionIndexTableRowID.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000015 /* SessionIndexTableRowID.swift */; };
@@ -1806,6 +1808,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */; };
 		D86840000000000000000007 /* SessionSplitContainerLayoutCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000008 /* SessionSplitContainerLayoutCodec.swift */; };
 		D86840000000000000000009 /* SessionSplitContainerSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */; };
+		FE00310B /* SessionTranscriptPopoverLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300B /* SessionTranscriptPopoverLayout.swift */; };
+		FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300C /* SessionTranscriptPopoverSizeModel.swift */; };
 		F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */; };
 		583A675AA1224E8D82A44883 /* SetAutoTitleSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */; };
 		D10000000000000000A00020 /* SettingsAccountJSONResetBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00021 /* SettingsAccountJSONResetBehaviorUITests.swift */; };
@@ -4357,7 +4361,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		850000000000000000000019 /* SessionIndexJSONLReadMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexJSONLReadMetrics.swift; sourceTree = "<group>"; };
 		B3575000000000000000000B /* SessionIndexModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexModels.swift; sourceTree = "<group>"; };
 		B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexRegisteredAgents.swift; sourceTree = "<group>"; };
-		FE003008 /* SessionIndexSectionPopoverHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexSectionPopoverHost.swift; sourceTree = "<group>"; };
 		850000000000000000000017 /* SessionIndexSnapshotLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexSnapshotLoader.swift; sourceTree = "<group>"; };
 		850000000000000000000005 /* SessionIndexSnapshotLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexSnapshotLoaderTests.swift; sourceTree = "<group>"; };
 		FE003004 /* SessionIndexStore+CodexSQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+CodexSQL.swift"; sourceTree = "<group>"; };
@@ -4370,6 +4373,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		850000000000000000000013 /* SessionIndexTableController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTableController.swift; sourceTree = "<group>"; };
 		85000000000000000000001B /* SessionIndexTableEnvironmentSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTableEnvironmentSnapshot.swift; sourceTree = "<group>"; };
 		85000000000000000000001E /* SessionIndexTableMutationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTableMutationScheduler.swift; sourceTree = "<group>"; };
+		FE003009 /* SessionIndexTablePopoverIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTablePopoverIdentity.swift; sourceTree = "<group>"; };
+		FE00300A /* SessionIndexTablePopoverPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTablePopoverPresentation.swift; sourceTree = "<group>"; };
+		FE003008 /* SessionIndexTablePopoverPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTablePopoverPresenter.swift; sourceTree = "<group>"; };
 		850000000000000000000014 /* SessionIndexTableRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTableRow.swift; sourceTree = "<group>"; };
 		85000000000000000000001C /* SessionIndexTableRowHeightCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTableRowHeightCalculator.swift; sourceTree = "<group>"; };
 		850000000000000000000015 /* SessionIndexTableRowID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTableRowID.swift; sourceTree = "<group>"; };
@@ -4392,6 +4398,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SessionSnapshotDebugBenchmark.swift; sourceTree = "<group>"; };
 		D86840000000000000000008 /* SessionSplitContainerLayoutCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSplitContainerLayoutCodec.swift; sourceTree = "<group>"; };
 		D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSplitContainerSnapshot.swift; sourceTree = "<group>"; };
+		FE00300B /* SessionTranscriptPopoverLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverLayout.swift; sourceTree = "<group>"; };
+		FE00300C /* SessionTranscriptPopoverSizeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverSizeModel.swift; sourceTree = "<group>"; };
 		F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptTypes.swift; sourceTree = "<group>"; };
 		F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetAutoTitleSocketTests.swift; sourceTree = "<group>"; };
 		D10000000000000000A00021 /* SettingsAccountJSONResetBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAccountJSONResetBehaviorUITests.swift; sourceTree = "<group>"; };
@@ -7022,8 +7030,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FE003006 /* SessionAgentPresentation.swift */,
 				FE003007 /* RovoDevTranscriptPreview.swift */,
 				F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */,
-				FE003008 /* SessionIndexSectionPopoverHost.swift */,
+				FE003009 /* SessionIndexTablePopoverIdentity.swift */,
+				FE00300A /* SessionIndexTablePopoverPresentation.swift */,
+				FE003008 /* SessionIndexTablePopoverPresenter.swift */,
 				FE003002 /* SessionIndexView.swift */,
+				FE00300B /* SessionTranscriptPopoverLayout.swift */,
+				FE00300C /* SessionTranscriptPopoverSizeModel.swift */,
 				B7F9A601B7F9A601B7F9A601 /* RightSidebarChromeGeometryReporting.swift */,
 				B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */,
 				B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */,
@@ -9449,7 +9461,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				850000000000000000000029 /* SessionIndexJSONLReadMetrics.swift in Sources */,
 				B3575000000000000000000C /* SessionIndexModels.swift in Sources */,
 				B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */,
-				FE003108 /* SessionIndexSectionPopoverHost.swift in Sources */,
 				850000000000000000000027 /* SessionIndexSnapshotLoader.swift in Sources */,
 				FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */,
 				FE003101 /* SessionIndexStore.swift in Sources */,
@@ -9460,6 +9471,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				850000000000000000000023 /* SessionIndexTableController.swift in Sources */,
 				85000000000000000000002B /* SessionIndexTableEnvironmentSnapshot.swift in Sources */,
 				85000000000000000000002E /* SessionIndexTableMutationScheduler.swift in Sources */,
+				FE003109 /* SessionIndexTablePopoverIdentity.swift in Sources */,
+				FE00310A /* SessionIndexTablePopoverPresentation.swift in Sources */,
+				FE003108 /* SessionIndexTablePopoverPresenter.swift in Sources */,
 				850000000000000000000024 /* SessionIndexTableRow.swift in Sources */,
 				85000000000000000000002C /* SessionIndexTableRowHeightCalculator.swift in Sources */,
 				850000000000000000000025 /* SessionIndexTableRowID.swift in Sources */,
@@ -9476,6 +9490,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */,
 				D86840000000000000000007 /* SessionSplitContainerLayoutCodec.swift in Sources */,
 				D86840000000000000000009 /* SessionSplitContainerSnapshot.swift in Sources */,
+				FE00310B /* SessionTranscriptPopoverLayout.swift in Sources */,
+				FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */,
 				F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */,
 				D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */,
 				D5671401D5671401D5671401 /* SettingsNavigation+TerminalScrollSpeed.swift in Sources */,
