@@ -112,28 +112,32 @@ import Testing
         let arguments = [executable.path, "space value", "quote'\"", "日本語", String(repeating: "x", count: 4_000)]
         let surfaceID = UUID().uuidString.lowercased()
         let workspaceID = UUID().uuidString.lowercased()
-        let response = try jsonResponse(result: [
-            "terminals": [[
-                "tty": "ttys9258",
-                "workspace_id": workspaceID,
-                "surface_id": surfaceID,
-            ]],
-            "restore_record": [
-                "mode": "direct",
-                "kind": "custom",
-                "checkpoint_id": checkpointID,
-                "source": "test",
-                "working_directory": workingDirectory.path,
-                "environment": ["RESTORE_VALUE": "値 with spaces"],
-                "launch_command": [
-                    "arguments": arguments,
-                    "executable_path": executable.path,
+        let response = try restoreResponse(
+            result: [
+                "terminals": [[
+                    "tty": "ttys9258",
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                ]],
+                "restore_record": [
+                    "mode": "direct",
+                    "kind": "custom",
+                    "checkpoint_id": checkpointID,
+                    "source": "test",
                     "working_directory": workingDirectory.path,
                     "environment": ["RESTORE_VALUE": "値 with spaces"],
+                    "launch_command": [
+                        "arguments": arguments,
+                        "executable_path": executable.path,
+                        "working_directory": workingDirectory.path,
+                        "environment": ["RESTORE_VALUE": "値 with spaces"],
+                    ],
+                    "prepared_arguments": arguments,
                 ],
-                "prepared_arguments": arguments,
             ],
-        ])
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
         let socketPath = "/tmp/cmux-restore-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
@@ -166,7 +170,7 @@ import Testing
             )
             return try XCTUnwrap(object["method"] as? String)
         }
-        XCTAssertEqual(methods, ["debug.terminals", "surface.resume.get"])
+        XCTAssertEqual(methods, ["agent.resolve_delivery_target", "surface.resume.get"])
     }
 
     @Test func testRestoreDoesNotResolveBareExecutableFromEmptyPATHComponent() throws {
@@ -188,7 +192,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
 
         let checkpointID = "path-\(UUID().uuidString)"
-        let response = try jsonResponse(result: [
+        let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "direct",
                 "kind": "custom",
@@ -259,7 +263,7 @@ import Testing
 
         let checkpointID = "preflight-\(UUID().uuidString)"
         let launchEnvironment = ["CUSTOM_BASE_URL": "https://codex.example.test/v1"]
-        let response = try jsonResponse(result: [
+        let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "resumeAgent",
                 "kind": "hermes-agent",
@@ -342,7 +346,7 @@ import Testing
             "--session",
             checkpointID,
         ]
-        let response = try jsonResponse(result: [
+        let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "resumeAgent",
                 "kind": "cwd-agent",
@@ -392,7 +396,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
 
         let checkpointID = "legacy-\(UUID().uuidString)"
-        let response = try jsonResponse(result: [
+        let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "resumeAgent",
                 "kind": "codex",
@@ -434,7 +438,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
 
         let checkpointID = "fallback-\(UUID().uuidString)"
-        let response = try jsonResponse(result: [
+        let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "relaunchAgent",
                 "kind": "custom-relaunch",
@@ -504,7 +508,7 @@ import Testing
     @Test func testRestorePositionalFormFailsClosedWhenBindingIdentityDrifts() throws {
         let cliPath = try bundledCLIPath()
         let currentCheckpointID = UUID().uuidString.lowercased()
-        let response = try jsonResponse(result: [
+        let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "direct",
                 "kind": "codex",
@@ -586,7 +590,7 @@ import Testing
     @Test func testRestoreWaitsForControlSocketDuringAppStartup() throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = UUID().uuidString.lowercased()
-        let response = try jsonResponse(result: [
+        let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "direct",
                 "kind": "custom",
@@ -629,23 +633,28 @@ import Testing
         let requiredResponder = try #require(responder)
         XCTAssertFalse(result.timedOut, result.stdout)
         XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertEqual(requiredResponder.receivedRequests.count, 1)
+        XCTAssertEqual(requiredResponder.receivedRequests.count, 2)
     }
 
-    @Test func testRestorePrefersCallerTTYWhenAmbientSurfaceIDIsStale() throws {
+    @Test func testRestorePrefersLiveProcessTargetOverStaleAmbientRouting() throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = "pi-\(UUID().uuidString.lowercased())"
         let staleSurfaceID = UUID().uuidString
+        let staleTTYSurfaceID = UUID().uuidString
         let currentSurfaceID = UUID().uuidString
         let workspaceID = UUID().uuidString
-        let terminalResponse = try jsonResponse(result: [
+        let callerTargetResponse = try jsonResponse(result: [
             "terminals": [[
                 "tty": "ttys9380",
-                "workspace_id": workspaceID,
-                "surface_id": currentSurfaceID,
+                "workspace_id": UUID().uuidString,
+                "surface_id": staleTTYSurfaceID,
             ]],
+            "source": "pid",
+            "pid_resolution": "controlling_tty",
+            "workspace_id": workspaceID,
+            "surface_id": currentSurfaceID,
         ])
-        let restoreResponse = try jsonResponse(result: [
+        let restoreResponse = try restoreResponse(result: [
             "restore_record": [
                 "mode": "direct",
                 "kind": "pi",
@@ -661,7 +670,7 @@ import Testing
         let socketPath = "/tmp/cmux-restore-stale-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(
             path: socketPath,
-            responses: [terminalResponse, restoreResponse]
+            responses: [callerTargetResponse, restoreResponse]
         )
         defer { responder.stop() }
         var environment = ProcessInfo.processInfo.environment
@@ -687,36 +696,29 @@ import Testing
             return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         }
         #expect(requests.compactMap { $0["method"] as? String } == [
-            "debug.terminals",
+            "agent.resolve_delivery_target",
             "surface.resume.get",
         ])
+        let callerTargetRequest = try #require(requests.first)
+        let callerTargetParams = try #require(callerTargetRequest["params"] as? [String: Any])
+        #expect((callerTargetParams["pid"] as? Int).map { $0 > 0 } == true)
+        #expect(callerTargetParams["pid_resolution"] as? String == "controlling_tty")
         let restoreRequest = try #require(requests.last)
         let restoreParams = try #require(restoreRequest["params"] as? [String: Any])
         #expect(restoreParams["surface_id"] as? String == currentSurfaceID)
         #expect(restoreParams["surface_id"] as? String != staleSurfaceID)
+        #expect(restoreParams["surface_id"] as? String != staleTTYSurfaceID)
     }
 
-    @Test func testRestoreFallsBackToAmbientSurfaceWhenCallerTTYIsAmbiguous() throws {
+    @Test func testRestoreFallsBackToAmbientSurfaceWhenLiveProcessTargetIsNotFound() throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = "pi-\(UUID().uuidString.lowercased())"
         let ambientSurfaceID = UUID().uuidString
-        let firstTTYSurfaceID = UUID().uuidString
-        let secondTTYSurfaceID = UUID().uuidString
-        let terminalResponse = try jsonResponse(result: [
-            "terminals": [
-                [
-                    "tty": "ttys9380",
-                    "workspace_id": UUID().uuidString,
-                    "surface_id": firstTTYSurfaceID,
-                ],
-                [
-                    "tty": "ttys9380",
-                    "workspace_id": UUID().uuidString,
-                    "surface_id": secondTTYSurfaceID,
-                ],
-            ],
-        ])
-        let restoreResponse = try jsonResponse(result: [
+        let callerTargetResponse = try jsonErrorResponse(
+            code: "not_found",
+            message: "No live delivery target"
+        )
+        let restoreResponse = try restoreResponse(result: [
             "restore_record": [
                 "mode": "direct",
                 "kind": "pi",
@@ -732,7 +734,7 @@ import Testing
         let socketPath = "/tmp/cmux-restore-ambiguous-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(
             path: socketPath,
-            responses: [terminalResponse, restoreResponse]
+            responses: [callerTargetResponse, restoreResponse]
         )
         defer { responder.stop() }
         var environment = ProcessInfo.processInfo.environment
@@ -758,14 +760,140 @@ import Testing
             return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         }
         #expect(requests.compactMap { $0["method"] as? String } == [
-            "debug.terminals",
+            "agent.resolve_delivery_target",
             "surface.resume.get",
         ])
         let restoreRequest = try #require(requests.last)
         let restoreParams = try #require(restoreRequest["params"] as? [String: Any])
         #expect(restoreParams["surface_id"] as? String == ambientSurfaceID)
-        #expect(restoreParams["surface_id"] as? String != firstTTYSurfaceID)
-        #expect(restoreParams["surface_id"] as? String != secondTTYSurfaceID)
+    }
+
+    @Test func testRestoreRejectsMalformedLiveProcessTargetWithoutFallingBack() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let callerTargetResponse = try jsonResponse(result: [
+            "terminals": [],
+            "source": "pid",
+            "pid_resolution": "controlling_tty",
+            "workspace_id": UUID().uuidString,
+            "surface_id": "not-a-surface-id",
+        ])
+        let restoreResponse = try restoreResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-malformed-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [callerTargetResponse, restoreResponse]
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["TTY"] = "/dev/ttys9380"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
+        #expect(
+            result.stdout.contains("the current cmux surface could not be identified"),
+            Comment(rawValue: result.stdout)
+        )
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "agent.resolve_delivery_target",
+        ])
+    }
+
+    @Test func testRestoreDoesNotReuseSocketAfterCallerTargetTimeout() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let currentSurfaceID = UUID().uuidString
+        let callerTargetResponse = try jsonResponse(result: [
+            "terminals": [[
+                "tty": "ttys9380",
+                "workspace_id": UUID().uuidString,
+                "surface_id": currentSurfaceID,
+            ]],
+            "source": "pid",
+            "pid_resolution": "controlling_tty",
+            "workspace_id": UUID().uuidString,
+            "surface_id": currentSurfaceID,
+        ])
+        let restoreResponse = try restoreResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-timeout-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [callerTargetResponse, restoreResponse],
+            responseDelay: 0.3
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.2"
+        environment["TTY"] = "/dev/ttys9380"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
+        #expect(result.stdout.contains("Command timed out"), Comment(rawValue: result.stdout))
+        #expect(
+            !result.stdout.contains("this session has nothing to restore"),
+            Comment(rawValue: result.stdout)
+        )
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "agent.resolve_delivery_target",
+        ])
     }
 
     @Test func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
@@ -2007,6 +2135,33 @@ import Testing
         return try XCTUnwrap(String(data: data, encoding: .utf8))
     }
 
+    private func restoreResponse(
+        result: [String: Any],
+        workspaceID: String? = nil,
+        surfaceID: String? = nil
+    ) throws -> String {
+        var result = result
+        result["source"] = "pid"
+        result["pid_resolution"] = "controlling_tty"
+        result["workspace_id"] = workspaceID ?? UUID().uuidString
+        result["surface_id"] = surfaceID ?? UUID().uuidString
+        return try jsonResponse(result: result)
+    }
+
+    private func jsonErrorResponse(code: String, message: String) throws -> String {
+        let data = try JSONSerialization.data(
+            withJSONObject: [
+                "ok": false,
+                "error": [
+                    "code": code,
+                    "message": message,
+                ],
+            ],
+            options: []
+        )
+        return try XCTUnwrap(String(data: data, encoding: .utf8))
+    }
+
     /// The stable control-socket path under an injected (temp) home, resolved via
     /// the canonical ``CmuxStateDirectory`` so the test exercises the real layout.
     private func stableSocketURL(home: URL) throws -> URL {
@@ -2349,6 +2504,16 @@ final class UnixSocketResponder {
 
     private func handle(clientFD: Int32) {
         defer { close(clientFD) }
+        var noSigPipe: Int32 = 1
+        _ = withUnsafePointer(to: &noSigPipe) { pointer in
+            setsockopt(
+                clientFD,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                pointer,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+        }
         while true {
             var request = Data()
             while true {
