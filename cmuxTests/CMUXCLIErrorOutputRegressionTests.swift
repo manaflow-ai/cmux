@@ -632,6 +632,70 @@ import Testing
         XCTAssertEqual(requiredResponder.receivedRequests.count, 1)
     }
 
+    @Test func testRestorePrefersCallerTTYWhenAmbientSurfaceIDIsStale() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let staleSurfaceID = UUID().uuidString
+        let currentSurfaceID = UUID().uuidString
+        let workspaceID = UUID().uuidString
+        let terminalResponse = try jsonResponse(result: [
+            "terminals": [[
+                "tty": "ttys9380",
+                "workspace_id": workspaceID,
+                "surface_id": currentSurfaceID,
+            ]],
+        ])
+        let restoreResponse = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-stale-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [terminalResponse, restoreResponse]
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = staleSurfaceID
+        environment["TTY"] = "/dev/ttys9380"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "debug.terminals",
+            "surface.resume.get",
+        ])
+        let restoreRequest = try #require(requests.last)
+        let restoreParams = try #require(restoreRequest["params"] as? [String: Any])
+        #expect(restoreParams["surface_id"] as? String == currentSurfaceID)
+        #expect(restoreParams["surface_id"] as? String != staleSurfaceID)
+    }
+
     @Test func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"
@@ -2094,7 +2158,7 @@ import Testing
 
 final class UnixSocketResponder {
     let path: String
-    private let response: String
+    private let responses: [String]
     private let responseDelay: TimeInterval
     private let queue = DispatchQueue(label: "com.cmux.tests.unix-socket-responder")
     private let lock = NSLock()
@@ -2102,9 +2166,20 @@ final class UnixSocketResponder {
     private var requests: [String] = []
     private var listenerFD: Int32 = -1
 
-    init(path: String, response: String, responseDelay: TimeInterval = 0) throws {
+    convenience init(path: String, response: String, responseDelay: TimeInterval = 0) throws {
+        try self.init(path: path, responses: [response], responseDelay: responseDelay)
+    }
+
+    init(path: String, responses: [String], responseDelay: TimeInterval = 0) throws {
+        guard !responses.isEmpty else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: CocoaError.validationMissingMandatoryProperty.rawValue,
+                userInfo: [NSLocalizedDescriptionKey: "At least one socket response is required"]
+            )
+        }
         self.path = path
-        self.response = response
+        self.responses = responses
         self.responseDelay = responseDelay
 
         unlink(path)
@@ -2215,15 +2290,18 @@ final class UnixSocketResponder {
                     break
                 }
             }
+            var responseIndex = 0
             if let line = String(data: request, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) {
                 lock.lock()
+                responseIndex = requests.count
                 requests.append(line)
                 lock.unlock()
             }
             if responseDelay > 0 {
                 Thread.sleep(forTimeInterval: responseDelay)
             }
+            let response = responses[min(responseIndex, responses.count - 1)]
             let payload = response + "\n"
             payload.withCString { pointer in
                 _ = write(clientFD, pointer, strlen(pointer))
