@@ -148,7 +148,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               *" $cmux_ssh_auth_tree_candidate_pid:$cmux_ssh_auth_tree_candidate_parent:T"*)
                 command kill -0 "$cmux_ssh_auth_tree_candidate_pid" >/dev/null 2>&1
                 ;;
-              *) exit 1 ;;
+              *) return 1 ;;
             esac
           }
 
