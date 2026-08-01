@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use cmux_remote_protocol::{CircuitId, RelaySocketAttachment};
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +36,21 @@ pub(crate) struct CircuitAttachment {
     pub generation: u64,
     pub expires_at: u64,
     pub idle_deadline_ms: u64,
+    #[serde(default, skip_serializing_if = "OutboundQueue::is_empty")]
+    pub outbound: OutboundQueue,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct OutboundQueue {
+    pub observed_bytes: u32,
+    pub untracked_bytes: u32,
+    pub frame_bytes: VecDeque<u32>,
+}
+
+impl OutboundQueue {
+    pub fn is_empty(&self) -> bool {
+        self.observed_bytes == 0 && self.untracked_bytes == 0 && self.frame_bytes.is_empty()
+    }
 }
 
 impl CircuitAttachment {
@@ -45,6 +62,7 @@ impl CircuitAttachment {
             generation: 0,
             expires_at: 0,
             idle_deadline_ms,
+            outbound: OutboundQueue::default(),
         }
     }
 }
@@ -69,12 +87,27 @@ mod tests {
             generation: 7,
             expires_at: 1_000,
             idle_deadline_ms: 2_000,
+            outbound: OutboundQueue::default(),
         };
 
         let encoded = serde_json::to_vec(&attachment).unwrap();
         let decoded: CircuitAttachment = serde_json::from_slice(&encoded).unwrap();
         assert_eq!(decoded, attachment);
         assert!(encoded.len() < 16_384);
+    }
+
+    #[test]
+    fn legacy_circuit_attachment_defaults_outbound_accounting() {
+        let encoded = br#"{
+            "circuit":"circuit",
+            "relay":null,
+            "phase":"pending",
+            "generation":0,
+            "expires_at":0,
+            "idle_deadline_ms":2000
+        }"#;
+        let decoded: CircuitAttachment = serde_json::from_slice(encoded).unwrap();
+        assert_eq!(decoded.outbound, OutboundQueue::default());
     }
 
     #[test]
