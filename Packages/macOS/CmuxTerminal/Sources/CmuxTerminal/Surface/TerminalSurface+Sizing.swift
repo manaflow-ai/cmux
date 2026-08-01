@@ -186,6 +186,7 @@ extension TerminalSurface {
     ///   the whole drag, and presenting that oversized grid before the deferred
     ///   reconcile clamps it paints past the shrinking pane onto siblings. The pin
     ///   re-establishes at rest (drag end and tmux's layout reply both size the pane).
+    /// - Parameter caller: The originating size-reconciliation entry point for debug tracing.
     /// - Returns: Whether a runtime size or scale change was applied.
     @discardableResult
     @MainActor
@@ -197,7 +198,8 @@ extension TerminalSurface {
         layerScale: CGFloat,
         backingSize: CGSize? = nil,
         coalescePixelOnlyResize: Bool = false,
-        suppressAssignedGridPin: Bool = false
+        suppressAssignedGridPin: Bool = false,
+        caller: StaticString = #function
     ) -> Bool {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
         _ = layerScale
@@ -350,7 +352,7 @@ extension TerminalSurface {
             if suppressManualReflow {
                 writeProcessOutputData(Self.decawmDisableSequence, to: surface)
             }
-            ghostty_surface_set_size(surface, wpx, hpx)
+            applySurfaceSize(surface, width: wpx, height: hpx, caller: caller)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
             if ioMode.usesManualIO {
