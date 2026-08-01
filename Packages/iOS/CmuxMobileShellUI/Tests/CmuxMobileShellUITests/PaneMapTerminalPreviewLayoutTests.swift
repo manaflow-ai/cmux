@@ -40,4 +40,18 @@ import Testing
         #expect(metrics.width(tabCount: 5) == 132)
         #expect(metrics.width(tabCount: 20) == 132)
     }
+
+    @Test func hitFrameMatchesTheCenteredVisibleStrip() {
+        let metrics = PaneMapTabStripMetrics()
+        let previewBounds = CGRect(x: 20, y: 40, width: 156, height: 200)
+
+        #expect(
+            metrics.frame(in: previewBounds, tabCount: 2)
+                == CGRect(x: 66, y: 198, width: 64, height: 34)
+        )
+        #expect(
+            metrics.frame(in: previewBounds, tabCount: 20)
+                == CGRect(x: 32, y: 198, width: 132, height: 34)
+        )
+    }
 }

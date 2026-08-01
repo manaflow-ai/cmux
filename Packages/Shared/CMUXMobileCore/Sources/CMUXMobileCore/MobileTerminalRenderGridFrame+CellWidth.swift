@@ -61,20 +61,25 @@ extension MobileTerminalRenderGridFrame.RowSpan {
             guard !hasUntrustedExpansionCandidate else {
                 return nil
             }
-            var remaining = gridCellWidth - total
-            for index in widths.indices where remaining > 0 && widths[index] < 2 {
-                guard expandable[index] else { continue }
+            let expansionCandidates = widths.indices.filter {
+                widths[$0] < 2 && expandable[$0]
+            }
+            let remaining = gridCellWidth - total
+            guard remaining == expansionCandidates.count else {
+                return nil
+            }
+            for index in expansionCandidates {
                 widths[index] += 1
-                remaining -= 1
             }
-            guard remaining == 0 else { return nil }
         } else if total > gridCellWidth {
-            var excess = total - gridCellWidth
-            for index in widths.indices.reversed() where excess > 0 && widths[index] > 1 {
-                widths[index] -= 1
-                excess -= 1
+            let contractionCandidates = widths.indices.filter { widths[$0] > 1 }
+            let excess = total - gridCellWidth
+            guard excess == contractionCandidates.count else {
+                return nil
             }
-            guard excess == 0 else { return nil }
+            for index in contractionCandidates {
+                widths[index] -= 1
+            }
         }
         return widths
     }

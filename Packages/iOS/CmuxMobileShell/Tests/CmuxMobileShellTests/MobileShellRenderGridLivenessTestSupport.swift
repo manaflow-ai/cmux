@@ -76,6 +76,7 @@ actor LivenessHostRouter {
     private var macDisplayName: String? = "Test Mac"
     private var workspaceListResponseHook: (@Sendable () -> Void)?
     private var workspaceListTitles: [String] = []
+    private var paneReorderResult: [String: Any]?
     /// FIFO of scripted `mobile.sync.fetch` results (state sync v2 tests).
     private var syncFetchResults: [[String: Any]] = []
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
@@ -249,6 +250,11 @@ actor LivenessHostRouter {
 
     func setWorkspaceListResponseHook(_ hook: @escaping @Sendable () -> Void) {
         workspaceListResponseHook = hook
+    }
+
+    func scriptPaneReorderResult(jsonData: Data) {
+        paneReorderResult = try? JSONSerialization.jsonObject(with: jsonData)
+            as? [String: Any]
     }
 
     func enqueueReplayTexts(_ texts: [String]) {
@@ -476,6 +482,14 @@ actor LivenessHostRouter {
                     ],
                 ],
             ])
+        case "workspace.pane.reorder":
+            guard let paneReorderResult else {
+                return try? Self.errorFrame(
+                    id: id,
+                    message: "unscripted pane reorder"
+                )
+            }
+            return try? Self.resultFrame(id: id, result: paneReorderResult)
         case "mobile.host.status":
             hostStatusRequestCount += 1
             if heldHostStatusRequestNumbers.contains(hostStatusRequestCount) {

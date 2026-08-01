@@ -203,6 +203,42 @@ import Testing
         #expect(preview.stylesByID[2]?.inverse == true)
     }
 
+    @Test func aggregateWidthDoesNotGuessBetweenAmbiguousGraphemes() {
+        let partiallyExpanded = MobileTerminalRenderGridFrame.RowSpan(
+            row: 0,
+            column: 0,
+            text: "¡¡",
+            cellWidth: 3
+        )
+        let fullyExpanded = MobileTerminalRenderGridFrame.RowSpan(
+            row: 0,
+            column: 0,
+            text: "¡¡",
+            cellWidth: 4
+        )
+
+        #expect(partiallyExpanded.resolvedCharacterCellWidths == nil)
+        #expect(fullyExpanded.resolvedCharacterCellWidths == [2, 2])
+    }
+
+    @Test func aggregateWidthDoesNotGuessWhichWideGraphemeContracted() {
+        let partiallyContracted = MobileTerminalRenderGridFrame.RowSpan(
+            row: 0,
+            column: 0,
+            text: "界界",
+            cellWidth: 3
+        )
+        let fullyContracted = MobileTerminalRenderGridFrame.RowSpan(
+            row: 0,
+            column: 0,
+            text: "界界",
+            cellWidth: 2
+        )
+
+        #expect(partiallyContracted.resolvedCharacterCellWidths == nil)
+        #expect(fullyContracted.resolvedCharacterCellWidths == [1, 1])
+    }
+
     private static func frame(
         columns: Int,
         rowCount: Int,

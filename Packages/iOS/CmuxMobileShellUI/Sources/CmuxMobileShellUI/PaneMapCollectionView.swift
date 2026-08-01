@@ -109,6 +109,7 @@ struct PaneMapCollectionView: UIViewRepresentable {
         private var reorderState: PaneMapReorderState
         private var selectionArbitration = PaneMapSelectionArbitration()
         private let tileMetrics = PaneMapTileMetrics()
+        private let tabStripMetrics = PaneMapTabStripMetrics()
 
         init(parent: PaneMapCollectionView) {
             self.parent = parent
@@ -116,7 +117,8 @@ struct PaneMapCollectionView: UIViewRepresentable {
                 uniqueKeysWithValues: parent.items.map { ($0.id, $0) }
             )
             reorderState = PaneMapReorderState(
-                authoritativePaneIDs: parent.items.map(\.id)
+                authoritativePaneIDs: parent.items.map(\.id),
+                authoritativeRevision: parent.layout.version
             )
         }
 
@@ -150,7 +152,10 @@ struct PaneMapCollectionView: UIViewRepresentable {
                 return
             }
 
-            reorderState.reconcile(authoritativePaneIDs: items.map(\.id))
+            reorderState.reconcile(
+                authoritativePaneIDs: items.map(\.id),
+                authoritativeRevision: parent.layout.version
+            )
             reloadVisibleItems()
         }
 
@@ -351,14 +356,16 @@ struct PaneMapCollectionView: UIViewRepresentable {
                   let cell = collectionView.cellForItem(at: indexPath) else {
                 return false
             }
-            let previewHeight = cell.bounds.height - tileMetrics.captionHeight
-            let paneControlsBand = CGRect(
+            let previewBounds = CGRect(
                 x: cell.frame.minX,
-                y: cell.frame.minY + previewHeight - 50,
+                y: cell.frame.minY,
                 width: cell.frame.width,
-                height: 50
+                height: max(0, cell.bounds.height - tileMetrics.captionHeight)
             )
-            return paneControlsBand.contains(collectionLocation)
+            return tabStripMetrics.frame(
+                in: previewBounds,
+                tabCount: orderedItems[indexPath.item].pane.surfaces.count
+            ).contains(collectionLocation)
         }
 
         func gestureRecognizer(

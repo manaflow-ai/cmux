@@ -128,6 +128,31 @@ import Testing
         await store.remoteClient?.disconnect()
     }
 
+    @Test func mismatchedSurfaceResponseIsRejected() async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let clock = TestClock()
+        let store = MobileShellComposite.preview()
+        try installFreshLivenessRemoteClient(
+            on: store,
+            router: router,
+            box: box,
+            clock: clock
+        )
+        await router.enqueueReplayRenderGrid(try Self.frame(
+            surfaceID: "different-surface",
+            stateSeq: 1
+        ))
+
+        let grid = await store.fetchPaneMapPreviewGrid(
+            remoteWorkspaceID: "workspace",
+            surfaceID: "requested-surface"
+        )
+
+        #expect(grid == nil)
+        await store.remoteClient?.disconnect()
+    }
+
     private static func frame(
         surfaceID: String,
         stateSeq: UInt64

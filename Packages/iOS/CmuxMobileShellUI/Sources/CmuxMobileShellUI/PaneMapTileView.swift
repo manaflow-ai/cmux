@@ -76,6 +76,11 @@ struct PaneMapTabStripMetrics: Equatable {
     let spacing: CGFloat = 2
     let padding: CGFloat = 3
     let maximumWidth: CGFloat = 132
+    let bottomInset: CGFloat = 8
+
+    var height: CGFloat {
+        tabWidth + (padding * 2)
+    }
 
     func width(tabCount: Int) -> CGFloat {
         guard tabCount > 0 else { return 0 }
@@ -84,6 +89,16 @@ struct PaneMapTabStripMetrics: Equatable {
             + (CGFloat(max(0, tabCount - 1)) * spacing)
             + (padding * 2)
         return min(maximumWidth, contentWidth)
+    }
+
+    func frame(in previewBounds: CGRect, tabCount: Int) -> CGRect {
+        let stripWidth = width(tabCount: tabCount)
+        return CGRect(
+            x: previewBounds.midX - (stripWidth / 2),
+            y: previewBounds.maxY - bottomInset - height,
+            width: stripWidth,
+            height: height
+        )
     }
 }
 
@@ -515,7 +530,7 @@ private struct PaneMapTabSwitcher: View {
         .scrollIndicators(.hidden)
         .frame(
             width: metrics.width(tabCount: pane.surfaces.count),
-            height: metrics.tabWidth + (metrics.padding * 2)
+            height: metrics.height
         )
         .mobileGlassPill()
         .accessibilityIdentifier("MobilePaneMapTabStrip-\(pane.id)")

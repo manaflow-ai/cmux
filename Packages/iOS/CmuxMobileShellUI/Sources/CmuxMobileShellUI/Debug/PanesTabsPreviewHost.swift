@@ -319,7 +319,7 @@ struct PanesTabsPreviewHost: View {
 
         @MainActor
         final class Coordinator {
-            private var timer: Timer?
+            private var task: Task<Void, Never>?
             private var scheduledKey: String?
 
             func update(_ parent: PanesTabsAutoplayDriver) {
@@ -344,20 +344,24 @@ struct PanesTabsPreviewHost: View {
                 cancel()
                 scheduledKey = nextKey
                 PanesTabsPreviewHost.logger.notice("autoplay: schedule \(nextKey, privacy: .public)")
-                timer = Timer.scheduledTimer(withTimeInterval: plan.delay, repeats: false) { [weak self] _ in
-                    MainActor.assumeIsolated {
-                        guard parent.step == plan.expectedStep else { return }
-                        PanesTabsPreviewHost.logger.notice("autoplay: fire \(nextKey, privacy: .public)")
-                        parent.step = plan.nextStep
-                        parent.run(plan.action)
-                        self?.cancel()
+                task = Task { @MainActor [weak self] in
+                    do {
+                        try await Task.sleep(for: .seconds(plan.delay))
+                    } catch {
+                        return
                     }
+                    guard !Task.isCancelled,
+                          parent.step == plan.expectedStep else { return }
+                    PanesTabsPreviewHost.logger.notice("autoplay: fire \(nextKey, privacy: .public)")
+                    parent.step = plan.nextStep
+                    parent.run(plan.action)
+                    self?.cancel()
                 }
             }
 
             func cancel() {
-                timer?.invalidate()
-                timer = nil
+                task?.cancel()
+                task = nil
                 scheduledKey = nil
             }
         }

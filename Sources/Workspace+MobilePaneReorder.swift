@@ -101,16 +101,24 @@ extension Workspace {
                 bonsplitController.focusPane(destinationPane)
                 bonsplitController.selectTab(selectedTab)
             }
+
+            if let originallyFocusedPaneID {
+                let restoredFocusedPaneID: UUID
+                if mutationSucceeded,
+                   let destinationIndex = requestedPaneIDs.firstIndex(of: originallyFocusedPaneID) {
+                    restoredFocusedPaneID = spatialPanes[destinationIndex]
+                } else {
+                    restoredFocusedPaneID = originallyFocusedPaneID
+                }
+                if let restoredFocusedPane = panesByID[restoredFocusedPaneID] {
+                    bonsplitController.focusPane(restoredFocusedPane)
+                }
+            }
         }
         mobilePaneLayoutPublicationSuppressionCount -= 1
 
         guard mutationSucceeded else { return false }
 
-        if let originallyFocusedPaneID,
-           let destinationIndex = requestedPaneIDs.firstIndex(of: originallyFocusedPaneID),
-           let focusedPane = panesByID[spatialPanes[destinationIndex]] {
-            bonsplitController.focusPane(focusedPane)
-        }
         publishMobilePaneLayoutRevisionIfChanged()
         scheduleTerminalGeometryReconcile()
         scheduleFocusReconcile()

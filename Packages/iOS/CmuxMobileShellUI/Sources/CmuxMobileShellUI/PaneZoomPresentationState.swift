@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileTerminal
 import SwiftUI
 #if os(iOS)
 import UIKit
@@ -74,7 +75,7 @@ struct PaneZoomNavigationStack<Root: View, Terminal: View>: View {
         #if os(iOS)
         .background {
             PaneZoomNavigationHostBackground(
-                color: UIColor(paneZoomTerminalBackground: terminalTheme)
+                color: terminalTheme.terminalBackgroundUIColor
             )
         }
         #endif
@@ -106,7 +107,24 @@ private struct PaneZoomNavigationHostBackground: UIViewRepresentable {
         uiView.applyBackground()
     }
 
+    static func dismantleUIView(_ uiView: BackgroundBridgeView, coordinator: ()) {
+        uiView.restoreBackgrounds()
+    }
+
     final class BackgroundBridgeView: UIView {
+        private final class BackgroundSnapshot {
+            weak var view: UIView?
+            let originalColor: UIColor?
+            var appliedColor: UIColor?
+
+            init(view: UIView) {
+                self.view = view
+                self.originalColor = view.backgroundColor
+            }
+        }
+
+        private var backgroundSnapshots: [ObjectIdentifier: BackgroundSnapshot] = [:]
+
         var color: UIColor = .clear {
             didSet { applyBackground() }
         }
@@ -123,12 +141,15 @@ private struct PaneZoomNavigationHostBackground: UIViewRepresentable {
 
         func applyBackground() {
             backgroundColor = .clear
-            guard window != nil else { return }
+            guard window != nil else {
+                restoreBackgrounds()
+                return
+            }
 
             var ancestor = superview
             var hops = 0
             while let view = ancestor, !(view is UIWindow), hops < 16 {
-                view.backgroundColor = color
+                applyColor(to: view)
                 ancestor = view.superview
                 hops += 1
             }
@@ -137,33 +158,37 @@ private struct PaneZoomNavigationHostBackground: UIViewRepresentable {
             var responderHops = 0
             while let current = responder, responderHops < 32 {
                 if let viewController = current as? UIViewController {
-                    viewController.view.backgroundColor = color
-                    viewController.navigationController?.view.backgroundColor = color
+                    applyColor(to: viewController.view)
+                    if let navigationView = viewController.navigationController?.view {
+                        applyColor(to: navigationView)
+                    }
                 }
                 if let navigationController = current as? UINavigationController {
-                    navigationController.view.backgroundColor = color
+                    applyColor(to: navigationController.view)
                 }
                 responder = current.next
                 responderHops += 1
             }
         }
-    }
-}
 
-private extension UIColor {
-    convenience init(paneZoomTerminalBackground theme: TerminalTheme) {
-        let fallback = TerminalTheme.monokai.background
-        guard let rgb = TerminalTheme.rgbComponents(theme.background)
-            ?? TerminalTheme.rgbComponents(fallback) else {
-            self.init(white: 0, alpha: 1)
-            return
+        func restoreBackgrounds() {
+            for snapshot in backgroundSnapshots.values {
+                guard let view = snapshot.view,
+                      view.backgroundColor == snapshot.appliedColor else {
+                    continue
+                }
+                view.backgroundColor = snapshot.originalColor
+            }
+            backgroundSnapshots.removeAll()
         }
-        self.init(
-            red: CGFloat(rgb.red) / 255.0,
-            green: CGFloat(rgb.green) / 255.0,
-            blue: CGFloat(rgb.blue) / 255.0,
-            alpha: 1
-        )
+
+        private func applyColor(to view: UIView) {
+            let key = ObjectIdentifier(view)
+            let snapshot = backgroundSnapshots[key] ?? BackgroundSnapshot(view: view)
+            snapshot.appliedColor = color
+            backgroundSnapshots[key] = snapshot
+            view.backgroundColor = color
+        }
     }
 }
 #endif

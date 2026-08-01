@@ -36,7 +36,8 @@ extension MobileShellComposite {
             method: "workspace.pane.reorder",
             params: params,
             id: id,
-            actionName: "pane_reorder"
+            actionName: "pane_reorder",
+            authoritativeWorkspaceListResponse: true
         )
     }
 
@@ -408,7 +409,8 @@ extension MobileShellComposite {
         params: [String: Any],
         id: MobileWorkspacePreview.ID,
         actionName: String,
-        refreshAfterMutation: Bool = true
+        refreshAfterMutation: Bool = true,
+        authoritativeWorkspaceListResponse: Bool = false
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         let target = workspaceMutationTarget(for: id)
         return await sendWorkspaceMutation(
@@ -421,7 +423,8 @@ extension MobileShellComposite {
             ),
             logID: id.rawValue,
             actionName: actionName,
-            refreshAfterMutation: refreshAfterMutation
+            refreshAfterMutation: refreshAfterMutation,
+            authoritativeWorkspaceListResponse: authoritativeWorkspaceListResponse
         )
     }
 
@@ -460,7 +463,8 @@ extension MobileShellComposite {
         hostDisplayName: String?,
         logID: String,
         actionName: String,
-        refreshAfterMutation: Bool = true
+        refreshAfterMutation: Bool = true,
+        authoritativeWorkspaceListResponse: Bool = false
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         // Route the mutation to the Mac that actually OWNS this workspace. The
         // aggregated list can include rows from secondary Macs, whose connection is
@@ -478,9 +482,22 @@ extension MobileShellComposite {
             return .failure(.notConnected(hostDisplayName: hostDisplayName))
         }
         let generation = connectionGeneration
+        var appliedAuthoritativeWorkspaceList = false
         do {
             let request = try MobileCoreRPCClient.requestData(method: method, params: params)
-            _ = try await client.sendRequest(request)
+            let responseData = try await client.sendRequest(request)
+            if authoritativeWorkspaceListResponse {
+                let response = try MobileSyncWorkspaceListResponse.decode(responseData)
+                guard applyAuthoritativeWorkspaceMutationResponse(
+                    response,
+                    target: target,
+                    client: client,
+                    connectionGeneration: generation
+                ) else {
+                    throw MobileShellConnectionError.invalidResponse
+                }
+                appliedAuthoritativeWorkspaceList = true
+            }
         } catch {
             if disconnectForAuthorizationFailureIfNeeded(error) {
                 return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
@@ -502,10 +519,57 @@ extension MobileShellComposite {
             return .failure(workspaceMutationFailure(error, hostDisplayName: hostDisplayName))
         }
         // Re-sync the authoritative list for the Mac we actually mutated.
-        if refreshAfterMutation {
+        if refreshAfterMutation, !appliedAuthoritativeWorkspaceList {
             await refreshAfterWorkspaceMutation(target)
         }
         return .success(())
+    }
+
+    private func applyAuthoritativeWorkspaceMutationResponse(
+        _ response: MobileSyncWorkspaceListResponse,
+        target: WorkspaceMutationTarget,
+        client: MobileCoreRPCClient,
+        connectionGeneration: UUID
+    ) -> Bool {
+        guard !Task.isCancelled else { return false }
+        if target.isForeground {
+            guard isCurrentRemoteOperation(
+                client: client,
+                generation: connectionGeneration
+            ) else {
+                return false
+            }
+            applyRemoteWorkspaceList(response)
+            return true
+        }
+
+        guard let ownerKey = target.ownerKey,
+              let subscription = secondaryMacSubscriptions[ownerKey],
+              subscription.client === client,
+              !subscription.isTransitioningToFocus else {
+            return false
+        }
+        subscription.workspaceRefreshGeneration &+= 1
+        let workspaces = response.workspaces.map { remote -> MobileWorkspacePreview in
+            var workspace = MobileWorkspacePreview(remote: remote)
+            workspace.macDeviceID = subscription.macDeviceID
+            workspace.macInstanceTag = subscription.storedInstanceTag
+            return workspace
+        }
+        let groups = groupCollapseStore.apply(
+            to: response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
+        )
+        workspacesByMac[ownerKey] = MacWorkspaceState(
+            macDeviceID: subscription.macDeviceID,
+            instanceTag: subscription.storedInstanceTag,
+            displayName: workspacesByMac[ownerKey]?.displayName
+                ?? subscription.displayName,
+            workspaces: workspaces,
+            groups: groups,
+            status: .connected,
+            actionCapabilities: subscription.actionCapabilities
+        )
+        return true
     }
 
     private func workspaceMutationParams(id: MobileWorkspacePreview.ID) -> [String: Any] {

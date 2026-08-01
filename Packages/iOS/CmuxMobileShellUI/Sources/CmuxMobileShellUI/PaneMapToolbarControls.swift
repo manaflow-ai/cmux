@@ -1,26 +1,6 @@
 import CmuxMobileSupport
 import SwiftUI
 
-struct PaneMapToolbarControls: View {
-    let isRefreshing: Bool
-    let refresh: () -> Void
-    let done: () -> Void
-
-    var body: some View {
-        HStack(spacing: PaneMapToolbarMetrics.spacing) {
-            PaneMapRefreshToolbarButton(isRefreshing: isRefreshing, refresh: refresh)
-            PaneMapDoneToolbarButton(done: done)
-        }
-        .frame(
-            width: PaneMapToolbarMetrics.trailingClusterWidth,
-            height: PaneMapToolbarMetrics.height,
-            alignment: .trailing
-        )
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("MobilePaneMapToolbarControls")
-    }
-}
-
 struct PaneMapRefreshToolbarButton: View {
     let isRefreshing: Bool
     let refresh: () -> Void

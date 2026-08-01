@@ -54,6 +54,12 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "CMUX_PANEMAP preview surface=\(surfaceID) grid=\(grid != nil) gridSurface=\(grid?.surfaceID ?? "nil") spans=\(grid?.rowSpans.count ?? -1) bytes=\(payload.dataBase64?.count ?? 0)"
             )
+            guard grid?.surfaceID == surfaceID else {
+                MobileDebugLog.anchormux(
+                    "CMUX_PANEMAP preview rejected requested=\(surfaceID) returned=\(grid?.surfaceID ?? "nil")"
+                )
+                return nil
+            }
             return grid
         } catch is CancellationError {
             return nil

@@ -90,6 +90,13 @@ struct PaneMapOverlay: View {
             selectedSurfaceIDsByPaneID = value.reconciledSurfaceIDs(
                 current: selectedSurfaceIDsByPaneID
             )
+            let validSurfaceIDs = Set(value.panes.flatMap(\.surfaces).map(\.id))
+            previewsBySurfaceID = previewsBySurfaceID.filter {
+                validSurfaceIDs.contains($0.key)
+            }
+            guard isVisible else { return }
+            cancelPreviewRefresh()
+            startPreviewRefresh()
         }
     }
 
@@ -187,6 +194,8 @@ struct PaneMapOverlay: View {
             remainingTerminalSurfaceIDs
         )
         guard !Task.isCancelled, refreshGeneration == generation else { return }
-        previewsBySurfaceID = frames.mapValues { $0.paneMapPreview() }
+        previewsBySurfaceID = frames.mapValues {
+            $0.paneMapPreview(maximumRows: 96)
+        }
     }
 }

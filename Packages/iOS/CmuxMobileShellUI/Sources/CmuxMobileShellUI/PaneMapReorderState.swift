@@ -15,6 +15,7 @@ struct PaneMapReorderState: Equatable {
 
     private(set) var visiblePaneIDs: [String]
     private(set) var authoritativePaneIDs: [String]
+    private(set) var authoritativeRevision: Int
     private(set) var pendingRequest: Request?
     private var receivedAuthorityWhilePending = false
     private var pendingRequestWasAccepted = false
@@ -23,9 +24,10 @@ struct PaneMapReorderState: Equatable {
         pendingRequest != nil
     }
 
-    init(authoritativePaneIDs: [String]) {
+    init(authoritativePaneIDs: [String], authoritativeRevision: Int) {
         self.visiblePaneIDs = authoritativePaneIDs
         self.authoritativePaneIDs = authoritativePaneIDs
+        self.authoritativeRevision = authoritativeRevision
     }
 
     mutating func beginMove(from sourceIndex: Int, to destinationIndex: Int) -> Request? {
@@ -44,12 +46,18 @@ struct PaneMapReorderState: Equatable {
         return request
     }
 
-    mutating func reconcile(authoritativePaneIDs: [String]) {
+    mutating func reconcile(
+        authoritativePaneIDs: [String],
+        authoritativeRevision: Int
+    ) {
+        let receivedNewAuthority = authoritativeRevision != self.authoritativeRevision
         self.authoritativePaneIDs = authoritativePaneIDs
+        self.authoritativeRevision = authoritativeRevision
         guard pendingRequest != nil else {
             visiblePaneIDs = authoritativePaneIDs
             return
         }
+        guard receivedNewAuthority else { return }
         receivedAuthorityWhilePending = true
         if pendingRequestWasAccepted {
             finishSuccessfulMutationAfterAuthoritativeRefresh()

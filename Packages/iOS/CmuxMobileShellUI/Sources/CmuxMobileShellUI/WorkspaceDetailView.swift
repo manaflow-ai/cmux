@@ -164,6 +164,37 @@ struct WorkspaceDetailView: View {
         .onChange(of: workspace.layout != nil) { _, hasLayout in
             paneZoomPresentation.layoutAvailabilityDidChange(hasLayout: hasLayout)
         }
+        .closeWorkspaceConfirmation(
+            isPresented: $isConfirmingClose,
+            confirm: confirmCloseWorkspaceFromMenu
+        )
+        .sheet(isPresented: $isFeedbackComposerPresented) {
+            feedbackComposer
+        }
+        .sheet(isPresented: $isTextSheetPresented) {
+            TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+        }
+        .sheet(isPresented: $isWorkspaceChangesSheetPresented) {
+            WorkspaceChangesSheet(
+                store: store,
+                workspaceID: workspace.rpcWorkspaceID.rawValue,
+                workspaceTitle: workspace.name
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .workspaceRenameDialog(
+            isPresented: $isRenamePresented,
+            text: $renameText,
+            onSave: commitRenameFromDialog
+        )
+        .sheet(isPresented: $isCustomizationPresented) {
+            WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
+                await customizeWorkspace?(workspace.id, initialDraft, submittedDraft)
+                    ?? .failure()
+            }
+        }
+        .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #else
         Group { detailSurfaceContent }
             .closeWorkspaceConfirmation(
@@ -208,37 +239,6 @@ struct WorkspaceDetailView: View {
             .onChange(of: store.supportsChatArtifactGallery) { _, _ in
                 visibleArtifactCount = 0
             }
-            .closeWorkspaceConfirmation(
-                isPresented: $isConfirmingClose,
-                confirm: confirmCloseWorkspaceFromMenu
-            )
-            .sheet(isPresented: $isFeedbackComposerPresented) {
-                feedbackComposer
-            }
-            .sheet(isPresented: $isTextSheetPresented) {
-                TerminalTextSheetView(surfaceID: textSheetSurfaceID)
-            }
-            .sheet(isPresented: $isWorkspaceChangesSheetPresented) {
-                WorkspaceChangesSheet(
-                    store: store,
-                    workspaceID: workspace.rpcWorkspaceID.rawValue,
-                    workspaceTitle: workspace.name
-                )
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-            }
-            .workspaceRenameDialog(
-                isPresented: $isRenamePresented,
-                text: $renameText,
-                onSave: commitRenameFromDialog
-            )
-            .sheet(isPresented: $isCustomizationPresented) {
-                WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
-                    await customizeWorkspace?(workspace.id, initialDraft, submittedDraft)
-                        ?? .failure()
-                }
-            }
-            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
     }
 
     private func paneMapRoot(layout: MobilePaneLayout) -> some View {
