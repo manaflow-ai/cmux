@@ -141,12 +141,12 @@ struct FocusHistoryBracketShortcutRoutingTests {
         ))
     }
 
-    static func commandBracketShortcut(_ key: String) -> AppStoredShortcut {
+    fileprivate static func commandBracketShortcut(_ key: String) -> AppStoredShortcut {
         AppStoredShortcut(key: key, command: true, shift: false, option: false, control: false)
     }
 
     @MainActor
-    static func dispatch(_ shortcut: AppStoredShortcut, in harness: Harness) -> Bool {
+    fileprivate static func dispatch(_ shortcut: AppStoredShortcut, in harness: Harness) -> Bool {
         guard let keyCode = shortcut.firstStroke.resolvedKeyCode() else { return false }
         guard let event = NSEvent.keyEvent(
             with: .keyDown,
