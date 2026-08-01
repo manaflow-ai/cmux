@@ -35,14 +35,13 @@ export function clampRetryToEventLife(
     if (
       !isTransientApnsResult(outcome)
       || outcome.retryAfterSeconds == null
-      || outcome.retryAfterSeconds <= viableRetrySeconds
     ) {
       return outcome;
     }
     if (viableRetrySeconds < MINIMUM_DEFERRED_RETRY_SECONDS) {
-      const { retryAfterSeconds: _retryAfterSeconds, ...expired } = outcome;
       return {
-        ...expired,
+        ...(outcome.targetId == null ? {} : { targetId: outcome.targetId }),
+        deviceToken: outcome.deviceToken,
         status: 0,
         reason: "event_expired",
         prune: false,
@@ -50,9 +49,12 @@ export function clampRetryToEventLife(
     }
     return {
       ...outcome,
-      retryAfterSeconds: Math.max(
-        MINIMUM_DEFERRED_RETRY_SECONDS,
+      retryAfterSeconds: Math.min(
         viableRetrySeconds,
+        Math.max(
+          MINIMUM_DEFERRED_RETRY_SECONDS,
+          outcome.retryAfterSeconds,
+        ),
       ),
     };
   });

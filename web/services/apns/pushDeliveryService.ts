@@ -21,6 +21,7 @@ import {
   type ApnsConfig,
   type ApnsSendResult,
   type ApnsTarget,
+  isTransientApnsResult,
   sendApnsNotificationReliably,
 } from "./sender";
 import {
@@ -216,13 +217,21 @@ async function executePushDeliveryWithTargets(
         && existing.expiresAt.getTime()
           <= input.nowEpochSeconds * 1_000;
       if (existing.summary.transientFailures === 0 || isExpired) {
+        const replayOutcomes =
+          isExpired && existing.summary.transientFailures > 0
+            ? finalizeExpiredOutcomes(existing.outcomes)
+            : existing.outcomes;
+        const replaySummary =
+          isExpired && existing.summary.transientFailures > 0
+            ? summarizeExpiredRecord(existing.summary, replayOutcomes)
+            : existing.summary;
         const completed = await completePushSend(
           db,
           input.userId,
           input.correlationId,
           claim.leaseToken,
-          existing.summary,
-          existing.outcomes,
+          replaySummary,
+          replayOutcomes,
           undefined,
           existing.expiresAt,
         );
@@ -235,11 +244,11 @@ async function executePushDeliveryWithTargets(
             }),
           };
         }
-        dependencies.recordOutcome(existing.summary, input.correlationId);
+        dependencies.recordOutcome(replaySummary, input.correlationId);
         return {
           ok: true,
           outcome: {
-            summary: existing.summary,
+            summary: replaySummary,
             replayed: true,
           },
         };
@@ -393,6 +402,38 @@ async function executePushDeliveryWithTargets(
     false,
     deliveryPayload.expirationEpochSeconds,
   );
+}
+
+function finalizeExpiredOutcomes(
+  outcomes: readonly ApnsSendResult[],
+): ApnsSendResult[] {
+  return outcomes.map((outcome) => {
+    if (!isTransientApnsResult(outcome)) return outcome;
+    return {
+      ...(outcome.targetId == null ? {} : { targetId: outcome.targetId }),
+      deviceToken: outcome.deviceToken,
+      status: 0,
+      reason: "event_expired",
+      prune: false,
+    };
+  });
+}
+
+function summarizeExpiredRecord(
+  previous: PushSendSummary,
+  outcomes: readonly ApnsSendResult[],
+): PushSendSummary {
+  if (outcomes.length === previous.devices) {
+    return summarizeApnsSendResults(outcomes);
+  }
+  return {
+    sent: previous.sent,
+    devices: previous.devices,
+    pruned: previous.pruned,
+    transientFailures: 0,
+    permanentFailures:
+      previous.permanentFailures + previous.transientFailures,
+  };
 }
 
 function targetIdentity(target: ApnsTarget): string {

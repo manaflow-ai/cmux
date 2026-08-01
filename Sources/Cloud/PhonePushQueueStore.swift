@@ -9,6 +9,7 @@ actor PhonePushQueueStore {
     }
 
     private static let maximumFileBytes = 8 * 1024 * 1024
+    private static let abandonedTemporaryFileAge: TimeInterval = 5 * 60
     private let fileURL: URL
     private let capacity: Int
     private let fileManager: FileManager
@@ -111,13 +112,13 @@ actor PhonePushQueueStore {
 
     /// A crash between the temp write and the rename leaves a UUID-named
     /// `.tmp` behind that no later save can target again, so without this
-    /// sweep repeated crashes grow the directory without bound. Every name
-    /// this store could have written is scoped by the live file's name, and
-    /// each save mints a fresh UUID, so sweeping before writing can never
-    /// touch the file about to be created.
+    /// sweep repeated crashes grow the directory without bound. Another app
+    /// instance can still be writing its own UUID-named snapshot, so only a
+    /// file old enough to be abandoned is eligible for removal.
     private func removeAbandonedTemporaryFiles() {
         let directoryURL = fileURL.deletingLastPathComponent()
         let prefix = ".\(fileURL.lastPathComponent)."
+        let now = Date()
         guard let entries = try? fileManager.contentsOfDirectory(
             at: directoryURL,
             includingPropertiesForKeys: nil,
@@ -126,6 +127,14 @@ actor PhonePushQueueStore {
         for entry in entries
         where entry.lastPathComponent.hasPrefix(prefix)
             && entry.pathExtension == "tmp" {
+            guard
+                let attributes = try? fileManager.attributesOfItem(
+                    atPath: entry.path
+                ),
+                let modificationDate = attributes[.modificationDate] as? Date,
+                now.timeIntervalSince(modificationDate)
+                    >= Self.abandonedTemporaryFileAge
+            else { continue }
             try? fileManager.removeItem(at: entry)
         }
     }

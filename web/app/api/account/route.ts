@@ -288,6 +288,39 @@ export async function DELETE(request: Request): Promise<Response> {
     }
     return jsonResponse({ ok: true, destroyedVms });
   } catch (error) {
+    if (error instanceof AccountDeletionPhonePushDeliveryInProgressError) {
+      if (!destructiveCleanupStarted && stackMetadataMarked) {
+        await restoreStackMetadataAfterAccountDeletionFailure(
+          stackUser,
+          originalStackMetadata,
+          { restoreBillingEntitlements: restoreBillingEntitlementsOnFailure },
+        );
+      }
+      if (accountDeletionTombstoneStarted) {
+        await markAccountDeletionTombstoneFailed(userId, error);
+      }
+      logAccountDeleteError(
+        destructiveCleanupStarted
+          ? "account.delete.partial_after_destructive_cleanup"
+          : "account.delete.failed",
+        error,
+      );
+      return new Response(
+        JSON.stringify({
+          error: "account_delete_push_delivery_in_progress",
+          retryable: true,
+          retryAfterSeconds: error.retryAfterSeconds,
+          destroyedVms,
+        }),
+        {
+          status: 409,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": String(error.retryAfterSeconds),
+          },
+        },
+      );
+    }
     if (destructiveCleanupStarted || cmuxOwnedRowsDeleted) {
       if (accountDeletionTombstoneStarted) await markAccountDeletionTombstoneFailed(userId, error);
       logAccountDeleteError("account.delete.partial_after_destructive_cleanup", error);
@@ -307,7 +340,6 @@ export async function DELETE(request: Request): Promise<Response> {
     if (
       analyticsCleanupStarted ||
       error instanceof AccountDeletionAnalyticsForwardInProgressError ||
-      error instanceof AccountDeletionPhonePushDeliveryInProgressError ||
       error instanceof AccountDeletionUserMutationInProgressError
     ) {
       return jsonResponse({
