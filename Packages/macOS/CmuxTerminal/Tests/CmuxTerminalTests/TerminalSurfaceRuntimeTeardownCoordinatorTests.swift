@@ -168,6 +168,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
                 "a stuck native free stranded a later close"
             )
         }
+        await recorder.waitForFreeCount(laterTickets.count)
         #expect(await stuckTicket.wait(timeout: .zero) == false)
         #expect(
             await Set(recorder.freed) ==

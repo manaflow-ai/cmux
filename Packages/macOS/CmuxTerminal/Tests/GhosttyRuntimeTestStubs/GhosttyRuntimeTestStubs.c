@@ -300,6 +300,8 @@ void ghostty_surface_free(void *surface) {
             );
             if (result != 0) break;
         }
+        cmux_test_surface_free_should_block = false;
+        cmux_test_surface_free_target = NULL;
     }
     pthread_mutex_unlock(&cmux_test_surface_free_mutex);
 
