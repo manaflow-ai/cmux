@@ -242,6 +242,12 @@ extension ReconnectRouteSelectionTests {
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        // Health publishes only after the subscription acknowledgement is
+        // processed, so wait for it: the timeout below must hit a validated
+        // live connection, not a still-reconnecting one.
+        #expect(try await pollUntil {
+            fixture.store.macConnectionStatus == .connected
+        })
         let client = try #require(fixture.store.remoteClient)
         let generation = fixture.store.connectionGeneration
 
