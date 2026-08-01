@@ -25,22 +25,32 @@ final class TerminalLinkHoverIndicatorView: NSView {
     private let statusBackdrop = GhosttyPassthroughVisualEffectView(frame: .zero)
     private let statusLabel = NSTextField(labelWithString: "")
     private let previewShadowView = NSView(frame: .zero)
-    private let previewBackdrop = GhosttyPassthroughVisualEffectView(frame: .zero)
+    private let previewBackdrop = NSVisualEffectView(frame: .zero)
     private let webViewHost = NSView(frame: .zero)
     private let loadingBackdrop = NSView(frame: .zero)
     private let loadingSpinner = NSProgressIndicator(frame: .zero)
     private let footerIcon = NSImageView(frame: .zero)
     private let footerLabel = NSTextField(labelWithString: "")
     private var previewAnchor = NSPoint.zero
+    private var previewTrackingArea: NSTrackingArea?
+    private var pointerDownMonitor: Any?
+    private var windowResignObserver: NSObjectProtocol?
+    private var dismissalGeneration: UInt64 = 0
     private(set) var previewURL: URL?
 
     var previewWebViewHost: NSView { webViewHost }
     var isPreviewVisible: Bool { !previewShadowView.isHidden }
+    var onPreviewPointerChange: ((Bool) -> Void)?
+    var onPreviewPointerDown: ((Bool) -> Void)?
+    var onPreviewWindowResignedKey: (() -> Void)?
 
     override var acceptsFirstResponder: Bool { false }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
+        guard !isHidden,
+              !previewShadowView.isHidden,
+              previewShadowView.frame.contains(point) else { return nil }
+        return previewShadowView.hitTest(convert(point, to: previewShadowView))
     }
 
     override init(frame frameRect: NSRect) {
@@ -78,10 +88,51 @@ final class TerminalLinkHoverIndicatorView: NSView {
         ])
 
         configurePreviewCard()
+        installPointerDownMonitor()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not implemented")
+    }
+
+    deinit {
+        if let pointerDownMonitor {
+            NSEvent.removeMonitor(pointerDownMonitor)
+        }
+        if let windowResignObserver {
+            NotificationCenter.default.removeObserver(windowResignObserver)
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let windowResignObserver {
+            NotificationCenter.default.removeObserver(windowResignObserver)
+            self.windowResignObserver = nil
+        }
+        guard let window else { return }
+        windowResignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard self?.isPreviewVisible == true else { return }
+                self?.onPreviewWindowResignedKey?()
+            }
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        guard event.trackingArea === previewTrackingArea else { return }
+        onPreviewPointerChange?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard event.trackingArea === previewTrackingArea else { return }
+        onPreviewPointerChange?(false)
     }
 
     override func layout() {
@@ -95,15 +146,13 @@ final class TerminalLinkHoverIndicatorView: NSView {
         statusLabel.stringValue = url ?? ""
         statusLabel.setAccessibilityLabel(url)
         statusBackdrop.isHidden = url == nil || isPreviewVisible
-        isHidden = url == nil
-        if url == nil {
-            dismissPreview(animated: false)
-        }
+        isHidden = url == nil && !isPreviewVisible
     }
 
     @discardableResult
     func preparePreview(url: URL, at anchor: NSPoint) -> Bool {
         guard availablePreviewSize() != nil else { return false }
+        dismissalGeneration &+= 1
         previewURL = url
         previewAnchor = anchor
         footerLabel.stringValue = url.absoluteString
@@ -131,6 +180,15 @@ final class TerminalLinkHoverIndicatorView: NSView {
         return true
     }
 
+    func cancelPreviewDismissal() {
+        guard previewURL != nil, !previewShadowView.isHidden else { return }
+        dismissalGeneration &+= 1
+        previewShadowView.layer?.removeAllAnimations()
+        previewShadowView.alphaValue = 1
+        statusBackdrop.isHidden = true
+        isHidden = false
+    }
+
     func setPreviewLoadState(_ state: BrowserPrewarmedWebViewPool.LoadState) {
         let isLoading = state == .loading
         loadingBackdrop.isHidden = !isLoading
@@ -141,25 +199,39 @@ final class TerminalLinkHoverIndicatorView: NSView {
         }
     }
 
-    func dismissPreview(animated: Bool = true) {
-        previewURL = nil
+    func dismissPreview(animated: Bool = true, completion: (() -> Void)? = nil) {
+        dismissalGeneration &+= 1
+        let scheduledGeneration = dismissalGeneration
         loadingSpinner.stopAnimation(nil)
-        statusBackdrop.isHidden = statusLabel.stringValue.isEmpty
-        guard !previewShadowView.isHidden else { return }
+        guard !previewShadowView.isHidden else {
+            finishPreviewDismissal(generation: scheduledGeneration, completion: completion)
+            return
+        }
         previewShadowView.layer?.removeAllAnimations()
         guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            previewShadowView.alphaValue = 0
-            previewShadowView.isHidden = true
+            finishPreviewDismissal(generation: scheduledGeneration, completion: completion)
             return
         }
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.1
+            context.duration = 0.14
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             previewShadowView.animator().alphaValue = 0
         } completionHandler: { [weak self] in
-            guard let self, self.previewURL == nil else { return }
-            self.previewShadowView.isHidden = true
+            self?.finishPreviewDismissal(
+                generation: scheduledGeneration,
+                completion: completion
+            )
         }
+    }
+
+    var previewOwnsFirstResponder: Bool {
+        guard let responderView = window?.firstResponder as? NSView else { return false }
+        return responderView === previewShadowView || responderView.isDescendant(of: previewShadowView)
+    }
+
+    func resignPreviewFirstResponderIfNeeded() {
+        guard previewOwnsFirstResponder else { return }
+        window?.makeFirstResponder(nil)
     }
 
     private func configurePreviewCard() {
@@ -209,6 +281,51 @@ final class TerminalLinkHoverIndicatorView: NSView {
         previewBackdrop.addSubview(footerLabel)
         previewBackdrop.addSubview(loadingBackdrop)
         loadingBackdrop.addSubview(loadingSpinner)
+
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [
+                .mouseEnteredAndExited,
+                .activeInKeyWindow,
+                .inVisibleRect,
+                .enabledDuringMouseDrag,
+            ],
+            owner: self,
+            userInfo: nil
+        )
+        previewShadowView.addTrackingArea(trackingArea)
+        previewTrackingArea = trackingArea
+    }
+
+    private func installPointerDownMonitor() {
+        pointerDownMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] event in
+            guard let self, self.isPreviewVisible else { return event }
+            let isInsidePreview: Bool
+            if event.window === self.window {
+                let point = self.convert(event.locationInWindow, from: nil)
+                isInsidePreview = self.previewShadowView.frame.contains(point)
+            } else {
+                isInsidePreview = false
+            }
+            self.onPreviewPointerDown?(isInsidePreview)
+            return event
+        }
+    }
+
+    private func finishPreviewDismissal(
+        generation scheduledGeneration: UInt64,
+        completion: (() -> Void)?
+    ) {
+        guard dismissalGeneration == scheduledGeneration else { return }
+        previewURL = nil
+        previewShadowView.layer?.removeAllAnimations()
+        previewShadowView.alphaValue = 0
+        previewShadowView.isHidden = true
+        statusBackdrop.isHidden = statusLabel.stringValue.isEmpty
+        isHidden = statusLabel.stringValue.isEmpty
+        completion?()
     }
 
     private func availablePreviewSize() -> NSSize? {

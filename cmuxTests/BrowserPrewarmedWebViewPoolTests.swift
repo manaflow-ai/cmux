@@ -231,6 +231,7 @@ struct BrowserPrewarmedWebViewPoolTests {
         let view = TerminalLinkHoverIndicatorView(frame: root.bounds)
         root.addSubview(view)
         #expect(view.preparePreview(url: url, at: NSPoint(x: 450, y: 325)))
+        view.setPreviewLoadState(.finished)
 
         let webContent = NSButton(frame: view.previewWebViewHost.bounds)
         view.previewWebViewHost.addSubview(webContent)
@@ -260,6 +261,7 @@ struct BrowserPrewarmedWebViewPoolTests {
             },
             detach: { _ in },
             delayMilliseconds: { 650 },
+            animateDismissal: false,
             sleep: { _ in }
         )
 
@@ -282,6 +284,9 @@ struct BrowserPrewarmedWebViewPoolTests {
             sourcePanelId: nil,
             anchorPoint: .zero
         )
+        #expect(view.isPreviewVisible)
+        await Task.yield()
+        await Task.yield()
         #expect(!view.isPreviewVisible)
 
         let cancelledView = TerminalLinkHoverIndicatorView(
@@ -313,6 +318,165 @@ struct BrowserPrewarmedWebViewPoolTests {
         await Task.yield()
         #expect(cancelledPrewarms == 0)
         #expect(!cancelledView.isPreviewVisible)
+    }
+
+    @Test func enteringPreviewDuringExitGraceKeepsAttachmentUntilPointerLeaves() async throws {
+        let url = try #require(URL(string: "https://example.com/crossing-gap"))
+        let target = TerminalLinkOpenCoordinator.PreviewTarget(url: url, profileID: profileID)
+        let view = TerminalLinkHoverIndicatorView(
+            frame: NSRect(x: 0, y: 0, width: 900, height: 650)
+        )
+        var detachCount = 0
+        let controller = TerminalLinkPreviewController(
+            view: view,
+            targetResolver: { _ in target },
+            prewarm: { _, _ in },
+            attach: { _, _, _, _, _ in
+                .init(id: UUID(), loadState: .finished)
+            },
+            detach: { _ in detachCount += 1 },
+            delayMilliseconds: { 650 },
+            animateDismissal: false,
+            sleep: { _ in }
+        )
+
+        controller.update(
+            rawURL: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            anchorPoint: NSPoint(x: 450, y: 325)
+        )
+        await Task.yield()
+        await Task.yield()
+        #expect(view.isPreviewVisible)
+
+        controller.update(
+            rawURL: nil,
+            sourceWorkspaceId: nil,
+            sourcePanelId: nil,
+            anchorPoint: .zero
+        )
+        controller.previewPointerDidChange(isInside: true)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(view.isPreviewVisible)
+        #expect(detachCount == 0)
+
+        controller.previewPointerDidChange(isInside: false)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(!view.isPreviewVisible)
+        #expect(detachCount == 1)
+    }
+
+    @Test func interactingWithPreviewPinsItUntilAnOutsidePress() async throws {
+        let url = try #require(URL(string: "https://example.com/pinned-preview"))
+        let target = TerminalLinkOpenCoordinator.PreviewTarget(url: url, profileID: profileID)
+        let view = TerminalLinkHoverIndicatorView(
+            frame: NSRect(x: 0, y: 0, width: 900, height: 650)
+        )
+        var detachCount = 0
+        let controller = TerminalLinkPreviewController(
+            view: view,
+            targetResolver: { _ in target },
+            prewarm: { _, _ in },
+            attach: { _, _, _, _, _ in
+                .init(id: UUID(), loadState: .finished)
+            },
+            detach: { _ in detachCount += 1 },
+            delayMilliseconds: { 650 },
+            animateDismissal: false,
+            sleep: { _ in }
+        )
+
+        controller.update(
+            rawURL: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            anchorPoint: NSPoint(x: 450, y: 325)
+        )
+        await Task.yield()
+        await Task.yield()
+        controller.previewPointerDidPress(isInside: true)
+        controller.update(
+            rawURL: nil,
+            sourceWorkspaceId: nil,
+            sourcePanelId: nil,
+            anchorPoint: .zero
+        )
+        controller.previewPointerDidChange(isInside: false)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(view.isPreviewVisible)
+        #expect(detachCount == 0)
+
+        controller.previewPointerDidPress(isInside: false)
+
+        #expect(!view.isPreviewVisible)
+        #expect(detachCount == 1)
+    }
+
+    @Test func focusedPreviewSurvivesPointerExitAndReleasesFocusOnOutsidePress() async throws {
+        let url = try #require(URL(string: "https://example.com/focused-preview"))
+        let target = TerminalLinkOpenCoordinator.PreviewTarget(url: url, profileID: profileID)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 650),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+        let view = TerminalLinkHoverIndicatorView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = view
+        var detachCount = 0
+        let controller = TerminalLinkPreviewController(
+            view: view,
+            targetResolver: { _ in target },
+            prewarm: { _, _ in },
+            attach: { _, _, _, _, _ in
+                .init(id: UUID(), loadState: .finished)
+            },
+            detach: { _ in detachCount += 1 },
+            delayMilliseconds: { 650 },
+            animateDismissal: false,
+            sleep: { _ in }
+        )
+
+        controller.update(
+            rawURL: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            anchorPoint: NSPoint(x: 450, y: 325)
+        )
+        await Task.yield()
+        await Task.yield()
+
+        let focusedControl = NSTextField(frame: view.previewWebViewHost.bounds)
+        view.previewWebViewHost.addSubview(focusedControl)
+        #expect(window.makeFirstResponder(focusedControl))
+        #expect(view.previewOwnsFirstResponder)
+
+        controller.update(
+            rawURL: nil,
+            sourceWorkspaceId: nil,
+            sourcePanelId: nil,
+            anchorPoint: .zero
+        )
+        controller.previewPointerDidChange(isInside: false)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(view.isPreviewVisible)
+        #expect(detachCount == 0)
+
+        controller.previewPointerDidPress(isInside: false)
+
+        #expect(!view.isPreviewVisible)
+        #expect(!view.previewOwnsFirstResponder)
+        #expect(detachCount == 1)
     }
 
     @Test func movingWithinTheSameURLDoesNotRestartDwell() async throws {

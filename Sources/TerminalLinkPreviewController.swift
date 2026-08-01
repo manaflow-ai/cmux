@@ -24,12 +24,19 @@ final class TerminalLinkPreviewController {
     private let attach: Attach
     private let detach: Detach
     private let delayMilliseconds: @MainActor () -> Int
+    private let dismissalGraceMilliseconds: Int
+    private let animateDismissal: Bool
     private let sleep: Sleep
 
     private var currentRawURL: String?
     private var currentTarget: TerminalLinkOpenCoordinator.PreviewTarget?
     private var currentAnchorPoint = NSPoint.zero
+    private var isSourceLinkHovered = false
+    private var isPointerInsidePreview = false
+    private var isInteractionPinned = false
+    private var isDismissalAnimating = false
     private var dwellTask: Task<Void, Never>?
+    private var dismissalTask: Task<Void, Never>?
     private var attachment: BrowserPrewarmedWebViewPool.PreviewAttachment?
     private var generation: UInt64 = 0
 
@@ -53,6 +60,8 @@ final class TerminalLinkPreviewController {
             BrowserPrewarmedWebViewPool.shared.detachPreview(attachment)
         },
         delayMilliseconds: (@MainActor () -> Int)? = nil,
+        dismissalGraceMilliseconds: Int = 200,
+        animateDismissal: Bool = true,
         sleep: @escaping Sleep = { duration in try await Task.sleep(for: duration) }
     ) {
         self.view = view
@@ -65,7 +74,18 @@ final class TerminalLinkPreviewController {
         self.delayMilliseconds = delayMilliseconds ?? {
             BrowserLinkOpenSettings.terminalLinkPreviewHoverDelayMilliseconds(defaults: defaults)
         }
+        self.dismissalGraceMilliseconds = dismissalGraceMilliseconds
+        self.animateDismissal = animateDismissal
         self.sleep = sleep
+        view.onPreviewPointerChange = { [weak self] isInside in
+            self?.previewPointerDidChange(isInside: isInside)
+        }
+        view.onPreviewPointerDown = { [weak self] isInside in
+            self?.previewPointerDidPress(isInside: isInside)
+        }
+        view.onPreviewWindowResignedKey = { [weak self] in
+            self?.previewWindowDidResignKey()
+        }
     }
 
     func update(
@@ -75,12 +95,15 @@ final class TerminalLinkPreviewController {
         anchorPoint: NSPoint
     ) {
         let normalizedRawURL = rawURL?.isEmpty == false ? rawURL : nil
+        isSourceLinkHovered = normalizedRawURL != nil
         view?.setURL(normalizedRawURL)
 
         guard let normalizedRawURL else {
-            clear()
+            sourceLinkHoverDidEnd()
             return
         }
+
+        cancelPendingDismissalAndRestorePreview()
 
         let request = TerminalLinkOpenRequest(
             rawValue: normalizedRawURL,
@@ -120,9 +143,48 @@ final class TerminalLinkPreviewController {
 
     func invalidate() {
         clear()
+        view?.onPreviewPointerChange = nil
+        view?.onPreviewPointerDown = nil
+        view?.onPreviewWindowResignedKey = nil
+    }
+
+    func previewPointerDidChange(isInside: Bool) {
+        isPointerInsidePreview = isInside
+        guard view?.isPreviewVisible == true else { return }
+        if isInside {
+            // The card is separated from the source link by a gap, so these
+            // two hover regions cannot be active at the same time. Do not
+            // depend on Ghostty delivering a final nil event after AppKit has
+            // routed pointer events into the webview.
+            isSourceLinkHovered = false
+            view?.setURL(nil)
+            cancelPendingDismissalAndRestorePreview()
+        } else if !isSourceLinkHovered,
+                  !isInteractionPinned,
+                  view?.previewOwnsFirstResponder != true {
+            schedulePreviewDismissal()
+        }
+    }
+
+    func previewPointerDidPress(isInside: Bool) {
+        guard view?.isPreviewVisible == true else { return }
+        if isInside {
+            isInteractionPinned = true
+            cancelPendingDismissalAndRestorePreview()
+        } else {
+            isInteractionPinned = false
+            beginPreviewDismissal()
+        }
+    }
+
+    func previewWindowDidResignKey() {
+        guard view?.isPreviewVisible == true else { return }
+        isInteractionPinned = false
+        beginPreviewDismissal()
     }
 
     private func showPreview(generation scheduledGeneration: UInt64) {
+        dwellTask = nil
         guard generation == scheduledGeneration,
               let target = currentTarget,
               let view,
@@ -143,7 +205,7 @@ final class TerminalLinkPreviewController {
             }
         )
         guard let attachment else {
-            view.dismissPreview()
+            beginPreviewDismissal()
             return
         }
         self.attachment = attachment
@@ -152,20 +214,97 @@ final class TerminalLinkPreviewController {
     private func poolDidDismiss(generation dismissedGeneration: UInt64) {
         guard generation == dismissedGeneration else { return }
         attachment = nil
+        dismissalTask?.cancel()
+        dismissalTask = nil
+        isDismissalAnimating = false
         view?.dismissPreview(animated: false)
     }
 
     private func clear() {
+        isSourceLinkHovered = false
         resetPreviewState()
         currentRawURL = nil
         currentTarget = nil
         view?.setURL(nil)
     }
 
+    private func sourceLinkHoverDidEnd() {
+        dwellTask?.cancel()
+        dwellTask = nil
+        guard view?.isPreviewVisible == true else {
+            clear()
+            return
+        }
+        guard !isPointerInsidePreview,
+              !isInteractionPinned,
+              view?.previewOwnsFirstResponder != true else { return }
+        schedulePreviewDismissal()
+    }
+
+    private func schedulePreviewDismissal() {
+        guard view?.isPreviewVisible == true, dismissalTask == nil, !isDismissalAnimating else { return }
+        let scheduledGeneration = generation
+        let duration = Duration.milliseconds(max(0, dismissalGraceMilliseconds))
+        let sleep = sleep
+        dismissalTask = Task { @MainActor [weak self] in
+            do {
+                try await sleep(duration)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.beginPreviewDismissal(generation: scheduledGeneration)
+        }
+    }
+
+    private func cancelPendingDismissalAndRestorePreview() {
+        dismissalTask?.cancel()
+        dismissalTask = nil
+        if isDismissalAnimating {
+            isDismissalAnimating = false
+            view?.cancelPreviewDismissal()
+        }
+    }
+
+    private func beginPreviewDismissal(generation scheduledGeneration: UInt64? = nil) {
+        if let scheduledGeneration, scheduledGeneration != generation { return }
+        guard view?.isPreviewVisible == true else { return }
+        dismissalTask?.cancel()
+        dismissalTask = nil
+        isDismissalAnimating = true
+        let activeGeneration = generation
+        view?.dismissPreview(animated: animateDismissal) { [weak self] in
+            self?.completePreviewDismissal(generation: activeGeneration)
+        }
+    }
+
+    private func completePreviewDismissal(generation dismissedGeneration: UInt64) {
+        guard generation == dismissedGeneration, isDismissalAnimating else { return }
+        isDismissalAnimating = false
+        view?.resignPreviewFirstResponderIfNeeded()
+        if let attachment {
+            self.attachment = nil
+            detach(attachment)
+        }
+        isPointerInsidePreview = false
+        isInteractionPinned = false
+        generation &+= 1
+        if !isSourceLinkHovered {
+            currentRawURL = nil
+            currentTarget = nil
+            view?.setURL(nil)
+        }
+    }
+
     private func resetPreviewState() {
         generation &+= 1
         dwellTask?.cancel()
         dwellTask = nil
+        dismissalTask?.cancel()
+        dismissalTask = nil
+        isPointerInsidePreview = false
+        isInteractionPinned = false
+        isDismissalAnimating = false
         view?.dismissPreview(animated: false)
         if let attachment {
             self.attachment = nil

@@ -125,7 +125,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
 #endif
     }
 
-    /// Temporarily renders a matching entry inside a non-interactive preview
+    /// Temporarily renders a matching entry inside an interactive preview
     /// host. The entry remains claimable by a real browser panel.
     func attachPreview(
         url: URL,
