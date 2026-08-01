@@ -289,9 +289,12 @@ struct CmxIrohRelayPolicyServiceTests {
     }
 
     @Test
-    func equivalentPreferenceRebasesAfterBrokerRevisionReset() async throws {
+    func freshPolicyPublicationRebasesBrokerRevisionWithoutAdmittingStaleAuthority() async throws {
         let fixture = RelayPolicyServiceTestFixture()
         let stores = makeStores()
+        let nowSeconds = Int64(fixture.now.timeIntervalSince1970)
+        let oldPolicyID = "123e4567-e89b-42d3-a456-426614174010"
+        let restoredPolicyID = "123e4567-e89b-42d3-a456-426614174011"
         let restoredBrokerAutomatic = try CmxIrohAccountRelayConfiguration(
             mode: .automatic,
             selectedManagedRelayIDs: ["cmux-us"],
@@ -301,7 +304,9 @@ struct CmxIrohRelayPolicyServiceTests {
             response: CmxIrohRelayPolicyResponse(
                 policy: fixture.token(
                     sequence: 2,
-                    expiresAt: Int64(fixture.now.timeIntervalSince1970) + 3_600
+                    expiresAt: nowSeconds + 3_600,
+                    policyID: oldPolicyID,
+                    issuedAt: nowSeconds - 60
                 ),
                 preference: .automatic,
                 preferenceRevision: 1_000
@@ -312,11 +317,41 @@ struct CmxIrohRelayPolicyServiceTests {
             now: fixture.now
         )
 
-        let rebased = try await stores.service.install(
+        // Model an app restart and a legacy preference record that predates
+        // persisted policy-publication metadata. The signed policy cache is
+        // the migration anchor for the first safe rebase.
+        let legacyData = try #require(await stores.preferenceSecureStore.onlyStoredData())
+        var legacyEnvelope = try #require(
+            JSONSerialization.jsonObject(with: legacyData) as? [String: Any]
+        )
+        var legacyPreference = try #require(
+            legacyEnvelope["preference"] as? [String: Any]
+        )
+        legacyPreference.removeValue(forKey: "policyID")
+        legacyPreference.removeValue(forKey: "policyIssuedAt")
+        legacyEnvelope["preference"] = legacyPreference
+        await stores.preferenceSecureStore.seed(
+            try JSONSerialization.data(withJSONObject: legacyEnvelope),
+            account: try CmxIrohRelayStorageScope.account(
+                "account-a",
+                prefix: "relay-preference"
+            )
+        )
+        let restartedService = CmxIrohRelayPolicyService(
+            policyCache: stores.policyCache,
+            preferenceStore: stores.preferenceStore,
+            credentialStore: CmxIrohCustomRelayCredentialStore(
+                secureStore: TestSecureCredentialStore()
+            )
+        )
+
+        let rebased = try await restartedService.install(
             response: CmxIrohRelayPolicyResponse(
                 policy: fixture.token(
                     sequence: 2,
-                    expiresAt: Int64(fixture.now.timeIntervalSince1970) + 7_200
+                    expiresAt: nowSeconds + 7_200,
+                    policyID: restoredPolicyID,
+                    issuedAt: nowSeconds
                 ),
                 preference: restoredBrokerAutomatic,
                 preferenceRevision: 24
@@ -335,7 +370,32 @@ struct CmxIrohRelayPolicyServiceTests {
         )
         #expect(stored.revision == 24)
         #expect(stored.requested == restoredBrokerAutomatic)
-        #expect(await stores.service.diagnosticsSnapshot().failure == nil)
+        #expect(await restartedService.diagnosticsSnapshot().failure == nil)
+
+        let staleConfiguration = try CmxIrohAccountRelayConfiguration.managed(["cmux-us"])
+        await #expect(throws: CmxIrohRelayPolicyServiceError.preferenceRollback) {
+            try await restartedService.install(
+                response: CmxIrohRelayPolicyResponse(
+                    policy: fixture.token(
+                        sequence: 2,
+                        expiresAt: nowSeconds + 3_600,
+                        policyID: oldPolicyID,
+                        issuedAt: nowSeconds - 60
+                    ),
+                    preference: staleConfiguration,
+                    preferenceRevision: 25
+                ),
+                accountID: "account-a",
+                trustRoot: fixture.firstTrustRoot,
+                relayCredential: fixture.relayCredential(),
+                now: fixture.now
+            )
+        }
+        let afterStale = try #require(
+            try await stores.preferenceStore.load(accountID: "account-a")
+        )
+        #expect(afterStale.revision == 24)
+        #expect(afterStale.requested == restoredBrokerAutomatic)
     }
 
     @Test
@@ -424,10 +484,12 @@ struct CmxIrohRelayPolicyServiceTests {
     func makeStores() -> (
         service: CmxIrohRelayPolicyService,
         policyCache: CmxIrohRelayPolicyCache,
-        preferenceStore: CmxIrohRelayPreferenceStore
+        preferenceStore: CmxIrohRelayPreferenceStore,
+        preferenceSecureStore: TestSecureCredentialStore
     ) {
         let policyCache = CmxIrohRelayPolicyCache(secureStore: TestSecureCredentialStore())
-        let preferenceStore = CmxIrohRelayPreferenceStore(secureStore: TestSecureCredentialStore())
+        let preferenceSecureStore = TestSecureCredentialStore()
+        let preferenceStore = CmxIrohRelayPreferenceStore(secureStore: preferenceSecureStore)
         return (
             CmxIrohRelayPolicyService(
                 policyCache: policyCache,
@@ -437,7 +499,8 @@ struct CmxIrohRelayPolicyServiceTests {
                 )
             ),
             policyCache,
-            preferenceStore
+            preferenceStore,
+            preferenceSecureStore
         )
     }
 }

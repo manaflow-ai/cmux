@@ -7,7 +7,7 @@ public actor CmxIrohRelayPreferenceStore {
         let preference: CmxIrohPersistedRelayPreference
     }
 
-    private static let recordVersion = 2
+    private static let recordVersion = 3
     private let secureStore: any CmxIrohSecureCredentialStoring
     private var busyAccounts: Set<String> = []
     private var accountWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
@@ -22,15 +22,16 @@ public actor CmxIrohRelayPreferenceStore {
     }
 
     /// Installs one preference revision with rollback and equivocation protection.
-    /// A configuration with equivalent active authority may rebase to a lower
-    /// revision after the broker restores its database. Dormant fields cannot
-    /// affect transport, and the service verifies the signed policy before this write.
+    /// A newer signed policy publication may rebase equivalent active authority
+    /// after the broker restores its database without lowering stale-response protection.
     @discardableResult
     public func install(
         requested: CmxIrohAccountRelayConfiguration,
         effective: CmxIrohAccountRelayPreference?,
         revision: Int64,
         effectivePolicySequence: Int64?,
+        policy: CmxIrohManagedRelayPolicy?,
+        legacyPolicy: CmxIrohManagedRelayPolicy? = nil,
         staleRelayIDs: Set<String>,
         accountID: String
     ) async throws -> CmxIrohPersistedRelayPreference {
@@ -49,16 +50,30 @@ public actor CmxIrohRelayPreferenceStore {
         defer { release(account) }
         let existing = try await storedRecord(account: account)?.preference
         if let existing {
-            guard revision > existing.revision
-                    || requested.hasEquivalentActiveAuthority(to: existing.requested) else {
-                throw CmxIrohRelayPolicyServiceError.preferenceRollback
-            }
+            try CmxIrohRelayPreferenceRevisionValidation.validate(
+                incomingRevision: revision,
+                incomingConfiguration: requested,
+                incomingPublication: policy.map(CmxIrohRelayPolicyPublication.init),
+                currentRevision: existing.revision,
+                currentConfiguration: existing.requested,
+                currentPublication: CmxIrohRelayPolicyPublication(
+                    policyID: existing.policyID,
+                    issuedAt: existing.policyIssuedAt
+                ) ?? legacyPolicy.map(CmxIrohRelayPolicyPublication.init)
+            )
         }
+        let publication = policy.map(CmxIrohRelayPolicyPublication.init)
+            ?? CmxIrohRelayPolicyPublication(
+                policyID: existing?.policyID,
+                issuedAt: existing?.policyIssuedAt
+            )
         let preference = CmxIrohPersistedRelayPreference(
             requested: requested,
             effective: effective,
             revision: revision,
             effectivePolicySequence: effectivePolicySequence,
+            policyID: publication?.policyID,
+            policyIssuedAt: publication?.issuedAt,
             staleRelayIDs: staleRelayIDs
         )
         try await secureStore.write(
@@ -122,6 +137,11 @@ public actor CmxIrohRelayPreferenceStore {
               (1 ... Self.recordVersion).contains(record.version),
               record.preference.revision >= 0,
               record.preference.effectivePolicySequence.map({ $0 > 0 }) ?? true,
+              (record.preference.policyID == nil) == (record.preference.policyIssuedAt == nil),
+              record.preference.policyID.map({
+                  UUID(uuidString: $0)?.uuidString.lowercased() == $0
+              }) ?? true,
+              record.preference.policyIssuedAt.map({ $0 >= 0 }) ?? true,
               record.preference.staleRelayIDs.count
                 <= CmxIrohRelayPolicyVerifier.maximumRelayCount,
               (try? JSONEncoder().encode(record.preference.requested)) != nil,

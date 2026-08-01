@@ -116,6 +116,12 @@ final class MobileIrohRevisionReadinessSignal {
         }
     }
 
+    /// Releases only a barrier owned by an older lifecycle revision.
+    func resetIfSuperseded(by revision: UInt64) {
+        guard let pendingRevision, pendingRevision != revision else { return }
+        reset()
+    }
+
     func wait() async {
         guard isPending else { return }
         await withCheckedContinuation { continuation in
@@ -642,7 +648,9 @@ public final class MobileIrohRuntimeComposition:
             return false
         }
         return !pathHints.contains {
-            $0.kind == .directAddress && $0.isUsable(at: now)
+            $0.kind == .directAddress
+                && $0.privacyScope == .publicInternet
+                && $0.isUsable(at: now)
         }
     }
 
@@ -2565,7 +2573,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         if refreshImmediately {
             relayPolicyReadiness.begin(revision: revision)
         } else {
-            relayPolicyReadiness.reset()
+            relayPolicyReadiness.resetIfSuperseded(by: revision)
         }
         guard Self.shouldScheduleRelayPolicyRefresh(
             automaticRelayCredentialRefreshEnabled:
@@ -2592,9 +2600,11 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             }
             while !Task.isCancelled {
                 guard let self,
-                      revision == self.lifecycleRevision,
-                      self.activeAccountID == accountID,
-                      self.relayPolicyService === service else { return }
+                      self.ownsScheduledRelayPolicy(
+                          service: service,
+                          accountID: accountID,
+                          revision: revision
+                      ) else { return }
                 let snapshot = await service.diagnosticsSnapshot()
                 let current = self.now()
                 let attemptAt: Date
@@ -2663,10 +2673,13 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                         now: self.now()
                     )
                     try Task.checkCancellation()
-                    guard revision == self.lifecycleRevision,
-                          self.activeAccountID == accountID,
-                          self.relayPolicyService === service,
-                          let runtime = self.runtime else {
+                    guard let runtime = self.runtime,
+                          self.ownsScheduledRelayPolicy(
+                              service: service,
+                              runtime: runtime,
+                              accountID: accountID,
+                              revision: revision
+                          ) else {
                         throw CancellationError()
                     }
                     try await self.applyScheduledRelayPolicy(
@@ -2684,9 +2697,11 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                     return
                 } catch {
                     guard !Task.isCancelled,
-                          revision == self.lifecycleRevision,
-                          self.activeAccountID == accountID,
-                          self.relayPolicyService === service else { return }
+                          self.ownsScheduledRelayPolicy(
+                              service: service,
+                              accountID: accountID,
+                              revision: revision
+                          ) else { return }
                     self.diagnosticLog?.record(DiagnosticEvent(
                         .relayPolicyRefreshFailed,
                         b: Self.diagnosticFailureKind(for: error).rawValue
@@ -2721,9 +2736,11 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                     } else {
                         let diagnostics = await service.diagnosticsSnapshot()
                         guard !Task.isCancelled,
-                              revision == self.lifecycleRevision,
-                              self.activeAccountID == accountID,
-                              self.relayPolicyService === service else { return }
+                              self.ownsScheduledRelayPolicy(
+                                  service: service,
+                                  accountID: accountID,
+                                  revision: revision
+                              ) else { return }
                         self.relayPolicyDiagnostics = diagnostics
                         self.publishIrohSettingsUpdate()
                     }
@@ -2760,31 +2777,50 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         revision: UInt64
     ) async throws {
         try Task.checkCancellation()
-        guard revision == lifecycleRevision,
-              activeAccountID == accountID,
-              relayPolicyService === expectedService,
-              runtime === expectedRuntime else {
+        guard ownsScheduledRelayPolicy(
+            service: expectedService,
+            runtime: expectedRuntime,
+            accountID: accountID,
+            revision: revision
+        ) else {
             throw CancellationError()
         }
         let diagnostics = await expectedService.diagnosticsSnapshot()
         try Task.checkCancellation()
-        guard revision == lifecycleRevision,
-              activeAccountID == accountID,
-              relayPolicyService === expectedService,
-              runtime === expectedRuntime else {
+        guard ownsScheduledRelayPolicy(
+            service: expectedService,
+            runtime: expectedRuntime,
+            accountID: accountID,
+            revision: revision
+        ) else {
             throw CancellationError()
         }
         try await expectedRuntime.replaceRelayPolicy(effective)
         try Task.checkCancellation()
-        guard revision == lifecycleRevision,
-              activeAccountID == accountID,
-              relayPolicyService === expectedService,
-              runtime === expectedRuntime else {
+        guard ownsScheduledRelayPolicy(
+            service: expectedService,
+            runtime: expectedRuntime,
+            accountID: accountID,
+            revision: revision
+        ) else {
             throw CancellationError()
         }
         relayPolicyEffective = effective
         relayPolicyDiagnostics = diagnostics
         publishIrohSettingsUpdate()
+    }
+
+    private func ownsScheduledRelayPolicy(
+        service expectedService: CmxIrohRelayPolicyService,
+        runtime expectedRuntime: CmxIrohClientRuntime? = nil,
+        accountID: String,
+        revision: UInt64
+    ) -> Bool {
+        guard revision == lifecycleRevision,
+              activeAccountID == accountID,
+              relayPolicyService === expectedService else { return false }
+        guard let expectedRuntime else { return true }
+        return runtime === expectedRuntime
     }
 
     /// The signed policy bootstrap includes a fresh relay credential. Tests
