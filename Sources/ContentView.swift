@@ -11706,7 +11706,6 @@ struct VerticalTabsSidebar: View, Equatable {
             isFirstRow: input.index == 0,
             shortcutHintText: hintText,
             showsShortcutHints: input.showsModifierShortcutHints,
-            colorSchemeIsDark: environment.colorScheme == .dark,
             globalFontMagnificationPercent: environment.globalFontMagnificationPercent,
             isChecklistExpanded: input.isChecklistExpanded,
             checklistAddFieldActivationToken: input.checklistAddFieldActivationToken,

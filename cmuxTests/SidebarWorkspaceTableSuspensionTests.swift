@@ -382,6 +382,7 @@ struct SidebarWorkspaceTableSuspensionTests {
         var collapseToggles = 0
         cell.configure(
             model: makeGroupHeaderModel(),
+            environment: makeTableEnvironment(),
             actions: makeGroupHeaderActions { collapseToggles += 1 },
             isPointerHovering: false,
             contextMenuDidOpen: {},
@@ -475,7 +476,8 @@ struct SidebarWorkspaceTableSuspensionTests {
         let model = makeGroupHeaderModel()
         let actions = makeGroupHeaderActions {}
         cell.configure(
-            model: model, actions: actions, isPointerHovering: false,
+            model: model, environment: makeTableEnvironment(),
+            actions: actions, isPointerHovering: false,
             contextMenuDidOpen: {}, contextMenuDidClose: {}
         )
         let background = try #require(cell.subviews.first)
@@ -485,7 +487,8 @@ struct SidebarWorkspaceTableSuspensionTests {
 
         cell.suspendPresentation()
         cell.configure(
-            model: model, actions: actions, isPointerHovering: false,
+            model: model, environment: makeTableEnvironment(),
+            actions: actions, isPointerHovering: false,
             contextMenuDidOpen: {}, contextMenuDidClose: {}
         )
         let restoredAlpha = NSColor(cgColor: try #require(background.layer?.backgroundColor))?.alphaComponent
@@ -575,6 +578,16 @@ struct SidebarWorkspaceTableSuspensionTests {
         ) { _, _ in
             AnyView(TestRowContent(token: contentToken, fixedHeight: fixedHeight))
         }
+    }
+
+    private func makeTableEnvironment(
+        colorScheme: ColorScheme = .light
+    ) -> SidebarWorkspaceTableEnvironmentSnapshot {
+        SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: colorScheme,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
     }
 
     private func makeGroupHeaderModel() -> SidebarGroupHeaderRowModel {

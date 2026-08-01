@@ -40,7 +40,7 @@ struct SidebarWorkspaceTableRowConfiguration {
     let appKitWorkspaceRowWorkspace: Workspace?
     let appKitWorkspaceRowRebuild: (@MainActor () -> SidebarWorkspaceRowModel)?
 
-    private let environment: SidebarWorkspaceTableEnvironmentSnapshot
+    let environment: SidebarWorkspaceTableEnvironmentSnapshot
     private let equivalenceValue: Any
     private let isEquivalentValue: (Any) -> Bool
 
