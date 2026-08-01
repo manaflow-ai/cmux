@@ -175,6 +175,18 @@ public struct SimulatorUIAutomationExecutor {
         _ action: ControlSimulatorUIAction,
         coordinator: SimulatorPaneCoordinator
     ) async throws -> JSONValue {
+        let releasesHeldTouch = if case let .touch(elementRef, down, up, _) = action {
+            !down && up
+                && coordinator.heldUIAutomationTouch(elementRef: elementRef) != nil
+        } else {
+            false
+        }
+        if simulatorUIActionUsesPointerInput(action),
+           !coordinator.admitsSimulatorPointerInput(
+               releasingHeldUIAutomationTouch: releasesHeldTouch
+           ) {
+            throw simulatorUITouchAlreadyHeldFailure()
+        }
         let preflight = try await preflightSimulatorUIAction(
             action,
             coordinator: coordinator
@@ -718,6 +730,18 @@ public struct SimulatorUIAutomationExecutor {
             return steps.map(\.elementRef)
         case .keyPress, .keySequence, .button, .gesturePreset:
             return []
+        }
+    }
+
+    private func simulatorUIActionUsesPointerInput(
+        _ action: ControlSimulatorUIAction
+    ) -> Bool {
+        switch action {
+        case .tap, .touch, .swipe, .drag, .longPress, .typeText,
+             .gesturePreset, .batch:
+            true
+        case .keyPress, .keySequence, .button:
+            false
         }
     }
 

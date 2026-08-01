@@ -555,6 +555,20 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         needsDisplay = true
     }
 
+    func discardRejectedInputs() {
+        pendingInputFlushTimer?.setEventHandler(handler: nil)
+        pendingInputFlushTimer?.cancel()
+        pendingInputFlushTimer = nil
+        pendingInputMotion = nil
+        pendingPointerEntry = nil
+        stageHaloPointerActive = false
+        _ = chromeButtonInput.releaseAll()
+        activeChromeButton = nil
+        hoveredChromeButton = nil
+        _ = input.releaseAll()
+        needsDisplay = true
+    }
+
     func chromeButtonIsPressed(_ button: SimulatorDeviceChromeProfile.Button) -> Bool {
         chromeButtonInput.isHeld(button)
     }

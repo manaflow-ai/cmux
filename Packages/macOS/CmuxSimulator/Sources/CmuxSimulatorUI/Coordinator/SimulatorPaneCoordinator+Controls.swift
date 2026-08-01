@@ -93,6 +93,20 @@ extension SimulatorPaneCoordinator {
     ) async throws -> SimulatorControlResult {
         try Task.checkCancellation()
         guard !closed else { throw CancellationError() }
+        if action.usesSimulatorPointerInput,
+           !admitsSimulatorPointerInput(
+               releasingHeldUIAutomationTouch:
+                   action.releasesRetainedSimulatorPointerOnly
+           ) {
+            throw SimulatorFailure(
+                code: "simulator_touch_already_held",
+                message: String(
+                    localized: "cli.simulator.error.uiTouchAlreadyHeld",
+                    defaultValue: "A Simulator touch is already being held"
+                ),
+                isRecoverable: true
+            )
+        }
         let generation = selectionGeneration
         let cursorPlan = SimulatorAgentCursorPlan(action: action, display: display)
         let cursorToken = cursorPlan.map(beginAgentCursorPresentation)
@@ -107,6 +121,9 @@ extension SimulatorPaneCoordinator {
                 clearUIAutomationSnapshot()
             }
             let result = try await client.perform(action)
+            if action.releasesRetainedSimulatorPointerOnly {
+                releaseAllHeldUIAutomationTouches()
+            }
             if generation == selectionGeneration, !closed,
                let cursorPlan, let cursorToken {
                 completeAgentCursorPresentation(cursorPlan, token: cursorToken)

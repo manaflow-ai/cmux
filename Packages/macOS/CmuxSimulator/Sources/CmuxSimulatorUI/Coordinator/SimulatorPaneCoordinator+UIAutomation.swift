@@ -140,6 +140,16 @@ extension SimulatorPaneCoordinator {
         uiAutomationSession.hasHeldTouch
     }
 
+    /// Whether one pointer operation may use the worker's single touch owner.
+    ///
+    /// Only the coordinated release for the retained semantic touch may bypass
+    /// ownership. Live input and every new gesture must wait for that release.
+    public func admitsSimulatorPointerInput(
+        releasingHeldUIAutomationTouch: Bool = false
+    ) -> Bool {
+        !uiAutomationSession.hasHeldTouch || releasingHeldUIAutomationTouch
+    }
+
     /// Clears a held semantic touch after its release reaches the worker.
     public func releaseHeldUIAutomationTouch(elementRef: String) {
         uiAutomationSession.releaseHeldTouch(elementRef: elementRef)
@@ -153,5 +163,51 @@ extension SimulatorPaneCoordinator {
     /// Resets refs and sequence when this pane changes devices.
     public func resetUIAutomationSession() {
         uiAutomationSession.reset()
+    }
+}
+
+extension SimulatorInteractiveAction {
+    var usesSimulatorPointerInput: Bool {
+        switch self {
+        case .gesture, .timedGesture, .touch:
+            true
+        case .keyPresses, .keyChord, .typeText, .hardwareButton,
+             .hardwareButtonHold, .rotate, .coreAnimation, .memoryWarning:
+            false
+        }
+    }
+
+    var releasesRetainedSimulatorPointerOnly: Bool {
+        guard case let .touch(events, _) = self, !events.isEmpty else {
+            return false
+        }
+        return events.allSatisfy { event in
+            event.phase == .ended || event.phase == .cancelled
+        }
+    }
+}
+
+extension SimulatorControlAction {
+    var usesSimulatorPointerInput: Bool {
+        guard case let .interactive(action) = self else { return false }
+        return action.usesSimulatorPointerInput
+    }
+
+    var releasesRetainedSimulatorPointerOnly: Bool {
+        guard case let .interactive(action) = self else { return false }
+        return action.releasesRetainedSimulatorPointerOnly
+    }
+}
+
+extension SimulatorWorkerInbound {
+    var usesUnownedSimulatorPointerInput: Bool {
+        switch self {
+        case .pointer, .scrollWheel:
+            true
+        case let .interactiveAction(_, action):
+            action.usesSimulatorPointerInput
+        default:
+            false
+        }
     }
 }

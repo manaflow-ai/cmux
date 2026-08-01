@@ -536,6 +536,9 @@ extension CMUXCLI {
             || arguments.accessibilityRole != nil
             || arguments.optionValue != nil
         let text = arguments.option("text")
+        guard predicate != "settled" || (!hasSelector && text == nil) else {
+            throw simulatorArgumentsError("wait")
+        }
         guard predicate == "settled"
                 || predicate == "text-contains"
                 || (predicate == "gone" && text != nil)

@@ -49861,6 +49861,114 @@
             "state": "translated",
             "value": "Simulator UIオートメーションの待機キューが上限に達しました"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وصلت قائمة انتظار أتمتة واجهة مستخدم Simulator إلى سعتها القصوى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Red za automatizaciju korisničkog sučelja Simulatora dostigao je kapacitet"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Køen til Simulator UI-automatisering har nået sin kapacitet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Warteschlange für die Simulator-UI-Automatisierung ist ausgelastet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cola de automatización de la interfaz del simulador ha alcanzado su capacidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La file d’attente de l’automatisation de l’interface du simulateur a atteint sa capacité maximale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La coda di automazione dell'interfaccia del simulatore ha raggiunto la capacità massima"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួររង់ចាំស្វ័យប្រវត្តិកម្ម UI របស់ Simulator បានដល់សមត្ថភាពអតិបរមា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 UI 자동화 대기열이 가득 찼습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Køen for Simulator UI-automatisering har nådd kapasiteten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolejka automatyzacji interfejsu symulatora osiągnęła limit"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A fila de automação da interface do Simulador atingiu a capacidade máxima"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очередь автоматизации пользовательского интерфейса симулятора заполнена."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คิวการทำงานอัตโนมัติของ UI Simulator เต็มแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör kullanıcı arayüzü otomasyon kuyruğu kapasitesine ulaştı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Черга автоматизації інтерфейсу симулятора заповнена"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器 UI 自动化队列已满"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器 UI 自動化佇列已滿"
+          }
         }
       }
     },
@@ -49877,6 +49985,114 @@
           "stringUnit": {
             "state": "translated",
             "value": "Simulatorのタッチがすでに保持されています"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يوجد لمس مستمر بالفعل في Simulator"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodir u Simulatoru se već drži"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En Simulator-berøring holdes allerede nede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Simulator-Berührung wird bereits gehalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya se mantiene pulsado un toque en el simulador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un toucher est déjà maintenu dans le simulateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È già attivo un tocco mantenuto nel simulatore"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប៉ះ Simulator មួយកំពុងត្រូវបានសង្កត់រួចហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 터치가 이미 눌린 상태입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En Simulator-berøring holdes allerede nede"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dotknięcie w symulatorze jest już przytrzymywane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um toque no Simulador já está sendo mantido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В симуляторе уже удерживается касание."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีการแตะใน Simulator ค้างอยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir Simülatör dokunuşu zaten basılı tutuluyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У симуляторі вже утримується дотик"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器中已有一个触摸处于按住状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器中已有一個觸控處於按住狀態"
           }
         }
       }
@@ -53206,6 +53422,114 @@
             "state": "translated",
             "value": "新しいタッチを開始する前に保持中のSimulatorタッチを解放してください"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حرّر لمسة Simulator المستمرة قبل بدء لمسة أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otpustite zadržani dodir u Simulatoru prije pokretanja drugog"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slip den fastholdte Simulator-berøring, før du starter en ny"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lassen Sie die gehaltene Simulator-Berührung los, bevor Sie eine weitere starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suelte el toque mantenido en el simulador antes de iniciar otro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relâchez le toucher maintenu dans le simulateur avant d’en commencer un autre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rilascia il tocco mantenuto nel simulatore prima di avviarne un altro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លែងការប៉ះ Simulator ដែលកំពុងសង្កត់ មុនពេលចាប់ផ្តើមការប៉ះផ្សេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 터치를 시작하기 전에 눌린 시뮬레이터 터치를 놓으세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slipp den holdte Simulator-berøringen før du starter en ny"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwolnij przytrzymywane dotknięcie w symulatorze przed rozpoczęciem kolejnego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solte o toque mantido no Simulador antes de iniciar outro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отпустите удерживаемое касание в симуляторе перед началом следующего."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปล่อยการแตะใน Simulator ที่ค้างอยู่ก่อนเริ่มการแตะครั้งใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka bir dokunuş başlatmadan önce basılı tutulan Simülatör dokunuşunu bırakın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відпустіть утримуваний дотик у симуляторі, перш ніж починати інший"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始另一个触摸前，请先释放模拟器中按住的触摸"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始另一個觸控前，請先放開模擬器中按住的觸控"
+          }
         }
       }
     },
@@ -53222,6 +53546,114 @@
           "stringUnit": {
             "state": "translated",
             "value": "実行中のSimulator UI操作が完了してから再試行してください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعد المحاولة بعد انتهاء عملية واجهة مستخدم Simulator النشطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokušajte ponovo nakon završetka aktivne operacije korisničkog sučelja Simulatora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøv igen, når den aktive Simulator UI-handling er færdig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Versuchen Sie es erneut, nachdem der aktive Simulator-UI-Vorgang abgeschlossen ist"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vuelva a intentarlo cuando finalice la operación activa de la interfaz del simulador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réessayez une fois l’opération active de l’interface du simulateur terminée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprova al termine dell'operazione attiva dell'interfaccia del simulatore"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ព្យាយាមម្តងទៀត បន្ទាប់ពីប្រតិបត្តិការ UI របស់ Simulator ដែលកំពុងដំណើរការបានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "진행 중인 시뮬레이터 UI 작업이 끝난 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøv på nytt etter at den aktive Simulator UI-operasjonen er fullført"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spróbuj ponownie po zakończeniu aktywnej operacji interfejsu symulatora"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tente novamente após a conclusão da operação ativa da interface do Simulador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторите попытку после завершения активной операции интерфейса симулятора."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลองอีกครั้งหลังจากการทำงาน UI ของ Simulator ที่กำลังทำงานอยู่เสร็จสิ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etkin Simülatör kullanıcı arayüzü işlemi tamamlandıktan sonra yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторіть спробу після завершення активної операції інтерфейсу симулятора"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在当前模拟器 UI 操作完成后重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在目前的模擬器 UI 操作完成後重試"
           }
         }
       }

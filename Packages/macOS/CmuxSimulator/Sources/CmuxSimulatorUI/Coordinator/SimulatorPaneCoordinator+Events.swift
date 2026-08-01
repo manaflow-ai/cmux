@@ -31,6 +31,10 @@ extension SimulatorPaneCoordinator {
 
     @discardableResult
     func enqueue(_ message: SimulatorWorkerInbound) -> Bool {
+        if message.usesUnownedSimulatorPointerInput,
+           !admitsSimulatorPointerInput() {
+            return false
+        }
         if message.invalidatesUIAutomationSnapshot,
            uiAutomationSession.isTransactionActive,
            !message.isLiveInputRelease,
@@ -47,6 +51,9 @@ extension SimulatorPaneCoordinator {
     private func enqueueImmediately(_ message: SimulatorWorkerInbound) -> Bool {
         switch outgoingContinuation.yield(message) {
         case .enqueued:
+            if case .releaseInputs = message {
+                releaseAllHeldUIAutomationTouches()
+            }
             if message.invalidatesUIAutomationSnapshot {
                 clearUIAutomationSnapshot()
             }

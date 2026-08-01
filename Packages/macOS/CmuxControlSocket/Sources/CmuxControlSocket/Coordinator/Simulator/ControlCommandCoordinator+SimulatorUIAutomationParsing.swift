@@ -268,6 +268,9 @@ extension ControlCommandCoordinator {
         }
         let hasSelector = elementRef != nil || identifier.value != nil || label.value != nil
             || role.value != nil || value.value != nil
+        guard predicate != "settled" || (!hasSelector && text.value == nil) else {
+            return nil
+        }
         guard predicate == "settled"
                 || predicate == "text-contains"
                 || (predicate == "gone" && text.value != nil)
