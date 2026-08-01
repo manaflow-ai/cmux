@@ -94,14 +94,16 @@ public actor CmxIrohRelayPolicyService {
                 trustRoot: trustRoot,
                 now: now
             )
-            let legacyPolicy = try await policyCache.rollbackPolicy(
+            let rollbackAnchor = try await policyCache.rollbackAnchor(
                 trustRoot: trustRoot
             )
+            let legacyPolicy = rollbackAnchor?.policy
             try await Resolver.validatePreferenceRevision(
                 response.preferenceRevision,
                 configuration: response.preference,
                 policy: candidatePolicy,
                 legacyPolicy: legacyPolicy,
+                legacyPolicySequence: rollbackAnchor?.sequence,
                 accountID: accountID,
                 currentEffective: currentEffective,
                 preferenceStore: preferenceStore
@@ -128,6 +130,7 @@ public actor CmxIrohRelayPolicyService {
                 effectivePolicySequence: resolution.effective.managedPolicy?.sequence,
                 policy: policy,
                 legacyPolicy: legacyPolicy,
+                legacyPolicySequence: rollbackAnchor?.sequence,
                 staleRelayIDs: resolution.effective.staleRelayIDs,
                 accountID: accountID
             )
@@ -358,6 +361,7 @@ public actor CmxIrohRelayPolicyService {
             configuration: response.preference,
             policy: policy,
             legacyPolicy: policy,
+            legacyPolicySequence: policy?.sequence,
             accountID: accountID,
             currentEffective: currentEffective,
             preferenceStore: preferenceStore
