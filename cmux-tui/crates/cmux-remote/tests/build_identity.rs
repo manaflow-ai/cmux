@@ -272,7 +272,7 @@ fn cargo_directive_paths_reject_cr_and_lf() {
         );
         assert!(
             String::from_utf8_lossy(&output.stderr)
-                .contains("Cargo directive path contains CR or LF"),
+                .contains("Cargo directive path contains a control character"),
             "build script rejected {name} for an unexpected reason\nstdout:\n{}\nstderr:\n{}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
