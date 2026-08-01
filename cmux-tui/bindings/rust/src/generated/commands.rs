@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd.
+// cmux-tui mux protocol 10, IR 4248b1dd1a8640da3f983118ddce2e8d5ff94db5dc2e18cb9ebc5ba41052284e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1043,6 +1043,8 @@ pub type SetWindowTitleResult = T::EmptyResult;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShutdownDaemonRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub force: Option<bool>,
     pub generation: String,
     pub pid: u32,
 }
@@ -1585,6 +1587,10 @@ impl CmuxClient {
     }
 
     pub fn shutdown_daemon(&mut self, request: ShutdownDaemonRequest) -> Result<T::ShutdownDaemonResult> {
+        if request.force.is_some() {
+            self.require_protocol_field("shutdown-daemon", 10)?;
+            self.require_capability_field("shutdown-daemon", "daemon-handoff-force-v1")?;
+        }
         self.execute(&SHUTDOWN_DAEMON_METADATA, &request)
     }
 
