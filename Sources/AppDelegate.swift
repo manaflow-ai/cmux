@@ -862,7 +862,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var debugFocusedTerminalKeyRepairObserverForTesting: ((NSWindow, NSEvent, NSResponder?) -> Void)?
     #endif
     private lazy var updateController = UpdateController(log: updateLog)
-    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog, settingsRuntime: settingsRuntime)
+    private let titlebarControlsLayoutModel = TitlebarControlsLayoutModel()
+    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
+        updateLog: updateLog,
+        settingsRuntime: settingsRuntime,
+        layoutModel: titlebarControlsLayoutModel
+    )
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
@@ -9000,10 +9005,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
+        let root = ContentView(
+            updateViewModel: updateViewModel,
+            windowId: windowId,
+            titlebarControlsLayoutModel: titlebarControlsLayoutModel
+        )
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
-            .environmentObject(notificationStore.sidebarUnread)
             .environmentObject(sidebarState)
             .environmentObject(sidebarSelectionState)
             .environmentObject(fileExplorerState)
