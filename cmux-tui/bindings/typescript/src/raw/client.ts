@@ -98,6 +98,7 @@ export interface CmuxClientOptions {
   enableProviderAuthority?: boolean;
   /**
    * Command acknowledgement timeout from 0 through 2147483647 milliseconds.
+   * Zero permits dispatch only when it starts synchronously.
    * It does not limit idle event streams.
    */
   timeoutMs?: number;
@@ -117,7 +118,8 @@ export interface CmuxClientOptions {
 export interface SendRawOptions {
   /**
    * Overrides the client command acknowledgement timeout with a finite value
-   * from 0 through 2147483647 milliseconds.
+   * from 0 through 2147483647 milliseconds. Zero permits dispatch only when
+   * it starts synchronously.
    */
   timeoutMs?: number;
   /** Cancels the request and any transport frame that has not started dispatch. */
@@ -276,6 +278,7 @@ class MessageRouter {
         const json = stringifyWireJson(request);
         if (this.transport.sendCancellable) {
           let dispatchStarted = false;
+          let synchronousDispatchWindow = true;
           const cancelUndispatched = this.transport.sendCancellable(
             json,
             () => {
@@ -287,11 +290,13 @@ class MessageRouter {
             },
             () => {
               if (this.pending.get(key) !== pending) return false;
+              if (timeoutMs === 0 && synchronousDispatchWindow) return true;
               if (performance.now() < pending.dispatchDeadline) return true;
               expire();
               return false;
             },
           );
+          synchronousDispatchWindow = false;
           if (!dispatchStarted && this.pending.get(key) === pending) {
             pending.cancelUndispatched = cancelUndispatched;
           } else {
