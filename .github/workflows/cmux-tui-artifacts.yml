@@ -38,6 +38,7 @@ jobs:
       version: 0.0.0-r2.${{ github.sha }}
       package_npm: false
       package_pypi: false
+      include_windows: true
 
   publish:
     name: publish to R2

@@ -25,19 +25,6 @@ final class WorkspaceContentViewVisibilityTests {
         }
     }
 
-    private static var repoRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-    }
-
-    private static func sourceText(_ relativePath: String) throws -> String {
-        try String(
-            contentsOf: repoRoot.appendingPathComponent(relativePath),
-            encoding: .utf8
-        )
-    }
-
     private static func restoreFocusTarget(
         workspaceId: UUID = UUID(),
         panelId: UUID = UUID(),
@@ -50,32 +37,7 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
-    @Test
-    func contentViewDoesNotKeepLegacyWorkItemStateForCoalescedReleases() throws {
-        let source = try Self.sourceText("Sources/ContentView.swift")
-        let legacyState = [
-            "sidebarResizerCursorReleaseWorkItem",
-            "commandPaletteRestoreTimeoutWorkItem",
-        ].filter(source.contains)
-        #expect(
-            legacyState.isEmpty,
-            """
-            ContentView must not keep the legacy DispatchWorkItem state properties that \
-            previously let queued closures retain prior work-item state:
-            \(legacyState.joined(separator: "\n"))
-            """
-        )
-        #expect(
-            source.contains("scheduleSidebarResizerCursorRelease(delay: .milliseconds(50))"),
-            """
-            Sidebar resizer hover exit must keep a short deferred cursor-release window so \
-            mouse-down and drag-start callbacks can establish resize state before the cursor \
-            can be reset.
-            """
-        )
-    }
-
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     @MainActor
     func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async {
         let clock = SidebarTestManualClock()
@@ -92,6 +54,23 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(releases.isEmpty)
         let immediateRelease = await releaseIterator.next()
         #expect(immediateRelease == false)
+        #expect(releases == [false])
+        releases.removeAll()
+
+        scheduler.schedule(force: false, delay: .milliseconds(50)) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        await clock.waitUntilSleeping(for: .milliseconds(50))
+        clock.advance(by: .milliseconds(49))
+        for _ in 0..<3 {
+            await Task.yield()
+        }
+        #expect(releases.isEmpty)
+
+        clock.advance(by: .milliseconds(1))
+        let hoverExitRelease = await releaseIterator.next()
+        #expect(hoverExitRelease == false)
         #expect(releases == [false])
         releases.removeAll()
 
@@ -276,6 +255,69 @@ final class WorkspaceContentViewVisibilityTests {
             counts.verticalTabsSidebarBody == 0,
             "Minimal-mode toggles must not rebuild the vertical sidebar render context."
         )
+    }
+
+    @Test
+    func minimalModeSidebarFooterKeepsOnlyUpgradeControl() {
+        let minimalControls = SidebarFooterControl.allCases.filter {
+            SidebarFooterPresentationPolicy.isVisible($0, presentationMode: .minimal)
+        }
+        let standardControls = SidebarFooterControl.allCases.filter {
+            SidebarFooterPresentationPolicy.isVisible($0, presentationMode: .standard)
+        }
+
+        #expect(minimalControls == [.upgrade])
+        #expect(standardControls == SidebarFooterControl.allCases)
+    }
+
+    @Test
+    func sidebarAccountPictureAndIconPresentationsStayDistinct() {
+        let picture = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: true,
+            prefersProfileIcon: false
+        )
+        let toggledIcon = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: true,
+            prefersProfileIcon: true
+        )
+        let signedOutIcon = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: false,
+            prefersProfileIcon: false
+        )
+
+        #expect(picture.visual == .profilePicture)
+        #expect(picture.size == SidebarFooterButtonMetrics.accountAndHelpVisualSize)
+        #expect(
+            SidebarAccountButtonPresentation.defaultProfileIconSystemName
+                == "person.crop.circle"
+        )
+        #expect(
+            toggledIcon.visual == .profileIcon(
+                systemName: SidebarAccountButtonPresentation.defaultProfileIconSystemName
+            )
+        )
+        #expect(toggledIcon.size == SidebarFooterButtonMetrics.accountAndHelpVisualSize)
+        #expect(signedOutIcon == toggledIcon)
+        #expect(
+            SidebarFooterButtonMetrics.profilePictureSize
+                == SidebarFooterButtonMetrics.helpIconSize
+        )
+        #expect(
+            SidebarFooterButtonMetrics.profileIconSize
+                == SidebarFooterButtonMetrics.helpIconSize
+        )
+        #expect(
+            SidebarFooterCircularIconStyle.standard.pointSize
+                == SidebarFooterButtonMetrics.accountAndHelpVisualSize
+        )
+        #expect(SidebarFooterCircularIconStyle.standard.weight == .regular)
+#if DEBUG
+        #expect(SidebarFooterProfileIconDebugSettings.defaultIcon == .cropCircle)
+        #expect(
+            SidebarFooterHelpIconDebugSettings.defaultWeight.fontWeight
+                == SidebarFooterCircularIconStyle.standard.weight
+        )
+#endif
     }
 
     @MainActor

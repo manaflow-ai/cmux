@@ -102,7 +102,7 @@
     "faqGhosttyQ": "¿Cuál es la relación entre cmux y Ghostty?",
     "faqGhosttyA": "cmux no es un fork de Ghostty. Utiliza <link>libghostty</link> como biblioteca para el renderizado de terminal, de la misma forma que las apps usan WebKit para vistas web. Ghostty es una terminal independiente; cmux es una app diferente construida sobre su motor de renderizado.",
     "faqPlatformQ": "¿Qué plataformas soporta?",
-    "faqPlatformA": "Solo macOS, por ahora. cmux es una app nativa de Swift + AppKit.",
+    "faqPlatformA": "Consulta las versiones disponibles de cmux en el menú de descarga. <waitlist>Únete a la lista de espera</waitlist> para cualquier plataforma que aún no se haya publicado.",
     "faqAgentsQ": "¿Con qué agentes de programación funciona cmux?",
     "faqAgentsA": "Con todos. cmux es una terminal, por lo que cualquier agente que funcione en una terminal funciona de inmediato: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, y cualquier otra cosa que pueda ejecutar desde la línea de comandos.",
     "faqNotificationsQ": "¿Cómo funcionan las notificaciones?",
@@ -867,8 +867,6 @@
       "concepts": "Conceptos",
       "anchorTitle": "Workspace de anclaje",
       "anchorDesc": "Cada grupo pertenece a exactamente un workspace llamado el anclaje. El encabezado del grupo en la barra lateral es la representación del anclaje: no hay una fila separada para él. Al hacer clic en el área del nombre del encabezado se enfocan los paneles del anclaje; al hacer clic en el chevrón se alterna el plegado.",
-      "anchorNew": "Los anclajes siempre son completamente nuevos cuando se crea un grupo. Nunca se promueven a partir de un workspace existente. El directorio de trabajo del anclaje se hereda del primer workspace seleccionado al agrupar una selección, o del workspace activo al crearlo mediante la CLI sin --cwd.",
-      "anchorClose": "Cerrar el workspace de anclaje disuelve el grupo: cada uno de los demás miembros se convierte en un workspace sin agrupar y permanece en la lista de pestañas. No se cierra nada más que el propio anclaje. La aplicación muestra un cuadro de diálogo de confirmación con una opción \"No volver a preguntar\" antes de que esto ocurra.",
       "identityTitle": "Identidad del grupo",
       "identityDesc": "Un grupo tiene un nombre, un icono (un SF Symbol, por defecto folder.fill) y un color personalizado opcional. Estos son independientes de las personalizaciones propias del workspace de anclaje. El color y el icono del anclaje se inicializan a partir del grupo al crearlo, pero pueden divergir posteriormente.",
       "pinningTitle": "Fijado",
@@ -3538,8 +3536,8 @@
     "title": "Únete a la lista de espera de {platform}",
     "titleAny": "Únete a la lista de espera",
     "description": "La compatibilidad con {platform} está en camino. Deja tu correo y te avisaremos en cuanto esté lista.",
-    "descriptionAny": "Por ahora cmux es primero para macOS. Deja tu correo y te avisaremos en cuanto Linux, Windows o Android esté listo.",
-    "calloutText": "Próximamente en Linux, Windows y Android.",
+    "descriptionAny": "Elige una plataforma aún no publicada y deja tu correo. Te avisaremos cuando esa versión esté lista.",
+    "calloutText": "Habrá más versiones de cmux.",
     "platformsLabel": "¿Qué plataformas?",
     "selectPlatform": "Elige al menos una plataforma.",
     "emailLabel": "Correo electrónico",
@@ -3553,5 +3551,86 @@
     "successBody": "Te enviaremos un correo cuando la versión de {platform} esté lista.",
     "successBodyAny": "Te enviaremos un correo cuando cmux esté listo para tu plataforma.",
     "done": "Listo"
+  },
+  "browserDownloads": {
+    "eyebrow": "Navegador cmux",
+    "title": "cmux para {platform}",
+    "tagline": "Un navegador Chromium y un espacio de trabajo para agentes, creados como una sola experiencia.",
+    "logoAlt": "Icono de la aplicación cmux",
+    "portableCta": "ZIP portátil",
+    "featuresTitle": "Diseñado para el trabajo con agentes",
+    "features": {
+      "chromium": {
+        "title": "Chromium real",
+        "description": ": pestañas, renderizado, extensiones y comportamiento del omnibox con calidad de Chrome"
+      },
+      "workspaces": {
+        "title": "Espacios de trabajo por tarea",
+        "description": ": organiza pestañas web y herramientas en torno a cada tarea en lugar de una barra interminable"
+      },
+      "terminals": {
+        "title": "Superficies de terminal",
+        "description": ": mantén shells y pestañas del navegador en la misma ventana y compositor"
+      },
+      "openSource": {
+        "title": "Gratis y de código abierto",
+        "description": ": revisa el código, informa de problemas y compila desde el código fuente en GitHub"
+      }
+    },
+    "installTitle": "Instalación",
+    "releaseTitle": "Versiones y actualizaciones",
+    "releaseBody": "Estos enlaces siempre apuntan a la última versión estable en <github>GitHub Releases</github>. cmux verifica los manifiestos de actualización firmados antes de instalar una actualización.",
+    "sourceLink": "Ver el código fuente en GitHub",
+    "otherPlatform": "cmux para {platform}",
+    "macLink": "Terminal cmux para Mac",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Descargar cmux para Windows",
+      "metaDescription": "Descarga cmux para Windows x64: un navegador Chromium y espacio de trabajo para agentes, gratis y de código abierto, con pestañas por tarea y superficies de terminal.",
+      "subtitle": "Una compilación nativa x64 con pestañas Chromium, espacios de trabajo cmux y las convenciones de teclado habituales de Windows.",
+      "primaryCta": "Descargar instalador (.exe)",
+      "requirements": "Windows 10 o posterior · x64",
+      "installBody": "Ejecuta el instalador y sigue las indicaciones de Windows. Elige el ZIP portátil si prefieres conservar cmux en una carpeta sin instalarlo en todo el sistema."
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Descargar cmux para Linux",
+      "metaDescription": "Descarga cmux para Linux x64: un navegador Chromium y espacio de trabajo para agentes, gratis y de código abierto, con pestañas por tarea y superficies de terminal.",
+      "subtitle": "Una compilación nativa x64 con pestañas Chromium, espacios de trabajo cmux y superficies de terminal integradas.",
+      "primaryCta": "Descargar .deb",
+      "requirements": "Debian o Ubuntu · x64",
+      "installBody": "Descarga el paquete de Debian e instálalo con tu gestor de paquetes. Elige el ZIP portátil para una instalación por usuario y actualizaciones dentro de la aplicación."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Te damos la bienvenida a cmux Pro 🎉",
+      "fallbackName": "amigo",
+      "greeting": "Hola, {name}:",
+      "thanks": "¡Gracias por unirte a cmux Pro! Aún estamos preparando la experiencia Pro completa y el acceso a la nube llegará pronto.",
+      "cloudStatus": "Cuando lancemos el acceso a la nube, añadiremos créditos de uso a tu cuenta según el número de meses que lleves suscrito.",
+      "currentBenefit": "Mientras tanto, tu ventaja Pro es el acceso anticipado a cmux en iOS. Regístrate con el enlace de abajo y Apple te enviará la invitación de TestFlight cuando completes el registro.",
+      "testflightLink": "Registrarse en TestFlight: {url}",
+      "testflightLinkLabel": "Registrarse en TestFlight",
+      "signoff": "¡Nos alegra tenerte aquí!\nEl equipo de cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro está activo",
+    "title": "Te damos la bienvenida a cmux Pro",
+    "body": "Las funciones Pro siguen en desarrollo. El acceso a la nube llegará pronto, con créditos de uso acumulados por cada mes de suscripción. Hoy, Pro incluye acceso a cmux para iOS mediante TestFlight.",
+    "done": "Ir al panel",
+    "steps": {
+      "iosApp": {
+        "title": "App de cmux para iOS",
+        "body": "Usa cmux en tu teléfono.",
+        "action": "Unirse a la beta de iOS"
+      },
+      "billing": {
+        "title": "Gestionar tu plan",
+        "body": "Consulta tu plan, tus facturas y las opciones de cancelación.",
+        "action": "Gestionar plan"
+      }
+    }
   }
 }

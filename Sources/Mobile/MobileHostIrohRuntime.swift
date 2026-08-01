@@ -117,6 +117,16 @@ final class MobileHostIrohRuntime {
     var signOutPreparationRevision: UInt64 = 0
     var lifecycleRevision: UInt64 = 0
     var nextDiagnosticSessionID = 0
+    var failureRecoveryTask: Task<Void, Never>?
+    var retryInspectionTask: Task<Void, Never>?
+    var retryInspectionRevision: UInt64 = 0
+    var failureRecoveryFailureCount = 0
+    var failureRecoveryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+    var failureRecoverySchedule = CmxIrohRetrySchedule()
+    /// Single-flight owner for revision reconciliation: one task in flight,
+    /// later signals coalesce at the greatest observed revision.
+    var serverSignalRefreshTask: Task<Void, Never>?
+    var serverSignalPendingRevision: UInt64?
 
     private init() {
         let installState = CmxIrohUserDefaultsInstallStateStore()
@@ -215,6 +225,7 @@ final class MobileHostIrohRuntime {
         restartActiveRuntime: Bool = false
     ) -> Task<Void, Never> {
         lifecycleRevision &+= 1
+        cancelRetryInspection()
         bindingPersistenceQueue.cancel()
         let revision = lifecycleRevision
         let previous = transitionTask
@@ -244,6 +255,10 @@ final class MobileHostIrohRuntime {
         restartActiveRuntime: Bool,
         revision: UInt64
     ) async {
+        // Each transition re-derives failure recovery from its own outcome:
+        // success resets the backoff ladder, failure re-arms it, and a
+        // deactivating transition ends the need for it.
+        cancelFailureRecovery(resetBackoff: false)
         if eraseAccountState {
             await quarantineForSignOut()
         } else if restartActiveRuntime
@@ -279,6 +294,7 @@ final class MobileHostIrohRuntime {
         ))
         do {
             try await activate(accountID: targetAccountID, revision: revision)
+            failureRecoveryFailureCount = 0
         } catch is CancellationError {
             return
         } catch {
@@ -290,6 +306,7 @@ final class MobileHostIrohRuntime {
             mobileHostIrohLog.error(
                 "Iroh host activation failed: \(String(describing: error), privacy: .private)"
             )
+            scheduleFailureRecovery()
         }
     }
 
@@ -297,6 +314,51 @@ final class MobileHostIrohRuntime {
         for error: any Error
     ) -> DiagnosticFailureKind {
         DiagnosticFailureKind.classify(error)
+    }
+
+    /// An account-scoped invalidation says a newer authoritative route
+    /// revision exists. One owned task performs a read-only v2 reconciliation;
+    /// bursts coalesce at the greatest revision instead of creating one waiter
+    /// per frame. Terminal evidence rebuilds through the shared lifecycle path.
+    func reconcileConnectivityFromServerSignal(revision: UInt64) {
+        if serverSignalRefreshTask != nil {
+            serverSignalPendingRevision = max(
+                serverSignalPendingRevision ?? revision,
+                revision
+            )
+            return
+        }
+        guard let signalRuntime = runtime else {
+            retryIfNeeded()
+            return
+        }
+        serverSignalRefreshTask = Task { @MainActor [weak self] in
+            _ = await signalRuntime.reconcileConnectivityRevision(revision)
+            guard let self else { return }
+            self.serverSignalRefreshTask = nil
+            let replayRevision = self.serverSignalPendingRevision
+            self.serverSignalPendingRevision = nil
+            guard self.runtime === signalRuntime,
+                  self.desiredActive,
+                  !self.signOutIntentActive,
+                  self.transitionTask == nil else { return }
+            if await signalRuntime.snapshot().state == .failed {
+                guard self.runtime === signalRuntime,
+                      self.desiredActive,
+                      !self.signOutIntentActive,
+                      self.transitionTask == nil else { return }
+                self.scheduleReconcile(
+                    eraseAccountState: false,
+                    restartActiveRuntime: true
+                )
+                return
+            }
+            if let replayRevision {
+                self.reconcileConnectivityFromServerSignal(
+                    revision: replayRevision
+                )
+            }
+        }
     }
 
     func makeDiagnosticSessionID() -> Int {
