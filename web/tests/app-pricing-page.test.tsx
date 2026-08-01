@@ -110,6 +110,37 @@ describe("app pricing page", () => {
     expect(html).not.toContain("/api/billing/portal");
   });
 
+  test("renders signed-out recovery without claiming Free is the current plan", async () => {
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        cmux_scheme: "cmux-dev-test",
+        appearance: "dark",
+        background: "#112233",
+        interval: "year",
+      }),
+    });
+    const html = renderToStaticMarkup(element).replaceAll("&amp;", "&");
+
+    expect(html).toContain("not signed in.");
+    expect(html).not.toContain("Current plan");
+    const signInHref = html.match(
+      /href="(\/handler\/native-sign-in\?after_auth_return_to=[^"]+)"/,
+    )?.[1];
+    expect(signInHref).toBeTruthy();
+    const nativeSignIn = new URL(signInHref!, "https://cmux.test");
+    const afterSignIn = new URL(
+      nativeSignIn.searchParams.get("after_auth_return_to")!,
+      "https://cmux.test",
+    );
+    expect(afterSignIn.searchParams.get("native_app_return_to")).toBe(
+      "cmux-dev-test://auth-callback",
+    );
+    expect(afterSignIn.searchParams.get("web_return_to")).toBe(
+      "/app-pricing?cmux_app=1&cmux_scheme=cmux-dev-test&appearance=dark&background=%23112233&interval=year",
+    );
+  });
+
   test("renders annual pricing and preserves native checkout context", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
@@ -128,6 +159,8 @@ describe("app pricing page", () => {
     expect(html).toContain("$28");
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
+    expect(html).toContain("/mo, billed yearly");
+    expect(html).toContain("/user/mo, billed yearly");
     expect(html).not.toContain("/mo.");
     expect(html).not.toContain("Billed $288 annually · save 20%");
     expect(html).not.toContain("Billed $336 annually · save 20%");
@@ -188,6 +221,8 @@ describe("app pricing page", () => {
     expect(html).toContain(
       "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test",
     );
+    expect(html).toContain("Current plan");
+    expect(html).not.toContain("not signed in.");
   });
 
   test("hides the billing portal link for Pro users in App Store distribution mode", async () => {

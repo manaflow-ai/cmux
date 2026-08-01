@@ -288,6 +288,8 @@ function currentAfterSignInPath(request: NextRequest): string {
     const value = request.nextUrl.searchParams.get(name);
     if (value) afterSignIn.searchParams.set(name, value);
   }
+  const webReturnTo = request.nextUrl.searchParams.get("web_return_to");
+  if (webReturnTo) afterSignIn.searchParams.set("web_return_to", webReturnTo);
   return `${afterSignIn.pathname}${afterSignIn.search}`;
 }
 

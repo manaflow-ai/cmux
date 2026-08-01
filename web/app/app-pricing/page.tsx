@@ -74,7 +74,8 @@ export default async function AppPricingPage({
     month: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "month"),
     year: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "year"),
   };
-  const banner = appPricingBanner(params);
+  const signInHref = appPricingSignInHref(cmuxScheme, params);
+  const banner = appPricingBanner(params, snapshot, signInHref);
   const theme = appPricingTheme(params);
   const proFeatures = visibleProFeatures({
     base: pricing.pro.features,
@@ -133,12 +134,16 @@ export default async function AppPricingPage({
                 price={pricing.free.price}
                 period={pricing.perMonth}
                 badge={
-                  snapshot.planId === FREE_PLAN_ID ? (
+                  snapshot.authenticated && snapshot.planId === FREE_PLAN_ID ? (
                     <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
                   ) : null
                 }
               >
-                {snapshot.planId === FREE_PLAN_ID ? (
+                {!snapshot.authenticated ? (
+                  <SecondaryLink href={signInHref}>
+                    {pricing.signedOutSignIn}
+                  </SecondaryLink>
+                ) : snapshot.planId === FREE_PLAN_ID ? (
                   <DisabledButton>{pricing.currentPlan}</DisabledButton>
                 ) : (
                   <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>
@@ -352,8 +357,34 @@ type BillingBannerModel = {
   action?: { href: string; label: string };
 };
 
+/// In-webview sign-in that also signs the native app in: Stack sign-in sets
+/// the webview's session cookies, then /handler/after-sign-in hands tokens to
+/// the app through its <scheme>://auth-callback URL. The stateless callback is
+/// accepted by the app's fallback path (HostBrowserSignInFlow.handleCallbackURL).
+/// web_return_to lets the embedded browser navigate back to this pricing page
+/// (with its appearance params intact) once the app has consumed the callback.
+function appPricingSignInHref(
+  cmuxScheme: string,
+  params: Record<string, string | string[] | undefined>,
+): string {
+  const search = new URLSearchParams();
+  for (const [name, value] of Object.entries(params)) {
+    const first = firstParam(value);
+    if (first !== null) search.set(name, first);
+  }
+  const query = search.toString();
+  const webReturnTo = query ? `/app-pricing?${query}` : "/app-pricing";
+  const afterSignIn =
+    `/handler/after-sign-in?native_app_return_to=${encodeURIComponent(
+      `${cmuxScheme}://auth-callback`,
+    )}&web_return_to=${encodeURIComponent(webReturnTo)}`;
+  return `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+}
+
 function appPricingBanner(
   params: Record<string, string | string[] | undefined>,
+  snapshot: AppPlanSnapshot,
+  signInHref: string,
 ): BillingBannerModel | null {
   const welcome = firstParam(params.welcome);
   const billing = firstParam(params.billing);
@@ -381,6 +412,12 @@ function appPricingBanner(
   }
   if (billing === "invalid_relay") {
     return { message: pricing.billingInvalidRelay };
+  }
+  if (!snapshot.authenticated) {
+    return {
+      message: pricing.signedOutNotice,
+      action: { href: signInHref, label: pricing.signedOutSignIn },
+    };
   }
   return null;
 }
