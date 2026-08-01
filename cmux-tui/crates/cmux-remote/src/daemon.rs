@@ -37,7 +37,7 @@ use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
-use crate::unix_socket::OwnedUnixListener;
+use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff};
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
@@ -1404,7 +1404,7 @@ async fn upgrade_websocket(
 pub struct UnixServer {
     path: PathBuf,
     shutdown: Option<oneshot::Sender<()>>,
-    task: Option<tokio::task::JoinHandle<()>>,
+    task: Option<tokio::task::JoinHandle<Result<(), DaemonError>>>,
 }
 
 #[cfg(unix)]
@@ -1413,13 +1413,16 @@ impl UnixServer {
         &self.path
     }
 
-    pub async fn shutdown(mut self) {
+    pub async fn shutdown(mut self) -> Result<(), DaemonError> {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
         if let Some(task) = self.task.take() {
-            let _ = task.await;
+            return task.await.map_err(|error| {
+                DaemonError::Protocol(format!("Unix listener task failed: {error}"))
+            })?;
         }
+        Ok(())
     }
 }
 
@@ -1438,17 +1441,48 @@ pub async fn serve_unix(
     path: impl Into<PathBuf>,
     maximum_frame_bytes: usize,
 ) -> Result<UnixServer, DaemonError> {
+    serve_unix_with_shutdown(daemon, path, maximum_frame_bytes, None).await
+}
+
+#[cfg(unix)]
+pub async fn serve_unix_with_shutdown(
+    daemon: Arc<RemoteDaemon>,
+    path: impl Into<PathBuf>,
+    maximum_frame_bytes: usize,
+    owner_shutdown: Option<watch::Sender<bool>>,
+) -> Result<UnixServer, DaemonError> {
     let path = path.into();
     let listener = OwnedUnixListener::bind(path.clone())
         .await
         .map_err(|error| DaemonError::Protocol(format!("could not own Unix socket: {error:#}")))?;
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let task = tokio::spawn(async move {
+        let mut accept_backoff = UnixAcceptBackoff::new();
         loop {
             tokio::select! {
-                _ = &mut shutdown_rx => break,
+                _ = &mut shutdown_rx => return Ok(()),
                 accepted = listener.listener().accept() => {
-                    let Ok((stream, _)) = accepted else { break };
+                    let (stream, _) = match accepted {
+                        Ok(accepted) => {
+                            accept_backoff.reset();
+                            accepted
+                        }
+                        Err(error) => {
+                            let Some(delay) = accept_backoff.retry_delay(&error) else {
+                                if let Some(owner_shutdown) = &owner_shutdown {
+                                    let _ = owner_shutdown.send(true);
+                                }
+                                return Err(DaemonError::Protocol(format!(
+                                    "Unix listener accept failed: {error}"
+                                )));
+                            };
+                            tokio::select! {
+                                _ = &mut shutdown_rx => return Ok(()),
+                                _ = tokio::time::sleep(delay) => {}
+                            }
+                            continue;
+                        }
+                    };
                     let Ok(peer) = stream.peer_cred() else { continue };
                     let owner = unsafe { libc::geteuid() };
                     let (reader, writer) = stream.into_split();
@@ -1602,7 +1636,23 @@ mod tests {
             !server.task.as_ref().unwrap().is_finished(),
             "Unix listener task exited instead of retrying the recoverable accept error"
         );
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_server_shutdown_reports_listener_task_failure() {
+        let directory = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "failed-unix-task", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("link.sock");
+        let server = serve_unix(daemon, &socket, 65_535).await.unwrap();
+        server.task.as_ref().unwrap().abort();
+
+        let error = server.shutdown().await.unwrap_err();
+
+        assert!(error.to_string().contains("Unix listener task failed"), "{error}");
     }
     use crate::connection::{ClientConnection, ClientConnectionConfig, LinkReady, ReconnectPolicy};
     use crate::crypto::{
@@ -1683,7 +1733,7 @@ mod tests {
         let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
 
         let server = serve_unix(daemon, parent.join("link.sock"), 65_535).await.unwrap();
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
     }
 
     #[cfg(unix)]
@@ -1713,7 +1763,7 @@ mod tests {
         let result = serve_unix(daemon, &path, 65_535).await;
         let ignored_lock = result.is_ok();
         if let Ok(server) = result {
-            server.shutdown().await;
+            server.shutdown().await.unwrap();
         }
         assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
 
@@ -1732,7 +1782,7 @@ mod tests {
 
         std::fs::remove_file(&path).unwrap();
         let successor = UnixListener::bind(&path).unwrap();
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
         let successor_preserved = path.exists();
         let reachable =
             tokio::time::timeout(Duration::from_secs(1), tokio::net::UnixStream::connect(&path))
@@ -1778,7 +1828,7 @@ mod tests {
             }
             Err(error) => panic!("unexpected error: {error}"),
             Ok(server) => {
-                server.shutdown().await;
+                server.shutdown().await.unwrap();
                 panic!("sticky world-writable socket parent was accepted");
             }
         }
@@ -1805,7 +1855,7 @@ mod tests {
             }
             Err(error) => panic!("unexpected error: {error}"),
             Ok(server) => {
-                server.shutdown().await;
+                server.shutdown().await.unwrap();
                 panic!("symlink socket parent was accepted");
             }
         }
@@ -1831,7 +1881,7 @@ mod tests {
             Err(DaemonError::Protocol(_)) => {}
             Err(error) => panic!("unexpected error: {error}"),
             Ok(server) => {
-                server.shutdown().await;
+                server.shutdown().await.unwrap();
                 panic!("intermediate symlink was accepted");
             }
         }

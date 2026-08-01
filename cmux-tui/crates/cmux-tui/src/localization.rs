@@ -297,6 +297,12 @@ pub(crate) struct RemoteClientMessages {
     rpc_stdin_too_large: &'static str,
     pub rpc_stdin_invalid_utf8: &'static str,
     pub known_forget_arity: &'static str,
+    pub known_state_dir_unavailable: &'static str,
+    known_daemon_not_known: &'static str,
+    known_daemon_forgotten: &'static str,
+    pub known_daemons_empty: &'static str,
+    pub known_daemon_auth_enrolled: &'static str,
+    pub known_daemon_auth_carrier: &'static str,
 }
 
 impl RemoteClientMessages {
@@ -342,6 +348,14 @@ impl RemoteClientMessages {
 
     pub(crate) fn rpc_stdin_too_large(&self, maximum: usize) -> String {
         self.rpc_stdin_too_large.replace("{maximum}", &maximum.to_string())
+    }
+
+    pub(crate) fn known_daemon_not_known(&self, fingerprint: &str) -> String {
+        self.known_daemon_not_known.replace("{fingerprint}", &format!("{fingerprint:?}"))
+    }
+
+    pub(crate) fn known_daemon_forgotten(&self, fingerprint: &str) -> String {
+        self.known_daemon_forgotten.replace("{fingerprint}", fingerprint)
     }
 }
 
@@ -951,6 +965,12 @@ OPTIONS:
         rpc_stdin_too_large: "RPC stdin line exceeds {maximum} bytes",
         rpc_stdin_invalid_utf8: "RPC stdin line is not valid UTF-8",
         known_forget_arity: "known-daemons forget expects exactly one fingerprint",
+        known_state_dir_unavailable: "cannot determine remote state directory; use --state-dir",
+        known_daemon_not_known: "daemon {fingerprint} is not known",
+        known_daemon_forgotten: "Forgot daemon {fingerprint}.",
+        known_daemons_empty: "No known daemons.",
+        known_daemon_auth_enrolled: "enrolled",
+        known_daemon_auth_carrier: "carrier",
     },
     remote: RemoteMessages {
         remote_stop_help: "USAGE: cmux-tui remote-stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n",
@@ -1378,6 +1398,12 @@ ID とセッション:
         rpc_stdin_too_large: "RPC 標準入力の 1 行が {maximum} バイトの上限を超えています",
         rpc_stdin_invalid_utf8: "RPC 標準入力の行は有効な UTF-8 ではありません",
         known_forget_arity: "known-daemons forget にはフィンガープリントを 1 つ指定してください",
+        known_state_dir_unavailable: "リモート状態ディレクトリを特定できません。--state-dir を指定してください",
+        known_daemon_not_known: "デーモン {fingerprint} は登録されていません",
+        known_daemon_forgotten: "デーモン {fingerprint} を削除しました。",
+        known_daemons_empty: "登録済みのデーモンはありません。",
+        known_daemon_auth_enrolled: "登録済み",
+        known_daemon_auth_carrier: "信頼済み搬送路",
     },
     remote: RemoteMessages {
         remote_stop_help: "使用方法: cmux-tui remote-stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization は、停止済みでライフサイクルフェンス導入前のデーモン専用です。使用前に旧 cmux-tui プロセスが残っていないことを確認してください。\n",
@@ -1573,6 +1599,20 @@ mod tests {
         assert_eq!(JAPANESE.shortcuts.title, "キーボードショートカット");
         assert_eq!(ENGLISH.shortcuts.close_button, "Esc close");
         assert_eq!(JAPANESE.shortcuts.close_button, "Esc 閉じる");
+        assert_eq!(ENGLISH.remote_client.known_daemons_empty, "No known daemons.");
+        assert_eq!(JAPANESE.remote_client.known_daemons_empty, "登録済みのデーモンはありません。");
+        assert_eq!(ENGLISH.remote_client.known_daemon_auth_enrolled, "enrolled");
+        assert_eq!(JAPANESE.remote_client.known_daemon_auth_enrolled, "登録済み");
+        assert_eq!(ENGLISH.remote_client.known_daemon_auth_carrier, "carrier");
+        assert_eq!(JAPANESE.remote_client.known_daemon_auth_carrier, "信頼済み搬送路");
+        assert_eq!(
+            JAPANESE.remote_client.known_daemon_forgotten("fingerprint"),
+            "デーモン fingerprint を削除しました。"
+        );
+        assert_eq!(
+            JAPANESE.remote_client.known_daemon_not_known("fingerprint"),
+            "デーモン \"fingerprint\" は登録されていません"
+        );
         assert_eq!(
             ENGLISH.terminal.deferred_input_destination_changed,
             "Deferred input was discarded because its destination changed"

@@ -21,7 +21,7 @@ use tokio::sync::{Semaphore, oneshot, watch};
 
 use crate::daemon::RemoteDaemon;
 use crate::identity::{EnrollmentRelayAccess, IdentityError};
-use crate::unix_socket::{OwnedUnixListener, UnixSocketError};
+use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketError};
 
 const MAX_ADMIN_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_ADMIN_CONNECTIONS: usize = 32;
@@ -143,7 +143,7 @@ pub struct DaemonStatus {
 pub struct AdminServer {
     path: PathBuf,
     shutdown: Option<oneshot::Sender<()>>,
-    task: Option<tokio::task::JoinHandle<()>>,
+    task: Option<tokio::task::JoinHandle<Result<(), AdminError>>>,
 }
 
 impl AdminServer {
@@ -151,13 +151,16 @@ impl AdminServer {
         &self.path
     }
 
-    pub async fn shutdown(mut self) {
+    pub async fn shutdown(mut self) -> Result<(), AdminError> {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
         if let Some(task) = self.task.take() {
-            let _ = task.await;
+            return task.await.map_err(|error| {
+                AdminError::Protocol(format!("admin listener task failed: {error}"))
+            })?;
         }
+        Ok(())
     }
 }
 
@@ -194,11 +197,33 @@ pub async fn serve_admin_with_shutdown(
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_ADMIN_CONNECTIONS));
     let task = tokio::spawn(async move {
+        let mut accept_backoff = UnixAcceptBackoff::new();
         loop {
             tokio::select! {
-                _ = &mut shutdown_rx => break,
+                _ = &mut shutdown_rx => return Ok(()),
                 accepted = listener.listener().accept() => {
-                    let Ok((stream, _)) = accepted else { break };
+                    let (stream, _) = match accepted {
+                        Ok(accepted) => {
+                            accept_backoff.reset();
+                            accepted
+                        }
+                        Err(error) => {
+                            let Some(delay) = accept_backoff.retry_delay(&error) else {
+                                if let Some(owner_shutdown) = &owner_shutdown {
+                                    let _ = owner_shutdown.send(true);
+                                }
+                                return Err(AdminError::Io(io::Error::new(
+                                    error.kind(),
+                                    format!("admin Unix listener accept failed: {error}"),
+                                )));
+                            };
+                            tokio::select! {
+                                _ = &mut shutdown_rx => return Ok(()),
+                                _ = tokio::time::sleep(delay) => {}
+                            }
+                            continue;
+                        }
+                    };
                     if validate_peer(&stream).is_err() {
                         continue;
                     }
@@ -854,7 +879,23 @@ mod tests {
                 .expect("admin listener never retried after file-descriptor exhaustion")
                 .unwrap();
         assert!(response.ok);
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn admin_server_shutdown_reports_listener_task_failure() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path().join("state"), "failed-admin-task", true)
+                .unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("admin.sock");
+        let server = serve_admin(daemon, &socket, Vec::new()).await.unwrap();
+        server.task.as_ref().unwrap().abort();
+
+        let error = server.shutdown().await.unwrap_err();
+
+        assert!(error.to_string().contains("admin listener task failed"), "{error}");
     }
 
     #[tokio::test]
@@ -883,7 +924,7 @@ mod tests {
         .unwrap();
         assert!(invitation.ok);
         assert!(invitation.result.unwrap()["uri"].as_str().unwrap().starts_with("cmux://enroll/"));
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
     }
 
     #[tokio::test]
@@ -904,7 +945,7 @@ mod tests {
         assert!(response.ok);
         shutdown_rx.changed().await.unwrap();
         assert!(*shutdown_rx.borrow());
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
     }
 
     #[tokio::test]
@@ -950,7 +991,7 @@ mod tests {
         assert!(matching.ok);
         shutdown_rx.changed().await.unwrap();
         assert!(*shutdown_rx.borrow());
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
     }
 
     #[cfg(unix)]
@@ -998,7 +1039,7 @@ mod tests {
         let result = serve_admin(daemon, &socket, Vec::new()).await;
         let ignored_lock = result.is_ok();
         if let Ok(server) = result {
-            server.shutdown().await;
+            server.shutdown().await.unwrap();
         }
         assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
 
@@ -1018,7 +1059,7 @@ mod tests {
 
         std::fs::remove_file(&socket).unwrap();
         let successor = UnixListener::bind(&socket).unwrap();
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
         let successor_preserved = socket.exists();
         let reachable = timeout(TokioDuration::from_secs(1), UnixStream::connect(&socket))
             .await
@@ -1048,7 +1089,7 @@ mod tests {
             assert!(response.ok);
         }
 
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
     }
 
     #[tokio::test]
@@ -1074,7 +1115,7 @@ mod tests {
         assert!(!response.ok);
         assert_eq!(response.error.as_deref(), Some("admin request is too large"));
 
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
     }
 
     #[tokio::test]
@@ -1096,7 +1137,7 @@ mod tests {
         let response = call_admin(&socket, &request).await.unwrap();
 
         assert_eq!(response.error.as_deref(), Some("admin response is too large"));
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
     }
 
     #[tokio::test]

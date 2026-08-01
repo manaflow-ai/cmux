@@ -1440,16 +1440,17 @@ fn parse_known_daemons_args(args: &[String]) -> anyhow::Result<KnownDaemonsArgs>
 
 fn run_known_daemons(args: &[String]) -> anyhow::Result<()> {
     let parsed = parse_known_daemons_args(args)?;
+    let messages = &catalog().remote_client;
     let client_root = parsed
         .state_dir
         .or_else(default_state_dir)
-        .ok_or_else(|| anyhow!("cannot determine remote state directory; use --state-dir"))?
+        .ok_or_else(|| anyhow!(messages.known_state_dir_unavailable))?
         .join("client");
     let store = ClientIdentityStore::load_or_create(client_root)?;
     if let KnownDaemonsAction::Forget(fingerprint) = parsed.action {
         let forgotten = tokio_runtime()?.block_on(store.forget_daemon(&fingerprint))?;
         if !forgotten {
-            return Err(anyhow!("daemon {fingerprint:?} is not known"));
+            return Err(anyhow!(messages.known_daemon_not_known(&fingerprint)));
         }
         if parsed.json {
             println!(
@@ -1460,7 +1461,7 @@ fn run_known_daemons(args: &[String]) -> anyhow::Result<()> {
                 })
             );
         } else {
-            println!("Forgot daemon {fingerprint}.");
+            println!("{}", messages.known_daemon_forgotten(&fingerprint));
         }
         return Ok(());
     }
@@ -1470,7 +1471,7 @@ fn run_known_daemons(args: &[String]) -> anyhow::Result<()> {
         return Ok(());
     }
     if daemons.is_empty() {
-        println!("No known daemons.");
+        println!("{}", messages.known_daemons_empty);
         return Ok(());
     }
     for daemon in daemons {
@@ -1479,8 +1480,8 @@ fn run_known_daemons(args: &[String]) -> anyhow::Result<()> {
             daemon.name,
             daemon.fingerprint,
             match daemon.auth {
-                KnownDaemonAuth::Enrolled => "enrolled",
-                KnownDaemonAuth::Carrier => "carrier",
+                KnownDaemonAuth::Enrolled => messages.known_daemon_auth_enrolled,
+                KnownDaemonAuth::Carrier => messages.known_daemon_auth_carrier,
             }
         );
         for route in daemon.route_hints {

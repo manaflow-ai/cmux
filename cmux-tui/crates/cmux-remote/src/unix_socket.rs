@@ -11,6 +11,45 @@ use crate::owner_lock::{OwnerFileLock, sibling_lock_path};
 use crate::secure_directory::{DirectoryAccess, ensure_secure_directory};
 
 const SOCKET_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
+const ACCEPT_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(10);
+const ACCEPT_RETRY_MAX_DELAY: Duration = Duration::from_millis(250);
+
+pub(crate) struct UnixAcceptBackoff {
+    next_delay: Duration,
+}
+
+impl UnixAcceptBackoff {
+    pub(crate) fn new() -> Self {
+        Self { next_delay: ACCEPT_RETRY_INITIAL_DELAY }
+    }
+
+    pub(crate) fn retry_delay(&mut self, error: &io::Error) -> Option<Duration> {
+        if !retryable_accept_error(error) {
+            return None;
+        }
+        let delay = self.next_delay;
+        self.next_delay = self.next_delay.saturating_mul(2).min(ACCEPT_RETRY_MAX_DELAY);
+        Some(delay)
+    }
+
+    pub(crate) fn reset(&mut self) {
+        self.next_delay = ACCEPT_RETRY_INITIAL_DELAY;
+    }
+}
+
+fn retryable_accept_error(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::Interrupted
+            | io::ErrorKind::WouldBlock
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::TimedOut
+    ) || matches!(
+        error.raw_os_error(),
+        Some(libc::EMFILE) | Some(libc::ENFILE) | Some(libc::ENOBUFS) | Some(libc::ENOMEM)
+    )
+}
 
 #[derive(Debug)]
 pub(crate) enum UnixSocketError {
@@ -207,6 +246,34 @@ impl TestFileDescriptorExhaustion {
 impl Drop for TestFileDescriptorExhaustion {
     fn drop(&mut self) {
         self.restore();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accept_retry_backoff_is_bounded_and_resets_after_success() {
+        let error = io::Error::from_raw_os_error(libc::EMFILE);
+        let mut backoff = UnixAcceptBackoff::new();
+        let delays = (0..8)
+            .map(|_| backoff.retry_delay(&error).expect("EMFILE must be retryable"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(delays[0], ACCEPT_RETRY_INITIAL_DELAY);
+        assert_eq!(delays[5], ACCEPT_RETRY_MAX_DELAY);
+        assert!(delays.iter().all(|delay| *delay <= ACCEPT_RETRY_MAX_DELAY));
+        backoff.reset();
+        assert_eq!(backoff.retry_delay(&error), Some(ACCEPT_RETRY_INITIAL_DELAY));
+    }
+
+    #[test]
+    fn accept_retry_backoff_rejects_fatal_listener_errors() {
+        let mut backoff = UnixAcceptBackoff::new();
+        let fatal = io::Error::from_raw_os_error(libc::EBADF);
+
+        assert_eq!(backoff.retry_delay(&fatal), None);
     }
 }
 

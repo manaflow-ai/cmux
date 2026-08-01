@@ -23,7 +23,9 @@ use cmux_remote::connection::{
     ReconnectPolicy,
 };
 use cmux_remote::crypto::{AuthKind, ClientAuthMode, CryptoError, StaticIdentity};
-use cmux_remote::daemon::{DaemonSessionPolicy, serve_direct_websocket, serve_unix};
+#[cfg(test)]
+use cmux_remote::daemon::serve_unix;
+use cmux_remote::daemon::{DaemonSessionPolicy, serve_direct_websocket, serve_unix_with_shutdown};
 use cmux_remote::http::serve_workspace_http;
 use cmux_remote::identity::{
     AuthDatabase, IdentityError, PersistedAuthStateSchema, credential_free_route_hint,
@@ -1861,7 +1863,13 @@ async fn run_daemon(
         let transport_setup: anyhow::Result<_> = async {
             #[cfg(test)]
             pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeListenerStartup);
-            let unix = serve_unix(daemon.clone(), &link_socket, MAX_CARRIER_FRAME_BYTES).await?;
+            let unix = serve_unix_with_shutdown(
+                daemon.clone(),
+                &link_socket,
+                MAX_CARRIER_FRAME_BYTES,
+                Some(owner_shutdown.clone()),
+            )
+            .await?;
             let websocket = match options.direct_websocket {
                 Some(address) => Some(
                     serve_direct_websocket(
@@ -2030,7 +2038,10 @@ async fn run_daemon(
             shutdown_failures.push(anyhow!("daemon owner stopped during startup"));
         }
 
-        admin.shutdown().await;
+        if let Err(error) = admin.shutdown().await {
+            shutdown_failures
+                .push(anyhow::Error::new(error).context("admin listener shutdown failed"));
+        }
         if let Some(server) = workspace_http
             && let Err(error) = server.shutdown().await
         {
@@ -2052,7 +2063,10 @@ async fn run_daemon(
             shutdown_failures
                 .push(anyhow::Error::new(error).context("WebSocket server shutdown failed"));
         }
-        unix.shutdown().await;
+        if let Err(error) = unix.shutdown().await {
+            shutdown_failures
+                .push(anyhow::Error::new(error).context("Unix listener shutdown failed"));
+        }
         finalize_daemon_authorization(auth, state_dir, lifecycle_id, shutdown_failures).await
     }
     .await;
@@ -5078,7 +5092,7 @@ mod tests {
 
         assert_eq!(calls.load(Ordering::Acquire), 2);
         connection.close().await.unwrap();
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
     }
 
     #[cfg(unix)]
@@ -5155,7 +5169,7 @@ mod tests {
             .unwrap()
             .expect("the route timer abandoned a pending invitation approval");
         connection.close().await.unwrap();
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
     }
 
     #[cfg(unix)]
@@ -5199,7 +5213,7 @@ mod tests {
         assert_eq!(calls.load(Ordering::Acquire), 1);
         assert_eq!(selected, format!("unix://{}", unix_path.display()));
         connection.close().await.unwrap();
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
     }
 
     #[cfg(unix)]
@@ -5245,7 +5259,7 @@ mod tests {
         assert_eq!(close_calls.load(Ordering::Acquire), 1);
         assert_eq!(selected, format!("unix://{}", unix_path.display()));
         connection.close().await.unwrap();
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
     }
 
     #[cfg(unix)]
