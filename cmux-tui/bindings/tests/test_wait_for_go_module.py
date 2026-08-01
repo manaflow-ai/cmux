@@ -176,10 +176,7 @@ class WaitForGoModuleTests(unittest.TestCase):
         process = mock.Mock()
         process.args = ["go", "mod", "download"]
         process.returncode = -15
-        process.communicate.side_effect = (
-            subprocess.TimeoutExpired(process.args, 0.25),
-            ("", ""),
-        )
+        process.wait.return_value = -15
         cancellation = mock.Mock()
         cancellation.is_set.side_effect = (False, True)
         with mock.patch.object(waiter.subprocess, "Popen", return_value=process), \
@@ -197,10 +194,7 @@ class WaitForGoModuleTests(unittest.TestCase):
         process = mock.Mock()
         process.args = ["go", "mod", "download"]
         process.returncode = -15
-        process.communicate.side_effect = (
-            subprocess.TimeoutExpired(process.args, 0.25),
-            ("", ""),
-        )
+        process.wait.return_value = -15
         clock = mock.Mock(side_effect=(0.0, 31.0))
         cancellation = mock.Mock()
         cancellation.is_set.return_value = False

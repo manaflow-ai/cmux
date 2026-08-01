@@ -46,13 +46,18 @@ def _stop_process(process: subprocess.Popen[str]) -> None:
     except OSError:
         pass
     try:
-        process.communicate(timeout=STOP_SECONDS)
+        process.wait(timeout=STOP_SECONDS)
     except subprocess.TimeoutExpired:
         try:
             process.kill()
         except OSError:
             pass
-        process.communicate()
+        try:
+            process.wait(timeout=STOP_SECONDS)
+        except subprocess.TimeoutExpired as error:
+            raise GoModuleError(
+                "could not stop public Go module verification"
+            ) from error
 
 
 def _run_command(
@@ -67,39 +72,46 @@ def _run_command(
         raise GoModuleCancellation("Go module verification was cancelled")
     if deadline - clock() <= 0:
         raise GoModuleAttemptTimeout(TIMEOUT_DETAIL)
-    try:
-        process = subprocess.Popen(
-            list(command),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=env,
-        )
-    except OSError as error:
-        raise GoModuleError(
-            "could not start public Go module verification"
-        ) from error
-
-    while True:
-        if cancel_event.is_set():
-            _stop_process(process)
-            raise GoModuleCancellation("Go module verification was cancelled")
-        remaining = deadline - clock()
-        if remaining <= 0:
-            _stop_process(process)
-            raise GoModuleAttemptTimeout(TIMEOUT_DETAIL)
+    with tempfile.TemporaryFile(
+        mode="w+", encoding="utf-8"
+    ) as stdout_buffer, tempfile.TemporaryFile(
+        mode="w+", encoding="utf-8"
+    ) as stderr_buffer:
         try:
-            stdout, stderr = process.communicate(
-                timeout=min(POLL_SECONDS, remaining)
+            process = subprocess.Popen(
+                list(command),
+                stdout=stdout_buffer,
+                stderr=stderr_buffer,
+                text=True,
+                env=env,
             )
-        except subprocess.TimeoutExpired:
-            continue
-        return subprocess.CompletedProcess(
-            list(command),
-            process.returncode if process.returncode is not None else 1,
-            stdout=stdout,
-            stderr=stderr,
-        )
+        except OSError as error:
+            raise GoModuleError(
+                "could not start public Go module verification"
+            ) from error
+
+        while True:
+            if cancel_event.is_set():
+                _stop_process(process)
+                raise GoModuleCancellation("Go module verification was cancelled")
+            remaining = deadline - clock()
+            if remaining <= 0:
+                _stop_process(process)
+                raise GoModuleAttemptTimeout(TIMEOUT_DETAIL)
+            try:
+                returncode = process.wait(
+                    timeout=min(POLL_SECONDS, remaining)
+                )
+            except subprocess.TimeoutExpired:
+                continue
+            stdout_buffer.seek(0)
+            stderr_buffer.seek(0)
+            return subprocess.CompletedProcess(
+                list(command),
+                returncode,
+                stdout=stdout_buffer.read(),
+                stderr=stderr_buffer.read(),
+            )
 
 
 def _public_environment(module_cache: str) -> dict[str, str]:
