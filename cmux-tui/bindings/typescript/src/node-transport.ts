@@ -2,7 +2,16 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { CmuxConnectionError } from "./errors.js";
+import { NewlineFrameBuffer } from "./internal/newline-frame-buffer.js";
 import type { Transport, Unsubscribe } from "./transport.js";
+import {
+  MAX_INBOUND_MESSAGE_BYTES,
+  MAX_OUTBOUND_MESSAGE_BYTES,
+  MAX_PENDING_BYTES,
+  MAX_PENDING_MESSAGES,
+  positiveLimit,
+  utf8ByteLength,
+} from "./transport-limits.js";
 
 /** Resolves the default Unix socket path for a session. */
 export function defaultSocketPath(session = "main"): string {
@@ -15,6 +24,13 @@ export function envSocketPath(): string | undefined {
   return process.env.CMUX_TUI_SOCKET || process.env.CMUX_MUX_SOCKET;
 }
 
+export interface UnixSocketTransportOptions {
+  maxInboundMessageBytes?: number;
+  maxOutboundMessageBytes?: number;
+  maxPendingBytes?: number;
+  maxPendingMessages?: number;
+}
+
 /** Unix-socket JSON-lines transport for Node.js. */
 export class UnixSocketTransport implements Transport {
   private readonly socket: net.Socket;
@@ -22,18 +38,53 @@ export class UnixSocketTransport implements Transport {
   private readonly messageHandlers = new Set<(json: string) => void>();
   private readonly closeHandlers = new Set<() => void>();
   private readonly errorHandlers = new Set<(error: Error) => void>();
-  private buffer = "";
+  private readonly maxInboundMessageBytes: number;
+  private readonly maxOutboundMessageBytes: number;
+  private readonly maxPendingBytes: number;
+  private readonly maxPendingMessages: number;
+  private readonly inbound: NewlineFrameBuffer;
+  private pendingBytes = 0;
   private connected = false;
   private closed = false;
 
-  constructor(readonly socketPath: string) {
+  constructor(readonly socketPath: string, options: UnixSocketTransportOptions = {}) {
+    this.maxInboundMessageBytes = positiveLimit(
+      "maxInboundMessageBytes",
+      options.maxInboundMessageBytes,
+      MAX_INBOUND_MESSAGE_BYTES,
+    );
+    this.maxOutboundMessageBytes = positiveLimit(
+      "maxOutboundMessageBytes",
+      options.maxOutboundMessageBytes,
+      MAX_OUTBOUND_MESSAGE_BYTES,
+    );
+    this.maxPendingBytes = positiveLimit(
+      "maxPendingBytes",
+      options.maxPendingBytes,
+      MAX_PENDING_BYTES,
+    );
+    this.maxPendingMessages = positiveLimit(
+      "maxPendingMessages",
+      options.maxPendingMessages,
+      MAX_PENDING_MESSAGES,
+    );
+    this.inbound = new NewlineFrameBuffer(
+      this.maxInboundMessageBytes,
+      (line) => {
+        for (const handler of this.messageHandlers) handler(line);
+      },
+      (error) => this.failAndClose(error),
+    );
     this.socket = net.createConnection({ path: socketPath });
-    this.socket.setEncoding("utf8");
     this.socket.on("connect", () => {
       this.connected = true;
-      while (this.pending.length > 0) this.write(this.pending.shift()!);
+      while (this.pending.length > 0) {
+        const message = this.pending.shift()!;
+        this.pendingBytes -= utf8ByteLength(message);
+        this.write(message);
+      }
     });
-    this.socket.on("data", (chunk: string) => this.receive(chunk));
+    this.socket.on("data", (chunk: Buffer) => this.receive(chunk));
     this.socket.on("error", (error) => {
       const prefix = this.connected ? "socket error" : `cannot connect to session socket ${this.socketPath}`;
       this.fail(new CmuxConnectionError(`${prefix}: ${error.message}`));
@@ -43,8 +94,23 @@ export class UnixSocketTransport implements Transport {
 
   send(json: string): void {
     if (this.closed) throw new CmuxConnectionError("session socket closed");
+    const bytes = utf8ByteLength(json);
+    if (bytes > this.maxOutboundMessageBytes) {
+      throw new CmuxConnectionError(
+        `outbound message exceeds ${this.maxOutboundMessageBytes} bytes`,
+      );
+    }
     if (this.connected) this.write(json);
-    else this.pending.push(json);
+    else {
+      if (
+        this.pending.length >= this.maxPendingMessages
+        || bytes > this.maxPendingBytes - this.pendingBytes
+      ) {
+        throw new CmuxConnectionError("pending socket message buffer is full");
+      }
+      this.pending.push(json);
+      this.pendingBytes += bytes;
+    }
   }
 
   onMessage(handler: (json: string) => void): Unsubscribe {
@@ -64,7 +130,10 @@ export class UnixSocketTransport implements Transport {
   }
 
   close(): void {
-    if (!this.closed) this.socket.destroy();
+    if (!this.closed) {
+      this.inbound.dispose();
+      this.socket.destroy();
+    }
   }
 
   private write(json: string): void {
@@ -73,26 +142,25 @@ export class UnixSocketTransport implements Transport {
     });
   }
 
-  private receive(chunk: string): void {
-    this.buffer += chunk;
-    for (;;) {
-      const index = this.buffer.indexOf("\n");
-      if (index < 0) return;
-      const line = this.buffer.slice(0, index);
-      this.buffer = this.buffer.slice(index + 1);
-      if (line.trim() === "") continue;
-      for (const handler of this.messageHandlers) handler(line);
-    }
+  private receive(chunk: Buffer): void {
+    this.inbound.push(chunk);
   }
 
   private fail(error: Error): void {
     for (const handler of this.errorHandlers) handler(error);
   }
 
+  private failAndClose(error: Error): void {
+    this.fail(error);
+    this.socket.destroy();
+  }
+
   private finish(): void {
     if (this.closed) return;
     this.closed = true;
     this.pending.length = 0;
+    this.pendingBytes = 0;
+    this.inbound.dispose();
     for (const handler of this.closeHandlers) handler();
   }
 }

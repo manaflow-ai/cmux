@@ -178,12 +178,9 @@ extension DockSplitStore {
             ?? restorableAgent?.workingDirectory
             ?? snapshot.directory
         let workingDirectory = savedWorkingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let candidateBindingWorkingDirectory = approvedResumeBinding?.cwd ?? workingDirectory
         let unresolvedBindingLaunch = approvedResumeBinding.flatMap {
             policy.surfaceResumeStartupLaunch(
-                forApprovedBinding: $0,
-                allowLauncherScript: true,
-                restoringWorkingDirectory: candidateBindingWorkingDirectory
+                forApprovedBinding: $0
             )
         }
         let resumeSessionWorkingDirectory: String? = {

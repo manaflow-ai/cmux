@@ -21,6 +21,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxMobileAnalytics"),
+        .package(path: "../../Shared/CmuxSentryTelemetry"),
         .package(
             url: "https://github.com/getsentry/sentry-cocoa.git",
             .upToNextMajor(from: "9.3.0")
@@ -31,6 +32,8 @@ let package = Package(
             name: "CmuxMobileCrashReporting",
             dependencies: [
                 "CmuxMobileAnalytics",
+                .product(name: "CmuxSentryScrubbing", package: "CmuxSentryTelemetry"),
+                .product(name: "CmuxSentryReporting", package: "CmuxSentryTelemetry"),
                 .product(name: "Sentry", package: "sentry-cocoa"),
             ],
             swiftSettings: [
