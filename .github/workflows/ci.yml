@@ -500,6 +500,14 @@ jobs:
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
 
+      - name: Mark crash-report baseline
+        run: |
+          # Self-hosted runners reuse home directories. The collection step at
+          # the end of this job only picks up crash reports newer than this
+          # marker so stale reports from earlier jobs are never attributed to
+          # this run.
+          : > "$RUNNER_TEMP/cmux-crash-report-baseline"
+
       - name: Capture Ghostty revision
         id: ghostty-revision
         run: |
@@ -1081,6 +1089,41 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_compacted_feed.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_campfire_extension_install.py
+
+      - name: Collect crash reports
+        if: failure()
+        run: |
+          # The app-host binaries live in DerivedData, which is discarded when
+          # the runner recycles, so .ips reports must be symbolicated here
+          # rather than after download.
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/cmux-crash-reports-shard-${{ matrix.shard }}"
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+          MARKER="$RUNNER_TEMP/cmux-crash-report-baseline"
+          collect() {
+            local dir="$1" pattern="$2"
+            [ -d "$dir" ] || return 0
+            while IFS= read -r -d '' report; do
+              cp "$report" "$OUT/" || true
+            done < <(find "$dir" -maxdepth 1 -type f -name "$pattern" -newer "$MARKER" -print0 2>/dev/null)
+          }
+          collect "$HOME/Library/Logs/DiagnosticReports" '*.ips'
+          collect "$HOME/.local/state/cmux/crash" '*.ghosttycrash'
+          shopt -s nullglob
+          for report in "$OUT"/*.ips; do
+            python3 scripts/ci/symbolicate-ips.py "$report" \
+              > "$report.symbolicated.txt" 2> "$report.symbolicate-errors.txt" || true
+          done
+          ls -la "$OUT"
+
+      - name: Upload crash reports
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: crash-reports-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/cmux-crash-reports-shard-${{ matrix.shard }}
+          if-no-files-found: ignore
 
   tests:
     name: tests
