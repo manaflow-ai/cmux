@@ -3,8 +3,10 @@
 // user explicitly opts in on their device, so presence == "wants phone pushes".
 
 import { and, count, eq, ne, sql } from "drizzle-orm";
+import { env } from "../../env";
 import { cloudDb } from "../../../db/client";
 import { deviceTokens } from "../../../db/schema";
+import { resolveApnsProviderConfiguration } from "../../../services/apns/config";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../services/vms/auth";
 import { withApnsApiRoute } from "../../../services/apns/routeHandler";
@@ -118,7 +120,14 @@ async function registerDeviceToken(request: Request): Promise<Response> {
       429,
     );
   }
-  return jsonResponse({ ok: true });
+  return jsonResponse({
+    ok: true,
+    pushServiceConfigured: resolveApnsProviderConfiguration(
+      env.CMUX_APNS_KEY_P8,
+      env.CMUX_APNS_KEY_ID,
+      env.CMUX_APNS_TEAM_ID,
+    ) !== null,
+  });
 }
 
 export async function DELETE(request: Request): Promise<Response> {

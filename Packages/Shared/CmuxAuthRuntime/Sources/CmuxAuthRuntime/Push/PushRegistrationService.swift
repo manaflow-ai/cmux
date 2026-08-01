@@ -533,6 +533,9 @@ public actor PushRegistrationService: PushRegistering {
             ), acknowledgement.ok else {
                 return .failure(.invalidServerResponse, retryAfter: nil)
             }
+            if acknowledgement.pushServiceConfigured == false {
+                return .failure(.serviceUnavailable, retryAfter: nil)
+            }
             return .success
         } catch {
             if redirectDelegate.refusedRedirect {
@@ -831,6 +834,7 @@ private struct PushRequest {
 
 private struct RegistrationAcknowledgement: Decodable {
     let ok: Bool
+    let pushServiceConfigured: Bool?
 }
 
 private struct RegistrationErrorResponse: Decodable {

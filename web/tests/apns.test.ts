@@ -8,6 +8,7 @@ import {
   CMUX_APNS_CATEGORY,
   shouldPruneToken,
 } from "../services/apns/payload";
+import { resolveApnsProviderConfiguration } from "../services/apns/config";
 import { summarizeApnsSendResults } from "../services/apns/response";
 import {
   mergePushDeliveryOutcomes,
@@ -182,6 +183,19 @@ describe("apns host + pruning", () => {
     expect(shouldPruneToken(0, "timeout")).toBe(false); // transient
     expect(shouldPruneToken(503, "ServiceUnavailable")).toBe(false); // transient
     expect(shouldPruneToken(429, "TooManyRequests")).toBe(false);
+  });
+});
+
+describe("apns provider configuration", () => {
+  test("requires all three nonblank provider credentials", () => {
+    expect(resolveApnsProviderConfiguration("key", "key-id", "team-id")).toEqual({
+      keyP8: "key",
+      keyId: "key-id",
+      teamId: "team-id",
+    });
+    expect(resolveApnsProviderConfiguration(undefined, "key-id", "team-id")).toBeNull();
+    expect(resolveApnsProviderConfiguration("key", "   ", "team-id")).toBeNull();
+    expect(resolveApnsProviderConfiguration("key", "key-id", "")).toBeNull();
   });
 });
 

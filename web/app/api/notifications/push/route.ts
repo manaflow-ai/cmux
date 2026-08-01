@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { env } from "../../../env";
 import { cloudDb } from "../../../../db/client";
+import { resolveApnsProviderConfiguration } from "../../../../services/apns/config";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
 import {
@@ -39,11 +40,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 45;
 
 function apnsConfig(): ApnsConfig | null {
-  const keyP8 = env.CMUX_APNS_KEY_P8;
-  const keyId = env.CMUX_APNS_KEY_ID;
-  const teamId = env.CMUX_APNS_TEAM_ID;
-  if (!keyP8 || !keyId || !teamId) return null;
-  return { keyP8, keyId, teamId };
+  return resolveApnsProviderConfiguration(
+    env.CMUX_APNS_KEY_P8,
+    env.CMUX_APNS_KEY_ID,
+    env.CMUX_APNS_TEAM_ID,
+  );
 }
 
 export const DEFAULT_PUSH_TTL_SECONDS = 120;
