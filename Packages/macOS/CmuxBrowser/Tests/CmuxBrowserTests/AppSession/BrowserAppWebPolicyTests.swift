@@ -46,6 +46,7 @@ struct BrowserAppWebPolicyTests {
 
     @Test("theme serializes shared variables and supports only app-web routes")
     func themeSerializesSharedVariablesAndSupportsOnlyAppWebRoutes() throws {
+        let trustedOrigin = try #require(URL(string: "https://cmux.com"))
         let theme = BrowserAppTheme(
             appearance: "dark",
             background: "#112233",
@@ -64,8 +65,21 @@ struct BrowserAppWebPolicyTests {
         let script = try #require(theme.applyingJavaScript())
         #expect(script.contains("[data-cmux-app-theme]"))
         #expect(script.contains("--cmux-product-blue-on-background"))
-        #expect(theme.supports(url: URL(string: "https://cmux.com/app-pricing")))
-        #expect(theme.supports(url: URL(string: "https://cmux.com/app-pro-welcome")))
-        #expect(!theme.supports(url: URL(string: "https://cmux.com/pricing")))
+        #expect(theme.supports(
+            url: URL(string: "https://cmux.com/app-pricing"),
+            trustedOrigin: trustedOrigin
+        ))
+        #expect(theme.supports(
+            url: URL(string: "https://cmux.com/app-pro-welcome"),
+            trustedOrigin: trustedOrigin
+        ))
+        #expect(!theme.supports(
+            url: URL(string: "https://cmux.com/pricing"),
+            trustedOrigin: trustedOrigin
+        ))
+        #expect(!theme.supports(
+            url: URL(string: "https://attacker.example/app-pricing"),
+            trustedOrigin: trustedOrigin
+        ))
     }
 }

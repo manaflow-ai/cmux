@@ -5266,7 +5266,10 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func applyAppWebTheme(_ theme: AppWebThemeSnapshot, to webView: WKWebView) {
         let browserTheme = theme.browserTheme
-        guard browserTheme.supports(url: webView.url),
+        guard browserTheme.supports(
+            url: webView.url,
+            trustedOrigin: AuthEnvironment.appWebOrigin
+        ),
               let script = browserTheme.applyingJavaScript() else {
             return
         }
