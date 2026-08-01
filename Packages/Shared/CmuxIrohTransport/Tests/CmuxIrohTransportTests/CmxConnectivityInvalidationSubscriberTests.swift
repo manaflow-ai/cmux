@@ -46,6 +46,66 @@ struct CmxConnectivityInvalidationSubscriberTests {
         }
     }
 
+    /// Captures the subscriber's injected sleeps and stops the loop by
+    /// throwing cancellation once enough delays are recorded.
+    private actor SubscriberSleepRecorder {
+        private let stopAfter: Int
+        private var delays: [TimeInterval] = []
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        init(stopAfter: Int) {
+            self.stopAfter = stopAfter
+        }
+
+        func record(_ delay: TimeInterval) throws {
+            guard delays.count < stopAfter else { throw CancellationError() }
+            delays.append(delay)
+            if delays.count == stopAfter {
+                for waiter in waiters { waiter.resume() }
+                waiters.removeAll()
+                throw CancellationError()
+            }
+        }
+
+        func recorded() -> [TimeInterval] { delays }
+
+        func waitUntilStopped() async {
+            guard delays.count < stopAfter else { return }
+            await withCheckedContinuation { waiters.append($0) }
+        }
+    }
+
+    @Test("failed subscribes follow the shared seeded reconnect ladder")
+    func failedSubscribesFollowSharedBackoffLadder() async {
+        let seed: UInt64 = 0x5EED
+        let drawCount = 8
+        let recorder = SubscriberSleepRecorder(stopAfter: drawCount)
+        let subscriber = CmxConnectivityInvalidationSubscriber(
+            serviceBaseURL: URL(string: "https://presence.example.test")!,
+            // A missing token classifies the attempt as failed before any
+            // network use, so the loop exercises only the retry ladder.
+            accessToken: { nil },
+            backoff: CmxIrohReconnectBackoff(seed: seed),
+            sleep: { try await recorder.record($0) },
+            handler: { _ in }
+        )
+
+        await subscriber.start()
+        await recorder.waitUntilStopped()
+        await subscriber.stop()
+
+        // The private exponential schedule is gone: every delay matches a
+        // same-seed twin of the one shared ladder and respects its 30 s
+        // foreground cap, instead of the old unjittered 1,2,4...60 s ramp.
+        let twin = CmxIrohReconnectBackoff(seed: seed)
+        let expected = (0 ..< drawCount).map { _ in twin.nextDelay() }
+        let recorded = await recorder.recorded()
+        #expect(recorded == expected)
+        #expect(recorded.allSatisfy {
+            $0 <= CmxIrohReconnectBackoffConfiguration.foreground.cap
+        })
+    }
+
     @Test("resolves the dedicated account WebSocket route")
     func resolvesSubscribeURL() throws {
         let base = try #require(URL(string: "https://presence.example.test/dev/"))

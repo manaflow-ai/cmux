@@ -67,6 +67,8 @@ public actor CmxConnectivityInvalidationSubscriber {
     private let serviceBaseURL: URL
     private let accessToken: AccessTokenProvider
     private let session: URLSession
+    private let backoff: CmxIrohReconnectBackoff
+    private let sleep: @Sendable (TimeInterval) async throws -> Void
     private let handler: Handler
     private var loopTask: Task<Void, Never>?
 
@@ -74,11 +76,17 @@ public actor CmxConnectivityInvalidationSubscriber {
         serviceBaseURL: URL,
         accessToken: @escaping AccessTokenProvider,
         session: sending URLSession = .shared,
+        backoff: CmxIrohReconnectBackoff = CmxIrohReconnectBackoff(),
+        sleep: @escaping @Sendable (TimeInterval) async throws -> Void = {
+            try await Task<Never, Never>.sleep(for: .seconds($0))
+        },
         handler: @escaping Handler
     ) {
         self.serviceBaseURL = serviceBaseURL
         self.accessToken = accessToken
         self.session = session
+        self.backoff = backoff
+        self.sleep = sleep
         self.handler = handler
     }
 
@@ -117,19 +125,21 @@ public actor CmxConnectivityInvalidationSubscriber {
         return components.url
     }
 
+    /// Re-subscribe cadence comes from the one shared reconnect ladder
+    /// (`CmxIrohReconnectBackoff`) instead of a private exponential schedule:
+    /// failures draw a decorrelated-jittered delay bounded by the 30 s
+    /// foreground cap, and a served stream resets to the floor window, so the
+    /// jittered draw spreads a fleet's re-subscribes when a service deploy
+    /// closes every socket at once.
     private func run() async {
-        let clock = ContinuousClock()
-        var delay: Duration = .seconds(1)
         while !Task.isCancelled {
             let outcome = await subscribeOnce()
             guard !Task.isCancelled else { return }
-            switch outcome {
-            case .served:
-                delay = .seconds(1)
-            case .failed:
-                delay = min(delay * 2, .seconds(60))
+            if outcome == .served {
+                backoff.reset()
             }
-            guard (try? await clock.sleep(for: delay)) != nil else { return }
+            let delay = backoff.nextDelay()
+            guard (try? await sleep(delay)) != nil else { return }
         }
     }
 
