@@ -142,6 +142,10 @@ final class GotoSplitCycleUITests: XCTestCase {
         let configContents = """
         # cmux goto_split cycle UI test
         working-directory = \(isolatedHome.path)
+        # Keep the imported Ghostty fallbacks distinct from cmux's configured
+        # focus-history defaults; this test owns the fallback behavior only.
+        keybind = cmd+ctrl+p=goto_split:previous
+        keybind = cmd+ctrl+n=goto_split:next
 
         """
 

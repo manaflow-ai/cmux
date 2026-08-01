@@ -1301,6 +1301,14 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
 /// Fails the FIRST exact-scope delete only, modeling the crash/transient
 /// window between the durable outbox write and the local delete.
 private final class FailOnceStore: MobilePairedMacStoring, @unchecked Sendable {
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {}
+
     struct TransientError: Error {}
     let inner: any MobilePairedMacStoring
     private let lock = NSLock()
@@ -1408,6 +1416,14 @@ private actor CountingTeamStore: PairedMacBackupTeamStoring {
 /// delete is suspended in the inner store, so a test can interleave a
 /// concurrent mutation deterministically.
 private final class RemoveHookStore: MobilePairedMacStoring, @unchecked Sendable {
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {}
+
     let inner: any MobilePairedMacStoring
     private let lock = NSLock()
     private var hook: (@Sendable () async -> Void)?
