@@ -143,17 +143,17 @@
         "name": "cmux Pro",
         "activeBody": "Your plan renews on {date}.",
         "pendingBody": "Your plan is scheduled to end on {date}.",
-        "monthlyPrice": "$30/month",
-        "annualPrice": "$288/year",
-        "legacyAnnualPrice": "$240/year"
+        "monthlyPrice": "$30/mo",
+        "annualPrice": "$24/mo, billed annually",
+        "legacyAnnualPrice": "$20/mo, billed annually"
       },
       "team": {
         "name": "cmux Team",
         "fallbackName": "your team",
         "activeBody": "{team} renews on {date}.",
         "pendingBody": "{team} is scheduled to end on {date}.",
-        "price": "$35/seat/month",
-        "annualPrice": "$336/seat/year"
+        "price": "$35/seat/mo",
+        "annualPrice": "$28/seat/mo, billed annually"
       },
       "details": {
         "renewsOn": "Renews on",
@@ -403,18 +403,17 @@
     "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs and a model gateway. Enterprise adds SSO and self-hosting.",
     "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs and a model gateway; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
-    "perMonth": "per month",
-    "perMonthBilledYearly": "per month billed yearly",
-    "perUserMonth": "per user per month",
-    "perUserMonthBilledYearly": "per user per month billed yearly",
+    "perMonth": "/mo",
+    "perMonthBilledYearly": "/mo",
+    "perUserMonth": "/user/mo",
+    "perUserMonthBilledYearly": "/user/mo",
     "billingPeriod": "Billing period",
     "monthly": "Monthly",
     "annual": "Annual",
     "saveAnnual": "Save {discount}%",
-    "annualPriceDetail": "Billed ${amount} annually · save {discount}%",
-    "annualComparePrice": "${monthly}/month · ${annual}/year",
-    "teamMonthlyComparePrice": "${monthly}/user/month",
-    "teamAnnualComparePrice": "${monthly}/user/month · ${annual}/user/year",
+    "annualComparePrice": "${monthly}/mo",
+    "teamMonthlyComparePrice": "${monthly}/user/mo",
+    "teamAnnualComparePrice": "${monthly}/user/mo",
     "currentPlan": "Current plan",
     "manageBilling": "Manage billing",
     "free": {
@@ -672,7 +671,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $30 per month, or $288 per year ($24 per month billed annually, a 20% savings), and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
+          "a": "Pro is $30/mo, or $24/mo when billed annually (a 20% savings), and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -680,7 +679,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $35 per user per month, or $336 per user per year ($28 per user per month billed annually): unified billing for the whole team, centralized seat management, pooled Cloud VM hours, and shared team rules. Enterprise adds SSO, self-hosting, and audit logs."
+          "a": "Yes. Team is $35/user/mo, or $28/user/mo when billed annually: unified billing for the whole team, centralized seat management, pooled Cloud VM hours, and shared team rules. Enterprise adds SSO, self-hosting, and audit logs."
         }
       ]
     },
@@ -692,6 +691,8 @@
     "billingUnavailable": "Billing is not available right now. Please try again later.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
+    "signedOutNotice": "You're not signed in. Sign in to see your current plan or restore an existing purchase.",
+    "signedOutSignIn": "Sign in",
     "billingInvalidRelay": "The app checkout link expired or could not be verified. Return to cmux and try again.",
     "welcomeTeam": "Your cmux Team purchase is complete."
   },
