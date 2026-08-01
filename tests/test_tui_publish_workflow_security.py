@@ -239,14 +239,16 @@ def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
     }
     assert 'sdk_tag="cmux-sdk-v$VERSION"' in release
     assert 'go_tag="cmux-tui/bindings/go/v$VERSION"' in release
-    assert 'git push --atomic origin "refs/tags/$sdk_tag" "refs/tags/$go_tag"' in release
+    assert 'git push --atomic "$release_repository"' in release
+    assert '"refs/tags/$SDK_TAG"' in release
+    assert '"refs/tags/$GO_TAG"' in release
     preflights = {
         "rust": "crates",
         "go": "go",
         "typescript": "npm",
         "python": "python",
     }
-    tag_push = release.index("git push --atomic origin")
+    tag_push = release.index('git push --atomic "$release_repository"')
     for job, publisher in preflights.items():
         assert f"{job}-preflight:" in release
         assert f"uses: ./.github/workflows/sdk-publish-{publisher}.yml" in release
@@ -335,7 +337,10 @@ def test_privileged_sdk_workflows_use_external_release_authority() -> None:
         in cut_tags
     )
     assert "permission-contents: write" in cut_tags
-    assert "token: ${{ steps.release_app_token.outputs.token }}" in cut_tags
+    assert (
+        "RELEASE_TOKEN: ${{ steps.release_app_token.outputs.token }}"
+        in cut_tags
+    )
 
     for phrase in (
         "protected branches only",
@@ -391,7 +396,7 @@ def test_registry_state_is_revalidated_after_release_approval() -> None:
     ):
         assert f"name: {artifact}" in cut_tags
     revalidate = cut_tags.rindex("verify_release_registry_state.sh")
-    tag_push = cut_tags.rindex("git push --atomic origin")
+    tag_push = cut_tags.rindex('git push --atomic "$release_repository"')
     assert revalidate < tag_push
     assert cut_tags.count("verify_release_registry_state.sh") == 1
     assert verifier.count("reconcile_registry_artifact.py check") == 5
@@ -406,7 +411,7 @@ def test_release_app_token_is_scoped_to_the_atomic_push() -> None:
 
     revalidate = cut_tags.rindex("verify_release_registry_state.sh")
     mint = cut_tags.rindex("actions/create-github-app-token@")
-    push = cut_tags.rindex("git push --atomic origin")
+    push = cut_tags.rindex('git push --atomic "$release_repository"')
     assert revalidate < mint < push
     assert "persist-credentials: false" in cut_tags
     assert "token: ${{ steps.release_app_token.outputs.token }}" not in cut_tags
@@ -421,6 +426,7 @@ def test_release_app_token_is_scoped_to_the_atomic_push() -> None:
     assert "GIT_CONFIG_COUNT=1" in push_step
     assert "GIT_CONFIG_VALUE_0" in push_step
     assert "verify_release_registry_state.sh" not in push_step
+    assert "git rev-parse" not in push_step
     assert "python3 " not in push_step
     assert "npm " not in push_step
 
@@ -471,7 +477,7 @@ def test_tag_cut_revalidates_release_order_after_its_final_fetch() -> None:
     tag_list = cut_tags.index("git tag --list 'cmux-sdk-v*'", fetch)
     revalidate = cut_tags.index("--require-latest-tag", tag_list)
     create = cut_tags.index('ensure_tag "$sdk_tag"', revalidate)
-    push = cut_tags.index("git push --atomic origin", create)
+    push = cut_tags.index('git push --atomic "$release_repository"', create)
     assert fetch < tag_list < revalidate < create < push
 
 

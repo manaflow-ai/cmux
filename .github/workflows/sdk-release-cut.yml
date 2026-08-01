@@ -343,18 +343,9 @@ jobs:
     environment:
       name: sdk-release
     steps:
-      - name: Mint the SDK release GitHub App token
-        id: release_app_token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          client-id: ${{ vars.SDK_RELEASE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.SDK_RELEASE_APP_PRIVATE_KEY }}
-          permission-contents: write
-
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          token: ${{ steps.release_app_token.outputs.token }}
-          persist-credentials: true
+          persist-credentials: false
           ref: ${{ github.sha }}
           fetch-depth: 0
 
@@ -400,7 +391,7 @@ jobs:
             --disable-pip-version-check \
             "pypi-attestations==0.0.29"
 
-      - name: Create or verify release tags
+      - name: Revalidate registry authority and prepare release tags
         env:
           VERSION: ${{ needs.validate-release.outputs.version }}
           SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
@@ -443,7 +434,40 @@ jobs:
               --require-latest-tag
           ensure_tag "$sdk_tag" "cmux SDK $VERSION"
           ensure_tag "$go_tag" "cmux Go SDK $VERSION"
-          git push --atomic origin "refs/tags/$sdk_tag" "refs/tags/$go_tag"
+          for tag in "$sdk_tag" "$go_tag"; do
+            tag_sha="$(git rev-parse "refs/tags/$tag^{commit}")"
+            [[ "$tag_sha" == "$GITHUB_SHA" ]] || {
+              echo "prepared release tag $tag does not name $GITHUB_SHA" >&2
+              exit 1
+            }
+          done
+
+      - name: Mint the SDK release GitHub App token
+        id: release_app_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.SDK_RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SDK_RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Push protected release tags
+        env:
+          GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
+          RELEASE_TOKEN: ${{ steps.release_app_token.outputs.token }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+        run: |
+          set -euo pipefail
+          release_repository="https://github.com/$GITHUB_REPOSITORY.git"
+          authorization="$(
+            printf 'x-access-token:%s' "$RELEASE_TOKEN" | base64 | tr -d '\n'
+          )"
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization" \
+            GIT_TERMINAL_PROMPT=0 \
+            git push --atomic "$release_repository" \
+              "refs/tags/$SDK_TAG" \
+              "refs/tags/$GO_TAG"
 
   verify-go-tag:
     needs:
