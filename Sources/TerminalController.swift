@@ -5428,7 +5428,7 @@ class TerminalController {
                     guard let focused = ws.controlDefaultTerminalTarget(paneID: routing.paneID) else {
                         return .finished(.err(code: "not_found", message: "No focused surface", data: nil))
                     }
-                    guard let target = ws.controlDefaultSocketTerminalTarget(paneID: routing.paneID) else {
+                    guard let target = ws.controlSocketTerminalTarget(for: focused) else {
                         return .finished(.err(
                             code: "surface_unavailable",
                             message: Self.terminalSurfaceUnavailableMessage,

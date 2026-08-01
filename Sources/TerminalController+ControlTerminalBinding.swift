@@ -69,14 +69,22 @@ struct ControlTerminalSocketTarget {
 
 @MainActor
 extension Workspace {
-    /// Resolves an explicitly addressed workspace terminal for socket I/O.
-    func controlSocketTerminalTarget(for requestedSurfaceID: UUID) -> ControlTerminalSocketTarget? {
-        guard let owned = controlTerminalTarget(for: requestedSurfaceID) else { return nil }
-        return ControlTerminalSocketTarget.resolve(
+    /// Reconciles an already-resolved workspace terminal with the canonical
+    /// live registry surface without repeating topology projection.
+    func controlSocketTerminalTarget(
+        for owned: (surfaceID: UUID, panel: TerminalPanel)
+    ) -> ControlTerminalSocketTarget? {
+        ControlTerminalSocketTarget.resolve(
             surfaceID: owned.surfaceID,
             panel: owned.panel,
             workspaceID: id
         )
+    }
+
+    /// Resolves an explicitly addressed workspace terminal for socket I/O.
+    func controlSocketTerminalTarget(for requestedSurfaceID: UUID) -> ControlTerminalSocketTarget? {
+        guard let owned = controlTerminalTarget(for: requestedSurfaceID) else { return nil }
+        return controlSocketTerminalTarget(for: owned)
     }
 
     /// Resolves a legacy input-style panel target, including active remote-tmux
@@ -87,11 +95,7 @@ extension Workspace {
         guard let owned = terminalInputTarget(forPanelID: requestedPanelID) else {
             return nil
         }
-        return ControlTerminalSocketTarget.resolve(
-            surfaceID: owned.surfaceID,
-            panel: owned.panel,
-            workspaceID: id
-        )
+        return controlSocketTerminalTarget(for: owned)
     }
 
     /// Resolves the pane-selected or focused workspace terminal for socket I/O.
@@ -99,11 +103,7 @@ extension Workspace {
         paneID: UUID?
     ) -> ControlTerminalSocketTarget? {
         guard let owned = controlDefaultTerminalTarget(paneID: paneID) else { return nil }
-        return ControlTerminalSocketTarget.resolve(
-            surfaceID: owned.surfaceID,
-            panel: owned.panel,
-            workspaceID: id
-        )
+        return controlSocketTerminalTarget(for: owned)
     }
 }
 
