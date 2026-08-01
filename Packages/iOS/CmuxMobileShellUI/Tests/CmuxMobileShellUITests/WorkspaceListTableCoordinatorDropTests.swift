@@ -224,7 +224,7 @@ import UIKit
         #expect(recorder.dropLifecycleEvents == ["native", "model"])
     }
 
-    @Test func localWorkspaceDragsStayOwnedByTheDropDelegate() {
+    @Test func localWorkspaceDragsDoNotExposeTheLegacyMoveRowPath() {
         let recorder = DropRecorder()
         let (_, tableView, _) = makeFixture(recorder: recorder)
         let sourceIndexPath = IndexPath(row: 1, section: 0)
@@ -234,7 +234,7 @@ import UIKit
                 tableView,
                 canMoveRowAt: sourceIndexPath
             ) != true,
-            "The legacy row-move path bypasses performDropWith for local single-item drags"
+            "Local workspace drags must not expose UITableViewDataSource.moveRowAt"
         )
     }
 
