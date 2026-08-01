@@ -619,6 +619,16 @@ public final class MobileIrohRuntimeComposition:
         }
     }
 
+    /// Decodes a tagged attach URL at the composition boundary that already
+    /// owns the mobile RPC dependency, then applies the same route-aware
+    /// readiness barrier used by transport creation. Malformed URLs retain the
+    /// conservative identity-only barrier before the normal attach flow
+    /// reports its decoding error.
+    public func prepareForConnection(pairingURL: String) async {
+        let routes = (try? CmxAttachTicketInput.decode(pairingURL))?.routes ?? []
+        await prepareForConnection(routes: routes)
+    }
+
     private func prepareForConnection(
         requiresInitialRelayPolicy: () -> Bool
     ) async {

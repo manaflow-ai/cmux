@@ -152,8 +152,7 @@ struct cmuxApp: App {
         .environment(
             \.dogfoodAttachPreparation,
             DogfoodAttachPreparation { pairingURL in
-                let routes = (try? CmxAttachTicketInput.decode(pairingURL))?.routes ?? []
-                await Self.root.iroh.prepareForConnection(routes: routes)
+                await Self.root.iroh.prepareForConnection(pairingURL: pairingURL)
             }
         )
     }
