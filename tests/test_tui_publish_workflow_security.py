@@ -211,7 +211,11 @@ def test_npm_bootstrap_recovers_an_accepted_publish() -> None:
 
     assert "already exists; this one-time workflow is disabled" not in bootstrap
     assert "steps.project.outputs.status == 'missing'" in bootstrap
-    assert "continue-on-error: true" in bootstrap
+    publish_step = bootstrap.split(
+        "- name: Publish the exact tested prerelease artifact", 1
+    )[1].split("\n      - name:", 1)[0]
+    assert "continue-on-error: true" in publish_step
+    assert "npm publish" in publish_step
     assert bootstrap.count("verify_npm_provenance.py") >= 2
     assert bootstrap.count("--artifact") >= 2
 

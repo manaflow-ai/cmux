@@ -12,7 +12,7 @@ import types
 import unittest
 from pathlib import Path
 from unittest import mock
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "reconcile_registry_artifact.py"
@@ -440,6 +440,36 @@ class RegistryArtifactTests(unittest.TestCase):
                         reconcile.MATCH,
                     )
                 cancellation.wait.assert_called_once()
+
+    def test_registry_lookup_errors_do_not_expose_upstream_details(self) -> None:
+        registry_url = "https://private-proxy.internal/package"
+        upstream_detail = "private-proxy.internal: token rejected"
+        failures = (
+            URLError(upstream_detail),
+            ConnectionResetError(upstream_detail),
+        )
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__), mock.patch.object(
+                reconcile,
+                "urlopen",
+                side_effect=failure,
+            ), self.assertRaises(reconcile.RegistryLookupError) as raised:
+                reconcile._request(registry_url, "application/json")
+            message = str(raised.exception)
+            self.assertNotIn(registry_url, message)
+            self.assertNotIn(upstream_detail, message)
+
+        http_failure = HTTPError(registry_url, 503, upstream_detail, None, None)
+        with mock.patch.object(
+            reconcile,
+            "urlopen",
+            side_effect=http_failure,
+        ), self.assertRaises(reconcile.RegistryLookupError) as raised:
+            reconcile._request(registry_url, "application/json")
+        self.assertEqual(
+            str(raised.exception),
+            "registry request failed with HTTP 503",
+        )
 
     def test_registry_wait_honors_its_deadline_without_wall_clock_sleep(self) -> None:
         clock = [10.0]
