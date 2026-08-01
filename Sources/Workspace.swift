@@ -3197,6 +3197,14 @@ final class Workspace: Identifiable, ObservableObject {
             appearance: appearance
         )
         self.bonsplitController = BonsplitController(configuration: config)
+        bonsplitController.tabColorPaletteProvider = {
+            WorkspaceTabColorSettings.palette().map {
+                TabColorPaletteEntry(name: $0.name, hex: $0.hex)
+            }
+        }
+        bonsplitController.tabColorCustomColorRegistrationHandler = {
+            WorkspaceTabColorSettings.addCustomColor($0)
+        }
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
