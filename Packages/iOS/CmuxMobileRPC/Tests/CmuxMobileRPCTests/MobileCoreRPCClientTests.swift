@@ -270,6 +270,28 @@ import Testing
         #expect(mapped.customColorHex == nil)
     }
 
+    @Test func workspaceListResponseTracksWhetherGroupsFieldWasPresent() throws {
+        let absentGroupsJSON = Data("""
+        {
+          "workspaces": []
+        }
+        """.utf8)
+        let emptyGroupsJSON = Data("""
+        {
+          "workspaces": [],
+          "groups": []
+        }
+        """.utf8)
+
+        let absentGroups = try MobileSyncWorkspaceListResponse.decode(absentGroupsJSON)
+        let emptyGroups = try MobileSyncWorkspaceListResponse.decode(emptyGroupsJSON)
+
+        #expect(absentGroups.groups.isEmpty)
+        #expect(!absentGroups.groupsFieldWasPresent)
+        #expect(emptyGroups.groups.isEmpty)
+        #expect(emptyGroups.groupsFieldWasPresent)
+    }
+
     /// The Mac emits an optional per-workspace `preview` + `preview_at` (latest
     /// notification text + epoch seconds) for the iMessage-style row preview.
     /// Both must decode when present and stay `nil` when an older Mac omits them.
