@@ -1,8 +1,16 @@
+import CmuxControlSocket
 import CmuxTerminal
 import Foundation
 import GhosttyKit
 import OSLog
 
+private let controlTerminalBindingLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "socket.terminal-binding"
+)
+
+/// Relationship between workspace-panel ownership and the canonical terminal
+/// model used by socket I/O.
 enum ControlTerminalSocketBindingState: String {
     case bound
     case registryRebound = "registry_rebound"
@@ -24,6 +32,8 @@ struct ControlTerminalSocketTarget {
     let surface: TerminalSurface
     let bindingState: ControlTerminalSocketBindingState
 
+    /// Sends socket text through the canonical surface while preserving the
+    /// panel-owned hibernation resume path when both owners already agree.
     func sendInputResult(_ text: String) -> TerminalSurface.InputSendResult {
         if surface === panel.surface {
             return panel.sendInputResult(text)
@@ -31,6 +41,8 @@ struct ControlTerminalSocketTarget {
         return surface.sendInputResult(text)
     }
 
+    /// Sends a named key through the canonical surface, retaining the panel's
+    /// explicit-input resume behavior for an ordinary bound target.
     func sendNamedKeyResult(_ key: String) -> TerminalSurface.NamedKeySendResult {
         if surface === panel.surface {
             return panel.sendNamedKeyResult(key)
@@ -38,6 +50,7 @@ struct ControlTerminalSocketTarget {
         return surface.sendNamedKey(key)
     }
 
+    /// Performs a Ghostty binding action against the canonical surface.
     func performBindingAction(_ action: String) -> Bool {
         if surface === panel.surface {
             return panel.performBindingAction(action)
@@ -45,6 +58,7 @@ struct ControlTerminalSocketTarget {
         return surface.performExplicitInputBindingAction(action)
     }
 
+    /// Requests a renderer refresh from the canonical surface.
     func forceRefresh(reason: String) {
         surface.forceRefresh(reason: reason)
     }
@@ -52,6 +66,7 @@ struct ControlTerminalSocketTarget {
 
 @MainActor
 extension Workspace {
+    /// Resolves an explicitly addressed workspace terminal for socket I/O.
     func controlSocketTerminalTarget(for requestedSurfaceID: UUID) -> ControlTerminalSocketTarget? {
         guard let owned = controlTerminalTarget(for: requestedSurfaceID) else { return nil }
         return ControlTerminalSocketTarget.resolve(
@@ -61,6 +76,7 @@ extension Workspace {
         )
     }
 
+    /// Resolves the pane-selected or focused workspace terminal for socket I/O.
     func controlDefaultSocketTerminalTarget(
         paneID: UUID?
     ) -> ControlTerminalSocketTarget? {
@@ -75,6 +91,7 @@ extension Workspace {
 
 @MainActor
 extension DockSplitStore {
+    /// Resolves a structurally owned Dock terminal against the live registry.
     func controlSocketTerminalTarget(for surfaceID: UUID) -> ControlTerminalSocketTarget? {
         guard let panel = panels[surfaceID] as? TerminalPanel else { return nil }
         return ControlTerminalSocketTarget.resolve(
@@ -87,11 +104,7 @@ extension DockSplitStore {
 
 @MainActor
 private extension ControlTerminalSocketTarget {
-    static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
-        category: "socket.terminal-binding"
-    )
-
+    /// Reconciles app-owned topology with package-owned live runtime identity.
     static func resolve(
         surfaceID: UUID,
         panel: TerminalPanel,
@@ -105,7 +118,7 @@ private extension ControlTerminalSocketTarget {
             ? .bound
             : .registryRebound
         if state == .registryRebound {
-            logger.notice(
+            controlTerminalBindingLogger.debug(
                 "Rebound socket surface=\(surfaceID, privacy: .public) workspace=\(workspaceID, privacy: .public)"
             )
         }
@@ -119,6 +132,29 @@ private extension ControlTerminalSocketTarget {
 }
 
 extension TerminalController {
+    /// Creates the health row shared by workspace and Dock surface listings.
+    func controlSurfaceHealthEntry(
+        for panel: any Panel,
+        terminalTarget: ControlTerminalSocketTarget?
+    ) -> ControlSurfaceHealthEntry {
+        if panel is TerminalPanel {
+            return ControlSurfaceHealthEntry(
+                surfaceID: panel.id,
+                typeRawValue: panel.panelType.rawValue,
+                inWindow: terminalTarget?.surface.isViewInWindow,
+                socketBindingRawValue: terminalTarget?.bindingState.rawValue
+                    ?? ControlTerminalSocketBindingState.unavailable.rawValue
+            )
+        }
+        let inWindow = (panel as? BrowserPanel).map { $0.webView.window != nil }
+        return ControlSurfaceHealthEntry(
+            surfaceID: panel.id,
+            typeRawValue: panel.panelType.rawValue,
+            inWindow: inWindow
+        )
+    }
+
+    /// Captures terminal text through a structurally owned panel.
     func readTerminalTextRawSnapshot(
         terminalPanel: TerminalPanel,
         includeScrollback: Bool
@@ -129,11 +165,14 @@ extension TerminalController {
         )
     }
 
+    /// Captures terminal text from a validated canonical runtime model.
     func readTerminalTextRawSnapshot(
         terminalSurface: TerminalSurface,
         includeScrollback: Bool
     ) -> TerminalTextRawSnapshot? {
-        guard terminalSurface.surface != nil else { return nil }
+        guard terminalSurface.liveSurfaceForGhosttyAccess(
+            reason: "socket.readTerminalText"
+        ) != nil else { return nil }
         if includeScrollback {
             return TerminalTextRawSnapshot(
                 viewport: nil,
@@ -162,6 +201,7 @@ extension TerminalController {
         )
     }
 
+    /// Reads one Ghostty text region from an already validated surface model.
     private func readTerminalSelectionText(
         terminalSurface: TerminalSurface,
         pointTag: ghostty_point_tag_e
@@ -194,6 +234,7 @@ extension TerminalController {
         return String(decoding: rawData, as: UTF8.self)
     }
 
+    /// Encodes a panel-owned terminal snapshot for the legacy socket protocol.
     func readTerminalTextBase64(
         terminalPanel: TerminalPanel,
         includeScrollback: Bool = false,
@@ -206,6 +247,7 @@ extension TerminalController {
         )
     }
 
+    /// Encodes a canonical terminal snapshot for the legacy socket protocol.
     func readTerminalTextBase64(
         terminalSurface: TerminalSurface,
         includeScrollback: Bool = false,

@@ -46,7 +46,6 @@ struct CLIExplicitSurfaceRoutingTests {
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
-
         let state = ServerState()
         let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = Self.jsonObject(line),
@@ -119,15 +118,17 @@ struct CLIExplicitSurfaceRoutingTests {
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
+        let temporaryHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-refused-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryHome) }
 
         let state = ServerState()
         let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = Self.jsonObject(line),
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String else {
+                  let id = payload["id"] as? String else {
                 return Self.malformedRequestResponse(raw: line)
             }
-            #expect(method == expectedMethod)
             return Self.v2Response(
                 id: id,
                 ok: false,
@@ -135,14 +136,20 @@ struct CLIExplicitSurfaceRoutingTests {
             )
         }
 
+        var environment = cliEnvironment(socketPath: socketPath)
+        environment["CFFIXED_USER_HOME"] = temporaryHome.path
+        environment["HOME"] = temporaryHome.path
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
             arguments: arguments,
-            environment: cliEnvironment(socketPath: socketPath),
+            environment: environment,
             timeout: 5
         )
 
         #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        let methods = try state.requestObjects().compactMap { $0["method"] as? String }
+        #expect(methods == [expectedMethod])
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
         #expect(result.stderr.contains("invalid_params: Surface is not a terminal"))

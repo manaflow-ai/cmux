@@ -205,21 +205,9 @@ extension TerminalController: ControlSurfaceContext {
         }
         if let dock = windowDockForRouting(routing, tabManager: tabManager) {
             let items: [ControlSurfaceHealthEntry] = orderedPanels(in: dock).map { panel in
-                var inWindow: Bool?
-                var socketBinding: String?
-                if let tp = panel as? TerminalPanel {
-                    let target = dock.controlSocketTerminalTarget(for: panel.id)
-                    inWindow = target?.surface.isViewInWindow ?? tp.surface.isViewInWindow
-                    socketBinding = target?.bindingState.rawValue
-                        ?? ControlTerminalSocketBindingState.unavailable.rawValue
-                } else if let bp = panel as? BrowserPanel {
-                    inWindow = bp.webView.window != nil
-                }
-                return ControlSurfaceHealthEntry(
-                    surfaceID: panel.id,
-                    typeRawValue: panel.panelType.rawValue,
-                    inWindow: inWindow,
-                    socketBindingRawValue: socketBinding
+                controlSurfaceHealthEntry(
+                    for: panel,
+                    terminalTarget: dock.controlSocketTerminalTarget(for: panel.id)
                 )
             }
             return ControlSurfaceHealthSnapshot(
@@ -230,21 +218,9 @@ extension TerminalController: ControlSurfaceContext {
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else { return nil }
         let items: [ControlSurfaceHealthEntry] = controlSurfacePanels(workspace: ws).map { panel in
-            var inWindow: Bool?
-            var socketBinding: String?
-            if let tp = panel as? TerminalPanel {
-                let target = ws.controlSocketTerminalTarget(for: panel.id)
-                inWindow = target?.surface.isViewInWindow ?? tp.surface.isViewInWindow
-                socketBinding = target?.bindingState.rawValue
-                    ?? ControlTerminalSocketBindingState.unavailable.rawValue
-            } else if let bp = panel as? BrowserPanel {
-                inWindow = bp.webView.window != nil
-            }
-            return ControlSurfaceHealthEntry(
-                surfaceID: panel.id,
-                typeRawValue: panel.panelType.rawValue,
-                inWindow: inWindow,
-                socketBindingRawValue: socketBinding
+            controlSurfaceHealthEntry(
+                for: panel,
+                terminalTarget: ws.controlSocketTerminalTarget(for: panel.id)
             )
         }
         return ControlSurfaceHealthSnapshot(

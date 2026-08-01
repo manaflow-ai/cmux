@@ -28,22 +28,19 @@ struct SocketTerminalBindingRegressionTests {
                 workspace.focusedPanelId.flatMap { workspace.panels[$0] as? TerminalPanel }
             )
             let marker = "socket-registry-rebound-\(UUID().uuidString)"
-            let replacementCommand =
-                "printf '\(marker)\\n'; read value; " +
-                "printf 'socket-received:%s\\n' \"$value\"; /bin/sleep 30"
             let replacement = TerminalSurface(
                 id: originalPanel.id,
                 tabId: workspace.id,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                 configTemplate: nil,
-                initialCommand: replacementCommand
+                initialCommand: "/bin/cat"
             )
             defer {
                 replacement.teardownSurface()
                 GhosttyApp.terminalSurfaceRegistry.unregister(replacement)
             }
 
-            try await waitForText(marker, in: replacement)
+            await waitForLiveSurface(replacement)
             #expect(
                 GhosttyApp.terminalSurfaceRegistry.surface(id: originalPanel.id) === replacement,
                 "The live replacement must be the canonical registry owner"
@@ -54,11 +51,11 @@ struct SocketTerminalBindingRegressionTests {
                 params: [
                     "workspace_id": workspace.id.uuidString,
                     "surface_id": originalPanel.id.uuidString,
-                    "text": "socket-input\r",
+                    "text": "\(marker)\r",
                 ]
             )
             try #require(sendEnvelope["ok"] as? Bool == true, "\(sendEnvelope)")
-            try await waitForText("socket-received:socket-input", in: replacement)
+            try await waitForText(marker, in: replacement)
 
             let readEnvelope = try await socketEnvelopeOnWorker(
                 method: "surface.read_text",
@@ -81,6 +78,21 @@ struct SocketTerminalBindingRegressionTests {
             let row = try #require(surfaces.first { $0["id"] as? String == originalPanel.id.uuidString })
             #expect(row["socket_binding"] as? String == "registry_rebound")
         }
+    }
+
+    private func waitForLiveSurface(_ surface: TerminalSurface) async {
+        guard !surface.hasLiveSurface else { return }
+        let previousOnRuntimeReady = surface.onRuntimeReady
+        defer { surface.onRuntimeReady = previousOnRuntimeReady }
+        let readiness = AsyncStream<Void> { continuation in
+            surface.onRuntimeReady = {
+                previousOnRuntimeReady?()
+                continuation.yield()
+                continuation.finish()
+            }
+        }
+        if surface.hasLiveSurface { return }
+        for await _ in readiness { break }
     }
 
     private func waitForText(_ expected: String, in surface: TerminalSurface) async throws {

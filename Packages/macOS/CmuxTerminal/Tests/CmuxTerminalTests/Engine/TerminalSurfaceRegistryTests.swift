@@ -117,6 +117,20 @@ struct TerminalSurfaceRegistryTests {
         #expect(!registry.isRightSidebarDockSurface(id: sharedId))
     }
 
+    @Test func unregisteringReplacementRestoresPredecessorPlacement() {
+        let registry = TerminalSurfaceRegistry()
+        let sharedID = UUID()
+        let original = FakeSurface(id: sharedID, focusPlacement: .workspace)
+        let replacement = FakeSurface(id: sharedID, focusPlacement: .rightSidebarDock)
+        registry.register(original)
+        registry.register(replacement)
+        #expect(registry.isRightSidebarDockSurface(id: sharedID))
+
+        registry.unregister(replacement)
+        #expect(registry.surface(id: sharedID) === original)
+        #expect(!registry.isRightSidebarDockSurface(id: sharedID))
+    }
+
     @Test func evictsDeallocatedSurfaces() {
         let registry = TerminalSurfaceRegistry()
         var surface: FakeSurface? = FakeSurface()
