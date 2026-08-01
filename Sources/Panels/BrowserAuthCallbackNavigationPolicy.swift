@@ -35,16 +35,6 @@ import WebKit
 ///   `web_return_to` query item (same-origin relative path only).
 @MainActor
 struct BrowserAuthCallbackNavigationPolicy {
-    enum Disposition {
-        /// The app's own trusted callback: consume it and deliver in-process.
-        case deliverInApp
-        /// Auth-callback-shaped URL that failed the trust checks: cancel the
-        /// navigation without delivering or prompting.
-        case block
-        /// Not a user-activated auth callback; regular handling applies.
-        case passThrough
-    }
-
     private let router: AuthCallbackRouter
     private let ownCallbackScheme: String
     // Reuses the browser's normalized origin value (scheme/host/port
@@ -60,7 +50,10 @@ struct BrowserAuthCallbackNavigationPolicy {
         router = AuthCallbackRouter(extraAllowedScheme: callbackScheme)
     }
 
-    func disposition(for navigationAction: WKNavigationAction, url: URL) -> Disposition {
+    func disposition(
+        for navigationAction: WKNavigationAction,
+        url: URL
+    ) -> BrowserAuthCallbackNavigationDisposition {
         disposition(
             for: url,
             targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame == true,
@@ -79,7 +72,7 @@ struct BrowserAuthCallbackNavigationPolicy {
         targetFrameIsMainFrame: Bool,
         isLinkActivated: Bool,
         sourceOriginMatches: Bool
-    ) -> Disposition {
+    ) -> BrowserAuthCallbackNavigationDisposition {
         guard Self.isAuthCallbackShapedURL(url) else { return .passThrough }
         guard targetFrameIsMainFrame,
               isLinkActivated,
