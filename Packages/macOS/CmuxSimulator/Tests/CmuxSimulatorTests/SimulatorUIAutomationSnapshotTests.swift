@@ -62,6 +62,47 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect(first.snapshot.screenHash != changed.snapshot.screenHash)
     }
 
+    @Test("Text fields advertise typing only when they can be reidentified")
+    func typeTextRequiresStableSelector() throws {
+        let source = SimulatorAccessibilitySnapshot(
+            roots: [node(
+                id: "0",
+                role: "Application",
+                label: "Example",
+                frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                children: [SimulatorAccessibilityNode(
+                    id: "0.0",
+                    role: "AXTextField",
+                    label: nil,
+                    value: nil,
+                    frame: SimulatorRect(x: 20, y: 100, width: 200, height: 44),
+                    isEnabled: true,
+                    children: []
+                )]
+            )],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+        let record = try source.uiAutomationRecord(
+            simulatorID: "SIM-1",
+            sequence: 1,
+            capturedAtMilliseconds: 1_000
+        )
+        let textField = try #require(record.snapshot.elements.first {
+            $0.role == .textField
+        })
+
+        #expect(record.stableSelector(for: textField.ref) == nil)
+        #expect(!textField.actions.contains(.typeText))
+        #expect(!record.snapshot.actions.contains {
+            $0.elementRef == textField.ref && $0.action == .typeText
+        })
+    }
+
     @Test("Stable selectors prefer runtime identifiers and directional points stay bounded")
     func selectorsAndGesturePoints() throws {
         let record = try snapshot().uiAutomationRecord(

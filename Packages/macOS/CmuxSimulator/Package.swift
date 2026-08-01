@@ -87,6 +87,7 @@ let package = Package(
             dependencies: [
                 "CmuxSimulatorSystem",
                 "CmuxSimulatorUI",
+                "CmuxSimulatorUIAutomation",
                 "CmuxSimulatorWorker",
             ],
             swiftSettings: [
