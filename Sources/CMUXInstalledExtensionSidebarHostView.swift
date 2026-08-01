@@ -1214,7 +1214,7 @@ private final class CMUXSidebarExtensionHostXPC {
     }
 
     func sendSnapshotDidChange() {
-        guard let extensionProxy, let snapshotProvider else { return }
+        guard let snapshotProvider else { return }
         sendSnapshotDidChange(snapshotProvider())
     }
 
