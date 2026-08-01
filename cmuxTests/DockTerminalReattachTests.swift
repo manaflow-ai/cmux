@@ -309,6 +309,58 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.resumeBinding?.checkpointId == sessionId)
     }
 
+    @Test("Dock shell preexec retains a manual agent restore binding")
+    @MainActor
+    func dockShellPreexecRetainsManualAgentRestoreBinding() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = TerminalPanel(
+            workspaceId: sourceWorkspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let sessionId = "grok-dock-manual-\(UUID().uuidString)"
+        let directory = "/tmp/cmux-grok-dock-manual"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .grok,
+            sessionId: sessionId,
+            workingDirectory: directory,
+            launchCommand: nil
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Grok",
+            kind: "grok",
+            command: "grok -r \(sessionId)",
+            cwd: directory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_888_888_888
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: agent,
+            restorableAgentResumeState: .manualResumeAvailable,
+            shellActivityState: .promptIdle,
+            resumeBinding: binding
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+
+        store.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
+
+        #expect(store.restoredAgentLifecycle.snapshotsByPanelId[panel.id] == nil)
+        let retainedBinding = try #require(store.surfaceResumeBinding(panelId: panel.id))
+        #expect(retainedBinding.checkpointId == sessionId)
+        #expect(retainedBinding.autoResume == false)
+        #expect(store.clearSurfaceResumeBinding(panelId: panel.id))
+        #expect(store.surfaceResumeBinding(panelId: panel.id) == nil)
+    }
+
     @Test("Dock transfer drops a restored snapshot superseded by a live hook session")
     @MainActor
     func dockTransferDropsRestoredSnapshotSupersededByLiveHookSession() throws {
