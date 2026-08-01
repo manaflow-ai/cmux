@@ -160,6 +160,27 @@ struct SimulatorWebInspectorSessionRouterTests {
         }
     }
 
+    @Test("Direct Target commands cannot claim the future wrapper namespace")
+    func futureWrapperIdentifierCollision() throws {
+        var router = SimulatorWebInspectorSessionRouter()
+        _ = router.selectTargetBasedMode(targetIdentifier: "INNER")
+        let direct = Data(
+            #"{"id":8000000000000000,"method":"Target.getTargets"}"#.utf8
+        )
+
+        #expect(throws: SimulatorWebInspectorError.wrapperIdentifierCollision) {
+            _ = try router.routeOutgoing(direct)
+        }
+
+        let wrapped = try #require(try router.routeOutgoing(Data(
+            #"{"id":1,"method":"Runtime.enable"}"#.utf8
+        )).first)
+        #expect(
+            (try Self.object(wrapped)["id"] as? NSNumber)?.int64Value
+                == 8_000_000_000_000_000
+        )
+    }
+
     @Test("A direct Target command may reuse the embedded user id before the wrapper ack")
     func directTargetMayReuseUserIdentifier() throws {
         var router = SimulatorWebInspectorSessionRouter()

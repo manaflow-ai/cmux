@@ -218,6 +218,16 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
                 "element_ref": .string("e1_1"),
                 "label": .string("Continue"),
             ]),
+            ("simulator.tap", [
+                "label": .string(String(repeating: "l", count: 513)),
+            ]),
+            ("simulator.tap", [
+                "identifier": .string(String(repeating: "i", count: 513)),
+            ]),
+            ("simulator.tap", [
+                "label": .string("Continue"),
+                "role": .string(String(repeating: "r", count: 65)),
+            ]),
             ("simulator.type_text", [
                 "element_ref": .string("e1_1"),
                 "text": .string(""),
