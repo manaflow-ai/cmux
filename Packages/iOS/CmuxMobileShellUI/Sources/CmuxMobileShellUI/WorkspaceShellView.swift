@@ -511,6 +511,9 @@ struct WorkspaceShellView: View {
         }
         .onChange(of: compactNavigationPath) { _, path in
             guard let selectedWorkspaceID = path.last else {
+                if pendingPrimarySearchWorkspaceNavigationID != nil {
+                    consumePendingPrimarySearchNavigation(for: .workspaces)
+                }
                 return
             }
             pendingCompactCreateNavigationWorkspaceIDs = nil
