@@ -1352,10 +1352,10 @@ pub(super) fn mutation_result(
     revision: u64,
     replayed: bool,
 ) -> Result<Value, ResourceError> {
-    let snapshot = public_session_snapshot(mux)?;
+    let (_, generation) = mux.registry_identity();
     Ok(json!({
         "value": value,
-        "generation": snapshot["cursor"]["generation"],
+        "generation": generation,
         "revision": revision.to_string(),
         "replayed": replayed,
     }))

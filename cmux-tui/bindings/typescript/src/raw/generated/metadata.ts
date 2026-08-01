@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd. */
+/* cmux-tui mux protocol 10, IR 4248b1dd1a8640da3f983118ddce2e8d5ff94db5dc2e18cb9ebc5ba41052284e. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 10 as const;
-export const SDK_IR_SHA256 = "c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd" as const;
+export const SDK_IR_SHA256 = "4248b1dd1a8640da3f983118ddce2e8d5ff94db5dc2e18cb9ebc5ba41052284e" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -964,10 +964,17 @@ export const COMMAND_METADATA = {
     "authority": "local-admin",
     "since": 9,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "force": {
+        "since": 10,
+        "capability": "daemon-handoff-force-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "pid and generation must match the latest identify result.",
+      "force bypasses native-browser ownership only; the identity fence and trusted-local authority still apply.",
+      "Clients must require daemon-handoff-force-v1 before sending force:true.",
       "The daemon exits only after the success response is queued."
     ]
   },
@@ -8304,6 +8311,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "force": {
+          "capability": "daemon-handoff-force-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 10,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "generation": {
           "nullable": false,
           "presence": "required",

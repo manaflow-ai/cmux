@@ -3521,7 +3521,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "지금은 결제를 사용할 수 없습니다. 나중에 다시 시도해 주세요."
+    "billingUnavailable": "지금은 결제를 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
+    "signedOutNotice": "로그인되어 있지 않습니다. 로그인하여 현재 요금제를 확인하거나 기존 구매를 복원하세요.",
+    "signedOutSignIn": "로그인"
   },
   "platforms": {
     "macos": "macOS",

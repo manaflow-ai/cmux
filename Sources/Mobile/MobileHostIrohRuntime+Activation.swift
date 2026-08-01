@@ -116,9 +116,19 @@ extension MobileHostIrohRuntime {
                 // snapshot's pair capture is store-level (no network while the
                 // stored access token is valid).
                 credentialPair: { [weak auth] in
-                    guard let auth,
-                          let session = try? await auth.authenticatedSessionSnapshot(),
-                          session.accountID == accountID else { return nil }
+                    guard let auth else { return nil }
+                    let session: AuthenticatedSessionSnapshot
+                    do {
+                        session = try await auth.authenticatedSessionSnapshot()
+                    } catch AuthError.unauthorized {
+                        // Definitively signed out: fail closed.
+                        return nil
+                    }
+                    // Transient failures (a revalidation owns the token
+                    // store, a re-mint is in flight or offline) rethrow so
+                    // the broker classifies them connectivity instead of
+                    // tearing the host runtime down as unauthorized.
+                    guard session.accountID == accountID else { return nil }
                     return CmxIrohBrokerCredentials(
                         accessToken: session.accessToken,
                         refreshToken: session.refreshToken

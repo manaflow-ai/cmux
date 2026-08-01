@@ -16,7 +16,7 @@ extension WorkspaceListTableCoordinator {
         /// cells were re-configured in place, listed here by item id.
         case reconfiguredInPlace([String])
         /// Structure or a row height changed; a snapshot was applied.
-        case snapshotApply
+        case tableReload
     }
 
     /// The most recent update's route, or nil before the first update.
