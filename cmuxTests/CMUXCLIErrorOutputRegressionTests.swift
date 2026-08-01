@@ -710,10 +710,10 @@ import Testing
         #expect(restoreParams["surface_id"] as? String != staleTTYSurfaceID)
     }
 
-    @Test func testRestoreFallsBackToAmbientSurfaceWhenLiveProcessTargetIsNotFound() throws {
+    @Test func testRestoreFailsClosedWhenLiveProcessTargetIsNotFound() throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = "pi-\(UUID().uuidString.lowercased())"
-        let ambientSurfaceID = UUID().uuidString
+        let staleSurfaceID = UUID().uuidString
         let callerTargetResponse = try jsonErrorResponse(
             code: "not_found",
             message: "No live delivery target"
@@ -743,8 +743,74 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_SURFACE_ID"] = ambientSurfaceID
+        environment["CMUX_SURFACE_ID"] = staleSurfaceID
         environment["TTY"] = "/dev/ttys9380"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
+        #expect(
+            result.stdout.contains("the current cmux surface could not be identified"),
+            Comment(rawValue: result.stdout)
+        )
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "agent.resolve_delivery_target",
+        ])
+    }
+
+    @Test func testRestoreUsesUniqueTTYBindingWhenLiveTargetMethodIsUnsupported() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let callerTargetResponse = try jsonErrorResponse(
+            code: "method_not_found",
+            message: "Unknown method"
+        )
+        let terminalsResponse = try jsonResponse(result: [
+            "terminals": [[
+                "tty": "ttys9380",
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+            ]],
+        ])
+        let restoreResponse = try restoreResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-legacy-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [callerTargetResponse, terminalsResponse, restoreResponse]
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_TTY_NAME"] = "ttys9380"
+        environment["TTY"] = "/dev/ttys-stale"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -761,11 +827,12 @@ import Testing
         }
         #expect(requests.compactMap { $0["method"] as? String } == [
             "agent.resolve_delivery_target",
+            "debug.terminals",
             "surface.resume.get",
         ])
         let restoreRequest = try #require(requests.last)
         let restoreParams = try #require(restoreRequest["params"] as? [String: Any])
-        #expect(restoreParams["surface_id"] as? String == ambientSurfaceID)
+        #expect(restoreParams["surface_id"] as? String == surfaceID)
     }
 
     @Test func testRestoreRejectsMalformedLiveProcessTargetWithoutFallingBack() throws {
