@@ -120,6 +120,59 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         #expect(await Set(recorder.freed) == Set(surfaces.map { UInt(bitPattern: $0) }))
     }
 
+    @Test func oneStuckCloseDoesNotStrandLaterCloses() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surfaces = (0..<3).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        defer { for surface in surfaces { surface.deallocate() } }
+        let firstFreeStarted = AsyncStream<Void>.makeStream()
+        let releaseFirstFree = DispatchSemaphore(value: 0)
+        defer {
+            releaseFirstFree.signal()
+            firstFreeStarted.continuation.finish()
+        }
+
+        let firstTicket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.stuckClose",
+            surface: surfaces[0],
+            callbackContext: nil,
+            freeSurface: { _ in
+                firstFreeStarted.continuation.yield()
+                releaseFirstFree.wait()
+            }
+        )
+        var firstFreeIterator = firstFreeStarted.stream.makeAsyncIterator()
+        _ = await firstFreeIterator.next()
+
+        let secondTicket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.closeAfterStuckClose",
+            surface: surfaces[1],
+            callbackContext: nil,
+            freeSurface: { _ in }
+        )
+        let thirdTicket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.secondCloseAfterStuckClose",
+            surface: surfaces[2],
+            callbackContext: nil,
+            freeSurface: { _ in }
+        )
+
+        let secondCompleted = await secondTicket.wait(timeout: .seconds(1))
+        let thirdCompleted = await thirdTicket.wait(timeout: .seconds(1))
+        releaseFirstFree.signal()
+
+        #expect(secondCompleted, "one stuck native free stranded the next explicit close")
+        #expect(thirdCompleted, "one stuck native free stranded the serialized close lane")
+        #expect(await firstTicket.wait(timeout: .seconds(1)))
+    }
+
     @Test func stuckHibernationFreeDoesNotStrandAnotherAdmissionOrClose() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let isolatedSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)

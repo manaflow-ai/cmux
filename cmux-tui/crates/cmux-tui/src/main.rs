@@ -1325,6 +1325,19 @@ enum ServerShutdownCleanupOutcome {
 #[cfg(test)]
 type ServerShutdownAttempt = Arc<dyn Fn() -> anyhow::Result<()> + Send + Sync + 'static>;
 
+#[cfg(test)]
+thread_local! {
+    static SERVER_SHUTDOWN_ATTEMPT_FOR_RUN: std::cell::RefCell<Option<ServerShutdownAttempt>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn set_server_shutdown_attempt_for_run(attempt: Option<ServerShutdownAttempt>) {
+    SERVER_SHUTDOWN_ATTEMPT_FOR_RUN.with(|slot| {
+        *slot.borrow_mut() = attempt;
+    });
+}
+
 struct ServerShutdownCleanup {
     mux: Arc<Mux>,
     state: std::sync::Mutex<ServerShutdownCleanupState>,
@@ -1340,7 +1353,9 @@ impl ServerShutdownCleanup {
             state: std::sync::Mutex::new(ServerShutdownCleanupState::Pending(0)),
             changed: std::sync::Condvar::new(),
             #[cfg(test)]
-            shutdown_attempt: std::sync::Mutex::new(None),
+            shutdown_attempt: std::sync::Mutex::new(
+                SERVER_SHUTDOWN_ATTEMPT_FOR_RUN.with(|slot| slot.borrow().clone()),
+            ),
         }
     }
 
@@ -2449,6 +2464,47 @@ mod tests {
         assert!(early.is_ok(), "an unpublished server waited on its unreachable control socket");
         assert!(early.unwrap().is_err(), "failed unpublished cleanup reported success");
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_runtime_start_failure_cleans_published_server() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let directory =
+            PathBuf::from("/tmp").join(format!("crs-{}-{suffix:x}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        let socket_path = directory.join("server.sock");
+        let remote_state_file = directory.join("remote-state-file");
+        std::fs::write(&remote_state_file, b"not a directory").unwrap();
+        let mut server_args = args(&["--ephemeral", "--headless", "--remote"]);
+        server_args.session = format!("remote-start-cleanup-{suffix:x}");
+        server_args.socket = Some(socket_path.clone());
+        server_args.remote_state_dir = Some(remote_state_file);
+
+        let shutdown_attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        set_server_shutdown_attempt_for_run(Some({
+            let shutdown_attempts = shutdown_attempts.clone();
+            Arc::new(move || {
+                shutdown_attempts.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })
+        }));
+
+        let result = run_server(server_args, None);
+        set_server_shutdown_attempt_for_run(None);
+        let shutdown_attempt_count = shutdown_attempts.load(Ordering::SeqCst);
+        let socket_remained = socket_path.exists();
+        cmux_tui_core::server::cleanup(&socket_path);
+        std::fs::remove_dir_all(directory).unwrap();
+
+        assert!(result.is_err(), "invalid remote state unexpectedly started the server");
+        assert_eq!(
+            shutdown_attempt_count, 1,
+            "remote startup failure bypassed server process cleanup"
+        );
+        assert!(!socket_remained, "remote startup failure retained the published server socket");
     }
 
     fn args(values: &[&str]) -> Args {
