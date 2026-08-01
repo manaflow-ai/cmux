@@ -3,19 +3,24 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{self, OpenOptions};
+use std::future::Future;
 use std::io::{self, Read, Write};
 use std::net::SocketAddr;
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
+use std::time::Duration;
 
 use axum::extract::{DefaultBodyLimit, Path as AxumPath, Query, Request, State};
-use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, WWW_AUTHENTICATE};
+use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONNECTION, WWW_AUTHENTICATE};
 use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
+use axum::serve::Listener;
 use axum::{Json, Router};
 use base64::Engine;
 use cmux_remote_protocol::{
@@ -23,7 +28,10 @@ use cmux_remote_protocol::{
 };
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
-use tokio::sync::{Semaphore, oneshot};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
+use tokio::time::Sleep;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::workspace::WorkspaceService;
@@ -32,6 +40,23 @@ const HTTP_TOKEN_BYTES: usize = 32;
 const MAX_HTTP_TOKEN_FILE_BYTES: u64 = 256;
 const MAX_HTTP_RPC_BODY_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CONCURRENT_HTTP_REQUESTS: usize = 64;
+const MAX_RAW_HTTP_CONNECTIONS: usize = 64;
+const HTTP_HEADER_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_HTTP_HEADER_BYTES: usize = 16 * 1024;
+
+#[derive(Clone, Copy)]
+struct WorkspaceHttpAdmissionLimits {
+    maximum_connections: usize,
+    header_timeout: Duration,
+    maximum_header_bytes: usize,
+}
+
+const WORKSPACE_HTTP_ADMISSION_LIMITS: WorkspaceHttpAdmissionLimits =
+    WorkspaceHttpAdmissionLimits {
+        maximum_connections: MAX_RAW_HTTP_CONNECTIONS,
+        header_timeout: HTTP_HEADER_TIMEOUT,
+        maximum_header_bytes: MAX_HTTP_HEADER_BYTES,
+    };
 
 #[derive(Clone)]
 pub struct WorkspaceHttpBearerToken(Arc<Zeroizing<String>>);
@@ -175,6 +200,163 @@ struct ApplyPatchQuery {
     dry_run: bool,
 }
 
+struct WorkspaceHttpAdmissionListener {
+    inner: TcpListener,
+    permits: Arc<Semaphore>,
+    header_timeout: Duration,
+    maximum_header_bytes: usize,
+}
+
+impl WorkspaceHttpAdmissionListener {
+    fn new(inner: TcpListener, limits: WorkspaceHttpAdmissionLimits) -> Self {
+        Self {
+            inner,
+            permits: Arc::new(Semaphore::new(limits.maximum_connections)),
+            header_timeout: limits.header_timeout,
+            maximum_header_bytes: limits.maximum_header_bytes,
+        }
+    }
+}
+
+impl Listener for WorkspaceHttpAdmissionListener {
+    type Io = WorkspaceHttpAdmissionStream;
+    type Addr = SocketAddr;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        loop {
+            let permit = self
+                .permits
+                .clone()
+                .acquire_owned()
+                .await
+                .expect("workspace HTTP admission semaphore is never closed");
+            match self.inner.accept().await {
+                Ok((stream, address)) => {
+                    let _ = stream.set_nodelay(true);
+                    return (
+                        WorkspaceHttpAdmissionStream::new(
+                            stream,
+                            permit,
+                            self.header_timeout,
+                            self.maximum_header_bytes,
+                        ),
+                        address,
+                    );
+                }
+                Err(_) => {
+                    drop(permit);
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
+    }
+
+    fn local_addr(&self) -> io::Result<Self::Addr> {
+        self.inner.local_addr()
+    }
+}
+
+struct WorkspaceHttpAdmissionStream {
+    inner: TcpStream,
+    _permit: OwnedSemaphorePermit,
+    header_deadline: Pin<Box<Sleep>>,
+    maximum_header_bytes: usize,
+    header_bytes: usize,
+    delimiter_bytes: u8,
+    header_complete: bool,
+}
+
+impl WorkspaceHttpAdmissionStream {
+    fn new(
+        inner: TcpStream,
+        permit: OwnedSemaphorePermit,
+        header_timeout: Duration,
+        maximum_header_bytes: usize,
+    ) -> Self {
+        Self {
+            inner,
+            _permit: permit,
+            header_deadline: Box::pin(tokio::time::sleep(header_timeout)),
+            maximum_header_bytes,
+            header_bytes: 0,
+            delimiter_bytes: 0,
+            header_complete: false,
+        }
+    }
+
+    fn observe_read(&mut self, bytes: &[u8]) -> io::Result<()> {
+        if self.header_complete {
+            return Ok(());
+        }
+        for &byte in bytes {
+            self.header_bytes = self.header_bytes.checked_add(1).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "HTTP header byte count overflowed")
+            })?;
+            if self.header_bytes > self.maximum_header_bytes {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "workspace HTTP headers exceeded the byte limit",
+                ));
+            }
+            self.delimiter_bytes = match (self.delimiter_bytes, byte) {
+                (0, b'\r') => 1,
+                (1, b'\n') => 2,
+                (1, b'\r') => 1,
+                (2, b'\r') => 3,
+                (3, b'\n') => 4,
+                (_, b'\r') => 1,
+                _ => 0,
+            };
+            if self.delimiter_bytes == 4 {
+                self.header_complete = true;
+                break;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl AsyncRead for WorkspaceHttpAdmissionStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        if !self.header_complete && self.header_deadline.as_mut().poll(context).is_ready() {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "workspace HTTP headers were not completed before the deadline",
+            )));
+        }
+        let previous_length = buffer.filled().len();
+        match Pin::new(&mut self.inner).poll_read(context, buffer) {
+            Poll::Ready(Ok(())) => {
+                let bytes = &buffer.filled()[previous_length..];
+                Poll::Ready(self.observe_read(bytes))
+            }
+            ready => ready,
+        }
+    }
+}
+
+impl AsyncWrite for WorkspaceHttpAdmissionStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(context, buffer)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(context)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(context)
+    }
+}
+
 pub struct WorkspaceHttpServer {
     local_addr: SocketAddr,
     token_file: PathBuf,
@@ -226,6 +408,21 @@ pub async fn serve_workspace_http(
     address: SocketAddr,
     token_file: impl Into<PathBuf>,
 ) -> Result<WorkspaceHttpServer, io::Error> {
+    serve_workspace_http_with_limits(
+        workspace,
+        address,
+        token_file.into(),
+        WORKSPACE_HTTP_ADMISSION_LIMITS,
+    )
+    .await
+}
+
+async fn serve_workspace_http_with_limits(
+    workspace: WorkspaceService,
+    address: SocketAddr,
+    token_file: PathBuf,
+    admission_limits: WorkspaceHttpAdmissionLimits,
+) -> Result<WorkspaceHttpServer, io::Error> {
     if !address.ip().is_loopback() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -234,10 +431,10 @@ pub async fn serve_workspace_http(
             ),
         ));
     }
-    let token_file = token_file.into();
     let token = load_or_create_workspace_http_token(&token_file)?;
-    let listener = tokio::net::TcpListener::bind(address).await?;
+    let listener = TcpListener::bind(address).await?;
     let local_addr = listener.local_addr()?;
+    let listener = WorkspaceHttpAdmissionListener::new(listener, admission_limits);
     let router = workspace_http_router(workspace, token);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let task = tokio::spawn(async move {
@@ -282,6 +479,9 @@ async fn authenticate_and_admit(
         let mut response = StatusCode::UNAUTHORIZED.into_response();
         response.headers_mut().insert(WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
         response.headers_mut().insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        // The admission stream enforces its header deadline through the first authentication
+        // decision, so an unauthorized client must not reuse the physical connection.
+        response.headers_mut().insert(CONNECTION, HeaderValue::from_static("close"));
         return response;
     }
     let Ok(_permit) = state.admission.clone().try_acquire_owned() else {
@@ -349,16 +549,36 @@ mod tests {
         builder.body(Body::from(serde_json::to_vec(&rpc).unwrap())).unwrap()
     }
 
+    fn raw_capabilities_request(
+        address: SocketAddr,
+        token: &WorkspaceHttpBearerToken,
+        request_id: u128,
+    ) -> Vec<u8> {
+        let rpc = RpcRequest {
+            id: RequestId::from_u128(request_id),
+            timeout_ms: None,
+            request: WorkspaceRequest::Capabilities,
+        };
+        let body = serde_json::to_vec(&rpc).unwrap();
+        let mut request = format!(
+            "POST /v1/workspace-rpc HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            token.0.as_str(),
+            body.len()
+        )
+        .into_bytes();
+        request.extend_from_slice(&body);
+        request
+    }
+
     #[tokio::test]
     async fn workspace_http_authenticates_before_rpc_dispatch() {
         let token = WorkspaceHttpBearerToken::test_value();
         let authorization = format!("Bearer {}", token.0.as_str());
         let router = workspace_http_router(WorkspaceService::new(), token);
 
-        assert_eq!(
-            router.clone().oneshot(request(None)).await.unwrap().status(),
-            StatusCode::UNAUTHORIZED
-        );
+        let unauthorized = router.clone().oneshot(request(None)).await.unwrap();
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(unauthorized.headers().get(CONNECTION).unwrap(), "close");
         assert_eq!(
             router.clone().oneshot(request(Some("Bearer wrong"))).await.unwrap().status(),
             StatusCode::UNAUTHORIZED
@@ -431,49 +651,44 @@ mod tests {
     #[tokio::test]
     async fn partial_headers_expire_and_raw_connection_admission_is_bounded() {
         let directory = tempdir().unwrap();
-        let server = serve_workspace_http(
+        let limits = WorkspaceHttpAdmissionLimits {
+            maximum_connections: 1,
+            header_timeout: Duration::from_millis(300),
+            maximum_header_bytes: MAX_HTTP_HEADER_BYTES,
+        };
+        let server = serve_workspace_http_with_limits(
             WorkspaceService::new(),
             "127.0.0.1:0".parse().unwrap(),
             directory.path().join("token"),
+            limits,
         )
         .await
         .unwrap();
         let address = server.local_addr();
 
         let mut slow_connections = Vec::new();
-        for _ in 0..64 {
-            let mut connection = tokio::net::TcpStream::connect(address).await.unwrap();
+        for _ in 0..limits.maximum_connections {
+            let mut connection = TcpStream::connect(address).await.unwrap();
             connection.write_all(b"POST /v1/workspace-rpc HTTP/1.1\r\nHost:").await.unwrap();
             slow_connections.push(connection);
         }
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
 
-        let rpc = RpcRequest {
-            id: RequestId::from_u128(2),
-            timeout_ms: None,
-            request: WorkspaceRequest::Capabilities,
-        };
-        let body = serde_json::to_vec(&rpc).unwrap();
         let token = read_workspace_http_token(server.token_file()).unwrap();
-        let request = format!(
-            "POST /v1/workspace-rpc HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            token.0.as_str(),
-            body.len()
-        );
-        let mut queued = tokio::net::TcpStream::connect(address).await.unwrap();
-        queued.write_all(request.as_bytes()).await.unwrap();
-        queued.write_all(&body).await.unwrap();
+        let request = raw_capabilities_request(address, &token, 2);
+        let mut queued = TcpStream::connect(address).await.unwrap();
+        queued.write_all(&request).await.unwrap();
 
         let mut first_byte = [0_u8; 1];
         assert!(
-            tokio::time::timeout(Duration::from_millis(100), queued.read(&mut first_byte),)
+            tokio::time::timeout(Duration::from_millis(50), queued.read(&mut first_byte),)
                 .await
                 .is_err(),
             "a request bypassed raw connection admission"
         );
 
         let slow_result =
-            tokio::time::timeout(Duration::from_secs(7), slow_connections[0].read(&mut first_byte))
+            tokio::time::timeout(Duration::from_secs(2), slow_connections[0].read(&mut first_byte))
                 .await
                 .expect("partial HTTP headers did not expire");
         assert!(matches!(slow_result, Ok(0) | Err(_)), "partial HTTP connection remained open");
@@ -482,6 +697,60 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(2), queued.read_to_end(&mut response))
             .await
             .expect("queued request was not admitted after the header deadline")
+            .unwrap();
+        assert!(String::from_utf8(response).unwrap().starts_with("HTTP/1.1 200 OK"));
+        server.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn oversized_headers_close_and_release_raw_connection_admission() {
+        let directory = tempdir().unwrap();
+        let limits = WorkspaceHttpAdmissionLimits {
+            maximum_connections: 1,
+            header_timeout: Duration::from_secs(2),
+            maximum_header_bytes: 512,
+        };
+        let server = serve_workspace_http_with_limits(
+            WorkspaceService::new(),
+            "127.0.0.1:0".parse().unwrap(),
+            directory.path().join("token"),
+            limits,
+        )
+        .await
+        .unwrap();
+        let address = server.local_addr();
+
+        let mut oversized = TcpStream::connect(address).await.unwrap();
+        let mut oversized_header = b"POST /v1/workspace-rpc HTTP/1.1\r\nX-Fill: ".to_vec();
+        oversized_header.extend(std::iter::repeat_n(b'a', limits.maximum_header_bytes));
+        oversized.write_all(&oversized_header).await.unwrap();
+
+        let token = read_workspace_http_token(server.token_file()).unwrap();
+        let request = raw_capabilities_request(address, &token, 3);
+        let mut queued = TcpStream::connect(address).await.unwrap();
+        queued.write_all(&request).await.unwrap();
+
+        let mut rejected = Vec::new();
+        let rejected =
+            tokio::time::timeout(Duration::from_secs(1), oversized.read_to_end(&mut rejected))
+                .await
+                .expect("oversized HTTP headers did not close");
+        if let Err(error) = rejected {
+            assert!(
+                matches!(
+                    error.kind(),
+                    io::ErrorKind::ConnectionAborted
+                        | io::ErrorKind::ConnectionReset
+                        | io::ErrorKind::BrokenPipe
+                ),
+                "unexpected oversized-header close error: {error}"
+            );
+        }
+
+        let mut response = Vec::new();
+        tokio::time::timeout(Duration::from_secs(2), queued.read_to_end(&mut response))
+            .await
+            .expect("oversized headers did not release raw connection admission")
             .unwrap();
         assert!(String::from_utf8(response).unwrap().starts_with("HTTP/1.1 200 OK"));
         server.shutdown().await.unwrap();
