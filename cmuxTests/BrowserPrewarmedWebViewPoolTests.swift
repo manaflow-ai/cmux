@@ -225,6 +225,24 @@ struct BrowserPrewarmedWebViewPoolTests {
         harness.pool.discard(reason: "test-teardown")
     }
 
+    @Test func previewCardRoutesHitsToWebContentWhileBackgroundStaysPassthrough() throws {
+        let url = try #require(URL(string: "https://example.com/interactive-preview"))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 650))
+        let view = TerminalLinkHoverIndicatorView(frame: root.bounds)
+        root.addSubview(view)
+        #expect(view.preparePreview(url: url, at: NSPoint(x: 450, y: 325)))
+
+        let webContent = NSButton(frame: view.previewWebViewHost.bounds)
+        view.previewWebViewHost.addSubview(webContent)
+        let webContentPoint = webContent.convert(
+            NSPoint(x: webContent.bounds.midX, y: webContent.bounds.midY),
+            to: root
+        )
+
+        #expect(view.hitTest(webContentPoint) === webContent)
+        #expect(view.hitTest(NSPoint(x: 20, y: 20)) == nil)
+    }
+
     @Test func delayedPreviewStartsAfterDwellAndLeavingFirstCancelsIt() async throws {
         let url = try #require(URL(string: "https://example.com/preview"))
         let target = TerminalLinkOpenCoordinator.PreviewTarget(url: url, profileID: profileID)
