@@ -244,6 +244,35 @@ struct BrowserPrewarmedWebViewPoolTests {
         #expect(view.hitTest(NSPoint(x: 20, y: 20)) == nil)
     }
 
+    @Test func previewCardOpensBesidePointerWithPassthroughHoverBridge() throws {
+        let url = try #require(URL(string: "https://example.com/menu-style-preview"))
+        let anchor = NSPoint(x: 450, y: 325)
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 650))
+        let view = TerminalLinkHoverIndicatorView(frame: root.bounds)
+        root.addSubview(view)
+        #expect(view.preparePreview(url: url, at: anchor))
+
+        let card = try #require(view.previewWebViewHost.superview?.superview)
+        let cardFrame = card.convert(card.bounds, to: view)
+        let nearestCardPoint = NSPoint(
+            x: min(max(anchor.x, cardFrame.minX), cardFrame.maxX),
+            y: min(max(anchor.y, cardFrame.minY), cardFrame.maxY)
+        )
+        let pointerDistance = hypot(
+            nearestCardPoint.x - anchor.x,
+            nearestCardPoint.y - anchor.y
+        )
+        let bridgePoint = NSPoint(
+            x: (anchor.x + nearestCardPoint.x) / 2,
+            y: (anchor.y + nearestCardPoint.y) / 2
+        )
+
+        #expect(pointerDistance <= 8)
+        #expect(view.trackingAreas.contains { $0.rect.contains(bridgePoint) })
+        #expect(!cardFrame.contains(bridgePoint))
+        #expect(view.hitTest(bridgePoint) == nil)
+    }
+
     @Test func delayedPreviewStartsAfterDwellAndLeavingFirstCancelsIt() async throws {
         let url = try #require(URL(string: "https://example.com/preview"))
         let target = TerminalLinkOpenCoordinator.PreviewTarget(url: url, profileID: profileID)
