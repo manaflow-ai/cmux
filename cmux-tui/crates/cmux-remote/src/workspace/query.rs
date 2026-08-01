@@ -827,6 +827,34 @@ mod tests {
         delivery.commit();
     }
 
+    #[test]
+    fn bulk_lifecycle_cleanup_keeps_lru_indexes_consistent() {
+        let service = WorkspaceQueryService::default();
+        let owner = ClientScope::new("device", cmux_remote_protocol::SessionId([1; 16]));
+        let other_owner = ClientScope::new("other", cmux_remote_protocol::SessionId([2; 16]));
+        let workspace = WorkspaceId("workspace".into());
+        let other_workspace = WorkspaceId("other-workspace".into());
+        for index in 0..16 {
+            delivered_directory_cursor(&service, &owner, &workspace, &format!("target-{index}"));
+            delivered_directory_cursor(
+                &service,
+                &other_owner,
+                &other_workspace,
+                &format!("survivor-{index}"),
+            );
+        }
+
+        service.close_client(&owner);
+
+        let state = service.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(state.continuations.len(), 16);
+        assert_eq!(state.continuation_order.len(), 16);
+        assert!(
+            state.continuation_order.iter().all(|token| state.continuations.contains_key(token))
+        );
+        assert!(state.continuations.values().all(|stored| stored.owner == other_owner));
+    }
+
     #[tokio::test]
     async fn file_hash_cells_singleflight_one_file_version() {
         use std::sync::atomic::{AtomicUsize, Ordering};

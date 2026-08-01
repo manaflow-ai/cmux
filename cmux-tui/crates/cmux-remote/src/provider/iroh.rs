@@ -1771,6 +1771,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn queued_connection_expires_and_releases_its_overflow_slot() {
+        let temp = tempfile::tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(temp.path(), "test-daemon", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let limits = IrohListenerLimits {
+            maximum_connections: 1,
+            maximum_connection_overflow: 1,
+            maximum_pending_streams: 1,
+            maximum_pending_stream_overflow: 0,
+            maximum_pending_streams_per_connection: 1,
+            first_stream_timeout: Duration::from_millis(150),
+            connection_handshake_timeout: Duration::from_secs(1),
+            unauthenticated_timeout: Duration::from_secs(5),
+            pre_auth_timeout: Duration::from_secs(5),
+        };
+        let listener =
+            IrohListener::bind_with_limits(daemon, local_config(secret(48)), limits).await.unwrap();
+        let (first_client, first_connection) = connect_test_client(&listener, secret(49)).await;
+        let (mut first_sender, first_receiver) = first_connection.open_bi().await.unwrap();
+        first_sender.write_all(b"x").await.unwrap();
+        first_sender.flush().await.unwrap();
+        let first_stream = (first_sender, first_receiver);
+        wait_for_available_permits(&listener.admission.connections, 0).await;
+
+        let (second_client, second_connection) = connect_test_client(&listener, secret(50)).await;
+        wait_for_available_permits(&listener.admission.connection_overflow, 0).await;
+        let _ = tokio::time::timeout(Duration::from_secs(2), second_connection.closed())
+            .await
+            .expect("queued Iroh connection outlived the admission deadline");
+        wait_for_available_permits(&listener.admission.connection_overflow, 1).await;
+        assert!(first_connection.close_reason().is_none());
+
+        drop(first_stream);
+        first_connection.close(0_u8.into(), b"test complete");
+        listener.shutdown().await.unwrap();
+        first_client.close().await;
+        second_client.close().await;
+    }
+
+    #[tokio::test]
     async fn listener_bounds_pending_streams_per_connection_and_globally() {
         let temp = tempfile::tempdir().unwrap();
         let auth = AuthDatabase::load_or_create(temp.path(), "test-daemon", false).unwrap();

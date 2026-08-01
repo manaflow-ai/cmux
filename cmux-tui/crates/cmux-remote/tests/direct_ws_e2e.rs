@@ -29,11 +29,11 @@ async fn browser_origin_is_rejected_by_direct_websocket_listener() {
     request.headers_mut().insert(ORIGIN, HeaderValue::from_static("https://attacker.invalid"));
 
     let error = connect_async(request).await.expect_err("browser-origin WebSocket was upgraded");
-    assert!(matches!(
-        error,
-        tokio_tungstenite::tungstenite::Error::Http(response)
-            if response.status() == StatusCode::FORBIDDEN
-    ));
+    let tokio_tungstenite::tungstenite::Error::Http(response) = error else {
+        panic!("browser-origin rejection was not an HTTP response");
+    };
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert!(response.body().as_ref().is_none_or(Vec::is_empty));
 
     let native = connect_async(format!("ws://{}/v1/link", server.local_addr()))
         .await

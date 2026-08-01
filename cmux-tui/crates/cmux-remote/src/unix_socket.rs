@@ -347,6 +347,17 @@ fn contextual_io(error: io::Error, context: String) -> UnixSocketError {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn bind_makes_an_existing_socket_directory_owner_only() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o755)).unwrap();
+
+        let listener = OwnedUnixListener::bind(directory.path().join("daemon.sock")).await.unwrap();
+
+        assert_eq!(fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777, 0o700);
+        drop(listener);
+    }
+
     #[test]
     fn accept_retry_backoff_is_bounded_and_resets_after_success() {
         let error = io::Error::from_raw_os_error(libc::EMFILE);

@@ -2806,6 +2806,8 @@ mod tests {
             "--invite".into(),
             "inline-secret".into(),
         ]));
+        assert!(!remote_help_requested(&["--invite=inline-secret".into(), "--help".into(),]));
+        assert!(!remote_help_requested(&["--relay-ticket=inline-secret".into(), "--help".into(),]));
         assert!(
             parse_connect_flags(&["--help".into(), "--invite".into(), "inline-secret".into(),])
                 .is_err()
@@ -3047,6 +3049,8 @@ mod tests {
         for args in [
             vec!["--invite".to_string(), marker.to_string()],
             vec!["--relay-ticket".to_string(), marker.to_string()],
+            vec![format!("--invite={marker}")],
+            vec![format!("--relay-ticket={marker}")],
         ] {
             let Err(error) = parse_connect_flags(&args) else {
                 panic!("inline secret arguments were accepted: {args:?}");
@@ -3058,20 +3062,23 @@ mod tests {
     #[test]
     fn enroll_create_rejects_inline_relay_ticket() {
         let marker = "inline-enrollment-secret-marker";
-        let args = [
-            "create",
-            "--relay-route",
-            "relay+wss://relay.example",
-            "--relay-slot",
-            "slot",
-            "--relay-ticket",
-            marker,
-        ]
-        .map(str::to_string);
-        let Err(error) = parse_enroll_admin_args(&args) else {
-            panic!("inline enrollment relay ticket was accepted");
-        };
-        assert!(!error.to_string().contains(marker));
+        for args in [
+            vec![
+                "create".to_string(),
+                "--relay-route".to_string(),
+                "relay+wss://relay.example".to_string(),
+                "--relay-slot".to_string(),
+                "slot".to_string(),
+                "--relay-ticket".to_string(),
+                marker.to_string(),
+            ],
+            vec!["create".to_string(), format!("--relay-ticket={marker}")],
+        ] {
+            let Err(error) = parse_enroll_admin_args(&args) else {
+                panic!("inline enrollment relay ticket was accepted");
+            };
+            assert!(!error.to_string().contains(marker));
+        }
     }
 
     #[test]
@@ -3243,7 +3250,17 @@ mod tests {
             );
         }
 
-        for command in ["connect", "ssh", "forward", "rpc", "enroll", "known-daemons"] {
+        for command in [
+            "connect",
+            "ssh",
+            "forward",
+            "rpc",
+            "enroll",
+            "known-daemons",
+            "remote-probe",
+            "remote-link",
+            "install-self",
+        ] {
             assert_japanese(remote_help(Some(command)));
         }
 
@@ -3289,6 +3306,44 @@ mod tests {
             .unwrap_err()
             .to_string(),
         );
+        for result in [
+            client_relay_options(None, vec![], vec!["slot".into()], vec![]),
+            client_relay_options(
+                None,
+                vec![],
+                vec!["one".into(), "two".into()],
+                vec![
+                    ClientRelayCredentialArg::File("one".into()),
+                    ClientRelayCredentialArg::File("two".into()),
+                ],
+            ),
+            client_relay_options(None, vec!["relay+wss://one.example".into()], vec![], vec![]),
+            client_relay_options(
+                None,
+                (0..5).map(|index| format!("relay+wss://relay-{index}.example")).collect(),
+                (0..5).map(|index| format!("slot-{index}")).collect(),
+                (0..5)
+                    .map(|index| ClientRelayCredentialArg::File(format!("ticket-{index}").into()))
+                    .collect(),
+            ),
+            client_relay_options(
+                None,
+                vec!["wss://not-a-relay.example".into()],
+                vec!["slot".into()],
+                vec![ClientRelayCredentialArg::File("ticket".into())],
+            ),
+            client_relay_options(
+                None,
+                vec!["relay+wss://relay.example".into(), "relay+wss://relay.example".into()],
+                vec!["one".into(), "two".into()],
+                vec![
+                    ClientRelayCredentialArg::File("one".into()),
+                    ClientRelayCredentialArg::File("two".into()),
+                ],
+            ),
+        ] {
+            assert_japanese(&result.unwrap_err().to_string());
+        }
 
         for args in [
             vec!["unknown"],
@@ -3916,8 +3971,8 @@ mod tests {
     fn remote_stop_refuses_recovery_while_recorded_socket_is_active() {
         let directory = tempfile::tempdir().unwrap();
         let session = "reject-active-recovery";
-        let (state_dir, link_socket, admin_socket) =
-            daemon_paths(session, Some(directory.path())).unwrap();
+        let (state_dir, _, admin_socket) = daemon_paths(session, Some(directory.path())).unwrap();
+        let link_socket = directory.path().join("recorded-active-link.sock");
         fs::create_dir_all(&state_dir).unwrap();
         let listener = std::os::unix::net::UnixListener::bind(&link_socket).unwrap();
         let runtime_path = state_dir.join("runtime.json");
@@ -3965,8 +4020,8 @@ mod tests {
     fn remote_stop_refuses_legacy_acknowledgement_while_recorded_socket_is_active() {
         let directory = tempfile::tempdir().unwrap();
         let session = "reject-active-legacy-acknowledgement";
-        let (state_dir, link_socket, admin_socket) =
-            daemon_paths(session, Some(directory.path())).unwrap();
+        let (state_dir, _, admin_socket) = daemon_paths(session, Some(directory.path())).unwrap();
+        let link_socket = directory.path().join("recorded-active-legacy-link.sock");
         seed_legacy_authorization_state(&state_dir);
         let listener = std::os::unix::net::UnixListener::bind(&link_socket).unwrap();
         fs::write(
@@ -4229,6 +4284,21 @@ mod tests {
 
         fs::set_permissions(&ticket, fs::Permissions::from_mode(0o640)).unwrap();
         assert!(read_invitation_ticket_file(&ticket).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn invitation_relay_ticket_file_accepts_maximum_ticket_with_newline() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir().unwrap();
+        let ticket = directory.path().join("ticket");
+        let mut contents = vec![b'x'; 4 * 1024];
+        contents.push(b'\n');
+        fs::write(&ticket, contents).unwrap();
+        fs::set_permissions(&ticket, fs::Permissions::from_mode(0o600)).unwrap();
+
+        assert_eq!(read_invitation_ticket_file(&ticket).unwrap().len(), 4 * 1024);
     }
 
     #[cfg(unix)]
