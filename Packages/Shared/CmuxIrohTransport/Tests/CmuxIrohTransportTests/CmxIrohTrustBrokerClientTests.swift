@@ -476,7 +476,7 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
-    func paginatedDiscoveryRejectsAnAccountRevisionChange() async throws {
+    func paginatedDiscoveryRestartsAfterAnAccountRevisionChange() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(
                 status: 200,
@@ -494,12 +494,55 @@ struct CmxIrohTrustBrokerClientTests {
                     revision: 42
                 )
             ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 129,
+                    nextCursor: "cursor-1",
+                    revision: 42
+                )
+            ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 129 ..< 130,
+                    nextCursor: nil,
+                    revision: 42
+                )
+            ),
         ])
         let client = try makeClient(transport: transport)
 
-        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
-            _ = try await client.discover()
-        }
+        let discovery = try await client.discover()
+
+        #expect(discovery.revision == 42)
+        #expect(discovery.bindings.count == 129)
+        #expect(await transport.requests().count == 4)
+    }
+
+    @Test
+    func paginatedDiscoveryRestartsAfterTheCursorBecomesStale() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 409,
+                body: #"{"error":"discovery_cursor_stale"}"#
+            ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 2,
+                    nextCursor: nil,
+                    revision: 42
+                )
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let discovery = try await client.discover()
+
+        #expect(discovery.revision == 42)
+        #expect(discovery.bindings.count == 1)
+        #expect(await transport.requests().count == 2)
     }
 
     @Test
