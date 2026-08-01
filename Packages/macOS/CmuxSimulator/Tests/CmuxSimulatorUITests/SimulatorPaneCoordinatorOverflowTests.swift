@@ -1,4 +1,6 @@
+import AppKit
 import CmuxSimulator
+import SwiftUI
 import Testing
 @testable import CmuxSimulatorUI
 
@@ -275,6 +277,54 @@ struct SimulatorPaneCoordinatorOverflowTests {
         await coordinator.close()
     }
 
+    @Test("Semantic cleanup resets renderer-owned input before later events")
+    @MainActor
+    func semanticTransactionResetsRendererInput() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        let host = NSHostingView(rootView: SimulatorRemoteSurface(
+            coordinator: coordinator,
+            frameTransport: simulatorFrameTransportDescriptor(98),
+            display: SimulatorDisplayMetadata(
+                width: 390,
+                height: 844,
+                orientation: .portrait,
+                scale: 3
+            ),
+            chrome: nil,
+            allowsPointerInput: true,
+            pointerEntryEventFilter: nil,
+            onRequestPanelFocus: {}
+        ))
+        host.frame = NSRect(x: 0, y: 0, width: 390, height: 844)
+        host.layoutSubtreeIfNeeded()
+        let view = try #require(firstRemoteSurface(in: host))
+        let usage: UInt32 = 0x04
+        let keyDown = SimulatorWorkerInbound.key(
+            SimulatorKeyEvent(usage: usage, phase: .down)
+        )
+        let keyUp = SimulatorWorkerInbound.key(
+            SimulatorKeyEvent(usage: usage, phase: .up)
+        )
+
+        view.send(view.input.key(usage: usage, phase: .down))
+        #expect(view.input.heldKeys == [usage])
+
+        try await coordinator.withUIAutomationTransaction {}
+        for _ in 0..<100 where !view.input.heldKeys.isEmpty {
+            host.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+
+        #expect(await client.messages().contains(keyDown))
+        #expect(await client.messages().contains(keyUp))
+        #expect(view.input.heldKeys.isEmpty)
+        #expect(view.input.key(usage: usage, phase: .up).isEmpty)
+        withExtendedLifetime(host) {}
+        await coordinator.close()
+    }
+
     @Test("Live input releases are rejected during a semantic transaction")
     @MainActor
     func liveInputReleasesAreRejectedDuringSemanticTransaction() async throws {
@@ -535,5 +585,14 @@ struct SimulatorPaneCoordinatorOverflowTests {
             ),
             nodeCount: 500
         )
+    }
+
+    @MainActor
+    private func firstRemoteSurface(in root: NSView) -> SimulatorRemoteSurfaceView? {
+        if let surface = root as? SimulatorRemoteSurfaceView { return surface }
+        for child in root.subviews {
+            if let surface = firstRemoteSurface(in: child) { return surface }
+        }
+        return nil
     }
 }
