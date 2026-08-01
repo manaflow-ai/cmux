@@ -1122,7 +1122,7 @@ pub struct RemoteSession {
     next_id: AtomicU64,
     shutdown: AtomicBool,
     surfaces: Mutex<HashMap<SurfaceId, Arc<RemoteSurface>>>,
-    exited_surfaces: Mutex<HashSet<SurfaceId>>,
+    retired_surfaces: Mutex<HashSet<SurfaceId>>,
     tree: Mutex<RemoteTreeCache>,
     tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
@@ -1353,7 +1353,7 @@ impl RemoteSession {
             next_id: AtomicU64::new(1),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
-            exited_surfaces: Mutex::new(HashSet::new()),
+            retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
@@ -1720,7 +1720,6 @@ impl RemoteSession {
             Some("surface-exited") => {
                 if let Some(id) = surface_id() {
                     self.surface_overflow_recovery.lock().unwrap().remove(&id);
-                    self.tree_stale.store(true, Ordering::Release);
                     self.emit(MuxEvent::SurfaceExited(id));
                 }
             }
@@ -2298,7 +2297,7 @@ impl RemoteSession {
         kind: SurfaceKind,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Option<Arc<RemoteSurface>>> {
-        if self.exited_surfaces.lock().unwrap().contains(&id) {
+        if self.retired_surfaces.lock().unwrap().contains(&id) {
             return Ok(None);
         }
         if !self.can_attach_after_overflow(id) {
@@ -2348,10 +2347,10 @@ impl RemoteSession {
         Ok(Some(surface))
     }
 
-    pub fn drop_surface(&self, id: SurfaceId) {
+    pub fn retire_surface(&self, id: SurfaceId) {
         self.surfaces.lock().unwrap().remove(&id);
         self.surface_overflow_recovery.lock().unwrap().remove(&id);
-        self.exited_surfaces.lock().unwrap().insert(id);
+        self.retired_surfaces.lock().unwrap().insert(id);
     }
 
     pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
@@ -2395,7 +2394,7 @@ impl RemoteSession {
             },
         );
         drop(capabilities);
-        self.exited_surfaces.lock().unwrap().retain(|surface_id| {
+        self.retired_surfaces.lock().unwrap().retain(|surface_id| {
             tree.workspaces
                 .iter()
                 .flat_map(|workspace| workspace.screens.iter())
@@ -2682,7 +2681,7 @@ fn test_session_with_writer(
         next_id: AtomicU64::new(1),
         shutdown: AtomicBool::new(false),
         surfaces: Mutex::new(HashMap::new()),
-        exited_surfaces: Mutex::new(HashSet::new()),
+        retired_surfaces: Mutex::new(HashSet::new()),
         tree: Mutex::new(RemoteTreeCache::default()),
         tree_refresh: Mutex::new(()),
         tree_stale: AtomicBool::new(true),
@@ -2794,19 +2793,34 @@ pub(super) fn test_session_with_blocked_attach_transport_failure(
     struct BlockedAttachFailureWriter {
         reached: Arc<std::sync::Barrier>,
         release: Arc<std::sync::Barrier>,
+        session: Arc<Mutex<Option<std::sync::Weak<RemoteSession>>>>,
     }
 
     impl RemoteMessageWriter for BlockedAttachFailureWriter {
         fn send(&mut self, message: &str) -> io::Result<()> {
-            let command = serde_json::from_str::<Value>(message)
-                .ok()
-                .and_then(|value| value.get("cmd")?.as_str().map(str::to_owned));
-            if command.as_deref() == Some("attach-surface") {
+            let request = serde_json::from_str::<Value>(message).map_err(io::Error::other)?;
+            if request.get("cmd").and_then(Value::as_str) == Some("attach-surface") {
                 self.reached.wait();
                 self.release.wait();
                 return Err(io::Error::new(io::ErrorKind::BrokenPipe, "socket closed"));
             }
-            Ok(())
+            let Some(id) = request.get("id").and_then(Value::as_u64) else { return Ok(()) };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(std::sync::Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            response
+                .send(json!({"id": id, "ok": true, "data": null}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
         }
 
         fn close(&mut self) -> io::Result<()> {
@@ -2814,13 +2828,16 @@ pub(super) fn test_session_with_blocked_attach_transport_failure(
         }
     }
 
-    test_session_with_writer(
-        Box::new(BlockedAttachFailureWriter { reached, release }),
+    let session_ref = Arc::new(Mutex::new(None));
+    let session = test_session_with_writer(
+        Box::new(BlockedAttachFailureWriter { reached, release, session: session_ref.clone() }),
         None,
         HashSet::from([
             cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY.to_string()
         ]),
-    )
+    );
+    *session_ref.lock().unwrap() = Some(Arc::downgrade(&session));
+    session
 }
 
 #[cfg(test)]
@@ -3292,7 +3309,7 @@ mod tests {
             next_id: AtomicU64::new(1),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
-            exited_surfaces: Mutex::new(HashSet::new()),
+            retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
@@ -4460,7 +4477,7 @@ mod tests {
         ));
 
         session.handle_line(json!({"event": "surface-exited", "surface": 7}));
-        assert!(session.tree_is_stale());
+        assert!(!session.tree_is_stale());
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::SurfaceExited(7))
@@ -5121,10 +5138,11 @@ mod tests {
         second.apply_stream_resize(12, 4, Some(&replay));
 
         first.term.lock().unwrap().scroll_delta(-5);
-        let first_offset = first.term.lock().unwrap().scrollbar().unwrap().offset;
-        let second_offset = second.term.lock().unwrap().scrollbar().unwrap().offset;
-        assert!(first_offset > 0);
-        assert_eq!(second_offset, 0);
+        let first_scrollbar = first.term.lock().unwrap().scrollbar().unwrap();
+        let second_scrollbar = second.term.lock().unwrap().scrollbar().unwrap();
+        assert!(first_scrollbar.scrolled_back());
+        assert!(!second_scrollbar.scrolled_back());
+        assert_ne!(first_scrollbar.offset, second_scrollbar.offset);
         assert_eq!(
             first.term.lock().unwrap().selection_text_absolute((0, 0), (8, 0)).unwrap(),
             second.term.lock().unwrap().selection_text_absolute((0, 0), (8, 0)).unwrap()
@@ -5418,7 +5436,7 @@ mod tests {
         }));
 
         assert!(!session.has_surface(7));
-        assert!(!session.exited_surfaces.lock().unwrap().contains(&7));
+        assert!(!session.retired_surfaces.lock().unwrap().contains(&7));
         let received = events.try_iter().collect::<Vec<_>>();
         assert!(received.iter().any(|event| matches!(event, MuxEvent::SurfaceOutput(7))));
         assert!(received.iter().any(|event| matches!(event, MuxEvent::Status(_))));

@@ -858,6 +858,15 @@ impl ResourceError {
         Self::new("transport.closed", reason.clone(), json!({"reason":reason}), true)
     }
 
+    pub fn terminal_closed(terminal_id: &TerminalPublicId) -> Self {
+        Self::new(
+            "terminal.closed",
+            format!("terminal {terminal_id} is closed"),
+            json!({"terminal_id":terminal_id}),
+            false,
+        )
+    }
+
     pub fn idempotency_conflict(idempotency_key: &str, committed_operation: &str) -> Self {
         Self::new(
             "idempotency.conflict",
@@ -944,6 +953,7 @@ pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
     "selector.invalid",
     "selector.not_found",
     "selector.wrong_parent",
+    "terminal.closed",
     "transport.closed",
     "validation.invalid",
 ];

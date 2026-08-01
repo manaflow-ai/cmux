@@ -4598,6 +4598,22 @@
         "extra": false
       }
     },
+    "terminal.closed": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "terminal_id": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            }
+          }
+        },
+        "extra": false
+      }
+    },
     "transport.closed": {
       "retryable": true,
       "details": {
@@ -10513,11 +10529,13 @@
         "selector.invalid",
         "selector.not_found",
         "selector.wrong_parent",
+        "terminal.closed",
         "validation.invalid"
       ],
       "constraints": [
         "A timeout returns the pending result variant and is not an error.",
-        "The exited result is reconnect-safe and uses the terminal registry's durable exit record."
+        "The exited result is reconnect-safe and uses the terminal registry's durable exit record.",
+        "Explicit terminal.close wakes active waiters with terminal.closed; detaching the last view does not settle them."
       ]
     },
     "workspace.close": {

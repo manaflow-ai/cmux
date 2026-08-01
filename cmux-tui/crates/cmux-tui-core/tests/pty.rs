@@ -152,7 +152,7 @@ fn surface_resize_reports_whether_the_size_changed() {
 }
 
 #[test]
-fn headless_creation_uses_legacy_default_then_latest_client_size() {
+fn headless_creation_uses_explicit_or_authoritative_client_size() {
     let mux = Mux::new(unique_session("test-headless-client-size"), shell_opts("sleep 30"));
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = connect(&sock_path);
@@ -179,20 +179,42 @@ fn headless_creation_uses_legacy_default_then_latest_client_size() {
             "rows": 40,
         }),
     );
-    let inherited = socket_request(
+    let passive_inherited = socket_request(
         &mut writer,
         &mut reader,
         serde_json::json!({"id": 4, "cmd": "new-workspace"}),
     )["data"]["surface"]
         .as_u64()
         .unwrap();
-    assert_vt_state_size(&mut writer, &mut reader, 5, inherited, (143, 40));
+    assert_vt_state_size(&mut writer, &mut reader, 5, passive_inherited, (80, 24));
+
+    socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 6,
+            "cmd": "set-client-sizing",
+            "surface": first,
+            "enabled": true,
+            "exclusive": true,
+        }),
+    );
+    assert_vt_state_size(&mut writer, &mut reader, 7, first, (143, 40));
+
+    let authoritative_inherited = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({"id": 8, "cmd": "new-workspace"}),
+    )["data"]["surface"]
+        .as_u64()
+        .unwrap();
+    assert_vt_state_size(&mut writer, &mut reader, 9, authoritative_inherited, (143, 40));
 
     let explicit = socket_request(
         &mut writer,
         &mut reader,
         serde_json::json!({
-            "id": 6,
+            "id": 10,
             "cmd": "new-workspace",
             "cols": 97,
             "rows": 31,
@@ -200,22 +222,22 @@ fn headless_creation_uses_legacy_default_then_latest_client_size() {
     )["data"]["surface"]
         .as_u64()
         .unwrap();
-    assert_vt_state_size(&mut writer, &mut reader, 7, explicit, (97, 31));
+    assert_vt_state_size(&mut writer, &mut reader, 11, explicit, (97, 31));
 
     let inherited_explicit = socket_request(
         &mut writer,
         &mut reader,
-        serde_json::json!({"id": 8, "cmd": "new-workspace"}),
+        serde_json::json!({"id": 12, "cmd": "new-workspace"}),
     )["data"]["surface"]
         .as_u64()
         .unwrap();
-    assert_vt_state_size(&mut writer, &mut reader, 9, inherited_explicit, (97, 31));
+    assert_vt_state_size(&mut writer, &mut reader, 13, inherited_explicit, (97, 31));
 
     let clamped = socket_request(
         &mut writer,
         &mut reader,
         serde_json::json!({
-            "id": 10,
+            "id": 14,
             "cmd": "new-workspace",
             "cols": 0,
             "rows": 0,
@@ -223,35 +245,38 @@ fn headless_creation_uses_legacy_default_then_latest_client_size() {
     )["data"]["surface"]
         .as_u64()
         .unwrap();
-    assert_vt_state_size(&mut writer, &mut reader, 11, clamped, (1, 1));
+    assert_vt_state_size(&mut writer, &mut reader, 15, clamped, (1, 1));
 
     mux.shutdown();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
 #[test]
-fn shared_surface_uses_smallest_viewer_size_until_that_viewer_detaches() {
-    let mux = Mux::new("minimum-viewer-size", SurfaceOptions::default());
+fn terminal_surface_uses_only_its_explicit_geometry_authority() {
+    let mux = Mux::new("terminal-geometry-authority", SurfaceOptions::default());
     let surface = mux
         .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
         .unwrap()
         .surface;
 
-    mux.resize_surface_for_client(surface, 1, 120, 40).unwrap();
-    mux.resize_surface_for_client(surface, 2, 80, 50).unwrap();
-    assert_eq!(mux.surface(surface).unwrap().size(), (80, 40));
+    assert!(!mux.resize_surface_for_client(surface, 1, 120, 40).unwrap());
+    assert!(!mux.resize_surface_for_client(surface, 0, 100, 32).unwrap());
+    assert_eq!(mux.surface(surface).unwrap().size(), (80, 24));
 
-    mux.remove_surface_size_client(surface, 2);
-    assert_eq!(mux.surface(surface).unwrap().size(), (120, 40));
+    assert_eq!(mux.claim_terminal_geometry(surface, 0), Some(true));
+    assert_eq!(mux.surface(surface).unwrap().size(), (100, 32));
+    assert!(!mux.resize_surface_for_client(surface, 1, 70, 20).unwrap());
+    assert_eq!(mux.surface(surface).unwrap().size(), (100, 32));
 
-    mux.remove_surface_size_client(surface, 1);
-    assert_eq!(mux.surface(surface).unwrap().size(), (120, 40));
+    mux.remove_surface_size_client(surface, 0);
+    assert!(!mux.resize_surface_for_client(surface, 1, 60, 18).unwrap());
+    assert_eq!(mux.surface(surface).unwrap().size(), (100, 32));
 
     mux.shutdown();
 }
 
 #[test]
-fn surface_exit_reaps_tree_and_emits_event() {
+fn surface_exit_preserves_terminal_view_and_emits_event() {
     let opts =
         SurfaceOptions { command: Some(vec!["/usr/bin/true".to_string()]), ..Default::default() };
     let mux = Mux::new("test-exit", opts);
@@ -268,20 +293,12 @@ fn surface_exit_reaps_tree_and_emits_event() {
     );
     assert!(got.is_some(), "no SurfaceExited event");
     assert!(surface.is_dead());
-    // The mux reaps exited surfaces itself. Empty workspace containers are
-    // durable registry state and remain visible for GUI/TUI parity.
-    let reaped = wait_for(
-        || {
-            mux.with_state(|state| {
-                (!state.surfaces.contains_key(&surface.id)
-                    && state.workspaces.len() == 1
-                    && state.workspaces[0].screens.is_empty())
-                .then_some(())
-            })
-        },
-        Duration::from_secs(10),
-    );
-    assert!(reaped.is_some(), "exited surface not reaped from tree");
+    mux.with_state(|state| {
+        assert!(state.surfaces.contains_key(&surface.id));
+        assert_eq!(state.workspaces.len(), 1);
+        assert_eq!(state.workspaces[0].screens.len(), 1);
+    });
+    mux.shutdown();
 }
 
 #[test]
@@ -850,9 +867,21 @@ fn control_socket_broadcasts_surface_resized_once_per_changed_size() {
         .expect("subscribe response");
     assert_eq!(response["ok"], true, "subscribe failed: {response}");
 
+    socket_request(
+        &mut command_writer,
+        &mut command_reader,
+        serde_json::json!({
+            "id": 2,
+            "cmd": "set-client-sizing",
+            "surface": surface.id,
+            "enabled": true,
+            "exclusive": true,
+        }),
+    );
+
     writeln!(
         command_writer,
-        r#"{{"id":2,"cmd":"resize-surface","surface":{},"cols":103,"rows":29}}"#,
+        r#"{{"id":3,"cmd":"resize-surface","surface":{},"cols":103,"rows":29}}"#,
         surface.id
     )
     .unwrap();
@@ -881,7 +910,7 @@ fn control_socket_broadcasts_surface_resized_once_per_changed_size() {
     line.clear();
     writeln!(
         command_writer,
-        r#"{{"id":3,"cmd":"resize-surface","surface":{},"cols":103,"rows":29}}"#,
+        r#"{{"id":4,"cmd":"resize-surface","surface":{},"cols":103,"rows":29}}"#,
         surface.id
     )
     .unwrap();
@@ -1255,6 +1284,17 @@ fn render_attach_resize_is_a_full_replacement_at_the_new_size() {
         &mut command_reader,
         serde_json::json!({
             "id": 2,
+            "cmd": "set-client-sizing",
+            "surface": surface.id,
+            "enabled": true,
+            "exclusive": true,
+        }),
+    );
+    socket_request(
+        &mut command_writer,
+        &mut command_reader,
+        serde_json::json!({
+            "id": 3,
             "cmd": "resize-surface",
             "surface": surface.id,
             "cols": 31,

@@ -718,10 +718,7 @@ fn c1_output_is_normalized_once_before_host_and_frontend_mirrors_observe_it() {
     let state = attach_state(&harness.socket, surface);
     assert_eq!(state["colors"]["palette"]["9"], "#090909");
 
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 2, "cmd": "close-surface", "surface": surface}),
-    );
+    close_terminal_surface(&harness.socket, surface, 2);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -937,10 +934,7 @@ fn hosted_clear_history_encodes_fallback_from_authoritative_keyboard_mode() {
         }
     }
 
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 3, "cmd": "close-surface", "surface": surface}),
-    );
+    close_terminal_surface(&harness.socket, surface, 3);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -1123,16 +1117,7 @@ fn existing_host_defaults_survive_output_resize_and_renderer_reconnects() {
     assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
     wait_for_host_cursor_snapshot(&record, ghostty_vt::CursorShape::Bar, false);
 
-    let resized = request(
-        &harness.socket,
-        serde_json::json!({
-            "id": 4,
-            "cmd": "resize-surface",
-            "surface": surface,
-            "cols": 101,
-            "rows": 37,
-        }),
-    );
+    let resized = claim_and_resize_surface(&harness.socket, surface, 101, 37, 4);
     assert_eq!(resized["accepted"], true);
     wait_for_host_size(&harness.host_root(), 101, 37);
     wait_for_vt_size(&harness.socket, surface, 101, 37);
@@ -1161,24 +1146,12 @@ fn existing_host_defaults_survive_output_resize_and_renderer_reconnects() {
     }
     wait_for_host_cursor_snapshot(&record, builtin_cursor.0, builtin_cursor.1);
 
-    let resized = request(
-        &harness.socket,
-        serde_json::json!({
-            "id": 6,
-            "cmd": "resize-surface",
-            "surface": surface,
-            "cols": 99,
-            "rows": 35,
-        }),
-    );
+    let resized = claim_and_resize_surface(&harness.socket, surface, 99, 35, 6);
     assert_eq!(resized["accepted"], true);
     wait_for_host_size(&harness.host_root(), 99, 35);
     wait_for_host_cursor_snapshot(&record, builtin_cursor.0, builtin_cursor.1);
 
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 7, "cmd": "close-surface", "surface": surface}),
-    );
+    close_terminal_surface(&harness.socket, surface, 7);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -1280,10 +1253,7 @@ fn mint_capability_fences_prior_admin_input_before_renderer_input() {
 
     drop(renderer);
     drop(admin);
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 2, "cmd": "close-surface", "surface": surface}),
-    );
+    close_terminal_surface(&harness.socket, surface, 2);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -1528,16 +1498,7 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
     );
     assert!(wait_for_screen(&harness.socket, adopted_surface, &after).contains(&after));
 
-    let resized = request(
-        &harness.socket,
-        serde_json::json!({
-            "id": 6,
-            "cmd": "resize-surface",
-            "surface": adopted_surface,
-            "cols": 101,
-            "rows": 37,
-        }),
-    );
+    let resized = claim_and_resize_surface(&harness.socket, adopted_surface, 101, 37, 6);
     assert_eq!(resized["accepted"], true);
     let state = wait_for_vt_size(&harness.socket, adopted_surface, 101, 37);
     assert_eq!(state["cols"].as_u64(), Some(101));
@@ -1883,10 +1844,7 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
     assert!(wait_for_screen(&harness.socket, surface, &after).contains(&after));
     assert_eq!(wait_for_host_records(&harness.host_root(), 1).len(), 1);
 
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 5, "cmd": "close-surface", "surface": surface}),
-    );
+    close_terminal_surface(&harness.socket, surface, 5);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -1999,7 +1957,7 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
 
     let _ = renderer_writer.shutdown(std::net::Shutdown::Both);
     drain.join().unwrap();
-    request(&harness.socket, serde_json::json!({"id":4,"cmd":"close-surface","surface":surface}));
+    close_terminal_surface(&harness.socket, surface, 4);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -2136,12 +2094,12 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
         }),
     );
     assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
-    request(&harness.socket, serde_json::json!({"id":5,"cmd":"close-surface","surface":surface}));
+    close_terminal_surface(&harness.socket, surface, 5);
     wait_for_no_host_records(&harness.host_root());
 }
 
 #[test]
-fn direct_renderer_becomes_sole_viewer_after_control_client_disconnect() {
+fn direct_renderer_geometry_ignores_passive_control_viewers() {
     let harness = RecoveryHarness::start("renderer-sole-viewer");
     let created = request(
         &harness.socket,
@@ -2182,9 +2140,8 @@ fn direct_renderer_becomes_sole_viewer_after_control_client_disconnect() {
     assert_eq!(state["cols"], 120);
     assert_eq!(state["rows"], 40);
 
-    // Re-registering the daemon mirror at the already-canonical grid must
-    // still create a real host viewer lease. Otherwise a later direct resize
-    // would silently bypass the TUI's smallest-viewer arbitration.
+    // A control attachment mirrors the terminal without acquiring geometry
+    // authority. Its viewport must not reduce the canonical PTY grid.
     let attach_stream = transport::connect(&harness.socket).unwrap();
     let mut attach_writer = attach_stream.try_clone_box().unwrap();
     let mut attach_reader = BufReader::new(attach_stream);
@@ -2215,35 +2172,31 @@ fn direct_renderer_becomes_sole_viewer_after_control_client_disconnect() {
     largest.extend_from_slice(&160u16.to_le_bytes());
     largest.extend_from_slice(&50u16.to_le_bytes());
     write_frame(&mut renderer.stream, &Frame::new(MessageKind::ViewerSize, largest)).unwrap();
-    let clamped = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
-    assert_eq!(clamped.kind, MessageKind::Resized);
-    assert_eq!(&clamped.payload[..4], &[120, 0, 40, 0]);
+    let resized = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(resized.kind, MessageKind::Resized);
+    assert_eq!(&resized.payload[..4], &[160, 0, 50, 0]);
     let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
     assert_eq!(colors.kind, MessageKind::Colors);
-    let state = wait_for_vt_size(&harness.socket, surface, 120, 40);
-    assert_eq!(state["cols"], 120);
-    assert_eq!(state["rows"], 40);
-
-    drop(attach_writer);
-    drop(attach_reader);
-    // The legacy renderer stream may still contain an unchanged 120x40
-    // replay acknowledged while the attach lease was being installed. Drain
-    // complete resize/color pairs until detach restores the direct request.
-    loop {
-        let restored = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
-        assert_eq!(restored.kind, MessageKind::Resized);
-        assert!(matches!(&restored.payload[..4], [120, 0, 40, 0] | [160, 0, 50, 0]));
-        let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
-        assert_eq!(colors.kind, MessageKind::Colors);
-        if restored.payload[..4] == [160, 0, 50, 0] {
-            break;
-        }
-    }
     let state = wait_for_vt_size(&harness.socket, surface, 160, 50);
     assert_eq!(state["cols"], 160);
     assert_eq!(state["rows"], 50);
 
-    request(&harness.socket, serde_json::json!({"id":4,"cmd":"close-surface","surface":surface}));
+    drop(attach_writer);
+    drop(attach_reader);
+    let mut final_size = Vec::new();
+    final_size.extend_from_slice(&150u16.to_le_bytes());
+    final_size.extend_from_slice(&45u16.to_le_bytes());
+    write_frame(&mut renderer.stream, &Frame::new(MessageKind::ViewerSize, final_size)).unwrap();
+    let resized = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(resized.kind, MessageKind::Resized);
+    assert_eq!(&resized.payload[..4], &[150, 0, 45, 0]);
+    let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(colors.kind, MessageKind::Colors);
+    let state = wait_for_vt_size(&harness.socket, surface, 150, 45);
+    assert_eq!(state["cols"], 150);
+    assert_eq!(state["rows"], 45);
+
+    close_terminal_surface(&harness.socket, surface, 4);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -2319,7 +2272,7 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
     changed_ack.extend_from_slice(&RESIZE_ACK_CANONICAL_CHANGED.to_le_bytes());
     assert_eq!(ack.payload, changed_ack);
 
-    request(&harness.socket, serde_json::json!({"id":3,"cmd":"close-surface","surface":surface}));
+    close_terminal_surface(&harness.socket, surface, 3);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -2438,7 +2391,7 @@ fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
     assert_eq!(resolved["terminal_incarnation"], incarnation);
     let adopted = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
     assert_eq!(adopted.host_pid, host_pid);
-    request(&harness.socket, serde_json::json!({"id":3,"cmd":"close-surface","surface":surface}));
+    close_terminal_surface(&harness.socket, surface, 3);
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -2694,6 +2647,86 @@ fn request(path: &Path, value: serde_json::Value) -> serde_json::Value {
     let response = request_response(path, value);
     assert_eq!(response["ok"], true, "request failed: {response}");
     response["data"].clone()
+}
+
+fn claim_and_resize_surface(
+    path: &Path,
+    surface: u64,
+    cols: u16,
+    rows: u16,
+    request_id: u64,
+) -> serde_json::Value {
+    let stream = transport::connect(path).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    let claim_id = request_id.saturating_mul(2);
+    let resize_id = claim_id.saturating_add(1);
+    stream_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id":claim_id,
+            "cmd":"set-client-sizing",
+            "surface":surface,
+            "enabled":true,
+            "exclusive":true,
+        }),
+    );
+    stream_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id":resize_id,
+            "cmd":"resize-surface",
+            "surface":surface,
+            "cols":cols,
+            "rows":rows,
+        }),
+    )
+}
+
+fn stream_request(
+    writer: &mut Box<dyn transport::Stream>,
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    value: serde_json::Value,
+) -> serde_json::Value {
+    let request_id = value["id"].clone();
+    writeln!(writer, "{value}").unwrap();
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if response["id"] == request_id {
+            assert_eq!(response["ok"], true, "request failed: {response}");
+            return response["data"].clone();
+        }
+        assert!(response["event"].is_string(), "unexpected control message: {response}");
+    }
+}
+
+fn close_terminal_surface(path: &Path, surface: u64, request_id: u64) {
+    let tree = request(path, serde_json::json!({"id":request_id,"cmd":"list-workspaces"}));
+    let tab = tree["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+        .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+        .find(|tab| tab["surface"].as_u64() == Some(surface))
+        .unwrap_or_else(|| panic!("surface {surface} was absent from the workspace tree"));
+    let terminal_id = tab["terminal_id"].as_str().expect("terminal view has a host identity");
+    let incarnation =
+        tab["terminal_incarnation"].as_str().expect("terminal view has an incarnation");
+    request(
+        path,
+        serde_json::json!({
+            "id":request_id,
+            "cmd":"close-terminal",
+            "terminal_id":terminal_id,
+            "terminal_incarnation":incarnation,
+        }),
+    );
 }
 
 fn request_response(path: &Path, value: serde_json::Value) -> serde_json::Value {

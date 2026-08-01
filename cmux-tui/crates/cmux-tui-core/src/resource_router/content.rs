@@ -1905,8 +1905,8 @@ mod tests {
             .recv_timeout(Duration::from_secs(1))
             .expect("terminal close stranded an unbounded exit wait")
             .unwrap_err();
-        assert_eq!(error.code, "operation.failed");
-        assert!(error.message.contains("is not live"), "{error:?}");
+        assert_eq!(error.code, "terminal.closed");
+        assert_eq!(error.details["terminal_id"], public_id.as_str());
         assert_eq!(mux.terminal_exit_state_query_count_for_test(), 2);
         assert_eq!(mux.terminal_exit_waiter_count_for_test(&public_id), 0);
     }

@@ -3898,8 +3898,8 @@ impl Drop for ResourceWaitWorkerGuard {
     }
 }
 
-fn resource_wait_runtime_error(error: impl std::fmt::Display) -> ResourceError {
-    ResourceError::operation_failed("resource.runtime", error.to_string(), json!({}))
+fn resource_wait_runtime_error(error: impl Into<anyhow::Error>) -> ResourceError {
+    crate::resource_router::resource_operation_error(error.into())
 }
 
 fn resource_wait_timeout(
@@ -3997,7 +3997,9 @@ fn run_terminal_resource_wait_exit(
     let deadline = timeout
         .map(|timeout| {
             Instant::now().checked_add(timeout).ok_or_else(|| {
-                resource_wait_runtime_error("terminal exit timeout exceeds deadline range")
+                resource_wait_runtime_error(anyhow::anyhow!(
+                    "terminal exit timeout exceeds deadline range"
+                ))
             })
         })
         .transpose()?;
@@ -9988,13 +9990,8 @@ mod tests {
         let wait_response = wait_response.expect("terminal wait_exit response");
         assert_eq!(close_response["ok"], true, "{close_response}");
         assert_eq!(wait_response["ok"], false, "{wait_response}");
-        assert_eq!(wait_response["error"]["code"], "operation.failed");
-        assert!(
-            wait_response["error"]["message"]
-                .as_str()
-                .is_some_and(|message| message.contains("is not live")),
-            "{wait_response}"
-        );
+        assert_eq!(wait_response["error"]["code"], "terminal.closed");
+        assert_eq!(wait_response["error"]["details"]["terminal_id"], terminal_id.as_str());
         assert_eq!(mux.terminal_exit_state_query_count_for_test(), 2);
         assert_eq!(mux.terminal_exit_waiter_count_for_test(&terminal_id), 0);
 

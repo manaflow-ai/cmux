@@ -3229,9 +3229,9 @@ mod tests {
             (vec!["sidebar", "view", "reload", "--view", VIEW], "sidebar_view.reload"),
         ];
 
-        assert_eq!(cases.len(), 105);
+        assert_eq!(cases.len(), 106);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 112);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 113);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {

@@ -9,7 +9,7 @@ fn capability_manifest_exactly_matches_the_canonical_catalog() {
     assert_eq!(manifest["protocol"], catalog["protocol"]);
     assert_eq!(
         manifest["catalog_sha256"],
-        "f225f1a51128c6ce8d6526c5cc83bc28b3e2bd47b27f3da9fbb29262bc7e831b"
+        "eeef9adb2c14feb0f1ca9b56bf5a931748af729a0da6b294d7e97e965eb76350"
     );
     let expected = catalog["operations"]
         .as_object()

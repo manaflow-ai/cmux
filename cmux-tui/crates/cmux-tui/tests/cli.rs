@@ -53,7 +53,7 @@ impl HeadlessServer {
         panic!("headless server did not create socket at {}", self.socket.display());
     }
 
-    fn close_all_surfaces(&self) -> bool {
+    fn close_all_resources(&self) -> bool {
         let host_root =
             cmux_tui_core::terminal_host_runtime::terminal_host_root(&self.state, "main");
         // Capture exact host PIDs before close can remove their discovery
@@ -92,6 +92,34 @@ impl HeadlessServer {
             })
             .filter_map(|pid| u32::try_from(pid).ok())
             .collect::<Vec<_>>();
+
+        // A terminal runtime is independent of its placements. Explicitly
+        // close every terminal resource, including zero-view terminals that
+        // cannot appear in the legacy workspace tree below.
+        if let Ok(output) = Command::new(bin())
+            .args(["--json", "--socket"])
+            .arg(&self.socket)
+            .args(["terminal", "list"])
+            .env_remove("CMUX_TUI_SOCKET")
+            .output()
+            && output.status.success()
+            && let Ok(terminals) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            && let Some(terminals) = terminals.as_array()
+        {
+            for terminal in terminals {
+                let Some(terminal_id) = terminal["id"].as_str() else { continue };
+                let _ = Command::new(bin())
+                    .args(["--quiet", "--socket"])
+                    .arg(&self.socket)
+                    .args(["terminal", terminal_id, "close"])
+                    .env_remove("CMUX_TUI_SOCKET")
+                    .output();
+            }
+        }
+
+        // Close any remaining browser placements. Terminal placements were
+        // already removed by terminal.close, so missing-surface responses are
+        // expected and harmless here.
         for (index, surface) in surfaces.into_iter().enumerate() {
             let index = u64::try_from(index).expect("surface count fits a protocol request id");
             let _ = try_json_socket_request(
@@ -129,9 +157,9 @@ impl HeadlessServer {
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
         // Durable terminal hosts intentionally outlive the daemon. Tests must
-        // close their canonical surfaces first rather than assuming SIGKILL
-        // of the daemon also owns or reaps its per-terminal processes.
-        let hosts_stopped = self.close_all_surfaces();
+        // close their terminal resources first rather than assuming SIGKILL
+        // of the daemon also owns or reaps their processes.
+        let hosts_stopped = self.close_all_resources();
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = fs::remove_file(&self.socket);

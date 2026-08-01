@@ -1241,11 +1241,11 @@ impl Session {
         }
     }
 
-    /// Drop the local mirror of an exited surface. The server (local mux
-    /// or remote session) reaps its own tree.
+    /// Retire a local placement mirror after authoritative topology removes
+    /// that view. Terminal process exit alone does not retire a placement.
     pub fn forget_surface(&self, surface: SurfaceId) {
         if let Session::Remote(remote) = self {
-            remote.drop_surface(surface);
+            remote.retire_surface(surface);
         }
     }
 

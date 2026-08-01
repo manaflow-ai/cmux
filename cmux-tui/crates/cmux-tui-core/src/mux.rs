@@ -3712,7 +3712,7 @@ impl Mux {
             TerminalLifecycle::Running => "running",
             TerminalLifecycle::Exited => "exited",
             TerminalLifecycle::Tombstoned => {
-                anyhow::bail!("terminal {terminal_id} is tombstoned")
+                return Err(ResourceError::terminal_closed(terminal_id).into());
             }
         };
         Ok(serde_json::json!({
@@ -15050,6 +15050,9 @@ mod tests {
         first.join().unwrap();
         second.join().unwrap();
 
+        if let Some(pending) = surface.pending_resize_completion(80, 40).unwrap() {
+            assert_eq!(pending.completion.recv_timeout(Duration::from_secs(10)).unwrap(), Ok(()));
+        }
         assert_eq!(surface.size(), (80, 40));
         mux.set_client_resize_before_apply(None);
         mux.shutdown();

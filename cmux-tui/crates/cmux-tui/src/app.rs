@@ -435,18 +435,14 @@ fn forward_mux_event(
     if !tx.accepts_mux_event(&event) {
         return ForwardMuxOutcome::Continue;
     }
-    match event {
-        MuxEvent::TitleChanged { surface, title } => {
-            if !mux_titles.push(surface, title) {
-                return ForwardMuxOutcome::Continue;
-            }
-            return match tx.send(AppEvent::MuxTitlesReady) {
-                Ok(()) => ForwardMuxOutcome::Continue,
-                Err(_) => ForwardMuxOutcome::Stop,
-            };
+    if let MuxEvent::TitleChanged { surface, title } = &event {
+        if !mux_titles.push(*surface, title.clone()) {
+            return ForwardMuxOutcome::Continue;
         }
-        MuxEvent::SurfaceExited(surface) => mux_titles.remove(surface),
-        _ => {}
+        return match tx.send(AppEvent::MuxTitlesReady) {
+            Ok(()) => ForwardMuxOutcome::Continue,
+            Err(_) => ForwardMuxOutcome::Stop,
+        };
     }
     let terminal = matches!(event, MuxEvent::Empty);
     match tx.send(AppEvent::Mux(event)) {
@@ -1019,7 +1015,7 @@ pub struct OrderedSession {
     surface_resize_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeFailure>>>,
     config_generation: Arc<AtomicU64>,
     sidebar_plugin_sync: Arc<Mutex<SidebarPluginSyncState>>,
-    exited_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
+    retired_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
     layout_resize_owner: u64,
     layout_resize_transaction: Arc<AtomicU64>,
     #[cfg(test)]
@@ -1075,7 +1071,7 @@ impl OrderedSession {
             surface_resize_failures: Arc::new(Mutex::new(HashMap::new())),
             config_generation: Arc::new(AtomicU64::new(0)),
             sidebar_plugin_sync: Arc::new(Mutex::new(SidebarPluginSyncState::default())),
-            exited_surfaces: Arc::new(Mutex::new(HashSet::new())),
+            retired_surfaces: Arc::new(Mutex::new(HashSet::new())),
             layout_resize_owner,
             layout_resize_transaction: Arc::new(AtomicU64::new(1)),
             #[cfg(test)]
@@ -1186,6 +1182,12 @@ impl OrderedSession {
     }
 
     fn claim_terminal_geometry(&self, surface: SurfaceId) {
+        if matches!(&self.inner, Session::Local(_)) && !self.inner.has_surface(surface) {
+            // A local authoritative tree can be replaced while an earlier
+            // placement is being retired. Do not enqueue a geometry mutation
+            // for a surface the local mux already knows is gone.
+            return;
+        }
         self.enqueue_client_sizing_mutation(
             "claim terminal geometry",
             ("claim terminal geometry", surface, 0),
@@ -1244,9 +1246,9 @@ impl OrderedSession {
 
     fn forget_surface(&self, id: SurfaceId) {
         if self.remote {
-            let mut exited_surfaces = self.exited_surfaces.lock().unwrap();
+            let mut retired_surfaces = self.retired_surfaces.lock().unwrap();
             let mut attach_claims = self.surface_attach_claims.lock().unwrap();
-            exited_surfaces.insert(id);
+            retired_surfaces.insert(id);
             if let Some(claim) = attach_claims.get_mut(&id) {
                 claim.retired = true;
             }
@@ -1282,8 +1284,8 @@ impl OrderedSession {
             return;
         }
         {
-            let exited_surfaces = self.exited_surfaces.lock().unwrap();
-            if exited_surfaces.contains(&id) {
+            let retired_surfaces = self.retired_surfaces.lock().unwrap();
+            if retired_surfaces.contains(&id) {
                 return;
             }
             let mut attach_claims = self.surface_attach_claims.lock().unwrap();
@@ -1295,7 +1297,7 @@ impl OrderedSession {
         let claim = SurfaceAttachClaim { claims: self.surface_attach_claims.clone(), surface: id };
         let attach_claims = self.surface_attach_claims.clone();
         let session = self.inner.clone();
-        let exited_surfaces = self.exited_surfaces.clone();
+        let retired_surfaces = self.retired_surfaces.clone();
         let attach_failures = self.surface_attach_failures.clone();
         let enqueue_failures = attach_failures.clone();
         #[cfg(test)]
@@ -1312,8 +1314,8 @@ impl OrderedSession {
             move || {
                 let _claim = claim;
                 let retired_before_attach = {
-                    let exited_surfaces = exited_surfaces.lock().unwrap();
-                    exited_surfaces.contains(&id)
+                    let retired_surfaces = retired_surfaces.lock().unwrap();
+                    retired_surfaces.contains(&id)
                         || attach_claims.lock().unwrap().get(&id).is_some_and(|claim| claim.retired)
                 };
                 if retired_before_attach {
@@ -1407,17 +1409,17 @@ impl OrderedSession {
         let attach_claimed = self.surface_attach_claims.lock().unwrap().contains_key(&id);
         self.inner.cached_surface(id).is_none()
             && self.inner.can_attach_after_overflow(id)
-            && !self.exited_surfaces.lock().unwrap().contains(&id)
+            && !self.retired_surfaces.lock().unwrap().contains(&id)
             && !failure_blocks
             && !attach_claimed
             && (!self.remote || !self.inner.remote_tree_is_stale())
     }
 
-    fn reconcile_exited_surfaces(&self, tree: &TreeView) {
+    fn reconcile_retired_surfaces(&self, tree: &TreeView) {
         if !self.remote {
             return;
         }
-        self.exited_surfaces.lock().unwrap().retain(|surface| {
+        self.retired_surfaces.lock().unwrap().retain(|surface| {
             tree.workspaces
                 .iter()
                 .flat_map(|workspace| workspace.screens.iter())
@@ -8212,7 +8214,6 @@ impl App {
         }
         self.rebuild_tab_locations();
         self.reapply_mux_titles();
-        self.claim_active_terminal_geometry(false);
     }
 
     fn replace_authoritative_tree(&mut self, tree: TreeView, destination_generation: u64) {
@@ -8239,7 +8240,8 @@ impl App {
             self.retire_surface_state(surface);
         }
         self.replace_tree(tree);
-        self.session.reconcile_exited_surfaces(&self.tree);
+        self.session.reconcile_retired_surfaces(&self.tree);
+        self.claim_active_terminal_geometry(false);
         self.applied_destination_generation =
             self.applied_destination_generation.max(destination_generation);
     }
@@ -8294,26 +8296,6 @@ impl App {
                 }
             }
         }
-    }
-
-    fn remove_surface_from_tree(&mut self, surface: SurfaceId) {
-        for workspace in &mut self.tree.workspaces {
-            for screen in &mut workspace.screens {
-                for pane in &mut screen.panes {
-                    let Some(index) = pane.tabs.iter().position(|tab| tab.surface == surface)
-                    else {
-                        continue;
-                    };
-                    pane.tabs.remove(index);
-                    if pane.active_tab > index {
-                        pane.active_tab -= 1;
-                    } else if pane.active_tab >= pane.tabs.len() {
-                        pane.active_tab = pane.tabs.len().saturating_sub(1);
-                    }
-                }
-            }
-        }
-        self.rebuild_tab_locations();
     }
 
     fn apply_session_completions_through(&mut self, authoritative_generation: u64) -> bool {
@@ -8864,6 +8846,7 @@ impl App {
             let _ = self.sync_sidebar_plugin(false);
         }
         self.replace_tree(self.session.tree());
+        self.claim_active_terminal_geometry(false);
         if self.surface_only.is_none() {
             self.sidebar_workspace_selection =
                 self.sidebar_workspace_selection.min(self.tree.workspaces.len().saturating_sub(1));
@@ -9252,7 +9235,7 @@ impl App {
             }
         }
         match &event {
-            AppEvent::Mux(MuxEvent::SurfaceExited(_) | MuxEvent::LayoutChanged(_)) => {
+            AppEvent::Mux(MuxEvent::LayoutChanged(_)) => {
                 self.session.refresh_remote_tree_if_stale();
             }
             AppEvent::NormalizedInput(input) if input.is_routable() => {
@@ -9267,12 +9250,7 @@ impl App {
             }
             _ => {}
         }
-        if matches!(
-            &event,
-            AppEvent::Mux(
-                MuxEvent::TreeChanged | MuxEvent::LayoutChanged(_) | MuxEvent::SurfaceExited(_)
-            )
-        ) {
+        if matches!(&event, AppEvent::Mux(MuxEvent::TreeChanged | MuxEvent::LayoutChanged(_))) {
             self.session.clear_surface_sync_failures();
         }
         if let AppEvent::NormalizedInput(TerminalInput::Mouse(
@@ -9592,15 +9570,7 @@ impl App {
                 self.quit = true;
                 Ok(RenderAction::None)
             }
-            AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
-                self.retire_surface_state(id);
-                self.remove_surface_from_tree(id);
-                if self.surface_only == Some(id) {
-                    self.quit = true;
-                    return Ok(RenderAction::None);
-                }
-                Ok(RenderAction::Draw)
-            }
+            AppEvent::Mux(MuxEvent::SurfaceExited(_)) => Ok(RenderAction::Draw),
             AppEvent::Mux(MuxEvent::SurfaceResized { surface, cols, rows, reservation_id }) => {
                 self.session.confirm_surface_resize(surface, (cols, rows), reservation_id);
                 Ok(RenderAction::Draw)
@@ -9720,6 +9690,7 @@ impl App {
                     SessionMutationOutcome::Success { tree } => {
                         if let Some(tree) = tree {
                             self.replace_tree(tree);
+                            self.claim_active_terminal_geometry(false);
                         }
                         self.layout_refresh_retries_remaining = 0;
                     }
@@ -9753,7 +9724,7 @@ impl App {
                             });
                         }
                         self.session.clear_surface_sync_failures();
-                        self.session.reconcile_exited_surfaces(&tree);
+                        self.session.reconcile_retired_surfaces(&tree);
                         self.replace_authoritative_tree(tree, destination_generation);
                         self.layout_refresh_retries_remaining = 0;
                         self.background_refresh_attempts = 0;
@@ -9879,7 +9850,7 @@ impl App {
                 }
                 let refreshed = match result {
                     Ok(tree) => {
-                        self.session.reconcile_exited_surfaces(&tree);
+                        self.session.reconcile_retired_surfaces(&tree);
                         self.replace_authoritative_tree(tree, destination_generation);
                         self.layout_refresh_retries_remaining = 0;
                         self.background_refresh_attempts = 0;
@@ -17491,8 +17462,14 @@ mod tests {
             app.handle(event).unwrap();
         }
 
-        assert!(!app.session.has_surface(first.id));
+        assert!(app.session.has_surface(first.id));
         assert!(app.session.has_surface(second.id));
+        assert!(!app.tab_locations.contains_key(&first.id));
+        assert!(app.tab_locations.contains_key(&second.id));
+        mux.with_state(|state| {
+            assert!(!state.surfaces.contains_key(&first.id));
+            assert!(state.surfaces.contains_key(&second.id));
+        });
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
             mux.close_surface(surface).unwrap();
@@ -18054,6 +18031,16 @@ mod tests {
 
         mux.new_pane_right(right, 2.0 / 3.0, Some((51, 22))).unwrap();
         app.replace_tree(app.session.tree());
+        let appended = app
+            .tree
+            .active_screen()
+            .unwrap()
+            .panes
+            .iter()
+            .map(|pane| pane.id)
+            .find(|pane| *pane != left && *pane != right)
+            .unwrap();
+        app.focus_pane_after_input(appended);
         app.config.viewport.animation = false;
         app.sync_layout((80, 25));
         while app.session.has_pending_mutations() {
@@ -18062,7 +18049,7 @@ mod tests {
 
         let screen = app.tree.active_screen().unwrap();
         let screen_id = screen.id;
-        let appended = screen.active_pane;
+        assert_eq!(screen.active_pane, appended);
         assert_eq!(screen.viewport_splits.len(), 1);
         assert_eq!(app.horizontal_scrollbar_state(), Some((133, 80, 53)));
         assert_eq!(app.pane_areas.len(), 2);
@@ -18371,8 +18358,12 @@ mod tests {
             app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
         }
         assert!(app.prompt.is_none());
-        assert!(mux.surface(right.id).is_none());
-        assert!(mux.surface(moved.id).is_none());
+        assert!(mux.surface(right.id).is_some());
+        assert!(mux.surface(moved.id).is_some());
+        mux.with_state(|state| {
+            assert!(!state.surfaces.contains_key(&right.id));
+            assert!(!state.surfaces.contains_key(&moved.id));
+        });
         assert_eq!(app.tree.active_screen().unwrap().layout.pane_ids_vec(), vec![base]);
 
         app.run_action(Action::UndoLayout).unwrap();
@@ -23019,7 +23010,7 @@ mod tests {
         );
         mux.new_workspace(Some("Alpha".to_string()), Some((80, 24))).unwrap();
         mux.new_workspace(Some("Beta".to_string()), Some((80, 24))).unwrap();
-        let mut app = test_app(Session::Local(mux.clone()));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_width = 18;
         app.sidebar_view = SidebarView::Workspaces;
         app.replace_tree(app.session.tree());
@@ -23061,6 +23052,9 @@ mod tests {
             app.handle(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
             assert_eq!(app.tree.active_workspace, 0);
 
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            }
             app.pointer_route_phase = PointerRoutePhase::Fresh;
             assert_eq!(mux.with_state(|state| state.active_workspace), 1);
         }
@@ -23875,7 +23869,7 @@ mod tests {
             app.session.surface_resize_claims.lock().unwrap().get(&first.id).unwrap().token;
         assert!(app.session.release_surface_size(first.id));
         app.pending_size_releases.insert(first.id);
-        assert!(mux.focus_pane(base));
+        app.focus_pane_after_input(base);
         app.config.viewport.animation = true;
         app.sync_layout((80, 25));
 
@@ -23985,11 +23979,23 @@ mod tests {
         app.session.forget_surface(surface);
         // The authoritative refresh can prune the general tombstone before
         // the in-flight attach returns. Its claim must retain the retirement.
-        app.session.reconcile_exited_surfaces(&TreeView::default());
-        assert!(!app.session.exited_surfaces.lock().unwrap().contains(&surface));
+        app.session.reconcile_retired_surfaces(&TreeView::default());
+        assert!(!app.session.retired_surfaces.lock().unwrap().contains(&surface));
         release.wait();
 
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let settled = loop {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            if matches!(
+                &event,
+                AppEvent::SessionMutationSettled {
+                    outcome: super::SessionMutationOutcome::Success { tree: None },
+                    ..
+                }
+            ) {
+                break event;
+            }
+            app.handle(event).unwrap();
+        };
         assert!(matches!(
             &settled,
             AppEvent::SessionMutationSettled {
@@ -24014,14 +24020,33 @@ mod tests {
         assert!(session.take_remote_tree_stale());
         let (mut app, events) = test_app_with_events(session);
         app.replace_tree(notify_tree(surface, false));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
 
         app.session.attach_surface(surface, Some((80, 24)));
         reached.wait();
         app.session.forget_surface(surface);
-        app.session.reconcile_exited_surfaces(&TreeView::default());
+        app.session.reconcile_retired_surfaces(&TreeView::default());
         release.wait();
 
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        let settled = loop {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            if matches!(
+                &event,
+                AppEvent::SessionMutationSettled {
+                    outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                        surface: 77,
+                        operation: "attach",
+                        ..
+                    },
+                    ..
+                }
+            ) {
+                break event;
+            }
+            app.handle(event).unwrap();
+        };
         assert!(matches!(
             &settled,
             AppEvent::SessionMutationSettled {
@@ -24651,24 +24676,24 @@ mod tests {
     }
 
     #[test]
-    fn exited_surface_tombstones_are_remote_only_and_pruned_authoritatively() {
+    fn retired_surface_tombstones_are_remote_only_and_pruned_authoritatively() {
         let mux = Mux::new("surface-tombstone-churn-test", SurfaceOptions::default());
         let app = test_app(Session::Local(mux));
         for surface in 1..=1_000 {
             app.session.forget_surface(surface);
         }
-        assert!(app.session.exited_surfaces.lock().unwrap().is_empty());
+        assert!(app.session.retired_surfaces.lock().unwrap().is_empty());
 
         let mut app = app;
         app.session.remote = true;
         for surface in 1..=1_000 {
             app.session.forget_surface(surface);
         }
-        assert_eq!(app.session.exited_surfaces.lock().unwrap().len(), 1_000);
-        app.session.reconcile_exited_surfaces(&notify_tree(1_000, false));
-        assert_eq!(*app.session.exited_surfaces.lock().unwrap(), HashSet::from([1_000]));
-        app.session.reconcile_exited_surfaces(&TreeView::default());
-        assert!(app.session.exited_surfaces.lock().unwrap().is_empty());
+        assert_eq!(app.session.retired_surfaces.lock().unwrap().len(), 1_000);
+        app.session.reconcile_retired_surfaces(&notify_tree(1_000, false));
+        assert_eq!(*app.session.retired_surfaces.lock().unwrap(), HashSet::from([1_000]));
+        app.session.reconcile_retired_surfaces(&TreeView::default());
+        assert!(app.session.retired_surfaces.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -24823,12 +24848,14 @@ mod tests {
     }
 
     #[test]
-    fn surface_exit_removes_stale_topology_without_attach_or_failed_mutation() {
-        let mux = Mux::new("surface-exit-before-refresh-test", SurfaceOptions::default());
-        let (mut app, events) = test_app_with_events(Session::Local(mux));
-        let surface = 77;
-        app.session.remote = true;
-        app.replace_tree(notify_tree(surface, false));
+    fn surface_exit_preserves_view_state_without_a_topology_refresh() {
+        let (mux, terminal) = test_mux("surface-exit-preserves-view-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let surface = terminal.id;
         app.rendered_terminal_sizes.insert(surface, (12, 5));
         app.rendered_terminal_bounds.insert(surface, Rect { x: 2, y: 3, width: 12, height: 5 });
         app.deferred_input.push_back(DeferredInput {
@@ -24845,21 +24872,15 @@ mod tests {
             app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(surface))).unwrap(),
             RenderAction::Draw
         );
-        assert!(!app.tab_locations.contains_key(&surface));
-        assert!(app.tree.workspaces[0].screens[0].panes[0].tabs.is_empty());
-        assert!(!app.rendered_terminal_sizes.contains_key(&surface));
-        assert!(!app.rendered_terminal_bounds.contains_key(&surface));
-
-        // Simulate the stale cached remote tree being painted before the
-        // authoritative exit refresh arrives. The exited-surface guard must
-        // still suppress a synchronous reattach attempt.
-        app.replace_tree(notify_tree(surface, false));
-        app.session.attach_surface(surface, Some((80, 24)));
-
-        assert!(!app.session.can_attach_surface(surface));
+        assert!(app.tab_locations.contains_key(&surface));
+        assert_eq!(app.tree.workspaces[0].screens[0].panes[0].tabs.len(), 1);
+        assert_eq!(app.rendered_terminal_sizes.get(&surface), Some(&(12, 5)));
+        assert!(app.rendered_terminal_bounds.contains_key(&surface));
+        assert!(!app.session.remote_tree_is_stale());
         assert!(!app.session.has_pending_mutations());
         assert_eq!(app.deferred_input.len(), 1);
         assert!(events.try_recv().is_err());
+        mux.shutdown();
     }
 
     #[test]
@@ -25572,7 +25593,8 @@ mod tests {
 
         assert_eq!(app.hover, None);
         assert!(app.pending_pointer_motion.is_some());
-        assert!(app.session.has_pending_pointer_mutations());
+        assert!(!app.session.has_pending_pointer_mutations());
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
     }
 
     #[test]
@@ -25657,7 +25679,8 @@ mod tests {
 
         assert_eq!(app.hover, Some((14, 6)));
         assert!(app.pending_pointer_motion.is_none());
-        assert!(app.session.has_pending_pointer_mutations());
+        assert!(!app.session.has_pending_pointer_mutations());
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
     }
 
     #[test]
@@ -26620,9 +26643,9 @@ mod tests {
             })
             .expect("close-tab menu row");
 
-        mux.select_tab(Some(pane), Some(1), None);
-        app.replace_tree(app.session.tree());
+        app.select_tab_for_client(Some(pane), Some(1), None);
         assert_eq!(app.active_surface(), Some(second.id));
+        assert_eq!(mux.active_surface(), Some(first.id));
         let event = |kind| {
             AppEvent::Input(Event::Mouse(MouseEvent {
                 kind,

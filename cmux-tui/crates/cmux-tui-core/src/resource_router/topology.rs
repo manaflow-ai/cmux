@@ -1074,7 +1074,11 @@ mod tests {
                 .expect("explicit terminal close stranded its exit wait");
             assert_eq!(terminal_id, expected_terminal);
             let error = result.unwrap_err();
-            assert!(error.to_string().contains("is tombstoned"), "{error:#}");
+            let resource = error
+                .downcast_ref::<ResourceError>()
+                .expect("explicit terminal close returns a typed resource error");
+            assert_eq!(resource.code, "terminal.closed");
+            assert_eq!(resource.details["terminal_id"], terminal_id.as_str());
             assert_eq!(mux.terminal_exit_waiter_count_for_test(&terminal_id), 0);
         }
         assert_eq!(mux.terminal_exit_state_query_count_for_test(), 6);
