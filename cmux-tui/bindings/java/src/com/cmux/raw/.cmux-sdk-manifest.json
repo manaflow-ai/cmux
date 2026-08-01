@@ -267,8 +267,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "668e659ba7dc3e14d484019a6b09853ecfafc10834e622f554b49f47064c2899",
-      "size": 21774
+      "sha256": "71e108273368a80617d1190641e7869897db02a80a6d202292179ca19211a4b5",
+      "size": 22071
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -417,8 +417,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "ccdfa230076d713f61870a015464ac4612019cd70b71ca679d05f3bf74814393",
-      "size": 21121
+      "sha256": "f8e1c134bafe99bf5d9769691d6f1df7f4d2b7eeed6f016179d8912160053677",
+      "size": 21429
     },
     {
       "path": "GetFrontendProjectionRequest.java",
@@ -539,6 +539,11 @@
       "path": "MarkWorkspacesProviderManagedRequest.java",
       "sha256": "dbc87645f2737dc605c2781747cb7b9b80dd464fc502f4f8d7fb7b04d4b7b473",
       "size": 2275
+    },
+    {
+      "path": "MintTerminalRendererByTerminalRequest.java",
+      "sha256": "f96b4cb7f3917fd603e92aeb1e66405b29ca0927c4f49de1402fb05952e00ca9",
+      "size": 2852
     },
     {
       "path": "MintTerminalRendererRequest.java",
@@ -702,7 +707,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "f9b6177545a0721b7c47ca110ba9a42d79c787472c26bffa6486e8c3f24ad9ad",
+      "sha256": "2cc9f6af45213cda866bbba963adf7f3b01f5c6fd364c7aca9a1cc74cb6f7864",
       "size": 3892
     },
     {
@@ -1252,7 +1257,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "4248b1dd1a8640da3f983118ddce2e8d5ff94db5dc2e18cb9ebc5ba41052284e",
+  "ir_sha256": "0e36764b4a1b7e0d569e3bef4fa0225c0dbeb69f1e3a1eb58334972b42bf855c",
   "language": "java",
   "mux_protocol": 10,
   "schema_version": 2

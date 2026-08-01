@@ -661,7 +661,7 @@ enum Command {
     /// Remote clients must not depend on this daemon generation's local
     /// numeric surface handle.
     MintTerminalRendererByTerminal {
-        terminal: TerminalPublicId,
+        terminal: String,
         #[serde(default = "default_renderer_capability_ttl_ms")]
         ttl_ms: u64,
     },
@@ -7635,6 +7635,7 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::MintTerminalRendererByTerminal { terminal, ttl_ms } => {
+            let terminal = TerminalPublicId::parse(terminal)?;
             let surface = mux
                 .resource_surface_for_terminal(&terminal)
                 .ok_or_else(|| anyhow::anyhow!("terminal {terminal} is not live"))?;
