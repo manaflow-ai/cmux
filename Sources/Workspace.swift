@@ -9689,6 +9689,15 @@ final class Workspace: Identifiable, ObservableObject {
             "pane=\(paneId.id.uuidString.prefix(5)) index=\(index.map(String.init) ?? "nil") focus=\(focus ? 1 : 0)"
         )
 #endif
+        guard !(isRemoteTmuxMirror && detached.panel is ApplicationPanel) else {
+#if DEBUG
+            cmuxDebugLog(
+                "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+                "reason=applicationInRemoteTmuxMirror elapsedMs=\(debugElapsedMs(since: attachStart))"
+            )
+#endif
+            return nil
+        }
         guard bonsplitController.allPaneIds.contains(paneId) else {
 #if DEBUG
             cmuxDebugLog(
