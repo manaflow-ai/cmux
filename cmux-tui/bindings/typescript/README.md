@@ -107,6 +107,10 @@ const transport = new WebSocketTransport("wss://example.test/cmux", {
 });
 ```
 
+Use `onAuthenticationRejected` to remove a supplied `authToken` that the
+server rejects. First-use pairing denial or expiry closes that attempt without
+invoking the credential-rejection callback.
+
 The `cmux` and `cmux/browser` dependency graphs import no Node modules. The
 `cmux/node` entry adds Unix-socket discovery and transport.
 

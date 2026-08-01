@@ -35,10 +35,13 @@ export interface WebSocketLifecycleOptions {
   readonly onAuthenticationRejected?: () => void;
 }
 
+type WebSocketHandshakeMode = "pairing" | "credential";
+
 /** Shared authentication and terminal-state owner for public WebSocket adapters. */
 export class WebSocketLifecycle {
   private readonly socket: WebSocketLifecycleSocket;
   private readonly authToken: string | undefined;
+  private readonly handshakeMode: WebSocketHandshakeMode;
   private readonly maxInboundMessageBytes: number;
   private readonly maxPreauthenticationMessageBytes: number;
   private readonly createError: (message: string) => Error;
@@ -58,6 +61,9 @@ export class WebSocketLifecycle {
   constructor(options: WebSocketLifecycleOptions) {
     this.socket = options.socket;
     this.authToken = options.authToken;
+    this.handshakeMode = options.authToken === undefined
+      ? "pairing"
+      : "credential";
     this.maxInboundMessageBytes = options.maxInboundMessageBytes;
     this.maxPreauthenticationMessageBytes = options.maxPreauthenticationMessageBytes;
     this.createError = options.createError;
@@ -180,7 +186,11 @@ export class WebSocketLifecycle {
     this.closing = true;
     this.closed = true;
     const callbacks: Array<() => void> = [this.clearPending];
-    if (event?.code === 1008 && event.reason === "authentication failed") {
+    if (
+      this.handshakeMode === "credential"
+      && event?.code === 1008
+      && event.reason === "authentication failed"
+    ) {
       callbacks.push(() => this.fail(this.createAuthenticationRejectedError()));
       if (this.onAuthenticationRejected) callbacks.push(this.onAuthenticationRejected);
     }
