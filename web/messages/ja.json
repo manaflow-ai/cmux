@@ -136,7 +136,7 @@
         "upsellTitle": "クラウドエージェントやチーム請求が必要になったらアップグレードできます。",
         "upsellBody": "個人向けクラウド機能にはPro、共有請求とシート管理にはTeamを選択してください。",
         "testflightTitle": "cmux iOSアプリを入手",
-        "testflightBody": "iOSベータは、有効なProユーザーとTeamメンバーがTestFlightで利用できます。",
+        "testflightBody": "iOSベータは、有効な個人向けProサブスクリプションでTestFlightから利用できます。",
         "testflightCta": "iOSベータに参加"
       },
       "pro": {
@@ -187,13 +187,13 @@
         "joined": "AppleからTestFlightの招待メールがまもなく届きます。",
         "left": "iOS TestFlightグループから退出しました。",
         "error": "TestFlightを更新できませんでした。しばらくしてから再試行してください。",
-        "ineligible": "iOS TestFlightには有効なProまたはTeamサブスクリプションが必要です。",
+        "ineligible": "iOS TestFlightには有効な個人Proサブスクリプションが必要です。",
         "needs_email": "iOS TestFlightに参加する前に、確認済みのメインメールを追加してください。",
         "unavailable": "現在、TestFlight登録は利用できません。"
       },
       "notEligible": {
         "title": "サブスクリプションが必要です",
-        "body": "iOS TestFlightアクセスは、有効なProユーザーとTeamサブスクリプションのメンバーが利用できます。"
+        "body": "iOS TestFlightアクセスは、有効な個人Proサブスクリプションのユーザーが利用できます。"
       },
       "needsEmail": {
         "title": "確認済みメールが必要です",
@@ -4732,6 +4732,19 @@
       "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
     }
   },
+  "emails": {
+    "proWelcome": {
+      "subject": "cmux Pro へようこそ！",
+      "fallbackName": "お客様",
+      "greeting": "{name} さん、こんにちは！",
+      "thanks": "cmux Pro にご参加いただきありがとうございます！現在、Pro の全体的な体験を準備しており、Cloud アクセスも近日提供予定です。",
+      "cloudStatus": "Cloud アクセスの提供開始時に、それまで Pro を購読いただいた月数に応じた利用クレジットをアカウントに付与します。",
+      "currentBenefit": "それまでの Pro 特典は cmux iOS の先行アクセスです。下のリンクから登録すると、登録完了後に Apple から TestFlight の招待が届きます。",
+      "testflightLink": "TestFlight に登録する：{url}",
+      "testflightLinkLabel": "TestFlight に登録する",
+      "signoff": "ご参加いただき、ありがとうございます！\ncmux チーム"
+    }
+  },
   "tui": {
     "marketing": {
       "sectionLabel": "TUI",
@@ -4869,19 +4882,9 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro が有効です",
     "title": "cmux Pro へようこそ",
-    "body": "プランには、Cloud VM 上のクラウドエージェント、毎月 20 コンピュート時間、モデルゲートウェイ、cmux iOS アプリが含まれます。まずはここから始めましょう。",
+    "body": "Pro の機能は現在も開発中です。Cloud アクセスは近日提供予定で、継続して購読した月数に応じた利用クレジットを付与します。現在の Pro には cmux iOS TestFlight アクセスが含まれます。",
     "done": "ダッシュボードへ",
     "steps": {
-      "modelGateway": {
-        "title": "モデルゲートウェイ",
-        "body": "使用量とコスト分析を見ながらプロバイダー間でルーティングします。",
-        "action": "モデルゲートウェイを開く"
-      },
-      "aiAccounts": {
-        "title": "AI アカウントを接続",
-        "body": "プロバイダーのアカウントを追加すると、cmux が処理をルーティングできます。",
-        "action": "プロバイダーを接続"
-      },
       "iosApp": {
         "title": "cmux iOS アプリ",
         "body": "スマートフォンで cmux を使えます。",
