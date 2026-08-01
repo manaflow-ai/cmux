@@ -73,9 +73,9 @@ def _run_command(
     if deadline - clock() <= 0:
         raise GoModuleAttemptTimeout(TIMEOUT_DETAIL)
     with tempfile.TemporaryFile(
-        mode="w+", encoding="utf-8"
+        mode="w+", encoding="utf-8", errors="replace"
     ) as stdout_buffer, tempfile.TemporaryFile(
-        mode="w+", encoding="utf-8"
+        mode="w+", encoding="utf-8", errors="replace"
     ) as stderr_buffer:
         try:
             process = subprocess.Popen(
