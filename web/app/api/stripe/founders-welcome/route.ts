@@ -29,9 +29,11 @@ export const dynamic = "force-dynamic";
 const SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
 
 // Upper bound on the best-effort newsletter segment upsert after a founder
-// purchase. Keeps the webhook's total runtime bounded even if Resend stalls;
-// anything missed is picked up by the manual reconciliation sync.
-const NEWSLETTER_UPSERT_DEADLINE_MS = 10_000;
+// purchase. Kept well under Stripe's webhook timeout (with headroom for the
+// welcome send that precedes it) so a Resend stall cannot push the
+// acknowledgement into Stripe's retry window; anything missed is picked up
+// by the manual reconciliation sync.
+const NEWSLETTER_UPSERT_DEADLINE_MS = 5_000;
 
 type FoundersConfig = {
   resendApiKey: string;
