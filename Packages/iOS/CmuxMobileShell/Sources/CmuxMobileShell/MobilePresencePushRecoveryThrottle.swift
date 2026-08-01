@@ -6,7 +6,7 @@ import Foundation
 /// While the phone is disconnected, each heartbeat used to restart connection
 /// recovery, so during a persistent outage the phone kept abandoning its own
 /// in-flight dials on the heartbeat cadence and each abandoned dial fed the
-/// connect-registry hard gate
+/// connect-registry gate
 /// (https://github.com/manaflow-ai/cmux/issues/9177).
 ///
 /// Changed evidence (new routes, a Mac coming online) always passes: that is

@@ -77,6 +77,8 @@ extension MobileShellComposite {
     /// shows Retry and the next network change re-attempts automatically.
     func recoverMobileConnection(trigger: RecoveryTrigger) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
+        // A dial launched while the scene is inactive suspends with the
+        // process; park the trigger and replay it once on foreground.
         guard foregroundRefreshIsActive else {
             pendingInactiveRecoveryTrigger = trigger
             return
@@ -145,6 +147,10 @@ extension MobileShellComposite {
         )
     }
 
+    /// Replays the most recent recovery trigger that was parked while the
+    /// scene was inactive. Called from `resumeForegroundRefresh()` after the
+    /// foreground recovery passes, so a replay coalesces into any attempt
+    /// they already started instead of stacking a second dial.
     func recoverPendingInactiveRecoveryIfNeeded() {
         guard foregroundRefreshIsActive,
               let trigger = pendingInactiveRecoveryTrigger else { return }

@@ -490,6 +490,9 @@ actor MobileCoreRPCSession {
             case .granted(let lease):
                 connectLease = lease
             case .busy:
+                // A gate refusal is instantaneous and never touched the
+                // network; reporting it as a timeout fabricated sub-30ms
+                // "timedOut" failures that poisoned lastFailureEvent.
                 throw MobileShellConnectionError.connectAttemptGated
             case .cleanupBlocked:
                 throw MobileShellConnectionError.routeCleanupBlocked

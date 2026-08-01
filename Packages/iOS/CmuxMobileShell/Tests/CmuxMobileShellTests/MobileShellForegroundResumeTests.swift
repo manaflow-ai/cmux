@@ -209,7 +209,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
         router: router,
         box: box,
         clock: clock,
-        probeTimeoutNanoseconds: 50_000_000
+        probeTimeoutNanoseconds: 1_000_000_000
     )
     defer {
         Task { await router.releaseAllHeld() }
@@ -221,13 +221,31 @@ struct MobileShellForegroundConnectionRecoveryTests {
 
     store.suspendForegroundRefresh()
     store.recoverForegroundConnectionIfNeeded(resyncAfterHealthy: false)
-    #expect(await router.count(of: "mobile.workspace.list") == probeCount)
+    // A dial launched mid-backgrounding suspends with the process (field
+    // traces showed ~9.5s stalls), so the trigger must park until foreground
+    // instead of dialing while inactive.
+    let probedWhileInactive = await router.waitForCount(
+        of: "mobile.workspace.list",
+        atLeast: probeCount + 1,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!probedWhileInactive)
     store.resumeForegroundRefresh()
 
     #expect(await router.waitForCount(
         of: "mobile.workspace.list",
         atLeast: probeCount + 1
     ))
+    // Exactly one probe: the parked trigger's replay coalesces into the
+    // foreground recovery pass instead of stacking a second dial.
+    let doubleProbed = await router.waitForCount(
+        of: "mobile.workspace.list",
+        atLeast: probeCount + 2,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!doubleProbed)
     await router.releaseAllHeld()
     #expect(try await pollUntil {
         store.connectionRecoveryOwner.phase == .idle
