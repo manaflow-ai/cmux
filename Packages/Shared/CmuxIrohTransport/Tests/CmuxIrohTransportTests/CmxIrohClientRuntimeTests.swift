@@ -1155,6 +1155,7 @@ private actor TestRevisionedClientBroker:
     private let blockedSyncCount: Int?
     private let blockedRegistrationCount: Int?
     private let embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse?
+    private let embeddedRegistrationDiscoveryIsComplete: Bool?
     private let registrationRevision: UInt64?
     private let registrationError: CmxIrohTrustBrokerClientError?
     private(set) var registrationCount = 0
@@ -1171,6 +1172,7 @@ private actor TestRevisionedClientBroker:
         blockedRegistrationCount: Int? = nil,
         embedInitialDiscovery: Bool = false,
         embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse? = nil,
+        embeddedRegistrationDiscoveryIsComplete: Bool? = nil,
         registrationRevision: UInt64? = nil,
         registrationError: CmxIrohTrustBrokerClientError? = nil
     ) {
@@ -1181,6 +1183,8 @@ private actor TestRevisionedClientBroker:
         self.blockedRegistrationCount = blockedRegistrationCount
         self.embeddedRegistrationDiscovery = embeddedRegistrationDiscovery
             ?? (embedInitialDiscovery ? discoveries.first : nil)
+        self.embeddedRegistrationDiscoveryIsComplete = embeddedRegistrationDiscoveryIsComplete
+            ?? (embedInitialDiscovery ? true : nil)
         self.registrationRevision = registrationRevision
         self.registrationError = registrationError
     }
@@ -1202,7 +1206,8 @@ private actor TestRevisionedClientBroker:
                 ?? discoveries.first?.revision,
             binding: binding,
             relay: .issued(relay),
-            discovery: embeddedRegistrationDiscovery
+            discovery: embeddedRegistrationDiscovery,
+            discoveryComplete: embeddedRegistrationDiscoveryIsComplete
         )
     }
 

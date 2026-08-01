@@ -310,17 +310,18 @@ export function makeIrohTrustBroker(
           Effect.catchAll(() => Effect.succeed({ status: "unavailable" as const })),
         )
         : { status: "not_requested" as const };
-      const discovery = yield* discover(
+      const discovery = (yield* discover(
         userId,
         now,
-        undefined,
+        { pageSize: "128" },
         savedCustomRelayURLs,
-      );
+      )) as Record<string, unknown>;
       return {
         revision: registration.accountRevision,
         binding: publicBinding(registration.binding, now, savedCustomRelayURLs),
         relay,
         discovery,
+        discovery_complete: discovery.next_cursor === null,
       };
     }),
 

@@ -131,7 +131,8 @@ extension CmxIrohClientRuntime {
         }
         let discovery: CmxIrohDiscoveryResponse
         do {
-            if let embedded = registration?.discovery {
+            if let embedded = registration?.discovery,
+               registration?.discoveryComplete == true {
                 guard let snapshotRevision = embedded.revision,
                       let registrationRevision = registration?.revision,
                       snapshotRevision == registrationRevision,

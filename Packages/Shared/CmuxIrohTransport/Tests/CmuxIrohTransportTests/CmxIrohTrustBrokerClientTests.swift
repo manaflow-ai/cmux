@@ -50,6 +50,7 @@ struct CmxIrohTrustBrokerClientTests {
         let response = try await client.register(prepared: prepared, signer: signer)
 
         #expect(response.binding.tag == "stable")
+        #expect(response.discoveryComplete == nil)
         #expect(await transport.requests().compactMap { $0.url?.path } == [
             "/api/devices/iroh/challenge",
             "/api/devices/iroh/register",
@@ -65,6 +66,7 @@ struct CmxIrohTrustBrokerClientTests {
         )
         responseObject["revision"] = 7
         responseObject["discovery"] = try Self.discoveryObject(revision: 7)
+        responseObject["discovery_complete"] = true
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 201, body: try Self.jsonString(responseObject)),
         ])
@@ -82,6 +84,7 @@ struct CmxIrohTrustBrokerClientTests {
         #expect(response.revision == 7)
         #expect(response.discovery?.revision == 7)
         #expect(response.discovery?.bindings.count == 1)
+        #expect(response.discoveryComplete == true)
     }
 
     @Test
