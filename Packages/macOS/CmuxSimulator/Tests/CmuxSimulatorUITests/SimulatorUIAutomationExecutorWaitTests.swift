@@ -142,6 +142,55 @@ struct SimulatorUIAutomationExecutorWaitTests {
         await coordinator.close()
     }
 
+    @Test("A retained touch rejects a semantic tap before worker input")
+    func retainedTouchRejectsSemanticTap() async throws {
+        let snapshot = Self.actionSnapshot()
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let record = try await coordinator.recordUIAutomationSnapshot(
+            snapshot,
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+        let elementRef = try #require(record.snapshot.elements.first {
+            $0.identifier == "continue"
+        }?.ref)
+        coordinator.holdUIAutomationTouch(
+            elementRef: elementRef,
+            point: SimulatorPoint(x: 0.5, y: 0.5),
+            display: record.display
+        )
+
+        do {
+            _ = try await SimulatorUIAutomationExecutor(
+                scheduler: AdvancingActionScheduler(nowMilliseconds: 1_000)
+            ).perform(
+                .uiAction(.tap(
+                    elementRef: elementRef,
+                    preDelayMilliseconds: 0,
+                    postDelayMilliseconds: 0
+                )),
+                coordinator: coordinator
+            )
+            Issue.record("Expected a retained-touch failure")
+        } catch let failure as SimulatorUIAutomationFailure {
+            #expect(failure.code == "touch_already_held")
+        } catch {
+            Issue.record("Expected a structured UI failure, got \(error)")
+        }
+
+        #expect(coordinator.hasHeldUIAutomationTouch)
+        #expect(!(await client.actions().contains { action in
+            if case .interactive = action { return true }
+            return false
+        }))
+        await coordinator.close()
+    }
+
     @Test("Text-only gone waits reject heterogeneous matches")
     func textOnlyGoneRejectsAmbiguousMatches() async {
         let display = SimulatorDisplayMetadata(

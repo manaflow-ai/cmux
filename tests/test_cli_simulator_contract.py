@@ -425,6 +425,10 @@ def check_ui_automation(
     )
     assert_invalid(
         cli_path, socket_path, fake_home, state,
+        ["wait", "settled", "--label", "Ignored target"],
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
         ["keys", "40,not-a-key,42"],
     )
     assert_invalid(

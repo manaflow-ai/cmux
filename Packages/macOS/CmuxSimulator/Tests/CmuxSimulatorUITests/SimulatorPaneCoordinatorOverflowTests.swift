@@ -4,6 +4,79 @@ import Testing
 
 @Suite("Simulator pane bounded output")
 struct SimulatorPaneCoordinatorOverflowTests {
+    @Test("A retained semantic touch rejects live pointer input")
+    @MainActor
+    func retainedTouchRejectsLivePointerInput() async {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        coordinator.holdUIAutomationTouch(
+            elementRef: "e1_1",
+            point: SimulatorPoint(x: 0.5, y: 0.5),
+            display: nil
+        )
+        let pointer = SimulatorWorkerInbound.pointer(SimulatorPointerEvent(
+            phase: .began,
+            primary: SimulatorPoint(x: 0.25, y: 0.25)
+        ))
+
+        #expect(!coordinator.enqueue(pointer))
+        for _ in 0..<100 { await Task.yield() }
+        #expect(!(await client.messages().contains(pointer)))
+        #expect(coordinator.hasHeldUIAutomationTouch)
+        await coordinator.close()
+    }
+
+    @Test("A retained semantic touch rejects a second coordinated gesture")
+    @MainActor
+    func retainedTouchRejectsCoordinatedGesture() async {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.holdUIAutomationTouch(
+            elementRef: "e1_1",
+            point: SimulatorPoint(x: 0.5, y: 0.5),
+            display: nil
+        )
+        let point = SimulatorPoint(x: 0.25, y: 0.25)
+
+        do {
+            _ = try await coordinator.perform(.interactive(.gesture([
+                SimulatorPointerEvent(phase: .began, primary: point),
+                SimulatorPointerEvent(phase: .ended, primary: point),
+            ])))
+            Issue.record("Expected the second pointer gesture to be rejected")
+        } catch let failure as SimulatorFailure {
+            #expect(failure.code == "simulator_touch_already_held")
+        } catch {
+            Issue.record("Expected a structured Simulator failure, got \(error)")
+        }
+
+        #expect(coordinator.hasHeldUIAutomationTouch)
+        #expect(await client.actions().isEmpty)
+        await coordinator.close()
+    }
+
+    @Test("A coordinated release clears its retained semantic touch")
+    @MainActor
+    func coordinatedReleaseClearsRetainedTouch() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        let point = SimulatorPoint(x: 0.5, y: 0.5)
+        coordinator.holdUIAutomationTouch(
+            elementRef: "e1_1",
+            point: point,
+            display: nil
+        )
+
+        _ = try await coordinator.perform(.interactive(.touch(
+            events: [SimulatorPointerEvent(phase: .ended, primary: point)],
+            holdMilliseconds: 0
+        )))
+
+        #expect(!coordinator.hasHeldUIAutomationTouch)
+        await coordinator.close()
+    }
+
     @Test("Input release clears a retained semantic touch")
     @MainActor
     func inputReleaseClearsRetainedSemanticTouch() {
