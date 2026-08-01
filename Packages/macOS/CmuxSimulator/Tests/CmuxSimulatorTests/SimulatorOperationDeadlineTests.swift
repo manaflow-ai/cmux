@@ -4,13 +4,19 @@ import Testing
 
 @Suite("Simulator operation deadlines")
 struct SimulatorOperationDeadlineTests {
-    @Test("Semantic UI actions cover the server receipt deadline")
-    func semanticUIActionClientTimeout() {
-        let deadlines = SimulatorOperationDeadlines(clientReceiptMargin: 10)
+    @Test("Semantic UI receipts include cold-device readiness")
+    func semanticUIReceiptsIncludeReadiness() {
+        let deadlines = SimulatorOperationDeadlines(
+            selectDevice: 90,
+            inspectionRead: 35,
+            uiAutomationAction: 140,
+            clientReceiptMargin: 10
+        )
 
-        #expect(deadlines.uiAutomationAction == 140)
+        #expect(deadlines.inspectionRead == 125)
+        #expect(deadlines.uiAutomationAction == 230)
         #expect(
-            deadlines.clientTimeout(for: deadlines.uiAutomationAction) == 150
+            deadlines.clientTimeout(for: deadlines.uiAutomationAction) == 240
         )
     }
 }
