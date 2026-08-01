@@ -1,3 +1,4 @@
+internal import CmuxFoundation
 internal import Darwin
 internal import Dispatch
 internal import Foundation
@@ -9,6 +10,7 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
     private let maximumResponseByteCount: Int
     private let connectDependencies: PersistentSocketConnectDependencies
     private let didEnqueueCommand: @Sendable () -> Void
+    private let submissionEpoch = AtomicUInt64Generation()
     private let activeInterruption = PersistentSocketInterruptionSignal()
     private var state: PersistentSocketLineConnectionState?
 
@@ -38,6 +40,7 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
         timeout: TimeInterval,
         validatingPeer: @escaping @Sendable (pid_t?) -> Bool
     ) async -> (response: String, peerProcessID: pid_t?)? {
+        let commandEpoch = submissionEpoch.loadRelaxed()
         let cancellation = PersistentSocketInterruptionSignal()
         let cancellationGeneration = cancellation.begin()
         return await withTaskCancellationHandler {
@@ -51,6 +54,7 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
                             command,
                             at: socketPath,
                             timeout: timeout,
+                            commandEpoch: commandEpoch,
                             cancellation: cancellation,
                             cancellationGeneration: cancellationGeneration,
                             validatingPeer: validatingPeer
@@ -65,6 +69,7 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
     }
 
     func invalidate() async {
+        _ = submissionEpoch.advanceRelaxed()
         activeInterruption.triggerCurrentGeneration()
         await withCheckedContinuation { continuation in
             queue.async { [self] in
@@ -79,6 +84,7 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
         _ command: String,
         at socketPath: String,
         timeout: TimeInterval,
+        commandEpoch: UInt64,
         cancellation: PersistentSocketInterruptionSignal,
         cancellationGeneration: UInt32,
         validatingPeer: @Sendable (pid_t?) -> Bool
@@ -93,6 +99,7 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
             )
         }
         guard
+            submissionEpoch.loadRelaxed() == commandEpoch,
             !operationWasInterrupted(
                 cancellation,
                 cancellationGeneration: cancellationGeneration,
