@@ -176,6 +176,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn transient_dial_failures_are_retryable_carrier_failures() {
+        let directory = tempdir().unwrap();
+        let missing = directory.path().join("missing.sock");
+        let refused = directory.path().join("refused.sock");
+        drop(UnixListener::bind(&refused).unwrap());
+
+        for socket in [missing, refused] {
+            let group = UnixProvider::new(1024).connect(request(&socket)).await.unwrap();
+            let error =
+                match group.open(LinkRequest { lane: Lane::Interactive, generation: 1 }).await {
+                    Ok(_) => panic!("unavailable Unix responder was accepted"),
+                    Err(error) => error,
+                };
+            assert!(
+                error.is_retryable_carrier_failure(),
+                "Unix dial failure for {} was terminal: {error}",
+                socket.display()
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn rejects_responder_owned_by_another_uid() {
         let directory = tempdir().unwrap();
         let socket = directory.path().join("carrier.sock");
