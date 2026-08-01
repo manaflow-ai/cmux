@@ -29,6 +29,23 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         }
     }
 
+    private func pairingURL(routes: [CmxAttachRoute]) throws -> String {
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: nil,
+            macDeviceID: "123e4567-e89b-42d3-a456-426614174074",
+            macDisplayName: "Test Mac",
+            routes: routes
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let payload = try encoder.encode(ticket).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return "cmux-ios://attach?v=1&payload=\(payload)"
+    }
+
     @Test
     func discoveryRateLimitFloorsOnlyDiscoveryAndSurfacesRetryAfter() async throws {
         let fixture = try await MobileIrohCooldownFixture.make(
@@ -325,9 +342,12 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         ))
 
         // A route with an explicit public direct address remains available
-        // while relay bootstrap is suspended.
+        // while relay bootstrap is suspended, including the tagged attach-URL
+        // entrypoint used by mobile-dev-launch.
         _ = try await fixture.composition.transport(for: publicRequest)
-        await fixture.composition.prepareForConnection(routes: [publicRequest.route])
+        await fixture.composition.prepareForConnection(
+            pairingURL: try pairingURL(routes: [publicRequest.route])
+        )
 
         // The identity-only attach barrier must stay pending until the first
         // relay-policy attempt settles. Otherwise a cold launch consumes its
