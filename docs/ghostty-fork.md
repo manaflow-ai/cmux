@@ -12,15 +12,11 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `36a46414a`, the fork-main merge of
-https://github.com/manaflow-ai/ghostty/pull/172. It combines the hidden-renderer
-reclamation and retry-deadline line through `4d6f0014f` with the resolved
-font-binding action callbacks originally ending at `80d7fb35a`.
-https://github.com/manaflow-ai/ghostty/pull/171 reapplied the font callback
-commits on current fork main and clarified the callback's non-reentrant
-contract. PR 172 then recorded the original font branch as ancestry without
-changing the integrated tree, so the final pin descends from both former
-gitlinks (`cd1f8e012` and `80d7fb35a`).
+The submodule pinned by this branch is `59f2b5d2e`, merged into fork main by
+https://github.com/manaflow-ai/ghostty/pull/175. It combines the initial cmux
+theme-picker render fix at `5068b3a37` with the fork-main Sentry environment
+race fix through `abcf5697d`. The previously documented renderer and font-action
+integration at `36a46414a` remains in its ancestry.
 
 The renderer line was reviewed in
 https://github.com/manaflow-ai/ghostty/pull/168, following the merged
@@ -38,6 +34,20 @@ The seven PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
 `2fc66ed15`, `3c1b75d25`, `c467d389c`, `64d7fca66`, and `4d6f0014f`.
 The final font integration landed in merge commits `23003282d` and
 `36a46414a`.
+
+### Initial cmux theme-picker render
+
+- Commit: `5068b3a37` (fix: render cmux theme picker before input)
+- File: `src/cli/list_themes.zig`
+- Summary:
+  - Initializes the terminal dimensions, renders the theme picker, and flushes
+    the first frame before waiting for input, so the picker does not open blank.
+  - Merges cleanly with the `abcf5697d` Sentry initialization fix; no conflict
+    resolution was required.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-59f2b5d2ec67a5f9dfe9138f6e5a4353b75d238e-crashsubdir-cmux-crash-v1
+  - SHA-256 `3767b7bba0931f9cab359d0c8147885e14a2b6ce420044e5946b4b823fc093da`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Hidden macOS renderer reclamation
 

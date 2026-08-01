@@ -1,0 +1,16 @@
+"use client";
+
+import posthog from "posthog-js";
+
+if (typeof window !== "undefined") {
+  posthog.init("phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP", {
+    api_host: "https://r.cmux.com",
+    ui_host: "https://us.posthog.com",
+    person_profiles: "identified_only",
+    capture_pageview: false,
+    capture_pageleave: true,
+    advanced_disable_feature_flags: true,
+  });
+}
+
+export { posthog };
