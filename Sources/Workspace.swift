@@ -5576,6 +5576,13 @@ final class Workspace: Identifiable, ObservableObject {
         remoteSessionController?.kickRemotePortScan(panelId: panelId, reason: reason)
     }
 
+    /// Resolves the live sidebar projection policy from this workspace's injected settings source.
+    func currentSidebarPortVisibilityPolicy() -> SidebarPortVisibilityPolicy {
+        SidebarPortVisibilityPolicy(
+            ignoredRules: settings.value(for: SettingCatalog().sidebar.ignoredPorts)
+        )
+    }
+
     /// Whether remote listening-port discovery may run, derived from the global
     /// sidebar ports-visibility settings. Mirrors the sidebar's own precedence
     /// (`sidebar.hideAllDetails` wins over `sidebar.showPorts`, see

@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -12,19 +13,10 @@ import Testing
 struct SidebarPortVisibilityTests {
     @Test("Default policy excludes the OS ephemeral range without discarding observations")
     func defaultPolicyExcludesEphemeralRangeWithoutDiscardingObservations() throws {
-        let defaults = UserDefaults.standard
-        let ignoredPortsKey = "sidebarIgnoredPorts"
-        let previousValue = defaults.object(forKey: ignoredPortsKey)
-        defer {
-            if let previousValue {
-                defaults.set(previousValue, forKey: ignoredPortsKey)
-            } else {
-                defaults.removeObject(forKey: ignoredPortsKey)
-            }
-        }
-        defaults.removeObject(forKey: ignoredPortsKey)
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let workspace = Workspace()
+        let workspace = Workspace(settings: UserDefaultsSettingsClient(defaults: defaults))
         let panelID = try #require(workspace.focusedPanelId)
         let panelPorts = [49_151, 49_152, 65_535]
         let agentPorts = [3_000, 63_315]
@@ -36,5 +28,89 @@ struct SidebarPortVisibilityTests {
         #expect(workspace.surfaceListeningPorts[panelID] == panelPorts)
         #expect(workspace.agentListeningPorts == agentPorts)
         #expect(workspace.listeningPorts == [3_000, 49_151])
+    }
+
+    @Test("Empty ignored-ports override republishes every raw observation")
+    func emptyOverrideRepublishesEveryRawObservation() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let catalog = SettingCatalog()
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+
+        let workspace = Workspace(settings: settings)
+        workspace.agentListeningPorts = [3_000, 49_152, 65_535]
+        workspace.recomputeListeningPorts()
+
+        #expect(workspace.listeningPorts == [3_000])
+
+        settings.set([], for: catalog.sidebar.ignoredPorts)
+        workspace.recomputeListeningPorts()
+
+        #expect(workspace.listeningPorts == [3_000, 49_152, 65_535])
+    }
+
+    @Test("cmux.json parses exact ports and inclusive ignored ranges")
+    func settingsFileParsesExactPortsAndInclusiveRanges() throws {
+        let catalog = SettingCatalog()
+        let key = catalog.sidebar.ignoredPorts
+        try preservingStandardDefaults(keys: [
+            key.userDefaultsKey,
+            "cmux.settingsFile.backups.v1",
+            "cmux.settingsFile.importedManagedDefaults.v1",
+        ]) {
+            let directoryURL = FileManager.default.temporaryDirectory
+                .appending(path: "cmux-sidebar-port-settings-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appending(path: "cmux.json")
+            try """
+            {
+              "sidebar": {
+                "ignoredPorts": [24678, "49152-65535"]
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(UserDefaultsSettingsClient(defaults: .standard).value(for: key) == [
+                .port(24_678),
+                .range(49_152...65_535),
+            ])
+        }
+    }
+
+    private func makeDefaults() throws -> (UserDefaults, String) {
+        let suiteName = "cmux-sidebar-port-visibility-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return (defaults, suiteName)
+    }
+
+    private func preservingStandardDefaults(
+        keys: [String],
+        _ body: () throws -> Void
+    ) throws {
+        let defaults = UserDefaults.standard
+        let savedValues = keys.map { ($0, defaults.object(forKey: $0)) }
+        for key in keys {
+            defaults.removeObject(forKey: key)
+        }
+        defer {
+            for (key, value) in savedValues {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+        try body()
     }
 }
