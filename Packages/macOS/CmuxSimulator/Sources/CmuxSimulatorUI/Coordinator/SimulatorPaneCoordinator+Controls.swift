@@ -60,6 +60,10 @@ extension SimulatorPaneCoordinator {
         return tasks
     }
 
+    var currentControlActionTaskToken: UUID? {
+        SimulatorControlActionTaskContext.token
+    }
+
     /// Whether the current worker negotiated a capability.
     /// - Parameter capability: The capability to test.
     /// - Returns: `true` when the worker advertised support.
@@ -73,6 +77,20 @@ extension SimulatorPaneCoordinator {
     /// - Returns: The typed result returned by the control client.
     @discardableResult
     public func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
+        if action.invalidatesUIAutomationSnapshot,
+           !uiAutomationSession.currentTaskOwnsTransaction(
+               controlActionToken: currentControlActionTaskToken
+           ) {
+            return try await withUIAutomationTransaction {
+                try await performAdmittedControlAction(action)
+            }
+        }
+        return try await performAdmittedControlAction(action)
+    }
+
+    private func performAdmittedControlAction(
+        _ action: SimulatorControlAction
+    ) async throws -> SimulatorControlResult {
         try Task.checkCancellation()
         guard !closed else { throw CancellationError() }
         let generation = selectionGeneration

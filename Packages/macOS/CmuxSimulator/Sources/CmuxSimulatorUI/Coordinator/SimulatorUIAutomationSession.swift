@@ -1,6 +1,10 @@
 import CmuxSimulator
 import Foundation
 
+private enum SimulatorUIAutomationTransactionContext {
+    @TaskLocal static var token: UUID?
+}
+
 /// Stores pane-scoped refs and serializes Simulator UI mutations.
 @MainActor
 final class SimulatorUIAutomationSession {
@@ -11,15 +15,23 @@ final class SimulatorUIAutomationSession {
     private(set) var mutationGeneration: UInt64 = 0
     private var retainedTouch: SimulatorUIAutomationHeldTouch?
     private var transactionIsActive = false
+    private var activeTransactionToken: UUID?
+    private var activeControlActionToken: UUID?
     private var waiters: [SimulatorUIAutomationTransactionWaiter] = []
 
     func withTransaction<T>(
         _ operation: @MainActor () async throws -> T
     ) async throws -> T {
-        try await beginTransaction()
+        let token = UUID()
+        try await acquireTransaction(
+            token: token,
+            controlActionToken: nil
+        )
         defer { releaseTransaction() }
         try Task.checkCancellation()
-        return try await operation()
+        return try await SimulatorUIAutomationTransactionContext.$token.withValue(token) {
+            try await operation()
+        }
     }
 
     func record(
@@ -161,8 +173,11 @@ final class SimulatorUIAutomationSession {
         retainedTouch = nil
     }
 
-    func beginTransaction() async throws {
-        try await acquireTransaction()
+    func beginTransaction(controlActionToken: UUID? = nil) async throws {
+        try await acquireTransaction(
+            token: UUID(),
+            controlActionToken: controlActionToken
+        )
         do {
             try Task.checkCancellation()
         } catch {
@@ -175,10 +190,28 @@ final class SimulatorUIAutomationSession {
         releaseTransaction()
     }
 
-    private func acquireTransaction() async throws {
+    var isTransactionActive: Bool {
+        transactionIsActive
+    }
+
+    func currentTaskOwnsTransaction(controlActionToken: UUID?) -> Bool {
+        if let activeTransactionToken,
+           SimulatorUIAutomationTransactionContext.token == activeTransactionToken {
+            return true
+        }
+        guard let activeControlActionToken else { return false }
+        return controlActionToken == activeControlActionToken
+    }
+
+    private func acquireTransaction(
+        token: UUID,
+        controlActionToken: UUID?
+    ) async throws {
         try Task.checkCancellation()
         guard transactionIsActive else {
             transactionIsActive = true
+            activeTransactionToken = token
+            activeControlActionToken = controlActionToken
             return
         }
         guard waiters.count < Self.maximumQueuedTransactionCount else {
@@ -194,6 +227,8 @@ final class SimulatorUIAutomationSession {
                 } else {
                     waiters.append(SimulatorUIAutomationTransactionWaiter(
                         id: id,
+                        token: token,
+                        controlActionToken: controlActionToken,
                         continuation: continuation
                     ))
                 }
@@ -208,9 +243,13 @@ final class SimulatorUIAutomationSession {
     private func releaseTransaction() {
         guard !waiters.isEmpty else {
             transactionIsActive = false
+            activeTransactionToken = nil
+            activeControlActionToken = nil
             return
         }
         let waiter = waiters.removeFirst()
+        activeTransactionToken = waiter.token
+        activeControlActionToken = waiter.controlActionToken
         waiter.continuation.resume()
     }
 

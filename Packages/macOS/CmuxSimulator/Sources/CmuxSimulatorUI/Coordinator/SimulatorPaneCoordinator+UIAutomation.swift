@@ -9,19 +9,23 @@ extension SimulatorPaneCoordinator {
     public func withUIAutomationTransaction<T>(
         _ operation: @MainActor () async throws -> T
     ) async throws -> T {
-        try await uiAutomationSession.withTransaction(operation)
+        defer { flushDeferredUIAutomationMessagesIfPossible() }
+        return try await uiAutomationSession.withTransaction(operation)
     }
 
     /// Acquires the pane UI transaction for a legacy operation that can move the screen.
     ///
     /// - Throws: `CancellationError` when the waiting task is cancelled.
     public func beginUIAutomationTransaction() async throws {
-        try await uiAutomationSession.beginTransaction()
+        try await uiAutomationSession.beginTransaction(
+            controlActionToken: currentControlActionTaskToken
+        )
     }
 
     /// Releases a transaction acquired by ``beginUIAutomationTransaction()``.
     public func endUIAutomationTransaction() {
         uiAutomationSession.endTransaction()
+        flushDeferredUIAutomationMessagesIfPossible()
     }
 
     /// Records a fresh compact snapshot and advances this pane's ref sequence.

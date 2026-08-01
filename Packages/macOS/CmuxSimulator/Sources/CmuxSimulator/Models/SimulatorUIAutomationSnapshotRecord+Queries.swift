@@ -155,7 +155,7 @@ extension SimulatorUIAutomationSnapshotRecord {
             viewport: record.viewport,
             direction: direction,
             distance: distance,
-            centeredOnActivationPoint: false,
+            startsAtActivationPoint: false,
             activationPoint: record.activationPoint
         )
     }
@@ -187,7 +187,7 @@ extension SimulatorUIAutomationSnapshotRecord {
             viewport: record.viewport,
             direction: direction,
             distance: distance,
-            centeredOnActivationPoint: true,
+            startsAtActivationPoint: true,
             activationPoint: record.activationPoint
         )
     }
@@ -197,7 +197,7 @@ extension SimulatorUIAutomationSnapshotRecord {
         viewport: SimulatorRect,
         direction: SimulatorUIAutomationDirection,
         distance: Double,
-        centeredOnActivationPoint: Bool,
+        startsAtActivationPoint: Bool,
         activationPoint: SimulatorPoint
     ) -> SimulatorUIAutomationGesturePoints? {
         guard frame.isValidUIAutomationFrame,
@@ -225,12 +225,39 @@ extension SimulatorUIAutomationSnapshotRecord {
         let bottom = normalizedFrame.y + normalizedFrame.height - verticalInset
         guard right > left, bottom > top else { return nil }
 
-        let centerX = centeredOnActivationPoint ? activationPoint.x : (left + right) / 2
-        let centerY = centeredOnActivationPoint ? activationPoint.y : (top + bottom) / 2
         let horizontalStroke = (right - left) * distance
         let verticalStroke = (bottom - top) * distance
         let rawFrom: SimulatorPoint
         let rawTo: SimulatorPoint
+        if startsAtActivationPoint {
+            rawFrom = activationPoint
+            switch direction {
+            case .up:
+                rawTo = SimulatorPoint(
+                    x: rawFrom.x,
+                    y: max(0, rawFrom.y - verticalStroke)
+                )
+            case .down:
+                rawTo = SimulatorPoint(
+                    x: rawFrom.x,
+                    y: min(1, rawFrom.y + verticalStroke)
+                )
+            case .left:
+                rawTo = SimulatorPoint(
+                    x: max(0, rawFrom.x - horizontalStroke),
+                    y: rawFrom.y
+                )
+            case .right:
+                rawTo = SimulatorPoint(
+                    x: min(1, rawFrom.x + horizontalStroke),
+                    y: rawFrom.y
+                )
+            }
+            guard rawFrom != rawTo else { return nil }
+            return SimulatorUIAutomationGesturePoints(from: rawFrom, to: rawTo)
+        }
+        let centerX = (left + right) / 2
+        let centerY = (top + bottom) / 2
         switch direction {
         case .up:
             rawFrom = SimulatorPoint(

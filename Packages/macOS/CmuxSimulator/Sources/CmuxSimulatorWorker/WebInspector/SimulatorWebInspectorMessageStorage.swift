@@ -2,6 +2,7 @@ import Foundation
 
 actor SimulatorWebInspectorMessageStorage {
     private let maximumBufferedBytes: Int
+    private let maximumBufferedMessages: Int
     private var bufferedMessages: [Data] = []
     private var bufferedHead = 0
     private var bufferedBytes = 0
@@ -11,8 +12,13 @@ actor SimulatorWebInspectorMessageStorage {
     )?
     private var isFinished: Bool
 
-    init(maximumBufferedBytes: Int, initiallyFinished: Bool) {
+    init(
+        maximumBufferedBytes: Int,
+        maximumBufferedMessages: Int,
+        initiallyFinished: Bool
+    ) {
         self.maximumBufferedBytes = Swift.max(0, maximumBufferedBytes)
+        self.maximumBufferedMessages = Swift.max(0, maximumBufferedMessages)
         isFinished = initiallyFinished
     }
 
@@ -42,14 +48,15 @@ actor SimulatorWebInspectorMessageStorage {
 
     func yield(_ data: Data) -> SimulatorWebInspectorMessageYieldResult {
         guard !isFinished else { return .terminated }
+        guard !data.isEmpty else { return terminateForOverflow() }
         if let waiter {
             self.waiter = nil
             waiter.continuation.resume(returning: data)
             return .enqueued
         }
-        guard data.count <= maximumBufferedBytes - bufferedBytes else {
-            isFinished = true
-            return .overflow
+        guard bufferedMessages.count - bufferedHead < maximumBufferedMessages,
+              data.count <= maximumBufferedBytes - bufferedBytes else {
+            return terminateForOverflow()
         }
         bufferedMessages.append(data)
         bufferedBytes += data.count
@@ -73,6 +80,14 @@ actor SimulatorWebInspectorMessageStorage {
         let waiter = waiter
         self.waiter = nil
         waiter?.continuation.resume(returning: nil)
+    }
+
+    private func terminateForOverflow() -> SimulatorWebInspectorMessageYieldResult {
+        isFinished = true
+        let waiter = waiter
+        self.waiter = nil
+        waiter?.continuation.resume(returning: nil)
+        return .overflow
     }
 
     private func removeFirstBufferedMessage() -> Data {
