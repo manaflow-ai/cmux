@@ -400,7 +400,7 @@ describe("notifications push route", () => {
     });
   });
 
-  dbTest("persists provider backoff and returns its remaining Retry-After", async () => {
+  dbTest("clamps a persisted provider backoff to the event TTL and returns its remaining Retry-After", async () => {
     if (!sql) throw new Error("test database not initialized");
     useStubDb = false;
     await sql`
@@ -450,10 +450,13 @@ describe("notifications push route", () => {
       >[1],
     );
     expect(first.status).toBe(200);
-    expect(await first.json()).toMatchObject({
-      transientFailures: 1,
-      retryAfterSeconds: 900,
-    });
+    // The route caps the event TTL at 5 minutes, so the provider's 900s
+    // backoff is clamped to a retry that still fits inside the event's life
+    // (TTL minus the bounded send-duration margin, less clock drift).
+    const firstBody = await first.json() as { retryAfterSeconds?: number };
+    expect(firstBody).toMatchObject({ transientFailures: 1 });
+    expect(firstBody.retryAfterSeconds ?? 0).toBeGreaterThan(240);
+    expect(firstBody.retryAfterSeconds ?? 0).toBeLessThanOrEqual(272);
 
     const deferred = await pushRoute.sendPushWithTransport(
       request(),
@@ -462,7 +465,8 @@ describe("notifications push route", () => {
       >[1],
     );
     expect(deferred.status).toBe(409);
-    expect(Number(deferred.headers.get("retry-after"))).toBeGreaterThan(895);
+    expect(Number(deferred.headers.get("retry-after"))).toBeGreaterThan(240);
+    expect(Number(deferred.headers.get("retry-after"))).toBeLessThanOrEqual(272);
     expect(await deferred.json()).toEqual({
       error: "push_event_in_progress",
       correlationId,
