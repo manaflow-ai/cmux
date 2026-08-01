@@ -4,6 +4,35 @@ import Testing
 
 @Suite("Simulator pane bounded output")
 struct SimulatorPaneCoordinatorOverflowTests {
+    @Test("Semantic snapshot preparation yields the main actor")
+    @MainActor
+    func semanticSnapshotPreparationYieldsMainActor() async throws {
+        let coordinator = SimulatorPaneCoordinator(
+            client: SimulatorPaneClientSpy(devices: [])
+        )
+        var preparationStarted = false
+        var preparationFinished = false
+        let preparation = Task { @MainActor in
+            preparationStarted = true
+            for capturedAtMilliseconds in 0..<64 {
+                _ = try await coordinator.recordUIAutomationSnapshot(
+                    Self.maximumSnapshot(),
+                    simulatorID: "DEVICE",
+                    capturedAtMilliseconds: Int64(capturedAtMilliseconds)
+                )
+            }
+            preparationFinished = true
+        }
+
+        while !preparationStarted {
+            await Task.yield()
+        }
+
+        #expect(!preparationFinished)
+        preparation.cancel()
+        _ = await preparation.result
+    }
+
     @Test("A dropped UI mutation preserves the last accepted semantic snapshot")
     @MainActor
     func droppedMutationPreservesSnapshot() throws {
@@ -154,6 +183,50 @@ struct SimulatorPaneCoordinatorOverflowTests {
                 orientation: .portrait,
                 scale: 3
             )
+        )
+    }
+
+    private static func maximumSnapshot() -> SimulatorAccessibilitySnapshot {
+        let children = (0..<499).map { index in
+            SimulatorAccessibilityNode(
+                id: "element-\(index)",
+                role: "Button",
+                label: String(repeating: "Semantic element \(index) ", count: 8),
+                value: "Value \(index)",
+                frame: SimulatorRect(
+                    x: Double(index % 10) * 39,
+                    y: Double(index / 10) * 16,
+                    width: 39,
+                    height: 16
+                ),
+                isEnabled: true,
+                children: []
+            )
+        }
+        return SimulatorAccessibilitySnapshot(
+            roots: [
+                SimulatorAccessibilityNode(
+                    id: "root",
+                    role: "Application",
+                    label: "Maximum semantic tree",
+                    value: nil,
+                    frame: SimulatorRect(
+                        x: 0,
+                        y: 0,
+                        width: 390,
+                        height: 844
+                    ),
+                    isEnabled: true,
+                    children: children
+                ),
+            ],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            ),
+            nodeCount: 500
         )
     }
 }
