@@ -1,6 +1,7 @@
 import AppKit
 import CmuxControlSocket
 import CmuxSettings
+import CmuxTerminal
 import Testing
 
 #if canImport(cmux_DEV)
