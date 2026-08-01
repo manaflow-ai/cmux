@@ -1013,6 +1013,31 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func appSessionSignOutClosesFloatingPopupsBeforeReplacingStore() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
+        defer { panel.close() }
+        let authenticatedStore = panel.webView.configuration.websiteDataStore
+        let popupWebView = try #require(
+            panel.createFloatingPopup(
+                configuration: WKWebViewConfiguration(),
+                windowFeatures: WKWindowFeatures()
+            )
+        )
+        let popupWindow = try #require(popupWebView.window)
+        defer { popupWebView.window?.close() }
+
+        #expect(popupWebView.configuration.websiteDataStore === authenticatedStore)
+
+        panel.resetForAppSessionSignOut()
+
+        #expect(!(panel.webView.configuration.websiteDataStore === authenticatedStore))
+        #expect(popupWebView.navigationDelegate == nil)
+        #expect(popupWebView.uiDelegate == nil)
+        #expect(popupWebView.window == nil)
+        #expect(!popupWindow.isVisible)
+    }
+
+    @Test
     func floatingPopupClosesWhenWebContentProcessTerminates() throws {
         let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
         defer { panel.close() }
