@@ -168,6 +168,28 @@ struct SimulatorAgentCursorTests {
         #expect(coordinator.agentCursorPresentation?.destination == second)
     }
 
+    @Test("A distant tap delays its click phase until cursor travel finishes")
+    func distantTapDelaysClickedPhase() async throws {
+        let coordinator = SimulatorPaneCoordinator(
+            client: SimulatorPaneClientSpy(devices: [])
+        )
+        coordinator.ensureAgentCursorPresentation()
+        let destination = SimulatorPoint(x: 1, y: 1)
+
+        _ = try await coordinator.perform(.interactive(.gesture([
+            SimulatorPointerEvent(phase: .began, primary: destination),
+            SimulatorPointerEvent(phase: .ended, primary: destination),
+        ])))
+
+        let presentation = try #require(coordinator.agentCursorPresentation)
+        #expect(presentation.durationMilliseconds > 50)
+        #expect(presentation.phase == .clicked)
+        #expect(
+            presentation.clickPhaseDelayMilliseconds
+                == presentation.durationMilliseconds - 50
+        )
+    }
+
     @Test("A device reattachment preserves the workspace cursor")
     func reattachmentPreservesCursor() async throws {
         let device = SimulatorDevice(
