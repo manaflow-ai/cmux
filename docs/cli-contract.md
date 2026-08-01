@@ -681,7 +681,8 @@ the expected text without connecting to a cmux socket.
 - `cmux markdown --help` -> `Usage: cmux markdown open <path>`
 <!-- cli-contract-help-probes:end -->
 
-For `cmux restore`, `--surface [id|ref]` uses the caller when omitted.
+For `cmux restore`, `--surface` accepts an optional `[id|ref]` value. When the
+value is omitted (`cmux restore --surface`), cmux uses the caller's surface.
 
 ## No-Socket Negative Help Probes
 
