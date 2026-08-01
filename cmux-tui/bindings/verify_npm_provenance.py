@@ -27,6 +27,7 @@ STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 GITHUB_REPOSITORY = "https://github.com/manaflow-ai/cmux"
 GITHUB_REPOSITORY_ID = "1144115288"
 GITHUB_REPOSITORY_OWNER_ID = "171392238"
+GITHUB_RELEASE_EVENT = "repository_dispatch"
 GITHUB_WORKFLOW_BUILD_TYPE = (
     "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1"
 )
@@ -247,7 +248,7 @@ def _validate_attestation(
     internal = definition.get("internalParameters")
     github = internal.get("github") if isinstance(internal, dict) else None
     if not isinstance(github, dict) or (
-        github.get("event_name") != "workflow_dispatch"
+        github.get("event_name") != GITHUB_RELEASE_EVENT
         or github.get("repository_id") != GITHUB_REPOSITORY_ID
         or github.get("repository_owner_id") != GITHUB_REPOSITORY_OWNER_ID
     ):
