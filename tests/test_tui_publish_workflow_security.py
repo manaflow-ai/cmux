@@ -1,3 +1,5 @@
+import json
+import tomllib
 from pathlib import Path
 
 
@@ -6,6 +8,74 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def workflow(name: str) -> str:
     return (ROOT / ".github" / "workflows" / name).read_text()
+
+
+def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
+    bindings = ROOT / "cmux-tui" / "bindings"
+    typescript = json.loads(
+        (bindings / "typescript" / "package.json").read_text()
+    )
+    python = tomllib.loads(
+        (bindings / "python" / "pyproject.toml").read_text()
+    )
+    tui_npm = json.loads(
+        (ROOT / "cmux-tui" / "dist" / "npm" / "cmux" / "package.json").read_text()
+    )
+    tui_pypi = (
+        ROOT / "cmux-tui" / "dist" / "scripts" / "package_pypi.py"
+    ).read_text()
+
+    assert typescript["name"] == "cmux-sdk"
+    assert python["project"]["name"] == "cmux-sdk"
+    assert tui_npm["name"] == "cmux"
+    assert 'DIST_NAME = "cmux"' in tui_pypi
+    assert 'PACKAGE_NAME = "cmux_tui"' in tui_pypi
+    assert "cmux = cmux_tui._main:main" in tui_pypi
+
+
+def test_typescript_sdk_publisher_cannot_publish_the_cli_package() -> None:
+    sdk = workflow("sdk-publish-npm.yml")
+    tui = workflow("tui-publish-npm.yml")
+
+    assert "https://www.npmjs.com/package/cmux-sdk" in sdk
+    assert "npm publish --provenance" in sdk
+    assert "--tag sdk" not in sdk
+    assert "confirm_npm_cmux" not in sdk
+    assert "publish_target" not in tui
+    assert "publish-sdk" not in tui
+    assert "confirm_sdk_cmux" not in tui
+    assert "https://www.npmjs.com/package/cmux" in tui
+
+
+def test_python_sdk_publisher_cannot_publish_the_cli_package() -> None:
+    sdk = workflow("sdk-publish-python.yml")
+    tui = workflow("tui-publish-pypi.yml")
+
+    assert "https://pypi.org/p/cmux-sdk" in sdk
+    assert "https://pypi.org/p/cmux" in tui
+
+
+def test_sdk_release_cut_dispatches_only_the_selected_four_languages() -> None:
+    release = workflow("sdk-release-cut.yml")
+
+    assert 'sdk_tag="cmux-sdk-v$VERSION"' in release
+    assert 'go_tag="cmux-tui/bindings/go/v$VERSION"' in release
+    assert 'git push --atomic origin "refs/tags/$sdk_tag" "refs/tags/$go_tag"' in release
+    assert release.count("gh workflow run sdk-publish-") == 4
+    for publisher in ("crates", "go", "npm", "python"):
+        assert f"gh workflow run sdk-publish-{publisher}.yml" in release
+    assert "sdk-publish-java.yml" not in release
+
+
+def test_go_publisher_uses_the_nested_module_semver_tag() -> None:
+    go = workflow("sdk-publish-go.yml")
+    java = workflow("sdk-publish-java.yml")
+
+    assert '"cmux-tui/bindings/go/v*"' in go
+    assert "cmux-tui/bindings/go/vX.Y.Z" in go
+    assert 'version="${GITHUB_REF_NAME#cmux-tui/bindings/go/v}"' in go
+    assert '"cmux-sdk-v*"' not in go
+    assert '"cmux-sdk-v*"' not in java
 
 
 def test_stable_registry_publishers_are_exact_tag_and_artifact_bound() -> None:
