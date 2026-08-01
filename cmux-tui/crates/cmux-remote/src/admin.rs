@@ -14,7 +14,7 @@ use cmux_remote_protocol::SessionId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::net::UnixStream;
 use tokio::sync::{oneshot, watch};
 
 use crate::daemon::RemoteDaemon;
@@ -178,7 +178,7 @@ pub async fn serve_admin_with_shutdown(
 ) -> Result<AdminServer, AdminError> {
     let path = path.into();
     prepare_socket_path(&path).await?;
-    let listener = UnixListener::bind(&path)?;
+    let listener = cmux_tui_process::tokio_net::bind_unix_listener(&path)?;
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let task_path = path.clone();
@@ -186,7 +186,7 @@ pub async fn serve_admin_with_shutdown(
         loop {
             tokio::select! {
                 _ = &mut shutdown_rx => break,
-                accepted = listener.accept() => {
+                accepted = cmux_tui_process::tokio_net::accept_unix_stream(&listener) => {
                     let Ok((stream, _)) = accepted else { break };
                     let daemon = daemon.clone();
                     let default_route_hints = default_route_hints.clone();
@@ -214,7 +214,7 @@ pub async fn call_admin(
     path: impl AsRef<Path>,
     request: &AdminRequest,
 ) -> Result<AdminResponse, AdminError> {
-    let stream = UnixStream::connect(path).await?;
+    let stream = cmux_tui_process::tokio_net::connect_unix_stream(path).await?;
     verify_unix_peer_owner(&stream)?;
     call_admin_over_stream(stream, request).await
 }
@@ -225,7 +225,7 @@ async fn call_admin_with_expected_uid(
     request: &AdminRequest,
     expected_uid: u32,
 ) -> Result<AdminResponse, AdminError> {
-    let stream = UnixStream::connect(path).await?;
+    let stream = cmux_tui_process::tokio_net::connect_unix_stream(path).await?;
     verify_unix_peer_uid(&stream, expected_uid)?;
     call_admin_over_stream(stream, request).await
 }
@@ -390,7 +390,7 @@ async fn prepare_socket_path(path: &Path) -> Result<(), AdminError> {
                 path.display()
             )));
         }
-        if UnixStream::connect(path).await.is_ok() {
+        if cmux_tui_process::tokio_net::connect_unix_stream(path).await.is_ok() {
             return Err(AdminError::Protocol(format!(
                 "another daemon owns admin socket {}",
                 path.display()

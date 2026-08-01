@@ -236,7 +236,7 @@ pub async fn serve_workspace_http(
     }
     let token_file = token_file.into();
     let token = load_or_create_workspace_http_token(&token_file)?;
-    let listener = tokio::net::TcpListener::bind(address).await?;
+    let listener = cmux_tui_process::tokio_net::bind_tcp_listener(address)?;
     let local_addr = listener.local_addr()?;
     let router = workspace_http_router(workspace, token);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();

@@ -1711,8 +1711,8 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
     let runtime = match load_runtime_info(&parsed.session, parsed.state_dir.as_deref()) {
         Ok(runtime) => runtime,
         Err(_)
-            if UnixStream::connect(&default_link).is_err()
-                && UnixStream::connect(&default_admin).is_err() =>
+            if cmux_tui_process::unix::connect_stream(&default_link).is_err()
+                && cmux_tui_process::unix::connect_stream(&default_admin).is_err() =>
         {
             return Ok(());
         }
@@ -1736,7 +1736,7 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
     }
     let deadline = Instant::now() + Duration::from_secs(20);
     while Instant::now() < deadline {
-        if UnixStream::connect(&link).is_err() && !runtime_file.exists() {
+        if cmux_tui_process::unix::connect_stream(&link).is_err() && !runtime_file.exists() {
             return Ok(());
         }
         thread::sleep(Duration::from_millis(50));
@@ -1823,7 +1823,7 @@ fn ensure_daemon(
     mux_socket_override: Option<&Path>,
 ) -> anyhow::Result<()> {
     let _lock = lock_daemon_start(session_state)?;
-    if UnixStream::connect(link).is_ok() {
+    if cmux_tui_process::unix::connect_stream(link).is_ok() {
         return Ok(());
     }
 
@@ -1833,7 +1833,7 @@ fn ensure_daemon(
         .map(Path::to_path_buf)
         .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from))
         .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(session));
-    if UnixStream::connect(&mux_socket).is_err() {
+    if cmux_tui_process::unix::connect_stream(&mux_socket).is_err() {
         let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
         let mut mux_owner = Command::new(&executable);
         mux_owner
@@ -1847,7 +1847,7 @@ fn ensure_daemon(
             cmux_tui_process::spawn(&mut mux_owner).context("could not start remote mux owner")?;
         let deadline = Instant::now() + Duration::from_secs(20);
         while Instant::now() < deadline {
-            if UnixStream::connect(&mux_socket).is_ok() {
+            if cmux_tui_process::unix::connect_stream(&mux_socket).is_ok() {
                 break;
             }
             if let Some(status) = child.try_wait()? {
@@ -1858,7 +1858,7 @@ fn ensure_daemon(
             }
             thread::sleep(Duration::from_millis(50));
         }
-        if UnixStream::connect(&mux_socket).is_err() {
+        if cmux_tui_process::unix::connect_stream(&mux_socket).is_err() {
             return Err(anyhow!("remote mux owner did not create {}", mux_socket.display()));
         }
     }
@@ -1880,7 +1880,7 @@ fn ensure_daemon(
         cmux_tui_process::spawn(&mut command).context("could not start remote daemon")?;
     let deadline = Instant::now() + Duration::from_secs(20);
     while Instant::now() < deadline {
-        if UnixStream::connect(link).is_ok() {
+        if cmux_tui_process::unix::connect_stream(link).is_ok() {
             return Ok(());
         }
         if let Some(status) = child.try_wait()? {
@@ -1905,7 +1905,7 @@ fn configure_detached_process(command: &mut Command) {
 }
 
 fn open_mux_monitor(path: &Path) -> anyhow::Result<UnixStream> {
-    let stream = UnixStream::connect(path).with_context(|| {
+    let stream = cmux_tui_process::unix::connect_stream(path).with_context(|| {
         format!("cannot attach remote sidecar to mux socket {}", path.display())
     })?;
     stream.set_read_timeout(Some(Duration::from_millis(250)))?;
@@ -1968,7 +1968,7 @@ fn cleanup_stale_sidecar_artifacts(
 ) -> anyhow::Result<()> {
     // A replacement started outside the bootstrap lock owns these paths. Do
     // not unlink its sockets or metadata.
-    if UnixStream::connect(link_socket).is_ok() {
+    if cmux_tui_process::unix::connect_stream(link_socket).is_ok() {
         return Ok(());
     }
     remove_regular_file_if_present(&state_dir.join("runtime.json"))?;
@@ -1991,7 +1991,7 @@ fn remove_stale_socket_if_present(path: &Path) -> anyhow::Result<()> {
 
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_socket() => {
-            if UnixStream::connect(path).is_err() {
+            if cmux_tui_process::unix::connect_stream(path).is_err() {
                 fs::remove_file(path)?;
             }
         }
@@ -2032,7 +2032,7 @@ where
 {
     use tokio::io::{AsyncWriteExt, copy};
 
-    let stream = tokio::net::UnixStream::connect(link).await?;
+    let stream = cmux_tui_process::tokio_net::connect_unix_stream(link).await?;
     verify_peer(&stream)?;
     let (mut socket_read, mut socket_write) = stream.into_split();
     let upload = async {

@@ -320,3 +320,174 @@ pub mod tcp {
         )
     }
 }
+
+/// Tokio socket operations coordinated with process launch on macOS.
+///
+/// Tokio and Mio cannot create or accept every macOS socket with
+/// close-on-exec set atomically. These helpers hold the same process-wide
+/// guard used by child launch only around descriptor creation and registration.
+pub mod tokio_net {
+    use std::io;
+    use std::net::SocketAddr;
+
+    use tokio::net::{TcpListener, TcpSocket, TcpStream};
+
+    use super::ProcessCreationGuard;
+
+    /// Bind and register a Tokio TCP listener without an inheritance window.
+    pub fn bind_tcp_listener(address: SocketAddr) -> io::Result<TcpListener> {
+        let listener = super::tcp::bind_listener(address)?;
+        listener.set_nonblocking(true)?;
+        TcpListener::from_std(listener)
+    }
+
+    /// Connect to the first reachable TCP address without an inheritance window.
+    pub async fn connect_tcp_stream(addresses: &[SocketAddr]) -> io::Result<TcpStream> {
+        let mut last_error = None;
+        for &address in addresses {
+            let socket = {
+                let _guard = ProcessCreationGuard::acquire();
+                if address.is_ipv4() { TcpSocket::new_v4() } else { TcpSocket::new_v6() }
+            }?;
+            match socket.connect(address).await {
+                Ok(stream) => return Ok(stream),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "TCP address list is empty")
+        }))
+    }
+
+    /// Accept a Tokio TCP stream without an inheritance window.
+    pub async fn accept_tcp_stream(listener: &TcpListener) -> io::Result<(TcpStream, SocketAddr)> {
+        #[cfg(target_os = "macos")]
+        {
+            std::future::poll_fn(|context| {
+                let _guard = ProcessCreationGuard::acquire();
+                listener.poll_accept(context)
+            })
+            .await
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            listener.accept().await
+        }
+    }
+
+    #[cfg(unix)]
+    use std::path::Path;
+    #[cfg(unix)]
+    use tokio::net::{UnixListener, UnixStream};
+
+    /// Bind and register a Tokio Unix listener without an inheritance window.
+    #[cfg(unix)]
+    pub fn bind_unix_listener(path: impl AsRef<Path>) -> io::Result<UnixListener> {
+        let listener = super::unix::bind_listener(path)?;
+        listener.set_nonblocking(true)?;
+        UnixListener::from_std(listener)
+    }
+
+    /// Connect a Tokio Unix stream without an inheritance window.
+    #[cfg(unix)]
+    pub async fn connect_unix_stream(path: impl AsRef<Path>) -> io::Result<UnixStream> {
+        #[cfg(target_os = "macos")]
+        {
+            let address = socket2::SockAddr::unix(path)?;
+            let (stream, pending) = {
+                let _guard = ProcessCreationGuard::acquire();
+                let socket =
+                    socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None)?;
+                socket.set_nonblocking(true)?;
+                let pending = match socket.connect(&address) {
+                    Ok(()) => false,
+                    Err(error) if connect_is_pending(&error) => true,
+                    Err(error) => return Err(error),
+                };
+                let stream: std::os::unix::net::UnixStream = socket.into();
+                (stream, pending)
+            };
+            let stream = UnixStream::from_std(stream)?;
+            if pending {
+                stream.writable().await?;
+                if let Some(error) = stream.take_error()? {
+                    return Err(error);
+                }
+            }
+            Ok(stream)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            UnixStream::connect(path).await
+        }
+    }
+
+    /// Accept a Tokio Unix stream without an inheritance window.
+    #[cfg(unix)]
+    pub async fn accept_unix_stream(
+        listener: &UnixListener,
+    ) -> io::Result<(UnixStream, tokio::net::unix::SocketAddr)> {
+        #[cfg(target_os = "macos")]
+        {
+            std::future::poll_fn(|context| {
+                let _guard = ProcessCreationGuard::acquire();
+                listener.poll_accept(context)
+            })
+            .await
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            listener.accept().await
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn connect_is_pending(error: &io::Error) -> bool {
+        error.kind() == io::ErrorKind::WouldBlock
+            || matches!(
+                error.raw_os_error(),
+                Some(libc::EINPROGRESS | libc::EALREADY | libc::EWOULDBLOCK)
+            )
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use std::time::Duration;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tokio_tcp_connect_waits_for_process_creation_barrier() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (held_sender, held_receiver) = std::sync::mpsc::channel();
+        let (release_sender, release_receiver) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let _barrier = super::ProcessCreationGuard::acquire();
+            held_sender.send(()).unwrap();
+            release_receiver.recv().unwrap();
+        });
+        held_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("process creation barrier was not acquired");
+
+        let connect =
+            tokio::spawn(async move { super::tokio_net::connect_tcp_stream(&[address]).await });
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let completed_while_barrier_held = connect.is_finished();
+        release_sender.send(()).unwrap();
+        holder.join().unwrap();
+
+        let stream = tokio::time::timeout(Duration::from_secs(5), connect)
+            .await
+            .expect("TCP connect did not resume after the process barrier was released")
+            .unwrap()
+            .unwrap();
+        let (peer, _) = listener.accept().unwrap();
+        drop(peer);
+        drop(stream);
+        assert!(
+            !completed_while_barrier_held,
+            "TCP connect created a socket while a concurrent process could inherit it"
+        );
+    }
+}

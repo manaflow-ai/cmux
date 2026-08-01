@@ -742,6 +742,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "socket2 0.5.10",
+ "tokio",
 ]
 
 [[package]]

@@ -41,7 +41,7 @@ impl LocalPortForward {
         if maximum_connections == 0 {
             return Err(BridgeError::InvalidConnectionLimit);
         }
-        let listener = tokio::net::TcpListener::bind(address).await?;
+        let listener = cmux_tui_process::tokio_net::bind_tcp_listener(address)?;
         let local_addr = listener.local_addr()?;
         let permits = Arc::new(Semaphore::new(maximum_connections));
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
@@ -58,7 +58,7 @@ impl LocalPortForward {
                 };
                 let accepted = tokio::select! {
                     _ = &mut shutdown_rx => break,
-                    accepted = listener.accept() => accepted,
+                    accepted = cmux_tui_process::tokio_net::accept_tcp_stream(&listener) => accepted,
                 };
                 let Ok((socket, _)) = accepted else { break };
                 if configure_forward_socket(&socket).is_err() {
@@ -132,7 +132,7 @@ pub async fn serve_mux_bridge(
             completed = connections.join_next(), if !connections.is_empty() => {
                 let _ = completed;
             }
-            accepted = listener.accept() => {
+            accepted = cmux_tui_process::tokio_net::accept_unix_stream(&listener) => {
                 let Ok((socket, _)) = accepted else { break };
                 let multiplexer = multiplexer.clone();
                 connections.spawn(async move {

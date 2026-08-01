@@ -601,7 +601,7 @@ impl DaemonServices {
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
-        let socket = tokio::net::UnixStream::connect(path).await?;
+        let socket = cmux_tui_process::tokio_net::connect_unix_stream(path).await?;
         let stream = Arc::new(stream);
         send_opened(&stream, Lane::Interactive).await?;
         let (reader, writer) = socket.into_split();

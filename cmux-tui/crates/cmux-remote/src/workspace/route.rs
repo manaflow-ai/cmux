@@ -92,10 +92,13 @@ impl RouteManager {
             .cloned()
             .ok_or_else(|| RpcError::new("unknown-route", format!("unknown route {}", id.0)))?;
         let addresses = resolve_allowed(&route.host, route.port, route.policy).await?;
-        let stream = tokio::time::timeout(DIAL_TIMEOUT, TcpStream::connect(addresses.as_slice()))
-            .await
-            .map_err(|_| RpcError::new("route-unavailable", "connection timed out"))?
-            .map_err(|error| RpcError::new("route-unavailable", error.to_string()))?;
+        let stream = tokio::time::timeout(
+            DIAL_TIMEOUT,
+            cmux_tui_process::tokio_net::connect_tcp_stream(addresses.as_slice()),
+        )
+        .await
+        .map_err(|_| RpcError::new("route-unavailable", "connection timed out"))?
+        .map_err(|error| RpcError::new("route-unavailable", error.to_string()))?;
         stream
             .set_nodelay(true)
             .map_err(|error| RpcError::new("route-error", error.to_string()))?;

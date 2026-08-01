@@ -21,8 +21,6 @@ use axum::serve::{IncomingStream, Listener};
 use bytes::Bytes;
 use cmux_remote_protocol::{FrameFlags, Lane, SessionId};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-#[cfg(unix)]
-use tokio::net::UnixListener;
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, RwLock, Semaphore, mpsc, oneshot, watch};
 
 use crate::connection::{ConnectionError, LinkRejection, send_link_ready, send_link_rejection};
@@ -1137,7 +1135,7 @@ impl Listener for LimitedTcpListener {
                 .acquire_owned()
                 .await
                 .expect("direct WebSocket admission semaphore is never closed");
-            match self.inner.accept().await {
+            match cmux_tui_process::tokio_net::accept_tcp_stream(&self.inner).await {
                 Ok((inner, address)) => {
                     let _ = inner.set_nodelay(true);
                     return (
@@ -1249,8 +1247,7 @@ pub async fn serve_direct_websocket(
             "refusing plaintext remote WebSocket bind {address}; use TLS or explicitly allow it"
         )));
     }
-    let listener = tokio::net::TcpListener::bind(address)
-        .await
+    let listener = cmux_tui_process::tokio_net::bind_tcp_listener(address)
         .map_err(|error| DaemonError::Protocol(format!("could not bind WebSocket: {error}")))?;
     let local_addr = listener.local_addr().map_err(|error| {
         DaemonError::Protocol(format!("could not read WebSocket address: {error}"))
@@ -1362,7 +1359,7 @@ pub async fn serve_unix(
                 path.display()
             )));
         }
-        if tokio::net::UnixStream::connect(&path).await.is_ok() {
+        if cmux_tui_process::tokio_net::connect_unix_stream(&path).await.is_ok() {
             return Err(DaemonError::Protocol(format!(
                 "another daemon is listening at {}",
                 path.display()
@@ -1372,7 +1369,7 @@ pub async fn serve_unix(
             DaemonError::Protocol(format!("could not remove stale socket: {error}"))
         })?;
     }
-    let listener = UnixListener::bind(&path)
+    let listener = cmux_tui_process::tokio_net::bind_unix_listener(&path)
         .map_err(|error| DaemonError::Protocol(format!("could not bind Unix socket: {error}")))?;
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
         .map_err(|error| DaemonError::Protocol(format!("could not secure Unix socket: {error}")))?;
@@ -1382,7 +1379,7 @@ pub async fn serve_unix(
         loop {
             tokio::select! {
                 _ = &mut shutdown_rx => break,
-                accepted = listener.accept() => {
+                accepted = cmux_tui_process::tokio_net::accept_unix_stream(&listener) => {
                     let Ok((stream, _)) = accepted else { break };
                     let Ok(peer) = stream.peer_cred() else { continue };
                     let owner = unsafe { libc::geteuid() };
@@ -1496,8 +1493,8 @@ mod tests {
     };
 
     #[cfg(target_os = "macos")]
-    fn hold_process_creation_barrier()
-    -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>) {
+    fn hold_process_creation_barrier() -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>)
+    {
         let (held_sender, held_receiver) = std::sync::mpsc::channel();
         let (release_sender, release_receiver) = std::sync::mpsc::channel();
         let holder = std::thread::spawn(move || {
@@ -1548,10 +1545,8 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let client = tokio::net::TcpStream::connect(address).await.unwrap();
-        let mut listener = LimitedTcpListener {
-            inner: listener,
-            permits: Arc::new(Semaphore::new(1)),
-        };
+        let mut listener =
+            LimitedTcpListener { inner: listener, permits: Arc::new(Semaphore::new(1)) };
         let (release, holder) = hold_process_creation_barrier();
 
         let accept = tokio::spawn(async move { listener.accept().await });

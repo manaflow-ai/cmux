@@ -486,7 +486,7 @@ async fn run_client(
         prepare_client_socket(&local_socket).await?;
         let daemon_public_key = connection.daemon_public_key();
         let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
-        let listener = tokio::net::UnixListener::bind(&local_socket)?;
+        let listener = cmux_tui_process::tokio_net::bind_unix_listener(&local_socket)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -1188,7 +1188,7 @@ async fn prepare_client_socket(path: &Path) -> anyhow::Result<()> {
                     path.display()
                 ));
             }
-            if tokio::net::UnixStream::connect(path).await.is_ok() {
+            if cmux_tui_process::tokio_net::connect_unix_stream(path).await.is_ok() {
                 return Err(anyhow!("another client owns {}", path.display()));
             }
             fs::remove_file(path)?;
