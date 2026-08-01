@@ -9861,13 +9861,11 @@ final class Workspace: Identifiable, ObservableObject {
     private func shouldAdoptDetachedWorkspaceRemoteTracking(_ detached: DetachedSurfaceTransfer) -> Bool {
         guard detached.isRemoteTerminal, detached.remoteTerminalSessionPhase != .ended else { return false }
         if detached.sourceWorkspaceId == id { return true }
-        guard let detachedRelayPort = detached.remoteRelayPort,
-              detachedRelayPort > 0,
-              let currentRelayPort = remoteConfiguration?.relayPort,
-              currentRelayPort > 0 else {
+        guard let destinationConfiguration = remoteConfiguration,
+              let originConfiguration = detached.remoteRelayNamespaceConfiguration else {
             return false
         }
-        return detachedRelayPort == currentRelayPort
+        return destinationConfiguration.hasSameRemoteRelayNamespace(as: originConfiguration)
     }
     // MARK: - Focus Management
 
@@ -12535,6 +12533,9 @@ extension Workspace: BonsplitDelegate {
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
                     ? remoteConfiguration?.relayPort
                     : nil,
+                remoteRelayNamespaceConfiguration: activeRemoteTerminalSurfaceIds.contains(panelId)
+                    ? remoteConfiguration
+                    : transferredRemoteCleanupConfiguration,
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 remoteCleanupConfiguration: transferredRemoteCleanupConfiguration
             ), for: tabId)

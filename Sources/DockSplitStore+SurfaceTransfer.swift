@@ -296,6 +296,7 @@ extension DockSplitStore {
             remoteTerminalLifecycleID: preservedTransfer?.remoteTerminalLifecycleID,
             remoteTerminalAttemptID: preservedTransfer?.remoteTerminalAttemptID,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,
+            remoteRelayNamespaceConfiguration: preservedTransfer?.remoteRelayNamespaceConfiguration,
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )

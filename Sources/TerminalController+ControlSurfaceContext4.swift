@@ -42,6 +42,16 @@ extension TerminalController {
            ) {
             return .recorded(surfaceID: requestedSurfaceID)
         }
+        if let requestedSurfaceID,
+           tab.isRemoteWorkspace,
+           !validSurfaceIds.contains(requestedSurfaceID),
+           AppDelegate.shared?.registerLiveRelayReportedTTY(
+               ttyName,
+               panelID: requestedSurfaceID,
+               authenticatedWorkspaceID: workspaceID
+           ) == true {
+            return .recorded(surfaceID: requestedSurfaceID)
+        }
 
         let surfaceId = controlResolveReportedSurfaceId(
             in: tab,
