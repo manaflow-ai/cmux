@@ -345,7 +345,7 @@ struct WorkspaceShellView: View {
 
     private func workspaceSearchTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
         workspaceActionToastOverlay {
-            NavigationStack {
+            NavigationStack(path: $compactNavigationPath) {
                 MobilePrimaryWorkspaceSearchContentHost(
                     searchCoordinator: primarySearchCoordinator
                 ) { searchText in
@@ -362,6 +362,26 @@ struct WorkspaceShellView: View {
                 }
                 .toolbar {
                     rootToolbarContent
+                }
+                .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                    workspaceDestination(
+                        for: workspaceID,
+                        createWorkspace: createWorkspaceInCompactStack,
+                        canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
+                        backButtonConfiguration: WorkspaceBackButtonConfiguration(
+                            unreadCount: unreadWorkspaceCount(excluding: workspaceID),
+                            badgeContrast: .darkBackground,
+                            action: popSearchCompactStack
+                        )
+                    )
+                        .onAppear {
+                            if pendingPrimarySearchWorkspaceNavigationID == workspaceID {
+                                pendingPrimarySearchWorkspaceNavigationID = nil
+                            }
+                        }
+                        .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
+                        .navigationBarBackButtonHidden(true)
+                        .background(InteractiveSwipeBackEnabler())
                 }
             }
         }
@@ -917,8 +937,16 @@ struct WorkspaceShellView: View {
     }
 
     private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
-        pendingPrimarySearchWorkspaceNavigationID = id
-        transitionPrimaryTab(to: .workspaces)
+        if usesCompactStack {
+            pendingPrimarySearchWorkspaceNavigationID = nil
+            primarySearchCoordinator.deactivateCurrentSearch()
+            selectWorkspaceImmediately(id)
+            return
+        }
+        transitionPrimaryTab(to: .workspaces) {
+            pendingPrimarySearchWorkspaceNavigationID = nil
+            selectWorkspaceImmediately(id)
+        }
     }
 
     private func createWorkspaceFromSearch() {
@@ -1047,6 +1075,11 @@ struct WorkspaceShellView: View {
     private func popCompactStack() {
         guard !compactNavigationPath.isEmpty else { return }
         compactNavigationPath.removeLast()
+    }
+
+    private func popSearchCompactStack() {
+        popCompactStack()
+        transitionPrimaryTab(to: .workspaces)
     }
 
     @ViewBuilder
