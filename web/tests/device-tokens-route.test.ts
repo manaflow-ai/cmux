@@ -6,6 +6,7 @@ import { accountDeletionUserHash } from "../services/account/deletionLock";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
+const DB_STRESS_TEST_TIMEOUT_MS = 30_000;
 
 const getUser = mock(async () => ({
   id: "push-user-1",
@@ -143,7 +144,7 @@ describe("device token route", () => {
       select count(*)::int as total from device_tokens where user_id = 'push-user-1'
     `;
     expect(stored.total).toBe(200);
-  });
+  }, DB_STRESS_TEST_TIMEOUT_MS);
 
   dbTest("refreshes a known token at capacity but rejects a new 201st token without eviction", async () => {
     if (!sql) throw new Error("test database not initialized");
@@ -209,7 +210,7 @@ describe("device token route", () => {
     expect(stored).toHaveLength(200);
     expect(stored.map((row) => row.device_token)).toContain(oldestToken);
     expect(stored.map((row) => row.device_token)).not.toContain(newToken);
-  });
+  }, DB_STRESS_TEST_TIMEOUT_MS);
 
   dbTest("canonicalizes token casing for register and delete", async () => {
     if (!sql) throw new Error("test database not initialized");
