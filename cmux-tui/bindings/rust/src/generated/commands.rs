@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350.
+// cmux-tui mux protocol 10, IR 034d4b192db29db85f4affa61c2fade63ea65b06d6ce740fbe3e2b14b226da69.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -351,6 +351,8 @@ pub struct CopyRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CreateTerminalRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub activate: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub argv: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
@@ -371,6 +373,8 @@ pub struct CreateTerminalRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
@@ -384,6 +388,8 @@ pub type CreateTerminalResult = T::TerminalPlacement;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CreateWorkspaceRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub activate: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expected_generation: Optional<String>,
     #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
@@ -516,6 +522,19 @@ pub type MarkWorkspacesProviderManagedResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MergePaneRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub activate: Optional<bool>,
+    pub index: u64,
+    pub pane: T::Id,
+    pub target: T::Id,
+}
+
+#[rustfmt::skip]
+pub type MergePaneResult = T::PlacementResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MintTerminalRendererRequest {
     pub surface: T::Id,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -524,14 +543,69 @@ pub struct MintTerminalRendererRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MovePaneToNewColumnRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub activate: Optional<bool>,
+    pub index: u64,
+    pub pane: T::Id,
+    pub width: f32,
+}
+
+#[rustfmt::skip]
+pub type MovePaneToNewColumnResult = T::PlacementResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MovePaneToSplitRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub activate: Optional<bool>,
+    pub dir: T::SplitDirection,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub insert_first: Option<bool>,
+    pub pane: T::Id,
+    pub target: T::Id,
+}
+
+#[rustfmt::skip]
+pub type MovePaneToSplitResult = T::PlacementResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MoveTabRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub activate: Optional<bool>,
     pub index: u64,
     pub pane: T::Id,
     pub surface: T::Id,
 }
 
 #[rustfmt::skip]
-pub type MoveTabResult = T::EmptyResult;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveTabToNewColumnRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub activate: Optional<bool>,
+    pub index: u64,
+    pub surface: T::Id,
+    pub width: f32,
+}
+
+#[rustfmt::skip]
+pub type MoveTabToNewColumnResult = T::PlacementResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveTabToSplitRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub activate: Optional<bool>,
+    pub dir: T::SplitDirection,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub insert_first: Option<bool>,
+    pub pane: T::Id,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type MoveTabToSplitResult = T::PlacementResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -575,7 +649,11 @@ pub type MoveWorkspaceResult = T::WorkspaceMutationResult;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewBrowserTabRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub activate: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -590,6 +668,8 @@ pub type NewBrowserTabResult = T::SurfaceResult;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewPaneRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub activate: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -603,10 +683,16 @@ pub type NewPaneResult = T::SurfaceResult;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewPaneRightRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub activate: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kind: Optional<T::PaneKind>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub url: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub width: Optional<f32>,
 }
@@ -617,6 +703,8 @@ pub type NewPaneRightResult = T::SurfaceResult;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct NewScreenRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub activate: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1067,11 +1155,17 @@ pub struct SidebarPluginRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SplitRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub activate: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     pub dir: T::SplitDirection,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kind: Optional<T::PaneKind>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub url: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1294,6 +1388,14 @@ impl CmuxClient {
     }
 
     pub fn create_terminal(&mut self, request: CreateTerminalRequest) -> Result<CreateTerminalResult> {
+        if !request.activate.is_missing() {
+            self.require_protocol_field("create-terminal", 10)?;
+            self.require_capability_field("create-terminal", "independent-client-selection-v1")?;
+        }
+        if !request.pane.is_missing() {
+            self.require_protocol_field("create-terminal", 10)?;
+            self.require_capability_field("create-terminal", "independent-client-selection-v1")?;
+        }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("create-terminal", 9)?;
         }
@@ -1301,6 +1403,10 @@ impl CmuxClient {
     }
 
     pub fn create_workspace(&mut self, request: CreateWorkspaceRequest) -> Result<CreateWorkspaceResult> {
+        if !request.activate.is_missing() {
+            self.require_protocol_field("create-workspace", 10)?;
+            self.require_capability_field("create-workspace", "independent-client-selection-v1")?;
+        }
         self.execute(&CREATE_WORKSPACE_METADATA, &request)
     }
 
@@ -1356,12 +1462,51 @@ impl CmuxClient {
         self.execute(&MARK_WORKSPACES_PROVIDER_MANAGED_METADATA, &request)
     }
 
+    pub fn merge_pane(&mut self, request: MergePaneRequest) -> Result<MergePaneResult> {
+        if !request.activate.is_missing() {
+            self.require_capability_field("merge-pane", "independent-client-selection-v1")?;
+        }
+        self.execute(&MERGE_PANE_METADATA, &request)
+    }
+
     pub fn mint_terminal_renderer(&mut self, request: MintTerminalRendererRequest) -> Result<T::MintTerminalRendererResult> {
         self.execute(&MINT_TERMINAL_RENDERER_METADATA, &request)
     }
 
-    pub fn move_tab(&mut self, request: MoveTabRequest) -> Result<MoveTabResult> {
+    pub fn move_pane_to_new_column(&mut self, request: MovePaneToNewColumnRequest) -> Result<MovePaneToNewColumnResult> {
+        if !request.activate.is_missing() {
+            self.require_capability_field("move-pane-to-new-column", "independent-client-selection-v1")?;
+        }
+        self.execute(&MOVE_PANE_TO_NEW_COLUMN_METADATA, &request)
+    }
+
+    pub fn move_pane_to_split(&mut self, request: MovePaneToSplitRequest) -> Result<MovePaneToSplitResult> {
+        if !request.activate.is_missing() {
+            self.require_capability_field("move-pane-to-split", "independent-client-selection-v1")?;
+        }
+        self.execute(&MOVE_PANE_TO_SPLIT_METADATA, &request)
+    }
+
+    pub fn move_tab(&mut self, request: MoveTabRequest) -> Result<T::MoveTabResult> {
+        if !request.activate.is_missing() {
+            self.require_protocol_field("move-tab", 10)?;
+            self.require_capability_field("move-tab", "independent-client-selection-v1")?;
+        }
         self.execute(&MOVE_TAB_METADATA, &request)
+    }
+
+    pub fn move_tab_to_new_column(&mut self, request: MoveTabToNewColumnRequest) -> Result<MoveTabToNewColumnResult> {
+        if !request.activate.is_missing() {
+            self.require_capability_field("move-tab-to-new-column", "independent-client-selection-v1")?;
+        }
+        self.execute(&MOVE_TAB_TO_NEW_COLUMN_METADATA, &request)
+    }
+
+    pub fn move_tab_to_split(&mut self, request: MoveTabToSplitRequest) -> Result<MoveTabToSplitResult> {
+        if !request.activate.is_missing() {
+            self.require_capability_field("move-tab-to-split", "independent-client-selection-v1")?;
+        }
+        self.execute(&MOVE_TAB_TO_SPLIT_METADATA, &request)
     }
 
     pub fn move_terminal(&mut self, request: MoveTerminalRequest) -> Result<T::MoveTerminalResult> {
@@ -1389,18 +1534,46 @@ impl CmuxClient {
     }
 
     pub fn new_browser_tab(&mut self, request: NewBrowserTabRequest) -> Result<NewBrowserTabResult> {
+        if !request.activate.is_missing() {
+            self.require_protocol_field("new-browser-tab", 10)?;
+            self.require_capability_field("new-browser-tab", "independent-client-selection-v1")?;
+        }
+        if !request.index.is_missing() {
+            self.require_protocol_field("new-browser-tab", 10)?;
+            self.require_capability_field("new-browser-tab", "independent-client-selection-v1")?;
+        }
         self.execute(&NEW_BROWSER_TAB_METADATA, &request)
     }
 
     pub fn new_pane(&mut self, request: NewPaneRequest) -> Result<NewPaneResult> {
+        if !request.activate.is_missing() {
+            self.require_protocol_field("new-pane", 10)?;
+            self.require_capability_field("new-pane", "independent-client-selection-v1")?;
+        }
         self.execute(&NEW_PANE_METADATA, &request)
     }
 
     pub fn new_pane_right(&mut self, request: NewPaneRightRequest) -> Result<NewPaneRightResult> {
+        if !request.activate.is_missing() {
+            self.require_protocol_field("new-pane-right", 10)?;
+            self.require_capability_field("new-pane-right", "independent-client-selection-v1")?;
+        }
+        if !request.kind.is_missing() {
+            self.require_protocol_field("new-pane-right", 10)?;
+            self.require_capability_field("new-pane-right", "independent-client-selection-v1")?;
+        }
+        if !request.url.is_missing() {
+            self.require_protocol_field("new-pane-right", 10)?;
+            self.require_capability_field("new-pane-right", "independent-client-selection-v1")?;
+        }
         self.execute(&NEW_PANE_RIGHT_METADATA, &request)
     }
 
     pub fn new_screen(&mut self, request: NewScreenRequest) -> Result<NewScreenResult> {
+        if !request.activate.is_missing() {
+            self.require_protocol_field("new-screen", 10)?;
+            self.require_capability_field("new-screen", "independent-client-selection-v1")?;
+        }
         self.execute(&NEW_SCREEN_METADATA, &request)
     }
 
@@ -1608,6 +1781,18 @@ impl CmuxClient {
     }
 
     pub fn split(&mut self, request: SplitRequest) -> Result<SplitResult> {
+        if !request.activate.is_missing() {
+            self.require_protocol_field("split", 10)?;
+            self.require_capability_field("split", "independent-client-selection-v1")?;
+        }
+        if !request.kind.is_missing() {
+            self.require_protocol_field("split", 10)?;
+            self.require_capability_field("split", "independent-client-selection-v1")?;
+        }
+        if !request.url.is_missing() {
+            self.require_protocol_field("split", 10)?;
+            self.require_capability_field("split", "independent-client-selection-v1")?;
+        }
         self.execute(&SPLIT_METADATA, &request)
     }
 

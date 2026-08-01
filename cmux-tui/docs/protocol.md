@@ -23,7 +23,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":10,"capabilities":["attach-initial-size","workspace-registry-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","provider-managed-workspace-authority-v2","clear-history-key-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":10,"capabilities":["attach-initial-size","workspace-registry-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","canonical-layout-columns-v1","canonical-layout-relocation-v1","independent-client-selection-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","provider-managed-workspace-authority-v2","clear-history-key-v1"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape. The second example is a failed `clear-history` request:
@@ -57,12 +57,45 @@ Failed `clear-history` responses add `error_delivery`. `known-not-delivered` pro
 
 `viewport-column-resize-v1` adds `set-viewport-pane-width` and `viewport_base_width`. Widths remain frontend-relative, from 0.1 through 1.0. Clients must require this capability before sending the resize command. An older server still renders the fallback split ratios and rejects the unknown command without changing layout. Invalid widths return `error_code:"viewport-width-out-of-range"`; a missing or ordinary pane returns `error_code:"viewport-column-not-found"`.
 
+`canonical-layout-columns-v1` adds an ordered `columns` array to screen and
+export-layout snapshots when the horizontal layout manager is active. Every
+entry carries a stable column id, its viewport-relative width, and its
+independent split/stack tree. This is the lossless topology contract for
+frontends such as cmux Browser. The older `layout` plus `viewport_*` fields
+remain a derived compatibility projection and must not override `columns` in a
+capable client.
+
+`canonical-layout-relocation-v1` adds atomic, ID-addressed commands for moving
+one tab or pane into an existing pane, a new split, or an exact viewport-column
+index. These commands are the structural counterpart to
+`canonical-layout-columns-v1`: rich frontends request a mutation first and
+then reconcile its placement result/event, rather than optimistically
+maintaining a second pane tree.
+
+`independent-client-selection-v1` separates shared topology from each client's
+presentation state. A detached frontend can send `create-workspace`,
+`new-screen`, `new-pane`, `new-pane-right`, `split`, pane-targeted `new-browser-tab`,
+pane-targeted `create-terminal`, and every tab/pane relocation command with
+`activate:false`.
+Creation results include `surface`, `pane`, `screen`, and `workspace`, so the
+requesting frontend can select the result locally without changing the owner
+TUI's active workspace, screen, pane, or tab. A non-activating move likewise
+preserves the owner's complete focus identity. Closing or reordering an
+unrelated sibling preserves that identity by stable id; only deleting the
+selected object chooses a fallback. Omitting `activate` preserves the
+historical activating behavior.
+
 `layout-undo-v1` adds server-owned structural layout history and `undo-layout`. A creation undo first returns `confirmation_required`, the pane ids it would close, and a unique confirmation revision bound to those panes' exact tab membership. The client must show that consequence and resend the exact revision with `confirm_close:true`. A stale revision or changed tab membership fails without closing a pane; request a new preview before retrying. Resize-only and other non-destructive entries undo in one request.
 
-`move-tab` moves a surface to a target pane and insertion index. It supports same-pane reorder and cross-pane moves.
+`move-tab` moves a surface to a target pane and insertion index. It supports
+same-pane reorder and cross-pane moves. Capable detached clients use
+`activate:false` so moving shared topology does not select the tab in the
+owner TUI. `move-tab-to-split`, `move-tab-to-new-column`, `merge-pane`,
+`move-pane-to-split`, and `move-pane-to-new-column` extend the same rule to
+every pane/edge/column drag outcome and return exact placement ids.
 
 ```json
-{"id":10,"cmd":"move-tab","surface":4,"pane":2,"index":0}
+{"id":10,"cmd":"move-tab","surface":4,"pane":2,"index":0,"activate":false}
 ```
 
 `move-workspace` moves a workspace to a zero-based insertion index. When moving

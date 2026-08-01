@@ -47,11 +47,34 @@ profile/window-group identity as the cmux session and as the
 launch. Every canonical workspace, including an empty one, must appear in the
 frontend immediately.
 
-Browser-only columns, splits, web tabs, local focus, and the presentation of a
-terminal inside a browser pane or tab belong in the opaque frontend
-projection. The server stores and compare-and-swaps that schema-versioned
-document but does not interpret it as workspace or terminal lifecycle
-authority. Projection references use canonical workspace and terminal UUIDs.
+Servers advertising `canonical-layout-columns-v1` own the complete shared
+layout: ordered screens, viewport columns and widths, split/stack nodes, panes,
+surface kinds, and tab order. Browser surfaces are canonical tabs too. A rich
+frontend must render `Screen.columns` directly and must not persist a second
+pane tree in its opaque projection. Mutate that tree through exact backend ids
+(`new-pane-right`, `split`, `move-tab`, the
+`canonical-layout-relocation-v1` tab/pane relocation commands,
+`set-viewport-pane-width`, and `set-split-ratio`) and reconcile the
+response/event against a fresh canonical snapshot. Never commit a local
+pane/edge/column drag before cmux accepts it.
+
+Selection is deliberately not part of that shared topology. The `active`
+workspace/screen, `active_pane`, `active_tab`, and expanded-stack fields in a
+snapshot describe the server-owner TUI for compatibility; they are not an
+instruction to steal another client's focus. A frontend keeps its own active
+workspace, screen, pane, tab, viewport scroll, stack expansion, and keyboard
+focus. Servers advertising `independent-client-selection-v1` accept
+`activate:false` on workspace/screen/pane/tab structural creation and tab
+movement, and return exact placement ids so only the initiating frontend
+selects the result. Closing or reordering an unrelated workspace, screen,
+pane, or tab must preserve the server owner's selection by stable identity;
+only deleting the selected object may choose a fallback.
+
+The opaque frontend projection is reserved for state cmux does not express:
+Chrome navigation/controller details, toolbar and sidebar preferences,
+per-client scroll positions, animation state, and other presentation-only
+metadata. Projection references use canonical workspace, pane, surface, and
+terminal identities; they never create parallel shared layout objects.
 
 Generate `origin` and `mutation_id` before sending a workspace mutation and
 reuse both for retries. Apply a successful local response immediately, then

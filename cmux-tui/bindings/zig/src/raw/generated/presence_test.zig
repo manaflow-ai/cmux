@@ -20,6 +20,8 @@ fn expectExplicitNullRejected(
 
 test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.MintTerminalRendererRequest, "ttl_ms");
+    try expectExplicitNullRejected(protocol.MovePaneToSplitRequest, "insert_first");
+    try expectExplicitNullRejected(protocol.MoveTabToSplitRequest, "insert_first");
     try expectExplicitNullRejected(protocol.RunRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.SendRequest, "paste");
     try expectExplicitNullRejected(protocol.SetClientSizingRequest, "exclusive");
@@ -79,7 +81,13 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.RenderGraphicsDelta, "removed_image_ids");
     try expectExplicitNullRejected(protocol.RenderRun, "underline");
     try expectExplicitNullRejected(protocol.RenderRun, "width_hint");
+    try expectExplicitNullRejected(protocol.Screen, "columns");
     try expectExplicitNullRejected(protocol.Screen, "short_id");
+    try expectExplicitNullRejected(protocol.Screen, "viewport_base_width");
+    try expectExplicitNullRejected(protocol.Screen, "viewport_splits");
+    try expectExplicitNullRejected(protocol.SurfaceResult, "pane");
+    try expectExplicitNullRejected(protocol.SurfaceResult, "screen");
+    try expectExplicitNullRejected(protocol.SurfaceResult, "workspace");
     try expectExplicitNullRejected(protocol.Tab, "short_id");
     try expectExplicitNullRejected(protocol.Tab, "supports_clear_history_key_fallback");
     try expectExplicitNullRejected(protocol.TerminalColors, "palette");

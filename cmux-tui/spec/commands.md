@@ -67,6 +67,7 @@ object{
   active_pane:Id,
   zoomed_pane:Id|null,
   layout:Layout,
+  columns?:array<object{id:Id,width:float32,layout:Layout}>,
   viewport_base_width?:float32,
   viewport_splits?:array<object{split:Id,width:float32}>,
   panes:array<Pane>
@@ -76,6 +77,14 @@ object{
 Servers advertising `viewport-splits-v1` include `viewport_splits` when a screen uses horizontal viewport columns. Each entry marks a right split whose second child is appended to a horizontal virtual canvas. `width` is the second child's width as a fraction of each frontend's viewport. Ordinary screens omit the field. Clients that do not implement the capability may ignore it and render the split's fallback ratio.
 
 Servers advertising `viewport-column-resize-v1` include `viewport_base_width` when horizontal viewport layout is active. It is the width of the first column as a fraction of the frontend viewport. A missing value defaults to `1.0`.
+
+Servers advertising `canonical-layout-columns-v1` include `columns` whenever a
+screen uses the horizontally scrolling layout manager. Each entry is one
+authoritative column in display order with its stable column id, independent
+viewport-relative width, and complete per-column split/stack tree. A pane
+appears in exactly one column. `layout`, `viewport_base_width`, and
+`viewport_splits` remain compatibility projections for older clients; capable
+clients must use `columns` as the canonical topology.
 
 `Layout`:
 
@@ -113,14 +122,30 @@ object{id:Id,name:string|null,active_tab:usize,focused_at?:u64,tabs:array<Tab>}
 ```text
 object{
   surface: Id,
+  tab_resource_id?: string|null,
+  terminal_id?: string|null,
+  terminal_resource_id?: string|null,
+  terminal_incarnation?: string|null,
+  short_id?: string,
   kind: "pty"|"browser",
+  url?: string|null,
   browser_source: "external"|"launched"|null,
+  browser_status?: "starting"|"live"|"failed"|null,
+  browser_error?: string|null,
+  browser_frames_stalled?: boolean|null,
+  supports_clear_history_key_fallback?: boolean,
+  notification?: object{notification:Id,unread:boolean,level:"info"|"warning"|"error"}|null,
   name: string|null,
   title: string,
   size: object{cols:uint16,rows:uint16}|null,
   dead: boolean
 }
 ```
+
+`tab_resource_id` is the durable public tab identity and survives daemon
+generation changes; the numeric `surface` id does not. `url` is the canonical
+browser URL when `kind` is `"browser"` and is null for PTY surfaces. The
+optional fields remain omitted by older compatible protocol-v10 servers.
 
 The `dead` pane variant is serialized only if the tree references a pane missing from state. That should not occur in normal operation, but clients must tolerate it.
 
@@ -192,7 +217,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `canonical-layout-columns-v1` advertises the authoritative ordered `Screen.columns` field. `canonical-layout-relocation-v1` advertises atomic tab/pane relocation across split and viewport-column topology. `independent-client-selection-v1` advertises non-activating structural mutations with placement results. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
 
 Errors:
 
@@ -214,7 +239,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","daemon-handoff-force-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","daemon-handoff-force-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","canonical-layout-columns-v1","canonical-layout-relocation-v1","independent-client-selection-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
 The current server reports protocol `10` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, and protocol 10 before using per-surface client sizing.
@@ -641,7 +666,7 @@ Params:
 Result:
 
 ```text
-object{layout:Layout,viewport_base_width?:float32,viewport_splits?:array<object{split:Id,width:float32}>,panes:array<object{pane:Id,surfaces:array<Id>}>}
+object{layout:Layout,columns?:array<object{id:Id,width:float32,layout:Layout}>,viewport_base_width?:float32,viewport_splits?:array<object{split:Id,width:float32}>,panes:array<object{pane:Id,surfaces:array<Id>}>}
 ```
 
 Errors: `unknown screen <id>`, `no active screen`, `bad request: ...`.
@@ -1027,7 +1052,15 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a browser tab in a pane and makes it active. If `pane` is absent, the active pane is used. If the selected workspace exists but has no screens, the command materializes its first screen, pane, and browser tab. If the session has no workspaces, the command creates a workspace containing the browser tab. The browser runtime may connect to an external CDP endpoint or launch Chrome according to mux configuration. Initial dimensions follow [Sizing](#sizing).
+Creates a browser tab in a pane. If `pane` is absent, the active pane is used.
+If the selected workspace exists but has no screens, the command materializes
+its first screen, pane, and browser tab. If the session has no workspaces, the
+command creates a workspace containing the browser tab. The browser runtime
+may connect to an external CDP endpoint or launch Chrome according to mux
+configuration. Initial dimensions follow [Sizing](#sizing). With an explicit
+`pane`, servers advertising `independent-client-selection-v1` accept
+`activate:false` and preserve the owner client's active workspace, screen,
+pane, and tab.
 
 Params:
 
@@ -1035,13 +1068,16 @@ Params:
 | --- | --- | --- | --- |
 | `url` | `string` | required | Normalized by browser runtime |
 | `pane` | `Id` | default null | Target pane; unknown ids error |
+| `index` | `usize` | default append | Exact insertion index; valid only with `pane` |
 | `cols` | `uint16` | default null | Used only when paired with `rows` |
 | `rows` | `uint16` | default null | Used only when paired with `cols` |
+| `activate` | `bool` | default `true` | `false` requires an explicit `pane` and `independent-client-selection-v1` |
 
 Result:
 
 ```text
 object{surface:Id}
+| object{surface:Id,pane:Id,screen:Id,workspace:Id}
 ```
 
 Errors:
@@ -1066,8 +1102,8 @@ CLI mapping:
 Example:
 
 ```json
-{"id":7,"cmd":"new-browser-tab","url":"https://example.com","pane":2}
-{"id":7,"ok":true,"data":{"surface":8}}
+{"id":7,"cmd":"new-browser-tab","url":"https://example.com","pane":2,"activate":false}
+{"id":7,"ok":true,"data":{"surface":8,"pane":2,"screen":3,"workspace":4}}
 ```
 
 ### new-workspace
@@ -1139,6 +1175,7 @@ Params:
 | --- | --- | --- | --- |
 | `name` | `string` | default null | Defaults to the zero-based workspace count at creation time |
 | `key` | `string` | default generated UUID | Must be a lowercase canonical UUID and never previously used |
+| `activate` | `bool` | default `true` | `false` preserves the owner client's active workspace and requires `independent-client-selection-v1` |
 | mutation fields | see [common envelope](#durable-workspace-mutation-envelope) | optional | Exactly-once retry and CAS |
 
 Result:
@@ -1152,7 +1189,7 @@ Errors include `workspace key must be a lowercase UUID`, `workspace key already 
 Example:
 
 ```json
-{"id":9,"cmd":"create-workspace","name":"ops","key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","expected_revision":1}
+{"id":9,"cmd":"create-workspace","name":"ops","key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","activate":false,"expected_revision":1}
 {"id":9,"ok":true,"data":{"workspace":12,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","index":1,"workspace_revision":2}}
 ```
 
@@ -1173,7 +1210,14 @@ Requires the `workspace-registry-v1` capability. Clients must not send this comm
 Creates a PTY tab in the workspace selected by stable `key` or compatibility
 numeric `workspace`. An empty workspace is materialized in place with its
 first screen and pane; no workspace revision is advanced. `argv` executes
-directly, while `command` executes through the default shell.
+directly, while `command` executes through the default shell. With an explicit
+`pane`, servers advertising `independent-client-selection-v1` accept
+`activate:false` and preserve the owner client's complete focus identity. A
+detached request may omit `pane` only while the selected workspace is empty;
+the server holds that workspace's lifecycle lock through launch and atomically
+materializes its first screen and pane without changing another workspace's
+selection. If another surface materializes the workspace first, the request
+fails instead of falling back to its active pane.
 
 Params:
 
@@ -1187,6 +1231,8 @@ Params:
 | `name` | `string` | default null | New terminal tab name |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+| `pane` | `Id` | default null | Must belong to the selected workspace |
+| `activate` | `bool` | default `true` | `false` requires `independent-client-selection-v1` and an explicit `pane`, except when atomically materializing an empty workspace |
 
 Result:
 
@@ -1194,7 +1240,9 @@ Result:
 object{surface:Id,pane:Id,screen:Id,workspace:Id,key:string}
 ```
 
-Errors include missing, unknown, or mismatched workspace selectors; mutually exclusive or empty commands; PTY spawn failures; and malformed requests.
+Errors include missing, unknown, or mismatched workspace selectors; a pane-less
+detached request targeting a nonempty workspace; mutually exclusive or empty
+commands; PTY spawn failures; and malformed requests.
 
 Example:
 
@@ -1211,7 +1259,13 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a new screen in a workspace with one pane and one PTY tab, then makes the new screen active. If `workspace` is absent, the active workspace is used. If no workspace exists and `workspace` is absent, v5 creates a new workspace instead. Initial dimensions follow [Sizing](#sizing).
+Creates a new screen in a workspace with one pane and one PTY tab. The
+historical default makes the new screen active. Servers advertising
+`independent-client-selection-v1` accept `activate:false`, preserve the owner
+TUI's active workspace/screen/pane, and return the complete placement so the
+caller can select it locally. If `workspace` is absent, the active workspace
+is used. If no workspace exists and `workspace` is absent, v5 creates a new
+workspace instead. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -1220,11 +1274,12 @@ Params:
 | `workspace` | `Id` | default null | Target workspace; unknown ids error |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+| `activate` | `bool` | default `true` | `false` requires `independent-client-selection-v1` |
 
 Result:
 
 ```text
-object{surface:Id}
+object{surface:Id,pane:Id,screen:Id,workspace:Id}
 ```
 
 Errors:
@@ -1249,8 +1304,8 @@ CLI mapping:
 Example:
 
 ```json
-{"id":9,"cmd":"new-screen","workspace":4}
-{"id":9,"ok":true,"data":{"surface":12}}
+{"id":9,"cmd":"new-screen","workspace":4,"activate":false}
+{"id":9,"ok":true,"data":{"surface":12,"pane":13,"screen":14,"workspace":4}}
 ```
 
 ### new-pane
@@ -1261,7 +1316,17 @@ Example:
 | status | implemented |
 | since | protocol 9 |
 
-Creates a PTY pane after the current panes in creation order, focuses it, and reapplies the default automatic layout inside the horizontal viewport column containing `pane`. A screen without horizontal viewport columns is one implicit column, preserving the original whole-screen behavior. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, the first pane stays full-height on the left while the remaining panes form a right-side stack whose focused member expands. The new surface inherits the active surface working directory of `pane` when available.
+Creates a PTY pane after the current panes in creation order and reapplies the
+default automatic layout inside the horizontal viewport column containing
+`pane`. The historical default focuses it. Servers advertising
+`independent-client-selection-v1` accept `activate:false` and preserve the
+owner client's complete focus identity. A screen without horizontal viewport
+columns is one implicit column, preserving the original whole-screen behavior.
+Panes one through five use one full-height left column and up to four equal
+right-side rows. Panes six through twelve fill balanced columns of four. Above
+twelve panes, the first pane stays full-height on the left while the remaining
+panes form a right-side stack whose focused member expands. The new surface
+inherits the active surface working directory of `pane` when available.
 
 Params:
 
@@ -1270,11 +1335,12 @@ Params:
 | `pane` | `Id` | required | Pane whose horizontal column receives the new pane |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+| `activate` | `bool` | default `true` | `false` requires `independent-client-selection-v1` |
 
 Result:
 
 ```text
-object{surface:Id}
+object{surface:Id,pane:Id,screen:Id,workspace:Id}
 ```
 
 Errors:
@@ -1298,8 +1364,8 @@ CLI mapping:
 Example:
 
 ```json
-{"id":10,"cmd":"new-pane","pane":2}
-{"id":10,"ok":true,"data":{"surface":14}}
+{"id":10,"cmd":"new-pane","pane":2,"activate":false}
+{"id":10,"ok":true,"data":{"surface":14,"pane":15,"screen":3,"workspace":4}}
 ```
 
 ### new-pane-right
@@ -1310,7 +1376,16 @@ Example:
 | status | implemented |
 | since | protocol 9 additive capability `viewport-splits-v1` |
 
-Creates and focuses one PTY column immediately to the right of the horizontal viewport column containing `pane`. Supporting frontends keep each existing column at its independent viewport-relative width and insert the new pane at `width` times the viewport width. The default is two thirds. The shared split tree stores equivalent proportional fallback ratios for clients that ignore viewport metadata. The new surface inherits the active surface working directory of `pane` when available.
+Creates one column immediately to the right of the horizontal viewport column
+containing `pane`. The historical default creates a PTY and focuses it.
+`kind:"browser"` creates a browser surface using `url`. Servers advertising
+`independent-client-selection-v1` accept `activate:false` and preserve the
+owner client's complete focus identity. Supporting frontends keep each
+existing column at its independent viewport-relative width and insert the new
+pane at `width` times the viewport width. The default is two thirds. The shared
+split tree stores equivalent proportional fallback ratios for clients that
+ignore viewport metadata. A new PTY inherits the active surface working
+directory of `pane` when available.
 
 Params:
 
@@ -1320,11 +1395,14 @@ Params:
 | `width` | `float32` | default `0.6666667` | From 0.1 through 1.0 |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+| `kind` | `string` | default `"pty"` | `"pty"` or `"browser"` |
+| `url` | `string` | default null | Browser URL; valid only with `kind:"browser"` |
+| `activate` | `bool` | default `true` | `false` requires `independent-client-selection-v1` |
 
 Result:
 
 ```text
-object{surface:Id}
+object{surface:Id,pane:Id,screen:Id,workspace:Id}
 ```
 
 Errors:
@@ -1349,8 +1427,8 @@ CLI mapping:
 Example:
 
 ```json
-{"id":11,"cmd":"new-pane-right","pane":2}
-{"id":11,"ok":true,"data":{"surface":15}}
+{"id":11,"cmd":"new-pane-right","pane":2,"kind":"browser","url":"https://example.com","activate":false}
+{"id":11,"ok":true,"data":{"surface":15,"pane":16,"screen":3,"workspace":4}}
 ```
 
 ### set-viewport-pane-width
@@ -1473,7 +1551,14 @@ Examples:
 | status | implemented |
 | since | protocol 5 |
 
-Splits the screen containing `pane`, inserts a new pane after the target leaf, spawns one PTY tab in the new pane, and focuses the new pane. `dir:"right"` creates left/right columns. `dir:"down"` creates top/bottom rows. The new surface inherits the active surface working directory of the target pane when available. Initial dimensions follow [Sizing](#sizing).
+Splits the screen containing `pane` and inserts a new pane after the target
+leaf. The historical default spawns a PTY and focuses the new pane.
+`kind:"browser"` creates a browser surface using `url`. `dir:"right"` creates
+left/right columns. `dir:"down"` creates top/bottom rows. Servers advertising
+`independent-client-selection-v1` accept `activate:false` and preserve the
+owner client's complete focus identity. A new PTY inherits the active surface
+working directory of the target pane when available. Initial dimensions
+follow [Sizing](#sizing).
 
 Params:
 
@@ -1483,11 +1568,14 @@ Params:
 | `dir` | `string` | required | `"right"` or `"down"` |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+| `kind` | `string` | default `"pty"` | `"pty"` or `"browser"` |
+| `url` | `string` | default null | Browser URL; valid only with `kind:"browser"` |
+| `activate` | `bool` | default `true` | `false` requires `independent-client-selection-v1` |
 
 Result:
 
 ```text
-object{surface:Id}
+object{surface:Id,pane:Id,screen:Id,workspace:Id}
 ```
 
 Errors:
@@ -1512,8 +1600,8 @@ CLI mapping:
 Example:
 
 ```json
-{"id":10,"cmd":"split","pane":2,"dir":"right"}
-{"id":10,"ok":true,"data":{"surface":14}}
+{"id":10,"cmd":"split","pane":2,"dir":"down","kind":"browser","url":"https://example.com","activate":false}
+{"id":10,"ok":true,"data":{"surface":14,"pane":15,"screen":3,"workspace":4}}
 ```
 
 ### set-ratio
@@ -2546,7 +2634,13 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Moves an existing tab, identified by `surface`, into `pane` at zero-based `index`. Moving a tab to its current pane and current index is an `ok:true` no-op. This command is documented from the consumer-side landed contract; it is not present in this branch's `server.rs`, so out-of-range index behavior and event emission could not be verified here.
+Moves an existing tab, identified by `surface`, into `pane` at zero-based
+insertion `index`. Within the same pane, an insertion index after the source
+is decremented after removal; callers that know only the desired final index
+must add one for a rightward move. Moving a tab to its current placement is an
+`ok:true` no-op. Servers advertising `independent-client-selection-v1` accept
+`activate:false` and preserve the owner client's active workspace, screen,
+pane, and tab.
 
 Params:
 
@@ -2555,12 +2649,9 @@ Params:
 | `surface` | `Id` | required | Surface tab to move |
 | `pane` | `Id` | required | Destination pane |
 | `index` | `usize` | required | Zero-based destination index |
+| `activate` | `bool` | default `true` | `false` requires `independent-client-selection-v1` |
 
-Result:
-
-```text
-object{}
-```
+Result: `object{surface:Id,pane:Id,screen:Id,workspace:Id}`.
 
 Errors:
 
@@ -2569,7 +2660,7 @@ Errors:
 | `unknown surface <id>` | Surface id does not exist |
 | `unknown pane <id>` | Destination pane does not exist |
 | `bad request: ...` | Missing fields or wrong JSON type |
-| unverified error string | Non-same-position out-of-range index behavior could not be checked in this branch |
+| `unknown surface/pane` | Either target does not exist or the surface is not currently placed |
 
 CLI mapping:
 
@@ -2584,8 +2675,113 @@ CLI mapping:
 Example:
 
 ```json
-{"id":26,"cmd":"move-tab","surface":1,"pane":2,"index":0}
-{"id":26,"ok":true,"data":{}}
+{"id":26,"cmd":"move-tab","surface":1,"pane":2,"index":0,"activate":false}
+{"id":26,"ok":true,"data":{"surface":1,"pane":2,"screen":3,"workspace":4}}
+```
+
+The following atomic relocation commands require
+`canonical-layout-relocation-v1`. Their placement result is
+`object{surface:Id,pane:Id,screen:Id,workspace:Id}`. `activate:false` also
+requires `independent-client-selection-v1` and preserves the owner client's
+active workspace, screen, pane, and tab.
+
+### move-tab-to-split
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-to-split` |
+| status | implemented |
+| since | protocol 10 capability `canonical-layout-relocation-v1` |
+
+Moves one tab into a new pane beside an existing target pane. Both panes stay
+inside the target's canonical viewport column.
+
+Params: required `surface`, target `pane`, and `dir` (`"right"` or `"down"`);
+optional `insert_first:boolean` defaults to `false`, and optional
+`activate:boolean` defaults to `true`. `insert_first:true` means left/top.
+
+Errors include an unknown surface or pane, a cross-screen source and target,
+an invalid direction, and attempting to split a pane's only tab out of itself.
+
+```json
+{"id":27,"cmd":"move-tab-to-split","surface":8,"pane":2,"dir":"down","insert_first":false,"activate":false}
+{"id":27,"ok":true,"data":{"surface":8,"pane":9,"screen":3,"workspace":4}}
+```
+
+### move-tab-to-new-column
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-to-new-column` |
+| status | implemented |
+| since | protocol 10 capability `canonical-layout-relocation-v1` |
+
+Moves one tab into a new canonical viewport column at insertion `index`.
+Required `width` is a finite viewport fraction from 0.1 through 1.0; the
+insertion index clamps to the pre-mutation column-list end. If moving the tab
+empties a source column before that insertion point, removing the source shifts
+the new column's final index left by one. This matches Browser drag/drop
+coordinates. Optional `activate:boolean` defaults to `true`.
+
+```json
+{"id":28,"cmd":"move-tab-to-new-column","surface":8,"index":1,"width":0.6666667,"activate":false}
+{"id":28,"ok":true,"data":{"surface":8,"pane":10,"screen":3,"workspace":4}}
+```
+
+### merge-pane
+
+| Field | Value |
+| --- | --- |
+| name | `merge-pane` |
+| status | implemented |
+| since | protocol 10 capability `canonical-layout-relocation-v1` |
+
+Moves every tab from source `pane` into `target` at insertion `index`, then
+removes the empty source pane and collapses its old layout edge. The source
+and target must differ and belong to one screen. Optional
+`activate:boolean` defaults to `true`.
+
+```json
+{"id":29,"cmd":"merge-pane","pane":10,"target":2,"index":1,"activate":false}
+{"id":29,"ok":true,"data":{"surface":8,"pane":2,"screen":3,"workspace":4}}
+```
+
+### move-pane-to-split
+
+| Field | Value |
+| --- | --- |
+| name | `move-pane-to-split` |
+| status | implemented |
+| since | protocol 10 capability `canonical-layout-relocation-v1` |
+
+Detaches source `pane` from its old edge or column and inserts it beside
+`target` without changing the pane or tab identities. Required `dir` is
+`"right"` or `"down"`; optional `insert_first:boolean` defaults to `false`
+and means left/top when true. Optional `activate:boolean` defaults to `true`.
+The panes must differ and belong to one screen.
+
+```json
+{"id":30,"cmd":"move-pane-to-split","pane":10,"target":2,"dir":"right","activate":false}
+{"id":30,"ok":true,"data":{"surface":8,"pane":10,"screen":3,"workspace":4}}
+```
+
+### move-pane-to-new-column
+
+| Field | Value |
+| --- | --- |
+| name | `move-pane-to-new-column` |
+| status | implemented |
+| since | protocol 10 capability `canonical-layout-relocation-v1` |
+
+Relocates source `pane` as an exact canonical viewport column at insertion
+`index`. Required `width` is a finite viewport fraction from 0.1 through 1.0;
+the insertion index clamps after accounting for removal of an existing source
+column. Optional `activate:boolean` defaults to `true`. Moving the screen's
+only pane is rejected.
+
+```json
+{"id":31,"cmd":"move-pane-to-new-column","pane":10,"index":0,"width":0.7,"activate":false}
+{"id":31,"ok":true,"data":{"surface":8,"pane":10,"screen":3,"workspace":4}}
 ```
 
 ### move-workspace
@@ -3388,7 +3584,7 @@ The following v5 behaviors are awkward for generated bindings and should be norm
 
 | Area | v5 behavior | Proposed v6 normalization |
 | --- | --- | --- |
-| Create commands | `new-tab`, `new-browser-tab`, `new-screen`, `new-workspace`, and `split` return only `{surface}` | Return `{surface,pane,screen,workspace}` |
+| Create commands | Legacy calls may return only `{surface}` | Capability-gated pane/screen structural calls return `{surface,pane,screen,workspace}` |
 | Selection commands | `select-*` returns success for unknown targets, out-of-range indexes, and missing selector fields | Return a changed boolean or reject invalid target/index |
 | Resize command | `resize-surface` reports acceptance but not the final clamped size | Return `{accepted,cols,rows}` |
 | Ratio command | `set-ratio` silently clamps and does not return final ratio | Return `{ratio}` after clamping |
@@ -3398,10 +3594,26 @@ The following v5 behaviors are awkward for generated bindings and should be norm
 | Optional size pair | Supplying only one of `cols` or `rows` is silently ignored | Reject partial size pairs |
 | Unknown fields | Unknown request fields are ignored by serde | Reject unknown fields or define extension slots |
 
-Protocol v9 adds `new-pane`; its implemented result is `{surface}`. A future result expansion may add `{pane,screen,workspace}` only behind a newer protocol version.
+Protocol v9 adds `new-pane`; servers advertising
+`independent-client-selection-v1` return its complete placement.
 
 `viewport-splits-v1` is additive within protocol v9. Clients must require the capability before sending `new-pane-right` or interpreting `Screen.viewport_splits`.
 
 `viewport-column-resize-v1` is additive within protocol v9. Clients must require the capability before sending `set-viewport-pane-width` or interpreting `Screen.viewport_base_width`.
+
+`canonical-layout-columns-v1` is additive within protocol v10. Capable clients
+must use `Screen.columns` as the lossless ordered topology and treat
+`layout`/`viewport_*` as compatibility-only projections.
+
+`canonical-layout-relocation-v1` is additive within protocol v10. Clients must
+require it before sending the five atomic relocation commands documented
+above.
+
+`independent-client-selection-v1` is additive within protocol v10. It adds
+`activate:false` to `new-screen`, `new-pane`, `new-pane-right`, `split`,
+pane-targeted `new-browser-tab`, pane-targeted `create-terminal`, and
+all tab/pane relocation commands. Structural creation and relocation return
+the complete placement; omitting
+`activate` preserves the historical owner-selection behavior.
 
 `layout-undo-v1` is additive within protocol v9. Clients must require the capability before sending `undo-layout`. A binding must preserve both result variants and must not set `confirm_close` without the exact revision returned by the confirmation preview.

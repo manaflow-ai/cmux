@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350. */
+/* cmux-tui mux protocol 10, IR 034d4b192db29db85f4affa61c2fade63ea65b06d6ce740fbe3e2b14b226da69. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 10 as const;
-export const SDK_IR_SHA256 = "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350" as const;
+export const SDK_IR_SHA256 = "034d4b192db29db85f4affa61c2fade63ea65b06d6ce740fbe3e2b14b226da69" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -366,6 +366,14 @@ export const COMMAND_METADATA = {
     "since": 7,
     "capability": "workspace-registry-v1",
     "fields": {
+      "activate": {
+        "since": 10,
+        "capability": "independent-client-selection-v1"
+      },
+      "pane": {
+        "since": 10,
+        "capability": "independent-client-selection-v1"
+      },
       "terminal_id": {
         "since": 9,
         "capability": null
@@ -378,7 +386,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 7,
     "capability": "workspace-registry-v1",
-    "fields": {},
+    "fields": {
+      "activate": {
+        "since": 10,
+        "capability": "independent-client-selection-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -492,6 +505,22 @@ export const COMMAND_METADATA = {
       "Authority must match the value provisioned before this mux generation accepted control clients."
     ]
   },
+  "merge-pane": {
+    "authority": "control",
+    "since": 10,
+    "capability": "canonical-layout-relocation-v1",
+    "fields": {
+      "activate": {
+        "since": null,
+        "capability": "independent-client-selection-v1"
+      }
+    },
+    "stream": null,
+    "constraints": [
+      "Source and target panes must differ and belong to one screen.",
+      "activate:false requires independent-client-selection-v1."
+    ]
+  },
   "mint-terminal-renderer": {
     "authority": "frontend",
     "since": 9,
@@ -502,14 +531,84 @@ export const COMMAND_METADATA = {
       "Only terminal-host-backed PTYs can mint one-use renderer credentials."
     ]
   },
+  "move-pane-to-new-column": {
+    "authority": "control",
+    "since": 10,
+    "capability": "canonical-layout-relocation-v1",
+    "fields": {
+      "activate": {
+        "since": null,
+        "capability": "independent-client-selection-v1"
+      }
+    },
+    "stream": null,
+    "constraints": [
+      "The insertion index is clamped to the canonical column end.",
+      "activate:false requires independent-client-selection-v1."
+    ]
+  },
+  "move-pane-to-split": {
+    "authority": "control",
+    "since": 10,
+    "capability": "canonical-layout-relocation-v1",
+    "fields": {
+      "activate": {
+        "since": null,
+        "capability": "independent-client-selection-v1"
+      }
+    },
+    "stream": null,
+    "constraints": [
+      "Source and target panes must differ and belong to one screen.",
+      "activate:false requires independent-client-selection-v1."
+    ]
+  },
   "move-tab": {
     "authority": "control",
     "since": 5,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "activate": {
+        "since": 10,
+        "capability": "independent-client-selection-v1"
+      }
+    },
     "stream": null,
     "constraints": [
-      "An out-of-range index clamps to the destination end."
+      "An out-of-range index clamps to the destination end.",
+      "activate:false requires independent-client-selection-v1."
+    ]
+  },
+  "move-tab-to-new-column": {
+    "authority": "control",
+    "since": 10,
+    "capability": "canonical-layout-relocation-v1",
+    "fields": {
+      "activate": {
+        "since": null,
+        "capability": "independent-client-selection-v1"
+      }
+    },
+    "stream": null,
+    "constraints": [
+      "The insertion index is clamped to the canonical column end.",
+      "activate:false requires independent-client-selection-v1."
+    ]
+  },
+  "move-tab-to-split": {
+    "authority": "control",
+    "since": 10,
+    "capability": "canonical-layout-relocation-v1",
+    "fields": {
+      "activate": {
+        "since": null,
+        "capability": "independent-client-selection-v1"
+      }
+    },
+    "stream": null,
+    "constraints": [
+      "Source and target must belong to one screen.",
+      "activate:false requires independent-client-selection-v1."
     ]
   },
   "move-terminal": {
@@ -555,7 +654,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 5,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "activate": {
+        "since": 10,
+        "capability": "independent-client-selection-v1"
+      },
+      "index": {
+        "since": 10,
+        "capability": "independent-client-selection-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "Bootstrap and navigation failures are asynchronous browser-state outcomes."
@@ -565,7 +673,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 9,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "activate": {
+        "since": 10,
+        "capability": "independent-client-selection-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -573,7 +686,20 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 9,
     "capability": "viewport-splits-v1",
-    "fields": {},
+    "fields": {
+      "activate": {
+        "since": 10,
+        "capability": "independent-client-selection-v1"
+      },
+      "kind": {
+        "since": 10,
+        "capability": "independent-client-selection-v1"
+      },
+      "url": {
+        "since": 10,
+        "capability": "independent-client-selection-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -581,7 +707,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 5,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "activate": {
+        "since": 10,
+        "capability": "independent-client-selection-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -998,7 +1129,20 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 5,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "activate": {
+        "since": 10,
+        "capability": "independent-client-selection-v1"
+      },
+      "kind": {
+        "since": 10,
+        "capability": "independent-client-selection-v1"
+      },
+      "url": {
+        "since": 10,
+        "capability": "independent-client-selection-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -2738,6 +2882,42 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     }
   },
+  "LayoutColumn": {
+    "additional_properties": false,
+    "fields": {
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "layout": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Layout"
+        }
+      },
+      "width": {
+        "constraints": [
+          {
+            "maximum": 1.0,
+            "minimum": 0.1
+          }
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float32"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "LayoutUndoConfirmationRequired": {
     "additional_properties": false,
     "fields": {
@@ -3020,6 +3200,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "MoveTabResult": {
+    "kind": "untagged_union",
+    "variants": [
+      {
+        "kind": "ref",
+        "name": "PlacementResult"
+      },
+      {
+        "kind": "ref",
+        "name": "EmptyResult"
+      }
+    ]
+  },
   "MoveTerminalResult": {
     "additional_properties": false,
     "fields": {
@@ -3204,6 +3397,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "down"
     ]
   },
+  "PaneKind": {
+    "kind": "enum",
+    "values": [
+      "pty",
+      "browser"
+    ]
+  },
   "PaneNeighborResult": {
     "additional_properties": false,
     "fields": {
@@ -3259,6 +3459,44 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "PlacementResult": {
+    "additional_properties": false,
+    "fields": {
+      "pane": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "screen": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "workspace": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
         }
       }
     },
@@ -4074,6 +4312,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "columns": {
+        "capability": "canonical-layout-columns-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 10,
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "LayoutColumn"
+          },
+          "kind": "array"
+        }
+      },
       "id": {
         "nullable": false,
         "presence": "required",
@@ -4121,6 +4372,35 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "viewport_base_width": {
+        "capability": "viewport-column-resize-v1",
+        "constraints": [
+          {
+            "maximum": 1.0,
+            "minimum": 0.1
+          }
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 10,
+        "type": {
+          "kind": "scalar",
+          "name": "float32"
+        }
+      },
+      "viewport_splits": {
+        "capability": "viewport-splits-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 10,
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ViewportSplit"
+          },
+          "kind": "array"
         }
       },
       "zoomed_pane": {
@@ -4266,6 +4546,26 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "SurfaceResult": {
     "additional_properties": false,
     "fields": {
+      "pane": {
+        "capability": "independent-client-selection-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 10,
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "screen": {
+        "capability": "independent-client-selection-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 10,
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
       "surface": {
         "nullable": false,
         "presence": "required",
@@ -4290,6 +4590,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "workspace": {
+        "capability": "independent-client-selection-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 10,
+        "type": {
+          "kind": "ref",
+          "name": "Id"
         }
       }
     },
@@ -4416,6 +4726,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "tab_resource_id": {
+        "constraints": [
+          {
+            "pattern": "^tab_[0-9a-f]{32}$"
+          }
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "since": 10,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "terminal_id": {
         "nullable": true,
         "presence": "optional",
@@ -4451,6 +4775,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "title": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "url": {
+        "nullable": true,
+        "presence": "optional",
+        "since": 10,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -5156,6 +5489,34 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "Workspace"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ViewportSplit": {
+    "additional_properties": false,
+    "fields": {
+      "split": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "width": {
+        "constraints": [
+          {
+            "maximum": 1.0,
+            "minimum": 0.1
+          }
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float32"
         }
       }
     },
@@ -6417,9 +6778,21 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "At least one of workspace and key must be supplied; when both are supplied they must identify the same workspace.",
         "argv and command are mutually exclusive and must be nonempty when supplied.",
         "cols and rows must be supplied together.",
-        "origin and mutation_id are either both present or both absent."
+        "origin and mutation_id are either both present or both absent.",
+        "activate:false requires pane and independent-client-selection-v1."
       ],
       "fields": {
+        "activate": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 10,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "argv": {
           "default": null,
           "nullable": true,
@@ -6517,6 +6890,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "pane": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 10,
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
         "rows": {
           "default": null,
           "nullable": true,
@@ -6561,6 +6945,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "At most 4096 live workspaces may exist; tombstoned keys cannot be reused."
       ],
       "fields": {
+        "activate": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 10,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "expected_generation": {
           "default": null,
           "nullable": true,
@@ -6896,6 +7291,52 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "merge-pane": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "activate": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "index": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "target": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "PlacementResult"
+    }
+  },
   "mint-terminal-renderer": {
     "request": {
       "additional_properties": false,
@@ -6931,10 +7372,128 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "MintTerminalRendererResult"
     }
   },
+  "move-pane-to-new-column": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "activate": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "index": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "width": {
+          "constraints": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.1
+            }
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "float32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "PlacementResult"
+    }
+  },
+  "move-pane-to-split": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "activate": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "dir": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "SplitDirection"
+          }
+        },
+        "insert_first": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "target": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "PlacementResult"
+    }
+  },
   "move-tab": {
     "request": {
       "additional_properties": false,
       "fields": {
+        "activate": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 10,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "index": {
           "nullable": false,
           "presence": "required",
@@ -6964,7 +7523,114 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "EmptyResult"
+      "name": "MoveTabResult"
+    }
+  },
+  "move-tab-to-new-column": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "activate": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "index": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "width": {
+          "constraints": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.1
+            }
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "float32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "PlacementResult"
+    }
+  },
+  "move-tab-to-split": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "activate": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "dir": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "SplitDirection"
+          }
+        },
+        "insert_first": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "PlacementResult"
     }
   },
   "move-terminal": {
@@ -7137,9 +7803,22 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "constraints": [
-        "cols and rows affect sizing only when both are present."
+        "cols and rows affect sizing only when both are present.",
+        "index and activate:false require an explicit pane.",
+        "activate:false requires independent-client-selection-v1."
       ],
       "fields": {
+        "activate": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 10,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "cols": {
           "default": null,
           "nullable": true,
@@ -7147,6 +7826,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "index": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 10,
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         },
         "pane": {
@@ -7190,6 +7880,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "cols and rows affect sizing only when both are present."
       ],
       "fields": {
+        "activate": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 10,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "cols": {
           "default": null,
           "nullable": true,
@@ -7229,9 +7930,22 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "additional_properties": false,
       "constraints": [
         "Omitted width defaults to two thirds.",
-        "cols and rows affect sizing only when both are present."
+        "cols and rows affect sizing only when both are present.",
+        "url is valid only with kind:browser.",
+        "activate:false requires independent-client-selection-v1."
       ],
       "fields": {
+        "activate": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 10,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "cols": {
           "default": null,
           "nullable": true,
@@ -7239,6 +7953,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "kind": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 10,
+          "type": {
+            "kind": "ref",
+            "name": "PaneKind"
           }
         },
         "pane": {
@@ -7256,6 +7981,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "url": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 10,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "width": {
@@ -7288,6 +8024,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "cols and rows affect sizing only when both are present."
       ],
       "fields": {
+        "activate": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 10,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "cols": {
           "default": null,
           "nullable": true,
@@ -8936,9 +9683,22 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "constraints": [
-        "cols and rows affect sizing only when both are present."
+        "cols and rows affect sizing only when both are present.",
+        "url is valid only with kind:browser.",
+        "activate:false requires independent-client-selection-v1."
       ],
       "fields": {
+        "activate": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 10,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "cols": {
           "default": null,
           "nullable": true,
@@ -8956,6 +9716,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "SplitDirection"
           }
         },
+        "kind": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 10,
+          "type": {
+            "kind": "ref",
+            "name": "PaneKind"
+          }
+        },
         "pane": {
           "nullable": false,
           "presence": "required",
@@ -8971,6 +9742,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "url": {
+          "capability": "independent-client-selection-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 10,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         }
       },

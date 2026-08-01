@@ -10,21 +10,21 @@ import java.util.Map;
 import java.util.Objects;
 
 
-/** Immutable move-tab request. Protocol v5; authority: control. */
-public final class MoveTabRequest implements WireValue {
+/** Immutable merge-pane request. Protocol v10; authority: control. */
+public final class MergePaneRequest implements WireValue {
     private final Field<Boolean> activate;
     private final UInt64 index;
     private final UInt64 pane;
-    private final UInt64 surface;
+    private final UInt64 target;
 
-    private MoveTabRequest(Builder builder) {
+    private MergePaneRequest(Builder builder) {
         this.activate = builder.activate;
         if (!builder.indexSet) throw new IllegalArgumentException("index is required");
         this.index = Wire.nonNull(builder.index, "index");
         if (!builder.paneSet) throw new IllegalArgumentException("pane is required");
         this.pane = Wire.nonNull(builder.pane, "pane");
-        if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
-        this.surface = Wire.nonNull(builder.surface, "surface");
+        if (!builder.targetSet) throw new IllegalArgumentException("target is required");
+        this.target = Wire.nonNull(builder.target, "target");
     }
 
     public static Builder builder() { return new Builder(); }
@@ -32,21 +32,21 @@ public final class MoveTabRequest implements WireValue {
     public Field<Boolean> activate() { return activate; }
     public UInt64 index() { return index; }
     public UInt64 pane() { return pane; }
-    public UInt64 surface() { return surface; }
+    public UInt64 target() { return target; }
 
-    public static MoveTabRequest fromWire(Object value) {
-        Map<String, Object> object = Wire.object(value, "MoveTabRequest");
+    public static MergePaneRequest fromWire(Object value) {
+        Map<String, Object> object = Wire.object(value, "MergePaneRequest");
         Builder builder = builder();
         Object rawActivate = Wire.optional(object, "activate");
         if (!Wire.isMissing(rawActivate)) {
-            builder.activate(rawActivate == null ? null : Wire.bool(rawActivate, "MoveTabRequest.activate"));
+            builder.activate(rawActivate == null ? null : Wire.bool(rawActivate, "MergePaneRequest.activate"));
         }
         Object rawIndex = Wire.required(object, "index");
-        builder.index(Wire.uint64(rawIndex, "MoveTabRequest.index"));
+        builder.index(Wire.uint64(rawIndex, "MergePaneRequest.index"));
         Object rawPane = Wire.required(object, "pane");
-        builder.pane(Wire.uint64(rawPane, "MoveTabRequest.pane"));
-        Object rawSurface = Wire.required(object, "surface");
-        builder.surface(Wire.uint64(rawSurface, "MoveTabRequest.surface"));
+        builder.pane(Wire.uint64(rawPane, "MergePaneRequest.pane"));
+        Object rawTarget = Wire.required(object, "target");
+        builder.target(Wire.uint64(rawTarget, "MergePaneRequest.target"));
         return builder.build();
     }
 
@@ -56,21 +56,21 @@ public final class MoveTabRequest implements WireValue {
         Wire.put(object, "activate", activate);
         Wire.put(object, "index", index);
         Wire.put(object, "pane", pane);
-        Wire.put(object, "surface", surface);
+        Wire.put(object, "target", target);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
-        if (!(other instanceof MoveTabRequest that)) return false;
-        return Objects.equals(activate, that.activate) && Objects.equals(index, that.index) && Objects.equals(pane, that.pane) && Objects.equals(surface, that.surface);
+        if (!(other instanceof MergePaneRequest that)) return false;
+        return Objects.equals(activate, that.activate) && Objects.equals(index, that.index) && Objects.equals(pane, that.pane) && Objects.equals(target, that.target);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(activate, index, pane, surface); }
+    public int hashCode() { return Objects.hash(activate, index, pane, target); }
 
     @Override
-    public String toString() { return "MoveTabRequest" + toWire(); }
+    public String toString() { return "MergePaneRequest" + toWire(); }
 
     public static final class Builder {
         private Field<Boolean> activate = Field.omitted();
@@ -78,8 +78,8 @@ public final class MoveTabRequest implements WireValue {
         private boolean indexSet;
         private UInt64 pane;
         private boolean paneSet;
-        private UInt64 surface;
-        private boolean surfaceSet;
+        private UInt64 target;
+        private boolean targetSet;
 
         public Builder activate(Boolean value) {
             this.activate = Field.ofNullable(value);
@@ -95,11 +95,11 @@ public final class MoveTabRequest implements WireValue {
             this.paneSet = true;
             return this;
         }
-        public Builder surface(UInt64 value) {
-            this.surface = value;
-            this.surfaceSet = true;
+        public Builder target(UInt64 value) {
+            this.target = value;
+            this.targetSet = true;
             return this;
         }
-        public MoveTabRequest build() { return new MoveTabRequest(this); }
+        public MergePaneRequest build() { return new MergePaneRequest(this); }
     }
 }

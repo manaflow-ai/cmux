@@ -78,6 +78,9 @@ pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guar
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
+pub const CANONICAL_LAYOUT_COLUMNS_CAPABILITY: &str = "canonical-layout-columns-v1";
+pub const CANONICAL_LAYOUT_RELOCATION_CAPABILITY: &str = "canonical-layout-relocation-v1";
+pub const INDEPENDENT_CLIENT_SELECTION_CAPABILITY: &str = "independent-client-selection-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
 pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
@@ -99,6 +102,9 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         GUARDED_BROWSER_POINTER_CAPABILITY,
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+        CANONICAL_LAYOUT_COLUMNS_CAPABILITY,
+        CANONICAL_LAYOUT_RELOCATION_CAPABILITY,
+        INDEPENDENT_CLIENT_SELECTION_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
         SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
@@ -690,9 +696,13 @@ enum Command {
         #[serde(default)]
         pane: Option<PaneId>,
         #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(default)]
+        activate: Option<bool>,
     },
     SetCellPixels {
         #[serde(alias = "width_px")]
@@ -810,6 +820,10 @@ enum Command {
         /// generates a UUIDv4 key and returns it.
         #[serde(default)]
         key: Option<String>,
+        /// Detached frontends can create shared structure without selecting
+        /// it in the owner TUI.
+        #[serde(default)]
+        activate: Option<bool>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -820,6 +834,10 @@ enum Command {
         workspace: Option<WorkspaceId>,
         #[serde(default)]
         key: Option<String>,
+        /// Optional exact canonical pane. It must belong to the selected
+        /// workspace.
+        #[serde(default)]
+        pane: Option<PaneId>,
         #[serde(default)]
         argv: Option<Vec<String>>,
         #[serde(default)]
@@ -836,6 +854,10 @@ enum Command {
         /// mutation id makes a lost-response retry exactly once.
         #[serde(default)]
         terminal_id: Option<String>,
+        /// Detached frontends set false so creating a tab cannot replace the
+        /// owner TUI's active tab or focus path.
+        #[serde(default)]
+        activate: Option<bool>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -847,6 +869,10 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        /// Defaults to the historical owner-TUI activation behavior. Detached
+        /// frontends send false and select the returned Screen locally.
+        #[serde(default)]
+        activate: Option<bool>,
     },
     NewPane {
         pane: PaneId,
@@ -854,6 +880,8 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(default)]
+        activate: Option<bool>,
     },
     NewPaneRight {
         pane: PaneId,
@@ -863,6 +891,12 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(default)]
+        activate: Option<bool>,
+        #[serde(default)]
+        kind: Option<String>,
+        #[serde(default)]
+        url: Option<String>,
     },
     Split {
         pane: PaneId,
@@ -872,6 +906,12 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(default)]
+        activate: Option<bool>,
+        #[serde(default)]
+        kind: Option<String>,
+        #[serde(default)]
+        url: Option<String>,
     },
     SetRatio {
         pane: PaneId,
@@ -935,6 +975,49 @@ enum Command {
         surface: SurfaceId,
         pane: PaneId,
         index: usize,
+        #[serde(default)]
+        activate: Option<bool>,
+    },
+    MoveTabToSplit {
+        surface: SurfaceId,
+        pane: PaneId,
+        /// "right" or "down"
+        dir: String,
+        #[serde(default)]
+        insert_first: bool,
+        #[serde(default)]
+        activate: Option<bool>,
+    },
+    MoveTabToNewColumn {
+        surface: SurfaceId,
+        index: usize,
+        width: f32,
+        #[serde(default)]
+        activate: Option<bool>,
+    },
+    MergePane {
+        pane: PaneId,
+        target: PaneId,
+        index: usize,
+        #[serde(default)]
+        activate: Option<bool>,
+    },
+    MovePaneToSplit {
+        pane: PaneId,
+        target: PaneId,
+        /// "right" or "down"
+        dir: String,
+        #[serde(default)]
+        insert_first: bool,
+        #[serde(default)]
+        activate: Option<bool>,
+    },
+    MovePaneToNewColumn {
+        pane: PaneId,
+        index: usize,
+        width: f32,
+        #[serde(default)]
+        activate: Option<bool>,
     },
     MoveWorkspace {
         #[serde(default)]
@@ -1117,6 +1200,8 @@ impl Command {
             | Self::BrowserActivate { surface }
             | Self::ProcessInfo { surface }
             | Self::MoveTab { surface, .. }
+            | Self::MoveTabToSplit { surface, .. }
+            | Self::MoveTabToNewColumn { surface, .. }
             | Self::CloseSurface { surface }
             | Self::RenameSurface { surface, .. }
             | Self::ResizeSurface { surface, .. }
@@ -6879,6 +6964,19 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
             value["viewport_base_width"] = json!(width);
         }
     }
+    if screen.layout_columns_active() {
+        value["columns"] = json!(
+            screen
+                .layout_columns
+                .iter()
+                .map(|column| json!({
+                    "id": column.id,
+                    "width": column.width,
+                    "layout": node_json(&column.root, screen.active_pane),
+                }))
+                .collect::<Vec<_>>()
+        );
+    }
     Ok(value)
 }
 
@@ -6899,6 +6997,7 @@ fn pane_json(
         "focused_at": pane.focused_at,
         "tabs": pane.tabs.iter().map(|sid| {
             let surface = state.surfaces.get(sid);
+            let tab_resource_id = state.resource_indexes.tab_ids.get(sid);
             let terminal_identity = surface.and_then(|surface| surface.terminal_host_identity());
             let terminal_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
@@ -6908,6 +7007,7 @@ fn pane_json(
                 });
             json!({
                 "surface": sid,
+                "tab_resource_id": tab_resource_id,
                 "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
                 "terminal_resource_id": terminal_resource_id,
                 "terminal_incarnation": terminal_identity
@@ -6915,6 +7015,7 @@ fn pane_json(
                     .map(|identity| &identity.incarnation),
                 "short_id": short_ids.get(sid).cloned().unwrap_or_default(),
                 "kind": surface.map(|s| s.kind().as_str()).unwrap_or("pty"),
+                "url": surface.and_then(|s| s.browser_url()),
                 "browser_source": surface.and_then(|s| s.browser_source().map(|source| source.as_str())),
                 "browser_status": surface.and_then(|s| s.browser_status().map(|status| status.as_str())),
                 "browser_error": surface.and_then(|s| s.browser_status().and_then(|status| status.error())),
@@ -6970,6 +7071,19 @@ fn screen_json(
         if let Some(width) = screen.viewport_base_width {
             value["viewport_base_width"] = json!(width);
         }
+    }
+    if screen.layout_columns_active() {
+        value["columns"] = json!(
+            screen
+                .layout_columns
+                .iter()
+                .map(|column| json!({
+                    "id": column.id,
+                    "width": column.width,
+                    "layout": node_json(&column.root, screen.active_pane),
+                }))
+                .collect::<Vec<_>>()
+        );
     }
     value
 }
@@ -8680,9 +8794,31 @@ fn handle_command_with_cancellation(
                     .map(|identity| &identity.incarnation),
             }))
         }
-        Command::NewBrowserTab { url, pane, cols, rows } => {
-            let surface = mux.new_browser_tab(url, pane, optional_surface_size(cols, rows))?;
-            Ok(json!({ "surface": surface.id }))
+        Command::NewBrowserTab { url, pane, index, cols, rows, activate } => {
+            if let Some(pane) = pane {
+                let (surface, placement) = mux.new_browser_tab_in_pane_at(
+                    pane,
+                    url,
+                    optional_surface_size(cols, rows),
+                    index.unwrap_or(usize::MAX),
+                    activate.unwrap_or(true),
+                )?;
+                Ok(json!({
+                    "surface": surface.id,
+                    "pane": placement.pane,
+                    "screen": placement.screen,
+                    "workspace": placement.workspace,
+                }))
+            } else {
+                if index.is_some() {
+                    anyhow::bail!("new-browser-tab index requires pane");
+                }
+                if activate == Some(false) {
+                    anyhow::bail!("new-browser-tab activate:false requires pane");
+                }
+                let surface = mux.new_browser_tab(url, None, optional_surface_size(cols, rows))?;
+                Ok(json!({ "surface": surface.id }))
+            }
         }
         Command::GetCellPixels => {
             let (width_px, height_px) = mux.cell_pixel_creation_size();
@@ -8871,19 +9007,20 @@ fn handle_command_with_cancellation(
             let surface = mux.new_workspace(name, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
-        Command::CreateWorkspace { name, key, mutation } => {
+        Command::CreateWorkspace { name, key, activate, mutation } => {
             if let Some(key) = key.as_deref()
                 && !crate::workspace_registry::is_canonical_workspace_key(key)
             {
                 anyhow::bail!("workspace key must be a lowercase UUID");
             }
             let workspace_mutation = workspace_mutation(&mutation)?;
-            let placement = mux.create_empty_workspace_with_mutation(
+            let placement = mux.create_empty_workspace_with_mutation_and_activation(
                 name,
                 key,
                 mutation.expected_generation.as_deref(),
                 mutation.expected_revision,
                 &workspace_mutation,
+                activate.unwrap_or(true),
             )?;
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
@@ -8899,6 +9036,7 @@ fn handle_command_with_cancellation(
         Command::CreateTerminal {
             workspace,
             key,
+            pane,
             argv,
             command,
             cwd,
@@ -8906,6 +9044,7 @@ fn handle_command_with_cancellation(
             cols,
             rows,
             terminal_id,
+            activate,
             mutation,
         } => {
             if argv.is_some() && command.is_some() {
@@ -8924,7 +9063,7 @@ fn handle_command_with_cancellation(
             let (registry_id, generation) = mux.registry_identity();
             if terminal_id.is_some() || mutation.mutation_id.is_some() {
                 let workspace_mutation = workspace_mutation(&mutation)?;
-                let result = mux.create_terminal_in_workspace_with_mutation(
+                let result = mux.create_terminal_in_workspace_with_mutation_at(
                     workspace,
                     argv,
                     cwd,
@@ -8934,6 +9073,8 @@ fn handle_command_with_cancellation(
                     mutation.expected_generation.as_deref(),
                     mutation.expected_revision,
                     &workspace_mutation,
+                    pane,
+                    activate.unwrap_or(true),
                 )?;
                 let projection_fingerprint = json!({
                     "terminal_id":result.terminal_id,
@@ -8964,8 +9105,15 @@ fn handle_command_with_cancellation(
                     "generation": generation,
                 }))
             } else {
-                let placement =
-                    mux.create_terminal_in_workspace(workspace, argv, cwd, name, size)?;
+                let placement = mux.create_terminal_in_workspace_at(
+                    workspace,
+                    argv,
+                    cwd,
+                    name,
+                    size,
+                    pane,
+                    activate.unwrap_or(true),
+                )?;
                 let identity = mux
                     .surface(placement.surface)
                     .and_then(|surface| surface.terminal_host_identity());
@@ -8986,26 +9134,83 @@ fn handle_command_with_cancellation(
                 }))
             }
         }
-        Command::NewScreen { workspace, cols, rows } => {
-            let surface = mux.new_screen(workspace, optional_surface_size(cols, rows))?;
-            Ok(json!({ "surface": surface.id }))
-        }
-        Command::NewPane { pane, cols, rows } => {
-            let surface = mux.new_pane(pane, optional_surface_size(cols, rows))?;
-            Ok(json!({ "surface": surface.id }))
-        }
-        Command::NewPaneRight { pane, width, cols, rows } => {
-            let surface = mux.new_pane_right(
-                pane,
-                width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH),
+        Command::NewScreen { workspace, cols, rows, activate } => {
+            let (surface, placement) = mux.new_screen_with_activation(
+                workspace,
                 optional_surface_size(cols, rows),
+                activate.unwrap_or(true),
             )?;
-            Ok(json!({ "surface": surface.id }))
+            Ok(json!({
+                "surface": surface.id,
+                "pane": placement.pane,
+                "screen": placement.screen,
+                "workspace": placement.workspace,
+            }))
         }
-        Command::Split { pane, dir, cols, rows } => {
+        Command::NewPane { pane, cols, rows, activate } => {
+            let (surface, placement) = mux.new_pane_with_activation(
+                pane,
+                optional_surface_size(cols, rows),
+                activate.unwrap_or(true),
+            )?;
+            Ok(json!({
+                "surface": surface.id,
+                "pane": placement.pane,
+                "screen": placement.screen,
+                "workspace": placement.workspace,
+            }))
+        }
+        Command::NewPaneRight { pane, width, cols, rows, activate, kind, url } => {
+            let width = width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH);
+            let size = optional_surface_size(cols, rows);
+            let activate = activate.unwrap_or(true);
+            let (surface, placement) = match kind.as_deref().unwrap_or("pty") {
+                "pty" if url.is_none() => {
+                    mux.new_pane_right_with_activation(pane, width, size, activate)?
+                }
+                "pty" => anyhow::bail!(
+                    "url is only valid with kind \"browser\"; remove url or use kind \"browser\""
+                ),
+                "browser" => mux.new_browser_pane_right_with_activation(
+                    pane,
+                    width,
+                    url.unwrap_or_else(|| "about:blank".to_string()),
+                    size,
+                    activate,
+                )?,
+                value => anyhow::bail!("bad pane kind {value:?}"),
+            };
+            Ok(json!({
+                "surface": surface.id,
+                "pane": placement.pane,
+                "screen": placement.screen,
+                "workspace": placement.workspace,
+            }))
+        }
+        Command::Split { pane, dir, cols, rows, activate, kind, url } => {
             let dir = parse_split_dir(&dir)?;
-            let surface = mux.split(pane, dir, optional_surface_size(cols, rows))?;
-            Ok(json!({ "surface": surface.id }))
+            let size = optional_surface_size(cols, rows);
+            let activate = activate.unwrap_or(true);
+            let (surface, placement) = match kind.as_deref().unwrap_or("pty") {
+                "pty" if url.is_none() => mux.split_with_activation(pane, dir, size, activate)?,
+                "pty" => anyhow::bail!(
+                    "url is only valid with kind \"browser\"; remove url or use kind \"browser\""
+                ),
+                "browser" => mux.split_browser_with_activation(
+                    pane,
+                    dir,
+                    url.unwrap_or_else(|| "about:blank".to_string()),
+                    size,
+                    activate,
+                )?,
+                value => anyhow::bail!("bad pane kind {value:?}"),
+            };
+            Ok(json!({
+                "surface": surface.id,
+                "pane": placement.pane,
+                "screen": placement.screen,
+                "workspace": placement.workspace,
+            }))
         }
         Command::SetRatio { pane, dir, ratio } => {
             let dir = parse_split_dir(&dir)?;
@@ -9123,7 +9328,7 @@ fn handle_command_with_cancellation(
                 "generation":generation,
             }))
         }
-        Command::MoveTab { surface, pane, index } => {
+        Command::MoveTab { surface, pane, index, activate } => {
             let valid = mux.with_state(|state| {
                 state.surfaces.contains_key(&surface)
                     && state.panes.contains_key(&pane)
@@ -9132,8 +9337,92 @@ fn handle_command_with_cancellation(
             if !valid {
                 anyhow::bail!("unknown surface/pane");
             }
-            mux.move_tab(surface, pane, index);
-            Ok(json!({}))
+            mux.try_move_tab_with_activation(surface, pane, index, activate.unwrap_or(true))?;
+            let placement = mux
+                .with_state(|state| {
+                    let pane = state.pane_of(surface)?;
+                    let (workspace_index, screen_index) = state.screen_of(pane)?;
+                    Some((
+                        pane,
+                        state.workspaces[workspace_index].screens[screen_index].id,
+                        state.workspaces[workspace_index].id,
+                    ))
+                })
+                .ok_or_else(|| anyhow::anyhow!("moved surface has no placement"))?;
+            Ok(json!({
+                "surface": surface,
+                "pane": placement.0,
+                "screen": placement.1,
+                "workspace": placement.2,
+            }))
+        }
+        Command::MoveTabToSplit { surface, pane, dir, insert_first, activate } => {
+            let placement = mux.move_tab_to_split_with_activation(
+                surface,
+                pane,
+                parse_split_dir(&dir)?,
+                insert_first,
+                activate.unwrap_or(true),
+            )?;
+            Ok(json!({
+                "surface": placement.surface,
+                "pane": placement.pane,
+                "screen": placement.screen,
+                "workspace": placement.workspace,
+            }))
+        }
+        Command::MoveTabToNewColumn { surface, index, width, activate } => {
+            let placement = mux.move_tab_to_new_column_with_activation(
+                surface,
+                index,
+                width,
+                activate.unwrap_or(true),
+            )?;
+            Ok(json!({
+                "surface": placement.surface,
+                "pane": placement.pane,
+                "screen": placement.screen,
+                "workspace": placement.workspace,
+            }))
+        }
+        Command::MergePane { pane, target, index, activate } => {
+            let placement =
+                mux.merge_pane_with_activation(pane, target, index, activate.unwrap_or(true))?;
+            Ok(json!({
+                "surface": placement.surface,
+                "pane": placement.pane,
+                "screen": placement.screen,
+                "workspace": placement.workspace,
+            }))
+        }
+        Command::MovePaneToSplit { pane, target, dir, insert_first, activate } => {
+            let placement = mux.move_pane_to_split_with_activation(
+                pane,
+                target,
+                parse_split_dir(&dir)?,
+                insert_first,
+                activate.unwrap_or(true),
+            )?;
+            Ok(json!({
+                "surface": placement.surface,
+                "pane": placement.pane,
+                "screen": placement.screen,
+                "workspace": placement.workspace,
+            }))
+        }
+        Command::MovePaneToNewColumn { pane, index, width, activate } => {
+            let placement = mux.move_pane_to_new_column_with_activation(
+                pane,
+                index,
+                width,
+                activate.unwrap_or(true),
+            )?;
+            Ok(json!({
+                "surface": placement.surface,
+                "pane": placement.pane,
+                "screen": placement.screen,
+                "workspace": placement.workspace,
+            }))
         }
         Command::MoveWorkspace { workspace, key, index, mutation } => {
             let workspace_mutation = workspace_mutation(&mutation)?;
@@ -14193,10 +14482,305 @@ mod tests {
     }
 
     #[test]
-    fn workspace_tree_exposes_the_public_terminal_id_for_startup_attach() {
+    fn horizontal_layout_serializes_lossless_canonical_columns() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+        let third = mux.split(second_pane, SplitDir::Down, Some((38, 10))).unwrap();
+        let third_pane = mux.with_state(|state| state.pane_of(third.id).unwrap());
+
+        let workspaces = handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap();
+        let screen = &workspaces["workspaces"][0]["screens"][0];
+        let columns = screen["columns"].as_array().expect("canonical columns");
+        assert_eq!(columns.len(), 2);
+        assert_eq!(columns[0]["width"].as_f64(), Some(1.0));
+        assert_eq!(columns[0]["layout"]["pane"].as_u64(), Some(first_pane));
+        assert_eq!(columns[1]["width"].as_f64(), Some(0.5));
+        assert_eq!(columns[1]["layout"]["type"], "split");
+        assert_eq!(columns[1]["layout"]["dir"], "down");
+        assert_eq!(columns[1]["layout"]["a"]["pane"].as_u64(), Some(second_pane));
+        assert_eq!(columns[1]["layout"]["b"]["pane"].as_u64(), Some(third_pane));
+        assert_eq!(
+            columns[1]["id"], screen["viewport_splits"][0]["split"],
+            "the explicit column and compatibility projection share identity"
+        );
+
+        let exported = handle_command(
+            &mux,
+            0,
+            Command::ExportLayout { screen: screen["id"].as_u64() },
+            &test_writer(),
+        )
+        .unwrap();
+        assert_eq!(exported["columns"], screen["columns"]);
+    }
+
+    #[test]
+    fn canonical_relocation_commands_return_placement_without_stealing_focus() {
+        let mux = test_mux();
+        let owner = mux.new_workspace(None, None).unwrap();
+        let owner_pane = mux.with_state(|state| state.pane_of(owner.id).unwrap());
+        let moving = mux.new_tab(Some(owner_pane), None, None).unwrap();
+        let target = mux.split(owner_pane, SplitDir::Down, None).unwrap();
+        let target_pane = mux.with_state(|state| state.pane_of(target.id).unwrap());
+        assert!(mux.focus_pane(owner_pane));
+        mux.select_tab(Some(owner_pane), Some(0), None);
+        let owner_focus = mux.with_state(|state| {
+            let workspace = &state.workspaces[state.active_workspace];
+            let screen = workspace.active_screen_ref().unwrap();
+            (
+                workspace.id,
+                screen.id,
+                screen.active_pane,
+                state.panes[&screen.active_pane].active_surface(),
+            )
+        });
+
+        let create: Request = serde_json::from_value(json!({
+            "id": 0,
+            "cmd": "create-workspace",
+            "name": "detached",
+            "activate": false
+        }))
+        .unwrap();
+        assert!(matches!(create.cmd, Command::CreateWorkspace { activate: Some(false), .. }));
+
+        let request: Request = serde_json::from_value(json!({
+            "id": 1,
+            "cmd": "move-tab-to-split",
+            "surface": moving.id,
+            "pane": target_pane,
+            "dir": "right",
+            "insert_first": true,
+            "activate": false
+        }))
+        .unwrap();
+        let split = handle_command(&mux, 0, request.cmd, &test_writer()).unwrap();
+        assert_eq!(split["surface"].as_u64(), Some(moving.id));
+        let moved_pane = split["pane"].as_u64().expect("new pane placement");
+        assert_ne!(moved_pane, target_pane);
+
+        let request: Request = serde_json::from_value(json!({
+            "id": 2,
+            "cmd": "move-pane-to-new-column",
+            "pane": moved_pane,
+            "index": 0,
+            "width": 0.6,
+            "activate": false
+        }))
+        .unwrap();
+        let column = handle_command(&mux, 0, request.cmd, &test_writer()).unwrap();
+        assert_eq!(column["pane"].as_u64(), Some(moved_pane));
+        assert_eq!(
+            mux.with_state(|state| {
+                let workspace = &state.workspaces[state.active_workspace];
+                let screen = workspace.active_screen_ref().unwrap();
+                (
+                    workspace.id,
+                    screen.id,
+                    screen.active_pane,
+                    state.panes[&screen.active_pane].active_surface(),
+                )
+            }),
+            owner_focus
+        );
+    }
+
+    #[test]
+    fn detached_browser_tab_requires_an_explicit_pane() {
+        let mux = test_mux();
+
+        let error = handle_command(
+            &mux,
+            0,
+            Command::NewBrowserTab {
+                url: "about:blank".into(),
+                pane: None,
+                index: None,
+                cols: None,
+                rows: None,
+                activate: Some(false),
+            },
+            &test_writer(),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.to_string(), "new-browser-tab activate:false requires pane");
+        assert_eq!(mux.surface_count(), 0);
+    }
+
+    #[test]
+    fn detached_terminal_without_a_pane_materializes_only_an_empty_workspace() {
+        let mux = test_mux();
+        let detached = mux.create_empty_workspace(Some("detached".into()), None, None).unwrap();
+        let owner = mux.new_workspace(Some("owner".into()), None).unwrap();
+        let owner_focus = mux.with_state(|state| {
+            let workspace = &state.workspaces[state.active_workspace];
+            let screen = workspace.active_screen_ref().unwrap();
+            (
+                workspace.id,
+                screen.id,
+                screen.active_pane,
+                state.panes[&screen.active_pane].active_surface(),
+            )
+        });
+
+        let placement = handle_command(
+            &mux,
+            0,
+            Command::CreateTerminal {
+                workspace: Some(detached.workspace),
+                key: None,
+                pane: None,
+                argv: None,
+                command: None,
+                cwd: None,
+                name: Some("detached bootstrap".into()),
+                cols: Some(80),
+                rows: Some(24),
+                terminal_id: Some("00000000000040008000000000000002".into()),
+                activate: Some(false),
+                mutation: MutationRequest {
+                    origin: Some("browser-bootstrap-test".into()),
+                    mutation_id: Some("detached-empty-terminal".into()),
+                    ..Default::default()
+                },
+            },
+            &test_writer(),
+        )
+        .unwrap();
+
+        assert_eq!(placement["workspace"].as_u64(), Some(detached.workspace));
+        assert!(placement["screen"].as_u64().is_some());
+        assert!(placement["pane"].as_u64().is_some());
+        assert_eq!(
+            mux.with_state(|state| {
+                let workspace = &state.workspaces[state.active_workspace];
+                let screen = workspace.active_screen_ref().unwrap();
+                (
+                    workspace.id,
+                    screen.id,
+                    screen.active_pane,
+                    state.panes[&screen.active_pane].active_surface(),
+                )
+            }),
+            owner_focus
+        );
+
+        let error = handle_command(
+            &mux,
+            0,
+            Command::CreateTerminal {
+                workspace: Some(detached.workspace),
+                key: None,
+                pane: None,
+                argv: None,
+                command: None,
+                cwd: None,
+                name: None,
+                cols: None,
+                rows: None,
+                terminal_id: None,
+                activate: Some(false),
+                mutation: MutationRequest::default(),
+            },
+            &test_writer(),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "create-terminal activate:false without pane requires an empty workspace"
+        );
+        assert_eq!(mux.surface_count(), 2);
+        assert!(mux.with_state(|state| state.pane_of(owner.id)).is_some());
+        mux.shutdown();
+    }
+
+    #[test]
+    fn pty_pane_commands_explain_that_urls_require_browser_kind() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
-        let expected = match &surface.resource_identity().unwrap().content_id {
+        let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+
+        let commands = [
+            Command::NewPaneRight {
+                pane,
+                width: None,
+                cols: None,
+                rows: None,
+                activate: None,
+                kind: Some("pty".into()),
+                url: Some("https://example.com".into()),
+            },
+            Command::Split {
+                pane,
+                dir: "down".into(),
+                cols: None,
+                rows: None,
+                activate: None,
+                kind: None,
+                url: Some("https://example.com".into()),
+            },
+        ];
+
+        for command in commands {
+            let error = handle_command(&mux, 0, command, &test_writer()).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "url is only valid with kind \"browser\"; remove url or use kind \"browser\""
+            );
+        }
+    }
+
+    #[test]
+    fn detached_new_screen_returns_placement_without_stealing_owner_selection() {
+        let mux = test_mux();
+        let workspace = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let (workspace_id, original_screen, original_pane) = mux.with_state(|state| {
+            let workspace = &state.workspaces[0];
+            (
+                workspace.id,
+                workspace.active_screen_ref().unwrap().id,
+                workspace.active_screen_ref().unwrap().active_pane,
+            )
+        });
+
+        let result = handle_command(
+            &mux,
+            0,
+            Command::NewScreen {
+                workspace: Some(workspace_id),
+                cols: Some(100),
+                rows: Some(30),
+                activate: Some(false),
+            },
+            &test_writer(),
+        )
+        .unwrap();
+        assert!(result["surface"].as_u64().is_some());
+        assert!(result["pane"].as_u64().is_some());
+        assert!(result["screen"].as_u64().is_some());
+        assert_eq!(result["workspace"].as_u64(), Some(workspace_id));
+        assert_ne!(result["screen"].as_u64(), Some(original_screen));
+
+        mux.with_state(|state| {
+            let workspace = &state.workspaces[0];
+            assert_eq!(workspace.screens.len(), 2);
+            assert_eq!(workspace.active_screen_ref().unwrap().id, original_screen);
+            assert_eq!(workspace.active_screen_ref().unwrap().active_pane, original_pane);
+        });
+        drop(workspace);
+    }
+
+    #[test]
+    fn workspace_tree_exposes_stable_tab_and_terminal_ids_for_startup_attach() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let identity = surface.resource_identity().unwrap();
+        let expected = match &identity.content_id {
             ContentPublicId::Terminal(id) => id.as_str(),
             ContentPublicId::Browser(_) => panic!("workspace started with a browser"),
         };
@@ -14206,6 +14790,10 @@ mod tests {
         assert_eq!(
             tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["terminal_resource_id"],
             expected
+        );
+        assert_eq!(
+            tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["tab_resource_id"],
+            identity.tab_id.as_str()
         );
         mux.shutdown();
     }
@@ -14305,6 +14893,7 @@ mod tests {
                 Command::CreateTerminal {
                     workspace: Some(workspace),
                     key: None,
+                    pane: None,
                     argv: None,
                     command: None,
                     cwd: None,
@@ -14312,6 +14901,7 @@ mod tests {
                     cols,
                     rows,
                     terminal_id: None,
+                    activate: None,
                     mutation: MutationRequest::default(),
                 },
                 &test_writer(),
@@ -14339,6 +14929,8 @@ mod tests {
             cols: Some(80),
             rows: Some(24),
             terminal_id: Some("00000000000040008000000000000001".to_string()),
+            pane: None,
+            activate: None,
             mutation: MutationRequest {
                 origin: Some("raw-projection-test".to_string()),
                 mutation_id: Some("raw-terminal-create-once".to_string()),
@@ -16100,6 +16692,9 @@ mod tests {
             GUARDED_BROWSER_POINTER_CAPABILITY,
             VIEWPORT_SPLITS_CAPABILITY,
             VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+            CANONICAL_LAYOUT_COLUMNS_CAPABILITY,
+            CANONICAL_LAYOUT_RELOCATION_CAPABILITY,
+            INDEPENDENT_CLIENT_SELECTION_CAPABILITY,
             LAYOUT_UNDO_CAPABILITY,
             CLEAR_HISTORY_CAPABILITY,
             CLEAR_HISTORY_KEY_CAPABILITY,

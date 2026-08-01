@@ -37,6 +37,7 @@ struct PaneAddOptions<'a> {
     size: Option<(u16, u16)>,
     ratio: Option<f32>,
     viewport_width: Option<f32>,
+    activate: bool,
 }
 
 struct ResourceClosePlan {
@@ -2815,6 +2816,7 @@ impl Mux {
                         name,
                         None,
                         effect_cell_size(fields)?,
+                        effect_activate(fields)?,
                     )?,
                     None => {
                         let surface = self.effect_create_workspace_terminal(
@@ -2876,6 +2878,7 @@ impl Mux {
                             size: effect_cell_size(fields)?,
                             ratio: None,
                             viewport_width: None,
+                            activate: effect_activate(fields)?,
                         },
                     )?,
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
@@ -2914,6 +2917,7 @@ impl Mux {
                             .get("viewport_width")
                             .and_then(Value::as_f64)
                             .map(|value| value as f32),
+                        activate: effect_activate(fields)?,
                     },
                 )?;
                 self.created_resource_path(surface.id)
@@ -3186,6 +3190,8 @@ impl Mux {
                 cwd,
                 name,
                 size,
+                None,
+                true,
             )?,
             expected_generation: None,
             expected_revision: None,
@@ -3355,6 +3361,7 @@ impl Mux {
         name: Option<String>,
         cwd: Option<String>,
         size: Option<(u16, u16)>,
+        activate: bool,
     ) -> anyhow::Result<Arc<Surface>> {
         let workspace_key = self
             .with_state(|state| state.workspace_by_id(workspace).map(|item| item.key.clone()))
@@ -3404,8 +3411,11 @@ impl Mux {
                 anyhow::bail!("workspace disappeared while creating screen");
             };
             state.insert_pane(pane);
-            stamp_pane_focus(self, &mut state, pane_id);
+            if activate {
+                stamp_pane_focus(self, &mut state, pane_id);
+            }
             let workspace = &mut state.workspaces[workspace_index];
+            let was_empty = workspace.screens.is_empty();
             workspace.screens.push(Screen {
                 id: screen_id,
                 public_id,
@@ -3420,7 +3430,9 @@ impl Mux {
                 layout_revision: 0,
                 layout_undo: Default::default(),
             });
-            workspace.active_screen = workspace.screens.len() - 1;
+            if activate || was_empty {
+                workspace.active_screen = workspace.screens.len() - 1;
+            }
             true
         };
         debug_assert!(attached);
@@ -3442,7 +3454,7 @@ impl Mux {
         target: PaneId,
         options: PaneAddOptions<'_>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let PaneAddOptions { direction, cwd, size, ratio, viewport_width } = options;
+        let PaneAddOptions { direction, cwd, size, ratio, viewport_width, activate } = options;
         let split_direction = direction
             .map(|direction| {
                 Ok(match direction {
@@ -3556,8 +3568,10 @@ impl Mux {
                     || self.next_id(),
                 );
             }
-            screen.active_pane = pane_id;
-            screen.zoomed_pane = None;
+            if activate {
+                screen.active_pane = pane_id;
+                screen.zoomed_pane = None;
+            }
             screen.record_layout_change(before, vec![pane_id], None);
             state.insert_pane(Pane {
                 id: pane_id,
@@ -3568,7 +3582,9 @@ impl Mux {
                 active_at,
                 focused_at: 0,
             });
-            stamp_pane_focus(self, &mut state, pane_id);
+            if activate {
+                stamp_pane_focus(self, &mut state, pane_id);
+            }
             Self::rebuild_split_screen_index(&mut state);
             let entity = crate::server::tree_entity_json(
                 &state,
@@ -3779,6 +3795,7 @@ fn validate_effect_fields(
     operation: ResourceOperation,
     fields: &Map<String, Value>,
 ) -> anyhow::Result<()> {
+    let _ = effect_activate(fields)?;
     match operation {
         ResourceOperation::WorkspaceCreate => {
             anyhow::ensure!(
@@ -3842,6 +3859,14 @@ fn validate_effect_fields(
         _ => {}
     }
     Ok(())
+}
+
+fn effect_activate(fields: &Map<String, Value>) -> anyhow::Result<bool> {
+    fields
+        .get("activate")
+        .map(|value| value.as_bool().context("field \"activate\" must be a boolean"))
+        .transpose()
+        .map(|activate| activate.unwrap_or(true))
 }
 
 fn optional_owned_string(

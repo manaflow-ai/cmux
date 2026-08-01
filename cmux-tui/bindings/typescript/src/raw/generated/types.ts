@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350. */
+/* cmux-tui mux protocol 10, IR 034d4b192db29db85f4affa61c2fade63ea65b06d6ce740fbe3e2b14b226da69. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -213,6 +213,12 @@ export type Layout = ({ "type": "leaf" } & {
   "type": "stack";
 });
 
+export type LayoutColumn = {
+  "id": Id;
+  "layout": Layout;
+  "width": number;
+};
+
 export type LayoutUndoConfirmationRequired = {
   "closes_panes": Array<Id>;
   "confirmation_required": true;
@@ -259,6 +265,8 @@ export type MintTerminalRendererResult = {
   "ttl_ms": bigint;
 };
 
+export type MoveTabResult = (PlacementResult) | (EmptyResult);
+
 export type MoveTerminalResult = {
   "changed": boolean;
   "generation": string;
@@ -291,6 +299,8 @@ export type Pane = (LivePane) | (DeadPane);
 
 export type PaneDirection = "left" | "right" | "up" | "down";
 
+export type PaneKind = "pty" | "browser";
+
 export type PaneNeighborResult = {
   "pane": (Id) | null;
 };
@@ -301,6 +311,13 @@ export type PingResult = {
   "ok": true;
   "protocol": number;
   "version": string;
+};
+
+export type PlacementResult = {
+  "pane": Id;
+  "screen": Id;
+  "surface": Id;
+  "workspace": Id;
 };
 
 export type ProcessInfoResult = {
@@ -437,11 +454,14 @@ export type RunResult = {
 export type Screen = {
   "active": boolean;
   "active_pane": Id;
+  "columns"?: Array<LayoutColumn>;
   "id": Id;
   "layout": Layout;
   "name": (string) | null;
   "panes": Array<Pane>;
   "short_id"?: string;
+  "viewport_base_width"?: number;
+  "viewport_splits"?: Array<ViewportSplit>;
   "zoomed_pane": (Id) | null;
 };
 
@@ -470,9 +490,12 @@ export type Size = {
 export type SplitDirection = "right" | "down";
 
 export type SurfaceResult = {
+  "pane"?: Id;
+  "screen"?: Id;
   "surface": Id;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
+  "workspace"?: Id;
 };
 
 export type Tab = {
@@ -488,10 +511,12 @@ export type Tab = {
   "size": (Size) | null;
   "supports_clear_history_key_fallback"?: boolean;
   "surface": Id;
+  "tab_resource_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: (string) | null;
   "title": string;
+  "url"?: (string) | null;
 };
 
 export type TerminalColors = {
@@ -581,6 +606,11 @@ export type Tree = {
   "terminal_revision"?: bigint;
   "workspace_revision"?: bigint;
   "workspaces": Array<Workspace>;
+};
+
+export type ViewportSplit = {
+  "split": Id;
+  "width": number;
 };
 
 export type VtStateResult = {

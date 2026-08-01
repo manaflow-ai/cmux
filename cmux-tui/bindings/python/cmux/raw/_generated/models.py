@@ -74,6 +74,10 @@ class PaneDirection(str, Enum):
     UP = 'up'
     DOWN = 'down'
 
+class PaneKind(str, Enum):
+    PTY = 'pty'
+    BROWSER = 'browser'
+
 class RenderGraphicFormat(str, Enum):
     RGB = 'rgb'
     RGBA = 'rgba'
@@ -475,6 +479,14 @@ class LayoutStack:
 
 
 @dataclass(frozen=True)
+class LayoutColumn:
+    __cmux_schema_path__: ClassVar[str] = 'types/LayoutColumn'
+    id: Id
+    layout: Layout
+    width: float
+
+
+@dataclass(frozen=True)
 class LayoutUndoConfirmationRequired:
     __cmux_schema_path__: ClassVar[str] = 'types/LayoutUndoConfirmationRequired'
     screen: Id
@@ -576,6 +588,15 @@ class PingResult:
     version: str
     build_commit: Union[str, None, MissingType] = field(default=MISSING)
     ghostty_commit: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class PlacementResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/PlacementResult'
+    surface: Id
+    pane: Id
+    screen: Id
+    workspace: Id
 
 
 @dataclass(frozen=True)
@@ -745,7 +766,10 @@ class Screen:
     name: Union[str, None]
     panes: List[Pane]
     zoomed_pane: Union[Id, None]
+    columns: Union[List[LayoutColumn], MissingType] = field(default=MISSING)
     short_id: Union[str, MissingType] = field(default=MISSING)
+    viewport_base_width: Union[float, MissingType] = field(default=MISSING)
+    viewport_splits: Union[List[ViewportSplit], MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -782,6 +806,9 @@ class Size:
 class SurfaceResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SurfaceResult'
     surface: Id
+    pane: Union[Id, MissingType] = field(default=MISSING)
+    screen: Union[Id, MissingType] = field(default=MISSING)
+    workspace: Union[Id, MissingType] = field(default=MISSING)
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -803,8 +830,10 @@ class Tab:
     notification: Union[NotificationMarker, None, MissingType] = field(default=MISSING)
     short_id: Union[str, MissingType] = field(default=MISSING)
     supports_clear_history_key_fallback: Union[bool, MissingType] = field(default=MISSING)
+    tab_resource_id: Union[str, None, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
     terminal_resource_id: Union[str, None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -904,6 +933,13 @@ class Tree:
     registry_id: Union[str, MissingType] = field(default=MISSING)
     terminal_revision: Union[int, MissingType] = field(default=MISSING)
     workspace_revision: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ViewportSplit:
+    __cmux_schema_path__: ClassVar[str] = 'types/ViewportSplit'
+    split: Id
+    width: float
 
 
 @dataclass(frozen=True)
@@ -1171,6 +1207,8 @@ class CreateTerminalRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    activate: Union[bool, None, MissingType] = field(default=MISSING)
+    pane: Union[Id, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1182,6 +1220,7 @@ class CreateWorkspaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    activate: Union[bool, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1267,10 +1306,38 @@ class MarkWorkspacesProviderManagedRequest:
 
 
 @dataclass(frozen=True)
+class MergePaneRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/merge-pane/request'
+    pane: Id
+    index: int
+    target: Id
+    activate: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class MintTerminalRendererRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/mint-terminal-renderer/request'
     surface: Id
     ttl_ms: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MovePaneToNewColumnRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-pane-to-new-column/request'
+    pane: Id
+    index: int
+    width: float
+    activate: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MovePaneToSplitRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-pane-to-split/request'
+    pane: Id
+    dir: SplitDirection
+    target: Id
+    activate: Union[bool, None, MissingType] = field(default=MISSING)
+    insert_first: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1279,6 +1346,26 @@ class MoveTabRequest:
     surface: Id
     pane: Id
     index: int
+    activate: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MoveTabToNewColumnRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-tab-to-new-column/request'
+    surface: Id
+    index: int
+    width: float
+    activate: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MoveTabToSplitRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-tab-to-split/request'
+    surface: Id
+    pane: Id
+    dir: SplitDirection
+    activate: Union[bool, None, MissingType] = field(default=MISSING)
+    insert_first: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1312,12 +1399,15 @@ class NewBrowserTabRequest:
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    activate: Union[bool, None, MissingType] = field(default=MISSING)
+    index: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
 class NewPaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-pane/request'
     pane: Id
+    activate: Union[bool, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
 
@@ -1326,8 +1416,11 @@ class NewPaneRequest:
 class NewPaneRightRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-pane-right/request'
     pane: Id
+    activate: Union[bool, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
+    kind: Union[PaneKind, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
 
@@ -1335,6 +1428,7 @@ class NewPaneRightRequest:
 class NewScreenRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-screen/request'
     workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    activate: Union[bool, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
 
@@ -1652,8 +1746,11 @@ class SplitRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/split/request'
     pane: Id
     dir: SplitDirection
+    activate: Union[bool, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
+    kind: Union[PaneKind, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2219,6 +2316,7 @@ Id = int
 JsonValue = Any
 Layout = Union[LayoutLeaf, LayoutSplit, LayoutStack]
 LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
+MoveTabResult = Union[PlacementResult, EmptyResult]
 Pane = Union[LivePane, DeadPane]
 
 KnownEvent = Union[BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
@@ -2238,6 +2336,7 @@ __all__ = [
     'CursorStyle',
     'NotificationLevel',
     'PaneDirection',
+    'PaneKind',
     'RenderGraphicFormat',
     'RenderUnderline',
     'SplitDirection',
@@ -2273,6 +2372,7 @@ __all__ = [
     'LayoutLeaf',
     'LayoutSplit',
     'LayoutStack',
+    'LayoutColumn',
     'LayoutUndoConfirmationRequired',
     'LayoutUndoUndone',
     'ListAgentsResult',
@@ -2284,6 +2384,7 @@ __all__ = [
     'NotifyResult',
     'PaneNeighborResult',
     'PingResult',
+    'PlacementResult',
     'ProcessInfoResult',
     'ProviderWorkspaceMutationResult',
     'ReadScreenResult',
@@ -2314,6 +2415,7 @@ __all__ = [
     'TerminalRecord',
     'TerminalRegistryEvent',
     'Tree',
+    'ViewportSplit',
     'VtStateResult',
     'WaitForResult',
     'Workspace',
@@ -2358,8 +2460,13 @@ __all__ = [
     'ListTerminalsRequest',
     'ListWorkspacesRequest',
     'MarkWorkspacesProviderManagedRequest',
+    'MergePaneRequest',
     'MintTerminalRendererRequest',
+    'MovePaneToNewColumnRequest',
+    'MovePaneToSplitRequest',
     'MoveTabRequest',
+    'MoveTabToNewColumnRequest',
+    'MoveTabToSplitRequest',
     'MoveTerminalRequest',
     'MoveWorkspaceRequest',
     'NewBrowserTabRequest',
@@ -2464,5 +2571,6 @@ __all__ = [
     'JsonValue',
     'Layout',
     'LayoutUndoResult',
+    'MoveTabResult',
     'Pane',
 ]

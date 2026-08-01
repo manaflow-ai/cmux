@@ -12,11 +12,13 @@ import java.util.Objects;
 
 /** Immutable new-pane request. Protocol v9; authority: control. */
 public final class NewPaneRequest implements WireValue {
+    private final Field<Boolean> activate;
     private final Field<Integer> cols;
     private final UInt64 pane;
     private final Field<Integer> rows;
 
     private NewPaneRequest(Builder builder) {
+        this.activate = builder.activate;
         this.cols = builder.cols;
         if (!builder.paneSet) throw new IllegalArgumentException("pane is required");
         this.pane = Wire.nonNull(builder.pane, "pane");
@@ -25,6 +27,7 @@ public final class NewPaneRequest implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<Boolean> activate() { return activate; }
     public Field<Integer> cols() { return cols; }
     public UInt64 pane() { return pane; }
     public Field<Integer> rows() { return rows; }
@@ -32,6 +35,10 @@ public final class NewPaneRequest implements WireValue {
     public static NewPaneRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "NewPaneRequest");
         Builder builder = builder();
+        Object rawActivate = Wire.optional(object, "activate");
+        if (!Wire.isMissing(rawActivate)) {
+            builder.activate(rawActivate == null ? null : Wire.bool(rawActivate, "NewPaneRequest.activate"));
+        }
         Object rawCols = Wire.optional(object, "cols");
         if (!Wire.isMissing(rawCols)) {
             builder.cols(rawCols == null ? null : Wire.uint16(rawCols, "NewPaneRequest.cols"));
@@ -48,6 +55,7 @@ public final class NewPaneRequest implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "activate", activate);
         Wire.put(object, "cols", cols);
         Wire.put(object, "pane", pane);
         Wire.put(object, "rows", rows);
@@ -57,21 +65,26 @@ public final class NewPaneRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewPaneRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows);
+        return Objects.equals(activate, that.activate) && Objects.equals(cols, that.cols) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, pane, rows); }
+    public int hashCode() { return Objects.hash(activate, cols, pane, rows); }
 
     @Override
     public String toString() { return "NewPaneRequest" + toWire(); }
 
     public static final class Builder {
+        private Field<Boolean> activate = Field.omitted();
         private Field<Integer> cols = Field.omitted();
         private UInt64 pane;
         private boolean paneSet;
         private Field<Integer> rows = Field.omitted();
 
+        public Builder activate(Boolean value) {
+            this.activate = Field.ofNullable(value);
+            return this;
+        }
         public Builder cols(Integer value) {
             this.cols = Field.ofNullable(value);
             return this;

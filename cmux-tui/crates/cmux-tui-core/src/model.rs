@@ -41,6 +41,14 @@ pub(crate) struct ScreenLayoutSnapshot {
     pub layout_columns: Vec<LayoutColumn>,
 }
 
+/// Per-client presentation that survives a detached structural mutation when
+/// the referenced panes and stack memberships still exist afterward.
+#[derive(Debug, Clone)]
+pub(crate) struct ScreenPresentationSnapshot {
+    zoomed_pane: Option<PaneId>,
+    stack_expansions: BTreeMap<Vec<PaneId>, PaneId>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LayoutResizeOwner {
     InProcess(u64),
@@ -275,33 +283,44 @@ impl Node {
         dir: SplitDir,
         new_pane: PaneId,
     ) -> bool {
+        self.split_leaf_ordered(target, split_id, dir, new_pane, false)
+    }
+
+    pub(crate) fn split_leaf_ordered(
+        &mut self,
+        target: PaneId,
+        split_id: SplitId,
+        dir: SplitDir,
+        new_pane: PaneId,
+        insert_first: bool,
+    ) -> bool {
         match self {
             Node::Leaf(id) if *id == target => {
                 let old = Node::Leaf(*id);
-                *self = Node::Split {
-                    id: split_id,
-                    dir,
-                    ratio: 0.5,
-                    a: Box::new(old),
-                    b: Box::new(Node::Leaf(new_pane)),
+                let (a, b) = if insert_first {
+                    (Node::Leaf(new_pane), old)
+                } else {
+                    (old, Node::Leaf(new_pane))
                 };
+                *self =
+                    Node::Split { id: split_id, dir, ratio: 0.5, a: Box::new(a), b: Box::new(b) };
                 true
             }
             Node::Leaf(_) => false,
             Node::Split { a, b, .. } => {
-                a.split_leaf(target, split_id, dir, new_pane)
-                    || b.split_leaf(target, split_id, dir, new_pane)
+                a.split_leaf_ordered(target, split_id, dir, new_pane, insert_first)
+                    || b.split_leaf_ordered(target, split_id, dir, new_pane, insert_first)
             }
             Node::Stack { panes, expanded } if panes.contains(&target) => {
                 *expanded = target;
                 let old = std::mem::replace(self, Node::Leaf(target));
-                *self = Node::Split {
-                    id: split_id,
-                    dir,
-                    ratio: 0.5,
-                    a: Box::new(old),
-                    b: Box::new(Node::Leaf(new_pane)),
+                let (a, b) = if insert_first {
+                    (Node::Leaf(new_pane), old)
+                } else {
+                    (old, Node::Leaf(new_pane))
                 };
+                *self =
+                    Node::Split { id: split_id, dir, ratio: 0.5, a: Box::new(a), b: Box::new(b) };
                 true
             }
             Node::Stack { .. } => false,
@@ -496,6 +515,30 @@ mod tests {
     }
 
     #[test]
+    fn ordered_split_places_a_new_leaf_on_the_requested_side() {
+        let mut first = Node::Leaf(1);
+        assert!(first.split_leaf_ordered(1, 10, SplitDir::Right, 2, true));
+        let Node::Split { a, b, .. } = first else { panic!("expected split") };
+        assert!(matches!(*a, Node::Leaf(2)));
+        assert!(matches!(*b, Node::Leaf(1)));
+
+        let mut second = Node::Leaf(1);
+        assert!(second.split_leaf_ordered(1, 11, SplitDir::Down, 2, false));
+        let Node::Split { a, b, .. } = second else { panic!("expected split") };
+        assert!(matches!(*a, Node::Leaf(1)));
+        assert!(matches!(*b, Node::Leaf(2)));
+
+        let mut stack = Node::stack_with_expanded(vec![1, 2], 2).expect("stack");
+        assert!(stack.split_leaf_ordered(1, 12, SplitDir::Right, 3, true));
+        let Node::Split { a, b, .. } = stack else { panic!("expected split") };
+        assert!(matches!(*a, Node::Leaf(3)));
+        assert!(matches!(
+            *b,
+            Node::Stack { ref panes, expanded: 1 } if panes.as_slice() == [1, 2]
+        ));
+    }
+
+    #[test]
     fn removing_an_unrelated_branch_preserves_a_singleton_stack() {
         let root = Node::Split {
             id: 10,
@@ -620,6 +663,30 @@ impl Screen {
             viewport_base_width: self.viewport_base_width,
             layout_columns: self.layout_columns.clone(),
         }
+    }
+
+    pub(crate) fn presentation_snapshot(&self) -> ScreenPresentationSnapshot {
+        let mut stack_expansions = BTreeMap::new();
+        if self.layout_columns_active() {
+            for column in &self.layout_columns {
+                column.root.collect_stack_expansions(&mut stack_expansions);
+            }
+        } else {
+            self.root.collect_stack_expansions(&mut stack_expansions);
+        }
+        ScreenPresentationSnapshot { zoomed_pane: self.zoomed_pane, stack_expansions }
+    }
+
+    pub(crate) fn restore_presentation_snapshot(&mut self, snapshot: ScreenPresentationSnapshot) {
+        if self.layout_columns_active() {
+            for column in &mut self.layout_columns {
+                column.root.restore_stack_expansions(&snapshot.stack_expansions);
+            }
+            self.sync_layout_column_projection();
+        } else {
+            self.root.restore_stack_expansions(&snapshot.stack_expansions);
+        }
+        self.zoomed_pane = snapshot.zoomed_pane.filter(|pane| self.root.contains(*pane));
     }
 
     fn coalesces_layout_change(&self, key: LayoutMutationKey) -> bool {

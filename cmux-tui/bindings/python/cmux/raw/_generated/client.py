@@ -84,11 +84,11 @@ class GeneratedClientMixin:
     def copy(self, surface: Id, mode: Literal['screen', 'selection', 'scrollback']) -> CopyResult:
         return self._invoke_command('copy', CopyRequest(surface=surface, mode=mode))
 
-    def create_terminal(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, argv: Union[List[str], None, MissingType] = MISSING, command: Union[str, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, terminal_id: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING) -> TerminalPlacement:
-        return self._invoke_command('create-terminal', CreateTerminalRequest(workspace=workspace, key=key, argv=argv, command=command, cwd=cwd, name=name, cols=cols, rows=rows, terminal_id=terminal_id, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id))
+    def create_terminal(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, argv: Union[List[str], None, MissingType] = MISSING, command: Union[str, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, terminal_id: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, activate: Union[bool, None, MissingType] = MISSING, pane: Union[Id, None, MissingType] = MISSING) -> TerminalPlacement:
+        return self._invoke_command('create-terminal', CreateTerminalRequest(workspace=workspace, key=key, argv=argv, command=command, cwd=cwd, name=name, cols=cols, rows=rows, terminal_id=terminal_id, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, activate=activate, pane=pane))
 
-    def create_workspace(self, *, name: Union[str, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING) -> WorkspaceMutationResult:
-        return self._invoke_command('create-workspace', CreateWorkspaceRequest(name=name, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id))
+    def create_workspace(self, *, name: Union[str, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, activate: Union[bool, None, MissingType] = MISSING) -> WorkspaceMutationResult:
+        return self._invoke_command('create-workspace', CreateWorkspaceRequest(name=name, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, activate=activate))
 
     def detach_client(self, client: int) -> EmptyResult:
         return self._invoke_command('detach-client', DetachClientRequest(client=client))
@@ -129,11 +129,26 @@ class GeneratedClientMixin:
     def mark_workspaces_provider_managed(self, authority: str) -> EmptyResult:
         return self._invoke_command('mark-workspaces-provider-managed', MarkWorkspacesProviderManagedRequest(authority=authority))
 
+    def merge_pane(self, pane: Id, index: int, target: Id, *, activate: Union[bool, None, MissingType] = MISSING) -> PlacementResult:
+        return self._invoke_command('merge-pane', MergePaneRequest(pane=pane, index=index, target=target, activate=activate))
+
     def mint_terminal_renderer(self, surface: Id, *, ttl_ms: Union[int, MissingType] = MISSING) -> MintTerminalRendererResult:
         return self._invoke_command('mint-terminal-renderer', MintTerminalRendererRequest(surface=surface, ttl_ms=ttl_ms))
 
-    def move_tab(self, surface: Id, pane: Id, index: int) -> EmptyResult:
-        return self._invoke_command('move-tab', MoveTabRequest(surface=surface, pane=pane, index=index))
+    def move_pane_to_new_column(self, pane: Id, index: int, width: float, *, activate: Union[bool, None, MissingType] = MISSING) -> PlacementResult:
+        return self._invoke_command('move-pane-to-new-column', MovePaneToNewColumnRequest(pane=pane, index=index, width=width, activate=activate))
+
+    def move_pane_to_split(self, pane: Id, dir: SplitDirection, target: Id, *, activate: Union[bool, None, MissingType] = MISSING, insert_first: Union[bool, MissingType] = MISSING) -> PlacementResult:
+        return self._invoke_command('move-pane-to-split', MovePaneToSplitRequest(pane=pane, dir=dir, target=target, activate=activate, insert_first=insert_first))
+
+    def move_tab(self, surface: Id, pane: Id, index: int, *, activate: Union[bool, None, MissingType] = MISSING) -> MoveTabResult:
+        return self._invoke_command('move-tab', MoveTabRequest(surface=surface, pane=pane, index=index, activate=activate))
+
+    def move_tab_to_new_column(self, surface: Id, index: int, width: float, *, activate: Union[bool, None, MissingType] = MISSING) -> PlacementResult:
+        return self._invoke_command('move-tab-to-new-column', MoveTabToNewColumnRequest(surface=surface, index=index, width=width, activate=activate))
+
+    def move_tab_to_split(self, surface: Id, pane: Id, dir: SplitDirection, *, activate: Union[bool, None, MissingType] = MISSING, insert_first: Union[bool, MissingType] = MISSING) -> PlacementResult:
+        return self._invoke_command('move-tab-to-split', MoveTabToSplitRequest(surface=surface, pane=pane, dir=dir, activate=activate, insert_first=insert_first))
 
     def move_terminal(self, terminal_id: str, workspace_key: str, *, terminal_incarnation: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING) -> MoveTerminalResult:
         return self._invoke_command('move-terminal', MoveTerminalRequest(terminal_id=terminal_id, workspace_key=workspace_key, terminal_incarnation=terminal_incarnation, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id))
@@ -141,17 +156,17 @@ class GeneratedClientMixin:
     def move_workspace(self, index: int, *, workspace: Union[Id, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING) -> WorkspaceMutationResult:
         return self._invoke_command('move-workspace', MoveWorkspaceRequest(index=index, workspace=workspace, expected_generation=expected_generation, expected_revision=expected_revision, key=key, mutation_id=mutation_id, origin=origin))
 
-    def new_browser_tab(self, url: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
-        return self._invoke_command('new-browser-tab', NewBrowserTabRequest(url=url, pane=pane, cols=cols, rows=rows))
+    def new_browser_tab(self, url: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, activate: Union[bool, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('new-browser-tab', NewBrowserTabRequest(url=url, pane=pane, cols=cols, rows=rows, activate=activate, index=index))
 
-    def new_pane(self, pane: Id, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
-        return self._invoke_command('new-pane', NewPaneRequest(pane=pane, cols=cols, rows=rows))
+    def new_pane(self, pane: Id, *, activate: Union[bool, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('new-pane', NewPaneRequest(pane=pane, activate=activate, cols=cols, rows=rows))
 
-    def new_pane_right(self, pane: Id, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, width: Union[float, None, MissingType] = MISSING) -> SurfaceResult:
-        return self._invoke_command('new-pane-right', NewPaneRightRequest(pane=pane, cols=cols, rows=rows, width=width))
+    def new_pane_right(self, pane: Id, *, activate: Union[bool, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, kind: Union[PaneKind, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING, width: Union[float, None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('new-pane-right', NewPaneRightRequest(pane=pane, activate=activate, cols=cols, kind=kind, rows=rows, url=url, width=width))
 
-    def new_screen(self, workspace: Union[Id, None, MissingType] = MISSING, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
-        return self._invoke_command('new-screen', NewScreenRequest(workspace=workspace, cols=cols, rows=rows))
+    def new_screen(self, workspace: Union[Id, None, MissingType] = MISSING, *, activate: Union[bool, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('new-screen', NewScreenRequest(workspace=workspace, activate=activate, cols=cols, rows=rows))
 
     def new_tab(self, pane: Union[Id, None, MissingType] = MISSING, *, cwd: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-tab', NewTabRequest(pane=pane, cwd=cwd, cols=cols, rows=rows))
@@ -264,8 +279,8 @@ class GeneratedClientMixin:
     def sidebar_plugin(self, cols: int, rows: int, *, relaunch: Union[bool, MissingType] = MISSING) -> SidebarPluginResult:
         return self._invoke_command('sidebar-plugin', SidebarPluginRequest(cols=cols, rows=rows, relaunch=relaunch))
 
-    def split(self, pane: Id, dir: SplitDirection, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
-        return self._invoke_command('split', SplitRequest(pane=pane, dir=dir, cols=cols, rows=rows))
+    def split(self, pane: Id, dir: SplitDirection, *, activate: Union[bool, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, kind: Union[PaneKind, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('split', SplitRequest(pane=pane, dir=dir, activate=activate, cols=cols, kind=kind, rows=rows, url=url))
 
     def subscribe(self, surface: Union[Id, None, MissingType] = MISSING, *, tree_events: Union[Literal['coarse', 'deltas'], None, MissingType] = MISSING) -> Any:
         return self._open_command_stream('subscribe', SubscribeRequest(surface=surface, tree_events=tree_events))
@@ -328,8 +343,13 @@ GeneratedClientMixin.list_clients.__cmux_command__ = COMMANDS['list-clients']
 GeneratedClientMixin.list_terminals.__cmux_command__ = COMMANDS['list-terminals']
 GeneratedClientMixin.list_workspaces.__cmux_command__ = COMMANDS['list-workspaces']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']
+GeneratedClientMixin.merge_pane.__cmux_command__ = COMMANDS['merge-pane']
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']
+GeneratedClientMixin.move_pane_to_new_column.__cmux_command__ = COMMANDS['move-pane-to-new-column']
+GeneratedClientMixin.move_pane_to_split.__cmux_command__ = COMMANDS['move-pane-to-split']
 GeneratedClientMixin.move_tab.__cmux_command__ = COMMANDS['move-tab']
+GeneratedClientMixin.move_tab_to_new_column.__cmux_command__ = COMMANDS['move-tab-to-new-column']
+GeneratedClientMixin.move_tab_to_split.__cmux_command__ = COMMANDS['move-tab-to-split']
 GeneratedClientMixin.move_terminal.__cmux_command__ = COMMANDS['move-terminal']
 GeneratedClientMixin.move_workspace.__cmux_command__ = COMMANDS['move-workspace']
 GeneratedClientMixin.new_browser_tab.__cmux_command__ = COMMANDS['new-browser-tab']
