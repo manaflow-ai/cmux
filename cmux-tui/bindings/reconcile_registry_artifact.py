@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -90,6 +91,10 @@ def _request(url: str, accept: str) -> Optional[bytes]:
     except URLError as error:
         raise RegistryLookupError(
             f"registry request failed: {url}: {error.reason}"
+        ) from error
+    except (OSError, http.client.IncompleteRead) as error:
+        raise RegistryLookupError(
+            f"registry response was interrupted: {url}: {error}"
         ) from error
 
 

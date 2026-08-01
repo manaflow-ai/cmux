@@ -274,6 +274,11 @@ jobs:
           }
           sdk_tag="$SDK_TAG"
           go_tag="$GO_TAG"
+          git fetch --force origin main --tags
+          git tag --list 'cmux-sdk-v*' | \
+            python3 cmux-tui/bindings/validate_release_version.py \
+              --version "$VERSION" \
+              --require-latest-tag
           ensure_tag "$sdk_tag" "cmux SDK $VERSION"
           ensure_tag "$go_tag" "cmux Go SDK $VERSION"
           git push --atomic origin "refs/tags/$sdk_tag" "refs/tags/$go_tag"

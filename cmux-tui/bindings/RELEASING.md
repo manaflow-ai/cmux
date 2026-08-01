@@ -72,7 +72,8 @@ validated registry artifacts, and the Rust preflight retains both verified
 crate archives. A credential-free registry preflight then requires each target
 version to be missing or byte-identical and usable, before the workflow creates
 `cmux-sdk-vX.Y.Z` and `cmux-tui/bindings/go/vX.Y.Z` atomically on the same
-commit.
+commit. Immediately before that atomic push, it rechecks the fetched SDK tag
+history so a newer release cannot overtake a long-running preflight.
 
 The Rust preflight uses the same pinned Cargo version as publishing. It packages
 both crates and tests the extracted `cmux-sidebar` archive with the extracted
@@ -98,7 +99,9 @@ exactly match the validated local package. PyPI reconciliation also rejects
 unexpected or yanked files while allowing the expected wheel and source
 distribution to arrive in either order. Crates.io reconciliation rejects
 yanked versions, and npm reconciliation prevents stable-version downgrades and
-requires the requested version to own the `latest` distribution tag.
+requires the requested version to own the `latest` distribution tag. Registry
+transport interruptions are retried within the configured reconciliation
+deadline.
 
 The cut workflow holds one cross-version concurrency lock until the Go check and
 all registry jobs finish. If one publish job fails, use GitHub's **Re-run failed

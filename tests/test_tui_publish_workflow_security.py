@@ -236,7 +236,7 @@ def test_sdk_preflight_workflows_cannot_write_to_registries() -> None:
     release = workflow("sdk-release-cut.yml")
     assert release.count("id-token: write") == 5
     assert release.count("Require the coordinated release source") == 5
-    assert release.count("--require-latest-tag") == 5
+    assert release.count("--require-latest-tag") == 6
 
     go = workflow("sdk-publish-go.yml")
     assert "push:\n    tags:" not in go
