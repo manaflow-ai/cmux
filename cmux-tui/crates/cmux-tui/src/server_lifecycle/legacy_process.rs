@@ -128,6 +128,9 @@ impl ProcessFence {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "process identity changed"));
         }
         let Some(process) = identity.stable_handle()? else { return Ok(None) };
+        // POSIX coalesces repeated stop signals and does not expose their
+        // sender. Restore only a process observed running before this fence,
+        // so an aborted cleanup cannot strand a process that we stopped.
         let armed = !initial.stopped;
         if armed && !process.signal(libc::SIGSTOP)? {
             return Ok(None);
