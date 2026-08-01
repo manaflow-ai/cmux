@@ -131,6 +131,25 @@ struct TerminalSurfaceRegistryTests {
         #expect(!registry.isRightSidebarDockSurface(id: sharedID))
     }
 
+    @Test func dockPlacementReconcilesAfterCanonicalWeakSurfaceDeallocates() {
+        let registry = TerminalSurfaceRegistry()
+        let sharedID = UUID()
+        let original = FakeSurface(id: sharedID, focusPlacement: .workspace)
+        var replacement: FakeSurface? = FakeSurface(
+            id: sharedID,
+            focusPlacement: .rightSidebarDock
+        )
+        registry.register(original)
+        registry.register(replacement!)
+        #expect(registry.isRightSidebarDockSurface(id: sharedID))
+
+        weak var releasedReplacement = replacement
+        replacement = nil
+        #expect(releasedReplacement == nil)
+        #expect(!registry.isRightSidebarDockSurface(id: sharedID))
+        #expect(registry.surface(id: sharedID) === original)
+    }
+
     @Test func outgoingPlacementUpdateDoesNotMutateCanonicalReplacement() {
         let registry = TerminalSurfaceRegistry()
         let sharedID = UUID()

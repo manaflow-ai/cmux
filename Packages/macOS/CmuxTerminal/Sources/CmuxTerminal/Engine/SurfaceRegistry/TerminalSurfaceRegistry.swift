@@ -168,20 +168,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     public func surface(id: UUID) -> (any TerminalSurfacing)? {
         lock.lock()
         defer { lock.unlock() }
-        if let canonical = canonicalSurfaceNodes[id],
-           canonical.isRegistered,
-           let surface = canonical.surface {
-            return surface
-        }
-        guard let promoted = newestRegisteredNode(surfaceID: id),
-              let surface = promoted.surface else {
-            canonicalSurfaceNodes.removeValue(forKey: id)
-            surfaceFocusPlacements.removeValue(forKey: id)
-            return nil
-        }
-        canonicalSurfaceNodes[id] = promoted
-        surfaceFocusPlacements[id] = surfaceFocusPlacementsByIdentity[promoted.identity]
-        return surface
+        return canonicalSurfaceNode(surfaceID: id)?.surface
     }
 
     /// Whether the surface with the given id is placed in the right-sidebar
@@ -189,6 +176,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     public func isRightSidebarDockSurface(id: UUID) -> Bool {
         lock.lock()
         defer { lock.unlock() }
+        _ = canonicalSurfaceNode(surfaceID: id)
         return surfaceFocusPlacements[id] == .rightSidebarDock
     }
 
@@ -350,5 +338,25 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
             node = current.next
         }
         return nil
+    }
+
+    /// Resolves and repairs the canonical weak-node index while `lock` is held.
+    private func canonicalSurfaceNode(
+        surfaceID: UUID
+    ) -> TerminalSurfaceRegistryWeakNode? {
+        if let canonical = canonicalSurfaceNodes[surfaceID],
+           canonical.isRegistered,
+           canonical.surface != nil {
+            return canonical
+        }
+        guard let promoted = newestRegisteredNode(surfaceID: surfaceID) else {
+            canonicalSurfaceNodes.removeValue(forKey: surfaceID)
+            surfaceFocusPlacements.removeValue(forKey: surfaceID)
+            return nil
+        }
+        canonicalSurfaceNodes[surfaceID] = promoted
+        surfaceFocusPlacements[surfaceID] =
+            surfaceFocusPlacementsByIdentity[promoted.identity]
+        return promoted
     }
 }

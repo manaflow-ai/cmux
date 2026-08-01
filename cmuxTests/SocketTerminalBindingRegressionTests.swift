@@ -22,6 +22,10 @@ struct SocketTerminalBindingRegressionTests {
         let expected: String
     }
 
+    private struct LiveSurfaceWaitTimeout: Error {
+        let surfaceID: UUID
+    }
+
     private static let socketWorker = DispatchQueue(
         label: "SocketTerminalBindingRegressionTests.socketWorker"
     )
@@ -44,7 +48,7 @@ struct SocketTerminalBindingRegressionTests {
                 GhosttyApp.terminalSurfaceRegistry.unregister(replacement)
             }
 
-            await waitForLiveSurface(replacement)
+            try await waitForLiveSurface(replacement)
             #expect(
                 GhosttyApp.terminalSurfaceRegistry.surface(id: originalPanel.id) === replacement,
                 "The live replacement must be the canonical registry owner"
@@ -102,7 +106,7 @@ struct SocketTerminalBindingRegressionTests {
         }
     }
 
-    private func waitForLiveSurface(_ surface: TerminalSurface) async {
+    private func waitForLiveSurface(_ surface: TerminalSurface) async throws {
         guard !surface.hasLiveSurface else { return }
         let previousOnRuntimeReady = surface.onRuntimeReady
         defer { surface.onRuntimeReady = previousOnRuntimeReady }
@@ -114,7 +118,25 @@ struct SocketTerminalBindingRegressionTests {
             }
         }
         if surface.hasLiveSurface { return }
-        for await _ in readiness { break }
+        let becameReady = try await withThrowingTaskGroup(
+            of: Bool.self,
+            returning: Bool.self
+        ) { group in
+            group.addTask {
+                for await _ in readiness { return true }
+                return false
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(10))
+                return false
+            }
+            let result = try await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+        guard becameReady else {
+            throw LiveSurfaceWaitTimeout(surfaceID: surface.id)
+        }
     }
 
     private func waitForText(_ expected: String, in surface: TerminalSurface) async throws {

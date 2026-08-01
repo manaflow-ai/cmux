@@ -52,6 +52,9 @@ struct ControlTerminalSocketTarget {
 
     /// Performs a Ghostty binding action against the canonical surface.
     func performBindingAction(_ action: String) -> Bool {
+        guard surface.liveSurfaceForGhosttyAccess(
+            reason: "socket.bindingAction"
+        ) != nil else { return false }
         if surface === panel.surface {
             return panel.performBindingAction(action)
         }
@@ -152,17 +155,6 @@ extension TerminalController {
             surfaceID: panel.id,
             typeRawValue: panel.panelType.rawValue,
             inWindow: inWindow
-        )
-    }
-
-    /// Captures terminal text through a structurally owned panel.
-    func readTerminalTextRawSnapshot(
-        terminalPanel: TerminalPanel,
-        includeScrollback: Bool
-    ) -> TerminalTextRawSnapshot? {
-        readTerminalTextRawSnapshot(
-            terminalSurface: terminalPanel.surface,
-            includeScrollback: includeScrollback
         )
     }
 
