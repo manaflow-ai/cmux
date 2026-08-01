@@ -764,10 +764,12 @@ final class cmuxUITests: XCTestCase {
         if !workspaceDetail.waitForExistence(timeout: 3) {
             let selectFired = app.descendants(matching: .any)["FixtureWorkspaceSelectCount-1"].exists
             let keyboardUp = app.keyboards.firstMatch.exists
+            let trail = app.descendants(matching: .any)["FixtureNavTrail"].value as? String ?? "<no trail>"
             XCTFail(
                 "Detail never appeared after tapping a filtered search row: "
                     + "selectActionFired=\(selectFired) keyboardStillUp=\(keyboardUp) "
-                    + "searchFieldExists=\(searchField.exists) docsRowStillHittable=\(docsRow.isHittable)"
+                    + "searchFieldExists=\(searchField.exists) docsRowStillHittable=\(docsRow.isHittable) "
+                    + "trail=[\(trail)]"
             )
         }
         XCTAssertTrue(minimizedSearch.waitForNonExistence(timeout: 3))

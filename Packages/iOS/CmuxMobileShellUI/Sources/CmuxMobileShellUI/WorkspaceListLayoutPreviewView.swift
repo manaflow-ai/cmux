@@ -165,6 +165,9 @@ public struct WorkspaceListLayoutPreviewView: View {
     /// UITest probe: proves whether a row's select action actually fired,
     /// distinguishing a swallowed tap from a dropped navigation push.
     @State private var fixtureSelectCount = 0
+    /// UITest probe: ordered breadcrumb of navigation events so CI failures
+    /// show the real sequencing (consume attempts, pop-backs, mounts).
+    @State private var fixtureNavTrail: [String] = []
 
     private var scrollMetricsEnabled: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_METRICS"] == "1"
@@ -408,6 +411,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                         }
                         .accessibilityIdentifier("FixtureWorkspaceDetail")
                         .onAppear {
+                            fixtureNavTrail.append("detailAppear")
                             if pendingSearchFixtureRoute == route {
                                 pendingSearchFixtureRoute = nil
                             }
@@ -424,10 +428,20 @@ public struct WorkspaceListLayoutPreviewView: View {
                     }
                 }
                 .onAppear {
+                    fixtureNavTrail.append("stackAppear")
                     consumePendingSearchFixtureNavigation()
                 }
                 .onChange(of: pendingSearchFixtureRoute) { _, _ in
                     consumePendingSearchFixtureNavigation()
+                }
+                .onChange(of: fixturePath) { old, new in
+                    fixtureNavTrail.append("path(\(old.count)->\(new.count))")
+                    if new.isEmpty {
+                        // Self-heal: the system popped the push (for example a
+                        // search-dismissal transition) while a selection is
+                        // still armed; re-apply it from state, no timers.
+                        consumePendingSearchFixtureNavigation()
+                    }
                 }
                 .overlay(alignment: .bottomTrailing) {
                     if scrollMetricsEnabled {
@@ -466,8 +480,12 @@ public struct WorkspaceListLayoutPreviewView: View {
             }
         }
         .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
+            fixtureNavTrail.append("presented(\(isPresented))")
             guard !isPresented else { return }
             consumePendingSearchFixtureNavigation()
+        }
+        .onChange(of: selectedPrimaryTab) { old, new in
+            fixtureNavTrail.append("tab(\(old)->\(new))")
         }
         .overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
@@ -479,6 +497,11 @@ public struct WorkspaceListLayoutPreviewView: View {
                     .frame(width: 1, height: 1)
                     .accessibilityElement()
                     .accessibilityIdentifier("FixtureWorkspaceSelectCount-\(fixtureSelectCount)")
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement()
+                    .accessibilityIdentifier("FixtureNavTrail")
+                    .accessibilityValue(fixtureNavTrail.joined(separator: " "))
                 if showsTabScaffold {
                     Button {
                         performPreviewRefresh()
@@ -508,6 +531,7 @@ public struct WorkspaceListLayoutPreviewView: View {
 
     private func selectFixtureWorkspace(_ id: MobileWorkspacePreview.ID) {
         fixtureSelectCount += 1
+        fixtureNavTrail.append("select(\(id.rawValue))")
         selectedWorkspaceID = id
         let route = FixtureWorkspaceRoute(id: id)
         if showsTabScaffold,
@@ -515,6 +539,7 @@ public struct WorkspaceListLayoutPreviewView: View {
             pendingSearchFixtureRoute = route
             transitionPrimaryTab(to: .workspaces)
         } else if fixturePath.last != route {
+            fixtureNavTrail.append("directSet")
             fixturePath = [route]
         }
     }
@@ -524,10 +549,17 @@ public struct WorkspaceListLayoutPreviewView: View {
     /// the workspaces tab is unmounted (search tab active) has no registered
     /// destination and SwiftUI pops it back; the stack's onAppear retries.
     private func consumePendingSearchFixtureNavigation() {
+        fixtureNavTrail.append(
+            "consume(presented=\(primarySearchCoordinator.isPresented)"
+                + " tab=\(selectedPrimaryTab)"
+                + " pending=\(pendingSearchFixtureRoute != nil)"
+                + " path=\(fixturePath.count))"
+        )
         guard !primarySearchCoordinator.isPresented,
               selectedPrimaryTab == .workspaces,
               let route = pendingSearchFixtureRoute else { return }
         if fixturePath.last != route {
+            fixtureNavTrail.append("consumeSet")
             fixturePath = [route]
         }
     }
@@ -535,6 +567,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     @discardableResult
     private func transitionPrimaryTab(to tab: MobilePrimaryTab) -> Bool {
         let previousTab = selectedPrimaryTab
+        fixtureNavTrail.append("transition(\(previousTab)->\(tab))")
         if (selectedPrimaryTab == .search || primarySearchCoordinator.isPresented),
            tab.searchScope != nil {
             primarySearchCoordinator.deactivateCurrentSearch()
