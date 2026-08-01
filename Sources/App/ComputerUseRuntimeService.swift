@@ -2497,7 +2497,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         socketURL: URL,
         persistentConnection: PersistentSocketLineConnection? = nil
     ) async -> [String: Any]? {
-        await Task.detached(priority: .userInitiated) {
+        let requestTask = Task.detached(priority: .userInitiated) {
             await performDaemonRequest(
                 request,
                 paths: paths,
@@ -2507,7 +2507,12 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
                 socketURL: socketURL,
                 persistentConnection: persistentConnection
             )
-        }.value
+        }
+        return await withTaskCancellationHandler {
+            await requestTask.value
+        } onCancel: {
+            requestTask.cancel()
+        }
     }
 
     #if DEBUG
