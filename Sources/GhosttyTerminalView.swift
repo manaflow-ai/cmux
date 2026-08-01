@@ -6768,6 +6768,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         lastKnownMousePointInView = point
     }
 
+    /// Ghostty reports link hover asynchronously, so use the point captured
+    /// from the source mouse event instead of resampling the window afterward.
+    func terminalLinkPreviewAnchor(in previewView: NSView) -> NSPoint? {
+        guard let point = lastKnownMousePointInView,
+              let window,
+              previewView.window === window else { return nil }
+        return previewView.convert(point, from: self)
+    }
+
+#if DEBUG
+    func setTerminalLinkPreviewPointerPointForTesting(_ point: NSPoint?) {
+        lastKnownMousePointInView = point
+    }
+#endif
+
     private func preferredPointerPoint(from eventPoint: NSPoint? = nil) -> NSPoint? {
         if let eventPoint, pointIsUsableForWordResolution(eventPoint) {
             lastKnownMousePointInView = eventPoint

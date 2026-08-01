@@ -429,7 +429,9 @@ extension GhosttySurfaceScrollView {
             return
         }
         let anchor: NSPoint
-        if let window {
+        if let trackedAnchor = surfaceView.terminalLinkPreviewAnchor(in: linkHoverIndicatorView) {
+            anchor = trackedAnchor
+        } else if let window {
             anchor = linkHoverIndicatorView.convert(
                 window.mouseLocationOutsideOfEventStream,
                 from: nil

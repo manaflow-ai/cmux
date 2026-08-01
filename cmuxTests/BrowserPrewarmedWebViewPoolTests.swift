@@ -273,6 +273,27 @@ struct BrowserPrewarmedWebViewPoolTests {
         #expect(view.hitTest(bridgePoint) == nil)
     }
 
+    @Test func previewAnchorUsesTheTerminalSourceEventPoint() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 650),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        let root = try #require(window.contentView)
+        let surface = GhosttyNSView(frame: NSRect(x: 80, y: 60, width: 700, height: 500))
+        let preview = TerminalLinkHoverIndicatorView(
+            frame: NSRect(x: 20, y: 10, width: 800, height: 600)
+        )
+        root.addSubview(surface)
+        root.addSubview(preview)
+        surface.setTerminalLinkPreviewPointerPointForTesting(NSPoint(x: 140, y: 410))
+
+        let anchor = try #require(surface.terminalLinkPreviewAnchor(in: preview))
+
+        #expect(anchor == NSPoint(x: 200, y: 460))
+    }
+
     @Test func delayedPreviewStartsAfterDwellAndLeavingFirstCancelsIt() async throws {
         let url = try #require(URL(string: "https://example.com/preview"))
         let target = TerminalLinkOpenCoordinator.PreviewTarget(url: url, profileID: profileID)
