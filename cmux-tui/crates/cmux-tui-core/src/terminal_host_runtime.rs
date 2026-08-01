@@ -4937,6 +4937,32 @@ mod unix {
         }
 
         #[test]
+        fn repeating_defaults_does_not_resync_smart_renderers() {
+            let host = exited_host_fixture();
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = sync_channel(4);
+            host.smart
+                .subscribe(
+                    7,
+                    HostTap {
+                        sender,
+                        queued_bytes: Arc::new(AtomicUsize::new(0)),
+                        shutdown: Arc::new(host_socket),
+                        max_queued_bytes: usize::MAX,
+                    },
+                )
+                .unwrap();
+
+            host.set_default_colors(DefaultColors::default());
+
+            assert!(matches!(
+                receiver.recv_timeout(Duration::from_millis(50)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ));
+            assert_eq!(host.smart.applied_cursor.load(Ordering::Acquire), 0);
+        }
+
+        #[test]
         fn host_tap_byte_overflow_closes_the_client_socket() {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
