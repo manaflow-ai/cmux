@@ -1325,14 +1325,14 @@ public:
             if (call.cancel.stop_possible()) {
                 timeout = std::min(timeout, Timeout(25));
                 (void)lock.try_lock_for(timeout);
-            } else if (
+            } else {
 #if defined(CMUX_CPP_TESTING)
-                detail::consume_simulated_request_lock_failure() ||
+                if (!detail::consume_simulated_request_lock_failure()) {
 #endif
-                !lock.try_lock_until(deadline)) {
-                return make_error(
-                    ErrorCode::timeout,
-                    "operation timed out before request admission");
+                    (void)lock.try_lock_until(deadline);
+#if defined(CMUX_CPP_TESTING)
+                }
+#endif
             }
         }
         if (is_closed.load(std::memory_order_acquire)) {
