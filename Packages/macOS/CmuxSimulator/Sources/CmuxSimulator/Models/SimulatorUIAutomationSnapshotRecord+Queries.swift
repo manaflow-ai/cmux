@@ -49,6 +49,7 @@ extension SimulatorUIAutomationSnapshotRecord {
         _ selector: SimulatorUIAutomationSelector
     ) -> [SimulatorUIAutomationElement] {
         snapshot.elements.filter { element in
+            guard element.state.isVisible else { return false }
             if let identifier = selector.identifier, element.identifier != identifier {
                 return false
             }
@@ -73,8 +74,11 @@ extension SimulatorUIAutomationSnapshotRecord {
         let needle = (text.normalizedUIAutomationText ?? "").lowercased()
         guard !needle.isEmpty else { return [] }
         return snapshot.elements.filter {
-            ($0.label ?? "").lowercased().contains(needle)
-                || ($0.value ?? "").lowercased().contains(needle)
+            $0.state.isVisible
+                && (
+                    ($0.label ?? "").lowercased().contains(needle)
+                        || ($0.value ?? "").lowercased().contains(needle)
+                )
         }
     }
 
