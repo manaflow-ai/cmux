@@ -30,6 +30,9 @@ const MAX_INVITATION_RELAY_ROUTES: usize = 2;
 const MAX_RELAY_SLOT_BYTES: usize = 256;
 const MAX_RELAY_TICKET_BYTES: usize = 4 * 1024;
 const MAX_RECORDED_CONNECTION_ATTEMPTS: usize = 4_096;
+const ENROLLMENT_URI_PREFIX: &str = "cmux://enroll/";
+const CLIENT_STATE_FILE: &str = "known-daemons.json";
+pub const MAX_INVITATION_URI_BYTES: usize = ENROLLMENT_URI_PREFIX.len() + 16 * 1024;
 
 #[cfg(test)]
 std::thread_local! {
@@ -95,17 +98,21 @@ impl EnrollmentInvitation {
     pub fn to_uri(&self) -> Result<String, IdentityError> {
         validate_relay_access(&self.route_hints, &self.relay_access)?;
         let json = serde_json::to_vec(self).map_err(IdentityError::Json)?;
-        Ok(format!(
-            "cmux://enroll/{}",
+        let uri = format!(
+            "{ENROLLMENT_URI_PREFIX}{}",
             base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json)
-        ))
+        );
+        if uri.len() > MAX_INVITATION_URI_BYTES {
+            return Err(IdentityError::Invalid("enrollment URI is too large".into()));
+        }
+        Ok(uri)
     }
 
     pub fn from_uri(uri: &str) -> Result<Self, IdentityError> {
         let encoded = uri
-            .strip_prefix("cmux://enroll/")
+            .strip_prefix(ENROLLMENT_URI_PREFIX)
             .ok_or_else(|| IdentityError::Invalid("enrollment URI has the wrong scheme".into()))?;
-        if encoded.len() > 16 * 1024 {
+        if encoded.len() > MAX_INVITATION_URI_BYTES - ENROLLMENT_URI_PREFIX.len() {
             return Err(IdentityError::Invalid("enrollment URI is too large".into()));
         }
         let json = base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -188,7 +195,7 @@ impl ClientIdentityStore {
         let state_dir = state_dir.into();
         secure_directory(&state_dir)?;
         let identity = load_or_create_identity(&state_dir.join("client-identity.json"))?;
-        let path = state_dir.join("known-daemons.json");
+        let path = state_dir.join(CLIENT_STATE_FILE);
         let lock_path = sibling_lock_path(&path).map_err(IdentityError::Io)?;
         let _path_lock = OwnerFileLock::acquire(&lock_path).map_err(IdentityError::Io)?;
         let (state, routes_changed) =
@@ -310,13 +317,18 @@ impl ClientIdentityStore {
     }
 
     pub async fn daemon_key(&self, fingerprint: &str) -> Result<Option<[u8; 32]>, IdentityError> {
-        self.state
-            .lock()
-            .await
+        let mut state = self.state.lock().await;
+        let (_path_lock, candidate, routes_changed) =
+            self.reload_client_state_locked(&mut state).await?;
+        let key = candidate
             .daemons
             .get(fingerprint)
             .map(|daemon| decode_key(&daemon.public_key))
-            .transpose()
+            .transpose()?;
+        if routes_changed {
+            self.commit_client_state_locked(&mut state, candidate)?;
+        }
+        Ok(key)
     }
 
     pub async fn forget_daemon(&self, fingerprint: &str) -> Result<bool, IdentityError> {
@@ -334,7 +346,7 @@ impl ClientIdentityStore {
         &self,
         state: &mut PersistedClientState,
     ) -> Result<(OwnerFileLock, PersistedClientState, bool), IdentityError> {
-        let path = self.state_dir.join("known-daemons.json");
+        let path = self.state_dir.join(CLIENT_STATE_FILE);
         let lock_path = sibling_lock_path(&path).map_err(IdentityError::Io)?;
         let path_lock = OwnerFileLock::acquire_async(lock_path).await.map_err(IdentityError::Io)?;
         let (disk_state, routes_changed) =
@@ -362,7 +374,7 @@ impl ClientIdentityStore {
     }
 
     fn persist_client_locked(&self, state: &PersistedClientState) -> Result<(), IdentityError> {
-        atomic_json(&self.state_dir.join("known-daemons.json"), state)
+        atomic_json(&self.state_dir.join(CLIENT_STATE_FILE), state)
     }
 }
 
@@ -1028,24 +1040,9 @@ impl AuthDatabase {
         let id = random_token(16)?;
         let mut secret = [0_u8; 32];
         getrandom::fill(&mut secret).map_err(|error| IdentityError::Random(error.to_string()))?;
-        let mut state = self.state.lock().await;
-        state.ensure_open()?;
-        state.prune_invitations(now);
-        state.invitations.insert(
-            id.clone(),
-            InvitationRecord {
-                secret,
-                expires_at_unix,
-                route_hints: route_hints.clone(),
-                claimed_by: None,
-            },
-        );
-        let persistence = self.submit_mutation_locked(&mut state)?;
-        drop(state);
-        persistence.wait().await?;
-        Ok(EnrollmentInvitation {
+        let invitation = EnrollmentInvitation {
             version: STATE_VERSION,
-            id,
+            id: id.clone(),
             secret: encode_key(&secret),
             daemon_public_key: encode_key(&self.identity.public_key()),
             daemon_fingerprint: self.identity.fingerprint(),
@@ -1054,7 +1051,24 @@ impl AuthDatabase {
             route_hints,
             relay_access,
             approval_required: true,
-        })
+        };
+        invitation.to_uri()?;
+        let mut state = self.state.lock().await;
+        state.ensure_open()?;
+        state.prune_invitations(now);
+        state.invitations.insert(
+            id,
+            InvitationRecord {
+                secret,
+                expires_at_unix,
+                route_hints: invitation.route_hints.clone(),
+                claimed_by: None,
+            },
+        );
+        let persistence = self.submit_mutation_locked(&mut state)?;
+        drop(state);
+        persistence.wait().await?;
+        Ok(invitation)
     }
 
     pub async fn list_devices(&self) -> Vec<DeviceRecord> {
@@ -1419,12 +1433,28 @@ fn rollback_approval(
 impl ServerAuthenticator for AuthDatabase {
     async fn invitation_secret(&self, id: &str) -> Result<Option<[u8; 32]>, CryptoError> {
         let now = unix_time().map_err(|error| CryptoError::Unauthorized(error.to_string()))?;
-        let state = self.state.lock().await;
-        Ok(state
-            .invitations
-            .get(id)
-            .filter(|invitation| invitation.expires_at_unix > now)
-            .map(|invitation| invitation.secret))
+        let (secret, persistence) = {
+            let mut state = self.state.lock().await;
+            let persistence = if state.prune_invitations(now) {
+                state.ensure_open().map_err(|error| CryptoError::Link(error.to_string()))?;
+                Some(
+                    self.submit_mutation_locked(&mut state)
+                        .map_err(|error| CryptoError::Link(error.to_string()))?,
+                )
+            } else {
+                None
+            };
+            let secret = state
+                .invitations
+                .get(id)
+                .filter(|invitation| invitation.expires_at_unix > now)
+                .map(|invitation| invitation.secret);
+            (secret, persistence)
+        };
+        if let Some(persistence) = persistence {
+            persistence.wait().await.map_err(|error| CryptoError::Link(error.to_string()))?;
+        }
+        Ok(secret)
     }
 
     async fn authorize(&self, request: AuthRequest) -> Result<AuthGrant, String> {
@@ -1620,10 +1650,12 @@ impl AuthState {
         }
     }
 
-    fn prune_invitations(&mut self, now: u64) {
+    fn prune_invitations(&mut self, now: u64) -> bool {
+        let previous = self.invitations.len();
         self.invitations.retain(|id, invitation| {
             invitation.expires_at_unix > now || self.pending.contains_key(id)
         });
+        self.invitations.len() != previous
     }
 }
 
@@ -1886,6 +1918,10 @@ fn load_auth_state(
     if migrating_legacy {
         state.version = AUTH_STATE_VERSION;
     }
+    let now = unix_time()?;
+    let invitation_count = state.invitations.len();
+    state.invitations.retain(|invitation| invitation.expires_at_unix > now);
+    state_changed |= state.invitations.len() != invitation_count;
     for invitation in &mut state.invitations {
         let sanitized = credential_free_route_hints_lossy(&invitation.route_hints);
         state_changed |= sanitized != invitation.route_hints;
@@ -3531,6 +3567,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn independent_client_stores_merge_known_daemon_updates() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let second = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let first_key = StaticIdentity::generate().unwrap().public_key();
+        let second_key = StaticIdentity::generate().unwrap().public_key();
+
+        first
+            .pin_daemon("first".into(), first_key, vec!["wss://first.example".into()])
+            .await
+            .unwrap();
+        second
+            .pin_daemon("second".into(), second_key, vec!["wss://second.example".into()])
+            .await
+            .unwrap();
+
+        let reloaded = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let daemons = reloaded.known_daemons().await;
+        assert_eq!(daemons.len(), 2);
+        assert!(daemons.iter().any(|daemon| daemon.name == "first"));
+        assert!(daemons.iter().any(|daemon| daemon.name == "second"));
+    }
+
+    #[tokio::test]
     async fn known_daemon_routes_are_persisted_without_credentials() {
         let temp = tempfile::tempdir().unwrap();
         let key = StaticIdentity::generate().unwrap().public_key();
@@ -3904,6 +3964,66 @@ mod tests {
         drop(database);
         let reloaded = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
         assert_eq!(reloaded.list_devices().await, vec![record]);
+    }
+
+    #[tokio::test]
+    async fn canceled_enrollment_releases_its_invitation_for_retry() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        let invitation =
+            database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+        let request = AuthRequest {
+            mode: AuthKind::Invitation,
+            invitation_id: Some(invitation.id.clone()),
+            device_public_key: StaticIdentity::generate().unwrap().public_key(),
+            device_name: "cancelled".into(),
+            session: SessionId([7; 16]),
+            lane: Lane::Control,
+            lanes: vec![Lane::Control],
+            generation: 0,
+            inbound: InboundAuthEvidence::Network(NetworkPeer::Tls),
+        };
+        let first = tokio::spawn({
+            let database = database.clone();
+            let request = request.clone();
+            async move { database.authorize(request).await }
+        });
+        database.wait_for_pending(Duration::from_secs(2)).await.unwrap();
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !database.pending_enrollments().await.is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled enrollment remained pending");
+
+        let retry = tokio::spawn({
+            let database = database.clone();
+            async move { database.authorize(request).await }
+        });
+        database.wait_for_pending(Duration::from_secs(2)).await.unwrap();
+        retry.abort();
+        assert!(retry.await.unwrap_err().is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn expired_invitation_secret_is_removed_from_persisted_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        let invitation =
+            database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+        let persistence = {
+            let mut state = database.state.lock().await;
+            state.invitations.get_mut(&invitation.id).unwrap().expires_at_unix = 0;
+            database.submit_mutation_locked(&mut state).unwrap()
+        };
+        persistence.wait().await.unwrap();
+
+        assert!(database.invitation_secret(&invitation.id).await.unwrap().is_none());
+        let persisted = fs::read_to_string(temp.path().join("devices.json")).unwrap();
+        assert!(!persisted.contains(&invitation.id));
     }
 
     #[tokio::test]

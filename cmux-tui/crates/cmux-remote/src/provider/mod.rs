@@ -277,7 +277,7 @@ impl ProviderError {
     /// or could not be established. Configuration, authentication, and
     /// protocol failures remain terminal.
     pub fn is_retryable_carrier_failure(&self) -> bool {
-        matches!(self, Self::Link(LinkError::Closed | LinkError::Transport(_)))
+        matches!(self, Self::Transport(_) | Self::Link(LinkError::Closed | LinkError::Transport(_)))
     }
 }
 

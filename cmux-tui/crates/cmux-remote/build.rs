@@ -228,8 +228,8 @@ fn track_source_directories(
 
 fn emit_cargo_path_directive(directive: &str, path: &Path) {
     let value = path.to_string_lossy();
-    if value.bytes().any(|byte| matches!(byte, b'\r' | b'\n')) {
-        panic!("Cargo directive path contains CR or LF");
+    if value.chars().any(char::is_control) {
+        panic!("Cargo directive path contains a control character");
     }
     println!("cargo:{directive}={value}");
 }

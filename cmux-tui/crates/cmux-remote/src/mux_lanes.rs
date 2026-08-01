@@ -88,6 +88,8 @@ struct MuxEnvelope<'a> {
     event: Option<MuxName<'a>>,
     #[serde(borrow)]
     scope: Option<MuxName<'a>>,
+    #[serde(borrow)]
+    mode: Option<MuxName<'a>>,
 }
 
 fn parse_envelope(line: &[u8]) -> Result<MuxEnvelope<'_>, serde_json::Error> {
@@ -157,6 +159,9 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
     let Ok(envelope) = parse_envelope(line) else { return Lane::Control };
     match envelope.cmd.as_ref().map(MuxName::as_str) {
         Some("attach-surface" | "read-screen" | "read-scrollback" | "vt-state") => Lane::Bulk,
+        Some("copy") if envelope.mode.as_ref().map(MuxName::as_str) == Some("scrollback") => {
+            Lane::Bulk
+        }
         Some(
             "identify" | "ping" | "list-clients" | "list-workspaces" | "export-layout" | "wait-for"
             | "ids" | "list-agents" | "pane-neighbor" | "process-info" | "subscribe",
@@ -324,6 +329,10 @@ mod tests {
     #[test]
     fn large_snapshot_requests_use_bulk_lane() {
         assert_eq!(classify_client_line(br#"{"id":2,"cmd":"vt-state"}"#), Lane::Bulk);
+        assert_eq!(
+            classify_client_line(br#"{"id":2,"cmd":"copy","mode":"scrollback"}"#),
+            Lane::Bulk
+        );
         assert_eq!(classify_client_line(br#"{"id":3,"cmd":"list-workspaces"}"#), Lane::Control);
     }
 

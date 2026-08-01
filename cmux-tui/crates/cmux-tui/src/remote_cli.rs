@@ -24,7 +24,7 @@ use cmux_remote::connection::ReconnectPolicy;
 use cmux_remote::crypto::ClientAuthMode;
 use cmux_remote::identity::{
     ClientIdentityStore, EnrollmentInvitation, EnrollmentRelayAccess, KnownDaemon, KnownDaemonAuth,
-    credential_free_route_hint, default_state_dir,
+    MAX_INVITATION_URI_BYTES, credential_free_route_hint, default_state_dir,
 };
 use cmux_remote::provider::{
     IrohPathMode, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
@@ -67,7 +67,6 @@ const REMOTE_COMMANDS: &[&str] = &[
 
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const ENROLLMENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-const MAX_INVITATION_URI_BYTES: usize = "cmux://enroll/".len() + 16 * 1024;
 const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
 const DETACHED_TERM_GRACE: Duration = Duration::from_millis(500);
 const DETACHED_KILL_GRACE: Duration = Duration::from_secs(1);

@@ -17,6 +17,7 @@ use cmux_remote_protocol::MAX_WIRE_FRAME_BYTES;
 use tokio::sync::{Mutex, OnceCell, OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
+use crate::crypto::SECURE_FRAME_OVERHEAD_BYTES;
 use crate::daemon::{InboundLink, NetworkPeer, RemoteDaemon};
 use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
@@ -316,7 +317,7 @@ impl Default for IrohProviderConfig {
             path_mode: IrohPathMode::Auto,
             discovery_n0: false,
             alpn: CMUX_IROH_ALPN.to_vec(),
-            maximum_frame_bytes: MAX_WIRE_FRAME_BYTES,
+            maximum_frame_bytes: MAX_WIRE_FRAME_BYTES + SECURE_FRAME_OVERHEAD_BYTES,
         }
     }
 }
@@ -1415,6 +1416,10 @@ mod tests {
 
     #[test]
     fn path_modes_parse_and_reject_incompatible_relay_configuration() {
+        assert_eq!(
+            IrohProviderConfig::default().maximum_frame_bytes,
+            MAX_WIRE_FRAME_BYTES + SECURE_FRAME_OVERHEAD_BYTES
+        );
         assert_eq!("auto".parse(), Ok(IrohPathMode::Auto));
         assert_eq!("direct-only".parse(), Ok(IrohPathMode::DirectOnly));
         assert_eq!("relay-only".parse(), Ok(IrohPathMode::RelayOnly));

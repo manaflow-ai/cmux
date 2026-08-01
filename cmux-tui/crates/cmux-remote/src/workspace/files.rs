@@ -1612,15 +1612,15 @@ impl RawEntryState {
     }
 
     fn is_regular(&self) -> bool {
-        self.mode & libc::S_IFMT as u32 == libc::S_IFREG as u32
+        file_type_bits(self.mode) == normalize_stat_value::<_, u32>(libc::S_IFREG)
     }
 
     fn is_directory(&self) -> bool {
-        self.mode & libc::S_IFMT as u32 == libc::S_IFDIR as u32
+        file_type_bits(self.mode) == normalize_stat_value::<_, u32>(libc::S_IFDIR)
     }
 
     fn is_symlink(&self) -> bool {
-        self.mode & libc::S_IFMT as u32 == libc::S_IFLNK as u32
+        file_type_bits(self.mode) == normalize_stat_value::<_, u32>(libc::S_IFLNK)
     }
 
     fn file_kind(&self) -> FileKind {
@@ -1651,7 +1651,7 @@ impl RawEntryState {
     fn same_object(&self, other: &Self) -> bool {
         self.dev == other.dev
             && self.ino == other.ino
-            && self.mode & libc::S_IFMT as u32 == other.mode & libc::S_IFMT as u32
+            && file_type_bits(self.mode) == file_type_bits(other.mode)
     }
 
     fn matches_snapshot(&self, other: &Self) -> bool {
@@ -2035,6 +2035,11 @@ fn snapshot_unix_directory(
     });
     entries.shrink_to_fit();
     Ok(DirectoryContinuation { entries, next_index: 0, scan_truncated })
+}
+
+#[cfg(unix)]
+fn file_type_bits(mode: u32) -> u32 {
+    mode & normalize_stat_value::<_, u32>(libc::S_IFMT)
 }
 
 #[cfg(unix)]

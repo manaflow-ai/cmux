@@ -650,6 +650,7 @@ dependencies = [
  "libc",
  "parking_lot",
  "ratatui",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2 0.10.9",

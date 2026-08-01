@@ -10,6 +10,12 @@ BIN_DIR="$(cd "$(dirname "$1")" && pwd)"
 BIN="$BIN_DIR/$(basename "$1")"
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-remote-release-smoke.XXXXXX")"
 DAEMON_PID=""
+export HOME="$RUN_DIR/home"
+export XDG_CACHE_HOME="$RUN_DIR/xdg-cache"
+export XDG_CONFIG_HOME="$RUN_DIR/xdg-config"
+export XDG_DATA_HOME="$RUN_DIR/xdg-data"
+export XDG_STATE_HOME="$RUN_DIR/xdg-state"
+mkdir -p "$HOME" "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME"
 
 cleanup() {
   if [[ -n "$DAEMON_PID" ]]; then

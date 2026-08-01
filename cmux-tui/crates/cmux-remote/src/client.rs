@@ -134,6 +134,7 @@ impl WorkspaceClient {
         let channel = self.channel(rpc_traffic_class(&request));
         let id = self.next_request_id();
         let timeout_ms = timeout.map(|(milliseconds, _)| milliseconds);
+        let deadline = timeout.map(|(_, duration)| tokio::time::Instant::now() + duration);
         let cancellable = crate::workspace::request_supports_cancellation(&request);
         let encoded = serde_json::to_vec(&RpcRequest { id, timeout_ms, request })
             .map_err(|error| RpcError::new("protocol", error.to_string()))?;
@@ -142,7 +143,7 @@ impl WorkspaceClient {
         let mut pending = PendingWorkspaceRequest {
             id,
             receiver: Some(receiver),
-            timeout: timeout.map(|(_, duration)| duration),
+            deadline,
             pending: channel.pending.clone(),
             cancellable,
             dropped_cancellations: self.dropped_cancellations.clone(),
@@ -244,7 +245,7 @@ impl WorkspaceClient {
 pub struct PendingWorkspaceRequest {
     id: RequestId,
     receiver: Option<oneshot::Receiver<PendingResponse>>,
-    timeout: Option<Duration>,
+    deadline: Option<tokio::time::Instant>,
     pending: PendingRequests,
     cancellable: bool,
     dropped_cancellations: mpsc::Sender<DroppedWorkspaceRequest>,
@@ -259,8 +260,8 @@ impl PendingWorkspaceRequest {
 
     pub async fn receive(mut self) -> Result<WorkspaceResponse, RpcError> {
         let receiver = self.receiver.take().expect("pending workspace request has a receiver");
-        let response = match self.timeout {
-            Some(timeout) => match tokio::time::timeout(timeout, receiver).await {
+        let response = match self.deadline {
+            Some(deadline) => match tokio::time::timeout_at(deadline, receiver).await {
                 Ok(response) => response,
                 Err(_) => {
                     return Err(RpcError::new("deadline-exceeded", "request deadline exceeded"));
@@ -585,7 +586,7 @@ mod tests {
         );
         assert_eq!(
             rpc_traffic_class(&WorkspaceRequest::CancelComputerUse {
-                invocation: ComputerUseInvocationId(1),
+                invocation: ComputerUseInvocationId::from_u128(1),
             }),
             RpcTrafficClass::Control
         );

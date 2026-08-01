@@ -552,7 +552,7 @@ async fn call_admin_over_stream(
     request: &AdminRequest,
 ) -> Result<AdminResponse, AdminError> {
     let mut encoded = serde_json::to_vec(request)?;
-    if encoded.len() > MAX_ADMIN_MESSAGE_BYTES {
+    if encoded.len().saturating_add(1) > MAX_ADMIN_MESSAGE_BYTES {
         return Err(AdminError::MessageTooLarge(encoded.len()));
     }
     encoded.push(b'\n');
@@ -569,8 +569,8 @@ async fn call_admin_over_stream(
     if size == 0 {
         return Err(AdminError::Protocol("daemon closed the admin connection".into()));
     }
-    if response.len() > MAX_ADMIN_MESSAGE_BYTES {
-        return Err(AdminError::MessageTooLarge(response.len()));
+    if size > MAX_ADMIN_MESSAGE_BYTES {
+        return Err(AdminError::MessageTooLarge(size));
     }
     Ok(serde_json::from_slice(&response)?)
 }
@@ -592,7 +592,7 @@ async fn serve_connection(
     .await?;
     let response = if size == 0 {
         AdminResponse::failure("empty admin request")
-    } else if encoded.len() > MAX_ADMIN_MESSAGE_BYTES {
+    } else if size > MAX_ADMIN_MESSAGE_BYTES {
         AdminResponse::failure("admin request is too large")
     } else {
         match serde_json::from_slice::<AdminRequest>(&encoded) {
@@ -609,14 +609,19 @@ async fn serve_connection(
             Err(error) => AdminResponse::failure(format!("invalid admin request: {error}")),
         }
     };
-    let mut response = serde_json::to_vec(&response)?;
-    if response.len() > MAX_ADMIN_MESSAGE_BYTES {
-        response = serde_json::to_vec(&AdminResponse::failure("admin response is too large"))?;
-    }
-    response.push(b'\n');
+    let response = encode_admin_response(response)?;
     timeout_admin_io("writing admin response", writer.write_all(&response)).await?;
     timeout_admin_io("closing admin response", writer.shutdown()).await?;
     Ok(())
+}
+
+fn encode_admin_response(response: AdminResponse) -> Result<Vec<u8>, AdminError> {
+    let mut encoded = serde_json::to_vec(&response)?;
+    if encoded.len().saturating_add(1) > MAX_ADMIN_MESSAGE_BYTES {
+        encoded = serde_json::to_vec(&AdminResponse::failure("admin response is too large"))?;
+    }
+    encoded.push(b'\n');
+    Ok(encoded)
 }
 
 async fn read_bounded_admin_message<R>(reader: &mut R, encoded: &mut Vec<u8>) -> io::Result<usize>
@@ -1036,9 +1041,10 @@ mod tests {
         let server = serve_admin(daemon, &socket, Vec::new()).await.unwrap();
         let empty = AdminRequest::Deny { invitation_id: String::new() };
         let fixed_bytes = serde_json::to_vec(&empty).unwrap().len();
-        let request =
-            AdminRequest::Deny { invitation_id: "x".repeat(MAX_ADMIN_MESSAGE_BYTES - fixed_bytes) };
-        assert_eq!(serde_json::to_vec(&request).unwrap().len(), MAX_ADMIN_MESSAGE_BYTES);
+        let request = AdminRequest::Deny {
+            invitation_id: "x".repeat(MAX_ADMIN_MESSAGE_BYTES - fixed_bytes - 1),
+        };
+        assert_eq!(serde_json::to_vec(&request).unwrap().len() + 1, MAX_ADMIN_MESSAGE_BYTES);
 
         let response = call_admin(&socket, &request).await.unwrap();
 
@@ -1050,9 +1056,10 @@ mod tests {
     async fn exact_maximum_response_payload_is_accepted_before_decode() {
         let empty = AdminResponse::failure("");
         let fixed_bytes = serde_json::to_vec(&empty).unwrap().len();
-        let expected = AdminResponse::failure("x".repeat(MAX_ADMIN_MESSAGE_BYTES - fixed_bytes));
+        let expected =
+            AdminResponse::failure("x".repeat(MAX_ADMIN_MESSAGE_BYTES - fixed_bytes - 1));
         let mut encoded = serde_json::to_vec(&expected).unwrap();
-        assert_eq!(encoded.len(), MAX_ADMIN_MESSAGE_BYTES);
+        assert_eq!(encoded.len() + 1, MAX_ADMIN_MESSAGE_BYTES);
         encoded.push(b'\n');
         let (client, server) = UnixStream::pair().unwrap();
         let responder = tokio::spawn(async move {
