@@ -246,14 +246,14 @@ enum CmxIrohRelayPolicyResolution {
         let currentConfiguration = currentEffective?.requestedConfiguration
         if let currentRevision, let currentConfiguration {
             guard revision > currentRevision
-                    || configuration == currentConfiguration else {
+                    || configuration.hasEquivalentActiveAuthority(to: currentConfiguration) else {
                 throw CmxIrohRelayPolicyServiceError.preferenceRollback
             }
             return
         }
         guard let existing = try await preferenceStore.load(accountID: accountID) else { return }
         guard revision > existing.revision
-                || configuration == existing.requested else {
+                || configuration.hasEquivalentActiveAuthority(to: existing.requested) else {
             throw CmxIrohRelayPolicyServiceError.preferenceRollback
         }
     }

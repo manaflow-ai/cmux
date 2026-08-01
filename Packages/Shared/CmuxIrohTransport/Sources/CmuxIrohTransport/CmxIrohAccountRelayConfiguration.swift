@@ -69,6 +69,13 @@ public struct CmxIrohAccountRelayConfiguration: Codable, Equatable, Sendable {
         }
     }
 
+    /// Whether two complete configurations grant the same relay authority now.
+    /// Dormant managed selections and saved custom definitions remain account
+    /// state, but cannot affect transport until their corresponding mode is active.
+    public func hasEquivalentActiveAuthority(to other: Self) -> Bool {
+        activePreference == other.activePreference
+    }
+
     /// Replaces only the active mode or managed selection.
     public func updatingActivePreference(
         _ preference: CmxIrohAccountRelayPreference
