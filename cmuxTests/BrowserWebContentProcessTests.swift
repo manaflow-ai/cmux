@@ -99,40 +99,7 @@ struct BrowserWebContentProcessTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let client = BrowserAppSessionRestoredSessionAuthClient()
-        let coordinator = AuthCoordinator(
-            client: client,
-            sessionCache: CMUXAuthSessionCache(
-                keyValueStore: defaults,
-                key: "auth-session"
-            ),
-            userCache: CMUXAuthIdentityStore(
-                keyValueStore: defaults,
-                key: "auth-user"
-            ),
-            teamSelection: CMUXAuthTeamSelectionStore(
-                keyValueStore: defaults,
-                key: "auth-team"
-            ),
-            anchor: AuthPresentationContextProvider(),
-            config: AuthConfig(
-                stack: CMUXAuthConfig(
-                    projectId: "project-a",
-                    publishableClientKey: "publishable-a"
-                ),
-                magicLinkCallbackURL: "http://127.0.0.1:1/auth/callback",
-                apiBaseURL: "http://127.0.0.1:1"
-            ),
-            launch: AuthLaunchOptions(
-                clearAuthRequested: false,
-                mockDataEnabled: false,
-                environment: [
-                    "CMUX_UITEST_AUTH_FIXTURE": "1",
-                    "CMUX_UITEST_AUTH_USER_ID": "restored-account",
-                ],
-                includesDevAuth: true
-            )
-        )
+        let coordinator = makeRestoredSessionCoordinator(defaults: defaults)
         coordinator.start()
         let controller = BrowserAppSessionController(
             coordinator: coordinator,
@@ -146,6 +113,62 @@ struct BrowserWebContentProcessTests {
         )
 
         #expect(outcome.shouldRetry)
+    }
+
+    @Test
+    func browserAppSessionCleanupFailureRetainsOwnershipAndBoundsRetries() async throws {
+        let suiteName = "BrowserAppSessionFailedCleanupTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = makeRestoredSessionCoordinator(defaults: defaults)
+        coordinator.start()
+        let environment = BrowserAppSessionEnvironment(
+            webOrigin: URL(string: "http://127.0.0.1:1")!,
+            projectID: "project-a"
+        )
+        let registry = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "failed-cleanup-stores",
+            environment: environment
+        )
+        var websiteDataStore: WKWebsiteDataStore? = .nonPersistent()
+        registry.register(try #require(websiteDataStore))
+        var cleanupAttemptCount = 0
+        let controller = BrowserAppSessionController(
+            coordinator: coordinator,
+            webOrigin: environment.webOrigin,
+            projectID: environment.projectID,
+            defaults: defaults,
+            storeRegistry: registry,
+            clearWebsiteDataStore: { _ in
+                cleanupAttemptCount += 1
+                return .timedOut
+            }
+        )
+
+        for _ in 0..<3 {
+            let outcome = await controller.request(
+                destinationURL: URL(string: "http://127.0.0.1:1/dashboard")!
+            )
+            #expect(outcome.shouldRetry)
+        }
+
+        #expect(cleanupAttemptCount == 2)
+        #expect(registry.hasOwnership)
+
+        websiteDataStore = nil
+        #expect(!registry.hasOwnership)
+        _ = await controller.request(
+            destinationURL: URL(string: "http://127.0.0.1:1/dashboard")!
+        )
+        let nextWebsiteDataStore = WKWebsiteDataStore.nonPersistent()
+        registry.register(nextWebsiteDataStore)
+
+        await controller.clearCmuxWebSession()
+
+        #expect(cleanupAttemptCount == 3)
+        #expect(registry.hasOwnership)
     }
 
     @Test
@@ -219,10 +242,90 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func browserAppSessionRegistryDoesNotResetAClosingPanel() throws {
+        let suiteName = "BrowserAppSessionClosingPanelTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL,
+            websiteDataStore: websiteDataStore
+        )
+        let registry = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "closing-panel-stores",
+            environment: BrowserAppSessionEnvironment(
+                webOrigin: URL(string: "https://cmux.test")!,
+                projectID: "project-a"
+            )
+        )
+        registry.register(websiteDataStore)
+        registry.register(panel)
+
+        panel.close()
+
+        #expect(!registry.panelsForCleanup().contains { $0 === panel })
+        #expect(registry.storesForCleanup().contains { $0 === websiteDataStore })
+    }
+
+    @Test
+    func browserAppSessionRegistryRetainsAClosingPanelAssociation() throws {
+        let suiteName = "BrowserAppSessionClosingPanelAssociationTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL,
+            websiteDataStore: websiteDataStore
+        )
+        defer { panel.close() }
+        let registry = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "closing-panel-association-stores",
+            environment: BrowserAppSessionEnvironment(
+                webOrigin: URL(string: "https://cmux.test")!,
+                projectID: "project-a"
+            )
+        )
+        registry.register(websiteDataStore)
+        registry.register(panel)
+
+        panel.isClosingWebViewLifecycle = true
+        #expect(!registry.panelsForCleanup().contains { $0 === panel })
+        panel.isClosingWebViewLifecycle = false
+
+        #expect(registry.panelsForCleanup().contains { $0 === panel })
+    }
+
+    @Test
     func browserAppSessionCleanupCoversEveryWebsiteDataType() {
         #expect(
             BrowserAppSessionController.appSessionWebsiteDataTypes ==
                 WKWebsiteDataStore.allWebsiteDataTypes()
+        )
+    }
+
+    @Test
+    func browserAppSessionSignOutRevokesTheLivePanelStoreBeforeAsyncCleanup() {
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL,
+            websiteDataStore: websiteDataStore
+        )
+        defer { panel.close() }
+
+        panel.resetForAppSessionSignOut()
+
+        #expect(panel.websiteDataStore !== websiteDataStore)
+        #expect(!panel.websiteDataStore.isPersistent)
+        #expect(
+            panel.webView.configuration.websiteDataStore ===
+                panel.websiteDataStore
         )
     }
 
@@ -313,7 +416,8 @@ struct BrowserWebContentProcessTests {
             openInSourcePane: { _, _ in
                 placements.append("source")
                 return true
-            }
+            },
+            isBrowserAvailable: { true }
         )
 
         #expect(opened)
@@ -347,12 +451,50 @@ struct BrowserWebContentProcessTests {
                 placements.append("source")
                 #expect(!store.isPersistent)
                 return true
-            }
+            },
+            isBrowserAvailable: { true }
         )
 
         #expect(opened)
         #expect(placements == ["preferred", "split", "source"])
         #expect(!openedSystemBrowser)
+    }
+
+    @Test
+    func appLinkRecoveryStopsPlacementWhenBrowserAvailabilityIsRevoked() {
+        var browserAvailable = true
+        let destinationURL = URL(
+            string: "https://cmux.test/dashboard/testflight"
+        )!
+        var placements: [String] = []
+        var systemBrowserOpenCount = 0
+
+        let opened = BrowserAppLinkPlacementPolicy(
+            openInSystemBrowser: { _ in
+                systemBrowserOpenCount += 1
+                return true
+            }
+        ).recover(
+            destinationURL,
+            openInPreferredPane: { _, _ in
+                placements.append("preferred")
+                browserAvailable = false
+                return false
+            },
+            openHorizontalSplit: { _, _ in
+                placements.append("split")
+                return false
+            },
+            openInSourcePane: { _, _ in
+                placements.append("source")
+                return false
+            },
+            isBrowserAvailable: { browserAvailable }
+        )
+
+        #expect(opened)
+        #expect(placements == ["preferred"])
+        #expect(systemBrowserOpenCount == 1)
     }
 
     @Test
@@ -956,6 +1098,30 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func appSessionSignOutClosesFloatingPopupsBeforeReplacingStore() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
+        defer { panel.close() }
+        let authenticatedStore = panel.webView.configuration.websiteDataStore
+        let popupWebView = try #require(
+            panel.createFloatingPopup(
+                configuration: WKWebViewConfiguration(),
+                windowFeatures: WKWindowFeatures()
+            )
+        )
+        let popupWindow = try #require(popupWebView.window)
+        defer { popupWebView.window?.close() }
+
+        #expect(popupWebView.configuration.websiteDataStore === authenticatedStore)
+
+        panel.resetForAppSessionSignOut()
+
+        #expect(!(panel.webView.configuration.websiteDataStore === authenticatedStore))
+        #expect(popupWebView.navigationDelegate == nil)
+        #expect(popupWebView.uiDelegate == nil)
+        #expect(!popupWindow.isVisible)
+    }
+
+    @Test
     func floatingPopupClosesWhenWebContentProcessTerminates() throws {
         let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
         defer { panel.close() }
@@ -973,6 +1139,44 @@ struct BrowserWebContentProcessTests {
         #expect(popupWebView.uiDelegate == nil)
         #expect(popupWebView.window == nil)
         #expect(!popupWindow.isVisible)
+    }
+
+    private func makeRestoredSessionCoordinator(
+        defaults: UserDefaults
+    ) -> AuthCoordinator {
+        AuthCoordinator(
+            client: BrowserAppSessionRestoredSessionAuthClient(),
+            sessionCache: CMUXAuthSessionCache(
+                keyValueStore: defaults,
+                key: "auth-session"
+            ),
+            userCache: CMUXAuthIdentityStore(
+                keyValueStore: defaults,
+                key: "auth-user"
+            ),
+            teamSelection: CMUXAuthTeamSelectionStore(
+                keyValueStore: defaults,
+                key: "auth-team"
+            ),
+            anchor: AuthPresentationContextProvider(),
+            config: AuthConfig(
+                stack: CMUXAuthConfig(
+                    projectId: "project-a",
+                    publishableClientKey: "publishable-a"
+                ),
+                magicLinkCallbackURL: "http://127.0.0.1:1/auth/callback",
+                apiBaseURL: "http://127.0.0.1:1"
+            ),
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false,
+                mockDataEnabled: false,
+                environment: [
+                    "CMUX_UITEST_AUTH_FIXTURE": "1",
+                    "CMUX_UITEST_AUTH_USER_ID": "restored-account",
+                ],
+                includesDevAuth: true
+            )
+        )
     }
 }
 
