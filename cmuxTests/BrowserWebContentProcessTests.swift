@@ -377,27 +377,7 @@ struct BrowserWebContentProcessTests {
 
     @Test
     func appLinkRecoveryStopsPlacementWhenBrowserAvailabilityIsRevoked() {
-        let defaults = UserDefaults.standard
-        let previousBrowserDisabled = defaults.object(
-            forKey: BrowserAvailabilitySettings.disabledKey
-        )
-        BrowserAvailabilitySettings.setDisabled(false)
-        defer {
-            if let previousBrowserDisabled {
-                defaults.set(
-                    previousBrowserDisabled,
-                    forKey: BrowserAvailabilitySettings.disabledKey
-                )
-            } else {
-                defaults.removeObject(
-                    forKey: BrowserAvailabilitySettings.disabledKey
-                )
-            }
-            NotificationCenter.default.post(
-                name: BrowserAvailabilitySettings.didChangeNotification,
-                object: nil
-            )
-        }
+        var browserAvailable = true
         let destinationURL = URL(
             string: "https://cmux.test/dashboard/testflight"
         )!
@@ -413,23 +393,18 @@ struct BrowserWebContentProcessTests {
             destinationURL,
             openInPreferredPane: { _, _ in
                 placements.append("preferred")
-                BrowserAvailabilitySettings.setDisabled(true)
+                browserAvailable = false
                 return false
             },
             openHorizontalSplit: { _, _ in
                 placements.append("split")
-                if !BrowserAvailabilitySettings.isEnabled() {
-                    systemBrowserOpenCount += 1
-                }
                 return false
             },
             openInSourcePane: { _, _ in
                 placements.append("source")
-                if !BrowserAvailabilitySettings.isEnabled() {
-                    systemBrowserOpenCount += 1
-                }
                 return false
-            }
+            },
+            isBrowserAvailable: { browserAvailable }
         )
 
         #expect(opened)
