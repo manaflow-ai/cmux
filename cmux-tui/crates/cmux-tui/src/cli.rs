@@ -446,15 +446,6 @@ USAGE
 escape for the legacy control protocol and provides no compatibility promise.
 ";
 
-const SERVER_HELP: &str = "\
-USAGE
-  cmux server status
-  cmux server stop
-
-These local lifecycle commands remain available when the running server has a
-different release identity.
-";
-
 fn run_server_lifecycle_if_requested(args: &[String]) -> Option<i32> {
     let (global, command) = match parse_globals(args) {
         Ok(parsed) => parsed,
@@ -471,8 +462,9 @@ fn run_server_lifecycle_if_requested(args: &[String]) -> Option<i32> {
     }
     let actions = &command[1..];
     if actions.iter().any(|value| matches!(value.as_str(), "-h" | "--help" | "help")) {
+        let messages = &crate::localization::catalog().server;
         let mut stdout = io::stdout().lock();
-        let _ = stdout.write_all(SERVER_HELP.as_bytes());
+        let _ = stdout.write_all(messages.help.as_bytes());
         let _ = stdout.flush();
         return Some(0);
     }
@@ -497,7 +489,7 @@ fn run_server_lifecycle(global: &GlobalArgs, actions: &[String]) -> i32 {
         }
     };
     if global.machine.is_some() {
-        eprintln!("cmux: server lifecycle commands cannot use --machine");
+        eprintln!("cmux: {}", messages.machine_scope_unsupported);
         return 2;
     }
     let socket_path = resolve_server_socket(global);

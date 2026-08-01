@@ -26,6 +26,7 @@ pub(crate) struct ForeignViewportMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ServerMessages {
     pub help: &'static str,
+    pub machine_scope_unsupported: &'static str,
     pub incompatible_local_server: &'static str,
     pub server_label: &'static str,
     pub client_label: &'static str,
@@ -547,7 +548,8 @@ static ENGLISH: Catalog = Catalog {
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
     server: ServerMessages {
-        help: "Inspect or stop the local server.",
+        help: "USAGE\n  cmux server status\n  cmux server stop\n\nThese local lifecycle commands remain available when the running server has a\ndifferent release identity.\n",
+        machine_scope_unsupported: "server lifecycle commands cannot use --machine",
         incompatible_local_server: "This session is running a different cmux-tui release.",
         server_label: "server",
         client_label: "client",
@@ -840,7 +842,8 @@ static JAPANESE: Catalog = Catalog {
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
     server: ServerMessages {
-        help: "ローカルサーバーの確認または停止。",
+        help: "使用方法\n  cmux server status\n  cmux server stop\n\n実行中のサーバーが別のリリースでも、これらのローカルライフサイクル操作を利用できます。\n",
+        machine_scope_unsupported: "server のライフサイクル操作では --machine を使用できません",
         incompatible_local_server: "このセッションは別の cmux-tui リリースで実行されています。",
         server_label: "サーバー",
         client_label: "クライアント",
