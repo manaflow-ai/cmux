@@ -1,3 +1,5 @@
+import AppKit
+import CmuxControlSocket
 import CmuxCore
 import Foundation
 import Testing
@@ -210,6 +212,157 @@ extension AgentNotificationRegressionTests {
         )
     }
 
+    @Test("The relay stamps its owner onto TTY reports")
+    func relayTTYReportProvenanceOverridesSpoofedWorkspace() throws {
+        let authenticatedWorkspaceID = UUID()
+        let spoofedWorkspaceID = UUID()
+        let request: [String: Any] = [
+            "id": "relay-tty-report",
+            "method": "surface.report_tty",
+            "params": [
+                "workspace_id": spoofedWorkspaceID.uuidString,
+                "surface_id": UUID().uuidString,
+                "tty_name": "pts/29",
+                "_cmux_remote_workspace_id": spoofedWorkspaceID.uuidString,
+            ],
+        ]
+        let commandLine = try JSONSerialization.data(withJSONObject: request)
+
+        let rewritten = WorkspaceRemoteRelayCommandRewriter(
+            remoteWorkspaceID: authenticatedWorkspaceID,
+            remoteRelayTokenHex: String(repeating: "a", count: 64)
+        ).rewriteRemoteRelayCommandLine(
+            commandLine,
+            workspaceAliases: [:],
+            surfaceAliases: [:]
+        )
+        let rewrittenRequest = try #require(
+            JSONSerialization.jsonObject(with: rewritten) as? [String: Any]
+        )
+        let params = try #require(rewrittenRequest["params"] as? [String: Any])
+
+        #expect(
+            params["_cmux_remote_workspace_id"] as? String
+                == authenticatedWorkspaceID.uuidString
+        )
+    }
+
+    @Test("Relay TTY reports require the authenticated owner and current attempt")
+    func relayTTYReportsRejectSpoofedOwnerAndStaleAttempt() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        fixture.source.remoteConfiguration = relayConfiguration(
+            destination: "source.example.invalid",
+            relayPort: 64_007
+        )
+        fixture.destination.remoteConfiguration = relayConfiguration(
+            destination: "destination.example.invalid",
+            relayPort: 64_008
+        )
+        let sourceTerminal = try #require(
+            fixture.source.panels[fixture.panelId] as? TerminalPanel
+        )
+        let destinationPanelID = try #require(fixture.destination.focusedPanelId)
+        let destinationTerminal = try #require(
+            fixture.destination.panels[destinationPanelID] as? TerminalPanel
+        )
+        let sourceAttemptID = UUID()
+        let destinationAttemptID = UUID()
+        fixture.source.trackRemoteTerminalSurface(fixture.panelId)
+        fixture.destination.trackRemoteTerminalSurface(destinationPanelID)
+        #expect(
+            fixture.source.markRemoteTerminalSessionLaunching(
+                surfaceId: fixture.panelId,
+                terminalLifecycleID: sourceTerminal.surface.terminalLifecycleId,
+                attemptID: sourceAttemptID
+            )
+        )
+        #expect(
+            fixture.destination.markRemoteTerminalSessionLaunching(
+                surfaceId: destinationPanelID,
+                terminalLifecycleID: destinationTerminal.surface.terminalLifecycleId,
+                attemptID: destinationAttemptID
+            )
+        )
+        let coordinator = ControlCommandCoordinator(context: TerminalController.shared)
+
+        assertTTYReportRejected(coordinator.handle(ControlRequest(
+            id: .string("spoofed-owner"),
+            method: "surface.report_tty",
+            params: [
+                "workspace_id": .string(fixture.destination.id.uuidString),
+                "surface_id": .string(destinationPanelID.uuidString),
+                "tty_name": .string("pts/30"),
+                "_cmux_remote_workspace_id": .string(fixture.source.id.uuidString),
+                "terminal_lifecycle_id": .string(
+                    destinationTerminal.surface.terminalLifecycleId.uuidString
+                ),
+                "attempt_id": .string(destinationAttemptID.uuidString),
+            ]
+        )))
+        #expect(
+            !fixture.destination.surfaceRegistry.runtimeReportedTTYSurfaceIDs
+                .contains(destinationPanelID)
+        )
+
+        assertTTYReportRejected(coordinator.handle(ControlRequest(
+            id: .string("stale-attempt"),
+            method: "surface.report_tty",
+            params: [
+                "workspace_id": .string(fixture.source.id.uuidString),
+                "surface_id": .string(fixture.panelId.uuidString),
+                "tty_name": .string("pts/31"),
+                "_cmux_remote_workspace_id": .string(fixture.source.id.uuidString),
+                "terminal_lifecycle_id": .string(
+                    sourceTerminal.surface.terminalLifecycleId.uuidString
+                ),
+                "attempt_id": .string(UUID().uuidString),
+            ]
+        )))
+        #expect(
+            !fixture.source.surfaceRegistry.runtimeReportedTTYSurfaceIDs
+                .contains(fixture.panelId)
+        )
+    }
+
+    @Test("A local TTY report expires when its runtime generation changes")
+    func localTTYReportExpiresAfterRuntimeGenerationChanges() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let terminal = try #require(
+            fixture.source.panels[fixture.panelId] as? TerminalPanel
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = try #require(window.contentView)
+        let hostedView = terminal.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        window.orderFront(nil)
+        window.displayIfNeeded()
+        defer {
+            hostedView.removeFromSuperview()
+            window.orderOut(nil)
+        }
+        let ttyName = try #require(await waitForControllingTTYName(for: terminal))
+        fixture.source.registerReportedSurfaceTTYName(
+            ttyName,
+            panelId: fixture.panelId
+        )
+        #expect(!fixture.source.localAgentDeliveryTTYDevices.isEmpty)
+        let reportedGeneration = terminal.surface.runtimeSurfaceGeneration
+
+        terminal.surface.releaseSurfaceForTesting()
+
+        #expect(terminal.surface.runtimeSurfaceGeneration != reportedGeneration)
+        #expect(fixture.source.localAgentDeliveryTTYDevices.isEmpty)
+    }
+
     private func relayConfiguration(
         destination: String,
         relayPort: Int,
@@ -265,5 +418,24 @@ extension AgentNotificationRegressionTests {
             return
         }
         #expect(code == "not_found")
+    }
+
+    private func assertTTYReportRejected(_ result: ControlCallResult?) {
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected relay TTY report rejection, got \(String(describing: result))")
+            return
+        }
+        #expect(code == "not_found")
+    }
+
+    private func waitForControllingTTYName(for terminal: TerminalPanel) async -> String? {
+        let deadline = ContinuousClock.now + .seconds(15)
+        while ContinuousClock.now < deadline {
+            if let ttyName = terminal.surface.controllingTTYName() {
+                return ttyName
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return terminal.surface.controllingTTYName()
     }
 }
