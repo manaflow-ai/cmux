@@ -957,7 +957,6 @@
         "terminal": {
           "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalindhold og den indbyggede agentchat. Angiv false for at bruge hele rudens bredde.",
           "sessionContentAlignment": "Vandret placering af terminalindhold og den indbyggede agentchat, når sessionContentMaxWidth er aktiveret.",
-          "autoRetryAgentSessions": "Genoptager automatisk en administreret agentsession, når dens aktive kommando afsluttes med en fejlkode, der ikke er nul og ikke skyldes et signal. Antallet af forsøg er begrænset og bruger eksponentiel ventetid; normal afslutning og udtrykkelig brugerafbrydelse forsøges aldrig igen.",
           "copyOnSelect": "Når værdien er true, kopieres markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes. Når værdien er false, udsender cmux ikke en Ghostty copy-on-select-tilsidesættelse; Ghostty-konfiguration og standarder styrer markeringsudklipsholderens adfærd.",
           "scrollSpeed": "Multiplikator anvendt på rulleværdier fra musehjul og pegefelt i terminalen. Højere værdier ruller hurtigere, lavere værdier langsommere.",
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits.",
@@ -3599,6 +3598,37 @@
       "primaryCta": "Download .deb",
       "requirements": "Debian eller Ubuntu · x64",
       "installBody": "Download Debian-pakken, og installer den med din pakkehåndtering. Vælg den transportable ZIP til installation pr. bruger og opdateringer i appen."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Velkommen til cmux Pro 🎉",
+      "fallbackName": "der",
+      "greeting": "Hej {name},",
+      "thanks": "Tak, fordi du har valgt cmux Pro! Vi er stadig ved at gøre hele Pro-oplevelsen klar, og cloudadgang er på vej.",
+      "cloudStatus": "Når cloudadgang lanceres, føjer vi brugskreditter til din konto baseret på, hvor mange måneder du har været abonnent.",
+      "currentBenefit": "Indtil da giver Pro dig tidlig adgang til cmux på iOS. Tilmeld dig via linket nedenfor, så sender Apple din TestFlight-invitation, når du er registreret.",
+      "testflightLink": "Tilmeld dig TestFlight: {url}",
+      "testflightLinkLabel": "Tilmeld dig TestFlight",
+      "signoff": "Dejligt at have dig med!\ncmux-teamet"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro er aktiv",
+    "title": "Velkommen til cmux Pro",
+    "body": "Pro-funktionerne er stadig under udvikling. Cloudadgang kommer snart med brugskreditter, der optjenes for hver måned, du abonnerer. Lige nu omfatter Pro adgang til cmux på iOS via TestFlight.",
+    "done": "Gå til kontrolpanelet",
+    "steps": {
+      "iosApp": {
+        "title": "cmux til iOS",
+        "body": "Brug cmux på din telefon.",
+        "action": "Deltag i iOS-betaen"
+      },
+      "billing": {
+        "title": "Administrer dit abonnement",
+        "body": "Se dit abonnement, dine fakturaer og muligheder for opsigelse.",
+        "action": "Administrer abonnement"
+      }
     }
   }
 }
