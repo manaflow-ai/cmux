@@ -161,7 +161,7 @@ struct ChangesPreviewFixture: Sendable {
 
     private static let truncatedDiff = """
     @@ -1,3 +1,8 @@
-     enum GeneratedSchema {
+     struct GeneratedSchema {
     +    static let field0001 = "value"
     +    static let field0002 = "value"
     +    static let field0003 = "value"
