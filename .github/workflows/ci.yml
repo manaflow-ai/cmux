@@ -163,6 +163,9 @@ jobs:
       - name: Validate CMUX INTERNAL main-push path filter
         run: python3 tests/test_ios_testflight_main_push_filter.py
 
+      - name: Validate iOS selected-test log guard
+        run: ./tests/test_ci_ios_selected_tests_log.sh
+
       - name: Validate external TestFlight group assignment helper
         run: python3 tests/test_ios_testflight_external_distribution.py
 
