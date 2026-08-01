@@ -1101,6 +1101,41 @@ struct SimulatorPanelIntegrationTests {
         await coordinator.close()
     }
 
+    @Test("A second down-only semantic touch is rejected before worker input")
+    func overlappingSemanticTouchIsRejected() async throws {
+        let client = SimulatorSemanticAutomationPaneClient(behavior: .staticTree)
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        try await coordinator.selectDeviceAndWait(id: client.deviceID)
+        let executor = SimulatorUIAutomationExecutor(
+            scheduler: InstantSimulatorUIAutomationTiming()
+        )
+        let snapshot = try await executor.perform(
+            .uiSnapshot(sinceScreenHash: nil),
+            coordinator: coordinator
+        )
+        let elementRef = try simulatorElementRef(
+            in: snapshot,
+            identifier: "continue"
+        )
+        let down = ControlSimulatorUIAction.touch(
+            elementRef: elementRef,
+            down: true,
+            up: false,
+            delayMilliseconds: 0
+        )
+
+        _ = try await executor.perform(.uiAction(down), coordinator: coordinator)
+        do {
+            _ = try await executor.perform(.uiAction(down), coordinator: coordinator)
+            Issue.record("Expected an overlapping touch-down to be rejected")
+        } catch let failure as SimulatorUIAutomationFailure {
+            #expect(failure.code == "touch_already_held")
+        }
+
+        #expect(await client.touchPhases() == [["began"]])
+        await coordinator.close()
+    }
+
     @Test("A display change releases a held semantic touch")
     func splitSemanticTouchReleasesAfterDisplayChange() async throws {
         let client = SimulatorSemanticAutomationPaneClient(behavior: .staticTree)

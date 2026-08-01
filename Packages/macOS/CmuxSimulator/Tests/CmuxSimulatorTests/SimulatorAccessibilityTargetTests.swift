@@ -36,7 +36,8 @@ struct SimulatorAccessibilityTargetTests {
                 frame: SimulatorRect(x: 16, y: 120, width: 100, height: 40)
             ),
             node(
-                id: "com.apple.settings.general", role: "Button", label: "General",
+                id: "0.1", identifier: "com.apple.settings.general",
+                role: "Button", label: "General",
                 frame: SimulatorRect(x: 16, y: 380, width: 370, height: 52)
             ),
         ])
@@ -48,6 +49,11 @@ struct SimulatorAccessibilityTargetTests {
         ).only)
 
         #expect(target.node.role == "Button")
+        #expect(snapshot.interactionTargets(
+            label: nil,
+            identifier: "0.1",
+            role: nil
+        ).isEmpty)
     }
 
     @Test("Disabled and offscreen elements cannot become touch targets")
@@ -122,6 +128,7 @@ struct SimulatorAccessibilityTargetTests {
 
     private func node(
         id: String,
+        identifier: String? = nil,
         role: String,
         label: String,
         frame: SimulatorRect,
@@ -130,6 +137,7 @@ struct SimulatorAccessibilityTargetTests {
     ) -> SimulatorAccessibilityNode {
         SimulatorAccessibilityNode(
             id: id,
+            identifier: identifier,
             role: role,
             label: label,
             value: nil,
