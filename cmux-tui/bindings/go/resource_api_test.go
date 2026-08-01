@@ -3732,6 +3732,7 @@ func TestCancelDeliveryRace(t *testing.T) {
 func TestOverflowAndExplicitCancelSendOneCleanup(t *testing.T) {
 	clientSide, serverSide := net.Pipe()
 	serverResult := make(chan error, 1)
+	overflowDone := make(chan struct{})
 	go func() {
 		defer serverSide.Close()
 		reader := bufio.NewReader(serverSide)
@@ -3747,6 +3748,12 @@ func TestOverflowAndExplicitCancelSendOneCleanup(t *testing.T) {
 				"cleanup operation = %#v",
 				cancel["operation"],
 			)
+			return
+		}
+		select {
+		case <-overflowDone:
+		case <-time.After(time.Second):
+			serverResult <- fmt.Errorf("overflow delivery did not finish before cancellation response")
 			return
 		}
 		writeEnvelope(t, serverSide, map[string]any{
@@ -3809,7 +3816,6 @@ func TestOverflowAndExplicitCancelSendOneCleanup(t *testing.T) {
 
 	start := make(chan struct{})
 	cancelDone := make(chan error, 1)
-	overflowDone := make(chan struct{})
 	go func() {
 		<-start
 		cancelDone <- stream.Cancel(context.Background())
