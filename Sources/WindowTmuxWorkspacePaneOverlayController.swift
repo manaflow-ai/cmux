@@ -5,7 +5,9 @@ import SwiftUI
 private var tmuxWorkspacePaneWindowOverlayKey: UInt8 = 0
 private let tmuxWorkspacePaneOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.tmuxWorkspacePane.overlay.container")
 
-final class TmuxWorkspacePaneOverlayHostingView: NSHostingView<TmuxWorkspacePaneOverlayView> {}
+final class TmuxWorkspacePaneOverlayHostingView: NSHostingView<TmuxWorkspacePaneOverlayView> {
+    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
+}
 
 @MainActor
 final class WindowTmuxWorkspacePaneOverlayController: NSObject {
