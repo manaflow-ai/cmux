@@ -456,8 +456,11 @@ extension SimulatorWorkerClient {
         _ action: SimulatorInteractiveAction,
         requestID: UUID
     ) async {
-        if case .touch = action {
+        switch action {
+        case .touch, .hardwareButton, .hardwareButtonHold:
             try? await sendRequired(.releaseInputs)
+        default:
+            break
         }
         pendingInteractiveRequestIdentifiers.remove(requestID)
         await flushDeferredMessageIfReady()

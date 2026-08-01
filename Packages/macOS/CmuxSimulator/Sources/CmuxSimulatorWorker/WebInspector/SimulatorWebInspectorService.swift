@@ -113,7 +113,7 @@ final class SimulatorWebInspectorService {
             } catch {
                 throw attachmentError
             }
-            guard let refreshedTarget = catalog.target(rematching: target) else {
+            guard let refreshedTarget = catalog.target(id: target.id) else {
                 throw attachmentError
             }
             return try await attach(
@@ -144,7 +144,7 @@ final class SimulatorWebInspectorService {
             lease.release()
             throw SimulatorWebInspectorError.timedOut("target occupancy refresh")
         }
-        guard let currentTarget = catalog.target(rematching: target),
+        guard let currentTarget = catalog.target(id: target.id),
               refreshedTargets.contains(currentTarget) else {
             lease.release()
             throw SimulatorWebInspectorError.targetNotFound

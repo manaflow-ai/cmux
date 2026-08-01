@@ -35,12 +35,16 @@ struct SimulatorUIAutomationSnapshotBuilder {
             throw SimulatorUIAutomationSnapshotError.viewportUnavailable
         }
 
-        let preliminaryRecords = flattenedNodes(source.roots).enumerated().map { index, input in
+        let preliminaryRecords = flattenedNodes(
+            source.roots,
+            viewport: viewport
+        ).enumerated().map { index, input in
             elementRecord(
                 node: input.node,
                 path: input.path,
                 index: index,
                 viewport: viewport,
+                visibleFrame: input.visibleFrame,
                 descendantFrameBounds: input.descendantFrameBounds
             )
         }
@@ -77,13 +81,15 @@ struct SimulatorUIAutomationSnapshotBuilder {
     }
 
     private func flattenedNodes(
-        _ roots: [SimulatorAccessibilityNode]
+        _ roots: [SimulatorAccessibilityNode],
+        viewport: SimulatorRect
     ) -> [SimulatorUIAutomationFlattenedNode] {
         var pending = roots.enumerated().reversed().map {
             SimulatorUIAutomationPendingNode(
                 node: $0.element,
                 path: String($0.offset),
-                parentIndex: nil
+                parentIndex: nil,
+                ancestorClip: viewport
             )
         }
         var result: [SimulatorUIAutomationFlattenedNode] = []
@@ -92,17 +98,26 @@ struct SimulatorUIAutomationSnapshotBuilder {
         parentIndices.reserveCapacity(result.capacity)
         while let current = pending.popLast() {
             let currentIndex = result.count
+            let frame = current.node.frame.flatMap {
+                $0.isValidUIAutomationFrame ? $0 : nil
+            }
+            let visibleFrame = frame.flatMap { frame in
+                current.ancestorClip.flatMap { frameIntersection(frame, $0) }
+            }
             result.append(SimulatorUIAutomationFlattenedNode(
                 node: current.node,
                 path: current.path,
+                visibleFrame: visibleFrame,
                 descendantFrameBounds: nil
             ))
             parentIndices.append(current.parentIndex)
+            let descendantClip = frame == nil ? current.ancestorClip : visibleFrame
             for (index, child) in current.node.children.enumerated().reversed() {
                 pending.append(SimulatorUIAutomationPendingNode(
                     node: child,
                     path: "\(current.path).\(index)",
-                    parentIndex: currentIndex
+                    parentIndex: currentIndex,
+                    ancestorClip: descendantClip
                 ))
             }
         }
@@ -128,6 +143,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
         path: String,
         index: Int,
         viewport: SimulatorRect,
+        visibleFrame: SimulatorRect?,
         descendantFrameBounds: SimulatorRect?
     ) -> SimulatorUIAutomationElementRecord {
         let frame = node.frame.flatMap {
@@ -153,7 +169,6 @@ struct SimulatorUIAutomationSnapshotBuilder {
             description: normalizedRoleDescription,
             identifier: exactIdentifier
         )
-        let visibleFrame = frameIntersection(frame, viewport)
         let visible = visibleFrame != nil
         let enabled = node.isEnabled != false
         let hasStableInputSelector = exactIdentifier != nil
