@@ -19196,6 +19196,51 @@ mod tests {
     }
 
     #[test]
+    fn detached_split_relocation_preserves_owner_zoom_and_stack_expansion() {
+        let mux = test_mux();
+        let owner_surface = mux.new_workspace(None, None).unwrap();
+        let owner_pane = mux.with_state(|state| state.pane_of(owner_surface.id).unwrap());
+        let moving = mux.new_tab(Some(owner_pane), None, None).unwrap();
+        let target_surface = mux.split(owner_pane, SplitDir::Right, None).unwrap();
+        let target_pane = mux.with_state(|state| state.pane_of(target_surface.id).unwrap());
+        let expanded_surface = mux.split(target_pane, SplitDir::Down, None).unwrap();
+        let expanded_pane = mux.with_state(|state| state.pane_of(expanded_surface.id).unwrap());
+        let root_split = mux.next_id();
+        {
+            let mut state = mux.state.lock().unwrap();
+            let (workspace, screen) = state.screen_of(owner_pane).unwrap();
+            let screen = &mut state.workspaces[workspace].screens[screen];
+            screen.root = Node::Split {
+                id: root_split,
+                dir: SplitDir::Right,
+                ratio: 0.5,
+                a: Box::new(Node::Leaf(owner_pane)),
+                b: Box::new(
+                    Node::stack_with_expanded(vec![target_pane, expanded_pane], expanded_pane)
+                        .unwrap(),
+                ),
+            };
+            screen.zellij_auto_layout = None;
+            screen.active_pane = owner_pane;
+            screen.zoomed_pane = Some(owner_pane);
+            state.panes.get_mut(&owner_pane).unwrap().active_tab = 0;
+            Mux::rebuild_split_screen_index(&mut state);
+        }
+        let owner_focus = mux.with_state(current_focus_identity);
+
+        mux.move_tab_to_split_with_activation(moving.id, target_pane, SplitDir::Right, true, false)
+            .unwrap();
+
+        mux.with_state(|state| {
+            assert_eq!(current_focus_identity(state), owner_focus);
+            let (workspace, screen) = state.screen_of(owner_pane).unwrap();
+            let screen = &state.workspaces[workspace].screens[screen];
+            assert_eq!(screen.zoomed_pane, Some(owner_pane));
+            assert_eq!(screen.root.stack_expanded_pane(), Some(expanded_pane));
+        });
+    }
+
+    #[test]
     fn failed_raw_browser_creation_and_relocation_restore_live_and_durable_topology() {
         let mux = test_mux();
         let owner = mux.new_workspace(None, None).unwrap();
@@ -19812,6 +19857,92 @@ mod tests {
         assert!(
             events.try_recv().is_err(),
             "nonactivating creation must not publish an owner-selection resync"
+        );
+    }
+
+    #[test]
+    fn default_creation_fingerprints_replay_pre_activation_payloads() {
+        let mux = test_mux();
+        let owner = mux.create_empty_workspace(Some("owner".into()), None, None).unwrap();
+        let mutation = WorkspaceMutation::new("legacy-default-workspace", "test").unwrap();
+        let requested_name = Some("replayed".to_string());
+        let requested_key = Some(owner.key.clone());
+        let legacy_fingerprint = serde_json::json!({
+            "op": "create-workspace",
+            "name": requested_name,
+            "requested_key": requested_key,
+        });
+        let result = serde_json::json!({
+            "workspace": owner.workspace,
+            "key": owner.key,
+            "index": owner.index,
+        });
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            let snapshot = registry.snapshot().unwrap();
+            registry
+                .commit(
+                    &mutation,
+                    &legacy_fingerprint,
+                    None,
+                    None,
+                    "workspace-created",
+                    &owner.key,
+                    &snapshot.workspaces,
+                    &result,
+                )
+                .unwrap();
+        }
+
+        let replayed = mux
+            .create_empty_workspace_with_mutation_and_activation(
+                requested_name,
+                requested_key,
+                None,
+                None,
+                &mutation,
+                true,
+            )
+            .unwrap();
+        assert!(replayed.replayed);
+        assert_eq!(replayed.workspace, owner.workspace);
+
+        let argv = vec!["/bin/echo".to_string(), "ok".to_string()];
+        let legacy_terminal_request = serde_json::json!({
+            "argv": argv,
+            "cwd": "/tmp",
+            "name": "legacy",
+            "size": [80, 24],
+        });
+        let expected_digest = Sha256::digest(serde_json::to_vec(&legacy_terminal_request).unwrap())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let default_terminal = terminal_create_fingerprint(
+            "workspace-key",
+            Some("00000000-0000-4000-8000-000000000001"),
+            Some(&argv),
+            Some("/tmp"),
+            Some("legacy"),
+            Some((80, 24)),
+            None,
+            true,
+        )
+        .unwrap();
+        assert_eq!(default_terminal["request_sha256"], expected_digest);
+        assert_ne!(
+            terminal_create_fingerprint(
+                "workspace-key",
+                Some("00000000-0000-4000-8000-000000000001"),
+                Some(&argv),
+                Some("/tmp"),
+                Some("legacy"),
+                Some((80, 24)),
+                Some(owner.workspace),
+                false,
+            )
+            .unwrap()["request_sha256"],
+            expected_digest
         );
     }
 
