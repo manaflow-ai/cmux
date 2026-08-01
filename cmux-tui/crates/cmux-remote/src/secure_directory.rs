@@ -382,12 +382,24 @@ mod tests {
     }
 
     #[test]
-    fn owner_only_policy_tightens_an_existing_owner_directory() {
+    fn owner_only_policy_rejects_an_existing_non_private_directory_without_changing_it() {
         let directory = tempfile::tempdir().unwrap();
         fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o755)).unwrap();
 
-        ensure_secure_directory(directory.path(), DirectoryAccess::OwnerOnly).unwrap();
+        let error = ensure_secure_directory(directory.path(), DirectoryAccess::OwnerOnly)
+            .expect_err("existing caller-owned directory was silently chmodded");
 
-        assert_eq!(fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777, 0o755);
+    }
+
+    #[test]
+    fn owner_only_policy_creates_a_private_final_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let private = directory.path().join("private");
+
+        ensure_secure_directory(&private, DirectoryAccess::OwnerOnly).unwrap();
+
+        assert_eq!(fs::metadata(private).unwrap().permissions().mode() & 0o777, 0o700);
     }
 }

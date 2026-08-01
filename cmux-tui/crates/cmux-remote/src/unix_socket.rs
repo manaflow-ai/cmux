@@ -352,14 +352,18 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn bind_makes_an_existing_socket_directory_owner_only() {
+    async fn bind_rejects_an_existing_non_private_directory_without_changing_it() {
         let directory = tempfile::tempdir().unwrap();
         fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        let socket = directory.path().join("daemon.sock");
 
-        let listener = OwnedUnixListener::bind(directory.path().join("daemon.sock")).await.unwrap();
+        let error = OwnedUnixListener::bind(socket.clone())
+            .await
+            .expect_err("socket bind silently chmodded its caller-owned directory");
 
-        assert_eq!(fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777, 0o700);
-        drop(listener);
+        assert!(error.to_string().contains("could not secure Unix socket directory"));
+        assert_eq!(fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777, 0o755);
+        assert!(!socket.exists());
     }
 
     #[test]

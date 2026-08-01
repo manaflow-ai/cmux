@@ -6009,6 +6009,20 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[tokio::test]
+    async fn recovery_socket_probe_bounds_a_stalled_connect() {
+        let stalled = std::future::pending::<std::io::Result<()>>();
+
+        let error =
+            tokio::time::timeout(Duration::from_secs(1), bounded_unix_socket_connect(stalled))
+                .await
+                .expect("recovery socket probe ignored its internal deadline")
+                .expect_err("a permanently pending socket probe unexpectedly connected");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    }
+
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn stale_client_socket_takeover_waits_for_the_path_lock() {
         use std::fs::OpenOptions;
