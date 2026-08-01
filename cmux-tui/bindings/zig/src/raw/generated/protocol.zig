@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 10;
-pub const ir_sha256 = "644c814b35e9a6de63c290fd71998b0d72f7de3855575f00e429503beb542535";
+pub const ir_sha256 = "6870892becb93e379f2cf6c10085a93a4843795904b1861d1c5672721a213425";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -3257,8 +3257,13 @@ pub fn shutdown(client: anytype, request: ShutdownRequest) !wire.Decoded(Shutdow
 }
 
 pub const ShutdownDaemonRequest = struct {
+    force: ?bool = null,
     generation: []const u8,
     pid: u32,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "force",
+    };
 };
 
 pub fn shutdownDaemon(client: anytype, request: ShutdownDaemonRequest) !wire.Decoded(ShutdownDaemonResult) {
@@ -3269,6 +3274,9 @@ pub fn shutdownDaemon(client: anytype, request: ShutdownDaemonRequest) !wire.Dec
             .authority = "local-admin",
             .since = 9,
             .capability = null,
+            .fields = &.{
+                .{ .name = "force", .since = 10, .capability = "daemon-handoff-force-v1" },
+            },
         },
         request,
     );

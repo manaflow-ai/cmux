@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 10
-IR_SHA256 = '644c814b35e9a6de63c290fd71998b0d72f7de3855575f00e429503beb542535'
+IR_SHA256 = '6870892becb93e379f2cf6c10085a93a4843795904b1861d1c5672721a213425'
 
 
 @dataclass(frozen=True)
@@ -1116,6 +1116,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'force': CommandFieldMetadata(10, 'daemon-handoff-force-v1'),
             'generation': CommandFieldMetadata(None, None),
             'pid': CommandFieldMetadata(None, None),
         },

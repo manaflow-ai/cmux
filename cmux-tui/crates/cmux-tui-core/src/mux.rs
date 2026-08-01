@@ -83,6 +83,28 @@ type NewPaneAfterSpawnHook = Arc<dyn Fn(Arc<Surface>) + Send + Sync>;
 #[cfg(test)]
 type BrowserTabAfterSpawnHook = Arc<dyn Fn(Arc<Surface>) + Send + Sync>;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DaemonIdentity {
+    pub(crate) pid: u32,
+    pub(crate) generation: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DaemonHandoffRequest {
+    pub(crate) expected_identity: Option<DaemonIdentity>,
+    pub(crate) force: bool,
+}
+
+impl DaemonHandoffRequest {
+    pub(crate) fn unfenced(force: bool) -> Self {
+        Self { expected_identity: None, force }
+    }
+
+    pub(crate) fn fenced(pid: u32, generation: String, force: bool) -> Self {
+        Self { expected_identity: Some(DaemonIdentity { pid, generation }), force }
+    }
+}
+
 #[cfg(test)]
 type WorkspaceRenameHook = Arc<dyn Fn(&WorkspacePublicId) + Send + Sync>;
 #[cfg(test)]
@@ -7953,17 +7975,32 @@ impl Mux {
         self.shutdown_coordinator.lock_until(deadline)
     }
 
-    /// Atomically reserve a daemon handoff. Unless forced, this proves no other
-    /// native browser owns the mux. New owner announcements are rejected until
-    /// the response is queued or the reservation is cancelled.
-    pub fn begin_daemon_handoff(&self, requesting_client: u64, force: bool) -> anyhow::Result<()> {
+    /// Validate the target daemon and atomically reserve its handoff. Unless
+    /// forced, this proves no other native browser owns the mux. New owner
+    /// announcements are rejected until the response is queued or the
+    /// reservation is cancelled.
+    pub(crate) fn begin_daemon_handoff(
+        &self,
+        requesting_client: u64,
+        request: DaemonHandoffRequest,
+    ) -> anyhow::Result<DaemonIdentity> {
+        let (_, generation) = self.registry_identity();
+        let actual_identity = DaemonIdentity { pid: std::process::id(), generation };
+        if let Some(expected_identity) = &request.expected_identity {
+            if expected_identity.pid != actual_identity.pid {
+                anyhow::bail!("daemon pid changed; identify again");
+            }
+            if expected_identity.generation != actual_identity.generation {
+                anyhow::bail!("daemon generation changed; identify again");
+            }
+        }
         self.control_clients.begin_daemon_handoff(
             requesting_client,
             &self.daemon_handoff_pending,
-            force,
+            request.force,
         )?;
         let deadline = Instant::now() + crate::server::SERVER_SHUTDOWN_TIMEOUT;
-        let preflight = (|| {
+        let preflight: anyhow::Result<()> = (|| {
             #[cfg(unix)]
             crate::process_session::require_stable_process_signaling_until(deadline)
                 .context("preflight process control for daemon handoff")?;
@@ -7973,7 +8010,8 @@ impl Mux {
         if preflight.is_err() {
             self.cancel_daemon_handoff();
         }
-        preflight
+        preflight?;
+        Ok(actual_identity)
     }
 
     pub fn cancel_daemon_handoff(&self) {

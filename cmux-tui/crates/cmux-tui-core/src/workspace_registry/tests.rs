@@ -838,6 +838,129 @@ fn resource_mutation_pruning_allows_only_one_batch_of_runtime_slack() {
 }
 
 #[test]
+fn completed_creation_counts_in_the_boundary_replay_window() {
+    let mut registry = WorkspaceRegistry::in_memory("creation-mutation-bound").unwrap();
+    let capacity = resource_store::RESOURCE_MUTATION_REPLAY_CAPACITY;
+    let interval = usize::try_from(resource_store::RESOURCE_MUTATION_PRUNE_INTERVAL).unwrap();
+    let boundary = capacity + interval;
+    let before_boundary = boundary - 1;
+    {
+        let tx = registry.connection.transaction().unwrap();
+        for index in 0..before_boundary {
+            tx.execute(
+                "INSERT INTO resource_mutations(
+                   idempotency_key, origin, operation, fingerprint, result_json,
+                   committed_revision
+                 ) VALUES(?1, 'test', 'test.pure', ?2, ?3, ?4)",
+                params![
+                    format!("creation-bound-{index:08}"),
+                    canonical_json(&json!({"sequence":index})).unwrap(),
+                    canonical_json(&json!({"sequence":index})).unwrap(),
+                    i64::try_from(index + 1).unwrap(),
+                ],
+            )
+            .unwrap();
+        }
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [before_boundary.to_string()],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    let fingerprint = json!({"name":"boundary"});
+    registry
+        .prepare_resource_creation(
+            "boundary-correlation",
+            "boundary-attempt",
+            "test.create.boundary",
+            &fingerprint,
+            &json!({"reservation":"boundary"}),
+            false,
+            None,
+            Some(u64::try_from(before_boundary).unwrap()),
+        )
+        .unwrap();
+    registry
+        .commit_resource_creation_patch(
+            "boundary-correlation",
+            &WorkspaceMutation::new("boundary-attempt", "test").unwrap(),
+            "test.create.boundary",
+            &fingerprint,
+            &ResourcePatch { changes: Vec::new() },
+            &json!({"created":true}),
+            &json!({"kind":"test","id":"boundary"}),
+            &json!([]),
+        )
+        .unwrap();
+    assert_eq!(
+        registry.resource_mutation_count_for_test().unwrap(),
+        u64::try_from(capacity).unwrap()
+    );
+
+    {
+        let tx = registry.connection.transaction().unwrap();
+        for offset in 1..interval {
+            let revision = boundary + offset;
+            tx.execute(
+                "INSERT INTO resource_mutations(
+                   idempotency_key, origin, operation, fingerprint, result_json,
+                   committed_revision
+                 ) VALUES(?1, 'test', 'test.pure', ?2, ?3, ?4)",
+                params![
+                    format!("creation-slack-{offset:08}"),
+                    canonical_json(&json!({"sequence":revision})).unwrap(),
+                    canonical_json(&json!({"sequence":revision})).unwrap(),
+                    i64::try_from(revision).unwrap(),
+                ],
+            )
+            .unwrap();
+            tx.execute(
+                "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+                [revision.to_string()],
+            )
+            .unwrap();
+            resource_store::prune_resource_mutations(&tx).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+    assert_eq!(
+        registry.resource_mutation_count_for_test().unwrap(),
+        u64::try_from(capacity + interval - 1).unwrap()
+    );
+
+    {
+        let tx = registry.connection.transaction().unwrap();
+        let revision = boundary + interval;
+        tx.execute(
+            "INSERT INTO resource_mutations(
+               idempotency_key, origin, operation, fingerprint, result_json,
+               committed_revision
+             ) VALUES(?1, 'test', 'test.pure', ?2, ?3, ?4)",
+            params![
+                "creation-next-boundary",
+                canonical_json(&json!({"sequence":revision})).unwrap(),
+                canonical_json(&json!({"sequence":revision})).unwrap(),
+                i64::try_from(revision).unwrap(),
+            ],
+        )
+        .unwrap();
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )
+        .unwrap();
+        resource_store::prune_resource_mutations(&tx).unwrap();
+        tx.commit().unwrap();
+    }
+    assert_eq!(
+        registry.resource_mutation_count_for_test().unwrap(),
+        u64::try_from(capacity).unwrap()
+    );
+}
+
+#[test]
 fn startup_mutation_compaction_preserves_recovery_authorities_and_recent_replay() {
     let root = temp_root("mutation-startup-bound");
     let effect_fingerprint = json!({"title":"pending"});
@@ -2592,18 +2715,53 @@ fn interrupted_transaction_and_newer_schema_fail_closed() {
     drop(load_or_create_resource_effect_pepper(&newer_root).unwrap());
     let session_dir = newer_root.join(session_storage_component("session"));
     fs::create_dir_all(&session_dir).unwrap();
-    let db = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+    let database = session_dir.join(WORKSPACE_REGISTRY_FILE);
+    let db = Connection::open(&database).unwrap();
     db.execute_batch(
         "CREATE TABLE meta(key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
              INSERT INTO meta(key,value) VALUES('schema_version','999');",
     )
     .unwrap();
     drop(db);
-    assert!(
-        WorkspaceRegistry::open(&newer_root, "session")
-            .unwrap_err()
-            .to_string()
-            .contains("unsupported workspace registry schema")
-    );
+    let error = WorkspaceRegistry::open(&newer_root, "session").unwrap_err();
+    let schema = error.downcast_ref::<UnsupportedWorkspaceRegistrySchema>().unwrap();
+    assert_eq!(schema.found(), 999);
+    assert_eq!(schema.newest_supported(), SCHEMA_VERSION);
+    assert_eq!(schema.database_path(), Some(database.as_path()));
+    assert!(error.to_string().contains("unsupported workspace registry schema"));
     fs::remove_dir_all(newer_root).unwrap();
+}
+
+#[test]
+fn newer_schema_is_reported_before_writer_lease_conflict() {
+    let root = temp_root("newer-before-lease");
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    registry
+        .connection
+        .execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+            [(SCHEMA_VERSION + 1).to_string()],
+        )
+        .unwrap();
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    let schema = error.downcast_ref::<UnsupportedWorkspaceRegistrySchema>().unwrap();
+    assert_eq!(schema.found(), SCHEMA_VERSION + 1);
+    assert_eq!(schema.registry_id(), Some(registry.registry_id()));
+    assert!(!error.to_string().contains("already owned"));
+
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_preflight_failures_defer_to_authoritative_open() {
+    let root = temp_root("preflight-failure");
+    fs::create_dir_all(&root).unwrap();
+    let database = root.join(WORKSPACE_REGISTRY_FILE);
+    fs::write(&database, b"not a sqlite database").unwrap();
+
+    assert!(preflight_unsupported_schema(&database).is_none());
+
+    fs::remove_dir_all(root).unwrap();
 }

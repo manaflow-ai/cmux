@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
-inline constexpr std::string_view kProtocolIrSha256 = "644c814b35e9a6de63c290fd71998b0d72f7de3855575f00e429503beb542535";
+inline constexpr std::string_view kProtocolIrSha256 = "6870892becb93e379f2cf6c10085a93a4843795904b1861d1c5672721a213425";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -1810,6 +1810,7 @@ struct SetWindowTitleRequest {
 };
 
 struct ShutdownDaemonRequest {
+    std::optional<bool> force{};
     std::string generation{};
     std::uint32_t pid{};
     friend bool operator==(const ShutdownDaemonRequest&, const ShutdownDaemonRequest&) = default;

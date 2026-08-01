@@ -9691,6 +9691,11 @@ Result<ShutdownRequest> Codec<ShutdownRequest>::decode(const Json& value) {
 Result<Json> Codec<ShutdownDaemonRequest>::encode(const ShutdownDaemonRequest& value) {
     (void)value;
     Json::Object object;
+    if (value.force) {
+        auto encoded = encode_value(*value.force);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("force", std::move(encoded).value());
+    }
     auto encoded_generation = encode_value(value.generation);
     if (!encoded_generation) return std::move(encoded_generation).error();
     object.emplace("generation", std::move(encoded_generation).value());
@@ -9704,6 +9709,12 @@ Result<ShutdownDaemonRequest> Codec<ShutdownDaemonRequest>::decode(const Json& v
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ShutdownDaemonRequest result{};
+    const Json* field_force = value.find("force");
+    if (field_force) {
+        auto decoded = decode_value<bool>(*field_force);
+        if (!decoded) return std::move(decoded).error();
+        result.force = std::move(decoded).value();
+    }
     const Json* field_generation = value.find("generation");
     if (!field_generation) {
         return make_error(ErrorCode::decode, "missing required field 'generation'");
@@ -14197,6 +14208,9 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand78FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand79FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand82FieldRequirements{{
+    {"force", 10U, "daemon-handoff-force-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 2> kCommand85FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
@@ -14284,7 +14298,7 @@ constexpr std::array<CommandMetadata, 92> kCommands{{
     {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand79FieldRequirements)},
     {"set-window-title", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"shutdown", "local-admin", 9U, "server-shutdown-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand82FieldRequirements)},
     {"sidebar-plugin", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand85FieldRequirements)},

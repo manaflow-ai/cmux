@@ -1504,6 +1504,44 @@ class ResourceApiTests(unittest.TestCase):
                     ["terminal.wait", "request.cancel", "session.ping"],
                 )
 
+    def test_request_cancel_false_rejects_malformed_result_in_both_orders(
+        self,
+    ) -> None:
+        for response_first in (False, True):
+            with self.subTest(response_first=response_first):
+                disconnected = threading.Event()
+
+                def handler(connection, _index):
+                    try:
+                        requests = frames(connection)
+                        target = next(requests)
+                        canceled = next(requests)
+                        if response_first:
+                            ok(connection, target, {"matched": True})
+                            ok(connection, canceled, {"canceled": False})
+                        else:
+                            ok(connection, canceled, {"canceled": False})
+                            ok(connection, target, {"matched": True})
+                        list(requests)
+                    finally:
+                        disconnected.set()
+
+                with UnixJsonServer(handler) as server:
+                    with Client(server.path, timeout=0.05) as client:
+                        terminal = client.session(SESSION).terminal(TERMINAL)
+                        with self.assertRaises(cmux.TimeoutError):
+                            client.with_request_options(
+                                RequestOptions(timeout=0.01),
+                                terminal.wait,
+                                cmux.TerminalWaitOptions("never"),
+                            )
+                        self.assertTrue(client.closed)
+                        with self.assertRaises(
+                            (CmuxConnectionError, cmux.ProtocolError)
+                        ):
+                            client.session(SESSION).ping()
+                        self.assertTrue(disconnected.wait(0.5))
+
     def test_unconfirmed_terminal_wait_cancel_closes_without_masking_timeout(
         self,
     ) -> None:
@@ -3619,12 +3657,18 @@ class ResourceApiTests(unittest.TestCase):
 
     def test_aio_cancellation_preserves_connection_and_releases_threads(self) -> None:
         request_seen = threading.Event()
+        observed = []
 
         def handler(connection, _index):
             requests = frames(connection)
-            next(requests)
+            wait = next(requests)
+            observed.append(wait)
             request_seen.set()
+            cancel = next(requests)
+            observed.append(cancel)
+            ok(connection, cancel, {"canceled": True})
             ping = next(requests)
+            observed.append(ping)
             ok(
                 connection,
                 ping,
@@ -3639,7 +3683,10 @@ class ResourceApiTests(unittest.TestCase):
 
         async def exercise(path):
             client = cmux.aio.Client(path)
-            task = asyncio.create_task(client.list_machines())
+            terminal = client.session(SESSION).terminal(TERMINAL)
+            task = asyncio.create_task(
+                terminal.wait(cmux.TerminalWaitOptions("never"))
+            )
             await asyncio.to_thread(request_seen.wait, 1)
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
@@ -3651,6 +3698,15 @@ class ResourceApiTests(unittest.TestCase):
 
         with UnixJsonServer(handler) as server:
             asyncio.run(exercise(server.path))
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["terminal.wait", "request.cancel", "session.ping"],
+        )
+        self.assertEqual(
+            observed[1]["params"],
+            {"request_id": observed[0]["id"]},
+        )
 
         leaked = [
             thread.name
