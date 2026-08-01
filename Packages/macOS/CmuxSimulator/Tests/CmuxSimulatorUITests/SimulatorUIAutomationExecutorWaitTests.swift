@@ -1,13 +1,39 @@
-import CmuxControlSocket
 import CmuxSimulator
 import Foundation
 import Testing
+@testable import CmuxControlSocket
 @testable import CmuxSimulatorUI
 @testable import CmuxSimulatorUIAutomation
 
 @MainActor
 @Suite("Simulator UI automation executor waits")
 struct SimulatorUIAutomationExecutorWaitTests {
+    @Test("An emitted snapshot ref is accepted by control command parsing")
+    func emittedSnapshotRefRoutesThroughControlSocket() async throws {
+        let snapshot = Self.twoButtonSnapshot()
+        let session = SimulatorUIAutomationSession()
+        let record = try await session.record(
+            snapshot,
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: session.mutationGeneration
+        )
+        let ref = try #require(record.snapshot.elements.first {
+            $0.identifier == "first"
+        }?.ref)
+
+        let action = ControlCommandCoordinator().simulatorUIAction(
+            method: "simulator.tap",
+            params: ["element_ref": .string(ref)]
+        )
+
+        #expect(action == .tap(
+            elementRef: ref,
+            preDelayMilliseconds: 0,
+            postDelayMilliseconds: 0
+        ))
+    }
+
     @Test("A partially executed batch is not reported as completed")
     func partialBatchIsNotCompleted() async throws {
         let snapshot = Self.twoButtonSnapshot()
