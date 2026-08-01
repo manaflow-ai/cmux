@@ -12864,7 +12864,6 @@ mod tests {
         assert_eq!(resolved_rx.recv().unwrap(), first_id);
         let concurrent = {
             let mux = mux.clone();
-            let overlap = overlap;
             let second_id = second_id.clone();
             std::thread::spawn(move || {
                 overlap.wait();
