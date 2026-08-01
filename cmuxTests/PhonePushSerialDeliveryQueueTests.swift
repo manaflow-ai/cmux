@@ -419,10 +419,10 @@ import Testing
         )
         #expect(descriptor >= 0)
         guard descriptor >= 0 else { return }
-        var lockHeld = Darwin.flock(descriptor, LOCK_EX) == 0
+        var lockHeld = flock(descriptor, LOCK_EX) == 0
         #expect(lockHeld)
         defer {
-            if lockHeld { _ = Darwin.flock(descriptor, LOCK_UN) }
+            if lockHeld { _ = flock(descriptor, LOCK_UN) }
             _ = Darwin.close(descriptor)
         }
 
@@ -440,7 +440,7 @@ import Testing
             "An old temporary file is still live while its writer holds the lock"
         )
         lockSequence.noteExternalRelease()
-        _ = Darwin.flock(descriptor, LOCK_UN)
+        _ = flock(descriptor, LOCK_UN)
         lockHeld = false
         #expect(try await load.value.isEmpty)
         #expect(!lockSequence.acquiredBeforeExternalRelease())

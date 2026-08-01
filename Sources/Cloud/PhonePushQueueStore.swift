@@ -178,10 +178,10 @@ actor PhonePushQueueStore {
         }
         beforeLockAttempt?()
         try Self.retryingInterruptedCall(path: lockURL.path) {
-            Darwin.flock(descriptor, LOCK_EX)
+            flock(descriptor, LOCK_EX)
         }
         lockAcquired?()
-        defer { _ = Darwin.flock(descriptor, LOCK_UN) }
+        defer { _ = flock(descriptor, LOCK_UN) }
         return try operation()
     }
 
