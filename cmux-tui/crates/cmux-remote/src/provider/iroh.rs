@@ -2027,6 +2027,16 @@ mod tests {
         assert_eq!(received.lane, Lane::Bulk);
         assert_eq!(received.payload, &b"daemon-to-client"[..]);
 
+        let excess_carrier = tokio::time::timeout(
+            Duration::from_secs(1),
+            listener.admission.connections.clone().acquire_owned(),
+        )
+        .await;
+        assert!(
+            excess_carrier.is_err(),
+            "an authenticated Iroh carrier released its global admission permit"
+        );
+
         client.close().await.unwrap();
         let _ = server_connection.close().await;
         listener.shutdown().await.unwrap();

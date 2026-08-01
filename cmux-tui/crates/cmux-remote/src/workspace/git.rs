@@ -817,6 +817,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn status_ignores_repository_selecting_environment() {
+        const CHILD: &str = "CMUX_GIT_ENVIRONMENT_TEST_CHILD";
+        const ROOT: &str = "CMUX_GIT_ENVIRONMENT_TEST_ROOT";
+        if std::env::var_os(CHILD).is_some() {
+            let root_path = std::env::var_os(ROOT).expect("isolated Git test root is present");
+            let root = WorkspaceRoot::open(
+                WorkspaceId("git-environment".into()),
+                Path::new(&root_path).to_str().unwrap(),
+            )
+            .await
+            .unwrap();
+            let response = status(&root).await.unwrap();
+            let WorkspaceResponse::GitStatus { status } = response else { panic!() };
+            let paths =
+                status.changes.iter().map(|change| change.path.as_str()).collect::<Vec<_>>();
+            assert!(paths.contains(&"target-only.txt"), "target status missing: {paths:?}");
+            assert!(!paths.contains(&"decoy-only.txt"), "decoy status escaped its workspace");
+            return;
+        }
+
+        let (target, _target_root) = git_root().await;
+        let (decoy, _decoy_root) = git_root().await;
+        std::fs::write(target.path().join("target-only.txt"), "target\n").unwrap();
+        std::fs::write(decoy.path().join("decoy-only.txt"), "decoy\n").unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("workspace::git::tests::status_ignores_repository_selecting_environment")
+            .arg("--nocapture")
+            .env(CHILD, "1")
+            .env(ROOT, target.path())
+            .env("GIT_DIR", decoy.path().join(".git"))
+            .env("GIT_WORK_TREE", decoy.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "isolated Git environment test failed:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[tokio::test]
     async fn structured_diff_decodes_modified_git_paths() {
         let (_directory, root) = git_root().await;
         let paths = [
