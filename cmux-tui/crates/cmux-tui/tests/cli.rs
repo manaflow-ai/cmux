@@ -293,8 +293,64 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
         .unwrap();
     drop(connection);
 
+    fn output_with_deadline(command: &mut Command) -> Output {
+        command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = command.spawn().unwrap();
+        let mut stdout = child.stdout.take().unwrap();
+        let stdout = std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            stdout.read_to_end(&mut bytes).unwrap();
+            bytes
+        });
+        let mut stderr = child.stderr.take().unwrap();
+        let stderr = std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            stderr.read_to_end(&mut bytes).unwrap();
+            bytes
+        });
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let (status, timed_out) = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break (status, false);
+            }
+            if Instant::now() >= deadline {
+                child.kill().unwrap();
+                break (child.wait().unwrap(), true);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let output =
+            Output { status, stdout: stdout.join().unwrap(), stderr: stderr.join().unwrap() };
+        if timed_out {
+            panic!(
+                "schema recovery command did not exit before deadline:\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        output
+    }
+
+    #[cfg(unix)]
+    fn accept_with_deadline(listener: &UnixListener) -> std::os::unix::net::UnixStream {
+        listener.set_nonblocking(true).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            match listener.accept() {
+                Ok((stream, _)) => return stream,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+                        && Instant::now() < deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("schema recovery listener did not accept: {error}"),
+            }
+        }
+    }
+
     let launch = |locale: &str| {
-        Command::new(bin())
+        let mut command = Command::new(bin());
+        command
             .args(["--headless", "--session", session, "--socket"])
             .arg(&socket)
             .arg("--state")
@@ -305,9 +361,8 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
             .env("CMUX_TUI_CONFIG", home.join("cmux.json"))
             .env("LC_ALL", locale)
             .env("LC_MESSAGES", locale)
-            .env("LANG", locale)
-            .output()
-            .unwrap()
+            .env("LANG", locale);
+        output_with_deadline(&mut command)
     };
 
     let english = launch("C");
@@ -333,7 +388,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
         let expected_session = session.to_string();
         let expected_registry_id = registry_id.clone();
         let responder = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
+            let mut stream = accept_with_deadline(&listener);
             let mut request = String::new();
             BufReader::new(stream.try_clone().unwrap()).read_line(&mut request).unwrap();
             let request: serde_json::Value = serde_json::from_str(&request).unwrap();
@@ -348,6 +403,8 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
                         "app": "cmux-tui",
                         "session": expected_session,
                         "registry_id": expected_registry_id,
+                        "pid": 4242,
+                        "generation": "schema-generation",
                     },
                 })
             )
@@ -359,7 +416,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
         let live_server = String::from_utf8(live_server.stderr).unwrap();
         assert!(
             live_server.contains(&format!(
-                "cmux --socket '{}' session current shutdown --force",
+                "cmux --socket '{}' raw command --request-json '{{\"cmd\":\"shutdown-daemon\",\"generation\":\"schema-generation\",\"id\":1,\"pid\":4242}}'",
                 socket.display()
             )),
             "{live_server}"
@@ -374,7 +431,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
         let listener = UnixListener::bind(&socket).unwrap();
         let expected_session = session.to_string();
         let responder = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
+            let mut stream = accept_with_deadline(&listener);
             let mut request = String::new();
             BufReader::new(stream.try_clone().unwrap()).read_line(&mut request).unwrap();
             let request: serde_json::Value = serde_json::from_str(&request).unwrap();

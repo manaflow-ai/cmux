@@ -2630,3 +2630,15 @@ fn newer_schema_is_reported_before_writer_lease_conflict() {
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn schema_preflight_failures_defer_to_authoritative_open() {
+    let root = temp_root("preflight-failure");
+    fs::create_dir_all(&root).unwrap();
+    let database = root.join(WORKSPACE_REGISTRY_FILE);
+    fs::write(&database, b"not a sqlite database").unwrap();
+
+    assert!(preflight_unsupported_schema(&database).unwrap().is_none());
+
+    fs::remove_dir_all(root).unwrap();
+}
