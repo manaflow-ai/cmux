@@ -3839,6 +3839,72 @@ mod unix {
         }
 
         #[test]
+        fn legacy_resize_resyncs_instead_of_replaying_partial_utf8() {
+            let host = exited_host_fixture();
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = sync_channel(4);
+            host.taps.lock().unwrap().insert(
+                1,
+                HostTap {
+                    sender,
+                    queued_bytes: Arc::new(AtomicUsize::new(0)),
+                    shutdown: Arc::new(host_socket),
+                    max_queued_bytes: usize::MAX,
+                },
+            );
+
+            // A replay cannot serialize the decoder's pending 0xce byte. If
+            // the later 0xbb is delivered after that replay, a fresh mirror
+            // decodes it as U+FFFD instead of completing U+03BB.
+            host.term.lock().unwrap().vt_write(b"before \xce");
+            assert!(!host.term.lock().unwrap().vt_stream_is_ground());
+
+            host.apply_parser_resize(100, 30, None, false, None).unwrap();
+
+            let frame = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(frame.kind, MessageKind::ResyncRequired);
+            assert!(receiver.try_recv().is_err(), "unsafe resize emitted a replay or color pair");
+        }
+
+        #[test]
+        fn admin_owner_can_negotiate_the_smart_renderer_stream() {
+            let host = exited_host_fixture();
+            let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+            client_stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let server_host = host.clone();
+            let server = thread::spawn(move || serve_client(server_host, server_stream));
+
+            let mut hello = snapshot_boundary_client_hello(&host, false).unwrap();
+            hello.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+            write_frame(&mut client_stream, &hello).unwrap();
+
+            let host_hello = read_required_frame(&mut client_stream, "host hello").unwrap();
+            assert_eq!(host_hello.kind, MessageKind::HostHello);
+            assert_eq!(host_hello.flags & FLAG_SMART_RENDERER, FLAG_SMART_RENDERER);
+            assert_eq!(
+                read_required_frame(&mut client_stream, "snapshot").unwrap().kind,
+                MessageKind::Snapshot
+            );
+            assert_eq!(
+                read_required_frame(&mut client_stream, "colors").unwrap().kind,
+                MessageKind::Colors
+            );
+            assert_eq!(
+                read_required_frame(&mut client_stream, "ready").unwrap().kind,
+                MessageKind::Ready
+            );
+
+            let cursor = host.smart.publish(Frame::new(MessageKind::Exit, Vec::new()));
+            host.smart.mark_applied(cursor);
+            assert_eq!(
+                read_required_frame(&mut client_stream, "exit").unwrap().kind,
+                MessageKind::Exit
+            );
+            let _ = client_stream.shutdown(std::net::Shutdown::Both);
+            server.join().unwrap().unwrap();
+        }
+
+        #[test]
         fn host_tap_byte_overflow_closes_the_client_socket() {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
