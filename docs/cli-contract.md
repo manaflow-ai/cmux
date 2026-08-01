@@ -528,6 +528,8 @@ every tick without churning item identities.
 The following probes are executable contract checks. They must exit 0 and print
 the expected text without connecting to a cmux socket.
 
+For `cmux restore`, `--surface [id|ref]` uses the caller when omitted.
+
 <!-- cli-contract-help-probes:start -->
 - `cmux --help` -> `cmux - control cmux via Unix socket`
 - `cmux --help` -> `open <path-or-url>...`
@@ -560,7 +562,7 @@ the expected text without connecting to a cmux socket.
 - `cmux enable-browser --help` -> `Usage: cmux enable-browser [--json]`
 - `cmux browser-status --help` -> `Usage: cmux browser-status [--json]`
 - `cmux agent-hibernation --help` -> `Usage: cmux agent-hibernation <on|off> [--json]`
-- `cmux restore --help` -> `Usage: cmux restore <kind> <checkpoint-id>`; `--surface [id|ref]` uses the caller when omitted.
+- `cmux restore --help` -> `Usage: cmux restore <kind> <checkpoint-id>`
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
 - `cmux open --help` -> `Usage: cmux open <path-or-url>...`
 - `cmux feedback --help` -> `Usage: cmux feedback`
