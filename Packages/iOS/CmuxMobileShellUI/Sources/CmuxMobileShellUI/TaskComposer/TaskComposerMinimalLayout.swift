@@ -133,20 +133,7 @@ struct TaskComposerMinimalLayout: View {
                 .padding(.horizontal, 16)
             }
 
-            TaskComposerPillBar {
-                leadingCluster
-            } pills: {
-                HStack(spacing: 8) {
-                    agentPill
-
-                    if !models.isEmpty, showsStandaloneModelPill {
-                        modelPill
-                    }
-                }
-            } trailing: {
-                trailingCluster
-            }
-                .frame(height: 44)
+            pillBar
                 .padding(.top, 8)
                 .padding(.bottom, 6)
         }
@@ -154,6 +141,49 @@ struct TaskComposerMinimalLayout: View {
         // provides the visual boundary below.
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .background(Color(uiColor: .systemBackground))
+    }
+
+    /// The fixed controls are safe-area bars rather than overlays so SwiftUI
+    /// can extend the scroll view's native edge effect beneath their complete
+    /// shape. A soft style gives passing pills the progressive system blur.
+    @ViewBuilder
+    private var pillBar: some View {
+        if #available(iOS 26.0, *) {
+            pillScroller
+                .safeAreaBar(edge: .leading, spacing: 0) {
+                    leadingCluster
+                }
+                .safeAreaBar(edge: .trailing, spacing: 0) {
+                    trailingCluster
+                }
+                .scrollEdgeEffectStyle(.soft, for: [.leading, .trailing])
+        } else {
+            pillScroller
+                .safeAreaInset(edge: .leading, spacing: 0) {
+                    leadingCluster
+                        .background(Color(uiColor: .systemBackground))
+                }
+                .safeAreaInset(edge: .trailing, spacing: 0) {
+                    trailingCluster
+                        .background(Color(uiColor: .systemBackground))
+                }
+        }
+    }
+
+    private var pillScroller: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                agentPill
+
+                if !models.isEmpty, showsStandaloneModelPill {
+                    modelPill
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+        .contentMargins(.horizontal, 10, for: .scrollContent)
+        .frame(height: 44)
+        .accessibilityIdentifier("MobileTaskComposerPillScroller")
     }
 
     private var leadingCluster: some View {
