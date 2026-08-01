@@ -104,8 +104,8 @@ describe("listStackContacts", () => {
     ).rejects.toThrow(/no progress/);
   });
 
-  test("surfaces API errors with status", async () => {
-    const { fetchImpl } = fetchScript(() => ({
+  test("surfaces permanent API errors with status, without retrying", async () => {
+    const { fetchImpl, calls } = fetchScript(() => ({
       status: 401,
       body: { error: "unauthorized" },
     }));
@@ -116,6 +116,35 @@ describe("listStackContacts", () => {
         fetchImpl,
       }),
     ).rejects.toThrow(/401/);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("retries a transient failure before succeeding", async () => {
+    const { fetchImpl, calls } = fetchScript((_url, callIndex) => {
+      if (callIndex === 0) {
+        return { status: 429, body: { error: "rate limited" } };
+      }
+      return {
+        body: {
+          items: [
+            {
+              primary_email: "ada@example.com",
+              primary_email_verified: true,
+            },
+          ],
+          pagination: { next_cursor: null },
+        },
+      };
+    });
+
+    const result = await listStackContacts({
+      projectId: "proj",
+      secretServerKey: "secret",
+      fetchImpl,
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(result.contacts.map((c) => c.email)).toEqual(["ada@example.com"]);
   });
 });
 

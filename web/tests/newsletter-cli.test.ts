@@ -111,6 +111,19 @@ describe("parseTestSendArgs", () => {
     ).toBe("someone@example.com");
   });
 
+  test("free-text values may begin with a single hyphen", () => {
+    expect(
+      parseDraftArgs([
+        "--template",
+        "product-update",
+        "--audience",
+        "users",
+        "--subject",
+        "-50% off cmux Founder's Edition",
+      ]).subject,
+    ).toBe("-50% off cmux Founder's Edition");
+  });
+
   test("a value-taking flag never swallows a following flag", () => {
     // Without this guard, --to would consume the override flag as its
     // value and the argument stream would shift silently.

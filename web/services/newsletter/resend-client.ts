@@ -226,10 +226,14 @@ export class ResendClient {
             apiError.name,
           );
         }
+        // On PII-labeled endpoints the upstream message is dropped too: a
+        // validation error body can echo request data (for example the
+        // contact email), and these errors flow into CLI/webhook logs.
+        const detail = options.redactedLabel
+          ? (apiError?.name ?? `http_${response.status}`)
+          : (apiError?.message ?? text.slice(0, 200));
         throw new ResendApiError(
-          `Resend ${method} ${label} failed with ${response.status}: ${
-            apiError?.message ?? text.slice(0, 200)
-          }`,
+          `Resend ${method} ${label} failed with ${response.status}: ${detail}`,
           response.status,
           apiError?.name,
         );

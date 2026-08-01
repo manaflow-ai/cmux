@@ -83,13 +83,21 @@ export async function upsertFounderIntoSegments(options: {
 
   // Segments are provisioned by the sync script (or by hand); the webhook
   // never creates them, so a typo'd or not-yet-created segment shows up as
-  // an explicit skip in the logs instead of a surprise new list.
-  const segments = await Promise.all(
-    segmentNames.map(async (segmentName) => ({
-      segmentName,
-      segment: await options.client.findSegmentByName(segmentName),
-    })),
-  );
+  // an explicit skip in the logs instead of a surprise new list. One
+  // listing resolves both names (same ambiguity rule as findSegmentByName),
+  // keeping this deadline-bounded path to a single paginated read.
+  const allSegments = await options.client.listSegments();
+  const segments = segmentNames.map((segmentName) => {
+    const matches = allSegments.filter((s) => s.name === segmentName);
+    if (matches.length > 1) {
+      throw new Error(
+        `Segment name "${segmentName}" is ambiguous: ${matches.length} ` +
+          "segments share it. Rename or delete the duplicates in the " +
+          "Resend dashboard.",
+      );
+    }
+    return { segmentName, segment: matches[0] ?? null };
+  });
 
   const results: FounderContactUpsertResult[] = [];
   if (!existing) {

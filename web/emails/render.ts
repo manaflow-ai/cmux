@@ -32,10 +32,10 @@ export async function renderTemplate(
           : {}),
       };
       const html = await render(createElement(ProductUpdateEmail, props));
-      return {
-        html,
-        subject: overrides.subject ?? props.headline,
-      };
+      // A whitespace-only subject override would create a blank-subject
+      // broadcast; fall back to the headline instead.
+      const subject = overrides.subject?.trim() || props.headline;
+      return { html, subject };
     }
   }
 }

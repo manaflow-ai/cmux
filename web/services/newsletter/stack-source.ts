@@ -11,11 +11,10 @@ import {
   splitDisplayName,
 } from "./contacts";
 import type { FetchLike } from "./resend-client";
+import { fetchSourceJson } from "./source-http";
 
 const STACK_API_BASE = "https://api.stack-auth.com";
 const PAGE_LIMIT = 200;
-// Per-request deadline so a stalled Stack API cannot hang the sync.
-const REQUEST_TIMEOUT_MS = 30_000;
 
 type StackUser = {
   id?: string;
@@ -61,41 +60,16 @@ export async function listStackContacts(options: {
     if (cursor) {
       query.set("cursor", cursor);
     }
-    const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS);
-    let text: string;
-    let status: number;
-    try {
-      const response = await fetchImpl(
-        `${STACK_API_BASE}/api/v1/users?${query.toString()}`,
-        {
-          method: "GET",
-          headers: {
-            "x-stack-access-type": "server",
-            "x-stack-project-id": options.projectId,
-            "x-stack-secret-server-key": options.secretServerKey,
-          },
-          signal: abort.signal,
-        },
-      );
-      status = response.status;
-      text = await response.text();
-    } catch (cause) {
-      if (abort.signal.aborted) {
-        throw new Error(
-          `Stack Auth user listing timed out after ${REQUEST_TIMEOUT_MS}ms`,
-        );
-      }
-      throw cause;
-    } finally {
-      clearTimeout(timer);
-    }
-    if (status >= 400) {
-      throw new Error(
-        `Stack Auth user listing failed with ${status}: ${text.slice(0, 200)}`,
-      );
-    }
-    const page = JSON.parse(text) as StackUsersPage;
+    const page = await fetchSourceJson<StackUsersPage>({
+      fetchImpl,
+      url: `${STACK_API_BASE}/api/v1/users?${query.toString()}`,
+      headers: {
+        "x-stack-access-type": "server",
+        "x-stack-project-id": options.projectId,
+        "x-stack-secret-server-key": options.secretServerKey,
+      },
+      label: "Stack Auth user listing",
+    });
     const items = page.items ?? [];
     for (const user of items) {
       totalUsers += 1;

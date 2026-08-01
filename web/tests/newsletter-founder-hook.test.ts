@@ -29,9 +29,8 @@ function fakeClient(state: FakeState): {
 } {
   const writes: string[] = [];
   const client = {
-    async findSegmentByName(name: string) {
-      const found = state.segments.find((s) => s.name === name);
-      return found ?? null;
+    async listSegments() {
+      return state.segments;
     },
     async getContactByEmail(email: string) {
       return state.contacts.find((c) => c.email === email) ?? null;

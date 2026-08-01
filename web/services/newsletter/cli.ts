@@ -22,9 +22,11 @@ export const TEST_RECIPIENT_OVERRIDE_FLAG =
 
 // Value-taking flags must not swallow a following flag as their value; a
 // missing value fails loudly instead of silently shifting the argument
-// stream (which could, for example, eat a safety flag).
+// stream (which could, for example, eat a safety flag). Only flag-shaped
+// values (leading "--", matching every flag this CLI defines) are rejected,
+// so legitimate values like "-50% off" still work.
 function flagValue(flag: string, value: string | undefined): string {
-  if (value === undefined || value.startsWith("-")) {
+  if (value === undefined || value.startsWith("--")) {
     throw new Error(`${flag} requires a value`);
   }
   return value;
