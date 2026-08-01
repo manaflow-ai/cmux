@@ -10,10 +10,16 @@ const redirect = mock((href: unknown) => {
 });
 
 let nativeCallbackScheme: string | undefined;
+let checkoutApp = "cmux";
 const retrieveSession = mock(async () => ({
+  client_reference_id: "stack-user-1",
   customer_details: { email: "buyer@example.com" },
   subscription: { status: "active" },
-  metadata: nativeCallbackScheme ? { nativeCallbackScheme } : undefined,
+  metadata: {
+    app: checkoutApp,
+    plan: "pro",
+    ...(nativeCallbackScheme ? { nativeCallbackScheme } : {}),
+  },
 }));
 
 mock.module("next/navigation", () => createNextNavigationMock(redirect));
@@ -128,6 +134,24 @@ describe("billing success page", () => {
       } else {
         process.env.CMUX_APP_PRICING_RELAY_SECRET = previousSecret;
       }
+    }
+  });
+
+  test("rejects a foreign Stripe session before signing a tagged callback", async () => {
+    checkoutApp = "other";
+    nativeCallbackScheme = "cmux-dev-attacker";
+    try {
+      await expect(
+        BillingSuccessPage({
+          searchParams: Promise.resolve({
+            session_id: "cs_foreign",
+            cmux_scheme: "cmux-dev-attacker",
+          }),
+        }),
+      ).rejects.toMatchObject({ href: "/pricing?billing=error" });
+    } finally {
+      checkoutApp = "cmux";
+      nativeCallbackScheme = undefined;
     }
   });
 });

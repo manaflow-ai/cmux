@@ -13,6 +13,7 @@ import {
 } from "../../lib/native-callback";
 import { appPricingNativeReturnURL } from "../../lib/billing";
 import {
+  isCmuxCheckoutSession,
   isActiveStripeSubscriptionStatus,
   latestStripeSubscriptionForSession,
 } from "../../../services/billing/purchase";
@@ -76,6 +77,9 @@ export default async function BillingSuccessPage({
       route: "/billing/success",
       hasSessionId: Boolean(sessionId),
     });
+    redirect("/pricing?billing=error");
+  }
+  if (!isCmuxCheckoutSession(session)) {
     redirect("/pricing?billing=error");
   }
   const scheme =

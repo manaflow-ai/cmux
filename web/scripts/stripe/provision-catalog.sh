@@ -101,19 +101,18 @@ product_matches_catalog_identity() {
 ensure_product() {
   local name="$1"
   local plan="$2"
-  local response product_json product_id next_page
+  local response product_json product_id starting_after
   local -a matching_product_ids=()
   local -a page_args=()
 
-  next_page=""
+  starting_after=""
   while :; do
     page_args=()
-    if [[ -n "$next_page" ]]; then
-      page_args+=(--data-urlencode "page=${next_page}")
+    if [[ -n "$starting_after" ]]; then
+      page_args+=(--data-urlencode "starting_after=${starting_after}")
     fi
     response="$(
-      stripe_get "/products/search" \
-        --data-urlencode "query=name:'${name}' AND active:'true'" \
+      stripe_get "/products" \
         --data-urlencode "limit=100" \
         "${page_args[@]}"
     )"
@@ -126,10 +125,7 @@ ensure_product() {
     if [[ "$(jq -r '.has_more // false' <<<"$response")" != "true" ]]; then
       break
     fi
-    next_page="$(
-      jq -er '.next_page | select(type == "string" and length > 0)' \
-        <<<"$response"
-    )"
+    starting_after="$(jq -er '.data[-1].id' <<<"$response")"
   done
 
   if (( ${#matching_product_ids[@]} > 1 )); then
