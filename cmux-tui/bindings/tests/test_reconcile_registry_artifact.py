@@ -52,6 +52,18 @@ class RegistryArtifactTests(unittest.TestCase):
                 "crates", "cmux-client", "1.0.0", self.artifact
             )
 
+    def test_crates_rejects_a_yanked_exact_archive(self) -> None:
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            if str(getattr(request, "full_url", "")).endswith("/download"):
+                return self.response(self.artifact.read_bytes())
+            return self.response({"version": {"yanked": True}})
+
+        with mock.patch.object(reconcile, "urlopen", side_effect=response), \
+            self.assertRaises(reconcile.RegistryError):
+            reconcile.registry_status(
+                "crates", "cmux-client", "1.0.0", self.artifact
+            )
+
     def test_missing_registry_version_is_publishable(self) -> None:
         missing = HTTPError("https://registry.example", 404, "missing", None, None)
         with mock.patch.object(reconcile, "urlopen", side_effect=missing):
@@ -78,6 +90,18 @@ class RegistryArtifactTests(unittest.TestCase):
         with mock.patch.object(
             reconcile, "urlopen", return_value=self.response(metadata)
         ), self.assertRaises(reconcile.ArtifactMismatch):
+            reconcile.registry_status("npm", "cmux-sdk", "1.0.0", self.artifact)
+
+    def test_npm_rejects_exact_bytes_when_latest_points_elsewhere(self) -> None:
+        dist = {"integrity": reconcile._integrity(self.artifact, "sha512")}
+        metadata = {
+            "dist": dist,
+            "dist-tags": {"latest": "0.9.0"},
+            "versions": {"1.0.0": {"dist": dist}},
+        }
+        with mock.patch.object(
+            reconcile, "urlopen", return_value=self.response(metadata)
+        ), self.assertRaises(reconcile.RegistryError):
             reconcile.registry_status("npm", "cmux-sdk", "1.0.0", self.artifact)
 
     def test_pypi_matches_the_exact_filename_and_sha256(self) -> None:

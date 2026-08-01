@@ -74,6 +74,7 @@ def test_typescript_sdk_publisher_cannot_publish_the_cli_package() -> None:
 
     assert "https://www.npmjs.com/package/cmux-sdk" in release
     assert "npm publish --provenance" in release
+    assert "--tag latest" in release
     assert "npm publish" not in preflight
     assert "--tag sdk" not in release
     assert "confirm_npm_cmux" not in release
