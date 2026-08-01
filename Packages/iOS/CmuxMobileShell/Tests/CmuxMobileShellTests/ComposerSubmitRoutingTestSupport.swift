@@ -54,6 +54,7 @@ actor RoutingHostRouter {
     let terminalInputRecorder = RoutingTerminalInputRecorder()
     private(set) var directorySearchQueries: [String] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
+    private(set) var requestedMethods: [String] = []
     private var notificationFeedMarkAllReadCount = 0
     private var workspaceCreates: [WorkspaceCreateRecord] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
@@ -167,6 +168,7 @@ actor RoutingHostRouter {
         directoryListRequests
     }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
+    func recordedMethods() -> [String] { requestedMethods }
     func recordedNotificationFeedMarkAllReadCount() -> Int { notificationFeedMarkAllReadCount }
 
     /// Sendable extract of the request fields the router needs, pulled off the
@@ -195,6 +197,9 @@ actor RoutingHostRouter {
     func response(_ info: RequestInfo) async -> Data? {
         let method = info.method
         let id = info.id
+        if let method {
+            requestedMethods.append(method)
+        }
         switch method {
         case "workspace.list", "mobile.workspace.list":
             return try? Self.resultFrame(id: id, result: [
@@ -378,6 +383,11 @@ actor RoutingHostRouter {
                 clientID: info.clientID
             ))
             return try? Self.resultFrame(id: id, result: [:])
+        case "notification.reconcile":
+            return try? Self.resultFrame(id: id, result: [
+                "handled_ids": [],
+                "unread_count": 0,
+            ])
         case "notification.feed.mark_all_read":
             notificationFeedMarkAllReadCount += 1
             return try? Self.resultFrame(id: id, result: [
