@@ -3432,6 +3432,99 @@ mod unix {
     mod tests {
         use super::*;
 
+        struct TestMasterPty;
+
+        impl MasterPty for TestMasterPty {
+            fn resize(&self, _size: PtySize) -> anyhow::Result<()> {
+                Ok(())
+            }
+
+            fn get_size(&self) -> anyhow::Result<PtySize> {
+                Ok(PtySize::default())
+            }
+
+            fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send>> {
+                Ok(Box::new(std::io::empty()))
+            }
+
+            fn take_writer(&self) -> anyhow::Result<Box<dyn Write + Send>> {
+                Ok(Box::new(std::io::sink()))
+            }
+
+            fn process_group_leader(&self) -> Option<libc::pid_t> {
+                None
+            }
+
+            fn as_raw_fd(&self) -> Option<RawFd> {
+                None
+            }
+
+            fn tty_name(&self) -> Option<PathBuf> {
+                None
+            }
+        }
+
+        #[derive(Clone, Debug)]
+        struct TestChildKiller;
+
+        impl ChildKiller for TestChildKiller {
+            fn kill(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+
+            fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+                Box::new(self.clone())
+            }
+        }
+
+        fn exited_host_fixture(exit_record_path: PathBuf) -> Arc<HostShared> {
+            let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
+            Arc::new(HostShared {
+                terminal_id: TerminalId::random().unwrap(),
+                incarnation: HostIncarnation::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+                capabilities: CapabilityStore::new(64),
+                term: Mutex::new(Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap()),
+                stream_progress: TerminalStreamProgress::default(),
+                writer: Mutex::new(Box::new(std::io::sink())),
+                master: Mutex::new(Box::new(TestMasterPty)),
+                killer: Mutex::new(Box::new(TestChildKiller)),
+                pid: None,
+                command: Vec::new(),
+                cwd: None,
+                size: Mutex::new((80, 24)),
+                viewer_sizes: Mutex::new(HashMap::new()),
+                taps: Mutex::new(HashMap::new()),
+                broadcast_lock: Mutex::new(()),
+                sequence: AtomicU64::new(0),
+                next_client: AtomicU64::new(1),
+                dead: AtomicBool::new(false),
+                launch_owner_claimed: AtomicBool::new(true),
+                launch_owner_stream_ready: AtomicBool::new(true),
+                launch_owner_completed: AtomicBool::new(false),
+                child_exit: (
+                    Mutex::new(Some(TerminalExit {
+                        outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit {
+                            code: 17,
+                        },
+                        exited_at_ms: 1_234,
+                    })),
+                    Condvar::new(),
+                ),
+                child_waitable: AtomicBool::new(true),
+                pty_drained: AtomicBool::new(true),
+                exit_published: AtomicBool::new(false),
+                exit_record_path,
+                exit_publish_lock: Mutex::new(()),
+                force_pty_drain: AtomicBool::new(false),
+                pty_drain_waker: Mutex::new(pty_drain_waker),
+                termination_started: AtomicBool::new(false),
+                child_signal_lock: Mutex::new(()),
+                child_reaped: AtomicBool::new(true),
+                group_escalation_complete: AtomicBool::new(false),
+            })
+        }
+
         fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
             let root = std::env::temp_dir().join(format!(
                 "cmux-host-record-{name}-{}-{}",
@@ -4121,6 +4214,38 @@ mod unix {
                 .unwrap()
                 .is_none()
             );
+        }
+
+        #[test]
+        fn persistent_exit_record_failure_does_not_block_host_progress() {
+            let blocking_parent = std::env::temp_dir().join(format!(
+                "cmux-host-exit-failure-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::write(&blocking_parent, b"not a directory").unwrap();
+            let host = exited_host_fixture(blocking_parent.join("terminal.exit"));
+            let weak = Arc::downgrade(&host);
+            let (returned_tx, returned_rx) = std::sync::mpsc::channel();
+            let publisher = thread::spawn({
+                let host = host.clone();
+                move || {
+                    host.publish_exit_if_drained();
+                    returned_tx.send(()).unwrap();
+                }
+            });
+
+            returned_rx
+                .recv_timeout(Duration::from_millis(250))
+                .expect("exit persistence blocked the host snapshot path");
+            publisher.join().unwrap();
+            drop(host);
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while weak.upgrade().is_some() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(10));
+            }
+            assert!(weak.upgrade().is_none(), "exit publisher retained the dropped host");
+            fs::remove_file(blocking_parent).unwrap();
         }
 
         #[test]

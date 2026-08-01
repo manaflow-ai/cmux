@@ -2236,6 +2236,28 @@ mod tests {
         assert!(closed.load(Ordering::Acquire), "the expired route was removed without closing");
     }
 
+    #[tokio::test]
+    async fn dropping_daemon_terminates_its_revocation_monitor() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "monitor-drop", true).unwrap();
+        tokio::task::yield_now().await;
+        let metrics = tokio::runtime::Handle::current().metrics();
+        let baseline_tasks = metrics.num_alive_tasks();
+        let (daemon, accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
+        let weak = Arc::downgrade(&daemon);
+
+        drop(accepted);
+        drop(daemon);
+        tokio::time::timeout(Duration::from_millis(250), async {
+            while weak.upgrade().is_some() || metrics.num_alive_tasks() > baseline_tasks {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("dropping a daemon retained its revocation monitor");
+        drop(auth);
+    }
+
     async fn connected_fault_pair(
         lease: Duration,
         session: SessionId,
