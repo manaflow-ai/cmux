@@ -984,6 +984,10 @@ public final class MobileIrohRuntimeComposition:
         signOutObservedAuthClear = false
         signOutAuthRevisionAtPreparation = auth?.signOutRevision
         connectionReadiness.begin(revision: lifecycleRevision &+ 1)
+        // Sign-out synchronously supersedes the relay attempt. Release its
+        // waiters at the same fence instead of tying local teardown to a
+        // suspended broker request from the old lifecycle.
+        relayPolicyReadiness.reset()
         let operation = Task { @MainActor [weak self] in
             guard let self else {
                 return CmxIrohClientSignOutPreparation(
