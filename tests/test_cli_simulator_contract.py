@@ -82,6 +82,21 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
                         "element_ref": "e1_warning",
                     },
                 }
+            elif (
+                method == "simulator.tap"
+                and params.get("element_ref") == "e1_incomplete"
+            ):
+                result = {
+                    "completed": False,
+                    "ui_error": {
+                        "code": "ACTION_INCOMPLETE",
+                        "message": "The tap committed only its pointer-down step",
+                    },
+                    "action": {
+                        "type": "tap",
+                        "element_ref": "e1_incomplete",
+                    },
+                }
             elif method in {"simulator.context", "simulator.prepare_screenshot"}:
                 result = {
                     "simulator_id": "SIMULATOR-1",
@@ -287,6 +302,49 @@ def check_ui_automation(
         raise AssertionError(
             "partial semantic tap output lost completion details: "
             f"{warning_payload!r}"
+        )
+    incomplete_start = state.count()
+    incomplete_result = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        ["tap", "--ref", "e1_incomplete"],
+    )
+    if incomplete_result.returncode <= 0:
+        raise AssertionError(
+            "incomplete semantic tap did not return a positive failure status\n"
+            f"stdout={incomplete_result.stdout!r}\n"
+            f"stderr={incomplete_result.stderr!r}"
+        )
+    incomplete_requests = state.requests_since(incomplete_start)
+    if len(incomplete_requests) != 1:
+        raise AssertionError(
+            "incomplete semantic tap sent unexpected requests: "
+            f"{incomplete_requests!r}"
+        )
+    incomplete_request = incomplete_requests[0]
+    if incomplete_request.get("method") != "simulator.tap":
+        raise AssertionError(
+            "incomplete semantic tap used the wrong method: "
+            f"{incomplete_request!r}"
+        )
+    if (incomplete_request.get("params") or {}).get("element_ref") != "e1_incomplete":
+        raise AssertionError(
+            "incomplete semantic tap lost its element reference: "
+            f"{incomplete_request!r}"
+        )
+    incomplete_payload = json.loads(incomplete_result.stdout)
+    if incomplete_payload != {
+        "action": {"element_ref": "e1_incomplete", "type": "tap"},
+        "completed": False,
+        "ui_error": {
+            "code": "ACTION_INCOMPLETE",
+            "message": "The tap committed only its pointer-down step",
+        },
+    }:
+        raise AssertionError(
+            "incomplete semantic tap output lost failure details: "
+            f"{incomplete_payload!r}"
         )
     assert_request(
         cli_path, socket_path, fake_home, state,
