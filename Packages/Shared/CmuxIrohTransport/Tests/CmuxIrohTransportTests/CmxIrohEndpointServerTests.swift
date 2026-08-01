@@ -265,7 +265,7 @@ struct CmxIrohEndpointServerTests {
     }
 
     @Test
-    func newlyAdmittedConnectionSupersedesOlderConnectionFromSameEndpointIdentity() async throws {
+    func newlyAdmittedConnectionPreservesOlderConnectionFromSameEndpointIdentity() async throws {
         let localIdentity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "a", count: 64)
         )
@@ -304,8 +304,6 @@ struct CmxIrohEndpointServerTests {
             remoteIdentity: remoteIdentity,
             bidirectionalStreams: []
         )
-        var firstCloses = await first.closeEvents().makeAsyncIterator()
-
         await server.start()
         await endpoint.enqueue(first)
         #expect(await recorder.next().identity == remoteIdentity)
@@ -313,12 +311,7 @@ struct CmxIrohEndpointServerTests {
         #expect(await recorder.next().identity == remoteIdentity)
 
         for _ in 0 ..< 20 { await Task.yield() }
-        let firstCloseCount = await first.observedCloseCallCount()
-        #expect(firstCloseCount == 1)
-        if firstCloseCount == 1 {
-            let close = try #require(await firstCloses.next())
-            #expect(close.reason == "superseded_connection")
-        }
+        #expect(await first.observedCloseCallCount() == 0)
         #expect(await replacement.observedCloseCallCount() == 0)
 
         await blocker.releaseAll()
