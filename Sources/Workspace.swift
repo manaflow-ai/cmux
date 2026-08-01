@@ -7960,19 +7960,23 @@ final class Workspace: Identifiable, ObservableObject {
         return newPanel
     }
 
-    /// Creates a configured MANUAL-I/O ``TerminalPanel`` for one remote tmux pane,
+    /// Creates a configured manual-mirror ``TerminalPanel`` for one remote tmux pane,
     /// WITHOUT inserting it into the workspace's bonsplit/`panels` (the
     /// ``RemoteTmuxWindowMirror`` owns it and renders it via ``TerminalPanelView``
     /// inside a single tab, so the pane gets the full native cmux pane chrome —
     /// background, focus overlay, dividers).
-    func makeRemoteTmuxPanePanel(onInput: @escaping @Sendable (Data) -> Void) -> TerminalPanel? {
+    func makeRemoteTmuxPanePanel(
+        onInput: @escaping @Sendable (TerminalManualInput) -> Void,
+        keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil
+    ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let surface = TerminalSurface(
             tabId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedTerminalFontSizeConfig(),
-            manualIO: true,
-            manualInputHandler: onInput
+            ioMode: .manualMirror,
+            manualInputHandler: onInput,
+            manualInputKeyNameResolver: keyNameResolver
         )
         let panel = TerminalPanel(workspaceId: id, surface: surface)
         configureNewTerminalPanel(panel)
@@ -7981,7 +7985,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Mounts a remote tmux pane as a live display tab in this workspace.
     ///
-    /// The tab is backed by a MANUAL-I/O ``TerminalSurface`` (no local process):
+    /// The tab is backed by a manual-mirror ``TerminalSurface`` (no local process):
     /// the caller feeds `%output` via ``TerminalSurface/processRemoteOutput(_:)``
     /// and receives typed input through `onInput` (→ tmux `send-keys`). Used by
     /// ``RemoteTmuxController`` to render a mirrored remote tmux pane.
@@ -7996,7 +8000,8 @@ final class Workspace: Identifiable, ObservableObject {
         title customTitle: String? = nil,
         focus: Bool = false,
         allowTextBoxFocusDefault: Bool = true,
-        onInput: @escaping @Sendable (Data) -> Void,
+        onInput: @escaping @Sendable (TerminalManualInput) -> Void,
+        keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         onResize: (@MainActor @Sendable (_ columns: Int, _ rows: Int) -> Void)? = nil
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
@@ -8009,8 +8014,9 @@ final class Workspace: Identifiable, ObservableObject {
                 tabId: id,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                 configTemplate: inheritedTerminalFontSizeConfig(),
-                manualIO: true,
-                manualInputHandler: onInput
+                ioMode: .manualMirror,
+                manualInputHandler: onInput,
+                manualInputKeyNameResolver: keyNameResolver
             )
             if let onResize { surface.onManualSizeApplied = { onResize($0.columns, $0.rows) } }
             let newPanel = TerminalPanel(workspaceId: id, surface: surface)

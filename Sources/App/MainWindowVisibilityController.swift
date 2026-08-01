@@ -18,6 +18,7 @@ final class MainWindowVisibilityController {
         case notification
         case rightSidebarFocus
         case rightSidebarToggle
+        case senderRelativeAction
         case titlebarDismiss
         case socketActivate
         case workspaceCreation
