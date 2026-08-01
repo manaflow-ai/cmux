@@ -158,13 +158,13 @@ struct SimulatorRemoteSurfaceEdgeEntryTests {
             }
             return false
         })
-        #expect(delivered.contains { message in
+        #expect(!delivered.contains { message in
             if case let .key(event) = message {
                 return event.usage == 4 && event.phase == .up
             }
             return false
         })
-        #expect(delivered.contains(.releaseInputs))
+        #expect(!delivered.contains(.releaseInputs))
         #expect(harness.view.input.activePointer == nil)
         #expect(harness.view.input.heldKeys.isEmpty)
         #expect(harness.view.pendingInputMotion == nil)

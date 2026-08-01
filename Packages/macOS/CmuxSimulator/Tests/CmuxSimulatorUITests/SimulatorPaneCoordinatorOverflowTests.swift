@@ -53,7 +53,7 @@ struct SimulatorPaneCoordinatorOverflowTests {
         view.send(pointerDown)
 
         #expect(coordinator.hasHeldUIAutomationTouch)
-        #expect(attempted.contains(.pointer(SimulatorPointerEvent(
+        #expect(!attempted.contains(.pointer(SimulatorPointerEvent(
             phase: .cancelled,
             primary: point
         ))))

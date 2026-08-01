@@ -343,6 +343,92 @@ struct SimulatorUIAutomationExecutorWaitTests {
         await coordinator.close()
     }
 
+    @Test("An unchanged snapshot refreshes a ref that expires during capture")
+    func unchangedSnapshotDoesNotRestoreExpiredRef() async throws {
+        let snapshot = Self.actionSnapshot()
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let record = try await coordinator.recordUIAutomationSnapshot(
+            snapshot,
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+        let scheduler = SequencedWallTimeActionScheduler(
+            wallTimes: [60_999, 61_001, 61_001]
+        )
+
+        let result = try await SimulatorUIAutomationExecutor(
+            scheduler: scheduler
+        ).perform(
+            .uiSnapshot(sinceScreenHash: record.snapshot.screenHash),
+            coordinator: coordinator
+        )
+
+        guard case let .object(payload) = result else {
+            Issue.record("Expected a snapshot object, got \(result)")
+            return
+        }
+        #expect(payload["type"] == .string("runtime-snapshot"))
+        #expect(payload["seq"] == .int(2))
+        #expect(try coordinator.currentUIAutomationSnapshot(
+            nowMilliseconds: 61_001
+        ).snapshot.sequence == 2)
+        await coordinator.close()
+    }
+
+    @Test("A wait refreshes a ref that expires during capture")
+    func waitDoesNotRestoreExpiredRef() async throws {
+        let snapshot = Self.actionSnapshot()
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let record = try await coordinator.recordUIAutomationSnapshot(
+            snapshot,
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+        let elementRef = try #require(record.snapshot.elements.first {
+            $0.identifier == "continue"
+        }?.ref)
+        let scheduler = SequencedWallTimeActionScheduler(
+            wallTimes: [60_999, 60_999, 61_001, 61_001]
+        )
+        let wait = ControlSimulatorUIWait(
+            predicate: "exists",
+            elementRef: elementRef,
+            identifier: nil,
+            label: nil,
+            role: nil,
+            value: nil,
+            text: nil,
+            timeoutMilliseconds: 0,
+            pollIntervalMilliseconds: 100,
+            settledDurationMilliseconds: 0
+        )
+
+        let result = try await SimulatorUIAutomationExecutor(
+            scheduler: scheduler
+        ).perform(.uiWait(wait), coordinator: coordinator)
+
+        guard case let .object(payload) = result,
+              case let .object(capture)? = payload["capture"] else {
+            Issue.record("Expected a wait capture object, got \(result)")
+            return
+        }
+        #expect(capture["seq"] == .int(2))
+        #expect(try coordinator.currentUIAutomationSnapshot(
+            nowMilliseconds: 61_001
+        ).snapshot.sequence == 2)
+        await coordinator.close()
+    }
+
     @Test("Text-only gone waits reject heterogeneous matches")
     func textOnlyGoneRejectsAmbiguousMatches() async {
         let display = SimulatorDisplayMetadata(
@@ -602,4 +688,29 @@ private final class AdvancingActionScheduler:
             + components.attoseconds / 1_000_000_000_000_000
         lock.withLock { nowMilliseconds += milliseconds }
     }
+}
+
+private final class SequencedWallTimeActionScheduler:
+    SimulatorUIAutomationScheduling,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private let wallTimes: [Int64]
+    private var wallTimeIndex = 0
+
+    init(wallTimes: [Int64]) {
+        self.wallTimes = wallTimes
+    }
+
+    func monotonicNowMilliseconds() -> Int64 { 0 }
+
+    func wallTimeNowMilliseconds() -> Int64 {
+        lock.withLock {
+            let index = min(wallTimeIndex, wallTimes.count - 1)
+            wallTimeIndex += 1
+            return wallTimes[index]
+        }
+    }
+
+    func nextEvent(after duration: Duration) async throws {}
 }
