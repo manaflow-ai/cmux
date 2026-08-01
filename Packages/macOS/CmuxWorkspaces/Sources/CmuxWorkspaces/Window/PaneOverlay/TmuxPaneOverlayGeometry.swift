@@ -49,7 +49,8 @@ public struct TmuxPaneOverlayGeometry: Sendable, Equatable {
     private func paneRect(
         layoutSnapshot: LayoutSnapshot?,
         paneId: PaneID?,
-        includeContainerOffset: Bool
+        includeContainerOffset: Bool,
+        trimTopChrome: Bool = true
     ) -> CGRect? {
         guard let layoutSnapshot,
               let paneId,
@@ -72,7 +73,7 @@ public struct TmuxPaneOverlayGeometry: Sendable, Equatable {
                 dy: -CGFloat(layoutSnapshot.containerFrame.y)
             )
         }
-        return contentRect(rect)
+        return trimTopChrome ? contentRect(rect) : rect
     }
 
     /// Resolves a pane's overlay rect in workspace-local coordinates (the
@@ -107,6 +108,30 @@ public struct TmuxPaneOverlayGeometry: Sendable, Equatable {
             layoutSnapshot: layoutSnapshot,
             paneId: paneId,
             includeContainerOffset: true
+        )
+    }
+
+    /// Resolves a pane's full window-content rect with no top-chrome trim.
+    ///
+    /// Used to sanity-check a live ("exact") rect against the pane's whole
+    /// box rather than against `windowOverlayRect`'s chrome-trimmed estimate:
+    /// a pane whose per-tab chrome isn't actually visible (e.g. a single-tab
+    /// pane hides its tab strip) has real content starting above where the
+    /// fixed `topChromeHeight` assumes, and comparing against the trimmed
+    /// rect would wrongly reject that accurate, higher rect.
+    /// - Parameters:
+    ///   - layoutSnapshot: the Bonsplit layout snapshot, if any.
+    ///   - paneId: the pane to resolve, if any.
+    /// - Returns: the untrimmed window-content rect, or `nil` when unresolved.
+    public func rawWindowOverlayRect(
+        layoutSnapshot: LayoutSnapshot?,
+        paneId: PaneID?
+    ) -> CGRect? {
+        paneRect(
+            layoutSnapshot: layoutSnapshot,
+            paneId: paneId,
+            includeContainerOffset: true,
+            trimTopChrome: false
         )
     }
 

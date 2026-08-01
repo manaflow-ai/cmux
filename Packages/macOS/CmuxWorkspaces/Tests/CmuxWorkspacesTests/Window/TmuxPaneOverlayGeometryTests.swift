@@ -62,6 +62,19 @@ struct TmuxPaneOverlayGeometryTests {
         #expect(rect == CGRect(x: 50, y: 93 + 28, width: 120, height: 240 - 28))
     }
 
+    @Test("raw window overlay rect matches the trimmed rect plus the chrome inset back")
+    func rawWindowOverlayRectSkipsTrim() {
+        let paneId = UUID()
+        let snap = snapshot(
+            container: PixelRect(x: 5, y: 7, width: 300, height: 400),
+            panes: [(paneId, PixelRect(x: 50, y: 100, width: 120, height: 240))]
+        )
+        let geometry = TmuxPaneOverlayGeometry(topChromeHeight: 28)
+        let raw = geometry.rawWindowOverlayRect(layoutSnapshot: snap, paneId: PaneID(id: paneId))
+        // Same offset as windowOverlayRect, but no top-chrome trim.
+        #expect(raw == CGRect(x: 50, y: 93, width: 120, height: 240))
+    }
+
     @Test("missing snapshot or pane yields nil")
     func missingYieldsNil() {
         let geometry = TmuxPaneOverlayGeometry(topChromeHeight: 28)

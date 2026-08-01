@@ -546,6 +546,16 @@ struct WorkspaceContentView: View {
         )
     }
 
+    static func tmuxWorkspacePaneRawWindowOverlayRect(
+        layoutSnapshot: LayoutSnapshot?,
+        paneId: PaneID?
+    ) -> CGRect? {
+        tmuxPaneOverlayGeometry.rawWindowOverlayRect(
+            layoutSnapshot: layoutSnapshot,
+            paneId: paneId
+        )
+    }
+
     static func effectiveTmuxLayoutSnapshot(
         cachedSnapshot: LayoutSnapshot?,
         liveSnapshot: LayoutSnapshot?
