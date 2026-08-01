@@ -79,11 +79,16 @@ describe("localized pricing page", () => {
 
     expect(html).not.toContain("/api/billing/portal");
     expect(html).not.toContain("Manage billing");
-    expect(html).toContain("$35/user/month");
+    expect(html).toContain("/mo");
+    expect(html).toContain("/user/mo");
+    expect(html).not.toContain("/mo.");
+    expect(html).toContain("$35/user/mo");
     expect(html).toContain(
       "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=month",
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
+    expect(html).not.toContain('style="min-height:4rem"');
+    expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
   });
 
   test("renders Stack metadata-only Pro snapshots as Free", async () => {
@@ -118,13 +123,15 @@ describe("localized pricing page", () => {
     const html = renderToStaticMarkup(element);
 
     expect(html).toContain("$24");
-    expect(html).toContain("per month billed yearly");
-    expect(html).toContain("Billed $288 annually · save 20%");
-    expect(html).toContain("Billed $336 annually · save 20%");
-    expect(html).toContain("$24/month · $288/year");
+    expect(html).toContain("/mo");
+    expect(html).toContain("$24/mo");
     expect(html).toContain("$28");
-    expect(html).toContain("per user per month billed yearly");
-    expect(html).toContain("$28/user/month · $336/user/year");
+    expect(html).toContain("/user/mo");
+    expect(html).toContain("$28/user/mo");
+    expect(html).not.toContain("$288/year");
+    expect(html).not.toContain("$336/user/year");
+    expect(html).not.toContain("Billed $288 annually · save 20%");
+    expect(html).not.toContain("Billed $336 annually · save 20%");
     expect(html).toContain(
       "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year",
     );

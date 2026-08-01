@@ -111,14 +111,12 @@ export default async function PricingPage({
   };
   const annualComparePrice = t("annualComparePrice", {
     monthly: PRO_PRICING_USD.year.monthlyEquivalent,
-    annual: PRO_PRICING_USD.year.billedAmount,
   });
   const teamMonthlyComparePrice = t("teamMonthlyComparePrice", {
     monthly: TEAM_PRICING_USD.month.monthlyEquivalent,
   });
   const teamAnnualComparePrice = t("teamAnnualComparePrice", {
     monthly: TEAM_PRICING_USD.year.monthlyEquivalent,
-    annual: TEAM_PRICING_USD.year.billedAmount,
   });
 
   const freeFeatures = t.raw("free.features") as string[];
@@ -192,19 +190,6 @@ export default async function PricingPage({
                   annual={t("perMonthBilledYearly")}
                 />
               }
-              priceDetail={
-                <PricingIntervalValue
-                  monthly={null}
-                  annual={
-                    <p className="mt-2 text-sm text-muted">
-                      {t("annualPriceDetail", {
-                        amount: PRO_PRICING_USD.year.billedAmount,
-                        discount: PRO_PRICING_USD.year.discountPercent,
-                      })}
-                    </p>
-                  }
-                />
-              }
               badge={
                 snapshot.isPro ? (
                   <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
@@ -240,19 +225,6 @@ export default async function PricingPage({
                 <PricingIntervalValue
                   monthly={t("perUserMonth")}
                   annual={t("perUserMonthBilledYearly")}
-                />
-              }
-              priceDetail={
-                <PricingIntervalValue
-                  monthly={null}
-                  annual={
-                    <p className="mt-2 text-sm text-muted">
-                      {t("annualPriceDetail", {
-                        amount: TEAM_PRICING_USD.year.billedAmount,
-                        discount: TEAM_PRICING_USD.year.discountPercent,
-                      })}
-                    </p>
-                  }
                 />
               }
             >
