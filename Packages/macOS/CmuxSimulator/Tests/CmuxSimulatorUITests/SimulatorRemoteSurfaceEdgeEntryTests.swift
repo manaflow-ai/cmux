@@ -123,6 +123,32 @@ struct SimulatorRemoteSurfaceEdgeEntryTests {
         #expect(harness.pointerEvents.map(\.phase) == [.began, .moved, .ended])
     }
 
+    @Test("Rejected input clears local state and stops the pending batch")
+    func rejectedInputStopsPendingBatch() throws {
+        let harness = try SimulatorRemoteSurfaceEdgeEntryHarness()
+        defer { harness.close() }
+        let point = SimulatorPoint(x: 0.5, y: 0.5)
+        var messages = harness.view.input.pointerBegan(
+            at: point,
+            optionPinch: false
+        )
+        messages.append(.pointer(SimulatorPointerEvent(
+            phase: .moved,
+            primary: SimulatorPoint(x: 0.6, y: 0.6)
+        )))
+        var received: [SimulatorWorkerInbound] = []
+        harness.view.onMessage = { message in
+            received.append(message)
+            harness.view.discardRejectedInputs()
+        }
+
+        harness.view.send(messages)
+
+        #expect(received.count == 1)
+        #expect(harness.view.input.activePointer == nil)
+        #expect(harness.view.pendingInputMotion == nil)
+    }
+
     @Test("Discrete wheel bursts aggregate into one bounded message")
     func discreteWheelCoalescing() throws {
         let harness = try SimulatorRemoteSurfaceEdgeEntryHarness()
