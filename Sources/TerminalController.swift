@@ -8083,22 +8083,27 @@ class TerminalController {
             return .err(code: "internal_error", message: "Browser operation failed", data: nil)
         }
 
-        guard let snapshotAttempt = v2CaptureBrowserAutomationSnapshot(browserPanel, timeout: 17.0) else {
+        let timingBudget = BrowserScreenshotTimingBudget()
+        guard let snapshotAttempt = v2CaptureBrowserAutomationSnapshot(
+            browserPanel,
+            timeout: timingBudget.socketResponseTimeout
+        ) else {
             return .err(code: "timeout", message: BrowserScreenshotError.automationTimedOut.localizedDescription, data: nil)
         }
         let imageData: Data
         switch snapshotAttempt.result {
         case .success(let data):
             imageData = data
-        case .failure(let message):
-            return .err(code: "internal_error", message: message, data: nil)
-        case .timedOut:
+        case .failure(let code, let message):
+            return .err(code: code, message: message, data: nil)
+        case .timedOut(let originalMessage):
             let message = v2BrowserAutomationMessageAfterLivenessCheck(
-                originalMessage: BrowserScreenshotError.automationTimedOut.localizedDescription,
+                originalMessage: originalMessage,
                 browserPanel: browserPanel,
                 surfaceId: surfaceId,
                 expectedWebViewIdentifier: snapshotAttempt.webViewIdentifier,
-                channel: .screenshot
+                channel: .screenshot,
+                livenessTimeout: timingBudget.livenessProbeAllowance
             )
             return .err(code: "timeout", message: message, data: nil)
         }
