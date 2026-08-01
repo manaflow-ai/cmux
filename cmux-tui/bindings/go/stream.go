@@ -423,7 +423,7 @@ func openStream[T any](
 		})
 	}
 	client.mu.Lock()
-	if client.closed {
+	if client.closed && !route.hasServerEnd() {
 		openError := client.err
 		if openError == nil {
 			openError = ErrClosed

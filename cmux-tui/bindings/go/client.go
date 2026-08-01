@@ -122,6 +122,7 @@ type streamRoute struct {
 	mu               sync.Mutex
 	accepting        bool
 	terminated       bool
+	serverEnded      bool
 	queuedBytes      int
 	cancelParams     map[string]any
 	openDispatched   bool
@@ -1266,6 +1267,12 @@ func (r *streamRoute) markOpenAcknowledged() {
 	r.mu.Unlock()
 }
 
+func (r *streamRoute) hasServerEnd() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.serverEnded
+}
+
 func (r *streamRoute) failedOpenCancelParams() (map[string]any, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1375,6 +1382,9 @@ func (r *streamRoute) deliver(message streamMessage) bool {
 	defer r.mu.Unlock()
 	if r.terminated {
 		return false
+	}
+	if message.envelope.Type == "stream_end" {
+		r.serverEnded = true
 	}
 	if r.cancelItem != nil {
 		if r.cancelEnd != nil {
