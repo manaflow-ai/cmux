@@ -6,6 +6,7 @@ enum ApplicationSurfaceRuntimeError: LocalizedError, Equatable, Sendable {
     case helperUnavailable
     case pointOutsideContent
     case captureUnavailable
+    case resourceLimit
     case invalidResponse
     case failed(String)
 
@@ -28,6 +29,11 @@ enum ApplicationSurfaceRuntimeError: LocalizedError, Equatable, Sendable {
             )
         case .pointOutsideContent, .captureUnavailable:
             nil
+        case .resourceLimit:
+            String(
+                localized: "applicationSurface.error.resourceLimit",
+                defaultValue: "Application pane capacity is full. Close another application pane and try again."
+            )
         case .invalidResponse:
             String(
                 localized: "applicationSurface.error.invalidResponse",

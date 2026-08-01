@@ -834,7 +834,7 @@ final class ApplicationCaptureView: NSView {
                         .windowUnavailable,
                         failureDetail: failure.localizedDescription
                     )
-                case .helperUnavailable, .invalidResponse, .failed:
+                case .helperUnavailable, .resourceLimit, .invalidResponse, .failed:
                     self.handleRuntimeFailure(
                         .failed,
                         failureDetail: failure.localizedDescription
