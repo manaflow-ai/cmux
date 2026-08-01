@@ -3,16 +3,23 @@ import Testing
 @testable import CmuxAppKitSupportUI
 
 @MainActor
-private final class FlippedDocumentView: NSView {
-    override var isFlipped: Bool { true }
+private final class PopulatedTableDataSource: NSObject, NSTableViewDataSource {
+    func numberOfRows(in tableView: NSTableView) -> Int { 200 }
 }
 
 @MainActor
 struct SidebarDragAutoScrollControllerTests {
+    private let tableDataSource = PopulatedTableDataSource()
+
     private func makeScrolledScrollView(offsetY: CGFloat) -> NSScrollView {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 400))
-        let document = FlippedDocumentView(frame: NSRect(x: 0, y: 0, width: 240, height: 5000))
-        scrollView.documentView = document
+        let tableView = NSTableView()
+        tableView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("workspace")))
+        tableView.rowHeight = 24
+        tableView.intercellSpacing = .zero
+        tableView.dataSource = tableDataSource
+        scrollView.documentView = tableView
+        tableView.reloadData()
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: offsetY))
         scrollView.reflectScrolledClipView(scrollView.contentView)
         return scrollView
@@ -44,5 +51,34 @@ struct SidebarDragAutoScrollControllerTests {
 
         let nearBottom = CGPoint(x: 100, y: clipView.bounds.origin.y + clipView.bounds.height - 10)
         #expect(controller.planForMousePoint(nearBottom, in: clipView)?.direction == .down)
+    }
+
+    @Test
+    func appliedPlansMoveARealFlippedTableInTheMatchingDirection() {
+        let controller = SidebarDragAutoScrollController()
+        let scrollView = makeScrolledScrollView(offsetY: 2000)
+        let clipView = scrollView.contentView
+        let tableView = scrollView.documentView as? NSTableView
+        let startY = clipView.bounds.origin.y
+
+        #expect(clipView.isFlipped)
+        #expect(tableView?.isFlipped == true)
+        #expect(
+            controller.apply(
+                plan: SidebarAutoScrollPlan(direction: .up, pointsPerTick: 12),
+                to: scrollView
+            )
+        )
+        #expect(clipView.bounds.origin.y == startY - 12)
+
+        clipView.scroll(to: NSPoint(x: 0, y: startY))
+        scrollView.reflectScrolledClipView(clipView)
+        #expect(
+            controller.apply(
+                plan: SidebarAutoScrollPlan(direction: .down, pointsPerTick: 12),
+                to: scrollView
+            )
+        )
+        #expect(clipView.bounds.origin.y == startY + 12)
     }
 }

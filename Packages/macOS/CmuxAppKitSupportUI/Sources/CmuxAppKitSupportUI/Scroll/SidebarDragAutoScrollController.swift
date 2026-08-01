@@ -117,7 +117,7 @@ public final class SidebarDragAutoScrollController: ObservableObject {
         currentPlan(for: scrollView)
     }
 
-    private func apply(plan: SidebarAutoScrollPlan, to scrollView: NSScrollView) -> Bool {
+    func apply(plan: SidebarAutoScrollPlan, to scrollView: NSScrollView) -> Bool {
         guard let documentView = scrollView.documentView else { return false }
         let clipView = scrollView.contentView
 

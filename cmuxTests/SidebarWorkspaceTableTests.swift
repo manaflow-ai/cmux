@@ -307,6 +307,7 @@ struct SidebarWorkspaceTableTests {
         var plannedPoints: [CGPoint] = []
         var plannedTargetCounts: [Int] = []
         var indicatorClears = 0
+        var autoscrollUpdates = 0
         let draggedId = ids[2]
         let actions = makeTableActions(
             updateWorkspaceDrag: { point, targets, _ in
@@ -320,7 +321,8 @@ struct SidebarWorkspaceTableTests {
                     plan: nil
                 )
             },
-            clearWorkspaceDropIndicator: { indicatorClears += 1 }
+            clearWorkspaceDropIndicator: { indicatorClears += 1 },
+            updateDragAutoscroll: { autoscrollUpdates += 1 }
         )
         controller.apply(
             rows: ids.map { makeRowConfiguration(workspaceId: $0) },
@@ -336,6 +338,7 @@ struct SidebarWorkspaceTableTests {
         let windowPoint = NSPoint(x: 40, y: 120)
         #expect(controller.updateReorderDrag(windowPoint: windowPoint))
         #expect(plannedPoints.count == 1)
+        #expect(autoscrollUpdates == 1)
         // Targets are the visible rows only, not the full 30-row model.
         #expect(plannedTargetCounts == [container.tableView.rows(in: container.tableView.visibleRect).length])
 
@@ -348,16 +351,23 @@ struct SidebarWorkspaceTableTests {
         controller.viewportDidChange()
         await flushStagedTableMutations()
         #expect(plannedPoints.count == 2)
+        #expect(autoscrollUpdates == 2)
         let scrolledBy = container.clipView.bounds.origin.y - originBefore
         #expect(abs((plannedPoints[1].y - plannedPoints[0].y) - scrolledBy) < 0.5)
 
-        // Leaving the table retires the stored point: later viewport changes
-        // must not keep planning a drag that is no longer over the sidebar.
+        // Leaving the destination retires the stored point and indicator, but
+        // AppKit has not ended the drag session. The custom autoscroll owner
+        // must stay active and re-plan from the pointer beyond the viewport;
+        // later viewport changes must not restore an out-of-bounds indicator.
         controller.reorderDropDragExited()
         #expect(indicatorClears == 1)
+        #expect(controller.isReorderDropSessionActive)
+        #expect(autoscrollUpdates == 3)
         controller.viewportDidChange()
         await flushStagedTableMutations()
         #expect(plannedPoints.count == 2)
+        controller.reorderDropSessionEnded()
+        #expect(!controller.isReorderDropSessionActive)
     }
 
     @Test
@@ -547,7 +557,8 @@ struct SidebarWorkspaceTableTests {
     @MainActor
     private func makeTableActions(
         updateWorkspaceDrag: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _, _ in nil },
-        clearWorkspaceDropIndicator: @escaping () -> Void = {}
+        clearWorkspaceDropIndicator: @escaping () -> Void = {},
+        updateDragAutoscroll: @escaping () -> Void = {}
     ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
             attachScrollView: { _ in },
@@ -568,7 +579,7 @@ struct SidebarWorkspaceTableTests {
             moveBonsplitToExistingWorkspace: { _, _ in false },
             moveBonsplitToNewWorkspace: { _, _ in nil },
             didMoveBonsplitToWorkspace: { _ in },
-            updateDragAutoscroll: {},
+            updateDragAutoscroll: updateDragAutoscroll,
             setBonsplitDropTargetCollectionActive: { _ in },
             setBonsplitDropIndicator: { _ in }
         )
