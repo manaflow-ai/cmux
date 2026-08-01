@@ -295,6 +295,47 @@ describe("billing checkout route", () => {
     }
   });
 
+  test("does not sign tagged callback relays from a public request origin", async () => {
+    const previousURL = process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+    const previousSecret = process.env.CMUX_APP_PRICING_RELAY_SECRET;
+    const previousSchemes = process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES;
+    process.env.CMUX_APP_PRICING_CHECKOUT_URL =
+      "https://billing.example/api/billing/checkout";
+    process.env.CMUX_APP_PRICING_RELAY_SECRET =
+      "pricing-relay-test-secret-with-at-least-32-bytes";
+    process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES = "cmux-dev-test";
+    try {
+      const response = await GET(
+        new NextRequest(
+          "https://cmux.test/api/billing/checkout?plan=pro&interval=year&cmux_scheme=cmux-dev-test&cmux_app_checkout=1",
+        ),
+      );
+      const location = response.headers.get("location");
+      expect(location).toBeString();
+      const relayURL = new URL(location!);
+
+      expect(relayURL.searchParams.get("cmux_scheme")).toBe("cmux");
+      expect(relayURL.searchParams.has("cmux_relay_expires")).toBe(false);
+      expect(relayURL.searchParams.has("cmux_relay_signature")).toBe(false);
+    } finally {
+      if (previousURL === undefined) {
+        delete process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+      } else {
+        process.env.CMUX_APP_PRICING_CHECKOUT_URL = previousURL;
+      }
+      if (previousSecret === undefined) {
+        delete process.env.CMUX_APP_PRICING_RELAY_SECRET;
+      } else {
+        process.env.CMUX_APP_PRICING_RELAY_SECRET = previousSecret;
+      }
+      if (previousSchemes === undefined) {
+        delete process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES;
+      } else {
+        process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES = previousSchemes;
+      }
+    }
+  });
+
   test("rejects invalid app-pricing relay parameters before forwarding", async () => {
     const previous = process.env.CMUX_APP_PRICING_CHECKOUT_URL;
     process.env.CMUX_APP_PRICING_CHECKOUT_URL =

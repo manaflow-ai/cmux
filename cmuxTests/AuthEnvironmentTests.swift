@@ -365,6 +365,28 @@ struct AuthEnvironmentTests {
     }
 
     @MainActor
+    @Test("app web theme serializes translucent native colors as opaque RGB")
+    func appWebThemeSerializesTranslucentNativeColorsAsOpaqueRGB() {
+        let snapshot = AppWebThemeSnapshot.resolved(
+            backgroundColor: NSColor(
+                srgbRed: 17.0 / 255.0,
+                green: 34.0 / 255.0,
+                blue: 51.0 / 255.0,
+                alpha: 0.25
+            ),
+            foregroundColor: NSColor(
+                srgbRed: 221.0 / 255.0,
+                green: 238.0 / 255.0,
+                blue: 255.0 / 255.0,
+                alpha: 0.5
+            )
+        )
+
+        #expect(snapshot.background == "#112233")
+        #expect(snapshot.foreground == "#DDEEFF")
+    }
+
+    @MainActor
     @Test("app web theme JavaScript updates every shared theme variable")
     func appWebThemeJavaScriptUpdatesEverySharedThemeVariable() throws {
         let theme = AppWebThemeSnapshot(

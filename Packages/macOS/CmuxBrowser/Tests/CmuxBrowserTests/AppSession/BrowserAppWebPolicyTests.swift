@@ -13,6 +13,12 @@ struct BrowserAppWebPolicyTests {
         let trustedSource = try #require(
             URL(string: "https://cmux.com/app-pricing")
         )
+        let publicPricingSource = try #require(
+            URL(string: "https://cmux.com/pricing")
+        )
+        let dashboardBillingSource = try #require(
+            URL(string: "https://cmux.com/en/dashboard/billing")
+        )
         let untrustedSource = try #require(
             URL(string: "https://attacker.example/app-pricing")
         )
@@ -27,6 +33,14 @@ struct BrowserAppWebPolicyTests {
         #expect(policy.shouldOpenInSystemBrowser(
             try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=1")),
             sourceURL: trustedSource
+        ))
+        #expect(policy.shouldOpenInSystemBrowser(
+            try #require(URL(string: "https://cmux.com/api/billing/checkout?cmux_external_browser=1")),
+            sourceURL: publicPricingSource
+        ))
+        #expect(policy.shouldOpenInSystemBrowser(
+            try #require(URL(string: "https://cmux.com/api/billing/checkout?cmux_external_browser=1")),
+            sourceURL: dashboardBillingSource
         ))
         #expect(!policy.shouldOpenInSystemBrowser(
             try #require(

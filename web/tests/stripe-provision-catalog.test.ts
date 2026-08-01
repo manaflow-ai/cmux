@@ -216,7 +216,7 @@ async function runProvision(
   writeFileSync(curlPath, mockCurlSource, { mode: 0o700 });
   chmodSync(curlPath, 0o700);
 
-  const childProcess = spawn("bash", [provisionScript, mode], {
+  const childProcess = spawn("/bin/bash", [provisionScript, mode], {
     env: {
       ...process.env,
       HOME: home,
