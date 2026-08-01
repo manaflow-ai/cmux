@@ -69,6 +69,19 @@ impl JsonLineConnection {
         Self::from_stream(stream, io_timeout, max_frame_bytes)
     }
 
+    pub(crate) fn connect_with_poll_checks(
+        socket_path: &Path,
+        connect_timeout: Duration,
+        io_timeout: Duration,
+        max_frame_bytes: usize,
+        poll_interval: Duration,
+        check: impl FnMut() -> Result<()>,
+    ) -> Result<Self> {
+        let stream =
+            connect_unix_with_poll_checks(socket_path, connect_timeout, poll_interval, check)?;
+        Self::from_stream(stream, io_timeout, max_frame_bytes)
+    }
+
     pub(crate) fn from_stream(
         stream: UnixStream,
         timeout: Duration,
@@ -233,15 +246,38 @@ impl JsonLineConnection {
 }
 
 fn connect_unix_with_timeout(socket_path: &Path, timeout: Duration) -> Result<UnixStream> {
+    connect_unix_with_poll_checks(socket_path, timeout, timeout, || Ok(()))
+}
+
+fn connect_unix_with_poll_checks(
+    socket_path: &Path,
+    timeout: Duration,
+    poll_interval: Duration,
+    mut check: impl FnMut() -> Result<()>,
+) -> Result<UnixStream> {
     if timeout.is_zero() {
         return Err(connect_timeout_error(socket_path));
+    }
+    if poll_interval.is_zero() {
+        return Err(CmuxError::InvalidArgument(
+            "session socket connect poll interval must be greater than zero".to_string(),
+        ));
     }
     #[cfg(test)]
     if FORCE_PENDING_CONNECT.with(std::cell::Cell::get) {
         FORCED_CONNECT_ATTEMPTS.with(|attempts| attempts.set(attempts.get() + 1));
-        FORCED_CONNECT_POLLS.with(|polls| polls.set(polls.get() + 1));
-        std::thread::sleep(timeout);
-        return Err(connect_timeout_error(socket_path));
+        let deadline = Instant::now().checked_add(timeout).ok_or_else(|| {
+            CmuxError::InvalidArgument("session socket connect timeout is too large".to_string())
+        })?;
+        loop {
+            check()?;
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(connect_timeout_error(socket_path));
+            }
+            FORCED_CONNECT_POLLS.with(|polls| polls.set(polls.get() + 1));
+            std::thread::sleep(deadline.saturating_duration_since(now).min(poll_interval));
+        }
     }
     let path = socket_path.as_os_str().as_bytes();
     if path.contains(&0) {
@@ -326,7 +362,13 @@ fn connect_unix_with_timeout(socket_path: &Path, timeout: Duration) -> Result<Un
         ) {
             return Err(connect_error(socket_path, error));
         }
-        wait_for_connect(descriptor.as_raw_fd(), timeout, socket_path)?;
+        wait_for_connect_with_poll_checks(
+            descriptor.as_raw_fd(),
+            timeout,
+            socket_path,
+            poll_interval,
+            &mut check,
+        )?;
     }
 
     if unsafe {
@@ -410,16 +452,28 @@ fn set_no_sigpipe(descriptor: libc::c_int) -> std::io::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn wait_for_connect(descriptor: libc::c_int, timeout: Duration, socket_path: &Path) -> Result<()> {
+    wait_for_connect_with_poll_checks(descriptor, timeout, socket_path, timeout, &mut || Ok(()))
+}
+
+fn wait_for_connect_with_poll_checks(
+    descriptor: libc::c_int,
+    timeout: Duration,
+    socket_path: &Path,
+    poll_interval: Duration,
+    check: &mut impl FnMut() -> Result<()>,
+) -> Result<()> {
     let deadline = Instant::now().checked_add(timeout).ok_or_else(|| {
         CmuxError::InvalidArgument("session socket connect timeout is too large".to_string())
     })?;
     loop {
+        check()?;
         let now = Instant::now();
         if now >= deadline {
             return Err(connect_timeout_error(socket_path));
         }
-        let remaining = deadline.saturating_duration_since(now);
+        let remaining = deadline.saturating_duration_since(now).min(poll_interval);
         let timeout_ms = remaining
             .as_nanos()
             .saturating_add(999_999)
@@ -430,7 +484,7 @@ fn wait_for_connect(descriptor: libc::c_int, timeout: Duration, socket_path: &Pa
             libc::pollfd { fd: descriptor, events: libc::POLLOUT, revents: 0 };
         let ready = unsafe { libc::poll(&raw mut poll_descriptor, 1, timeout_ms) };
         if ready == 0 {
-            return Err(connect_timeout_error(socket_path));
+            continue;
         }
         if ready < 0 {
             let error = std::io::Error::last_os_error();

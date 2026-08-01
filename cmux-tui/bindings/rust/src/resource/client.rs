@@ -90,18 +90,17 @@ fn connect_with_budget(
     operation: &str,
     budget: &CallBudget,
 ) -> Result<JsonLineConnection> {
-    loop {
-        let timeout = budget.receive_timeout(operation)?;
-        match JsonLineConnection::connect(
-            &config.socket_path,
-            timeout,
-            config.timeout,
-            config.max_response_bytes,
-        ) {
-            Err(Error::Timeout(_)) if budget.cancellation.is_some() => continue,
-            result => return result,
-        }
-    }
+    let timeout = budget.remaining(operation)?;
+    let poll_interval =
+        if budget.cancellation.is_some() { CANCELLATION_POLL_INTERVAL } else { timeout };
+    JsonLineConnection::connect_with_poll_checks(
+        &config.socket_path,
+        timeout,
+        config.timeout,
+        config.max_response_bytes,
+        poll_interval,
+        || budget.check(operation),
+    )
 }
 
 /// Connection and bound configuration for the resource SDK.
@@ -993,6 +992,33 @@ mod tests {
             1,
             "cancellation polling must keep one pending Unix socket instead of recreating it"
         );
+    }
+
+    #[test]
+    fn pending_connect_observes_cancellation_while_reusing_its_socket() {
+        let probe = crate::codec::ForcedPendingConnectProbe::install();
+        let cancellation = super::super::options::CancellationToken::new();
+        let cancel_from_thread = cancellation.clone();
+        let canceler = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(25));
+            cancel_from_thread.cancel();
+        });
+        let options = RequestOptions::new()
+            .with_timeout(Duration::from_secs(1))
+            .unwrap()
+            .with_cancellation(cancellation);
+        let budget = CallBudget::new(options, Duration::from_secs(1)).unwrap();
+        let config = Config::from_socket_path("cancel-pending-connect.sock");
+        let started = Instant::now();
+
+        assert!(matches!(
+            connect_with_budget(&config, ops::SESSION_LIST, &budget),
+            Err(Error::Cancelled(_))
+        ));
+        canceler.join().unwrap();
+        assert!(started.elapsed() < Duration::from_millis(250));
+        assert!(probe.polls() >= 2, "the cancellation should interrupt a pending connect");
+        assert_eq!(probe.attempts(), 1, "cancellation must close one pending Unix socket");
     }
 
     #[test]
