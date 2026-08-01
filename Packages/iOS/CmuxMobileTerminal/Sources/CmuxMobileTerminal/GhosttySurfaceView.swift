@@ -13,7 +13,7 @@ import os
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
-    /// The surface whose hidden text input is currently first responder, if any.
+    /// The surface whose terminal proxy or composer currently owns input.
     ///
     /// Tracked statically so chrome (SwiftUI overlays presented over the
     /// terminal) can dismiss the live keyboard via ``resignActiveInput()``
@@ -207,6 +207,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var visibleArtifactSnapshotGeneration: UInt64 = 0
     var visibleArtifactCountTask: Task<Void, Never>?
     var lastVisibleArtifactSnapshotText: String?
+    var lastVisibleArtifactSnapshotColumns: Int?
     var lastReportedVisibleArtifactCount = 0
 
     /// Current visible-snapshot generation used to reject stale artifact totals.
@@ -337,12 +338,35 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // here, or a large `surfaceMinXInWindow`, points at the displacement source.
         let surfaceMinXInWindow = window.map { Int(convert(bounds, to: $0).minX) } ?? -1
         let toolbarOriginX = dockedToolbar.map { Int($0.frame.minX) } ?? -1
+        let requestedInputOwner = switch inputSession.state.requestedOwner {
+        case .terminal: "terminal"
+        case .composer: "composer"
+        case nil: "none"
+        }
+        let actualInputOwner = switch inputSession.state.actualOwner {
+        case .terminal: "terminal"
+        case .composer: "composer"
+        case nil: "none"
+        }
+        let inputScene = switch inputSession.state.scenePhase {
+        case .active: "active"
+        case .inactive: "inactive"
+        }
+        let inputModal = switch inputSession.state.modalPhase {
+        case .none: "none"
+        case .willPresent: "willPresent"
+        case .presented: "presented"
+        }
         return [
             "chromeHidden=\(chromeHidden ? 1 : 0)",
             "composerActive=\(composerActive ? 1 : 0)",
             "fieldFocused=\(composerFieldIsFirstResponder ? 1 : 0)",
             "keyboardUp=\(keyboardVisible ? 1 : 0)",
             "proxyFirstResponder=\(inputProxy.isFirstResponder ? 1 : 0)",
+            "inputRequested=\(requestedInputOwner)",
+            "inputActual=\(actualInputOwner)",
+            "inputScene=\(inputScene)",
+            "inputModal=\(inputModal)",
             "bandMounted=\(composerContainer.subviews.isEmpty ? 0 : 1)",
             "toolbarVisible=\(dockedToolbar?.isHidden == false ? 1 : 0)",
             "surfaceMinXInWindow=\(surfaceMinXInWindow)",
@@ -562,9 +586,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var diagnosticLog: DiagnosticLog?
     #endif
 
+    private lazy var inputSession = TerminalInputSessionCoordinator(
+        focus: { [weak self] owner in
+            self?.performInputFocus(owner) ?? false
+        },
+        resign: { [weak self] owner in
+            self?.performInputResign(owner) ?? true
+        },
+        actualOwnerDidChange: { [weak self] owner in
+            self?.inputActualOwnerDidChange(owner)
+        }
+    )
+
     private lazy var inputProxy: TerminalInputTextView = {
         let inputProxy = TerminalInputTextView()
         inputProxy.terminalTheme = terminalTheme
+        inputProxy.onFirstResponderChanged = { [weak self] isFirstResponder in
+            self?.inputSession.send(
+                .responderChanged(owner: .terminal, isFirstResponder: isFirstResponder)
+            )
+        }
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
             self.handleUserProducedInput()
@@ -755,6 +796,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @objc private func handleAppWillResignActive() {
+        inputSession.send(.sceneWillResignActive)
         suspendRendering()
     }
 
@@ -766,6 +808,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @objc private func handleAppDidBecomeActive() {
         resumeRendering()
+        inputSession.send(.sceneDidBecomeActive)
     }
 
     @objc private func handleAppWillEnterForeground() {
@@ -1384,10 +1427,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // host animates the band height back to 0 (with the field still mounted, item
             // 3), so the band shrink reads as one motion; do NOT snap it to 0 here or that
             // pre-empts the animation.
-            if keyboardVisible, window != nil, !isDismantled, !inputProxy.isFirstResponder {
-                Self.activeInputSurface = self
-                inputProxy.updateAccessoryLayoutInsets()
-                inputProxy.becomeFirstResponder()
+            if keyboardVisible, window != nil, !isDismantled {
+                requestTerminalInputFocus()
+            } else {
+                inputSession.send(.releaseFocus)
             }
         }
         // The toolbar's visibility and reserved height do not change with the composer
@@ -1464,7 +1507,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastComposerDockIntent = intent
         #endif
         switch intent {
-        case .openComposer, .closeComposer:
+        case .openComposer:
             // Optimistically flip the local mirror to the intent's outcome BEFORE
             // the store round-trip. `composerActive` is otherwise synced back via
             // SwiftUI's `updateUIView`, which runs a render pass after the store
@@ -1473,36 +1516,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // dismiss the composer the first tap just presented. The authoritative
             // sync still arrives via `setComposerActive` (idempotent when the
             // optimistic value already matches).
-            setComposerActive(intent == .openComposer)
+            setComposerActive(true)
+            requestComposerInputFocus()
+            delegate?.ghosttySurfaceViewDidRequestComposerToggle(self)
+        case .closeComposer:
+            setComposerActive(false)
             delegate?.ghosttySurfaceViewDidRequestComposerToggle(self)
         case .revealAndFocusComposer:
             if chromeHidden {
                 setChromeHidden(false)
             }
             delegate?.ghosttySurfaceViewDidRequestComposerFocus(self)
-            focusMountedComposerField()
-        }
-    }
-
-    /// Deterministic UIKit focus for an already-mounted composer band.
-    ///
-    /// The store handshake (`composerFocusRequest`) drives the SwiftUI field's
-    /// `@FocusState`, but a programmatic `@FocusState` set inside a hosting
-    /// controller whose view is frame-mounted into the band can be dropped
-    /// (observed as a device-dependent flake: the request is consumed yet the
-    /// field never becomes first responder). After asking the host to focus,
-    /// drive the band's backing text input to first responder directly on the
-    /// next runloop hop; SwiftUI mirrors UIKit first responder back into
-    /// `@FocusState`, so the store's focus mirror stays consistent. A no-op
-    /// when the band is unmounted (the fresh-mount path focuses via the
-    /// consumed request in `onAppear`) or the field already holds focus.
-    private func focusMountedComposerField() {
-        Task { @MainActor [weak self] in
-            guard let self,
-                  self.composerActive,
-                  !self.composerFieldIsFirstResponder,
-                  let input = self.composerContainer.firstFocusableTextInputInSubtree() else { return }
-            input.becomeFirstResponder()
+            requestComposerInputFocus()
         }
     }
 
@@ -1688,6 +1713,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             view.bottomAnchor.constraint(equalTo: composerContainer.bottomAnchor),
         ])
         composerContainer.isHidden = false
+        composerContainer.layoutIfNeeded()
+        inputSession.send(.lifecycleBoundary)
     }
 
     /// Set the height (points) the open composer band reserves below the docked
@@ -1958,6 +1985,30 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             setChromeHidden(false)
         }
         let cell = scrollCell(at: gesture.location(in: self))
+        let inputPolicy = delegate?.ghosttySurfaceView(
+            self,
+            inputPolicyForTapAtCol: cell.col,
+            row: cell.row
+        ) ?? .focusImmediately
+        var deferredTapID: UInt64?
+        switch inputPolicy {
+        case .focusImmediately:
+            // Input ownership is synchronous and independent of the async Mac
+            // click. A normal terminal tap can no longer wait for a visible-text
+            // snapshot or be invalidated by another tap's click generation.
+            if wasHidden, composerActive {
+                requestComposerInputFocus()
+            } else {
+                deferredTapID = inputSession.send(
+                    .terminalTapped(.immediateInput)
+                ).deferredTapID
+            }
+        case .deferForArtifactDecision:
+            deferredTapID = inputSession.send(
+                .terminalTapped(.deferForArtifactDecision)
+            ).deferredTapID
+        }
+
         Task { @MainActor [weak self] in
             guard let self else { return }
             let disposition = await self.delegate?.ghosttySurfaceView(
@@ -1965,19 +2016,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 didTapAtCol: cell.col,
                 row: cell.row
             ) ?? .focusTerminal
-            guard disposition.shouldFocusTerminal else { return }
-
-            // A tap inside the composer band is excluded by the gesture recognizer
-            // (`gestureRecognizer(_:shouldReceive:)`), so any tap reaching here is a
-            // deliberate terminal tap. Only a reveal-from-hide with the composer still
-            // presented re-focuses the composer; every other terminal tap focuses the
-            // terminal proxy as before. Artifact taps never enter this focus path.
-            if wasHidden, self.composerActive {
-                self.delegate?.ghosttySurfaceViewDidRequestComposerFocus(self)
-                self.focusMountedComposerField()
-            } else {
-                self.focusInput()
+            guard let deferredTapID else { return }
+            let resolution: TerminalDeferredTapResolution = switch disposition {
+            case .focusTerminal: .focusTerminal
+            case .openedArtifact: .artifactHandled
+            case .ignored: .ignored
             }
+            self.inputSession.send(
+                .deferredTerminalTapResolved(id: deferredTapID, resolution: resolution)
+            )
         }
     }
 
@@ -2277,12 +2324,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         syncSurfaceVisibility()
         if window != nil {
             isDismantled = false
+            if UIApplication.shared.applicationState == .active {
+                inputSession.send(.sceneDidBecomeActive)
+            } else {
+                inputSession.send(.sceneWillResignActive)
+            }
             #if DEBUG
             debugAccessibilityProxy.isAccessibilityElement = true
             #endif
             setNeedsGeometrySync()
             setFocus(true)
-            if autoFocusOnWindowAttach {
+            if autoFocusOnWindowAttach, UIApplication.shared.applicationState == .active {
                 focusInput()
             }
             resetVisibleArtifactCountTracking()
@@ -2623,11 +2675,108 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @objc
     func focusInput() {
+        requestTerminalInputFocus()
+    }
+
+    private func requestTerminalInputFocus() {
         onFocusInputRequestedForTesting?()
-        Self.activeInputSurface = self
-        setNeedsGeometrySync()
-        inputProxy.updateAccessoryLayoutInsets()
-        inputProxy.becomeFirstResponder()
+        synchronizeActualInputOwner()
+        inputSession.send(.requestFocus(.terminal))
+    }
+
+    /// Requests the hosted composer through the same responder owner as terminal taps.
+    public func requestComposerInputFocus() {
+        synchronizeActualInputOwner()
+        inputSession.send(.requestFocus(.composer))
+    }
+
+    /// Mirrors the SwiftUI field's user-driven responder changes into the owner.
+    public func composerInputFocusChanged(_ isFirstResponder: Bool) {
+        inputSession.send(
+            .responderChanged(owner: .composer, isFirstResponder: isFirstResponder)
+        )
+    }
+
+    /// Clears current intent and resigns before the Photos picker starts presenting.
+    public func photoPickerWillPresent() {
+        synchronizeActualInputOwner()
+        inputSession.send(.modalWillPresent)
+    }
+
+    /// Records the PhotosPicker binding's presented edge.
+    public func photoPickerDidPresent() {
+        inputSession.send(.modalDidPresent)
+    }
+
+    /// Reconciles any focus request retained while the picker was on screen.
+    public func photoPickerDidDismiss() {
+        inputSession.send(.modalDidDismiss)
+    }
+
+    private func performInputFocus(_ owner: TerminalInputOwner) -> Bool {
+        guard window != nil,
+              !isDismantled,
+              UIApplication.shared.applicationState == .active else {
+            return false
+        }
+
+        switch owner {
+        case .terminal:
+            setNeedsGeometrySync()
+            inputProxy.updateAccessoryLayoutInsets()
+            return inputProxy.isFirstResponder || inputProxy.becomeFirstResponder()
+        case .composer:
+            guard composerActive else { return false }
+            composerContainer.layoutIfNeeded()
+            guard let input = composerContainer.firstFocusableTextInputInSubtree() else {
+                return false
+            }
+            return input.isFirstResponder || input.becomeFirstResponder()
+        }
+    }
+
+    private func performInputResign(_ owner: TerminalInputOwner) -> Bool {
+        let responder: UIView?
+        switch owner {
+        case .terminal:
+            responder = inputProxy.isFirstResponder ? inputProxy : nil
+        case .composer:
+            responder = composerContainer.firstResponderInSubtree()
+        }
+        guard let responder else { return true }
+        return responder.resignFirstResponder() || !responder.isFirstResponder
+    }
+
+    private func inputActualOwnerDidChange(_ owner: TerminalInputOwner?) {
+        if owner != nil {
+            Self.activeInputSurface = self
+        } else if Self.activeInputSurface === self {
+            Self.activeInputSurface = nil
+        }
+    }
+
+    private func synchronizeActualInputOwner() {
+        let observedOwner: TerminalInputOwner?
+        if inputProxy.isFirstResponder {
+            observedOwner = .terminal
+        } else if composerContainer.firstResponderInSubtree() != nil {
+            observedOwner = .composer
+        } else {
+            observedOwner = nil
+        }
+
+        if let actualOwner = inputSession.state.actualOwner,
+           actualOwner != observedOwner {
+            inputSession.send(
+                .responderChanged(owner: actualOwner, isFirstResponder: false)
+            )
+        }
+        if let observedOwner,
+           inputSession.state.actualOwner != observedOwner {
+            inputSession.send(
+                .responderChanged(owner: observedOwner, isFirstResponder: true)
+            )
+        }
     }
 
     /// Resigns the currently focused terminal input proxy, if any.
@@ -2636,7 +2785,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the hidden text input and the terminal can recalculate full-height
     /// geometry after the keyboard leaves.
     public static func resignActiveInput() {
-        activeInputSurface?.resignInput()
+        activeInputSurface?.resignCurrentInput()
     }
 
     /// Resigns whichever input currently owns this surface's software keyboard.
@@ -2647,23 +2796,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// first responder, and a later terminal tap cannot trigger another focus
     /// transition because the proxy already reports itself focused.
     public func resignCurrentInput() {
-        if inputProxy.isFirstResponder {
-            resignInput()
-            return
-        }
-
-        composerContainer.endEditing(true)
-        if Self.activeInputSurface === self {
-            Self.activeInputSurface = nil
+        synchronizeActualInputOwner()
+        inputSession.send(.releaseFocus)
+        if inputSession.state.actualOwner == nil {
+            inputActualOwnerDidChange(nil)
         }
     }
 
     /// Resigns this surface's hidden text input and clears keyboard geometry.
     public func resignInput() {
-        inputProxy.resignFirstResponder()
-        if Self.activeInputSurface === self {
-            Self.activeInputSurface = nil
-        }
+        resignCurrentInput()
         // Don't zero `keyboardHeight` here. `resignFirstResponder()` triggers
         // `keyboardWillHide`, which owns the full hide cleanup (proxy state,
         // docked-toolbar animation, geometry). Pre-zeroing would make that
@@ -2695,6 +2837,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         visibleArtifactCountSettleFrames = nil
         visibleArtifactSnapshotGeneration &+= 1
         lastVisibleArtifactSnapshotText = nil
+        lastVisibleArtifactSnapshotColumns = nil
         lastReportedVisibleArtifactCount = 0
         delegate?.ghosttySurfaceViewDidResetArtifactCount(self)
         artifactChipHost.setContent(nil)
@@ -2707,7 +2850,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlight = false
         renderInFlightSince = nil
         needsAnotherRender = false
-        resignInput()
+        inputSession.send(.sceneWillResignActive)
         stopKeyboardHeightAnimation()
         stopDisplayLink()
         setFocus(false)

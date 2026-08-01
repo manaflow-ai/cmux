@@ -63,6 +63,18 @@ extension GhosttySurfaceView {
         return await visibleTextSnapshot(surface: surface, generation: generation)
     }
 
+    /// Last settled visible snapshot for synchronous tap policy only.
+    ///
+    /// A missing cache is deliberately not refreshed here: ordinary taps must
+    /// focus immediately instead of waiting for the asynchronous Ghostty read.
+    public func cachedVisibleTextForArtifactHitTesting() -> (text: String, columns: Int)? {
+        guard let text = lastVisibleArtifactSnapshotText,
+              let columns = lastVisibleArtifactSnapshotColumns else {
+            return nil
+        }
+        return (text, columns)
+    }
+
     /// Re-arms one visible-frame artifact count after the terminal settles.
     ///
     /// This is internal so the local scrollback extension can use the same
@@ -84,6 +96,7 @@ extension GhosttySurfaceView {
         visibleArtifactCountTask = nil
         visibleArtifactCountSettleFrames = artifactFilesEnabled && !isDismantled ? 0 : nil
         lastVisibleArtifactSnapshotText = nil
+        lastVisibleArtifactSnapshotColumns = nil
         lastReportedVisibleArtifactCount = 0
         delegate?.ghosttySurfaceViewDidResetArtifactCount(self)
     }
@@ -121,11 +134,13 @@ extension GhosttySurfaceView {
                   let snapshot = await self.visibleTextForArtifactHitTesting(),
                   !Task.isCancelled,
                   self.artifactFilesEnabled,
-                  self.visibleArtifactSnapshotGeneration == generation,
-                  snapshot.text != self.lastVisibleArtifactSnapshotText else {
+                  self.visibleArtifactSnapshotGeneration == generation else {
                 return
             }
+            guard snapshot.text != self.lastVisibleArtifactSnapshotText
+                    || snapshot.columns != self.lastVisibleArtifactSnapshotColumns else { return }
             self.lastVisibleArtifactSnapshotText = snapshot.text
+            self.lastVisibleArtifactSnapshotColumns = snapshot.columns
             let count = TerminalArtifactPathDetector().paths(in: snapshot.text).count
             self.delegate?.ghosttySurfaceView(
                 self,

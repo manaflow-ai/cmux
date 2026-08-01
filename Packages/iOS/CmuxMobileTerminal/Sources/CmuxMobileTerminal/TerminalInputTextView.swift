@@ -35,6 +35,7 @@ import UIKit
 /// be enabled: they require the field to retain the in-progress word, which is
 /// incompatible with forwarding every keystroke to a remote terminal.
 final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
+    var onFirstResponderChanged: ((Bool) -> Void)?
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
     var onEscapeSequence: ((Data) -> Void)?
@@ -126,6 +127,24 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     lazy var tokenizer: any UITextInputTokenizer = UITextInputStringTokenizer(textInput: self)
 
     override var canBecomeFirstResponder: Bool { true }
+
+    override func becomeFirstResponder() -> Bool {
+        let wasFirstResponder = isFirstResponder
+        let succeeded = super.becomeFirstResponder()
+        if succeeded, !wasFirstResponder, isFirstResponder {
+            onFirstResponderChanged?(true)
+        }
+        return succeeded
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let wasFirstResponder = isFirstResponder
+        let succeeded = super.resignFirstResponder()
+        if succeeded, wasFirstResponder, !isFirstResponder {
+            onFirstResponderChanged?(false)
+        }
+        return succeeded
+    }
 
     /// Conforming to ``UITextInput`` would otherwise make this an accessibility
     /// element, which would shadow the real terminal surface's accessibility
