@@ -195,8 +195,8 @@ struct SimulatorUIAutomationSnapshotBuilder {
         guard !text.isEmpty else { return nil }
         if text.contains("application") { return .application }
         if text.contains("window") { return .window }
-        if text.contains("button") { return .button }
         if text.contains("keyboard") || text.contains("key") { return .keyboardKey }
+        if text.contains("button") { return .button }
         if text.contains("textfield") || text.contains("text field")
             || text.contains("searchfield") || text.contains("search field")
             || text.contains("securetext") || text.contains("textarea")
