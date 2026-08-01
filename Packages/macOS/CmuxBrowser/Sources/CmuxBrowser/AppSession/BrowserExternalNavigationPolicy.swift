@@ -16,7 +16,7 @@ public struct BrowserExternalNavigationPolicy: Equatable, Sendable {
         sourceURL: URL?
     ) -> Bool {
         guard let sourceURL,
-              BrowserAppWebOrigin(trustedOrigin).containsAppSurface(sourceURL),
+              BrowserAppWebOrigin(trustedOrigin).contains(sourceURL),
               isSafeWebDestination(url),
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.queryItems?.contains(where: {

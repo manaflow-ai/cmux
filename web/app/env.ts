@@ -66,6 +66,18 @@ const requireVercelRelayValue = (
       });
     }
   });
+const retiredEnvValue = (
+  name: string,
+  replacement: string,
+): z.ZodType<string | undefined> =>
+  z.string().optional().superRefine((value, context) => {
+    if (value) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${name} is retired; use ${replacement}`,
+      });
+    }
+  });
 const privateRelayEnvNames = new Set([
   "CMUX_RELAY_JWT_PRIVATE_KEY_PEM",
   "CMUX_RELAY_POLICY_KEY_ID",
@@ -175,6 +187,10 @@ export const env = createEnv({
     STRIPE_PRO_MONTHLY_PRICE_ID: z.string().min(1).optional(),
     // Deliberately distinct from the legacy STRIPE_PRO_YEARLY_PRICE_ID,
     // which can refer to the grandfathered $240/year price.
+    STRIPE_PRO_YEARLY_PRICE_ID: retiredEnvValue(
+      "STRIPE_PRO_YEARLY_PRICE_ID",
+      "STRIPE_PRO_YEARLY_288_PRICE_ID",
+    ),
     STRIPE_PRO_YEARLY_288_PRICE_ID: z.string().min(1).optional(),
     STRIPE_TEAM_MONTHLY_PRICE_ID: z.string().min(1).optional(),
     STRIPE_TEAM_YEARLY_PRICE_ID: z.string().min(1).optional(),
@@ -310,6 +326,7 @@ export const env = createEnv({
     STRIPE_SECRET_KEY: trimEnv(process.env.STRIPE_SECRET_KEY),
     STRIPE_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_WEBHOOK_SECRET),
     STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),
+    STRIPE_PRO_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_PRICE_ID),
     STRIPE_PRO_YEARLY_288_PRICE_ID: trimEnv(
       process.env.STRIPE_PRO_YEARLY_288_PRICE_ID,
     ),

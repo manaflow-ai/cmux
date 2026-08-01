@@ -103,18 +103,16 @@ ensure_product() {
   local plan="$2"
   local response product_json product_id starting_after
   local -a matching_product_ids=()
-  local -a page_args=()
+  local -a page_args=(--data-urlencode "limit=100")
 
   starting_after=""
   while :; do
-    page_args=()
+    page_args=(--data-urlencode "limit=100")
     if [[ -n "$starting_after" ]]; then
       page_args+=(--data-urlencode "starting_after=${starting_after}")
     fi
     response="$(
-      stripe_get "/products" \
-        --data-urlencode "limit=100" \
-        "${page_args[@]}"
+      stripe_get "/products" "${page_args[@]}"
     )"
     while IFS= read -r product_json; do
       if product_matches_catalog_identity "$product_json" "$name" "$plan"; then
@@ -243,15 +241,14 @@ ensure_price "$team_product_id" "cmux-team-yearly-336" "33600" "year" "cmux Team
 if [[ "$MODE" == "live" ]]; then
   webhook_ids=""
   starting_after=""
+  webhook_page_args=(--data-urlencode "limit=100")
   while :; do
-    webhook_page_args=()
+    webhook_page_args=(--data-urlencode "limit=100")
     if [[ -n "$starting_after" ]]; then
       webhook_page_args+=(--data-urlencode "starting_after=${starting_after}")
     fi
     webhooks_response="$(
-      stripe_get "/webhook_endpoints" \
-        --data-urlencode "limit=100" \
-        "${webhook_page_args[@]}"
+      stripe_get "/webhook_endpoints" "${webhook_page_args[@]}"
     )"
     page_webhook_ids="$(
       jq -r --arg url "$WEBHOOK_URL" '
