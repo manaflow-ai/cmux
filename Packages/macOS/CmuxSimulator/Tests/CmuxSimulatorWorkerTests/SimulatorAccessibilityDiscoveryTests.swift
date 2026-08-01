@@ -62,6 +62,42 @@ struct SimulatorAccessibilityDiscoveryTests {
         #expect(bounded.count == SimulatorAccessibilityBridge.maximumTextUTF8ByteCount / 4)
     }
 
+    @Test("Truncated accessibility identifiers carry explicit metadata")
+    func truncatedAccessibilityIdentifiersAreMarked() throws {
+        let element = NSAccessibilityElement()
+        let identifier = String(
+            repeating: "identifier ",
+            count: SimulatorAccessibilityBridge.maximumTextUTF8ByteCount
+        )
+        element.setAccessibilityFrame(NSRect(x: 0, y: 0, width: 100, height: 44))
+        element.setAccessibilityRole(.textField)
+        element.setAccessibilityIdentifier(identifier)
+        let bridge = SimulatorAccessibilityBridge()
+        var remaining = 1
+        var visited: Set<ObjectIdentifier> = []
+        var coverage = SimulatorAccessibilityCoverage()
+        var traversalTruncated = false
+
+        let node = try #require(bridge.serialize(
+            element,
+            path: "0",
+            token: "",
+            depth: 0,
+            remaining: &remaining,
+            visited: &visited,
+            coverage: &coverage,
+            traversalTruncated: &traversalTruncated
+        ))
+        let encoded = try JSONEncoder().encode(node)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+
+        #expect(object["isIdentifierTruncated"] as? Bool == true)
+        #expect(node.id == "0")
+        #expect(node.identifier != identifier)
+    }
+
     @Test("Grid covers the full display while respecting its hard point cap")
     func boundedFullDisplayGrid() throws {
         let bounds = NSRect(x: 120, y: 40, width: 1_366, height: 1_024)

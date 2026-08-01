@@ -247,6 +247,92 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect(!record.snapshot.actions.contains { $0.action == .typeText })
     }
 
+    @Test("Accessibility identifiers remain byte-for-byte exact")
+    func identifiersRemainExact() throws {
+        let identifier = " checkout  submit "
+        let source = SimulatorAccessibilitySnapshot(
+            roots: [node(
+                id: "0",
+                role: "Application",
+                label: "Example",
+                frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                children: [node(
+                    id: "0.0",
+                    identifier: identifier,
+                    role: "AXTextField",
+                    label: "Checkout",
+                    frame: SimulatorRect(x: 20, y: 100, width: 200, height: 44)
+                )]
+            )],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+        let record = try source.uiAutomationRecord(
+            simulatorID: "SIM-1",
+            sequence: 1,
+            capturedAtMilliseconds: 1_000
+        )
+        let textField = try #require(record.snapshot.elements.first {
+            $0.role == .textField
+        })
+
+        #expect(textField.identifier == identifier)
+        #expect(record.stableInputSelector(for: textField.ref)?.identifier == identifier)
+        #expect(record.matching(SimulatorUIAutomationSelector(
+            identifier: identifier
+        )).map(\.ref) == [textField.ref])
+    }
+
+    @Test("Truncated identifiers cannot become exact selectors")
+    func truncatedIdentifiersAreNotSelectors() throws {
+        let identifier = String(repeating: "a", count: 512)
+        let flaggedNode = try nodeMarkedWithTruncatedIdentifier(
+            node(
+                id: identifier,
+                identifier: identifier,
+                role: "AXTextField",
+                label: "Name",
+                frame: SimulatorRect(x: 20, y: 100, width: 200, height: 44)
+            )
+        )
+        let source = SimulatorAccessibilitySnapshot(
+            roots: [node(
+                id: "0",
+                role: "Application",
+                label: "Example",
+                frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                children: [flaggedNode]
+            )],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+        let record = try source.uiAutomationRecord(
+            simulatorID: "SIM-1",
+            sequence: 1,
+            capturedAtMilliseconds: 1_000
+        )
+        let textField = try #require(record.snapshot.elements.first {
+            $0.role == .textField
+        })
+
+        #expect(textField.identifier == nil)
+        #expect(!textField.actions.contains(.typeText))
+        #expect(record.stableInputSelector(for: textField.ref) == nil)
+        #expect(record.accessibilityInteractionTargets(
+            label: nil,
+            identifier: identifier,
+            role: nil
+        ).isEmpty)
+    }
+
     @Test("Truncated snapshots never advertise selector-dependent typing")
     func typeTextRequiresCompleteSnapshot() throws {
         let complete = snapshot()
@@ -683,6 +769,20 @@ struct SimulatorUIAutomationSnapshotTests {
             isEnabled: enabled,
             isFocused: focused,
             children: children
+        )
+    }
+
+    private func nodeMarkedWithTruncatedIdentifier(
+        _ node: SimulatorAccessibilityNode
+    ) throws -> SimulatorAccessibilityNode {
+        let data = try JSONEncoder().encode(node)
+        var object = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        object["isIdentifierTruncated"] = true
+        return try JSONDecoder().decode(
+            SimulatorAccessibilityNode.self,
+            from: JSONSerialization.data(withJSONObject: object)
         )
     }
 }
