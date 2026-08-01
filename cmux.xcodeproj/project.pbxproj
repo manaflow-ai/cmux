@@ -1326,9 +1326,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		5732A0035732A0035732A003 /* MinimalModeTitlebarEventSurfaceLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0035732B0035732B003 /* MinimalModeTitlebarEventSurfaceLayer.swift */; };
 		A7C0F0030000000000000001 /* MobileAttachTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0F0030000000000000002 /* MobileAttachTarget.swift */; };
 		284FD21ACF8BD1ED6AEBD7A0 /* MobileAttachTicketStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */; };
-		C0DEA7710000000000000009 /* MobileConnectTitlebarAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000A /* MobileConnectTitlebarAccessory.swift */; };
-		D7F0C0010000000000000002 /* MobileFocusObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7F0C0010000000000000001 /* MobileFocusObserver.swift */; };
-		D7F0C0010000000000000004 /* MobileFocusSnapshotPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7F0C0010000000000000003 /* MobileFocusSnapshotPayload.swift */; };
 		F21000000000000000000004 /* MobileBrowserContinuousClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000004 /* MobileBrowserContinuousClock.swift */; };
 		F21000000000000000000010 /* MobileBrowserDialogBroker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000010 /* MobileBrowserDialogBroker.swift */; };
 		F21000000000000000000002 /* MobileBrowserDirtyMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000002 /* MobileBrowserDirtyMessageHandler.swift */; };
@@ -1342,6 +1339,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F2100000000000000000000B /* MobileBrowserStreamCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000B /* MobileBrowserStreamCoordinator.swift */; };
 		F2100000000000000000000C /* MobileBrowserStreamSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000C /* MobileBrowserStreamSession.swift */; };
 		F2100000000000000000000D /* MobileBrowserWireEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000D /* MobileBrowserWireEncoder.swift */; };
+		D7F0C0010000000000000002 /* MobileFocusObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7F0C0010000000000000001 /* MobileFocusObserver.swift */; };
+		D7F0C0010000000000000004 /* MobileFocusSnapshotPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7F0C0010000000000000003 /* MobileFocusSnapshotPayload.swift */; };
 		C1A070000000000000000001 /* MobileHostAuthorizationSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000011 /* MobileHostAuthorizationSupport.swift */; };
 		6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */; };
 		C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */; };
@@ -3918,9 +3917,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		5732B0035732B0035732B003 /* MinimalModeTitlebarEventSurfaceLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinimalModeTitlebarEventSurfaceLayer.swift; sourceTree = "<group>"; };
 		A7C0F0030000000000000002 /* MobileAttachTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAttachTarget.swift; sourceTree = "<group>"; };
 		8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileAttachTicketStore.swift; sourceTree = "<group>"; };
-		C0DEA771000000000000000A /* MobileConnectTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileConnectTitlebarAccessory.swift; sourceTree = "<group>"; };
-		D7F0C0010000000000000001 /* MobileFocusObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileFocusObserver.swift; sourceTree = "<group>"; };
-		D7F0C0010000000000000003 /* MobileFocusSnapshotPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileFocusSnapshotPayload.swift; sourceTree = "<group>"; };
 		F11000000000000000000004 /* MobileBrowserContinuousClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserContinuousClock.swift; sourceTree = "<group>"; };
 		F11000000000000000000010 /* MobileBrowserDialogBroker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserDialogBroker.swift; sourceTree = "<group>"; };
 		F11000000000000000000002 /* MobileBrowserDirtyMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MobileBrowserDirtyMessageHandler.swift; sourceTree = "<group>"; };
@@ -3934,6 +3930,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F1100000000000000000000B /* MobileBrowserStreamCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserStreamCoordinator.swift; sourceTree = "<group>"; };
 		F1100000000000000000000C /* MobileBrowserStreamSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserStreamSession.swift; sourceTree = "<group>"; };
 		F1100000000000000000000D /* MobileBrowserWireEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserWireEncoder.swift; sourceTree = "<group>"; };
+		D7F0C0010000000000000001 /* MobileFocusObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileFocusObserver.swift; sourceTree = "<group>"; };
+		D7F0C0010000000000000003 /* MobileFocusSnapshotPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileFocusSnapshotPayload.swift; sourceTree = "<group>"; };
 		C1A070000000000000000011 /* MobileHostAuthorizationSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostAuthorizationSupport.swift; sourceTree = "<group>"; };
 		9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostAuthorizationTests.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostBuildIdentity.swift; sourceTree = "<group>"; };
@@ -9150,9 +9148,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					5732A0035732A0035732A003 /* MinimalModeTitlebarEventSurfaceLayer.swift in Sources */,
 				A7C0F0030000000000000001 /* MobileAttachTarget.swift in Sources */,
 				284FD21ACF8BD1ED6AEBD7A0 /* MobileAttachTicketStore.swift in Sources */,
-				C0DEA7710000000000000009 /* MobileConnectTitlebarAccessory.swift in Sources */,
-				D7F0C0010000000000000002 /* MobileFocusObserver.swift in Sources */,
-				D7F0C0010000000000000004 /* MobileFocusSnapshotPayload.swift in Sources */,
 				F21000000000000000000004 /* MobileBrowserContinuousClock.swift in Sources */,
 				F21000000000000000000010 /* MobileBrowserDialogBroker.swift in Sources */,
 				F21000000000000000000002 /* MobileBrowserDirtyMessageHandler.swift in Sources */,
@@ -9166,6 +9161,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F2100000000000000000000B /* MobileBrowserStreamCoordinator.swift in Sources */,
 				F2100000000000000000000C /* MobileBrowserStreamSession.swift in Sources */,
 				F2100000000000000000000D /* MobileBrowserWireEncoder.swift in Sources */,
+				D7F0C0010000000000000002 /* MobileFocusObserver.swift in Sources */,
+				D7F0C0010000000000000004 /* MobileFocusSnapshotPayload.swift in Sources */,
 				C1A070000000000000000001 /* MobileHostAuthorizationSupport.swift in Sources */,
 				C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */,
 				3193896015BA410783C141A6 /* MobileHostConnectionEventQueue.swift in Sources */,
