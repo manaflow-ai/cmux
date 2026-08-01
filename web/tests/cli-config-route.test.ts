@@ -14,7 +14,7 @@ describe("CLI config route", () => {
         confirmUrl: "https://cmux.com/handler/cli-auth-confirm",
       },
       subrouter: {
-        url: "https://sr.cmux.dev",
+        url: "https://sr.cmux.com",
       },
     });
   });
