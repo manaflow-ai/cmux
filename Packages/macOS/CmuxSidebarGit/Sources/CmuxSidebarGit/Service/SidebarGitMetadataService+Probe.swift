@@ -238,7 +238,9 @@ extension SidebarGitMetadataService {
             )
             return
         }
+        let pullRequestActivity = host?.pullRequestActivity ?? .disabled
         let shouldTrackPullRequests = sidebarPullRequestPollingEnabled
+        let shouldDiscardPullRequestProjection = !pullRequestActivity.acceptsPassiveReports
         let resolvedPullRequest: SidebarPullRequestBadge? = {
             guard shouldTrackPullRequests else { return nil }
             guard case .resolved(let pullRequest) = snapshot.pullRequest else { return nil }
@@ -405,27 +407,18 @@ extension SidebarGitMetadataService {
                     panelId: probeKey.panelId,
                     badge: nextBadge
                 )
-            } else if host.panelPullRequestBadge(
-                workspaceId: probeKey.workspaceId,
-                panelId: probeKey.panelId
-            ) != nil {
+            } else if shouldDiscardPullRequestProjection, previousPullRequestBadge != nil {
                 didApplyMaterialSidebarGitChange = true
                 host.clearPanelPullRequest(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
             }
         case .notFound:
-            if host.panelPullRequestBadge(
-                workspaceId: probeKey.workspaceId,
-                panelId: probeKey.panelId
-            ) != nil {
+            if (shouldTrackPullRequests || shouldDiscardPullRequestProjection),
+               previousPullRequestBadge != nil {
                 didApplyMaterialSidebarGitChange = true
                 host.clearPanelPullRequest(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
             }
         case .deferred, .unsupportedRepository, .transientFailure:
-            if !shouldTrackPullRequests,
-               host.panelPullRequestBadge(
-                   workspaceId: probeKey.workspaceId,
-                   panelId: probeKey.panelId
-               ) != nil {
+            if shouldDiscardPullRequestProjection, previousPullRequestBadge != nil {
                 didApplyMaterialSidebarGitChange = true
                 host.clearPanelPullRequest(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
             }
