@@ -33,7 +33,7 @@ import Testing
     let clock = TestClock()
     let router = LivenessHostRouter()
     let box = TransportBox()
-    await router.setHoldSubscribe(true)
+    await router.delaySubscribeRequest(number: 1)
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     defer {
         Task { await router.releaseAllHeld() }
@@ -76,6 +76,65 @@ import Testing
 
     await router.releaseAllHeld()
     collector.unmount()
+}
+
+@MainActor
+@Test func connectionHealthWaitsForSuccessfulEventSubscription() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.delaySubscribeRequest(number: 1)
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+    #expect(store.connectionState == .connected)
+    #expect(
+        store.macConnectionStatus == .reconnecting,
+        "RPC readiness alone must not publish a healthy connection"
+    )
+
+    await router.releaseAllHeld()
+    #expect(try await pollUntil(attempts: 1_000) {
+        store.macConnectionStatus == .connected
+    })
+}
+
+@MainActor
+@Test func replacementListenerMustEarnConnectionHealthAgain() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+    // Health publishes only once the first listener's acknowledgement is
+    // processed; wait for it so the replacement below demonstrably revokes
+    // an earned healthy status rather than a still-pending one.
+    #expect(try await pollUntil(attempts: 1_000) {
+        store.macConnectionStatus == .connected
+    })
+
+    await router.delaySubscribeRequest(number: 2)
+    store.resyncTerminalOutput(
+        reason: "test.listenerReplacement",
+        restartEventStream: true
+    )
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
+    #expect(
+        store.macConnectionStatus == .reconnecting,
+        "a prior listener acknowledgement must not validate its replacement"
+    )
+
+    await router.releaseAllHeld()
+    #expect(try await pollUntil(attempts: 1_000) {
+        store.macConnectionStatus == .connected
+    })
 }
 
 @MainActor

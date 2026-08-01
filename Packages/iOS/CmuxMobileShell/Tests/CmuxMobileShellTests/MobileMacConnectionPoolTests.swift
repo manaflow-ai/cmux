@@ -4844,8 +4844,11 @@ import Testing
             of: "workspace.list",
             atLeast: initialWorkspaceRequests + 1
         ))
+        // The held close gate is what proves the redial does not wait for the
+        // physical close: waiting would hang past ANY deadline. The deadline
+        // only bounds promptness, so keep it wide enough for loaded CI hosts.
         let completion = await MobileShellComposite.raceAgainstDeadline(
-            nanoseconds: 200_000_000
+            nanoseconds: 2_000_000_000
         ) {
             do {
                 _ = try await redial.value

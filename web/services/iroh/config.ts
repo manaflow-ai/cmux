@@ -40,4 +40,3 @@ export const IrohTrustBrokerConfigLive = Layer.succeed(
   IrohTrustBrokerConfig,
   irohTrustBrokerConfigFromEnv(),
 );
-

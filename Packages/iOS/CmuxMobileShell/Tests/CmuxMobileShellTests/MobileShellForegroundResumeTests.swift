@@ -127,7 +127,9 @@ struct MobileShellForegroundConnectionRecoveryTests {
         store.connectionRecoveryOwner.phase == .idle
     })
     #expect(store.connectionState == .connected)
-    #expect(store.macConnectionStatus == .connected)
+    #expect(try await pollUntil(attempts: 1_000) {
+        store.macConnectionStatus == .connected
+    })
 }
 
 @MainActor

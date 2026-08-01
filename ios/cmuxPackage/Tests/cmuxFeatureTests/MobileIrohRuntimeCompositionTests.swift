@@ -132,7 +132,7 @@ struct MobileIrohRuntimeCompositionTests {
 
     @Test
     func connectionReadinessIgnoresSupersededLifecycleCompletion() async {
-        let readiness = MobileIrohConnectionReadinessSignal()
+        let readiness = MobileIrohConnectionReadinessOwner()
         readiness.begin(revision: 1)
         readiness.begin(revision: 2)
 
@@ -141,7 +141,140 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(readiness.complete(revision: 2))
         #expect(readiness.isPending == false)
 
-        await readiness.wait()
+        #expect(
+            await readiness.wait(
+                now: { Date(timeIntervalSince1970: 0) }
+            ) == .ready
+        )
+    }
+
+    @Test
+    func connectionReadinessIgnoresStaleLifecycleBegin() {
+        let readiness = MobileIrohConnectionReadinessOwner()
+        readiness.begin(revision: 2)
+        readiness.begin(revision: 1)
+
+        #expect(readiness.complete(revision: 2))
+        #expect(readiness.isPending == false)
+    }
+
+    @Test
+    func newerLifecycleCompletionRetiresAbandonedReadiness() async {
+        let readiness = MobileIrohConnectionReadinessOwner()
+        readiness.begin(revision: 1)
+
+        #expect(readiness.complete(revision: 2, outcome: .inactive))
+        #expect(readiness.isPending == false)
+        #expect(
+            await readiness.wait(
+                now: { Date(timeIntervalSince1970: 0) }
+            ) == .inactive
+        )
+    }
+
+    @Test
+    func cancelledConnectionReadinessWaiterDoesNotSettleReadiness() async {
+        let readiness = MobileIrohConnectionReadinessOwner()
+        readiness.begin(revision: 1)
+
+        let waiter = Task { @MainActor in
+            await readiness.wait(now: { Date(timeIntervalSince1970: 0) })
+        }
+        for _ in 0 ..< 20 where readiness.pendingWaiterCount == 0 {
+            await Task.yield()
+        }
+        #expect(readiness.pendingWaiterCount == 1)
+
+        waiter.cancel()
+        for _ in 0 ..< 20 where readiness.pendingWaiterCount != 0 {
+            await Task.yield()
+        }
+
+        #expect(readiness.pendingWaiterCount == 0)
+        #expect(readiness.isPending)
+        #expect(readiness.complete(revision: 1, outcome: .ready))
+        #expect(await waiter.value == .inactive)
+        #expect(
+            await readiness.wait(
+                now: { Date(timeIntervalSince1970: 0) }
+            ) == .ready
+        )
+    }
+
+    @Test
+    func retryDurationUsesClockAfterPendingActivationSettles() async throws {
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        let settledAt = startedAt.addingTimeInterval(10)
+        let readiness = MobileIrohConnectionReadinessOwner(
+            retryBackoff: CmxIrohReconnectBackoff(
+                configuration: CmxIrohReconnectBackoffConfiguration(
+                    floor: 30,
+                    cap: 30,
+                    multiplier: 1
+                ),
+                seed: 0
+            )
+        )
+        let clock = MobileIrohReadinessTestClock(startedAt)
+        readiness.begin(revision: 1)
+
+        async let outcome = readiness.wait(now: { clock.read() })
+        await Task.yield()
+        #expect(clock.readCount == 0)
+        clock.set(settledAt)
+        let scheduled = try #require(readiness.completeFailure(
+            revision: 1,
+            accountID: "account-a",
+            error: MobileIrohSignOutTestError.unavailable,
+            retryAfterSeconds: nil,
+            now: settledAt
+        ))
+        let settledOutcome = await outcome
+
+        #expect(scheduled.failure.retryAfterSeconds == 30)
+        #expect(scheduled.delay == 30)
+        #expect(clock.readCount == 1)
+        #expect(
+            settledOutcome == .failed(MobileIrohRuntimePreparationError(
+                diagnosticFailureKind: .unknown,
+                retryAfterSeconds: 30
+            ))
+        )
+    }
+
+    @Test
+    func finishingPendingReadinessRevisionPreservesRetryGate() async throws {
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        let readiness = MobileIrohConnectionReadinessOwner(
+            retryBackoff: CmxIrohReconnectBackoff(
+                configuration: CmxIrohReconnectBackoffConfiguration(
+                    floor: 30,
+                    cap: 30,
+                    multiplier: 1
+                ),
+                seed: 0
+            )
+        )
+        readiness.begin(revision: 1)
+        _ = try #require(readiness.completeFailure(
+            revision: 1,
+            accountID: "account-a",
+            error: MobileIrohSignOutTestError.unavailable,
+            retryAfterSeconds: nil,
+            now: startedAt
+        ))
+
+        readiness.begin(revision: 2)
+        #expect(readiness.finishPendingRevision(revision: 2))
+
+        #expect(
+            await readiness.wait(
+                now: { startedAt.addingTimeInterval(10) }
+            ) == .failed(MobileIrohRuntimePreparationError(
+                diagnosticFailureKind: .unknown,
+                retryAfterSeconds: 20
+            ))
+        )
     }
 
     @Test
@@ -911,7 +1044,7 @@ struct MobileIrohRuntimeCompositionTests {
         await fixture.outboxStore.setWriteMode(.normal)
         await fixture.authClient.setUser(fixture.user)
         try await fixture.auth.signInWithPassword(email: "a@example.com", password: "pw")
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
+        await #expect(throws: MobileIrohRuntimePreparationError.self) {
             _ = try await fixture.composition.transport(for: fixture.request)
         }
 
@@ -1086,6 +1219,25 @@ struct MobileIrohRuntimeCompositionTests {
         await #expect(throws: AuthError.networkError) {
             _ = try await source.credentialPair()
         }
+    }
+}
+
+@MainActor
+private final class MobileIrohReadinessTestClock {
+    private var date: Date
+    private(set) var readCount = 0
+
+    init(_ date: Date) {
+        self.date = date
+    }
+
+    func read() -> Date {
+        readCount += 1
+        return date
+    }
+
+    func set(_ date: Date) {
+        self.date = date
     }
 }
 
@@ -1393,7 +1545,7 @@ private struct MobileIrohSignOutFixture {
             expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174074",
             authorizationMode: .transportAdmission
         )
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
+        await #expect(throws: MobileIrohRuntimePreparationError.self) {
             _ = try await composition.transport(for: request)
         }
         let initialBindCount = await endpointFactory.bindCount()
