@@ -562,6 +562,58 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testHiddenComputersForgetSwipeConfirmsWithoutRemovingRow() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let rowID = "preview-mac-1"
+        let row = app.staticTexts["Preview Mac"]
+        XCTAssertTrue(row.waitForExistence(timeout: 8))
+
+        row.swipeLeft()
+        let forgetSwipeAction = app.buttons["MobileComputerForgetSwipeButton-\(rowID)"]
+        XCTAssertTrue(forgetSwipeAction.waitForExistence(timeout: 3))
+        forgetSwipeAction.tap()
+
+        // The Forget tap is confirm-first: it must only present the dialog. A
+        // destructive-role swipe button here makes SwiftUI batch-delete the row
+        // while the model still contains it, which aborts in UIKit's
+        // item-count assertion (TestFlight crash on build 20260731052644) or
+        // ghosts the row out of the list on runtimes that tolerate it.
+        XCTAssertEqual(
+            app.state, .runningForeground,
+            "Tapping Forget must not crash the app."
+        )
+        let confirmButton = app.buttons["MobileComputerForgetConfirmButton-\(rowID)"]
+        XCTAssertTrue(
+            confirmButton.waitForExistence(timeout: 3),
+            "Forget must request confirmation before revoking."
+        )
+        XCTAssertTrue(
+            row.exists,
+            "The hidden computer must stay listed until the confirmation action runs."
+        )
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "hidden-computers-forget-swipe-confirmation"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        // The dialog's destructive confirm is the tap that actually removes
+        // the row; the model-driven removal must animate out cleanly.
+        // firstMatch: action-sheet buttons surface twice in the accessibility
+        // tree (button plus its sheet wrapper), so a bare tap is ambiguous.
+        confirmButton.firstMatch.tap()
+        XCTAssertTrue(
+            row.waitForNonExistence(timeout: 3),
+            "Confirming Forget must remove the row."
+        )
+        XCTAssertEqual(app.state, .runningForeground)
+        XCTAssertTrue(app.staticTexts["Studio Mac"].exists)
+    }
+
+    @MainActor
     func testWorkspaceListRapidDirectionChangesAndBoundariesRemainResponsive() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
@@ -824,6 +876,271 @@ final class cmuxUITests: XCTestCase {
         searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 8))
         XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForHittable(mainRow, timeout: 3))
+    }
+
+    @MainActor
+    func testWorkspaceListDragIntoExpandedGroupMovesTheRowWithoutScrolling() throws {
+        let app = launchWorkspaceDragFixture(groupCount: 1)
+        defer { app.terminate() }
+
+        let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
+        let source = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-4"
+        ]
+        let target = app.descendants(matching: .any)[
+            "MobileWorkspaceGroupHeader-seed-group-0"
+        ]
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForHittable(source, timeout: 3))
+        guard
+            let before = waitForUsableFrame(of: source, timeout: 3),
+            let targetFrame = waitForUsableFrame(of: target, timeout: 3)
+        else {
+            return XCTFail("Drag source and target must have usable frames")
+        }
+
+        dragWorkspaceRow(
+            source,
+            to: CGPoint(x: targetFrame.midX, y: targetFrame.midY),
+            in: app
+        )
+
+        guard let after = waitForFrame(of: source, timeout: 3, where: {
+            $0.minX > before.minX + 8 && $0.midY < before.midY
+        }) else {
+            return XCTFail("Dragged workspace disappeared after the drop")
+        }
+        XCTAssertGreaterThan(
+            after.minX,
+            before.minX + 8,
+            "Dropping an ungrouped workspace into an expanded group must visibly indent it"
+        )
+        XCTAssertLessThan(
+            after.midY,
+            before.midY,
+            "The drop must move the workspace into the target group instead of scrolling the list"
+        )
+    }
+
+    @MainActor
+    func testWorkspaceListDragReordersTopLevelRowsWithAStableLanding() throws {
+        let app = launchWorkspaceDragFixture(groupCount: 0)
+        defer { app.terminate() }
+
+        let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
+        let source = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-5"
+        ]
+        let target = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-2"
+        ]
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForHittable(source, timeout: 3))
+        XCTAssertTrue(waitForHittable(target, timeout: 3))
+        guard
+            let before = waitForUsableFrame(of: source, timeout: 3),
+            let targetFrame = waitForUsableFrame(of: target, timeout: 3)
+        else {
+            return XCTFail("Root reorder source and target must have usable frames")
+        }
+
+        dragWorkspaceRow(
+            source,
+            to: CGPoint(x: targetFrame.midX, y: targetFrame.minY + 2),
+            in: app
+        )
+
+        guard let after = waitForFrame(of: source, timeout: 3, where: {
+            $0.midY < before.midY - 40
+        }) else {
+            return XCTFail("Root reorder did not move the source row")
+        }
+        XCTAssertEqual(
+            after.minX,
+            before.minX,
+            accuracy: 1,
+            "A root-to-root reorder must keep the row at the top-level indentation"
+        )
+        XCTAssertEqual(
+            app.descendants(matching: .any)
+                .matching(identifier: "MobileWorkspaceRow-workspace-seed-5").count,
+            1,
+            "A root reorder must leave exactly one rendered source row"
+        )
+    }
+
+    @MainActor
+    func testWorkspaceListCancelledDragRestoresTheSourceAndClearsBoundaries() throws {
+        let app = launchWorkspaceDragFixture(groupCount: 1)
+        defer { app.terminate() }
+
+        let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
+        let source = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-4"
+        ]
+        let inactiveBoundary = app.descendants(matching: .any)[
+            "MobileWorkspaceGroupFooterBoundary-seed-group-0-inactive"
+        ]
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForHittable(source, timeout: 3))
+        XCTAssertTrue(inactiveBoundary.waitForExistence(timeout: 3))
+        guard let before = waitForUsableFrame(of: source, timeout: 3) else {
+            return XCTFail("Cancelled drag source must have a usable frame")
+        }
+
+        dragWorkspaceRow(
+            source,
+            to: CGPoint(x: app.frame.midX, y: app.frame.minY + 2),
+            in: app
+        )
+
+        guard let after = waitForFrame(of: source, timeout: 3, where: {
+            abs($0.minX - before.minX) < 1 && abs($0.minY - before.minY) < 1
+        }) else {
+            return XCTFail("A cancelled drag did not restore the source row")
+        }
+        XCTAssertEqual(after.minX, before.minX, accuracy: 1)
+        XCTAssertEqual(after.minY, before.minY, accuracy: 1)
+        XCTAssertTrue(
+            inactiveBoundary.waitForExistence(timeout: 3),
+            "Group boundaries must return to their inactive state after cancellation"
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)[
+                "MobileWorkspaceGroupFooterBoundary-seed-group-0-active"
+            ].exists,
+            "No active group boundary may survive the cancelled drag"
+        )
+    }
+
+    @MainActor
+    func testWorkspaceListRepeatedGroupAndRootDropsKeepOneStableRow() throws {
+        let app = launchWorkspaceDragFixture(groupCount: 1)
+        defer { app.terminate() }
+
+        let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
+        let source = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-4"
+        ]
+        let groupHeader = app.descendants(matching: .any)[
+            "MobileWorkspaceGroupHeader-seed-group-0"
+        ]
+        let rootTarget = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-5"
+        ]
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForHittable(source, timeout: 3))
+        guard
+            let initial = waitForUsableFrame(of: source, timeout: 3),
+            let headerFrame = waitForUsableFrame(of: groupHeader, timeout: 3)
+        else {
+            return XCTFail("Repeated drag source and group header need usable frames")
+        }
+
+        dragWorkspaceRow(
+            source,
+            to: CGPoint(x: headerFrame.midX, y: headerFrame.midY),
+            in: app
+        )
+        guard let grouped = waitForFrame(of: source, timeout: 3, where: {
+            $0.minX > initial.minX + 8
+        }) else {
+            return XCTFail("First group drop did not visibly indent the source")
+        }
+        guard let rootTargetFrame = waitForUsableFrame(of: rootTarget, timeout: 3) else {
+            return XCTFail("Root target needs a usable frame after the group drop")
+        }
+
+        dragWorkspaceRow(
+            source,
+            to: CGPoint(x: rootTargetFrame.midX, y: rootTargetFrame.minY + 2),
+            in: app
+        )
+        guard let ungrouped = waitForFrame(of: source, timeout: 3, where: {
+            $0.minX < grouped.minX - 8
+        }) else {
+            return XCTFail("Dragging below the group boundary did not restore top-level indentation")
+        }
+        XCTAssertEqual(ungrouped.minX, initial.minX, accuracy: 1)
+
+        guard let refreshedHeaderFrame = waitForUsableFrame(of: groupHeader, timeout: 3) else {
+            return XCTFail("Group header needs a usable frame for the repeated drop")
+        }
+        dragWorkspaceRow(
+            source,
+            to: CGPoint(x: refreshedHeaderFrame.midX, y: refreshedHeaderFrame.midY),
+            in: app
+        )
+        XCTAssertNotNil(
+            waitForFrame(of: source, timeout: 3, where: {
+                $0.minX > ungrouped.minX + 8
+            }),
+            "A second drag session must re-enter the group without stale drag state"
+        )
+        XCTAssertEqual(
+            app.descendants(matching: .any)
+                .matching(identifier: "MobileWorkspaceRow-workspace-seed-4").count,
+            1,
+            "Repeated drag sessions must leave exactly one source row"
+        )
+    }
+
+    @MainActor
+    func testWorkspaceListDragIntoCollapsedGroupLandsOnTheHeader() throws {
+        let app = launchWorkspaceDragFixture(groupCount: 1)
+        defer { app.terminate() }
+
+        let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
+        let source = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-4"
+        ]
+        let groupHeader = app.descendants(matching: .any)[
+            "MobileWorkspaceGroupHeader-seed-group-0"
+        ]
+        let disclosure = app.buttons[
+            "MobileWorkspaceGroupDisclosure-seed-group-0"
+        ]
+        let hiddenMember = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-1"
+        ]
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForHittable(source, timeout: 3))
+        XCTAssertTrue(waitForHittable(disclosure, timeout: 3))
+        guard let rootFrame = waitForUsableFrame(of: source, timeout: 3) else {
+            return XCTFail("Collapsed-group drag source needs a usable frame")
+        }
+
+        disclosure.tap()
+        XCTAssertTrue(
+            waitForNotHittable(hiddenMember, timeout: 3),
+            "Collapsing the target group must hide its member rows"
+        )
+        guard let collapsedHeaderFrame = waitForUsableFrame(of: groupHeader, timeout: 3) else {
+            return XCTFail("Collapsed group header needs a usable frame")
+        }
+
+        dragWorkspaceRow(
+            source,
+            to: CGPoint(x: collapsedHeaderFrame.midX, y: collapsedHeaderFrame.midY),
+            in: app
+        )
+        XCTAssertTrue(
+            waitForNotHittable(source, timeout: 3),
+            "A workspace dropped into a collapsed group must become hidden with its members"
+        )
+
+        XCTAssertTrue(waitForHittable(disclosure, timeout: 3))
+        disclosure.tap()
+        guard let expandedFrame = waitForFrame(of: source, timeout: 3, where: {
+            $0.minX > rootFrame.minX + 8
+        }) else {
+            return XCTFail("Expanding the target group did not reveal the dropped workspace")
+        }
+        XCTAssertGreaterThan(
+            expandedFrame.minX,
+            rootFrame.minX + 8,
+            "The collapsed-header drop must persist group membership after expansion"
+        )
     }
 
     @MainActor
@@ -4565,6 +4882,37 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    private func launchWorkspaceDragFixture(groupCount: Int) -> XCUIApplication {
+        launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": String(groupCount),
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+    }
+
+    @MainActor
+    private func dragWorkspaceRow(
+        _ source: XCUIElement,
+        to point: CGPoint,
+        in app: XCUIApplication
+    ) {
+        let start = source.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        )
+        let end = app.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: point.x, dy: point.y)
+        )
+        start.press(
+            forDuration: 0.8,
+            thenDragTo: end,
+            withVelocity: .slow,
+            thenHoldForDuration: 1
+        )
+    }
+
+    @MainActor
     private func waitForVisibleElement(
         identifier: String,
         in app: XCUIApplication,
@@ -4630,6 +4978,27 @@ final class cmuxUITests: XCTestCase {
             return frame
         }
         return nil
+    }
+
+    @MainActor
+    private func waitForFrame(
+        of element: XCUIElement,
+        timeout: TimeInterval,
+        where predicate: (CGRect) -> Bool
+    ) -> CGRect? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let frame = waitForUsableFrame(of: element, timeout: 0.1),
+               predicate(frame) {
+                return frame
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        guard let frame = waitForUsableFrame(of: element, timeout: 0.1),
+              predicate(frame) else {
+            return nil
+        }
+        return frame
     }
 
     @MainActor
@@ -5788,6 +6157,8 @@ final class cmuxUITests: XCTestCase {
         static let hideButton = "terminal.inputAccessory.hideChrome"
         /// The growing message field inside the composer band.
         static let field = "MobileComposerField"
+        /// The paperclip button that presents the system photo picker.
+        static let attachButton = "MobileComposerAttach"
         /// Surface-side live dock-state probe (`key=value;…`).
         static let surfaceProbe = "MobileComposerDockProbe"
         /// Store-side source-of-truth probe (`key=value;…`).
@@ -6140,6 +6511,58 @@ final class cmuxUITests: XCTestCase {
         // hittability loss (sim artifact). A pass here while the draft test fails means
         // the reveal path is the real bug.
         assertDockCoherent(in: app, cycle: 1)
+    }
+
+    /// Opening the system photo picker while the terminal input proxy owns the
+    /// software keyboard must release that responder before presentation. Otherwise
+    /// the picker hides the keyboard while UIKit still reports the proxy as first
+    /// responder, and a later terminal tap cannot produce a new focus transition.
+    @MainActor
+    func testTerminalTapRestoresKeyboardAfterCancellingPhotoPicker() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        // The composer is open by default but unfocused. Focus the terminal's hidden
+        // input proxy so this covers the reported keyboard-up → attach path.
+        surface.tap()
+        waitForDock(in: app, describe: "terminal proxy owns the visible keyboard before photo picker") {
+            $0["proxyFirstResponder"] == "1" && $0["keyboardUp"] == "1"
+        }
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForExistence(timeout: 4),
+            "Tapping the terminal should show the keyboard before opening attachments"
+        )
+
+        let attachButton = app.buttons[Composer.attachButton]
+        XCTAssertTrue(attachButton.waitForExistence(timeout: 4))
+        attachButton.tap()
+
+        let cancelButton = app.buttons["Cancel"].firstMatch
+        XCTAssertTrue(
+            cancelButton.waitForExistence(timeout: 6),
+            "The system photo picker should present from the attachment button"
+        )
+        cancelButton.tap()
+        XCTAssertTrue(
+            waitForKeyboardDismissal(in: app),
+            "Cancelling the photo picker should leave the keyboard visually closed"
+        )
+
+        // A terminal tap must create a real responder transition and re-open the
+        // keyboard, rather than no-op against a stale first-responder proxy.
+        surface.tap()
+        waitForDock(in: app, describe: "terminal tap restores keyboard after photo picker cancellation") {
+            $0["proxyFirstResponder"] == "1" && $0["keyboardUp"] == "1"
+        }
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForExistence(timeout: 4),
+            "Tapping the terminal after cancelling the photo picker should restore the keyboard"
+        )
     }
 
     /// Rapid double-toggle: two compose taps with no settle in between. This is the
