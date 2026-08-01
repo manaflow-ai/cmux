@@ -143,6 +143,50 @@ struct SimulatorPaneCoordinatorOverflowTests {
         #expect(current.snapshot.sequence == record.snapshot.sequence)
     }
 
+    @Test("Live input releases bypass an active semantic transaction")
+    @MainActor
+    func liveInputReleasesBypassSemanticTransaction() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        _ = try await coordinator.recordUIAutomationSnapshot(
+            Self.snapshot(),
+            simulatorID: "DEVICE",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+        let point = SimulatorPoint(x: 0.5, y: 0.5)
+        let button = SimulatorHIDButtonUsage(page: 0x0C, usage: 0xE9)
+        let releases: [SimulatorWorkerInbound] = [
+            .key(SimulatorKeyEvent(usage: 4, phase: .up)),
+            .pointer(SimulatorPointerEvent(phase: .ended, primary: point)),
+            .pointer(SimulatorPointerEvent(phase: .cancelled, primary: point)),
+            .hidButton(SimulatorHIDButtonEvent(button: button, phase: .up)),
+        ]
+
+        try await coordinator.withUIAutomationTransaction {
+            for release in releases {
+                let accepted = await Task.detached {
+                    await MainActor.run { coordinator.enqueue(release) }
+                }.value
+                #expect(accepted)
+            }
+            for _ in 0..<1_000 {
+                let delivered = await client.messages()
+                if releases.allSatisfy(delivered.contains) { break }
+                await Task.yield()
+            }
+
+            let delivered = await client.messages()
+            #expect(releases.allSatisfy(delivered.contains))
+            #expect(throws: SimulatorUIAutomationReferenceError.snapshotMissing) {
+                _ = try coordinator.currentUIAutomationSnapshot(
+                    nowMilliseconds: 1_001
+                )
+            }
+        }
+    }
+
     @Test("Input cleanup bypasses an active semantic transaction")
     @MainActor
     func inputCleanupBypassesSemanticTransaction() async throws {
