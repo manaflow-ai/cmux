@@ -199,9 +199,14 @@ def test_sdk_preflight_workflows_cannot_write_to_registries() -> None:
 
 
 def test_registry_publishers_reuse_preflight_artifacts() -> None:
+    rust = workflow("sdk-publish-crates.yml")
     npm = workflow("sdk-publish-npm.yml")
     python = workflow("sdk-publish-python.yml")
     release = workflow("sdk-release-cut.yml")
+
+    for artifact in ("cmux-rust-client-crate", "cmux-rust-sidebar-crate"):
+        assert rust.count(f"name: {artifact}") == 1
+        assert release.count(f"name: {artifact}") == 1
 
     assert npm.count("name: cmux-npm-dist") == 1
     assert release.count("name: cmux-npm-dist") == 1
@@ -249,6 +254,8 @@ def test_registry_writes_reconcile_ambiguous_publish_failures() -> None:
     for job in ("publish-python-wheel", "publish-python-sdist"):
         block = workflow_job(release, job)
         assert block.count("reconcile_registry_artifact.py check") == 2
+        assert "--allowed-artifact dist/*.whl" in block
+        assert "--allowed-artifact dist/*.tar.gz" in block
         assert "continue-on-error: true" in block
         assert "--require-match" in block
         assert "--wait-seconds 120" in block
@@ -273,6 +280,39 @@ def test_rust_release_uses_pinned_cargo_and_verifies_packaged_sidebar() -> None:
     for job in ("publish-crate-client", "publish-crate-sidebar"):
         block = workflow_job(release, job)
         assert "Install pinned Rust toolchain" in block
+        assert "Download the validated" in block
+        assert "validated crate digest mismatch" in block
+        assert "cargo package" in block
+        assert "cargo publish" in block
+        assert block.count("--no-verify") >= 2
+
+
+def test_python_preflight_tests_the_exact_pinned_distributions() -> None:
+    preflight = workflow("sdk-publish-python.yml")
+    build = workflow_job(preflight, "build")
+
+    for requirement in (
+        '"build==1.3.0"',
+        '"setuptools==80.9.0"',
+        '"wheel==0.45.1"',
+    ):
+        assert requirement in build
+    assert "python3 -m build --no-isolation --sdist --wheel" in build
+    assert "CMUX_PYTHON_DIST_DIR" in build
+    assert build.index("python3 -m build") < build.index("CMUX_PYTHON_DIST_DIR")
+    assert build.index("CMUX_PYTHON_DIST_DIR") < build.index("Upload distributions")
+
+    consumer = (
+        ROOT
+        / "cmux-tui"
+        / "bindings"
+        / "python"
+        / "tests"
+        / "test_package_consumer.py"
+    ).read_text()
+    assert "CMUX_PYTHON_DIST_DIR" in consumer
+    assert "*.whl" in consumer
+    assert "*.tar.gz" in consumer
 
 
 def test_python_preflight_provisions_the_declared_build_backend() -> None:

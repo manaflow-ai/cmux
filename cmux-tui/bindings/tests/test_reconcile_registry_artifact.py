@@ -6,6 +6,7 @@ import io
 import json
 import os
 import tempfile
+import threading
 import types
 import unittest
 from pathlib import Path
@@ -106,6 +107,58 @@ class RegistryArtifactTests(unittest.TestCase):
                 reconcile.registry_status("pypi", "cmux-sdk", "1.0.0", self.artifact),
                 reconcile.MISSING,
             )
+
+    def test_pypi_rejects_unexpected_release_files(self) -> None:
+        metadata = {
+            "urls": [
+                {
+                    "filename": self.artifact.name,
+                    "digests": {
+                        "sha256": hashlib.sha256(self.artifact.read_bytes()).hexdigest()
+                    },
+                },
+                {
+                    "filename": "cmux_sdk-1.0.0-cp313-cp313-manylinux.whl",
+                    "digests": {"sha256": hashlib.sha256(b"unexpected").hexdigest()},
+                },
+            ]
+        }
+        with mock.patch.object(
+            reconcile, "urlopen", return_value=self.response(metadata)
+        ), self.assertRaises(reconcile.ArtifactMismatch):
+            reconcile.registry_status("pypi", "cmux-sdk", "1.0.0", self.artifact)
+
+    def test_pypi_rejects_yanked_release_files(self) -> None:
+        metadata = {
+            "urls": [
+                {
+                    "filename": self.artifact.name,
+                    "digests": {
+                        "sha256": hashlib.sha256(self.artifact.read_bytes()).hexdigest()
+                    },
+                    "yanked": True,
+                }
+            ]
+        }
+        with mock.patch.object(
+            reconcile, "urlopen", return_value=self.response(metadata)
+        ), self.assertRaises(reconcile.ArtifactMismatch):
+            reconcile.registry_status("pypi", "cmux-sdk", "1.0.0", self.artifact)
+
+    def test_registry_wait_can_be_cancelled(self) -> None:
+        cancelled = threading.Event()
+        cancelled.set()
+        with mock.patch.object(reconcile, "registry_status") as status:
+            with self.assertRaises(reconcile.RegistryError):
+                reconcile.wait_for_status(
+                    "pypi",
+                    "cmux-sdk",
+                    "1.0.0",
+                    self.artifact,
+                    120,
+                    cancel_event=cancelled,
+                )
+        status.assert_not_called()
 
     def test_failed_publish_is_success_when_exact_bytes_appear(self) -> None:
         with mock.patch.object(

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 try:
     import tomllib
@@ -38,6 +39,25 @@ def _project_version() -> str:
 
 
 PROJECT_VERSION = _project_version()
+
+
+class ProjectVersionTests(unittest.TestCase):
+    def test_python_39_fallback_parses_toml_strings_and_comments(self) -> None:
+        for version_line in (
+            "version = '1.2.3'",
+            'version = "1.2.3" # release version',
+        ):
+            with self.subTest(version_line=version_line), tempfile.TemporaryDirectory(
+                prefix="cmux-python-manifest-"
+            ) as root:
+                project = Path(root)
+                (project / "pyproject.toml").write_text(
+                    f"[project]\n{version_line}\n",
+                    encoding="utf-8",
+                )
+                with mock.patch.object(sys.modules[__name__], "PROJECT", project), \
+                    mock.patch.object(sys.modules[__name__], "tomllib", None):
+                    self.assertEqual(_project_version(), "1.2.3")
 
 
 class PackagedConsumerTests(unittest.TestCase):
