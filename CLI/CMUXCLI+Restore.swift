@@ -54,8 +54,7 @@ extension CMUXCLI {
             params["surface_id"] = surfaceID
         } else if selector.usesCurrentSurface,
                   let surfaceID = try currentRestoreSurfaceID(
-                      client: client,
-                      processEnvironment: processEnvironment
+                      client: client
                   ) {
             params["surface_id"] = surfaceID
         } else {
@@ -181,14 +180,12 @@ extension CMUXCLI {
     }
 
     private func currentRestoreSurfaceID(
-        client: SocketClient,
-        processEnvironment: [String: String]
+        client: SocketClient
     ) throws -> String? {
-        let ambientSurfaceID = processEnvironment["CMUX_SURFACE_ID"].flatMap { surfaceID in
-            surfaceID.isEmpty ? nil : surfaceID
-        }
         // The remote relay and the local CLI do not share a PID namespace.
-        guard !client.isRelayBacked else { return ambientSurfaceID }
+        guard !client.isRelayBacked else {
+            return legacyRestoreSurfaceID(client: client)
+        }
 
         let resolution = AgentProcessBindingResolution.controllingTTY.rawValue
         do {
@@ -210,10 +207,13 @@ extension CMUXCLI {
             return surfaceID
         } catch let error as CLIError {
             switch error.v2Code {
-            case "not_found", "method_not_found", "unrecognized_method":
+            case "not_found":
+                client.close()
+                throw currentRestoreSurfaceUnknownError()
+            case "method_not_found", "unrecognized_method":
                 // These protocol replies were consumed in full, so the socket
-                // remains synchronized for the restore request.
-                return ambientSurfaceID
+                // remains synchronized for the legacy discovery request.
+                return legacyRestoreSurfaceID(client: client)
             default:
                 client.close()
                 throw error
@@ -222,6 +222,21 @@ extension CMUXCLI {
             client.close()
             throw error
         }
+    }
+
+    private func legacyRestoreSurfaceID(client: SocketClient) -> String? {
+        // Prefer the live descriptors. Generic TTY variables can be inherited
+        // across nested shells, so only dedicated cmux hints are a fallback.
+        let ttyName = resolveCallerDescriptorTTYName()
+            ?? resolveCallerTTYName(includeAmbientTTY: false)
+        guard let ttyName,
+              let binding = uniqueCallerTerminalBindingByTTY(
+                  ttyName: ttyName,
+                  client: client
+              ) else {
+            return nil
+        }
+        return binding.surfaceId
     }
 
     private func currentRestoreSurfaceUnknownError() -> CLIError {
