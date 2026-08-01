@@ -330,15 +330,28 @@ import Testing
         let staleBeforeLoad = directory.appendingPathComponent(
             ".queue.json.00000000-0000-4000-8000-000000000001.tmp"
         )
+        let freshWriterSnapshot = directory.appendingPathComponent(
+            ".queue.json.00000000-0000-4000-8000-000000000004.tmp"
+        )
         try Data("stale".utf8).write(to: staleBeforeLoad)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -10 * 60)],
+            ofItemAtPath: staleBeforeLoad.path
+        )
+        try Data("active".utf8).write(to: freshWriterSnapshot)
 
         #expect(try await store.load(nowEpochSeconds: 1_000).isEmpty)
         #expect(!FileManager.default.fileExists(atPath: staleBeforeLoad.path))
+        #expect(FileManager.default.fileExists(atPath: freshWriterSnapshot.path))
 
         let staleBeforeSave = directory.appendingPathComponent(
             ".queue.json.00000000-0000-4000-8000-000000000002.tmp"
         )
         try Data("stale".utf8).write(to: staleBeforeSave)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -10 * 60)],
+            ofItemAtPath: staleBeforeSave.path
+        )
         try await store.save([
             requestEnvelope(
                 correlationID: "00000000-0000-4000-8000-000000000003"
@@ -346,6 +359,7 @@ import Testing
         ])
 
         #expect(!FileManager.default.fileExists(atPath: staleBeforeSave.path))
+        #expect(FileManager.default.fileExists(atPath: freshWriterSnapshot.path))
     }
 
     @Test func queuedEventCannotRebindToTheNextSignedInAccount() {

@@ -833,12 +833,22 @@ describe("account deletion route", () => {
 
     const response = await DELETE(accountDeletionRequest());
 
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({
-      error: "account_delete_retryable",
+    expect(response.status).toBe(409);
+    const body = await response.json() as {
+      error: string;
+      retryable: boolean;
+      retryAfterSeconds: number;
+      destroyedVms: number;
+    };
+    expect(body).toMatchObject({
+      error: "account_delete_push_delivery_in_progress",
       retryable: true,
       destroyedVms: 0,
     });
+    expect(body.retryAfterSeconds).toBeGreaterThan(0);
+    expect(body.retryAfterSeconds).toBeLessThanOrEqual(30);
+    expect(response.headers.get("retry-after"))
+      .toBe(String(body.retryAfterSeconds));
     expect(deletedTables).not.toContain(deviceTokens);
     expect(deleteStackUser).not.toHaveBeenCalled();
   });

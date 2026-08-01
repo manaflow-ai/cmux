@@ -335,6 +335,23 @@ describe("apns logical-event delivery state", () => {
     expect(clamped[0]?.retryAfterSeconds).toBe(60);
   });
 
+  test("a short provider backoff is raised to the deferred retry floor", () => {
+    const clamped = clampRetryToEventLife(
+      [
+        {
+          deviceToken: "a".repeat(64),
+          status: 429,
+          reason: "TooManyRequests",
+          retryAfterSeconds: 1,
+          prune: false,
+        },
+      ],
+      1_000,
+      1_300,
+    );
+    expect(clamped[0]?.retryAfterSeconds).toBe(30);
+  });
+
   test("a retry that cannot fit before the TTL finalizes as expired instead", () => {
     // Only 20s of life left: even the floor (30s) lands past the TTL, so
     // advertising any retry would be a lie. The target finalizes as expired
