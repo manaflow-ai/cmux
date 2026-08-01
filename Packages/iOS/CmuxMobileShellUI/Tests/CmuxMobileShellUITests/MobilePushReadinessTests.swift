@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxMobileRPC
 import Testing
 
 @testable import CmuxMobileShellUI
