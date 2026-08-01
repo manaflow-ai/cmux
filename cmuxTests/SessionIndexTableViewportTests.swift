@@ -147,6 +147,27 @@ struct SessionIndexTableViewportTests {
 
     @MainActor
     @Test
+    func sectionPopoverPresentationDoesNotInvalidateHostedRow() {
+        let section = Self.makeSection()
+        let closed = Self.makeSectionRow(section: section)
+        let open = Self.makeSectionRow(section: section, isPopoverOpen: true)
+
+        #expect(closed.hasEquivalentContent(to: open))
+    }
+
+    @MainActor
+    @Test
+    func transcriptPresentationDoesNotInvalidateHostedRow() throws {
+        let section = Self.makeSection()
+        let entry = try #require(section.entries.first)
+        let closed = Self.makeSectionRow(section: section)
+        let open = Self.makeSectionRow(section: section, previewEntryId: entry.id)
+
+        #expect(closed.hasEquivalentContent(to: open))
+    }
+
+    @MainActor
+    @Test
     func vaultUsesViewportBoundedAppKitRowsAtScale() async throws {
         let defaults = SessionIndexDefaultsSnapshot()
         defer { defaults.restore() }
@@ -213,6 +234,41 @@ struct SessionIndexTableViewportTests {
                 permissionMode: nil,
                 configDirectoryForResume: nil
             )
+        )
+    }
+
+    private static func makeSection() -> IndexSection {
+        IndexSection(
+            key: .directory("/tmp/vault-presentation"),
+            title: "vault-presentation",
+            icon: .folder,
+            entries: [makeEntry(index: 0)]
+        )
+    }
+
+    @MainActor
+    private static func makeSectionRow(
+        section: IndexSection,
+        previewEntryId: SessionEntry.ID? = nil,
+        isPopoverOpen: Bool = false
+    ) -> SessionIndexTableRow {
+        SessionIndexTableRow.section(
+            section: section,
+            rowLimit: 5,
+            isDragged: false,
+            previewEntryId: previewEntryId,
+            isCollapsed: false,
+            isPopoverOpen: isPopoverOpen,
+            actions: IndexSectionActions(
+                onBeginDrag: {},
+                onPreviewEntry: { _ in },
+                onDismissPreview: { _ in },
+                onResume: nil,
+                search: { _, _, _, _ in .init(entries: [], errors: []) },
+                loadSnapshot: { cwd in .init(cwd: cwd ?? "", entries: [], errors: []) }
+            ),
+            setCollapsed: { _ in },
+            setPopoverOpen: { _ in }
         )
     }
 }
