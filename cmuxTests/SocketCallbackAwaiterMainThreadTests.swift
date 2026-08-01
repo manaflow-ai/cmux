@@ -146,4 +146,23 @@ import Testing
             ) == .useCaptured(fallback)
         )
     }
+
+    @Test func appKitCaptureDeliveryGateDeliversAtMostOnce() {
+        let gate = WindowAppKitCaptureDeliveryGate()
+        var deliveries = 0
+
+        #expect(gate.deliver { deliveries += 1 })
+        #expect(!gate.deliver { deliveries += 1 })
+        #expect(deliveries == 1)
+    }
+
+    @Test func abandonedAppKitCaptureDeliveryGateRejectsLateCompletion() {
+        let gate = WindowAppKitCaptureDeliveryGate()
+        var deliveries = 0
+
+        gate.abandon()
+
+        #expect(!gate.deliver { deliveries += 1 })
+        #expect(deliveries == 0)
+    }
 }

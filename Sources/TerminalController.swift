@@ -98,6 +98,30 @@ struct WindowAppKitCapture: Sendable {
     let capturedAllExternalContent: Bool
 }
 
+final class WindowAppKitCaptureDeliveryGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = true
+
+    @discardableResult
+    func deliver(_ body: () -> Void) -> Bool {
+        lock.lock()
+        guard isOpen else {
+            lock.unlock()
+            return false
+        }
+        isOpen = false
+        lock.unlock()
+        body()
+        return true
+    }
+
+    func abandon() {
+        lock.lock()
+        isOpen = false
+        lock.unlock()
+    }
+}
+
 func windowScreenshotCGWindowID(exactly windowNumber: Int) -> CGWindowID? {
     CGWindowID(exactly: windowNumber)
 }
@@ -13290,28 +13314,42 @@ class TerminalController {
     private nonisolated func captureAppKitWindowPNGData(
         _ windowID: CGWindowID
     ) -> WindowAppKitCapture? {
+        let deliveryGate = WindowAppKitCaptureDeliveryGate()
         var captureTask: Task<Void, Never>?
         let capture: WindowAppKitCapture?? = socketAwaitCallback(timeout: 5) { completion in
             captureTask = Task { @MainActor in
+                guard !Task.isCancelled else { return }
                 guard let window = NSApp.windows.first(where: {
                     guard let candidateID = windowScreenshotCGWindowID(exactly: $0.windowNumber) else {
                         return false
                     }
                     return candidateID == windowID
                 }) else {
-                    completion(nil)
+                    deliveryGate.deliver {
+                        completion(nil)
+                    }
                     return
                 }
-                completion(await self.captureAppKitWindowPNGData(window))
+                let result = await self.captureAppKitWindowPNGData(window)
+                guard !Task.isCancelled else { return }
+                deliveryGate.deliver {
+                    completion(result)
+                }
             }
         }
         if capture == nil {
+            deliveryGate.abandon()
             captureTask?.cancel()
         }
         return capture ?? nil
     }
 
     private func captureAppKitWindowPNGData(_ window: NSWindow) async -> WindowAppKitCapture? {
+        guard !Task.isCancelled else { return nil }
+        // Leave enough time for drawing, PNG encoding, and delivery before the
+        // worker's five-second waiter expires. Every WebKit request consumes
+        // from this one aggregate budget instead of receiving two fresh seconds.
+        let captureDeadline = ProcessInfo.processInfo.systemUptime + 4
         guard let contentView = window.contentView else {
             return nil
         }
@@ -13325,11 +13363,13 @@ class TerminalController {
 
         contentView.displayIfNeeded()
         contentView.cacheDisplay(in: bounds, to: bitmap)
+        guard !Task.isCancelled else { return nil }
 
-        var overlays: [(image: CGImage, rect: NSRect)] = []
+        var overlays: [(image: CGImage, rect: NSRect, alpha: CGFloat)] = []
         var capturedAllExternalContent = true
 
         for terminalView in visibleDescendants(of: contentView, as: GhosttySurfaceScrollView.self) {
+            guard !Task.isCancelled else { return nil }
             guard let image = terminalView.debugCopyIOSurfaceCGImage() else {
                 capturedAllExternalContent = false
                 continue
@@ -13342,15 +13382,25 @@ class TerminalController {
                 capturedAllExternalContent = false
                 continue
             }
-            overlays.append((image, rect))
+            let alpha = effectiveAlpha(of: terminalView.surfaceView, through: contentView)
+            guard alpha > 0 else { continue }
+            overlays.append((image, rect, alpha))
         }
 
         for webView in visibleDescendants(of: contentView, as: WKWebView.self) {
+            guard !Task.isCancelled else { return nil }
+            let remainingBudget =
+                captureDeadline - ProcessInfo.processInfo.systemUptime
+            guard remainingBudget > 0 else {
+                capturedAllExternalContent = false
+                break
+            }
             do {
                 let image = try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
                     from: webView,
-                    timeout: 2
+                    timeout: min(2, remainingBudget)
                 )
+                guard !Task.isCancelled else { return nil }
                 var proposedRect = NSRect(origin: .zero, size: image.size)
                 guard let cgImage = image.cgImage(
                     forProposedRect: &proposedRect,
@@ -13365,12 +13415,17 @@ class TerminalController {
                     capturedAllExternalContent = false
                     continue
                 }
-                overlays.append((cgImage, rect))
+                let alpha = effectiveAlpha(of: webView, through: contentView)
+                guard alpha > 0 else { continue }
+                overlays.append((cgImage, rect, alpha))
+            } catch is CancellationError {
+                return nil
             } catch {
                 capturedAllExternalContent = false
             }
         }
 
+        guard !Task.isCancelled else { return nil }
         guard let graphicsContext = NSGraphicsContext(bitmapImageRep: bitmap) else {
             return nil
         }
@@ -13387,6 +13442,8 @@ class TerminalController {
         )
         for overlay in overlays {
             guard overlay.rect.intersects(bounds) else { continue }
+            context.saveGState()
+            context.setAlpha(overlay.alpha)
             let destinationRect: NSRect
             if contentView.isFlipped {
                 destinationRect = NSRect(
@@ -13404,9 +13461,11 @@ class TerminalController {
                 )
             }
             context.draw(overlay.image, in: destinationRect)
+            context.restoreGState()
         }
         context.restoreGState()
 
+        guard !Task.isCancelled else { return nil }
         guard let pngData = bitmap.representation(using: .png, properties: [:]) else {
             return nil
         }
@@ -13433,6 +13492,19 @@ class TerminalController {
             pending.append(contentsOf: view.subviews)
         }
         return matches
+    }
+
+    private func effectiveAlpha(of view: NSView, through root: NSView) -> CGFloat {
+        var alpha: CGFloat = 1
+        var current: NSView? = view
+        while let candidate = current {
+            alpha *= candidate.alphaValue
+            if candidate === root {
+                return alpha
+            }
+            current = candidate.superview
+        }
+        return 0
     }
 #endif
 
