@@ -842,6 +842,15 @@
           "presence": "required",
           "nullable": false
         },
+        "url": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "optional",
+          "nullable": true,
+          "since": 10
+        },
         "browser_source": {
           "type": {
             "kind": "enum",

@@ -122,14 +122,30 @@ object{id:Id,name:string|null,active_tab:usize,focused_at?:u64,tabs:array<Tab>}
 ```text
 object{
   surface: Id,
+  tab_resource_id?: string|null,
+  terminal_id?: string|null,
+  terminal_resource_id?: string|null,
+  terminal_incarnation?: string|null,
+  short_id?: string,
   kind: "pty"|"browser",
+  url?: string|null,
   browser_source: "external"|"launched"|null,
+  browser_status?: "starting"|"live"|"failed"|null,
+  browser_error?: string|null,
+  browser_frames_stalled?: boolean|null,
+  supports_clear_history_key_fallback?: boolean,
+  notification?: object{notification:Id,unread:boolean,level:"info"|"warning"|"error"}|null,
   name: string|null,
   title: string,
   size: object{cols:uint16,rows:uint16}|null,
   dead: boolean
 }
 ```
+
+`tab_resource_id` is the durable public tab identity and survives daemon
+generation changes; the numeric `surface` id does not. `url` is the canonical
+browser URL when `kind` is `"browser"` and is null for PTY surfaces. The
+optional fields remain omitted by older compatible protocol-v10 servers.
 
 The `dead` pane variant is serialized only if the tree references a pane missing from state. That should not occur in normal operation, but clients must tolerate it.
 
