@@ -9,9 +9,11 @@ const redirect = mock((href: unknown) => {
   throw Object.assign(new Error("redirect"), { href });
 });
 
+let nativeCallbackScheme: string | undefined;
 const retrieveSession = mock(async () => ({
   customer_details: { email: "buyer@example.com" },
   subscription: { status: "active" },
+  metadata: nativeCallbackScheme ? { nativeCallbackScheme } : undefined,
 }));
 
 mock.module("next/navigation", () => createNextNavigationMock(redirect));
@@ -97,5 +99,24 @@ describe("billing success page", () => {
     expect(retrieveSession).toHaveBeenCalledWith("cs_123", {
       expand: ["subscription", "customer"],
     });
+  });
+
+  test("opens the tagged app recorded by the trusted checkout", async () => {
+    nativeCallbackScheme = "cmux-dev-test";
+    try {
+      const element = await BillingSuccessPage({
+        searchParams: Promise.resolve({
+          session_id: "cs_123",
+          cmux_scheme: "cmux-dev-test",
+        }),
+      });
+      const html = renderToStaticMarkup(element);
+
+      expect(html).toContain(
+        "native_app_return_to=cmux-dev-test%3A%2F%2Fauth-callback",
+      );
+    } finally {
+      nativeCallbackScheme = undefined;
+    }
   });
 });

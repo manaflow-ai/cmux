@@ -7,6 +7,7 @@ import {
   appPricingCheckoutRelayURL,
   appStorePricingUnavailableURL,
   isAppStoreDistributionMode,
+  verifiedAppPricingRelayScheme,
 } from "../../../lib/billing";
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
@@ -55,15 +56,20 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(appStorePricingUnavailableURL(request.nextUrl));
   }
 
-  const configuredRelayURL = appPricingCheckoutRelayURL(request.nextUrl, {
-    plan: checkoutPlan(request.nextUrl.searchParams.get("plan")),
-    interval: checkoutBillingInterval(
-      request.nextUrl.searchParams.get("interval"),
-    ),
-    cmuxScheme: validatedNativeCallbackScheme(
+  const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
+  const interval = checkoutBillingInterval(
+    request.nextUrl.searchParams.get("interval"),
+  );
+  const callbackScheme =
+    verifiedAppPricingRelayScheme(request.nextUrl) ??
+    validatedNativeCallbackScheme(
       request.nextUrl.searchParams.get("cmux_scheme"),
       request,
-    ),
+    );
+  const configuredRelayURL = appPricingCheckoutRelayURL(request.nextUrl, {
+    plan,
+    interval,
+    cmuxScheme: callbackScheme,
   });
   if (configuredRelayURL) {
     return NextResponse.redirect(configuredRelayURL);
@@ -74,13 +80,9 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
   }
 
-  const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
   if (!plan) {
     return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
   }
-  const interval = checkoutBillingInterval(
-    request.nextUrl.searchParams.get("interval"),
-  );
   if (!interval) {
     return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
   }
@@ -90,10 +92,20 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   }
 
   if (plan === "pro") {
-    return stripeProCheckout(request, stackServerApp, interval);
+    return stripeProCheckout(
+      request,
+      stackServerApp,
+      interval,
+      callbackScheme,
+    );
   }
   if (plan === "team") {
-    return stripeTeamCheckout(request, stackServerApp, interval);
+    return stripeTeamCheckout(
+      request,
+      stackServerApp,
+      interval,
+      callbackScheme,
+    );
   }
   // checkoutPlan only yields "pro" | "team" | null (null handled above); this is
   // unreachable but keeps GET returning a NextResponse instead of possibly-undefined.
@@ -104,6 +116,7 @@ async function stripeProCheckout(
   request: NextRequest,
   stackServerApp: CheckoutStackServerApp,
   interval: BillingInterval,
+  callbackScheme: string,
 ) {
   const user =
     (await stackServerApp.getUser({ or: "return-null" })) ??
@@ -117,13 +130,9 @@ async function stripeProCheckout(
     return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
   }
 
-  const scheme = validatedNativeCallbackScheme(
-    request.nextUrl.searchParams.get("cmux_scheme"),
-    request,
-  );
   const successUrl =
     `${request.nextUrl.origin}/api/billing/complete` +
-    `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(scheme)}`;
+    `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
   const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
   cancelUrl.searchParams.set("interval", interval);
   const metadata = {
@@ -131,6 +140,7 @@ async function stripeProCheckout(
     plan: "pro",
     app: "cmux",
     billingInterval: interval,
+    nativeCallbackScheme: callbackScheme,
   };
 
   try {
@@ -166,6 +176,7 @@ async function stripeTeamCheckout(
   request: NextRequest,
   stackServerApp: CheckoutStackServerApp,
   interval: BillingInterval,
+  callbackScheme: string,
 ) {
   const user =
     (await stackServerApp.getUser({ or: "return-null" })) ??
@@ -179,13 +190,9 @@ async function stripeTeamCheckout(
     throw new Error("Stack team checkout customer is missing an id");
   }
 
-  const scheme = validatedNativeCallbackScheme(
-    request.nextUrl.searchParams.get("cmux_scheme"),
-    request,
-  );
   const successUrl =
     `${request.nextUrl.origin}/api/billing/complete` +
-    `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(scheme)}`;
+    `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
   const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
   cancelUrl.searchParams.set("interval", interval);
   const metadata = {
@@ -193,6 +200,7 @@ async function stripeTeamCheckout(
     plan: "team",
     app: "cmux",
     billingInterval: interval,
+    nativeCallbackScheme: callbackScheme,
   };
 
   try {

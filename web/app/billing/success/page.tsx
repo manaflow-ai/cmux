@@ -8,6 +8,7 @@ import type { Locale } from "../../../i18n/routing";
 import { locales, routing } from "../../../i18n/routing";
 import {
   nativeCallbackHrefForScheme,
+  trustedNativeCallbackScheme,
   validatedNativeCallbackScheme,
 } from "../../lib/native-callback";
 import {
@@ -60,7 +61,10 @@ export default async function BillingSuccessPage({
   if (!sessionId) redirect("/pricing?billing=error");
 
   const request = requestFromHeaders(requestHeaders, "/billing/success");
-  const scheme = validatedNativeCallbackScheme(firstParam(params.cmux_scheme), request);
+  const requestedScheme = validatedNativeCallbackScheme(
+    firstParam(params.cmux_scheme),
+    request,
+  );
   let session: Stripe.Checkout.Session;
   try {
     session = await stripe().checkout.sessions.retrieve(sessionId, {
@@ -73,6 +77,9 @@ export default async function BillingSuccessPage({
     });
     redirect("/pricing?billing=error");
   }
+  const scheme =
+    trustedNativeCallbackScheme(session.metadata?.nativeCallbackScheme) ??
+    requestedScheme;
   const subscription = expandedSubscription(session);
   let recordedSubscription: Awaited<ReturnType<typeof latestStripeSubscriptionForSession>> = null;
   try {
