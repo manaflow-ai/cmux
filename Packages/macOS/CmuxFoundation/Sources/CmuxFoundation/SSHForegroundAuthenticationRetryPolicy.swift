@@ -189,6 +189,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               cmux_ssh_auth_tree_frozen_processes="$cmux_ssh_auth_tree_frozen_processes$cmux_ssh_auth_tree_token_pid "
               cmux_ssh_auth_tree_anchored_pids="$cmux_ssh_auth_tree_anchored_pids$cmux_ssh_auth_tree_token_pid "
               cmux_ssh_auth_tree_anchored_processes="$cmux_ssh_auth_tree_token_pid:$cmux_ssh_auth_tree_token_parent $cmux_ssh_auth_tree_anchored_processes"
+              cmux_ssh_auth_tree_newly_frozen=1
             done
           }
 
@@ -212,10 +213,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_tree_frozen_processes="$cmux_ssh_auth_tree_frozen_processes$cmux_ssh_auth_tree_pid "
             cmux_ssh_auth_tree_anchored_pids="$cmux_ssh_auth_tree_anchored_pids$cmux_ssh_auth_tree_pid "
             cmux_ssh_auth_tree_anchored_processes="$cmux_ssh_auth_tree_root_token"
-            cmux_ssh_auth_tree_first_snapshot=$(cmux_ssh_auth_process_tree_snapshot "$cmux_ssh_auth_tree_pid")
-            cmux_ssh_freeze_anchored_auth_processes "$cmux_ssh_auth_tree_first_snapshot"
-            cmux_ssh_auth_tree_second_snapshot=$(cmux_ssh_auth_process_tree_snapshot "$cmux_ssh_auth_tree_pid")
-            cmux_ssh_freeze_anchored_auth_processes "$cmux_ssh_auth_tree_second_snapshot"
+            cmux_ssh_auth_tree_freeze_pass=0
+            cmux_ssh_auth_tree_max_freeze_passes=64
+            while [ "$cmux_ssh_auth_tree_freeze_pass" -lt "$cmux_ssh_auth_tree_max_freeze_passes" ]; do
+              cmux_ssh_auth_tree_newly_frozen=0
+              cmux_ssh_auth_tree_snapshot=$(cmux_ssh_auth_process_tree_snapshot "$cmux_ssh_auth_tree_pid")
+              cmux_ssh_freeze_anchored_auth_processes "$cmux_ssh_auth_tree_snapshot"
+              cmux_ssh_auth_tree_freeze_pass=$((cmux_ssh_auth_tree_freeze_pass + 1))
+              if [ "$cmux_ssh_auth_tree_newly_frozen" -eq 0 ]; then break; fi
+            done
             cmux_ssh_auth_tree_final_snapshot=$(cmux_ssh_auth_process_tree_snapshot "$cmux_ssh_auth_tree_pid")
             for cmux_ssh_auth_tree_token in $cmux_ssh_auth_tree_anchored_processes; do
               cmux_ssh_auth_tree_token_pid="${cmux_ssh_auth_tree_token%%:*}"

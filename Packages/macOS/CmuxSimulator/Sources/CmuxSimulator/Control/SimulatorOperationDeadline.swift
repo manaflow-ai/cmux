@@ -13,9 +13,9 @@ public struct SimulatorOperationDeadlines: Sendable {
     public let interfaceMutation: TimeInterval
     /// Maximum duration for reading Simulator permission state.
     public let permissionRead: TimeInterval
-    /// Maximum duration for reading worker-backed inspection state.
+    /// Maximum duration for device readiness plus one worker-backed inspection read.
     public let inspectionRead: TimeInterval
-    /// Maximum duration for a semantic UI action and its refreshed snapshot.
+    /// Maximum duration for readiness, a semantic UI action, and its refreshed snapshot.
     public let uiAutomationAction: TimeInterval
     /// Maximum duration for mutating one Simulator permission.
     public let permissionMutation: TimeInterval
@@ -48,8 +48,8 @@ public struct SimulatorOperationDeadlines: Sendable {
         self.interfaceRead = interfaceRead
         self.interfaceMutation = interfaceMutation
         self.permissionRead = permissionRead
-        self.inspectionRead = inspectionRead
-        self.uiAutomationAction = uiAutomationAction
+        self.inspectionRead = selectDevice + inspectionRead
+        self.uiAutomationAction = selectDevice + uiAutomationAction
         self.permissionMutation = permissionMutation
         self.permissionResetAll = permissionResetAll
         self.textInputReadiness = textInputReadiness ?? selectDevice

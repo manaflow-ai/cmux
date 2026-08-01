@@ -433,10 +433,13 @@ extension TerminalController {
         if case .recover = operation { return simulatorOperationDeadlines.recover }
         if case .uiSnapshot = operation { return simulatorOperationDeadlines.inspectionRead }
         if case let .uiWait(wait) = operation {
-            return min(160, Double(wait.timeoutMilliseconds) / 1_000 + 35)
+            return simulatorOperationDeadlines.selectDevice
+                + min(160, Double(wait.timeoutMilliseconds) / 1_000 + 35)
         }
-        if case .uiAction = operation { return 140 }
-        if case .accessibilityTap = operation { return 140 }
+        if case .uiAction = operation { return simulatorOperationDeadlines.uiAutomationAction }
+        if case .accessibilityTap = operation {
+            return simulatorOperationDeadlines.uiAutomationAction
+        }
         if case .cameraConfigure = operation { return 160 }
         if case .cameraSwitch = operation { return 160 }
         if case .interfaceStatus = operation { return simulatorOperationDeadlines.interfaceRead }
