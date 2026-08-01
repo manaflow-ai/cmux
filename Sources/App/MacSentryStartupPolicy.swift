@@ -33,6 +33,9 @@ struct MacSentryStartupPolicy: Sendable {
 
     static func isRunningUnderXCTest(environment: [String: String]) -> Bool {
         if environment["CMUX_XCTEST_APP_HOST"] == "1" { return true }
+        // xcodebuild strips TEST_RUNNER_ from variables forwarded to the test
+        // host, so the CI wrapper makes this available before XCTest connects.
+        if environment["CMUX_TEST_PROCESS"] == "1" { return true }
         if environment["XCTestConfigurationFilePath"] != nil { return true }
         if environment["XCTestBundlePath"] != nil { return true }
         if environment["XCTestSessionIdentifier"] != nil { return true }

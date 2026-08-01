@@ -8,10 +8,10 @@ use cmux_remote_protocol::{MUX_INPUT_V1_FEATURE, RouteId, Service, ServiceContro
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Semaphore, oneshot};
 
+use crate::mux_codec::MAX_MUX_LINE_BYTES;
 use crate::service::{ServiceError, ServiceMultiplexer, ServiceStream};
 use crate::services::ServicesError;
 
-const MAX_MUX_LINE_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_MAX_FORWARD_CONNECTIONS: usize = 128;
 
 pub struct LocalPortForward {

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 4248b1dd1a8640da3f983118ddce2e8d5ff94db5dc2e18cb9ebc5ba41052284e. */
+/* cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -49,6 +49,12 @@ export type CellPixelResize = {
   "reservation_id": bigint;
   "rows": number;
   "surface": Id;
+};
+
+export type CellPixelSurface = {
+  "height_px": number;
+  "surface": Id;
+  "width_px": number;
 };
 
 export type ClientInfo = {
@@ -139,6 +145,12 @@ export type FrontendProjection = {
   "subject_key": string;
 };
 
+export type GetCellPixelsResult = {
+  "height_px": number;
+  "surfaces": Array<CellPixelSurface>;
+  "width_px": number;
+};
+
 export type Id = bigint;
 
 export type IdMapping = {
@@ -165,6 +177,23 @@ export type IdentifyResult = {
 
 export type IdsResult = {
   "ids": Array<IdMapping>;
+};
+
+export type KittyGraphicsState = {
+  "alternate_next_image_id": number;
+  "alternate_replay_next_image_id": number;
+  "image_bytes": bigint;
+  "images": bigint;
+  "inflight_bytes": bigint;
+  "placements": bigint;
+  "primary_next_image_id": number;
+  "primary_replay_next_image_id": number;
+  "replay_cursor_offset": number;
+};
+
+export type KittyImageAlias = {
+  "image_id": number;
+  "image_number": number;
 };
 
 export type Layout = ({ "type": "leaf" } & {
@@ -291,6 +320,7 @@ export type ReadScreenResult = {
 };
 
 export type ReadScrollbackResult = {
+  "epoch": bigint;
   "rows": Array<RenderRow>;
   "start": number;
   "total": number;
@@ -303,6 +333,55 @@ export type RenderCursor = {
   "visible": boolean;
   "x": number;
   "y": number;
+};
+
+export type RenderGraphicFormat = "rgb" | "rgba";
+
+export type RenderGraphicImage = {
+  "data": Base64;
+  "format": RenderGraphicFormat;
+  "generation": bigint;
+  "height": number;
+  "id": number;
+  "width": number;
+};
+
+export type RenderGraphicPlacement = {
+  "anchor_col"?: number;
+  "anchor_row"?: number;
+  "columns": number;
+  "grid_cols": number;
+  "grid_rows": number;
+  "image_id": number;
+  "ordinal": number;
+  "pixel_height": number;
+  "pixel_width": number;
+  "placement_id": number;
+  "rows": number;
+  "source_height": number;
+  "source_width": number;
+  "source_x": number;
+  "source_y": number;
+  "viewport_col": number;
+  "viewport_row": number;
+  "viewport_visible": boolean;
+  "x_offset": number;
+  "y_offset": number;
+  "z": number;
+};
+
+export type RenderGraphics = {
+  "generation": bigint;
+  "images"?: Array<RenderGraphicImage>;
+  "placements": Array<RenderGraphicPlacement>;
+  "removed_image_ids"?: Array<number>;
+};
+
+export type RenderGraphicsDelta = {
+  "generation": bigint;
+  "images"?: Array<RenderGraphicImage>;
+  "placements"?: Array<RenderGraphicPlacement>;
+  "removed_image_ids"?: Array<number>;
 };
 
 export type RenderRow = {
@@ -507,6 +586,8 @@ export type Tree = {
 export type VtStateResult = {
   "cols": number;
   "data": Base64;
+  "kitty_graphics_state"?: KittyGraphicsState;
+  "kitty_image_aliases"?: Array<KittyImageAlias>;
   "rows": number;
 };
 

@@ -66,6 +66,15 @@ import Testing
         )
     }
 
+    @Test func testRunnerMarkerPreventsSentryStartup() {
+        #expect(
+            MacSentryStartupPolicy(
+                environment: ["CMUX_TEST_PROCESS": "1"],
+                telemetryEnabled: true
+            ).shouldStart == false
+        )
+    }
+
     @Test func sharedSchemeMarksCurrentAppHostBeforeStartup() {
         #expect(ProcessInfo.processInfo.environment["CMUX_XCTEST_APP_HOST"] == "1")
     }
@@ -100,7 +109,6 @@ import Testing
             ])
         )
     }
-
     @Test func explicitTestTelemetryOptInOverridesUITestMarker() {
         #expect(
             MacSentryStartupPolicy(

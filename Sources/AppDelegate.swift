@@ -568,9 +568,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ConnectivityInvalidationSubscriberCoordinator()
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
-        // App-host tests embed an .xctest bundle even when Xcode omits its test
-        // environment keys. Keep those keys as compatibility signals for UI tests
-        // and other launch paths.
+        // CI and shared schemes set explicit app-host markers before XCTest
+        // connects. Standard keys and runtime injection cover other launch paths.
         MacSentryStartupPolicy.isRunningUnderXCTest(environment: env)
     }
 
@@ -16709,7 +16708,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func handleMainTerminalWindowShouldClose() -> Bool {
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return true }
+        if isRunningUnderXCTest(ProcessInfo.processInfo.environment) { return true }
         guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
         _ = handleQuitShortcutWarning()
         return false
