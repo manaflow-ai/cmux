@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""Verify exact crates.io repository and owner state before release tags."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from typing import Any, Optional, Sequence
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
+
+
+REGISTRY = "https://crates.io/api/v1/crates"
+USER_AGENT = "cmux-sdk-ownership-verifier/1 (https://github.com/manaflow-ai/cmux)"
+
+
+class OwnershipError(RuntimeError):
+    """Raised when crates.io does not prove the expected current ownership."""
+
+
+def _json(url: str) -> dict[str, Any]:
+    request = Request(
+        url,
+        headers={"Accept": "application/json", "User-Agent": USER_AGENT},
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            payload = response.read()
+    except HTTPError as error:
+        if error.code == 404:
+            raise OwnershipError("a required crates.io project does not exist") from error
+        raise OwnershipError("crates.io ownership lookup failed") from error
+    except (URLError, OSError) as error:
+        raise OwnershipError("crates.io ownership lookup failed") from error
+    try:
+        result = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise OwnershipError("crates.io returned invalid ownership metadata") from error
+    if not isinstance(result, dict):
+        raise OwnershipError("crates.io returned invalid ownership metadata")
+    return result
+
+
+def _verify_package(
+    package: str,
+    repository: str,
+    owner_id: int,
+    owner_login: str,
+) -> None:
+    base = f"{REGISTRY}/{quote(package, safe='')}"
+    metadata = _json(base)
+    crate = metadata.get("crate")
+    if not isinstance(crate, dict) or crate.get("id") != package or (
+        crate.get("name") != package
+    ):
+        raise OwnershipError(f"crates.io project identity is malformed for {package}")
+    if crate.get("repository") != repository:
+        raise OwnershipError(f"crates.io repository does not match for {package}")
+
+    ownership = _json(f"{base}/owners")
+    users = ownership.get("users")
+    teams = ownership.get("teams", [])
+    expected = {
+        "id": owner_id,
+        "login": owner_login,
+        "kind": "user",
+        "url": f"https://github.com/{owner_login}",
+    }
+    if not isinstance(users, list) or not isinstance(teams, list):
+        raise OwnershipError(f"crates.io owner state is malformed for {package}")
+    if teams or len(users) != 1 or not isinstance(users[0], dict):
+        raise OwnershipError(f"crates.io owner set does not match for {package}")
+    actual = {key: users[0].get(key) for key in expected}
+    if actual != expected:
+        raise OwnershipError(f"crates.io owner does not match for {package}")
+
+
+def verify(
+    packages: Sequence[str],
+    repository: str,
+    owner_id: int,
+    owner_login: str,
+) -> None:
+    if not packages or not repository or owner_id <= 0 or not owner_login:
+        raise OwnershipError("crates.io ownership inputs are invalid")
+    if len(set(packages)) != len(packages) or any(not package for package in packages):
+        raise OwnershipError("crates.io package names must be unique and non-empty")
+    for package in packages:
+        _verify_package(package, repository, owner_id, owner_login)
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--package", action="append", required=True)
+    parser.add_argument("--repository", required=True)
+    parser.add_argument("--owner-id", required=True, type=int)
+    parser.add_argument("--owner-login", required=True)
+    return parser
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        verify(
+            args.package,
+            args.repository,
+            args.owner_id,
+            args.owner_login,
+        )
+    except OwnershipError as error:
+        print(f"crates.io ownership verification failed: {error}", file=sys.stderr)
+        return 1
+    print(f"verified crates.io ownership for {', '.join(args.package)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

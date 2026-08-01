@@ -148,3 +148,11 @@ jobs:
             throw new Error(`unexpected cmux-sdk dist-tags: ${JSON.stringify(tags)}`);
           }
           NODE
+
+      - name: Verify the npm ownership bootstrap
+        run: |
+          python3 cmux-tui/bindings/verify_npm_provenance.py \
+            --package cmux-sdk \
+            --version "$BOOTSTRAP_VERSION" \
+            --repository-url git+https://github.com/manaflow-ai/cmux.git \
+            --repository-directory cmux-tui/bindings/typescript

@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
-import os
 import subprocess
 import unittest
 from pathlib import Path
@@ -91,6 +90,10 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
         self.assertEqual(audit[:3], ["npm", "audit", "signatures"])
         environment = run.call_args_list[0].kwargs["env"]
         self.assertEqual(environment["NPM_CONFIG_REGISTRY"], provenance.REGISTRY)
+        self.assertNotEqual(
+            environment["NPM_CONFIG_GLOBALCONFIG"],
+            environment["NPM_CONFIG_USERCONFIG"],
+        )
         for name in environment:
             self.assertNotIn("TOKEN", name.upper())
 

@@ -40,7 +40,9 @@ wire-behavior conformance suite.
   the `bootstrap` tag, and refuses to claim `latest`. Configure repository
   `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, and the `npm` environment
   as the trusted publisher, then delete the bootstrap token. Keep `1.0.0`
-  unpublished for the coordinated OIDC release.
+  unpublished for the coordinated OIDC release. Every release verifies the npm
+  bootstrap provenance and requires its publisher to remain the sole package
+  maintainer.
 - PyPI: create the `pypi-bootstrap` GitHub environment, then add a pending
   trusted publisher for project `cmux-sdk`, repository `manaflow-ai/cmux`,
   workflow `sdk-bootstrap-pypi.yml`, environment `pypi-bootstrap`. Run that
@@ -53,16 +55,19 @@ wire-behavior conformance suite.
   owner `manaflow-ai`, repository `cmux`, workflow `sdk-release-cut.yml`,
   environment `crates-io`. crates.io requires a manual first release for a new
   crate, so publish `cmux-sidebar` interactively once, then add the same trusted
-  publisher configuration for subsequent releases.
+  publisher configuration for subsequent releases. Both crates must have the
+  sole crates.io owner `lawrencecchen` (owner ID `431397`) and repository
+  `https://github.com/manaflow-ai/cmux`; the release gate verifies that exact
+  current state.
 - Go: no registry account is required. The module becomes available when the
   path-prefixed semantic-version tag is pushed.
 
 The npm and PyPI `cmux-sdk` names and the crates.io `cmux-sidebar` name were
 unclaimed when this release path was created. Reserve npm with
 `sdk-bootstrap-npm.yml` and PyPI with `sdk-bootstrap-pypi.yml` before cutting
-release tags. The release preflight verifies the attested PyPI `0.0.0a0`
-bootstrap against this repository. crates.io requires the interactive bootstrap
-above.
+release tags. The release preflight verifies the npm bootstrap provenance, the
+attested PyPI `0.0.0a0` bootstrap, and exact crates.io ownership. crates.io
+requires the interactive bootstrap above.
 
 ## Cutting a release
 

@@ -190,10 +190,10 @@ jobs:
         env:
           PYTHONPATH: cmux-tui/bindings/python
         run: |
-          python3 -m unittest discover -s cmux-tui/bindings/python/tests -v
           python3 -m pip install \
             --disable-pip-version-check \
             "setuptools==80.9.0"
+          python3 -m unittest discover -s cmux-tui/bindings/python/tests -v
           python3 -m pip install \
             --no-build-isolation \
             --no-deps \
