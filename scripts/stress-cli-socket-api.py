@@ -32,6 +32,8 @@ from typing import Any, Callable, Iterable
 
 DEFAULT_DURATION_SECONDS = 12 * 60 * 60
 DEFAULT_TIMEOUT_SECONDS = 12.0
+# Outer harness allowance above BrowserScreenshotTimingBudget's 41.5-second client deadline.
+BROWSER_SCREENSHOT_TIMEOUT_SECONDS = 45.0
 DEFAULT_BURST_WORKERS = 6
 DEFAULT_BURST_REQUESTS = 48
 DIAGNOSTIC_TEXT_LIMIT_BYTES = 256 * 1024
@@ -1027,7 +1029,7 @@ def browser_cli_cases() -> list[CliCase]:
         CliCase("browser-press", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "press", "Enter"]), expect_codes=any_code, covered_command="browser"),
         CliCase("browser-select", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "select", "#s", "b"]), expect_codes=any_code, covered_command="browser"),
         CliCase("browser-scroll", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "scroll", "--dy", "20"]), expect_codes=any_code, covered_command="browser"),
-        CliCase("browser-screenshot", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "screenshot", "--out", str(c.screenshot_path)]), expect_codes=any_code, timeout=20, covered_command="browser"),
+        CliCase("browser-screenshot", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "screenshot", "--out", str(c.screenshot_path)]), expect_codes=any_code, timeout=BROWSER_SCREENSHOT_TIMEOUT_SECONDS, covered_command="browser"),
         CliCase("browser-get-title", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "get", "title"]), expect_codes=any_code, covered_command="browser"),
         CliCase("browser-get-text", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "get", "text", "body"]), expect_codes=any_code, covered_command="browser"),
         CliCase("browser-is-visible", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "is", "visible", "body"]), expect_codes=any_code, covered_command="browser"),
@@ -1193,7 +1195,7 @@ def browser_socket_cases() -> list[SocketCase]:
         SocketCase("browser.select", "browser.select", lambda c: {**p_browser(c), "selector": "#s", "value": "b"}, expect_ok=None),
         SocketCase("browser.scroll", "browser.scroll", lambda c: {**p_browser(c), "dy": 20}, expect_ok=None),
         SocketCase("browser.scroll_into_view", "browser.scroll_into_view", lambda c: {**p_browser(c), "selector": "body"}, expect_ok=None),
-        SocketCase("browser.screenshot", "browser.screenshot", p_browser, expect_ok=None, timeout=20),
+        SocketCase("browser.screenshot", "browser.screenshot", p_browser, expect_ok=None, timeout=BROWSER_SCREENSHOT_TIMEOUT_SECONDS),
         SocketCase("browser.get.text", "browser.get.text", lambda c: {**p_browser(c), "selector": "body"}, expect_ok=None),
         SocketCase("browser.get.html", "browser.get.html", lambda c: {**p_browser(c), "selector": "body"}, expect_ok=None),
         SocketCase("browser.get.value", "browser.get.value", lambda c: {**p_browser(c), "selector": "#i"}, expect_ok=None),

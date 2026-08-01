@@ -32428,6 +32428,23 @@
         }
       }
     },
+    "browser.screenshot.error.captureInProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another browser screenshot is already in progress."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のブラウザのスクリーンショットを取得中です。"
+          }
+        }
+      }
+    },
     "browser.screenshot.error.emptySnapshot": {
       "extractionState": "manual",
       "localizations": {
@@ -32924,6 +32941,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法將螢幕截圖寫入剪貼簿。"
+          }
+        }
+      }
+    },
+    "browser.screenshot.error.renderedContentMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The browser screenshot disagreed with rendered text at %1$@; %2$lld text probes were blank after %3$lld attempts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのスクリーンショットが %1$@ の描画済みテキストと一致しません。%3$lld 回試行した後も %2$lld 個のテキストプローブが空白でした。"
           }
         }
       }

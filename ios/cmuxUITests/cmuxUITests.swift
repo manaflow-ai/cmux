@@ -5788,6 +5788,8 @@ final class cmuxUITests: XCTestCase {
         static let hideButton = "terminal.inputAccessory.hideChrome"
         /// The growing message field inside the composer band.
         static let field = "MobileComposerField"
+        /// The paperclip button that presents the system photo picker.
+        static let attachButton = "MobileComposerAttach"
         /// Surface-side live dock-state probe (`key=value;…`).
         static let surfaceProbe = "MobileComposerDockProbe"
         /// Store-side source-of-truth probe (`key=value;…`).
@@ -6140,6 +6142,58 @@ final class cmuxUITests: XCTestCase {
         // hittability loss (sim artifact). A pass here while the draft test fails means
         // the reveal path is the real bug.
         assertDockCoherent(in: app, cycle: 1)
+    }
+
+    /// Opening the system photo picker while the terminal input proxy owns the
+    /// software keyboard must release that responder before presentation. Otherwise
+    /// the picker hides the keyboard while UIKit still reports the proxy as first
+    /// responder, and a later terminal tap cannot produce a new focus transition.
+    @MainActor
+    func testTerminalTapRestoresKeyboardAfterCancellingPhotoPicker() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        // The composer is open by default but unfocused. Focus the terminal's hidden
+        // input proxy so this covers the reported keyboard-up → attach path.
+        surface.tap()
+        waitForDock(in: app, describe: "terminal proxy owns the visible keyboard before photo picker") {
+            $0["proxyFirstResponder"] == "1" && $0["keyboardUp"] == "1"
+        }
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForExistence(timeout: 4),
+            "Tapping the terminal should show the keyboard before opening attachments"
+        )
+
+        let attachButton = app.buttons[Composer.attachButton]
+        XCTAssertTrue(attachButton.waitForExistence(timeout: 4))
+        attachButton.tap()
+
+        let cancelButton = app.buttons["Cancel"].firstMatch
+        XCTAssertTrue(
+            cancelButton.waitForExistence(timeout: 6),
+            "The system photo picker should present from the attachment button"
+        )
+        cancelButton.tap()
+        XCTAssertTrue(
+            waitForKeyboardDismissal(in: app),
+            "Cancelling the photo picker should leave the keyboard visually closed"
+        )
+
+        // A terminal tap must create a real responder transition and re-open the
+        // keyboard, rather than no-op against a stale first-responder proxy.
+        surface.tap()
+        waitForDock(in: app, describe: "terminal tap restores keyboard after photo picker cancellation") {
+            $0["proxyFirstResponder"] == "1" && $0["keyboardUp"] == "1"
+        }
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForExistence(timeout: 4),
+            "Tapping the terminal after cancelling the photo picker should restore the keyboard"
+        )
     }
 
     /// Rapid double-toggle: two compose taps with no settle in between. This is the
