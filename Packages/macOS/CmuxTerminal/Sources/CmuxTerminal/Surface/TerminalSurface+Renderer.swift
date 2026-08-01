@@ -43,10 +43,28 @@ extension TerminalSurface {
         }
     }
 
-    /// Applies the occlusion state to the runtime surface.
+    /// Records the UI visibility axis and applies the effective occlusion.
     public func setOcclusion(_ visible: Bool) {
+        occlusionState.uiVisible = visible
+        applyOcclusionIfNeeded()
+    }
+
+    /// Records the host-window visibility axis and applies the effective occlusion.
+    ///
+    /// Detach and reparent transients intentionally leave this axis unchanged;
+    /// only an attached `NSWindow` occlusion observation should update it.
+    public func setWindowOcclusionVisible(_ visible: Bool) {
+        occlusionState.windowVisible = visible
+        applyOcclusionIfNeeded()
+    }
+
+    /// Applies the combined UI/window occlusion state to Ghostty, deduplicated.
+    private func applyOcclusionIfNeeded() {
         guard let surface = surface else { return }
-        ghostty_surface_set_occlusion(surface, visible)
+        let effectiveVisible = occlusionState.effectiveVisible
+        guard lastAppliedOcclusionVisible != effectiveVisible else { return }
+        ghostty_surface_set_occlusion(surface, effectiveVisible)
+        lastAppliedOcclusionVisible = effectiveVisible
     }
 
     /// Whether this surface currently holds realized GPU renderer resources.
