@@ -235,13 +235,14 @@ test("Unix resource transport vetoes a mutation whose timer was synchronously st
       .session(RESOURCE_SESSION)
       .workspace(RESOURCE_WORKSPACE)
       .rename("expired", { timeoutMs: 5 });
-
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
-    await fixture.release();
-    const failure = await renaming.then(
+    const outcome = renaming.then(
       () => undefined,
       (error: unknown) => error,
     );
+
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    await fixture.release();
+    const failure = await outcome;
 
     assert.ok(failure instanceof CmuxTimeoutError);
     assert.deepEqual(fixture.received, []);
