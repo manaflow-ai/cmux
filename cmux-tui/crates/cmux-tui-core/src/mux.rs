@@ -2430,6 +2430,8 @@ pub struct Mux {
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     discovered_terminal_termination_requests: Mutex<Vec<(String, Option<String>)>>,
+    #[cfg(test)]
+    terminal_host_cleanup_hook: Mutex<Option<Arc<dyn Fn() -> bool + Send + Sync>>>,
     browser_runtime: BrowserRuntimeSlot,
     active_render_attachments: Arc<AtomicUsize>,
     deadline_fanout_pool: DeadlineFanoutPool,
@@ -2785,6 +2787,8 @@ impl Mux {
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
             discovered_terminal_termination_requests: Mutex::new(Vec::new()),
+            #[cfg(test)]
+            terminal_host_cleanup_hook: Mutex::new(None),
             browser_runtime: BrowserRuntimeSlot::default(),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
             deadline_fanout_pool: DeadlineFanoutPool::new(),
@@ -7753,6 +7757,10 @@ impl Mux {
         &self,
         records: TerminalHostRecords,
     ) -> anyhow::Result<()> {
+        #[cfg(test)]
+        if let Some(hook) = self.terminal_host_cleanup_hook.lock().unwrap().clone() {
+            anyhow::ensure!(hook(), "forced terminal-host cleanup failure");
+        }
         #[cfg(unix)]
         {
             for (path, record) in records {
@@ -17603,6 +17611,72 @@ mod tests {
             unrelated_record_remained,
             "targeted close removed an unrelated malformed host record"
         );
+    }
+
+    #[test]
+    fn local_workspace_close_retries_cleanup_from_its_committed_receipt() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("local-cleanup-retry".into()), None).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let attempts = Arc::new(AtomicUsize::new(0));
+        *mux.terminal_host_cleanup_hook.lock().unwrap() = Some(Arc::new({
+            let attempts = attempts.clone();
+            move || attempts.fetch_add(1, Ordering::SeqCst) != 0
+        }));
+
+        let error = mux.close_workspace_at_revision(workspace, None).unwrap_err();
+        assert!(error.to_string().contains("forced terminal-host cleanup failure"));
+        assert!(mux.with_state(|state| state.workspaces.is_empty()));
+        let committed_revision = mux.workspace_registry.lock().unwrap().snapshot().unwrap().revision;
+
+        assert_eq!(
+            mux.close_workspace_at_revision(workspace, None).unwrap(),
+            Some(committed_revision)
+        );
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        *mux.terminal_host_cleanup_hook.lock().unwrap() = None;
+        surface.kill();
+        mux.shutdown().unwrap();
+    }
+
+    #[test]
+    fn resource_workspace_close_retries_cleanup_before_committed_success() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("resource-cleanup-retry".into()), None).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].public_id.to_string());
+        let attempts = Arc::new(AtomicUsize::new(0));
+        *mux.terminal_host_cleanup_hook.lock().unwrap() = Some(Arc::new({
+            let attempts = attempts.clone();
+            move || attempts.fetch_add(1, Ordering::SeqCst) != 0
+        }));
+        let params = serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+        });
+
+        let first = public_request(
+            &mux,
+            "cleanup-first",
+            "workspace.close",
+            params.clone(),
+            Some("cleanup-retry-effect"),
+        );
+        assert!(first.get("error").is_some(), "postcommit cleanup failure was acknowledged");
+        assert!(mux.with_state(|state| state.workspaces.is_empty()));
+
+        let replay = public_request(
+            &mux,
+            "cleanup-replay",
+            "workspace.close",
+            params,
+            Some("cleanup-retry-effect"),
+        );
+        assert_eq!(replay["result"]["replayed"], true);
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        *mux.terminal_host_cleanup_hook.lock().unwrap() = None;
+        surface.kill();
+        mux.shutdown().unwrap();
     }
 
     #[cfg(unix)]
