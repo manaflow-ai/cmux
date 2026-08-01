@@ -6035,7 +6035,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let presentation = expectation(
             description: "portal becomes presentable after geometry settles"
         )
-        presentation.expectedFulfillmentCount = 2
+        presentation.expectedFulfillmentCount = 3
         presentation.assertForOverFulfill = true
         let observer = NotificationCenter.default.addObserver(
             forName: Notification.Name("cmux.terminalPortalDidBecomePresentable"),
@@ -6060,6 +6060,20 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         contentView.addSubview(reboundAnchor)
         portal.bind(hostedView: hosted, to: reboundAnchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(reboundAnchor)
+        drainMainQueue()
+        drainMainQueue()
+
+        // Workspace selection can hide and reveal the same portal entry before
+        // its deferred geometry pass runs. The reveal must still produce a new
+        // presentation edge for the active switch transaction.
+        _ = portal.updateEntryVisibility(
+            forHostedId: ObjectIdentifier(hosted),
+            visibleInUI: false
+        )
+        _ = portal.updateEntryVisibility(
+            forHostedId: ObjectIdentifier(hosted),
+            visibleInUI: true
+        )
         drainMainQueue()
         drainMainQueue()
 
