@@ -327,6 +327,7 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         // A route with an explicit public direct address remains available
         // while relay bootstrap is suspended.
         _ = try await fixture.composition.transport(for: publicRequest)
+        await fixture.composition.prepareForConnection(routes: [publicRequest.route])
 
         // The identity-only attach barrier must stay pending until the first
         // relay-policy attempt settles. Otherwise a cold launch consumes its

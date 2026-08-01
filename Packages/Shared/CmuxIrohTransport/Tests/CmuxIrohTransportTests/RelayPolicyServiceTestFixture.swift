@@ -29,7 +29,8 @@ struct RelayPolicyServiceTestFixture {
         expiresAt: Int64? = nil,
         relayURLs: [String]? = nil,
         policyID: String = "123e4567-e89b-42d3-a456-426614174000",
-        issuedAt: Int64? = nil
+        issuedAt: Int64? = nil,
+        notBefore: Int64? = nil
     ) throws -> String {
         let keyID = signer == 1 ? "policy-first" : "policy-second"
         let privateKey = signer == 1 ? firstPrivateKey : secondPrivateKey
@@ -58,7 +59,7 @@ struct RelayPolicyServiceTestFixture {
                 "jti": policyID,
                 "sequence": sequence,
                 "iat": issuedAt,
-                "nbf": issuedAt,
+                "nbf": notBefore ?? issuedAt,
                 "exp": expiresAt ?? nowSeconds + 3_600,
                 "aud": "cmux-iroh-relay-policy",
                 "relay_protocol": "iroh-relay-v1",

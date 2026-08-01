@@ -270,6 +270,29 @@ struct CmxIrohRelayPolicyTests {
     }
 
     @Test
+    func cacheRecoversHistoricalPublicationWithDelayedActivation() async throws {
+        let fixture = try Fixture()
+        let cache = CmxIrohRelayPolicyCache(secureStore: TestSecureCredentialStore())
+        let issuedAt = fixture.nowSeconds - 120
+        _ = try await cache.install(
+            signedPolicy: fixture.token(
+                sequence: 7,
+                issuedAt: issuedAt,
+                notBefore: fixture.nowSeconds
+            ),
+            trustRoot: fixture.trustRoot,
+            now: fixture.now
+        )
+
+        let historical = try #require(
+            try await cache.rollbackPolicy(trustRoot: fixture.trustRoot)
+        )
+        #expect(historical.sequence == 7)
+        #expect(historical.issuedAt == issuedAt)
+        #expect(historical.notBefore == fixture.nowSeconds)
+    }
+
+    @Test
     func corruptPolicyCacheCannotEraseTheRollbackFloor() async throws {
         let fixture = try Fixture()
         let store = TestSecureCredentialStore()
