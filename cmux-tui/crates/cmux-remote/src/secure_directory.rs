@@ -28,8 +28,11 @@ pub fn ensure_secure_directory(path: &Path, access: DirectoryAccess) -> io::Resu
     }
     #[cfg(not(unix))]
     {
-        let _ = access;
-        std::fs::create_dir_all(path)
+        let _ = (path, access);
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "secure state directories require platform owner-access enforcement",
+        ))
     }
 }
 
@@ -271,6 +274,14 @@ mod unix {
             return Err(invalid_path(path, "must be owned by the effective user"));
         }
         if access == DirectoryAccess::OwnerOnly {
+            if metadata.permissions().mode() & 0o1000 != 0
+                && metadata.permissions().mode() & 0o077 != 0
+            {
+                return Err(invalid_path(
+                    path,
+                    "is a shared sticky directory and cannot be made owner-only",
+                ));
+            }
             // SAFETY: `directory` is a live descriptor opened by this process.
             if unsafe { libc::fchmod(directory.as_raw_fd(), 0o700) } != 0 {
                 return Err(io::Error::last_os_error());

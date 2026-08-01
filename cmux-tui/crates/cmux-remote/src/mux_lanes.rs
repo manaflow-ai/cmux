@@ -188,6 +188,8 @@ mod tests {
         static ALLOCATION_COUNT: Cell<usize> = const { Cell::new(0) };
     }
 
+    // Rust installs this allocator for the whole cmux-remote unit-test binary;
+    // thread-local counting keeps unrelated test threads out of each sample.
     #[global_allocator]
     static TEST_ALLOCATOR: CountingAllocator = CountingAllocator;
 
@@ -365,6 +367,9 @@ mod tests {
             allocation_count(|| tracker.classify_server_line(std::hint::black_box(&line)));
 
         assert_eq!(lane, Some(Lane::Bulk));
+        // This assertion also relies on serde_json skipping the unescaped data
+        // string in place. A serde_json parser change may legitimately add a
+        // scratch allocation even if lane classification remains bounded.
         assert_eq!(
             allocations, 0,
             "mux classification allocated while skipping a large output payload"

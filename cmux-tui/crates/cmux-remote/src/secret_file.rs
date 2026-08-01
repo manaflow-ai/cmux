@@ -58,12 +58,11 @@ pub fn read_owner_only(path: &Path, maximum_bytes: usize) -> io::Result<Zeroizin
 #[cfg(unix)]
 pub fn read_owner_only_string(path: &Path, maximum_bytes: usize) -> io::Result<Zeroizing<String>> {
     let mut bytes = read_owner_only(path, maximum_bytes)?;
-    if std::str::from_utf8(&bytes).is_err() {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "secret file is not valid UTF-8"));
-    }
     let bytes = std::mem::take(&mut *bytes);
-    // SAFETY: the complete byte vector was validated as UTF-8 immediately above.
-    Ok(Zeroizing::new(unsafe { String::from_utf8_unchecked(bytes) }))
+    String::from_utf8(bytes).map(Zeroizing::new).map_err(|error| {
+        let _invalid_bytes = Zeroizing::new(error.into_bytes());
+        io::Error::new(io::ErrorKind::InvalidData, "secret file is not valid UTF-8")
+    })
 }
 
 #[cfg(not(unix))]

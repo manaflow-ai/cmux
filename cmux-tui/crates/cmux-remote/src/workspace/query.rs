@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
@@ -448,49 +448,20 @@ impl WorkspaceQueryService {
 
     pub(super) fn close_client(&self, owner: &ClientScope) {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let tokens = state
-            .continuations
-            .iter()
-            .filter_map(|(token, stored)| (&stored.owner == owner).then_some(token.clone()))
-            .collect::<Vec<_>>();
-        for token in tokens {
-            state.remove_continuation(&token);
-        }
+        state.remove_continuations_where(|stored| &stored.owner == owner);
     }
 
     pub(super) fn close_client_workspace(&self, owner: &ClientScope, workspace: &WorkspaceId) {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let tokens = state
-            .continuations
-            .iter()
-            .filter_map(|(token, stored)| {
-                (&stored.owner == owner && &stored.workspace == workspace).then_some(token.clone())
-            })
-            .collect::<Vec<_>>();
-        for token in tokens {
-            state.remove_continuation(&token);
-        }
+        state.remove_continuations_where(|stored| {
+            &stored.owner == owner && &stored.workspace == workspace
+        });
     }
 
     pub(super) fn close_workspace(&self, workspace: &WorkspaceId) {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let tokens = state
-            .continuations
-            .iter()
-            .filter_map(|(token, stored)| (&stored.workspace == workspace).then_some(token.clone()))
-            .collect::<Vec<_>>();
-        for token in tokens {
-            state.remove_continuation(&token);
-        }
-        let hashes = state
-            .hashes
-            .keys()
-            .filter(|key| &key.workspace == workspace)
-            .cloned()
-            .collect::<Vec<_>>();
-        for key in hashes {
-            state.remove_hash(&key);
-        }
+        state.remove_continuations_where(|stored| &stored.workspace == workspace);
+        state.remove_hashes_where(|key, _| &key.workspace == workspace);
     }
 
     pub(super) fn clear(&self) {
@@ -501,18 +472,10 @@ impl WorkspaceQueryService {
 
 impl QueryState {
     fn prune_continuations(&mut self, now: Instant) {
-        let expired = self
-            .continuations
-            .iter()
-            .filter_map(|(token, stored)| {
-                (!stored.leased
-                    && now.saturating_duration_since(stored.last_used) >= QUERY_CONTINUATION_TTL)
-                    .then_some(token.clone())
-            })
-            .collect::<Vec<_>>();
-        for token in expired {
-            self.remove_continuation(&token);
-        }
+        self.remove_continuations_where(|stored| {
+            !stored.leased
+                && now.saturating_duration_since(stored.last_used) >= QUERY_CONTINUATION_TTL
+        });
     }
 
     fn evict_oldest_continuation(&mut self) -> bool {
@@ -549,6 +512,34 @@ impl QueryState {
         self.continuation_order.retain(|candidate| candidate != token);
     }
 
+    fn remove_continuations_where(
+        &mut self,
+        mut should_remove: impl FnMut(&StoredContinuation) -> bool,
+    ) {
+        let tokens = self
+            .continuations
+            .iter()
+            .filter_map(|(token, stored)| should_remove(stored).then_some(token.clone()))
+            .collect::<HashSet<_>>();
+        if tokens.is_empty() {
+            return;
+        }
+        for token in &tokens {
+            if let Some(stored) = self.continuations.remove(token) {
+                self.continuation_bytes = self.continuation_bytes.saturating_sub(stored.charge);
+            }
+        }
+        for stored in self.continuations.values_mut() {
+            if stored.predecessor.as_ref().is_some_and(|token| tokens.contains(token)) {
+                stored.predecessor = None;
+            }
+            if stored.successor.as_ref().is_some_and(|token| tokens.contains(token)) {
+                stored.successor = None;
+            }
+        }
+        self.continuation_order.retain(|token| !tokens.contains(token));
+    }
+
     fn release_continuation(&mut self, token: &str) {
         let Some(stored) = self.continuations.get_mut(token) else { return };
         stored.leased = false;
@@ -558,17 +549,9 @@ impl QueryState {
     }
 
     fn prune_hashes(&mut self, now: Instant) {
-        let expired = self
-            .hashes
-            .iter()
-            .filter_map(|(key, cached)| {
-                (now.saturating_duration_since(cached.last_used) >= FILE_HASH_TTL)
-                    .then_some(key.clone())
-            })
-            .collect::<Vec<_>>();
-        for key in expired {
-            self.remove_hash(&key);
-        }
+        self.remove_hashes_where(|_, cached| {
+            now.saturating_duration_since(cached.last_used) >= FILE_HASH_TTL
+        });
     }
 
     fn evict_oldest_hash(&mut self) -> bool {
@@ -581,11 +564,24 @@ impl QueryState {
         false
     }
 
-    fn remove_hash(&mut self, key: &FileHashKey) {
-        if let Some(cached) = self.hashes.remove(key) {
-            self.hash_key_bytes = self.hash_key_bytes.saturating_sub(cached.charge);
+    fn remove_hashes_where(
+        &mut self,
+        mut should_remove: impl FnMut(&FileHashKey, &CachedHash) -> bool,
+    ) {
+        let keys = self
+            .hashes
+            .iter()
+            .filter_map(|(key, cached)| should_remove(key, cached).then_some(key.clone()))
+            .collect::<HashSet<_>>();
+        if keys.is_empty() {
+            return;
         }
-        self.hash_order.retain(|candidate| candidate != key);
+        for key in &keys {
+            if let Some(cached) = self.hashes.remove(key) {
+                self.hash_key_bytes = self.hash_key_bytes.saturating_sub(cached.charge);
+            }
+        }
+        self.hash_order.retain(|key| !keys.contains(key));
     }
 }
 

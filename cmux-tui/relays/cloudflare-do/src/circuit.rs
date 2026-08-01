@@ -39,6 +39,21 @@ enum OutboundQueueError {
     ByteLimit,
 }
 
+fn outbound_queue_close(error: OutboundQueueError) -> (u16, &'static str, &'static str) {
+    match error {
+        OutboundQueueError::EmptyFrame => (
+            CLOSE_UNSUPPORTED,
+            "circuit frames must not be empty",
+            "circuit peer sent an empty frame",
+        ),
+        OutboundQueueError::FrameLimit | OutboundQueueError::ByteLimit => (
+            CLOSE_OVERLOADED,
+            "circuit peer is backpressured",
+            "circuit outbound queue limit exceeded",
+        ),
+    }
+}
+
 fn reserve_outbound_frame(
     queue: &mut OutboundQueue,
     buffered_bytes: u32,
@@ -516,12 +531,9 @@ impl RelayCircuit {
             peer.as_ref().buffered_amount(),
             bytes.len(),
         ) {
-            let close_code = match error {
-                OutboundQueueError::EmptyFrame => CLOSE_UNSUPPORTED,
-                OutboundQueueError::FrameLimit | OutboundQueueError::ByteLimit => CLOSE_OVERLOADED,
-            };
-            close(socket, close_code, "circuit peer is backpressured");
-            close(&peer, close_code, "circuit outbound queue limit exceeded");
+            let (close_code, sender_reason, peer_reason) = outbound_queue_close(error);
+            close(socket, close_code, sender_reason);
+            close(&peer, close_code, peer_reason);
             return Ok(());
         }
 
@@ -875,6 +887,28 @@ mod tests {
             reserve_outbound_frame(&mut OutboundQueue::default(), 0, 0),
             Err(OutboundQueueError::EmptyFrame)
         );
+    }
+
+    #[test]
+    fn outbound_queue_close_reasons_match_the_failure() {
+        assert_eq!(
+            outbound_queue_close(OutboundQueueError::EmptyFrame),
+            (
+                CLOSE_UNSUPPORTED,
+                "circuit frames must not be empty",
+                "circuit peer sent an empty frame",
+            )
+        );
+        for error in [OutboundQueueError::FrameLimit, OutboundQueueError::ByteLimit] {
+            assert_eq!(
+                outbound_queue_close(error),
+                (
+                    CLOSE_OVERLOADED,
+                    "circuit peer is backpressured",
+                    "circuit outbound queue limit exceeded",
+                )
+            );
+        }
     }
 
     #[test]

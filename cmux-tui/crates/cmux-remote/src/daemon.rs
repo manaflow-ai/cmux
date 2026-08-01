@@ -851,6 +851,9 @@ impl RemoteDaemon {
         let now = Instant::now();
         let (existing, expired) = {
             let mut state = self.state.lock().await;
+            // Per-group timers normally remove these entries. This bounded
+            // scan is the admission-time safety net when a timer is delayed
+            // by runtime starvation, so stale groups cannot consume capacity.
             let expired_keys = state
                 .pending
                 .iter()
@@ -1416,8 +1419,7 @@ async fn upgrade_websocket(
     websocket: WebSocketUpgrade,
 ) -> Response {
     if headers.contains_key(ORIGIN) {
-        return (StatusCode::FORBIDDEN, "browser-origin WebSocket connections are not allowed")
-            .into_response();
+        return StatusCode::FORBIDDEN.into_response();
     }
     websocket
         .max_message_size(state.maximum_frame_bytes)

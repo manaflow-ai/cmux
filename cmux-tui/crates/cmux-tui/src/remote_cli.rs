@@ -157,12 +157,22 @@ fn remote_help_requested(args: &[String]) -> bool {
                 requested = true;
                 index += 1;
             }
-            "--invite" | "--relay-ticket" => return false,
+            option
+                if is_inline_secret_option(option, "--invite")
+                    || is_inline_secret_option(option, "--relay-ticket") =>
+            {
+                return false;
+            }
             option if VALUE_OPTIONS.contains(&option) => index += 2,
             _ => index += 1,
         }
     }
     requested
+}
+
+fn is_inline_secret_option(argument: &str, option: &str) -> bool {
+    argument == option
+        || argument.strip_prefix(option).is_some_and(|suffix| suffix.starts_with('='))
 }
 
 fn remote_help(command: Option<&str>) -> &'static str {
@@ -174,12 +184,10 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("rpc") => client.rpc_help,
         Some("enroll") => client.enroll_help,
         Some("known-daemons") => client.known_daemons_help,
-        Some("remote-probe") => "USAGE: cmux-tui remote-probe [--json]\n",
-        Some("remote-link") => {
-            "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH]\n"
-        }
+        Some("remote-probe") => client.remote_probe_help,
+        Some("remote-link") => client.remote_link_help,
         Some("remote-stop") => catalog().remote.remote_stop_help,
-        Some("install-self") => "USAGE: cmux-tui install-self --destination PATH\n",
+        Some("install-self") => client.install_self_help,
         _ => client.command_help,
     }
 }
@@ -250,7 +258,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             Ok(value)
         };
         match argument.as_str() {
-            "--invite" => {
+            option if is_inline_secret_option(option, "--invite") => {
                 return Err(anyhow!(catalog().remote_client.inline_invitation_rejected));
             }
             "--invite-file" => set_invitation_arg(
@@ -378,7 +386,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             "--local-socket" => flags.local_socket = Some(value("--local-socket")?.into()),
             "--relay-route" => flags.relay_routes.push(value("--relay-route")?),
             "--relay-slot" => flags.relay_slots.push(value("--relay-slot")?),
-            "--relay-ticket" => {
+            option if is_inline_secret_option(option, "--relay-ticket") => {
                 return Err(anyhow!(catalog().remote_client.inline_relay_ticket_rejected));
             }
             "--relay-ticket-file" => {
@@ -554,6 +562,8 @@ struct ConnectedRuntime {
 }
 
 fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+    const MAX_CLIENT_RELAY_ROUTES: usize = 4;
+
     let startup_started = Instant::now();
     let invitation = flags
         .invitation
@@ -570,7 +580,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         .state_dir
         .clone()
         .or_else(default_state_dir)
-        .ok_or_else(|| anyhow!("cannot determine remote state directory; use --state-dir"))?
+        .ok_or_else(|| anyhow!(catalog().remote_client.known_state_dir_unavailable))?
         .join("client");
     let store = ClientIdentityStore::load_or_create(&client_root)?;
     let async_runtime = tokio_runtime()?;
@@ -591,8 +601,9 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
             };
             if invitation_routes.insert(route.clone(), options).is_some() {
                 return Err(anyhow!(
-                    "invitation repeats relay bootstrap route {}",
-                    sanitized_route(&endpoint)
+                    catalog()
+                        .remote_client
+                        .invitation_relay_route_repeated(&sanitized_route(&endpoint))
                 ));
             }
         }
@@ -600,10 +611,8 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
             relay_routes.entry(route).or_insert(options);
         }
     }
-    if relay_routes.len() > 4 {
-        return Err(anyhow!(
-            "a client supports at most four relay credential routes including invitation bootstrap routes"
-        ));
+    if relay_routes.len() > MAX_CLIENT_RELAY_ROUTES {
+        return Err(anyhow!(catalog().remote_client.relay_route_limit(MAX_CLIENT_RELAY_ROUTES)));
     }
     let ssh = SshProviderConfig {
         ssh_binary: flags.ssh_binary.clone(),
@@ -623,9 +632,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         if let Some(fingerprint) = flags.daemon.as_deref()
             && fingerprint != invitation.daemon_fingerprint
         {
-            return Err(anyhow!(
-                "invitation daemon fingerprint does not match --daemon {fingerprint:?}"
-            ));
+            return Err(anyhow!(catalog().remote_client.invitation_daemon_mismatch(fingerprint)));
         }
         let mut routes = Vec::new();
         if let Some(route) = explicit_route {
@@ -635,7 +642,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
             push_unique(&mut routes, route.clone());
         }
         if routes.is_empty() {
-            return Err(anyhow!("invitation contains no usable route hints"));
+            return Err(anyhow!(catalog().remote_client.invitation_no_routes));
         }
         (
             routes,
@@ -666,14 +673,11 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         let known =
             async_runtime.block_on(select_known_daemon(&store, flags.daemon.as_deref(), None))?;
         if known.route_hints.is_empty() {
-            return Err(anyhow!(
-                "daemon {} has no stored routes; pass a route or enroll again",
-                known.fingerprint
-            ));
+            return Err(anyhow!(catalog().remote_client.daemon_no_routes(&known.fingerprint)));
         }
         let key = async_runtime
             .block_on(store.daemon_key(&known.fingerprint))?
-            .ok_or_else(|| anyhow!("known daemon key disappeared"))?;
+            .ok_or_else(|| anyhow!(catalog().remote_client.known_daemon_key_unavailable))?;
         let auth = match known.auth {
             KnownDaemonAuth::Enrolled => ClientAuthMode::Enrolled,
             KnownDaemonAuth::Carrier => ClientAuthMode::Carrier,
@@ -684,16 +688,14 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
     let mut routes = resolve_route_candidates(&route_strings, &flags.routing, &providers)?;
     promote_reachable_unix_routes(&mut routes);
     if flags.upgrade && routes.first().is_none_or(|route| route.endpoint.scheme() != "ssh") {
-        return Err(anyhow!("--upgrade requires SSH to be the initial route"));
+        return Err(anyhow!(catalog().remote_client.upgrade_requires_ssh));
     }
     for route in relay_route_names {
         if !routes.iter().any(|candidate| candidate.endpoint.as_str() == route) {
             let display = parse_route(&route, "relay credential route")
                 .map(|route| sanitized_route(&route))
                 .unwrap_or_else(|_| "<invalid route>".into());
-            return Err(anyhow!(
-                "relay credential route {display} is not one of this connection's route candidates"
-            ));
+            return Err(anyhow!(catalog().remote_client.relay_route_not_candidate(&display)));
         }
     }
     let session = SessionId(*uuid::Uuid::new_v4().as_bytes());
@@ -731,12 +733,12 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         ))?;
     } else if let Some(known) = known {
         if expected_daemon != Some(runtime.info().daemon_public_key) {
-            return Err(anyhow!("daemon key changed for {}", known.name));
+            return Err(anyhow!(catalog().remote_client.daemon_key_changed(&known.name)));
         }
         if let Some(route) = explicit_route_for_refresh {
             async_runtime
                 .block_on(store.remember_verified_route(&known.fingerprint, &route))?
-                .ok_or_else(|| anyhow!("known daemon disappeared while refreshing its route"))?;
+                .ok_or_else(|| anyhow!(catalog().remote_client.known_daemon_refresh_missing))?;
         }
     }
 
@@ -781,8 +783,7 @@ async fn select_explicit_route_identity(
         && known.auth == KnownDaemonAuth::Carrier
     {
         return Err(anyhow!(
-            "daemon {} is known only through a trusted SSH or Unix carrier; use that carrier route or enroll this device for network access",
-            known.fingerprint
+            catalog().remote_client.carrier_daemon_requires_carrier(&known.fingerprint)
         ));
     }
     let key = store
@@ -816,9 +817,7 @@ fn client_relay_options(
     const MAX_CLIENT_RELAYS: usize = 4;
     let messages = &catalog().remote_client;
     if slots.len() != credentials.len() {
-        return Err(anyhow!(
-            "each relay credential needs one --relay-slot and one relay credential source"
-        ));
+        return Err(anyhow!(messages.relay_credential_pair_required));
     }
     if routes.is_empty() {
         return match slots.len() {
@@ -841,31 +840,27 @@ fn client_relay_options(
                     },
                 )]))
             }
-            _ => Err(anyhow!(
-                "multiple relay credentials require one --relay-route per credential group"
-            )),
+            _ => Err(anyhow!(messages.multiple_relay_credentials_require_routes)),
         };
     }
     if routes.len() != slots.len() {
-        return Err(anyhow!(
-            "each route-scoped relay credential needs one --relay-route, one --relay-slot, and one credential source"
-        ));
+        return Err(anyhow!(messages.route_scoped_relay_credential_pair_required));
     }
     if routes.len() > MAX_CLIENT_RELAYS {
-        return Err(anyhow!("a client supports at most {MAX_CLIENT_RELAYS} relay credentials"));
+        return Err(anyhow!(messages.relay_credential_limit(MAX_CLIENT_RELAYS)));
     }
     let mut by_route = BTreeMap::new();
     for ((route, slot), credential) in routes.into_iter().zip(slots).zip(credentials) {
         let endpoint = parse_route(&route, "relay credential route")?;
         let display = sanitized_route(&endpoint);
         if !is_relay_route(&endpoint) {
-            return Err(anyhow!("relay credential route {display} is not a relay route"));
+            return Err(anyhow!(messages.relay_route_not_relay(&display)));
         }
         let route = endpoint.to_string();
         let options =
             RelayClientOptions { slot, credentials: client_relay_credential(credential)? };
         if by_route.insert(route.clone(), options).is_some() {
-            return Err(anyhow!("relay credential route {display} is repeated"));
+            return Err(anyhow!(messages.relay_route_repeated(&display)));
         }
     }
     Ok(by_route)
@@ -1274,7 +1269,7 @@ fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollAdminArgs> {
                 require_create_action(action, "--relay-slot")?;
                 parsed.relay_slots.push(strict_option_value(args, &mut index, "--relay-slot")?);
             }
-            "--relay-ticket" => {
+            option if is_inline_secret_option(option, "--relay-ticket") => {
                 return Err(anyhow!(catalog().remote_client.inline_enroll_relay_ticket_rejected));
             }
             "--relay-ticket-file" => {
@@ -1515,7 +1510,7 @@ fn invitation_relay_access(args: &EnrollAdminArgs) -> anyhow::Result<Vec<Enrollm
 }
 
 fn read_invitation_ticket_file(path: &Path) -> anyhow::Result<String> {
-    Ok(cmux_remote::secret_file::read_owner_only_string(path, 4 * 1024)
+    Ok(cmux_remote::secret_file::read_owner_only_string(path, 4 * 1024 + 2)
         .with_context(|| format!("could not read relay ticket file {}", path.display()))?
         .trim()
         .to_string())
@@ -1581,13 +1576,14 @@ fn normalize_invitation_uri(mut bytes: Zeroizing<Vec<u8>>) -> anyhow::Result<Zer
     if bytes.iter().any(|byte| matches!(byte, b'\r' | b'\n')) {
         return Err(anyhow!("invitation input must contain exactly one URI"));
     }
-    if std::str::from_utf8(&bytes).is_err() {
-        return Err(anyhow!("invitation input is not valid UTF-8"));
-    }
-
     let bytes = std::mem::take(&mut *bytes);
-    // SAFETY: the complete byte slice was validated as UTF-8 immediately above.
-    Ok(Zeroizing::new(unsafe { String::from_utf8_unchecked(bytes) }))
+    match String::from_utf8(bytes) {
+        Ok(uri) => Ok(Zeroizing::new(uri)),
+        Err(error) => {
+            let _invalid_bytes = Zeroizing::new(error.into_bytes());
+            Err(anyhow!("invitation input is not valid UTF-8"))
+        }
+    }
 }
 
 fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> anyhow::Result<()> {
@@ -3344,6 +3340,29 @@ mod tests {
         ] {
             assert_japanese(&result.unwrap_err().to_string());
         }
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = ClientIdentityStore::load_or_create(directory.path()).unwrap();
+        let key = cmux_remote::crypto::StaticIdentity::generate().unwrap().public_key();
+        let known = tokio_runtime()
+            .unwrap()
+            .block_on(store.pin_carrier_daemon(
+                "remote".into(),
+                key,
+                vec!["ssh://remote.example".into()],
+            ))
+            .unwrap();
+        let error = tokio_runtime()
+            .unwrap()
+            .block_on(select_explicit_route_identity(
+                &store,
+                Some(&known.fingerprint),
+                "wss://remote.example/v1/link",
+                SupportedClientAuthModes::DeviceOnly,
+            ))
+            .err()
+            .expect("carrier-only daemon unexpectedly accepted a device-auth route");
+        assert_japanese(&error.to_string());
 
         for args in [
             vec!["unknown"],

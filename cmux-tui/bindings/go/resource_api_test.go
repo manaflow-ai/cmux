@@ -2859,6 +2859,7 @@ func TestAcknowledgedStreamOpenSurvivesTerminalTransportClose(t *testing.T) {
 	heldClientSide := &heldWriteReturnConn{
 		Conn:    clientSide,
 		release: releaseWrite,
+		timeout: 5 * time.Second,
 	}
 	go func() {
 		defer serverSide.Close()
@@ -2917,12 +2918,17 @@ func TestAcknowledgedStreamOpenSurvivesTerminalTransportClose(t *testing.T) {
 type heldWriteReturnConn struct {
 	net.Conn
 	release <-chan struct{}
+	timeout time.Duration
 }
 
 func (c *heldWriteReturnConn) Write(value []byte) (int, error) {
 	count, err := c.Conn.Write(value)
 	if err == nil && count == len(value) {
-		<-c.release
+		select {
+		case <-c.release:
+		case <-time.After(c.timeout):
+			return count, context.DeadlineExceeded
+		}
 	}
 	return count, err
 }

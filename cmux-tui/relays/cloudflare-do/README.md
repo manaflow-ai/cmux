@@ -112,10 +112,11 @@ target/debug/cmux-tui enroll create --session dev \
   > "$RELAY_STATE/invitation.txt"
 ```
 
-Deliver `invitation.txt` to an owner-only file on the client. Connect with that file, then inspect and approve the pending device in another owner terminal:
+On the client, pre-create an owner-only destination, deliver `invitation.txt` into it, then inspect and approve the pending device in another owner terminal:
 
 ```sh
-chmod 600 invitation.txt
+install -m 600 /dev/null invitation.txt
+# Copy the delivered invitation content into invitation.txt.
 cmux-tui connect --invite-file invitation.txt --device-name macbook
 cmux-tui enroll pending --session dev
 cmux-tui enroll approve <invitation-id> --session dev

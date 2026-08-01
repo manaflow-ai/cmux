@@ -674,6 +674,9 @@ impl PersistenceCoordinator {
 
 impl Drop for PersistenceCoordinator {
     fn drop(&mut self) {
+        // This waits for the worker's current durable write, including fsync,
+        // so the exclusive state lease cannot be released early. Async callers
+        // should use AuthDatabase::shutdown or drop from a blocking thread.
         let _ = self.close_and_join();
     }
 }
@@ -1713,6 +1716,22 @@ impl Drop for PendingDecisionCleanup {
                 let mut locked = state.lock().await;
                 remove_pending_decision(&mut locked, &invitation_id, &token);
             });
+            return;
+        }
+
+        let synchronous_fallback = Arc::clone(&state);
+        let fallback_invitation_id = invitation_id.clone();
+        let fallback_token = Arc::clone(&token);
+        if std::thread::Builder::new()
+            .name("cmux-pending-enrollment-cleanup".into())
+            .spawn(move || {
+                let mut locked = state.blocking_lock();
+                remove_pending_decision(&mut locked, &invitation_id, &token);
+            })
+            .is_err()
+        {
+            let mut locked = synchronous_fallback.blocking_lock();
+            remove_pending_decision(&mut locked, &fallback_invitation_id, &fallback_token);
         }
     }
 }
@@ -3873,6 +3892,59 @@ mod tests {
         let pending = result.expect("pending waiter lost the enrollment notification");
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].invitation_id, invitation.id);
+    }
+
+    #[test]
+    fn pending_cleanup_without_a_runtime_waits_off_thread_for_a_contended_lock() {
+        let invitation_id = "contended-invitation".to_string();
+        let token = Arc::new(());
+        let (decision, _decision_rx) = oneshot::channel();
+        let mut auth = AuthState::from_persisted(PersistedState::default());
+        auth.pending.insert(
+            invitation_id.clone(),
+            PendingDecision {
+                request: PendingEnrollment {
+                    invitation_id: invitation_id.clone(),
+                    device_name: "device".into(),
+                    device_fingerprint: "fingerprint".into(),
+                    requested_at_unix: 1,
+                },
+                device_public_key: [7; 32],
+                decision,
+                token: Arc::clone(&token),
+            },
+        );
+        let state = Arc::new(Mutex::new(auth));
+        let cleanup = PendingDecisionCleanup::new(&state, invitation_id.clone(), token);
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn({
+            let state = Arc::clone(&state);
+            move || {
+                let _locked = state.blocking_lock();
+                locked_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+            }
+        });
+        locked_rx.recv().unwrap();
+
+        drop(cleanup);
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        loop {
+            if let Ok(locked) = state.try_lock()
+                && !locked.pending.contains_key(&invitation_id)
+            {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "pending enrollment cleanup never completed"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     #[tokio::test]

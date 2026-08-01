@@ -329,6 +329,17 @@ async fn run_workspace_http_server(
                         drop(permit);
                         break;
                     }
+                    Some(result) = connections.join_next(), if !connections.is_empty() => {
+                        drop(permit);
+                        if let Err(error) = result
+                            && error.is_panic()
+                        {
+                            return Err(io::Error::other(format!(
+                                "workspace HTTP connection task panicked: {error}"
+                            )));
+                        }
+                        continue;
+                    }
                     accepted = listener.accept() => accepted,
                 };
                 match accepted {
@@ -457,9 +468,10 @@ async fn workspace_rpc(
         Ok(encoded) => encoded,
         Err(error) => {
             drop(prepared);
+            eprintln!("cmux workspace HTTP response serialization failed: {error}");
             return Json(RpcResponse {
                 id: response_id,
-                result: Err(RpcError::new("internal", format!("encode response: {error}"))),
+                result: Err(RpcError::new("internal", "workspace response encoding failed")),
             })
             .into_response();
         }

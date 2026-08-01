@@ -818,8 +818,15 @@ async fn run_iroh_listener(
                     ).await else {
                         return;
                     };
-                    let connection_permit =
-                        connection_admission.acquire(admission.connections.clone()).await;
+                    let first_stream_deadline =
+                        tokio::time::Instant::now() + admission.limits.first_stream_timeout;
+                    let Ok(connection_permit) = tokio::time::timeout_at(
+                        first_stream_deadline,
+                        connection_admission.acquire(admission.connections.clone()),
+                    ).await else {
+                        connection.close(9_u8.into(), b"cmux connection admission timed out");
+                        return;
+                    };
                     serve_iroh_connection(
                         connection,
                         daemon,
@@ -827,6 +834,7 @@ async fn run_iroh_listener(
                         maximum_frame_bytes,
                         admission,
                         connection_permit,
+                        first_stream_deadline,
                     ).await;
                 });
             }
@@ -844,6 +852,7 @@ async fn serve_iroh_connection(
     maximum_frame_bytes: usize,
     admission: Arc<IrohAdmission>,
     connection_permit: OwnedSemaphorePermit,
+    first_stream_deadline: tokio::time::Instant,
 ) {
     if connection.alpn() != alpn.as_slice() {
         connection.close(2_u8.into(), b"unexpected cmux ALPN");
@@ -857,7 +866,7 @@ async fn serve_iroh_connection(
     let (authenticated_tx, authenticated_rx) = watch::channel(false);
     let per_connection =
         Arc::new(Semaphore::new(admission.limits.maximum_pending_streams_per_connection));
-    let first_stream_deadline = tokio::time::sleep(admission.limits.first_stream_timeout);
+    let first_stream_deadline = tokio::time::sleep_until(first_stream_deadline);
     let unauthenticated_deadline = tokio::time::sleep(admission.limits.unauthenticated_timeout);
     tokio::pin!(first_stream_deadline);
     tokio::pin!(unauthenticated_deadline);

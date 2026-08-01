@@ -31,7 +31,7 @@ cmux-tui daemon --session dev \
   --advertise wss://cmux.example/v1/link
 ```
 
-Configure the reverse proxy to send `wss://cmux.example/v1/link` to `ws://127.0.0.1:8443/v1/link`. The advertised URL becomes an enrollment route hint. Binding plaintext directly to a non-loopback address requires `--remote-ws-insecure-bind` and should be limited to a trusted network.
+Configure the reverse proxy to send `wss://cmux.example/v1/link` to `ws://127.0.0.1:8443/v1/link`. Preserve the native client's lack of an `Origin` header because cmux rejects browser-origin upgrades. The advertised URL becomes an enrollment route hint. Binding plaintext directly to a non-loopback address requires `--remote-ws-insecure-bind` and should be limited to a trusted network.
 
 `npx cmux` exposes the same commands when using the npm distribution:
 
@@ -268,7 +268,7 @@ Run ticket commands in a shell that has the same `CMUX_RELAY_HMAC_SECRET`. Then 
 target/debug/cmux-relay serve --bind 127.0.0.1:8787
 ```
 
-A public TLS proxy must forward `/v1/relay`, the WebSocket Upgrade headers, and the `Authorization` header to the loopback relay.
+A public TLS proxy must forward `/v1/relay`, the WebSocket Upgrade headers, and the `Authorization` header to the loopback relay without injecting an `Origin` header.
 
 Register the daemon:
 

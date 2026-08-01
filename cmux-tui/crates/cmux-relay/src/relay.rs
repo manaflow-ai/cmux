@@ -283,8 +283,7 @@ impl Relay {
         upgrade: WebSocketUpgrade,
     ) -> Response {
         if headers.contains_key(ORIGIN) {
-            return (StatusCode::FORBIDDEN, "browser-origin WebSocket connections are not allowed")
-                .into_response();
+            return StatusCode::FORBIDDEN.into_response();
         }
         let Some(permit) = relay.try_admit_upgraded_socket() else {
             let mut response =

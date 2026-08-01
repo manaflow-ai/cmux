@@ -284,7 +284,7 @@ fn incremental_cargo_detects_a_new_top_level_input_with_ignored_target_present()
     assert_eq!(stable, dirty, "an unchanged source tree changed build identity");
     assert!(
         !cargo_log.contains("Compiling cmux-build-identity-fixture"),
-        "an unchanged source tree rebuilt cmux-remote:\n{cargo_log}"
+        "an unchanged source tree rebuilt cmux-build-identity-fixture:\n{cargo_log}"
     );
 }
 

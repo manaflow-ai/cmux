@@ -99,9 +99,11 @@ fn main() {
 }
 
 fn emit_cargo_path_directive(directive: &str, path: &Path) {
-    let value = path.to_string_lossy();
+    let value = path
+        .to_str()
+        .unwrap_or_else(|| panic!("cargo:{directive} path is not valid UTF-8: {}", path.display()));
     if value.bytes().any(|byte| matches!(byte, b'\r' | b'\n')) {
-        panic!("Cargo directive path contains CR or LF");
+        panic!("cargo:{directive} path contains CR or LF: {}", path.display());
     }
     println!("cargo:{directive}={value}");
 }
@@ -113,7 +115,9 @@ fn emit_cargo_path_directive(directive: &str, path: &Path) {
 // Strip the verbatim prefix so bindgen/clang see plain paths.
 fn strip_windows_verbatim(path: PathBuf) -> PathBuf {
     if cfg!(windows) {
-        let s = path.to_string_lossy();
+        let s = path.to_str().unwrap_or_else(|| {
+            panic!("canonical Ghostty source path is not valid UTF-8: {}", path.display())
+        });
         if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
             return PathBuf::from(format!(r"\\{rest}"));
         }

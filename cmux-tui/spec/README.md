@@ -46,8 +46,6 @@ documented for cmux frontends and compatibility adapters:
 | [`frontends.md`](frontends.md) | Private frontend synchronization |
 | [`programmability.md`](programmability.md) | Implementation inventory and ownership |
 | [`native-frontend.md`](native-frontend.md) | Native TUI integration boundaries |
-| [`remote-daemon.md`](remote-daemon.md) | Remote authority, transport, authentication, and reliability |
-| [`remote-rpc.md`](remote-rpc.md) | Workspace RPC, processes, diffs, and forwarded routes |
 
 Private protocol-v10 compatibility does not imply `cmux.protocol/1`
 compatibility. High-level SDK packages expose it only through a path named

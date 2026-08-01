@@ -91,7 +91,7 @@ impl OwnedUnixListener {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .ok_or_else(|| UnixSocketError::Protocol("Unix socket path has no parent".into()))?;
-        ensure_secure_directory(parent, DirectoryAccess::OwnerControlled).map_err(|error| {
+        ensure_secure_directory(parent, DirectoryAccess::OwnerOnly).map_err(|error| {
             contextual_io(
                 error,
                 format!("could not secure Unix socket directory {}", parent.display()),

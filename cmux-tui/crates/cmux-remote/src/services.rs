@@ -2786,12 +2786,11 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn partial_mux_server_line_retains_budget_until_local_write_finishes() {
-        const MIN_FRAME_CHARGE: usize = 1024;
-
         let line = vec![b'm'; cmux_remote_protocol::MAX_FRAME_PAYLOAD];
         let packets = crate::mux_codec::encode_line(1, &line).unwrap();
         assert_eq!(packets.len(), 2);
-        let incoming_budget = packets.iter().map(|packet| packet.len().max(MIN_FRAME_CHARGE)).sum();
+        let incoming_budget =
+            packets.iter().map(|packet| packet.len().max(MIN_BUFFERED_MUX_MESSAGE_BYTES)).sum();
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
         let daemon = ServiceMultiplexer::new_with_incoming_budget(

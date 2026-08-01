@@ -3110,14 +3110,18 @@ impl Drop for RemoteSession {
         };
         let _ = fs::create_dir_all(dir);
         let logs = self.frame_logs.lock().unwrap();
+        let mut entries_by_surface: HashMap<SurfaceId, Vec<&str>> = HashMap::new();
+        for entry in &logs.entries {
+            entries_by_surface.entry(entry.surface).or_default().push(&entry.line);
+        }
         for surface in self.surfaces.lock().unwrap().values() {
             let path = dir.join(format!("mirror-{}.txt", surface.id));
             let _ = fs::write(path, dump_mirror(surface));
             let frames = dir.join(format!("frames-{}.log", surface.id));
             if let Ok(file) = fs::File::create(frames) {
                 let mut writer = io::BufWriter::new(file);
-                for entry in logs.entries.iter().filter(|entry| entry.surface == surface.id) {
-                    let _ = writeln!(writer, "{}", entry.line);
+                for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
+                    let _ = writeln!(writer, "{line}");
                 }
             }
         }

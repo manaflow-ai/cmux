@@ -325,6 +325,9 @@ pub(crate) struct RemoteClientMessages {
     pub rpc_help: &'static str,
     pub enroll_help: &'static str,
     pub known_daemons_help: &'static str,
+    pub remote_probe_help: &'static str,
+    pub remote_link_help: &'static str,
+    pub install_self_help: &'static str,
     pub command_help: &'static str,
     option_needs_value: &'static str,
     invalid_option_value: &'static str,
@@ -341,6 +344,23 @@ pub(crate) struct RemoteClientMessages {
     pub relay_command_arg_order: &'static str,
     pub relay_credentials_require_explicit_route: &'static str,
     relay_shorthand_requires_relay_route: &'static str,
+    pub relay_credential_pair_required: &'static str,
+    pub multiple_relay_credentials_require_routes: &'static str,
+    pub route_scoped_relay_credential_pair_required: &'static str,
+    relay_credential_limit: &'static str,
+    relay_route_not_relay: &'static str,
+    relay_route_repeated: &'static str,
+    invitation_relay_route_repeated: &'static str,
+    relay_route_limit: &'static str,
+    invitation_daemon_mismatch: &'static str,
+    pub invitation_no_routes: &'static str,
+    daemon_no_routes: &'static str,
+    pub known_daemon_key_unavailable: &'static str,
+    carrier_daemon_requires_carrier: &'static str,
+    pub upgrade_requires_ssh: &'static str,
+    relay_route_not_candidate: &'static str,
+    daemon_key_changed: &'static str,
+    pub known_daemon_refresh_missing: &'static str,
     pub positional_invitation_rejected: &'static str,
     pub connect_one_route: &'static str,
     pub reconnect_policy_invalid: &'static str,
@@ -407,6 +427,46 @@ impl RemoteClientMessages {
 
     pub(crate) fn relay_shorthand_requires_relay_route(&self, route: &str) -> String {
         self.relay_shorthand_requires_relay_route.replace("{route}", route)
+    }
+
+    pub(crate) fn relay_credential_limit(&self, maximum: usize) -> String {
+        self.relay_credential_limit.replace("{maximum}", &maximum.to_string())
+    }
+
+    pub(crate) fn relay_route_not_relay(&self, route: &str) -> String {
+        self.relay_route_not_relay.replace("{route}", route)
+    }
+
+    pub(crate) fn relay_route_repeated(&self, route: &str) -> String {
+        self.relay_route_repeated.replace("{route}", route)
+    }
+
+    pub(crate) fn invitation_relay_route_repeated(&self, route: &str) -> String {
+        self.invitation_relay_route_repeated.replace("{route}", route)
+    }
+
+    pub(crate) fn relay_route_limit(&self, maximum: usize) -> String {
+        self.relay_route_limit.replace("{maximum}", &maximum.to_string())
+    }
+
+    pub(crate) fn invitation_daemon_mismatch(&self, fingerprint: &str) -> String {
+        self.invitation_daemon_mismatch.replace("{fingerprint}", &format!("{fingerprint:?}"))
+    }
+
+    pub(crate) fn daemon_no_routes(&self, fingerprint: &str) -> String {
+        self.daemon_no_routes.replace("{fingerprint}", fingerprint)
+    }
+
+    pub(crate) fn carrier_daemon_requires_carrier(&self, fingerprint: &str) -> String {
+        self.carrier_daemon_requires_carrier.replace("{fingerprint}", fingerprint)
+    }
+
+    pub(crate) fn relay_route_not_candidate(&self, route: &str) -> String {
+        self.relay_route_not_candidate.replace("{route}", route)
+    }
+
+    pub(crate) fn daemon_key_changed(&self, name: &str) -> String {
+        self.daemon_key_changed.replace("{name}", name)
     }
 
     pub(crate) fn rpc_stdin_too_large(&self, maximum: usize) -> String {
@@ -1042,6 +1102,9 @@ OPTIONS:
   connect accepts every option documented by `cmux-tui connect`.
 "#,
         known_daemons_help: "USAGE: cmux-tui known-daemons [list] [--state-dir PATH] [--json]\n       cmux-tui known-daemons forget FINGERPRINT [--state-dir PATH] [--json]\n",
+        remote_probe_help: "USAGE: cmux-tui remote-probe [--json]\n",
+        remote_link_help: "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH]\n",
+        install_self_help: "USAGE: cmux-tui install-self --destination PATH\n",
         command_help: "USAGE: cmux-tui connect|ssh|forward|rpc|enroll|known-daemons <OPTIONS>\n\nRun `cmux-tui COMMAND --help` for command-specific routes and options.\n",
         option_needs_value: "{option} needs a value",
         invalid_option_value: "{option} has an invalid value; expected {expected}",
@@ -1058,6 +1121,23 @@ OPTIONS:
         relay_command_arg_order: "--relay-ticket-command-arg must follow --relay-ticket-command",
         relay_credentials_require_explicit_route: "relay credentials without --relay-route require one explicit relay connection route",
         relay_shorthand_requires_relay_route: "relay credential shorthand requires an explicit relay route, got {route}",
+        relay_credential_pair_required: "each relay credential needs one --relay-slot and one relay credential source",
+        multiple_relay_credentials_require_routes: "multiple relay credentials require one --relay-route per credential group",
+        route_scoped_relay_credential_pair_required: "each route-scoped relay credential needs one --relay-route, one --relay-slot, and one credential source",
+        relay_credential_limit: "a client supports at most {maximum} relay credentials",
+        relay_route_not_relay: "relay credential route {route} is not a relay route",
+        relay_route_repeated: "relay credential route {route} is repeated",
+        invitation_relay_route_repeated: "invitation repeats relay bootstrap route {route}",
+        relay_route_limit: "a client supports at most {maximum} relay credential routes including invitation bootstrap routes",
+        invitation_daemon_mismatch: "invitation daemon fingerprint does not match --daemon {fingerprint}",
+        invitation_no_routes: "invitation contains no usable route hints",
+        daemon_no_routes: "daemon {fingerprint} has no stored routes; pass a route or enroll again",
+        known_daemon_key_unavailable: "known daemon key disappeared",
+        carrier_daemon_requires_carrier: "daemon {fingerprint} is known only through a trusted SSH or Unix carrier; use that carrier route or enroll this device for network access",
+        upgrade_requires_ssh: "--upgrade requires SSH to be the initial route",
+        relay_route_not_candidate: "relay credential route {route} is not one of this connection's route candidates",
+        daemon_key_changed: "daemon key changed for {name}",
+        known_daemon_refresh_missing: "known daemon disappeared while refreshing its route",
         positional_invitation_rejected: "positional invitations are not accepted; use --invite-file or stdin",
         connect_one_route: "connect accepts one route",
         reconnect_policy_invalid: "reconnect delays, attempt timeout, and enabled heartbeat timeout must be positive; max delay must be at least initial",
@@ -1493,6 +1573,9 @@ ID とセッション:
   connect では `cmux-tui connect` の全オプションを使用できます。
 "#,
         known_daemons_help: "使用方法: cmux-tui known-daemons [list] [--state-dir パス] [--json]\n          cmux-tui known-daemons forget フィンガープリント [--state-dir パス] [--json]\n",
+        remote_probe_help: "使用方法: cmux-tui remote-probe [--json]\n",
+        remote_link_help: "使用方法: cmux-tui remote-link --stdio [--session 名前] [--state-dir パス]\n",
+        install_self_help: "使用方法: cmux-tui install-self --destination パス\n",
         command_help: "使用方法: cmux-tui connect|ssh|forward|rpc|enroll|known-daemons <オプション>\n\nコマンド別のルートとオプションは `cmux-tui コマンド --help` で表示します。\n",
         option_needs_value: "{option} には値が必要です",
         invalid_option_value: "{option} の値が無効です。{expected} を指定してください",
@@ -1509,6 +1592,23 @@ ID とセッション:
         relay_command_arg_order: "--relay-ticket-command-arg は --relay-ticket-command の後に指定してください",
         relay_credentials_require_explicit_route: "--relay-route を指定しないリレー認証情報には、明示的なリレー接続ルートを 1 つ指定してください",
         relay_shorthand_requires_relay_route: "リレー認証情報の短縮形式には明示的なリレールートが必要です。指定されたルート: {route}",
+        relay_credential_pair_required: "各リレー認証情報には --relay-slot と認証情報ソースを 1 つずつ指定してください",
+        multiple_relay_credentials_require_routes: "複数のリレー認証情報には、認証情報グループごとに --relay-route を 1 つ指定してください",
+        route_scoped_relay_credential_pair_required: "ルート別の各リレー認証情報には --relay-route、--relay-slot、認証情報ソースを 1 つずつ指定してください",
+        relay_credential_limit: "クライアントが使用できるリレー認証情報は最大 {maximum} 個です",
+        relay_route_not_relay: "リレー認証情報のルート {route} はリレールートではありません",
+        relay_route_repeated: "リレー認証情報のルート {route} が重複しています",
+        invitation_relay_route_repeated: "招待内のリレーブートストラップルート {route} が重複しています",
+        relay_route_limit: "招待のブートストラップルートを含め、クライアントが使用できるリレー認証情報ルートは最大 {maximum} 個です",
+        invitation_daemon_mismatch: "招待のデーモンフィンガープリントが --daemon {fingerprint} と一致しません",
+        invitation_no_routes: "招待に使用可能なルート候補がありません",
+        daemon_no_routes: "デーモン {fingerprint} に保存済みルートがありません。ルートを指定するか、再登録してください",
+        known_daemon_key_unavailable: "登録済みデーモンの鍵が見つかりません",
+        carrier_daemon_requires_carrier: "デーモン {fingerprint} は信頼済みの SSH または Unix 搬送路でのみ登録されています。その搬送路を使用するか、ネットワーク接続用にこのデバイスを登録してください",
+        upgrade_requires_ssh: "--upgrade を使用するには最初のルートを SSH にしてください",
+        relay_route_not_candidate: "リレー認証情報のルート {route} はこの接続のルート候補に含まれていません",
+        daemon_key_changed: "デーモン {name} の鍵が変更されています",
+        known_daemon_refresh_missing: "ルートの更新中に登録済みデーモンが見つからなくなりました",
         positional_invitation_rejected: "招待を位置引数へ指定できません。--invite-file または標準入力を使用してください",
         connect_one_route: "connect に指定できるルートは 1 つです",
         reconnect_policy_invalid: "再接続遅延、試行タイムアウト、有効なハートビートタイムアウトには正の値が必要です。最大遅延は初期遅延以上にしてください",

@@ -423,6 +423,9 @@ mod unix {
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
     const HOST_LAUNCH_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
     const HOST_EXIT_STREAM_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+    const HOST_EXIT_PERSIST_RETRY_MIN: Duration = Duration::from_millis(100);
+    const HOST_EXIT_PERSIST_RETRY_MAX: Duration = Duration::from_secs(5);
+    const HOST_EXIT_PERSIST_REPORT_INTERVAL: Duration = Duration::from_secs(60);
 
     fn pty_size(cols: u16, rows: u16, cell_pixels: (u16, u16)) -> anyhow::Result<PtySize> {
         let pixel_width = cols.checked_mul(cell_pixels.0).ok_or_else(|| {
@@ -2158,6 +2161,45 @@ mod unix {
         Ok(())
     }
 
+    fn exit_persistence_diagnostic_path(exit_record_path: &Path) -> PathBuf {
+        exit_record_path.with_extension("exit-error")
+    }
+
+    fn write_exit_persistence_diagnostic(
+        exit_record_path: &Path,
+        attempt: u64,
+        error: &anyhow::Error,
+    ) -> std_io::Result<()> {
+        let path = exit_persistence_diagnostic_path(exit_record_path);
+        if let Some(parent) = path.parent() {
+            prepare_private_dir(parent).map_err(std_io::Error::other)?;
+        }
+        let message = format!(
+            "terminal-host exit persistence failed on attempt {attempt}; retrying: {error:#}\n"
+        );
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(path)?;
+        file.write_all(message.as_bytes())?;
+        file.sync_all()
+    }
+
+    fn clear_exit_persistence_diagnostic(exit_record_path: &Path) {
+        match fs::remove_file(exit_persistence_diagnostic_path(exit_record_path)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std_io::ErrorKind::NotFound => {}
+            Err(_) => {}
+        }
+    }
+
+    fn next_exit_persistence_retry_delay(delay: Duration) -> Duration {
+        delay.saturating_mul(2).min(HOST_EXIT_PERSIST_RETRY_MAX)
+    }
+
     #[cfg(target_vendor = "apple")]
     fn rename_no_replace(from: &Path, to: &Path) -> std_io::Result<()> {
         let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| {
@@ -3089,32 +3131,44 @@ mod unix {
                 .map(|_| ())
         }
 
-        fn run_exit_publisher(host: Weak<Self>, requests: Receiver<()>) {
+        fn run_exit_publisher(weak_host: Weak<Self>, requests: Receiver<()>) {
             while requests.recv().is_ok() {
-                let mut reported = false;
+                let mut attempt = 0_u64;
+                let mut retry_delay = HOST_EXIT_PERSIST_RETRY_MIN;
+                let mut next_report = Instant::now();
                 loop {
-                    let Some(host) = host.upgrade() else {
+                    let Some(host) = weak_host.upgrade() else {
                         return;
                     };
                     let result = host.persist_and_publish_exit_if_drained();
                     drop(host);
                     match result {
-                        Ok(()) => break,
+                        Ok(()) => {
+                            if let Some(host) = weak_host.upgrade() {
+                                clear_exit_persistence_diagnostic(&host.exit_record_path);
+                            }
+                            break;
+                        }
                         Err(error) => {
                             // The host stays live and sends no Exit until the
                             // durable sidecar succeeds. Reconnecting muxes can
                             // still inspect the retained snapshot, and a disk
                             // failure cannot erase the authoritative status.
-                            if !reported {
-                                eprintln!(
-                                    "cmux-tui: terminal-host exit persistence failed; retrying: {error:#}"
-                                );
-                                reported = true;
+                            attempt = attempt.saturating_add(1);
+                            let now = Instant::now();
+                            if now >= next_report {
+                                if let Some(host) = weak_host.upgrade() {
+                                    let _ = write_exit_persistence_diagnostic(
+                                        &host.exit_record_path,
+                                        attempt,
+                                        &error,
+                                    );
+                                }
+                                next_report = now + HOST_EXIT_PERSIST_REPORT_INTERVAL;
                             }
-                            match requests.recv_timeout(Duration::from_millis(100)) {
-                                Ok(()) | Err(RecvTimeoutError::Timeout) => {}
-                                Err(RecvTimeoutError::Disconnected) => return,
-                            }
+                            thread::sleep(retry_delay);
+                            while requests.try_recv().is_ok() {}
+                            retry_delay = next_exit_persistence_retry_delay(retry_delay);
                         }
                     }
                 }
@@ -6001,6 +6055,38 @@ mod unix {
                 .unwrap()
                 .is_none()
             );
+        }
+
+        #[test]
+        fn exit_persistence_failure_writes_a_private_bounded_retry_diagnostic() {
+            let directory = std::env::temp_dir().join(format!(
+                "cmux-host-exit-diagnostic-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            prepare_private_dir(&directory).unwrap();
+            let exit_path = directory.join("terminal.exit");
+            write_exit_persistence_diagnostic(
+                &exit_path,
+                3,
+                &anyhow::anyhow!("injected persistence failure"),
+            )
+            .unwrap();
+            let diagnostic = exit_persistence_diagnostic_path(&exit_path);
+            let message = fs::read_to_string(&diagnostic).unwrap();
+            assert!(message.contains("attempt 3"), "{message}");
+            assert!(message.contains("injected persistence failure"), "{message}");
+            assert_eq!(fs::metadata(&diagnostic).unwrap().permissions().mode() & 0o777, 0o600);
+
+            let mut delay = HOST_EXIT_PERSIST_RETRY_MIN;
+            for _ in 0..16 {
+                delay = next_exit_persistence_retry_delay(delay);
+            }
+            assert_eq!(delay, HOST_EXIT_PERSIST_RETRY_MAX);
+
+            clear_exit_persistence_diagnostic(&exit_path);
+            assert!(!diagnostic.exists());
+            fs::remove_dir(directory).unwrap();
         }
 
         #[test]

@@ -125,89 +125,7 @@ pub(crate) async fn apply_patch(
     let (changes, changed_paths, snapshots) = if super::codex_patch::looks_like_patch(source) {
         prepare_codex_patch(root, source).await?
     } else {
-        let sections = split_unified_patch(source)?;
-        if sections.len() > MAX_PATCH_FILES {
-            return Err(RpcError::new(
-                "resource-exhausted",
-                format!("patch changes more than {MAX_PATCH_FILES} files"),
-            ));
-        }
-        let mut changes = Vec::with_capacity(sections.len());
-        let mut changed_paths = BTreeSet::new();
-        let mut snapshots = BTreeMap::new();
-        let mut total_snapshot_bytes = 0usize;
-        let mut total_new_bytes = 0usize;
-        for section in sections {
-            let parsed = diffy::Patch::from_str(&section)
-                .map_err(|error| RpcError::new("invalid-patch", error.to_string()))?;
-            let old_path = parsed.original().map(normalize_patch_path).transpose()?.flatten();
-            let new_path = parsed.modified().map(normalize_patch_path).transpose()?.flatten();
-            if old_path.is_none() && new_path.is_none() {
-                return Err(RpcError::new(
-                    "invalid-patch",
-                    "patch cannot use /dev/null for both paths",
-                ));
-            }
-            let mut section_paths = BTreeSet::new();
-            section_paths.extend(old_path.iter().cloned());
-            section_paths.extend(new_path.iter().cloned());
-            for path in &section_paths {
-                if !changed_paths.insert(path.clone()) {
-                    return Err(RpcError::new(
-                        "invalid-patch",
-                        format!("patch changes {path} more than once"),
-                    ));
-                }
-                snapshot_path(root, path, &mut snapshots, &mut total_snapshot_bytes).await?;
-            }
-            if let Some(new) = &new_path
-                && old_path.as_deref() != Some(new)
-                && snapshots.get(new).is_some_and(Option::is_some)
-            {
-                return Err(RpcError::new(
-                    "patch-conflict",
-                    format!("patch destination already exists: {new}"),
-                ));
-            }
-            let source_path = old_path.as_deref().or(new_path.as_deref()).unwrap_or_default();
-            let original = if let Some(old) = &old_path {
-                snapshots
-                    .get(old)
-                    .and_then(Option::as_ref)
-                    .map(|snapshot| snapshot.contents.clone())
-                    .ok_or_else(|| {
-                        RpcError::new(
-                            "patch-conflict",
-                            format!("patch source does not exist: {old}"),
-                        )
-                    })?
-            } else {
-                Vec::new()
-            };
-            let original = String::from_utf8(original).map_err(|_| {
-                RpcError::new(
-                    "invalid-text",
-                    format!("patch target is not UTF-8 text: {source_path}"),
-                )
-            })?;
-            let applied = diffy::apply(&original, &parsed)
-                .map_err(|error| RpcError::new("patch-conflict", error.to_string()))?;
-            let new_contents = if new_path.is_some() {
-                total_new_bytes = total_new_bytes.saturating_add(applied.len());
-                if applied.len() > MAX_WRITE_BYTES || total_new_bytes > MAX_PATCH_TOTAL_BYTES {
-                    return Err(RpcError::new(
-                        "resource-exhausted",
-                        "patched contents exceed workspace mutation limits",
-                    ));
-                }
-                Some(applied.into_bytes())
-            } else {
-                None
-            };
-            changes.push(PreparedChange { old_path, new_path, new_contents });
-        }
-
-        (changes, changed_paths.into_iter().collect::<Vec<_>>(), snapshots)
+        prepare_unified_patch(root, source).await?
     };
     enforce_requested_preconditions(&snapshots, &changed_paths, requested_preconditions)?;
     let files = patch_results(&changes, &snapshots);
@@ -283,6 +201,51 @@ pub(crate) async fn apply_patch(
 }
 
 type PreparedPatch = (Vec<PreparedChange>, Vec<String>, FileSnapshots);
+
+async fn prepare_unified_patch(
+    root: &WorkspaceRoot,
+    source: &str,
+) -> Result<PreparedPatch, RpcError> {
+    let sections = split_unified_patch(source)?;
+    enforce_patch_file_count(sections.len())?;
+    let mut changes = Vec::with_capacity(sections.len());
+    let mut changed_paths = BTreeSet::new();
+    let mut snapshots = BTreeMap::new();
+    let mut total_snapshot_bytes = 0usize;
+    let mut total_new_bytes = 0usize;
+    for section in sections {
+        let parsed = diffy::Patch::from_str(&section)
+            .map_err(|error| RpcError::new("invalid-patch", error.to_string()))?;
+        let old_path = parsed.original().map(normalize_patch_path).transpose()?.flatten();
+        let new_path = parsed.modified().map(normalize_patch_path).transpose()?.flatten();
+        if old_path.is_none() && new_path.is_none() {
+            return Err(RpcError::new(
+                "invalid-patch",
+                "patch cannot use /dev/null for both paths",
+            ));
+        }
+        snapshot_change_paths(
+            root,
+            old_path.as_deref(),
+            new_path.as_deref(),
+            &mut changed_paths,
+            &mut snapshots,
+            &mut total_snapshot_bytes,
+        )
+        .await?;
+        reject_existing_destination(&old_path, &new_path, &snapshots)?;
+        let source_path = old_path.as_deref().or(new_path.as_deref()).unwrap_or_default();
+        let original = existing_text(&snapshots, old_path.as_deref(), source_path)?;
+        let applied = diffy::apply(&original, &parsed)
+            .map_err(|error| RpcError::new("patch-conflict", error.to_string()))?;
+        let new_contents = new_path
+            .as_ref()
+            .map(|_| checked_new_contents(applied, &mut total_new_bytes))
+            .transpose()?;
+        changes.push(PreparedChange { old_path, new_path, new_contents });
+    }
+    Ok(finish_preparation(changes, changed_paths, snapshots))
+}
 
 async fn prepare_codex_patch(
     root: &WorkspaceRoot,

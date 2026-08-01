@@ -266,7 +266,7 @@ jobs:
 
       - name: Install pinned Rust toolchain and Worker builder
         run: |
-          rustup toolchain install 1.91.0 --profile minimal --component clippy --target wasm32-unknown-unknown
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component clippy --target wasm32-unknown-unknown
           cargo install --locked worker-build@0.8.5
 
       - name: Install pinned npm dependencies

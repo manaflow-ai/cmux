@@ -128,10 +128,10 @@ impl TerminalExit {
 }
 
 /// Wait for the native child hidden behind cmux-pty without collapsing Unix
-/// signal/core information into portable-pty's display-only status.
+/// signal/core information into its display-only fallback status.
 ///
-/// portable-pty's Unix backend returns `std::process::Child`, so failure to
-/// downcast is an alternate backend and becomes an explicit unknown outcome.
+/// cmux-pty's Unix backend returns `std::process::Child`, so failure to downcast
+/// is an alternate backend and becomes an explicit unknown outcome.
 pub(crate) fn wait_for_native_child_status(
     child: &mut (dyn cmux_pty::Child + Send + Sync),
 ) -> TerminalExit {
@@ -795,7 +795,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn portable_pty_native_child_retains_real_exit_and_signal_status() {
+    fn cmux_pty_native_child_retains_real_exit_and_signal_status() {
         fn run(script: &str) -> TerminalExitOutcome {
             let pty = cmux_pty::open(cmux_pty::PtySize {
                 rows: 24,
