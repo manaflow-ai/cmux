@@ -14,5 +14,6 @@ struct WorkspaceTitleMenuValue: Equatable {
     let canToggleReadState: Bool
     let canCloseWorkspace: Bool
     let labelToken: WorkspaceTitleMenuLabelToken
+    let connectionStatusLine: WorkspaceConnectionStatusLine?
     let terminalTheme: TerminalTheme
 }
