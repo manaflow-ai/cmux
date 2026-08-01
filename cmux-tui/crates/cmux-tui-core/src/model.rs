@@ -41,6 +41,14 @@ pub(crate) struct ScreenLayoutSnapshot {
     pub layout_columns: Vec<LayoutColumn>,
 }
 
+/// Per-client presentation that survives a detached structural mutation when
+/// the referenced panes and stack memberships still exist afterward.
+#[derive(Debug, Clone)]
+pub(crate) struct ScreenPresentationSnapshot {
+    zoomed_pane: Option<PaneId>,
+    stack_expansions: BTreeMap<Vec<PaneId>, PaneId>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LayoutResizeOwner {
     InProcess(u64),
@@ -655,6 +663,30 @@ impl Screen {
             viewport_base_width: self.viewport_base_width,
             layout_columns: self.layout_columns.clone(),
         }
+    }
+
+    pub(crate) fn presentation_snapshot(&self) -> ScreenPresentationSnapshot {
+        let mut stack_expansions = BTreeMap::new();
+        if self.layout_columns_active() {
+            for column in &self.layout_columns {
+                column.root.collect_stack_expansions(&mut stack_expansions);
+            }
+        } else {
+            self.root.collect_stack_expansions(&mut stack_expansions);
+        }
+        ScreenPresentationSnapshot { zoomed_pane: self.zoomed_pane, stack_expansions }
+    }
+
+    pub(crate) fn restore_presentation_snapshot(&mut self, snapshot: ScreenPresentationSnapshot) {
+        if self.layout_columns_active() {
+            for column in &mut self.layout_columns {
+                column.root.restore_stack_expansions(&snapshot.stack_expansions);
+            }
+            self.sync_layout_column_projection();
+        } else {
+            self.root.restore_stack_expansions(&snapshot.stack_expansions);
+        }
+        self.zoomed_pane = snapshot.zoomed_pane.filter(|pane| self.root.contains(*pane));
     }
 
     fn coalesces_layout_change(&self, key: LayoutMutationKey) -> bool {

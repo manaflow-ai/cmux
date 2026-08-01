@@ -2711,8 +2711,10 @@ an invalid direction, and attempting to split a pane's only tab out of itself.
 
 Moves one tab into a new canonical viewport column at insertion `index`.
 Required `width` is a finite viewport fraction from 0.1 through 1.0; the
-insertion index clamps to the column-list end. Optional `activate:boolean`
-defaults to `true`.
+insertion index clamps to the pre-mutation column-list end. If moving the tab
+empties a source column before that insertion point, removing the source shifts
+the new column's final index left by one. This matches Browser drag/drop
+coordinates. Optional `activate:boolean` defaults to `true`.
 
 ```json
 {"id":28,"cmd":"move-tab-to-new-column","surface":8,"index":1,"width":0.6666667,"activate":false}

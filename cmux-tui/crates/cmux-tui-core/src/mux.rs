@@ -6822,12 +6822,16 @@ impl Mux {
         let ws_id = self.next_id();
         let notifications = self.surface_notifications();
         let mut registry = self.workspace_registry.lock().unwrap();
-        let fingerprint = serde_json::json!({
+        let mut fingerprint = serde_json::json!({
             "op": "create-workspace",
             "name": requested_name,
             "requested_key": requested_key,
-            "activate": activate,
         });
+        // Preserve the pre-v10 exactly-once identity for the historical
+        // activating default. Only the new detached behavior extends it.
+        if !activate {
+            fingerprint["activate"] = Value::Bool(false);
+        }
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             let workspace = commit.result["workspace"]
                 .as_u64()
@@ -8424,6 +8428,7 @@ impl Mux {
                             continue;
                         }
                         let before = screen.layout_snapshot();
+                        let presentation = (!activate).then(|| screen.presentation_snapshot());
                         let split = if let Some(width) = viewport_width {
                             screen.insert_layout_column_after(
                                 target,
@@ -8460,6 +8465,8 @@ impl Mux {
                             if activate {
                                 screen.active_pane = pane_id;
                                 screen.zoomed_pane = None;
+                            } else if let Some(presentation) = presentation {
+                                screen.restore_presentation_snapshot(presentation);
                             }
                             screen.record_layout_change(before, vec![pane_id], None);
                             changed_screen = Some(screen.id);
@@ -11180,6 +11187,9 @@ impl Mux {
                 }
                 let (workspace_index, screen_index) = target_path;
                 let screen_id = state.workspaces[workspace_index].screens[screen_index].id;
+                let previous_presentation = (!activate).then(|| {
+                    state.workspaces[workspace_index].screens[screen_index].presentation_snapshot()
+                });
                 {
                     let screen = &mut state.workspaces[workspace_index].screens[screen_index];
                     screen.invalidate_layout_undo();
@@ -11217,7 +11227,9 @@ impl Mux {
                     if screen.layout_columns_active() {
                         screen.sync_layout_column_projection();
                     }
-                    screen.zoomed_pane = None;
+                    if activate {
+                        screen.zoomed_pane = None;
+                    }
                 }
                 state.insert_pane(Pane {
                     id: pane_id,
@@ -11232,6 +11244,10 @@ impl Mux {
                     move_tab_in_state_deferred(self, state, surface, pane_id, 0);
                 if !moved {
                     unreachable!("validated tab move into a newly inserted pane must succeed");
+                }
+                if let Some(presentation) = previous_presentation {
+                    state.workspaces[workspace_index].screens[screen_index]
+                        .restore_presentation_snapshot(presentation);
                 }
                 if activate {
                     stamp_pane_focus(self, state, pane_id);
@@ -11281,6 +11297,9 @@ impl Mux {
                 let (workspace_index, screen_index) =
                     state.screen_of(source).ok_or_else(|| anyhow::anyhow!("orphan source pane"))?;
                 let screen_id = state.workspaces[workspace_index].screens[screen_index].id;
+                let previous_presentation = (!activate).then(|| {
+                    state.workspaces[workspace_index].screens[screen_index].presentation_snapshot()
+                });
                 {
                     let screen = &mut state.workspaces[workspace_index].screens[screen_index];
                     screen.invalidate_layout_undo();
@@ -11306,7 +11325,9 @@ impl Mux {
                         screen.layout_columns.insert(at, column);
                     }
                     screen.sync_layout_column_projection();
-                    screen.zoomed_pane = None;
+                    if activate {
+                        screen.zoomed_pane = None;
+                    }
                 }
                 state.insert_pane(Pane {
                     id: pane_id,
@@ -11321,6 +11342,10 @@ impl Mux {
                     move_tab_in_state_deferred(self, state, surface, pane_id, 0);
                 if !moved {
                     unreachable!("validated tab move into a newly inserted column must succeed");
+                }
+                if let Some(presentation) = previous_presentation {
+                    state.workspaces[workspace_index].screens[screen_index]
+                        .restore_presentation_snapshot(presentation);
                 }
                 if activate {
                     stamp_pane_focus(self, state, pane_id);
@@ -11372,6 +11397,10 @@ impl Mux {
                         anyhow::bail!("source and target must belong to the same screen");
                     }
                     let (workspace_index, screen_index) = target_path;
+                    let previous_presentation = (!activate).then(|| {
+                        state.workspaces[workspace_index].screens[screen_index]
+                            .presentation_snapshot()
+                    });
                     {
                         let screen = &mut state.workspaces[workspace_index].screens[screen_index];
                         detach_pane_layout_for_relocation(screen, source)
@@ -11380,7 +11409,9 @@ impl Mux {
                         if screen.active_pane == source {
                             screen.active_pane = target;
                         }
-                        screen.zoomed_pane = None;
+                        if activate {
+                            screen.zoomed_pane = None;
+                        }
                     }
                     let source_pane = state
                         .remove_pane(source)
@@ -11410,6 +11441,10 @@ impl Mux {
                         }
                         focus
                     });
+                    if let Some(presentation) = previous_presentation {
+                        state.workspaces[workspace_index].screens[screen_index]
+                            .restore_presentation_snapshot(presentation);
+                    }
                     if activate {
                         state.active_workspace = workspace_index;
                         state.workspaces[workspace_index].active_screen = screen_index;
@@ -11467,6 +11502,9 @@ impl Mux {
                     anyhow::bail!("source and target must belong to the same screen");
                 }
                 let (workspace_index, screen_index) = target_path;
+                let previous_presentation = (!activate).then(|| {
+                    state.workspaces[workspace_index].screens[screen_index].presentation_snapshot()
+                });
                 {
                     let screen = &mut state.workspaces[workspace_index].screens[screen_index];
                     let target_is_present = if screen.layout_columns_active() {
@@ -11511,7 +11549,13 @@ impl Mux {
                         unreachable!("validated target leaf must accept an ordered split");
                     }
                     finish_relocated_screen_layout(screen);
-                    screen.zoomed_pane = None;
+                    if activate {
+                        screen.zoomed_pane = None;
+                    }
+                }
+                if let Some(presentation) = previous_presentation {
+                    state.workspaces[workspace_index].screens[screen_index]
+                        .restore_presentation_snapshot(presentation);
                 }
                 if activate {
                     state.active_workspace = workspace_index;
@@ -11556,6 +11600,9 @@ impl Mux {
                 let (workspace_index, screen_index) = state
                     .screen_of(source)
                     .ok_or_else(|| anyhow::anyhow!("unknown pane {source}"))?;
+                let previous_presentation = (!activate).then(|| {
+                    state.workspaces[workspace_index].screens[screen_index].presentation_snapshot()
+                });
                 {
                     let screen = &mut state.workspaces[workspace_index].screens[screen_index];
                     let pre_count = if screen.layout_columns_active() {
@@ -11596,7 +11643,13 @@ impl Mux {
                     insert_at = insert_at.min(screen.layout_columns.len());
                     screen.layout_columns.insert(insert_at, column);
                     screen.sync_layout_column_projection();
-                    screen.zoomed_pane = None;
+                    if activate {
+                        screen.zoomed_pane = None;
+                    }
+                }
+                if let Some(presentation) = previous_presentation {
+                    state.workspaces[workspace_index].screens[screen_index]
+                        .restore_presentation_snapshot(presentation);
                 }
                 if activate {
                     state.active_workspace = workspace_index;
@@ -12126,14 +12179,21 @@ fn terminal_create_fingerprint(
     target_pane: Option<PaneId>,
     activate: bool,
 ) -> anyhow::Result<Value> {
-    let request = serde_json::json!({
+    let mut request = serde_json::json!({
         "argv": argv,
         "cwd": cwd,
         "name": name,
         "size": size,
-        "target_pane": target_pane,
-        "activate": activate,
     });
+    // Default creation predates pane targeting and detached selection. Keep
+    // its digest byte-compatible so a lost-response retry still replays after
+    // upgrading the daemon.
+    if let Some(target_pane) = target_pane {
+        request["target_pane"] = Value::from(target_pane);
+    }
+    if !activate {
+        request["activate"] = Value::Bool(false);
+    }
     let digest = Sha256::digest(serde_json::to_vec(&request)?);
     let request_sha256 = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
     Ok(serde_json::json!({
