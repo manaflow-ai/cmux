@@ -3,21 +3,22 @@ use std::fmt;
 use std::io;
 
 use bytes::{BufMut, Bytes, BytesMut};
-use cmux_remote_protocol::{Lane, MAX_FRAME_PAYLOAD};
+use cmux_remote_protocol::{Lane, MAX_FRAME_PAYLOAD, REMOTE_SESSION_MESSAGE_MAX_BYTES};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
 
 const MAGIC: [u8; 4] = *b"CMXL";
 const HEADER_BYTES: usize = 4 + 8 + 4 + 4;
 const CHUNK_BYTES: usize = MAX_FRAME_PAYLOAD - HEADER_BYTES;
-pub(crate) const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
+// The local mux transport appends a newline after each serialized message.
+pub(crate) const MAX_MUX_LINE_BYTES: usize = REMOTE_SESSION_MESSAGE_MAX_BYTES + 1;
 const MAX_IN_FLIGHT_LINES: usize = 256;
-const MAX_IN_FLIGHT_BYTES: usize = 32 * 1024 * 1024;
+const MAX_IN_FLIGHT_BYTES: usize = MAX_MUX_LINE_BYTES * 2;
 
 pub(crate) async fn read_bounded_line<R>(reader: &mut R, line: &mut Vec<u8>) -> io::Result<usize>
 where
     R: AsyncBufRead + Unpin,
 {
-    read_bounded_line_with_limit(reader, line, MAX_LINE_BYTES).await
+    read_bounded_line_with_limit(reader, line, MAX_MUX_LINE_BYTES).await
 }
 
 async fn read_bounded_line_with_limit<R>(
@@ -36,7 +37,7 @@ where
 }
 
 pub(crate) fn encode_line(message: u64, line: &[u8]) -> Result<Vec<Bytes>, MuxCodecError> {
-    if line.len() > MAX_LINE_BYTES {
+    if line.len() > MAX_MUX_LINE_BYTES {
         return Err(MuxCodecError::LineTooLarge(line.len()));
     }
     let parts = line.len().max(1).div_ceil(CHUNK_BYTES);
@@ -116,7 +117,8 @@ impl<R> MuxLineAssembler<R> {
         let message = u64::from_be_bytes(packet[4..12].try_into().unwrap());
         let part = u32::from_be_bytes(packet[12..16].try_into().unwrap());
         let parts = u32::from_be_bytes(packet[16..20].try_into().unwrap());
-        if parts == 0 || part >= parts || parts as usize > MAX_LINE_BYTES.div_ceil(CHUNK_BYTES) {
+        if parts == 0 || part >= parts || parts as usize > MAX_MUX_LINE_BYTES.div_ceil(CHUNK_BYTES)
+        {
             return Err(MuxCodecError::InvalidPacket);
         }
         if !self.lines.contains_key(&message) {
@@ -142,7 +144,7 @@ impl<R> MuxLineAssembler<R> {
             return Err(MuxCodecError::InvalidPacket);
         }
         let payload = packet.slice(HEADER_BYTES..);
-        if line.bytes.saturating_add(payload.len()) > MAX_LINE_BYTES
+        if line.bytes.saturating_add(payload.len()) > MAX_MUX_LINE_BYTES
             || self.bytes.saturating_add(payload.len()) > MAX_IN_FLIGHT_BYTES
         {
             return Err(MuxCodecError::LineTooLarge(line.bytes.saturating_add(payload.len())));

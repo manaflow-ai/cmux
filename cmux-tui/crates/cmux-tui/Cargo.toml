@@ -32,6 +32,8 @@ getrandom.workspace = true
 libc.workspace = true
 smallvec.workspace = true
 zeroize.workspace = true
+terminput.workspace = true
+terminput-crossterm.workspace = true
 parking_lot.workspace = true
 sha2.workspace = true
 

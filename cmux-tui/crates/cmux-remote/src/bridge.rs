@@ -8,6 +8,7 @@ use cmux_remote_protocol::{MUX_INPUT_V1_FEATURE, RouteId, Service, ServiceContro
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Semaphore, oneshot};
 
+use crate::mux_codec::MAX_MUX_LINE_BYTES;
 use crate::service::{ServiceError, ServiceMultiplexer, ServiceStream};
 use crate::services::ServicesError;
 
@@ -319,7 +320,7 @@ where
                     remote.close().await?;
                     break;
                 }
-                if line.len() > crate::mux_codec::MAX_LINE_BYTES {
+                if line.len() > MAX_MUX_LINE_BYTES {
                     return Err(BridgeError::MuxLineTooLarge(line.len()));
                 }
                 if mux_input_v1 && let Some(input) = crate::mux_input::encode_local_line(&line)? {

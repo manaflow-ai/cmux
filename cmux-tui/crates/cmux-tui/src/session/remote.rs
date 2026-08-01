@@ -7,7 +7,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -15,9 +15,10 @@ use base64::Engine;
 use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use cmux_tui_core::{
     BrowserFrame, BrowserFrameUpdate, BrowserSource, BrowserStatus, ClearHistoryDelivery,
-    ClearHistoryFailure, DefaultColors, GuardedMouseEncode, MuxEvent, MuxEventBroadcaster,
-    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, PointerSemanticProbe,
-    PointerSnapshotProbe, Rgb, SurfaceId, SurfaceKind, TerminalPointerSnapshot,
+    ClearHistoryFailure, DefaultColors, GraphicsStatus, GuardedMouseEncode, MuxEvent,
+    MuxEventBroadcaster, MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge,
+    PointerSemanticProbe, PointerSnapshotProbe, REMOTE_SESSION_MESSAGE_MAX_BYTES, Rgb, SurfaceId,
+    SurfaceKind, TerminalPointerSnapshot,
     platform::transport,
     server::{
         CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -26,8 +27,9 @@ use cmux_tui_core::{
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
-    Callbacks, CursorShape, KeyInput, MouseEncoders, MouseInput, RenderState, Terminal,
-    TerminalColorOverrides, TerminalPointerSemanticSnapshot, parse_color,
+    Callbacks, CursorShape, KeyInput, KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState,
+    MouseEncoders, MouseInput, RenderState, Terminal, TerminalColorOverrides,
+    TerminalPointerSemanticSnapshot, parse_color,
 };
 use serde_json::{Value, json};
 use zeroize::{Zeroize, Zeroizing};
@@ -44,7 +46,7 @@ const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
 const MAX_SURFACE_OVERFLOW_RECOVERIES: usize = 256;
 const INTERACTIVE_WRITE_QUEUE_CAPACITY: usize = 512;
 const INTERACTIVE_WRITE_QUEUE_BYTES: usize = 8 * 1024 * 1024;
-pub(crate) const REMOTE_CONTROL_MESSAGE_MAX_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const REMOTE_CONTROL_MESSAGE_MAX_BYTES: usize = REMOTE_SESSION_MESSAGE_MAX_BYTES;
 const REMOTE_FRAME_LOG_MAX_ENTRIES: usize = 16 * 1024;
 const REMOTE_FRAME_LOG_MAX_BYTES: usize = 2 * 1024 * 1024;
 const REMOTE_TERMINAL_DIMENSION_MAX: u64 = 10_000;
@@ -73,7 +75,18 @@ const INTERACTIVE_LATENCY_BUCKET_UPPER_US: [u64; 18] = [
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(test)]
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+#[cfg(not(test))]
 const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(test)]
+const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_millis(100);
+#[cfg(not(test))]
+const REMOTE_ATTACH_IDLE_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(test)]
+const REMOTE_ATTACH_IDLE_TIMEOUT: Duration = Duration::from_millis(250);
+#[cfg(not(test))]
+const REMOTE_ATTACH_MAX_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+#[cfg(test)]
+const REMOTE_ATTACH_MAX_TIMEOUT: Duration = Duration::from_secs(3);
 #[cfg(not(test))]
 const GUARDED_POINTER_REQUEST_TIMEOUT: Duration = REMOTE_REQUEST_TIMEOUT;
 #[cfg(test)]
@@ -83,6 +96,31 @@ fn zeroize_string(value: &mut str) {
     // NUL is valid UTF-8, so the serialized request can be cleared in place
     // immediately after the synchronous transport write finishes.
     value.zeroize();
+}
+
+fn parse_graphics_status(value: &Value) -> Option<GraphicsStatus> {
+    match value.get("kind").and_then(Value::as_str)? {
+        "kitty-image-budget-worker-start-failed" => {
+            Some(GraphicsStatus::KittyImageBudgetWorkerStartFailed {
+                error: Arc::<str>::from(value.get("error")?.as_str()?),
+            })
+        }
+        "kitty-image-budget-update-failed" => Some(GraphicsStatus::KittyImageBudgetUpdateFailed {
+            retry_exhausted: value.get("retry_exhausted")?.as_bool()?,
+            summary: Arc::<str>::from(value.get("summary")?.as_str()?),
+        }),
+        "cell-pixel-update-retries-exhausted" => {
+            Some(GraphicsStatus::CellPixelUpdateRetriesExhausted {
+                attempts: u8::try_from(value.get("attempts")?.as_u64()?).ok()?,
+                remaining: usize::try_from(value.get("remaining")?.as_u64()?).ok()?,
+                cell_pixels: (
+                    u16::try_from(value.get("cell_width")?.as_u64()?).ok()?,
+                    u16::try_from(value.get("cell_height")?.as_u64()?).ok()?,
+                ),
+            })
+        }
+        _ => None,
+    }
 }
 
 fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
@@ -327,6 +365,9 @@ impl RemoteTreeCache {
     }
 }
 
+#[cfg(test)]
+type RemoteGeometryTestHook = Arc<dyn Fn(RemoteGeometryTestStep) + Send + Sync>;
+
 /// A surface mirrored from a remote session.
 pub struct RemoteSurface {
     pub id: SurfaceId,
@@ -334,6 +375,10 @@ pub struct RemoteSurface {
     pub term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
     pub dirty: AtomicBool,
+    geometry_lifecycle: Mutex<()>,
+    cell_pixels: Mutex<(u16, u16)>,
+    #[cfg(test)]
+    geometry_test_hook: Mutex<Option<RemoteGeometryTestHook>>,
     pub(super) content_generation: AtomicU64,
     reported_size: Mutex<Option<(u16, u16)>>,
     browser: Mutex<RemoteBrowserState>,
@@ -350,6 +395,14 @@ struct RemoteTerminalColors {
 }
 
 impl RemoteSurface {
+    #[cfg(test)]
+    fn run_geometry_test_hook(&self, step: RemoteGeometryTestStep) {
+        let hook = self.geometry_test_hook.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook(step);
+        }
+    }
+
     pub(super) fn sync_mouse_encoders(&self, terminal: &Terminal) {
         self.mouse_encoders.lock().unwrap().sync_from_terminal(terminal);
     }
@@ -525,43 +578,91 @@ impl RemoteSurface {
     }
 
     /// Apply an ordered attach-stream resize marker to the mirror terminal.
-    pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) -> bool {
-        self.apply_stream_resize_with_colors(cols, rows, replay, None)
+    pub(super) fn apply_stream_resize(
+        &self,
+        cols: u16,
+        rows: u16,
+        replay: Option<&[u8]>,
+        kitty_image_aliases: &[ghostty_vt::KittyImageAlias],
+    ) -> ghostty_vt::Result<()> {
+        self.apply_stream_resize_with_colors(cols, rows, replay, kitty_image_aliases, None, None)
     }
 
-    /// Apply one authoritative replay and its coupled color state before the
-    /// mirror can be observed at the new size.
+    /// Apply one authoritative replay and its coupled Kitty alias and color
+    /// state before the mirror can be observed at the new size.
     fn apply_stream_resize_with_colors(
         &self,
         cols: u16,
         rows: u16,
         replay: Option<&[u8]>,
+        kitty_image_aliases: &[ghostty_vt::KittyImageAlias],
+        kitty_state: Option<KittyReplayState>,
         colors: Option<&RemoteTerminalColors>,
-    ) -> bool {
+    ) -> ghostty_vt::Result<()> {
+        #[cfg(test)]
+        self.run_geometry_test_hook(RemoteGeometryTestStep::StreamResizeStarted);
+        let _geometry_lifecycle = self.geometry_lifecycle.lock().unwrap();
         let (cols, rows) = (cols.max(1), rows.max(1));
+        let cell_pixels = *self.cell_pixels.lock().unwrap();
+        #[cfg(test)]
+        self.run_geometry_test_hook(RemoteGeometryTestStep::StreamResizeCommitBoundary);
         let mut term = self.term.lock().unwrap();
         let owned_replay;
-        let replay = match replay {
-            Some(replay) => replay,
+        let (replay, replay_aliases, replay_state) = match replay {
+            Some(replay) => (
+                replay,
+                kitty_image_aliases,
+                kitty_state.unwrap_or_else(KittyReplayState::disabled),
+            ),
             None => {
-                owned_replay = match term.vt_replay_bounded(REMOTE_CONTROL_MESSAGE_MAX_BYTES) {
-                    Ok(replay) => replay,
-                    Err(_) => return false,
-                };
-                &owned_replay
+                if !kitty_image_aliases.is_empty() || kitty_state.is_some() {
+                    return Err(ghostty_vt::Error::NoValue);
+                }
+                owned_replay = term.vt_replay_bounded(REMOTE_CONTROL_MESSAGE_MAX_BYTES)?;
+                (
+                    owned_replay.bytes.as_slice(),
+                    owned_replay.kitty_image_aliases.as_slice(),
+                    owned_replay.kitty_state,
+                )
             }
         };
-        let Ok(mut fresh) = Terminal::new(cols, rows, 10_000, Callbacks::default()) else {
-            return false;
-        };
-        fresh.vt_write(replay);
+        let mut fresh = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
+        fresh.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
+        fresh.apply_vt_replay_parts(replay, replay_aliases, replay_state)?;
         if let Some(colors) = colors {
             apply_terminal_colors(&mut fresh, colors);
         }
         *term = fresh;
         self.sync_mouse_encoders(&term);
         self.content_generation.fetch_add(1, Ordering::AcqRel);
-        true
+        Ok(())
+    }
+
+    fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> ghostty_vt::Result<bool> {
+        #[cfg(test)]
+        self.run_geometry_test_hook(RemoteGeometryTestStep::CellPixelStarted);
+        let _geometry_lifecycle = self.geometry_lifecycle.lock().unwrap();
+        let next = (width_px.max(1), height_px.max(1));
+        if *self.cell_pixels.lock().unwrap() == next {
+            return Ok(false);
+        }
+        if self.kind == SurfaceKind::Pty {
+            let mut term = self.term.lock().unwrap();
+            let size = (term.cols(), term.rows());
+            term.resize(size.0, size.1, u32::from(next.0), u32::from(next.1))?;
+            *self.cell_pixels.lock().unwrap() = next;
+        } else {
+            *self.cell_pixels.lock().unwrap() = next;
+        }
+        #[cfg(test)]
+        self.run_geometry_test_hook(RemoteGeometryTestStep::CellPixelCommitBoundary);
+        self.content_generation.fetch_add(1, Ordering::AcqRel);
+        Ok(true)
+    }
+
+    fn cell_pixel_size(&self) -> (u16, u16) {
+        let _geometry_lifecycle = self.geometry_lifecycle.lock().unwrap();
+        *self.cell_pixels.lock().unwrap()
     }
 
     pub(super) fn reported_size(&self) -> Option<(u16, u16)> {
@@ -590,6 +691,22 @@ impl RemoteSurface {
             None
         } else {
             browser.frame.as_ref().map(|frame| frame.frame.clone())
+        }
+    }
+
+    pub fn browser_frame_metadata(&self) -> Option<(u64, u32, u32, Option<u64>)> {
+        let browser = self.browser.lock().unwrap();
+        if matches!(browser.status, BrowserStatus::Failed(_)) {
+            None
+        } else {
+            browser.frame.as_ref().map(|frame| {
+                (
+                    frame.frame.seq,
+                    frame.frame.css_width,
+                    frame.frame.css_height,
+                    browser.pointer_frame_seq,
+                )
+            })
         }
     }
 
@@ -734,6 +851,15 @@ impl RemoteSurface {
     }
 }
 
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RemoteGeometryTestStep {
+    StreamResizeStarted,
+    StreamResizeCommitBoundary,
+    CellPixelStarted,
+    CellPixelCommitBoundary,
+}
+
 fn pointer_frame_is_in_range(browser: &RemoteBrowserState, frame_seq: u64) -> bool {
     browser
         .pointer_frame_floor_seq
@@ -760,6 +886,25 @@ fn parse_pointer_frame_range(value: &Value) -> Option<(u64, u64)> {
 struct SubscriptionRecoveryState {
     generation: u64,
     in_flight: bool,
+}
+
+#[derive(Clone, Copy)]
+enum RequestDeadline {
+    Standard,
+    Attach,
+    Fixed(Duration),
+}
+
+struct PendingRemoteRequest {
+    response: Sender<Value>,
+    progress: Arc<AtomicU64>,
+    attach_surface: Option<SurfaceId>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RemoteProgressTarget {
+    Request(u64),
+    AttachSurface(SurfaceId),
 }
 
 struct InteractiveWrite {
@@ -1167,8 +1312,9 @@ impl RemoteFrameLogs {
 
 pub struct RemoteSession {
     interactive_writer: InteractiveWriter,
-    pending: Mutex<HashMap<u64, Sender<Value>>>,
+    pending: Mutex<HashMap<u64, PendingRemoteRequest>>,
     next_id: AtomicU64,
+    attach_progress: AtomicU64,
     shutdown: AtomicBool,
     surfaces: Mutex<HashMap<SurfaceId, Arc<RemoteSurface>>>,
     exited_surfaces: Mutex<HashSet<SurfaceId>>,
@@ -1184,6 +1330,8 @@ pub struct RemoteSession {
     frame_logs: Mutex<RemoteFrameLogs>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
     surface_overflow_reconnect_required: AtomicBool,
+    cell_pixel_lifecycle: Mutex<()>,
+    cell_pixels: Mutex<(u16, u16)>,
     capabilities: Mutex<HashSet<String>>,
     provider_workspace_authority: Option<BearerToken>,
     provider_workspaces_guarded: AtomicBool,
@@ -1196,6 +1344,38 @@ pub struct RemoteSession {
 /// their native message boundaries.
 pub trait RemoteMessageReader: Send {
     fn receive(&mut self) -> io::Result<Option<String>>;
+
+    fn receive_with_progress(
+        &mut self,
+        on_progress: &mut dyn FnMut(&[u8]),
+    ) -> io::Result<Option<String>> {
+        let message = self.receive()?;
+        if let Some(message) = message.as_deref() {
+            on_progress(message.as_bytes());
+        }
+        Ok(message)
+    }
+}
+
+fn decimal_after_prefix(bytes: &[u8], prefix: &[u8]) -> Option<u64> {
+    let tail = bytes.strip_prefix(prefix)?;
+    let digits = tail.iter().take_while(|byte| byte.is_ascii_digit()).count();
+    if digits == 0 || !matches!(tail.get(digits), Some(b',') | Some(b'}')) {
+        return None;
+    }
+    std::str::from_utf8(&tail[..digits]).ok()?.parse().ok()
+}
+
+fn remote_progress_target(partial: &[u8]) -> Option<RemoteProgressTarget> {
+    decimal_after_prefix(partial, br#"{"id":"#).map(RemoteProgressTarget::Request).or_else(|| {
+        [
+            br#"{"event":"vt-state","surface":"#.as_slice(),
+            br#"{"event":"browser-state","surface":"#.as_slice(),
+        ]
+        .into_iter()
+        .find_map(|prefix| decimal_after_prefix(partial, prefix))
+        .map(RemoteProgressTarget::AttachSurface)
+    })
 }
 
 /// Send complete JSON protocol messages over one transport.
@@ -1255,9 +1435,65 @@ struct JsonLineReader {
     inner: BufReader<Box<dyn transport::Stream>>,
 }
 
+pub(crate) fn read_json_line_with_progress<R: BufRead>(
+    reader: &mut R,
+    on_progress: &mut dyn FnMut(&[u8]),
+) -> io::Result<Option<String>> {
+    read_json_line_with_progress_bounded(reader, on_progress, REMOTE_SESSION_MESSAGE_MAX_BYTES)
+}
+
+fn read_json_line_with_progress_bounded<R: BufRead>(
+    reader: &mut R,
+    on_progress: &mut dyn FnMut(&[u8]),
+    max_message_bytes: usize,
+) -> io::Result<Option<String>> {
+    let mut bytes = Zeroizing::new(Vec::new());
+    let mut complete_line = false;
+    loop {
+        let (consumed, complete) = {
+            let available = reader.fill_buf()?;
+            if available.is_empty() {
+                break;
+            }
+            let complete_at = available.iter().position(|byte| *byte == b'\n');
+            let payload_bytes = complete_at.unwrap_or(available.len());
+            if payload_bytes > max_message_bytes.saturating_sub(bytes.len()) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("remote session message exceeds the {max_message_bytes}-byte limit"),
+                ));
+            }
+            let consumed = complete_at.map_or(available.len(), |index| index + 1);
+            bytes.extend_from_slice(&available[..payload_bytes]);
+            (consumed, complete_at.is_some())
+        };
+        reader.consume(consumed);
+        on_progress(bytes.as_slice());
+        if complete {
+            complete_line = true;
+            break;
+        }
+    }
+
+    if bytes.is_empty() && !complete_line {
+        return Ok(None);
+    }
+    if complete_line && bytes.last() == Some(&b'\r') {
+        bytes.pop();
+    }
+    decode_json_line(bytes).map(Some)
+}
+
 impl RemoteMessageReader for JsonLineReader {
     fn receive(&mut self) -> io::Result<Option<String>> {
-        read_bounded_json_line(&mut self.inner, REMOTE_CONTROL_MESSAGE_MAX_BYTES)
+        self.receive_with_progress(&mut |_| {})
+    }
+
+    fn receive_with_progress(
+        &mut self,
+        on_progress: &mut dyn FnMut(&[u8]),
+    ) -> io::Result<Option<String>> {
+        read_json_line_with_progress(&mut self.inner, on_progress)
     }
 }
 
@@ -1402,6 +1638,7 @@ impl RemoteSession {
             interactive_writer,
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
+            attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
             exited_surfaces: Mutex::new(HashSet::new()),
@@ -1417,6 +1654,8 @@ impl RemoteSession {
             frame_logs: Mutex::new(RemoteFrameLogs::default()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
             surface_overflow_reconnect_required: AtomicBool::new(false),
+            cell_pixel_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new((8, 16)),
             capabilities: Mutex::new(HashSet::new()),
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
@@ -1424,7 +1663,15 @@ impl RemoteSession {
 
         let reader_session = Arc::downgrade(&session);
         std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
-            while let Ok(Some(mut message)) = reader.receive() {
+            let mut report_progress = |partial: &[u8]| {
+                if let Some(session) = reader_session.upgrade() {
+                    session.report_read_progress(partial);
+                }
+            };
+            while let Ok(Some(mut message)) = reader.receive_with_progress(&mut report_progress) {
+                if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
+                    break;
+                }
                 let value = serde_json::from_str::<Value>(&message);
                 zeroize_string(&mut message);
                 let Ok(value) = value else { continue };
@@ -1586,6 +1833,38 @@ impl RemoteSession {
         }
     }
 
+    fn report_read_progress(&self, partial: &[u8]) {
+        let Some(target) = remote_progress_target(partial) else { return };
+        let pending = self.pending.lock().unwrap();
+        let attach_progressed = match target {
+            RemoteProgressTarget::Request(id) => {
+                if let Some(request) = pending.get(&id) {
+                    request.progress.fetch_add(1, Ordering::Release);
+                    request.attach_surface.is_some()
+                } else {
+                    false
+                }
+            }
+            RemoteProgressTarget::AttachSurface(surface) => {
+                let mut progressed = false;
+                for request in
+                    pending.values().filter(|request| request.attach_surface == Some(surface))
+                {
+                    request.progress.fetch_add(1, Ordering::Release);
+                    progressed = true;
+                }
+                progressed
+            }
+        };
+        drop(pending);
+        if attach_progressed {
+            // A JSON-lines transport serializes complete messages. An attach
+            // queued behind this progressing snapshot cannot receive its own
+            // bytes yet, so its pre-response idle window follows this epoch.
+            self.attach_progress.fetch_add(1, Ordering::Release);
+        }
+    }
+
     fn handle_line(self: &Arc<Self>, value: Value) {
         let surface_id = || value.get("surface").and_then(|v| v.as_u64());
         let event = value.get("event").and_then(Value::as_str);
@@ -1596,8 +1875,8 @@ impl RemoteSession {
             None => {
                 // Response: route to the waiting request.
                 let Some(id) = value.get("id").and_then(|v| v.as_u64()) else { return };
-                if let Some(tx) = self.pending.lock().unwrap().remove(&id) {
-                    let _ = tx.send(value);
+                if let Some(request) = self.pending.lock().unwrap().remove(&id) {
+                    let _ = request.response.send(value);
                 }
             }
             Some("vt-state") => {
@@ -1612,13 +1891,27 @@ impl RemoteSession {
                     id,
                     format_args!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
                 );
+                let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
+                    self.disconnect_transport();
+                    return;
+                };
+                let Ok(kitty_state) = parse_kitty_replay_state(&value) else {
+                    self.disconnect_transport();
+                    return;
+                };
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    if !surface.apply_stream_resize_with_colors(
-                        cols,
-                        rows,
-                        Some(&replay),
-                        colors.as_ref(),
-                    ) {
+                    if surface
+                        .apply_stream_resize_with_colors(
+                            cols,
+                            rows,
+                            Some(&replay),
+                            &kitty_image_aliases,
+                            Some(kitty_state),
+                            colors.as_ref(),
+                        )
+                        .is_err()
+                    {
+                        self.disconnect_transport();
                         return;
                     }
                     surface.dirty.store(true, Ordering::Release);
@@ -1679,11 +1972,29 @@ impl RemoteSession {
             Some("resized") => {
                 let Some(id) = surface_id() else { return };
                 let Some((cols, rows)) = remote_terminal_size(&value) else { return };
-                let replay = value
-                    .get("replay")
-                    .or_else(|| value.get("data"))
-                    .and_then(|v| v.as_str())
-                    .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok());
+                let replay = match value.get("replay").or_else(|| value.get("data")) {
+                    Some(data) => {
+                        let Some(data) = data.as_str() else {
+                            self.disconnect_transport();
+                            return;
+                        };
+                        let Ok(replay) = base64::engine::general_purpose::STANDARD.decode(data)
+                        else {
+                            self.disconnect_transport();
+                            return;
+                        };
+                        Some(replay)
+                    }
+                    None => None,
+                };
+                let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
+                    self.disconnect_transport();
+                    return;
+                };
+                let Ok(kitty_state) = parse_kitty_replay_state(&value) else {
+                    self.disconnect_transport();
+                    return;
+                };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(
                     id,
@@ -1693,12 +2004,18 @@ impl RemoteSession {
                     ),
                 );
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    if !surface.apply_stream_resize_with_colors(
-                        cols,
-                        rows,
-                        replay.as_deref(),
-                        colors.as_ref(),
-                    ) {
+                    if surface
+                        .apply_stream_resize_with_colors(
+                            cols,
+                            rows,
+                            replay.as_deref(),
+                            &kitty_image_aliases,
+                            Some(kitty_state),
+                            colors.as_ref(),
+                        )
+                        .is_err()
+                    {
+                        self.disconnect_transport();
                         return;
                     }
                     surface.dirty.store(true, Ordering::Release);
@@ -1729,7 +2046,8 @@ impl RemoteSession {
                 let Some(id) = surface_id() else { return };
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     let Some((cols, rows)) = remote_terminal_size(&value) else { return };
-                    if !surface.apply_stream_resize(cols, rows, None) {
+                    if surface.apply_stream_resize(cols, rows, None, &[]).is_err() {
+                        self.disconnect_transport();
                         return;
                     }
                     surface.update_browser_state(&value);
@@ -1860,6 +2178,11 @@ impl RemoteSession {
             Some("status") => {
                 if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
                     self.emit(MuxEvent::Status(message.to_string()));
+                }
+            }
+            Some("graphics-status") => {
+                if let Some(status) = parse_graphics_status(&value) {
+                    self.emit(MuxEvent::GraphicsStatus(status));
                 }
             }
             Some("config-reload-requested") => self.emit(MuxEvent::ConfigReloadRequested),
@@ -2001,11 +2324,21 @@ impl RemoteSession {
     }
 
     pub fn request(&self, cmd: Value) -> anyhow::Result<Value> {
-        self.request_with_timeout(cmd, REMOTE_REQUEST_TIMEOUT)
+        self.request_with_deadline(cmd, RequestDeadline::Standard)
     }
 
-    fn request_with_timeout(&self, mut cmd: Value, timeout: Duration) -> anyhow::Result<Value> {
+    fn request_with_deadline(
+        &self,
+        mut cmd: Value,
+        deadline: RequestDeadline,
+    ) -> anyhow::Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let progress = Arc::new(AtomicU64::new(0));
+        let attach_progress = matches!(deadline, RequestDeadline::Attach)
+            .then(|| self.attach_progress.load(Ordering::Acquire));
+        let attach_surface = matches!(deadline, RequestDeadline::Attach)
+            .then(|| cmd.get("surface").and_then(Value::as_u64))
+            .flatten();
         cmd["id"] = json!(id);
         let message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
@@ -2015,7 +2348,10 @@ impl RemoteSession {
         }
 
         let (tx, rx) = channel();
-        self.pending.lock().unwrap().insert(id, tx);
+        self.pending.lock().unwrap().insert(
+            id,
+            PendingRemoteRequest { response: tx, progress: progress.clone(), attach_surface },
+        );
         let sequence = match self.interactive_writer.enqueue(message, false) {
             Ok(sequence) => sequence,
             Err(error) => {
@@ -2033,14 +2369,14 @@ impl RemoteSession {
             return Err(RemoteRequestError::Shutdown.into());
         }
 
-        let response = match rx.recv_timeout(timeout) {
+        let response = match self.wait_for_response(rx, deadline, progress, attach_progress) {
             Ok(response) => response,
-            Err(_) => {
+            Err(error) => {
                 // Drop the pending entry so a half-open session does not
                 // accumulate abandoned senders (and a late response is
                 // not delivered to a receiver nobody holds).
                 self.pending.lock().unwrap().remove(&id);
-                return Err(RemoteRequestError::Timeout.into());
+                return Err(error.into());
             }
         };
         if response.get("shutdown").and_then(Value::as_bool) == Some(true) {
@@ -2057,6 +2393,73 @@ impl RemoteSession {
                 _ => None,
             };
             Err(RemoteRequestError::Rejected { error: error.to_string(), code, delivery }.into())
+        }
+    }
+
+    fn wait_for_response(
+        &self,
+        rx: Receiver<Value>,
+        deadline: RequestDeadline,
+        progress: Arc<AtomicU64>,
+        attach_progress: Option<u64>,
+    ) -> Result<Value, RemoteRequestError> {
+        if let RequestDeadline::Standard | RequestDeadline::Fixed(_) = deadline {
+            let timeout = match deadline {
+                RequestDeadline::Standard => REMOTE_REQUEST_TIMEOUT,
+                RequestDeadline::Fixed(timeout) => timeout,
+                RequestDeadline::Attach => unreachable!(),
+            };
+            return match rx.recv_timeout(timeout) {
+                Ok(response) => Ok(response),
+                Err(RecvTimeoutError::Timeout) => Err(RemoteRequestError::Timeout),
+                Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
+                    Err(RemoteRequestError::Shutdown)
+                }
+                Err(RecvTimeoutError::Disconnected) => Err(RemoteRequestError::Timeout),
+            };
+        }
+
+        let started = Instant::now();
+        let maximum_deadline = started + REMOTE_ATTACH_MAX_TIMEOUT;
+        let mut idle_deadline = started + REMOTE_ATTACH_IDLE_TIMEOUT;
+        let mut observed_progress = progress.load(Ordering::Acquire);
+        let mut observed_attach_progress = attach_progress;
+        loop {
+            let now = Instant::now();
+            if now >= maximum_deadline {
+                return Err(RemoteRequestError::Timeout);
+            }
+            let next_deadline = idle_deadline.min(maximum_deadline);
+            match rx.recv_timeout(next_deadline.saturating_duration_since(now)) {
+                Ok(response) => return Ok(response),
+                Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
+                    return Err(RemoteRequestError::Shutdown);
+                }
+                Err(RecvTimeoutError::Disconnected) => return Err(RemoteRequestError::Timeout),
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+            if self.shutdown.load(Ordering::Acquire) {
+                return Err(RemoteRequestError::Shutdown);
+            }
+            let current_progress = progress.load(Ordering::Acquire);
+            if current_progress != observed_progress {
+                observed_progress = current_progress;
+                idle_deadline = Instant::now() + REMOTE_ATTACH_IDLE_TIMEOUT;
+                continue;
+            }
+            if observed_progress == 0
+                && let Some(observed) = observed_attach_progress.as_mut()
+            {
+                let current = self.attach_progress.load(Ordering::Acquire);
+                if current != *observed {
+                    *observed = current;
+                    idle_deadline = Instant::now() + REMOTE_ATTACH_IDLE_TIMEOUT;
+                    continue;
+                }
+            }
+            if Instant::now() >= idle_deadline {
+                return Err(RemoteRequestError::Timeout);
+            }
         }
     }
 
@@ -2090,7 +2493,8 @@ impl RemoteSession {
         cmd: Value,
         lifecycle: GuardedPointerLifecycle,
     ) -> anyhow::Result<Value> {
-        let result = self.request_with_timeout(cmd, GUARDED_POINTER_REQUEST_TIMEOUT);
+        let result = self
+            .request_with_deadline(cmd, RequestDeadline::Fixed(GUARDED_POINTER_REQUEST_TIMEOUT));
         if lifecycle == GuardedPointerLifecycle::CaptureMutation
             && result
                 .as_ref()
@@ -2194,8 +2598,8 @@ impl RemoteSession {
         self.shutdown.store(true, Ordering::Release);
         self.provider_workspaces_guarded.store(false, Ordering::Release);
         let pending = std::mem::take(&mut *self.pending.lock().unwrap());
-        for (_, sender) in pending {
-            let _ = sender.send(json!({"shutdown": true}));
+        for (_, request) in pending {
+            let _ = request.response.send(json!({"shutdown": true}));
         }
         if let Ok(Some(sequence)) = self.interactive_writer.last_enqueued_sequence() {
             let _ = self.wait_for_ordered_write(sequence);
@@ -2224,11 +2628,55 @@ impl RemoteSession {
         width_px: u16,
         height_px: u16,
     ) -> anyhow::Result<RemoteCellPixelUpdate> {
-        let response = self.request(json!({
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+        let next = (width_px.max(1), height_px.max(1));
+        let previous_global = *self.cell_pixels.lock().unwrap();
+        let surfaces = self.surfaces.lock().unwrap().values().cloned().collect::<Vec<_>>();
+        let snapshots = surfaces
+            .iter()
+            .map(|surface| (surface.clone(), surface.cell_pixel_size()))
+            .collect::<Vec<_>>();
+        for (index, surface) in surfaces.iter().enumerate() {
+            if let Err(error) = surface.set_cell_pixel_size(next.0, next.1) {
+                let rollback = Self::restore_cell_pixels(&snapshots[..index]);
+                return match rollback {
+                    Ok(()) => Err(anyhow::anyhow!(
+                        "could not update cell pixels for remote mirror {}: {error}",
+                        surface.id
+                    )),
+                    Err(rollback_error) => Err(anyhow::anyhow!(
+                        "could not update cell pixels for remote mirror {}: {error}; \
+                         local rollback also failed: {rollback_error}",
+                        surface.id
+                    )),
+                };
+            }
+        }
+        let response = match self.request(json!({
             "cmd": "set-cell-pixels",
-            "width_px": width_px,
-            "height_px": height_px,
-        }))?;
+            "width_px": next.0,
+            "height_px": next.1,
+        })) {
+            Ok(response) => response,
+            Err(error) => {
+                let known_not_applied = matches!(
+                    error.downcast_ref::<RemoteRequestError>(),
+                    Some(RemoteRequestError::Encode(_) | RemoteRequestError::Rejected { .. })
+                );
+                if known_not_applied {
+                    *self.cell_pixels.lock().unwrap() = previous_global;
+                    return match Self::restore_cell_pixels(&snapshots) {
+                        Ok(()) => Err(error),
+                        Err(rollback_error) => Err(anyhow::anyhow!(
+                            "{error}; local cell-pixel rollback also failed: {rollback_error}"
+                        )),
+                    };
+                }
+                *self.cell_pixels.lock().unwrap() = next;
+                let _ = self.reconcile_cell_pixels_from_remote();
+                return Err(error);
+            }
+        };
         let resizes = response
             .get("resizes")
             .and_then(Value::as_array)
@@ -2244,7 +2692,7 @@ impl RemoteSession {
                     resize.get("reservation_id").and_then(Value::as_u64),
                 ))
             })
-            .collect();
+            .collect::<Vec<_>>();
         let failures = response
             .get("failures")
             .and_then(Value::as_array)
@@ -2254,10 +2702,91 @@ impl RemoteSession {
                 Some((
                     failure.get("surface")?.as_u64()?,
                     failure.get("error")?.as_str()?.to_string(),
+                    failure.get("deferred").and_then(Value::as_bool).unwrap_or(false),
                 ))
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let failed_surfaces = failures
+            .iter()
+            .filter_map(|(surface, _, deferred)| (!deferred).then_some(*surface))
+            .collect::<HashSet<_>>();
+        let use_target_for_creation =
+            failures.is_empty() || failures.iter().all(|(_, _, deferred)| *deferred);
+        let failed_snapshots = snapshots
+            .iter()
+            .filter(|(surface, _)| failed_surfaces.contains(&surface.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        Self::restore_cell_pixels(&failed_snapshots)?;
+        if use_target_for_creation {
+            *self.cell_pixels.lock().unwrap() = next;
+        }
+        let failures =
+            failures.into_iter().map(|(surface, error, _)| (surface, error)).collect::<Vec<_>>();
         Ok(RemoteCellPixelUpdate { resizes, failures })
+    }
+
+    fn reconcile_cell_pixels_from_remote(&self) -> anyhow::Result<()> {
+        let response = self.request(json!({"cmd": "get-cell-pixels"}))?;
+        let width_px = response
+            .get("width_px")
+            .and_then(Value::as_u64)
+            .and_then(|value| u16::try_from(value).ok())
+            .filter(|value| *value > 0)
+            .ok_or_else(|| anyhow::anyhow!("remote cell-pixel query omitted width_px"))?;
+        let height_px = response
+            .get("height_px")
+            .and_then(Value::as_u64)
+            .and_then(|value| u16::try_from(value).ok())
+            .filter(|value| *value > 0)
+            .ok_or_else(|| anyhow::anyhow!("remote cell-pixel query omitted height_px"))?;
+        let surface_metrics = response
+            .get("surfaces")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("remote cell-pixel query omitted surfaces"))?
+            .iter()
+            .map(|surface| {
+                let id = surface
+                    .get("surface")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| anyhow::anyhow!("remote cell-pixel query omitted surface id"))?;
+                let width_px = surface
+                    .get("width_px")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| u16::try_from(value).ok())
+                    .filter(|value| *value > 0)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("remote cell-pixel query omitted surface width_px")
+                    })?;
+                let height_px = surface
+                    .get("height_px")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| u16::try_from(value).ok())
+                    .filter(|value| *value > 0)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("remote cell-pixel query omitted surface height_px")
+                    })?;
+                Ok((id, (width_px, height_px)))
+            })
+            .collect::<anyhow::Result<HashMap<_, _>>>()?;
+        let surfaces = self.surfaces.lock().unwrap().values().cloned().collect::<Vec<_>>();
+        for surface in surfaces {
+            if let Some(metric) = surface_metrics.get(&surface.id) {
+                surface.set_cell_pixel_size(metric.0, metric.1)?;
+            }
+        }
+        *self.cell_pixels.lock().unwrap() = (width_px, height_px);
+        Ok(())
+    }
+
+    fn restore_cell_pixels(snapshots: &[(Arc<RemoteSurface>, (u16, u16))]) -> anyhow::Result<()> {
+        let mut failures = Vec::new();
+        for (surface, previous) in snapshots {
+            if let Err(error) = surface.set_cell_pixel_size(previous.0, previous.1) {
+                failures.push(format!("surface {}: {error}", surface.id));
+            }
+        }
+        if failures.is_empty() { Ok(()) } else { anyhow::bail!("{}", failures.join("; ")) }
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
@@ -2382,44 +2911,72 @@ impl RemoteSession {
         kind: SurfaceKind,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Option<Arc<RemoteSurface>>> {
-        if self.exited_surfaces.lock().unwrap().contains(&id) {
-            return Ok(None);
-        }
-        if !self.can_attach_after_overflow(id) {
-            return Ok(None);
-        }
-        if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
-            return Ok(Some(surface.clone()));
-        }
         let source = {
             let tree = self.tree.lock().unwrap();
             browser_source_from_tree(&tree.view, id)
         };
         let (cols, rows) = size.unwrap_or((80, 24));
-        let term = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
-        let surface = Arc::new(RemoteSurface {
-            id,
-            kind,
-            term: Mutex::new(term),
-            mouse_encoders: Mutex::new(MouseEncoders::new()?),
-            dirty: AtomicBool::new(false),
-            content_generation: AtomicU64::new(1),
-            reported_size: Mutex::new(None),
-            browser: Mutex::new(RemoteBrowserState::default()),
-        });
-        surface.update_browser_source(source);
-        self.surfaces.lock().unwrap().insert(id, surface.clone());
         let initial_size = size.map(|(cols, rows)| (cols.max(1), rows.max(1))).filter(|_| {
             self.supports_capability(cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY)
         });
+        let surface = {
+            // Coordinate only the local mirror commit with cell-metric
+            // updates. The remote attach can stream for minutes and must not
+            // retain this lifecycle lock while it waits.
+            let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+            if self.exited_surfaces.lock().unwrap().contains(&id) {
+                return Ok(None);
+            }
+            if !self.can_attach_after_overflow(id) {
+                return Ok(None);
+            }
+            if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
+                return Ok(Some(surface.clone()));
+            }
+            let cell_pixels = *self.cell_pixels.lock().unwrap();
+            let mut term = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
+            term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
+            let surface = Arc::new(RemoteSurface {
+                id,
+                kind,
+                term: Mutex::new(term),
+                mouse_encoders: Mutex::new(MouseEncoders::new()?),
+                dirty: AtomicBool::new(false),
+                geometry_lifecycle: Mutex::new(()),
+                cell_pixels: Mutex::new(cell_pixels),
+                #[cfg(test)]
+                geometry_test_hook: Mutex::new(None),
+                content_generation: AtomicU64::new(1),
+                reported_size: Mutex::new(None),
+                browser: Mutex::new(RemoteBrowserState::default()),
+            });
+            surface.update_browser_source(source);
+            self.surfaces.lock().unwrap().insert(id, surface.clone());
+            surface
+        };
         let mut request = json!({"cmd": "attach-surface", "surface": id});
         if let Some((cols, rows)) = initial_size {
             request["cols"] = json!(cols);
             request["rows"] = json!(rows);
         }
         // The vt-state event that follows fills the mirror.
-        if let Err(error) = self.request(request) {
-            self.surfaces.lock().unwrap().remove(&id);
+        if let Err(error) = self.request_with_deadline(request, RequestDeadline::Attach) {
+            {
+                let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+                let mut surfaces = self.surfaces.lock().unwrap();
+                if surfaces.get(&id).is_some_and(|current| Arc::ptr_eq(current, &surface)) {
+                    surfaces.remove(&id);
+                }
+            }
+            if error
+                .downcast_ref::<RemoteRequestError>()
+                .is_some_and(RemoteRequestError::is_timeout)
+            {
+                // The server registers the stream before it queues the attach
+                // response. Closing the connection is the only protocol-level
+                // cancellation that guarantees a timed-out stream is released.
+                self.disconnect_transport();
+            }
             return Err(error);
         }
         if let Some(size) = initial_size {
@@ -2565,6 +3122,76 @@ impl Drop for RemoteSession {
             }
         }
     }
+}
+
+fn parse_kitty_image_aliases(
+    value: &Value,
+) -> Result<Vec<ghostty_vt::KittyImageAlias>, &'static str> {
+    let Some(aliases) = value.get("kitty_image_aliases") else {
+        return Ok(Vec::new());
+    };
+    let aliases = aliases.as_array().ok_or("kitty_image_aliases must be an array")?;
+    if aliases.len() > cmux_tui_core::terminal_host_protocol::MAX_KITTY_IMAGE_ALIASES {
+        return Err("kitty_image_aliases has too many entries");
+    }
+    let aliases = aliases
+        .iter()
+        .map(|alias| {
+            let image_id = alias
+                .get("image_id")
+                .and_then(Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok())
+                .ok_or("kitty image alias has an invalid image_id")?;
+            let image_number = alias
+                .get("image_number")
+                .and_then(Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok())
+                .ok_or("kitty image alias has an invalid image_number")?;
+            Ok(ghostty_vt::KittyImageAlias { image_id, image_number })
+        })
+        .collect::<Result<Vec<_>, &'static str>>()?;
+    cmux_tui_core::terminal_host_runtime::validate_kitty_image_aliases(&aliases)
+        .map_err(|_| "kitty_image_aliases violates terminal-host invariants")?;
+    Ok(aliases)
+}
+
+fn parse_kitty_replay_state(value: &Value) -> Result<KittyReplayState, &'static str> {
+    let Some(state) = value.get("kitty_graphics_state") else {
+        return Ok(KittyReplayState::disabled());
+    };
+    let state = state.as_object().ok_or("kitty_graphics_state must be an object")?;
+    if state.len() != 9 {
+        return Err("kitty_graphics_state has unexpected fields");
+    }
+    let u64_field = |name| {
+        state.get(name).and_then(Value::as_u64).ok_or("kitty_graphics_state has an invalid limit")
+    };
+    let u32_field = |name| {
+        state
+            .get(name)
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or("kitty_graphics_state has an invalid image ID cursor")
+    };
+    KittyReplayState {
+        limits: KittyGraphicsLimits {
+            image_bytes: u64_field("image_bytes")?,
+            inflight_bytes: u64_field("inflight_bytes")?,
+            images: u64_field("images")?,
+            placements: u64_field("placements")?,
+        },
+        replay_cursor_offset: u32_field("replay_cursor_offset")?,
+        replay_next_image_ids: KittyImageIdCursors {
+            primary: u32_field("primary_replay_next_image_id")?,
+            alternate: u32_field("alternate_replay_next_image_id")?,
+        },
+        next_image_ids: KittyImageIdCursors {
+            primary: u32_field("primary_next_image_id")?,
+            alternate: u32_field("alternate_next_image_id")?,
+        },
+    }
+    .validate()
+    .map_err(|_| "kitty_graphics_state violates terminal limits")
 }
 
 fn dump_mirror(surface: &RemoteSurface) -> String {
@@ -2776,6 +3403,7 @@ fn test_session_with_writer(
         interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
         pending: Mutex::new(HashMap::new()),
         next_id: AtomicU64::new(1),
+        attach_progress: AtomicU64::new(0),
         shutdown: AtomicBool::new(false),
         surfaces: Mutex::new(HashMap::new()),
         exited_surfaces: Mutex::new(HashSet::new()),
@@ -2791,10 +3419,145 @@ fn test_session_with_writer(
         frame_logs: Mutex::new(RemoteFrameLogs::default()),
         surface_overflow_recovery: Mutex::new(HashMap::new()),
         surface_overflow_reconnect_required: AtomicBool::new(false),
+        cell_pixel_lifecycle: Mutex::new(()),
+        cell_pixels: Mutex::new((8, 16)),
         capabilities: Mutex::new(capabilities),
         provider_workspace_authority,
         provider_workspaces_guarded: AtomicBool::new(false),
     })
+}
+
+#[cfg(test)]
+struct DeferredAttachTestWriter {
+    session: Arc<Mutex<Option<std::sync::Weak<RemoteSession>>>>,
+    attach_started: std::sync::mpsc::SyncSender<()>,
+    release_attach: Option<Receiver<()>>,
+    first_resize_failure: Option<(std::sync::mpsc::SyncSender<()>, Receiver<()>)>,
+}
+
+#[cfg(test)]
+impl RemoteMessageWriter for DeferredAttachTestWriter {
+    fn send(&mut self, message: &str) -> io::Result<()> {
+        let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+        let id = request
+            .get("id")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+        let session = self
+            .session
+            .lock()
+            .unwrap()
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+        if request.get("cmd").and_then(Value::as_str) == Some("attach-surface") {
+            self.attach_started.send(()).map_err(io::Error::other)?;
+            let release = self
+                .release_attach
+                .take()
+                .ok_or_else(|| io::Error::other("attach release already consumed"))?;
+            std::thread::spawn(move || {
+                let _ = release.recv();
+                let Some(session) = session.upgrade() else { return };
+                let Some(response) = session.pending.lock().unwrap().remove(&id) else {
+                    return;
+                };
+                let _ = response.response.send(json!({"id": id, "ok": true, "data": null}));
+            });
+            return Ok(());
+        }
+        let reject_resize = if request.get("cmd").and_then(Value::as_str) == Some("resize-surface")
+        {
+            if let Some((started, release)) = self.first_resize_failure.take() {
+                started.send(()).map_err(io::Error::other)?;
+                release.recv().map_err(io::Error::other)?;
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        let session =
+            session.upgrade().ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+        let pending_response = session
+            .pending
+            .lock()
+            .unwrap()
+            .remove(&id)
+            .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+        let data = if request.get("cmd").and_then(Value::as_str) == Some("set-cell-pixels") {
+            json!({"resizes": [], "failures": []})
+        } else {
+            Value::Null
+        };
+        let response = if reject_resize {
+            json!({"id": id, "ok": false, "error": "scripted promoted resize failure"})
+        } else {
+            json!({"id": id, "ok": true, "data": data})
+        };
+        pending_response
+            .response
+            .send(response)
+            .map_err(|_| io::Error::other("remote response receiver was dropped"))
+    }
+
+    fn close(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+pub(super) fn test_session_with_deferred_attach() -> (Arc<RemoteSession>, Receiver<()>, Sender<()>)
+{
+    test_session_with_deferred_attach_control(None)
+}
+
+#[cfg(test)]
+fn test_session_with_deferred_attach_control(
+    first_resize_failure: Option<(std::sync::mpsc::SyncSender<()>, Receiver<()>)>,
+) -> (Arc<RemoteSession>, Receiver<()>, Sender<()>) {
+    let session_slot = Arc::new(Mutex::new(None));
+    let (attach_started_tx, attach_started_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_attach_tx, release_attach_rx) = channel();
+    let session = test_session_with_writer(
+        Box::new(DeferredAttachTestWriter {
+            session: session_slot.clone(),
+            attach_started: attach_started_tx,
+            release_attach: Some(release_attach_rx),
+            first_resize_failure,
+        }),
+        None,
+        HashSet::new(),
+    );
+    *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+    session.tree_stale.store(false, Ordering::Release);
+    (session, attach_started_rx, release_attach_tx)
+}
+
+#[cfg(test)]
+pub(super) struct DeferredAttachResizeFailureFixture {
+    pub session: Arc<RemoteSession>,
+    pub attach_started: Receiver<()>,
+    pub release_attach: Sender<()>,
+    pub resize_started: Receiver<()>,
+    pub release_resize: Sender<()>,
+}
+
+#[cfg(test)]
+pub(super) fn test_session_with_deferred_attach_and_first_resize_failure()
+-> DeferredAttachResizeFailureFixture {
+    let (resize_started_tx, resize_started_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_resize_tx, release_resize_rx) = channel();
+    let (session, attach_started, release_attach) =
+        test_session_with_deferred_attach_control(Some((resize_started_tx, release_resize_rx)));
+    DeferredAttachResizeFailureFixture {
+        session,
+        attach_started,
+        release_attach,
+        resize_started: resize_started_rx,
+        release_resize: release_resize_tx,
+    }
 }
 
 #[cfg(test)]
@@ -2857,6 +3620,9 @@ pub(super) fn test_session_with_browser_pointer_range(
         term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
         mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
         dirty: AtomicBool::new(false),
+        geometry_lifecycle: Mutex::new(()),
+        cell_pixels: Mutex::new((8, 16)),
+        geometry_test_hook: Mutex::new(None),
         content_generation: AtomicU64::new(1),
         reported_size: Mutex::new(None),
         browser: Mutex::new(RemoteBrowserState {
@@ -3046,6 +3812,65 @@ mod tests {
         byte_bounded.push_with_limits(7, "5678".into(), 10, 8);
         assert_eq!(byte_bounded.bytes, 5);
         assert_eq!(byte_bounded.entries.front().unwrap().line, "5678");
+    }
+
+    #[test]
+    fn partial_message_progress_targets_only_its_request_or_attach() {
+        assert_eq!(
+            remote_progress_target(br#"{"id":41,"ok":true,"data":"partial"#),
+            Some(RemoteProgressTarget::Request(41))
+        );
+        assert_eq!(
+            remote_progress_target(br#"{"event":"vt-state","surface":7,"cols":80,"data":"partial"#),
+            Some(RemoteProgressTarget::AttachSurface(7))
+        );
+        assert_eq!(
+            remote_progress_target(
+                br#"{"event":"browser-state","surface":8,"frame":{"data":"partial"#
+            ),
+            Some(RemoteProgressTarget::AttachSurface(8))
+        );
+        assert_eq!(
+            remote_progress_target(br#"{"event":"output","surface":7,"id":41,"data":"partial"#),
+            None
+        );
+        assert_eq!(remote_progress_target(br#"{"id":41"#), None);
+    }
+
+    #[test]
+    fn json_line_reader_rejects_oversized_frames_before_buffering_them() {
+        let mut reader = BufReader::with_capacity(4, io::Cursor::new(b"123456789\n".to_vec()));
+        let mut largest_progress = 0;
+        let error = read_json_line_with_progress_bounded(
+            &mut reader,
+            &mut |partial| largest_progress = largest_progress.max(partial.len()),
+            8,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "remote session message exceeds the 8-byte limit");
+        assert!(largest_progress <= 8);
+    }
+
+    #[test]
+    fn json_line_reader_accepts_a_frame_at_the_exact_limit() {
+        let mut reader = BufReader::with_capacity(3, io::Cursor::new(b"12345678\n".to_vec()));
+
+        let line =
+            read_json_line_with_progress_bounded(&mut reader, &mut |_| {}, 8).unwrap().unwrap();
+
+        assert_eq!(line, "12345678");
+    }
+
+    #[test]
+    fn json_line_reader_preserves_an_empty_delimited_frame() {
+        let mut reader = BufReader::new(io::Cursor::new(b"\n".to_vec()));
+
+        let line =
+            read_json_line_with_progress_bounded(&mut reader, &mut |_| {}, 8).unwrap().unwrap();
+
+        assert!(line.is_empty());
     }
 
     #[test]
@@ -3358,6 +4183,7 @@ mod tests {
                 .remove(&id)
                 .ok_or_else(|| io::Error::other("remote request was not pending"))?;
             response
+                .response
                 .send(json!({"id": id, "ok": true, "data": null}))
                 .map_err(|_| io::Error::other("remote response receiver was dropped"))
         }
@@ -3394,6 +4220,7 @@ mod tests {
                 .remove(&id)
                 .ok_or_else(|| io::Error::other("remote request was not pending"))?;
             response
+                .response
                 .send(json!({"id": id, "ok": true, "data": null}))
                 .map_err(|_| io::Error::other("remote response receiver was dropped"))
         }
@@ -3426,6 +4253,7 @@ mod tests {
             interactive_writer: InteractiveWriter::spawn(writer, abort).unwrap(),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
+            attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
             exited_surfaces: Mutex::new(HashSet::new()),
@@ -3441,6 +4269,8 @@ mod tests {
             frame_logs: Mutex::new(RemoteFrameLogs::default()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
             surface_overflow_reconnect_required: AtomicBool::new(false),
+            cell_pixel_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new((8, 16)),
             capabilities: Mutex::new(capabilities),
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
@@ -3563,6 +4393,183 @@ mod tests {
         test_session_with_provider_context(writer, HashSet::new(), None)
     }
 
+    fn test_remote_pty_surface(
+        id: SurfaceId,
+        cols: u16,
+        rows: u16,
+        cell_pixels: (u16, u16),
+    ) -> Arc<RemoteSurface> {
+        let mut term = Terminal::new(cols, rows, 100, Callbacks::default()).unwrap();
+        term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1)).unwrap();
+        Arc::new(RemoteSurface {
+            id,
+            kind: SurfaceKind::Pty,
+            term: Mutex::new(term),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new(cell_pixels),
+            geometry_test_hook: Mutex::new(None),
+            content_generation: AtomicU64::new(1),
+            reported_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        })
+    }
+
+    struct RejectingWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+    }
+
+    impl RemoteMessageWriter for RejectingWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            response
+                .response
+                .send(json!({"id": id, "ok": false, "error": "injected rejection"}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct CellPixelFanoutWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        fail_next: bool,
+        deferred_failure: bool,
+    }
+
+    impl RemoteMessageWriter for CellPixelFanoutWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            let data = match request.get("cmd").and_then(Value::as_str) {
+                Some("set-cell-pixels") if std::mem::take(&mut self.fail_next) => {
+                    json!({
+                        "resizes": [],
+                        "failures": [{
+                            "surface": 7,
+                            "error": "injected fan-out failure",
+                            "deferred": self.deferred_failure,
+                        }],
+                    })
+                }
+                Some("set-cell-pixels") => json!({"resizes": [], "failures": []}),
+                Some("attach-surface") => Value::Null,
+                command => {
+                    return Err(io::Error::other(format!("unexpected test command: {command:?}")));
+                }
+            };
+            response
+                .response
+                .send(json!({"id": id, "ok": true, "data": data}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct SilentWriter;
+
+    impl RemoteMessageWriter for SilentWriter {
+        fn send(&mut self, _message: &str) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct AmbiguousCellPixelWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+    }
+
+    impl RemoteMessageWriter for AmbiguousCellPixelWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            if request.get("cmd").and_then(Value::as_str) == Some("set-cell-pixels") {
+                return Ok(());
+            }
+            if request.get("cmd").and_then(Value::as_str) != Some("get-cell-pixels") {
+                return Err(io::Error::other("unexpected ambiguous cell-pixel test command"));
+            }
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            response
+                .response
+                .send(json!({
+                    "id": id,
+                    "ok": true,
+                    "data": {
+                        "width_px": 10,
+                        "height_px": 20,
+                        "surfaces": [{
+                            "surface": 7,
+                            "width_px": 11,
+                            "height_px": 22,
+                        }],
+                    },
+                }))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     fn blocking_test_session(writer: BlockingWriteStream) -> Arc<RemoteSession> {
         let abort = Arc::new(BlockingWriteAbort { control: writer.control.clone() });
         test_session_with_abort_and_context(Box::new(writer), abort, HashSet::new(), None)
@@ -3577,19 +4584,7 @@ mod tests {
             requests: requests.clone(),
         }));
         *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
-        session.surfaces.lock().unwrap().insert(
-            7,
-            Arc::new(RemoteSurface {
-                id: 7,
-                kind: SurfaceKind::Pty,
-                term: Mutex::new(Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap()),
-                mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
-                dirty: AtomicBool::new(false),
-                content_generation: AtomicU64::new(1),
-                reported_size: Mutex::new(None),
-                browser: Mutex::new(RemoteBrowserState::default()),
-            }),
-        );
+        session.surfaces.lock().unwrap().insert(7, test_remote_pty_surface(7, 80, 24, (8, 16)));
         let fallback = KeyInput {
             key: ghostty_vt::sys::GHOSTTY_KEY_L,
             mods: Mods::CTRL,
@@ -3659,19 +4654,7 @@ mod tests {
             requests: requests.clone(),
         }));
         *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
-        session.surfaces.lock().unwrap().insert(
-            7,
-            Arc::new(RemoteSurface {
-                id: 7,
-                kind: SurfaceKind::Pty,
-                term: Mutex::new(Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap()),
-                mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
-                dirty: AtomicBool::new(false),
-                content_generation: AtomicU64::new(1),
-                reported_size: Mutex::new(None),
-                browser: Mutex::new(RemoteBrowserState::default()),
-            }),
-        );
+        session.surfaces.lock().unwrap().insert(7, test_remote_pty_surface(7, 80, 24, (8, 16)));
         let fallback = KeyInput {
             key: ghostty_vt::sys::GHOSTTY_KEY_K,
             mods: Mods::SUPER,
@@ -3697,19 +4680,7 @@ mod tests {
             None,
         );
         *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
-        session.surfaces.lock().unwrap().insert(
-            7,
-            Arc::new(RemoteSurface {
-                id: 7,
-                kind: SurfaceKind::Pty,
-                term: Mutex::new(Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap()),
-                mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
-                dirty: AtomicBool::new(false),
-                content_generation: AtomicU64::new(1),
-                reported_size: Mutex::new(None),
-                browser: Mutex::new(RemoteBrowserState::default()),
-            }),
-        );
+        session.surfaces.lock().unwrap().insert(7, test_remote_pty_surface(7, 80, 24, (8, 16)));
         let fallback = KeyInput {
             key: ghostty_vt::sys::GHOSTTY_KEY_L,
             mods: Mods::CTRL,
@@ -3784,6 +4755,7 @@ mod tests {
                     .remove(&id)
                     .ok_or_else(|| io::Error::other("remote request was not pending"))?;
                 response
+                    .response
                     .send(json!({
                         "id": id,
                         "ok": false,
@@ -4002,6 +4974,264 @@ mod tests {
     fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {
         stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).unwrap();
         test_session(Box::new(JsonLineWriter { inner: Box::new(stream) }))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn browser_attach_deadline_advances_while_a_large_initial_frame_is_arriving() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let (release_tx, release_rx) = channel();
+        let peer = std::thread::spawn(move || {
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION})
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+
+            let mut line = String::new();
+            peer.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["cmd"], "attach-surface");
+            let frame = concat!(
+                "{\"event\":\"browser-state\",\"surface\":7,",
+                "\"cols\":80,\"rows\":24,\"status\":\"live\",",
+                "\"frame\":{\"seq\":1,\"width\":800,\"height\":600,\"data\":\"\"}}"
+            );
+            let first = frame.find(",\"cols\"").unwrap() + 1;
+            let second = first + (frame.len() - first) / 2;
+            for (index, fragment) in [
+                &frame.as_bytes()[..first],
+                &frame.as_bytes()[first..second],
+                &frame.as_bytes()[second..],
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                peer.get_mut().write_all(fragment).unwrap();
+                peer.get_mut().flush().unwrap();
+                if index < 2 {
+                    std::thread::sleep(Duration::from_millis(150));
+                }
+            }
+            peer.get_mut().write_all(b"\n").unwrap();
+            writeln!(peer.get_mut(), "{}", json!({"id": request["id"], "ok": true, "data": null}))
+                .unwrap();
+            release_rx.recv().unwrap();
+        });
+        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
+
+        let started = Instant::now();
+        let surface =
+            session.try_ensure_surface_with_kind(7, SurfaceKind::Browser, None).unwrap().unwrap();
+
+        assert_eq!(surface.id, 7);
+        assert_eq!(surface.kind, SurfaceKind::Browser);
+        assert!(
+            started.elapsed() > REMOTE_ATTACH_IDLE_TIMEOUT,
+            "attach completed before exercising the progress-aware deadline"
+        );
+        assert!(!session.shutdown.load(Ordering::Acquire));
+        release_tx.send(()).unwrap();
+        peer.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn queued_attach_waits_while_an_earlier_snapshot_is_progressing() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let (first_seen_tx, first_seen_rx) = channel();
+        let (release_tx, release_rx) = channel();
+        let peer = std::thread::spawn(move || {
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION})
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+
+            let mut first_line = String::new();
+            peer.read_line(&mut first_line).unwrap();
+            let first: Value = serde_json::from_str(&first_line).unwrap();
+            assert_eq!(first["cmd"], "attach-surface");
+            first_seen_tx.send(()).unwrap();
+
+            let mut second_line = String::new();
+            peer.read_line(&mut second_line).unwrap();
+            let second: Value = serde_json::from_str(&second_line).unwrap();
+            assert_eq!(second["cmd"], "attach-surface");
+
+            let first_surface = first["surface"].as_u64().unwrap();
+            let event = format!(
+                "{{\"event\":\"vt-state\",\"surface\":{first_surface},\"cols\":80,\"rows\":24,\"data\":\"\",\"padding\":\"{}\"}}",
+                "x".repeat(768)
+            );
+            let splits = [64, 256, 512, event.len()];
+            let mut copied = 0;
+            for (index, end) in splits.into_iter().enumerate() {
+                peer.get_mut().write_all(&event.as_bytes()[copied..end]).unwrap();
+                peer.get_mut().flush().unwrap();
+                copied = end;
+                if index + 1 < splits.len() {
+                    std::thread::sleep(REMOTE_ATTACH_IDLE_TIMEOUT * 3 / 4);
+                }
+            }
+            peer.get_mut().write_all(b"\n").unwrap();
+            writeln!(peer.get_mut(), "{}", json!({"id": first["id"], "ok": true, "data": null}))
+                .unwrap();
+
+            let second_surface = second["surface"].as_u64().unwrap();
+            writeln!(
+                peer.get_mut(),
+                "{}",
+                json!({
+                    "event": "vt-state",
+                    "surface": second_surface,
+                    "cols": 80,
+                    "rows": 24,
+                    "data": "",
+                })
+            )
+            .unwrap();
+            writeln!(peer.get_mut(), "{}", json!({"id": second["id"], "ok": true, "data": null}))
+                .unwrap();
+            release_rx.recv().unwrap();
+        });
+        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
+
+        let first_session = session.clone();
+        let first = std::thread::spawn(move || {
+            first_session.try_ensure_surface_with_kind(7, SurfaceKind::Pty, None)
+        });
+        first_seen_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let second_session = session.clone();
+        let second = std::thread::spawn(move || {
+            second_session.try_ensure_surface_with_kind(8, SurfaceKind::Pty, None)
+        });
+
+        assert!(first.join().unwrap().unwrap().is_some());
+        assert!(second.join().unwrap().unwrap().is_some());
+        assert!(!session.shutdown.load(Ordering::Acquire));
+        release_tx.send(()).unwrap();
+        peer.join().unwrap();
+    }
+
+    #[test]
+    fn inflight_attach_does_not_hold_the_cell_pixel_lifecycle() {
+        let (session, attach_started_rx, release_attach_tx) = test_session_with_deferred_attach();
+        let attaching = session.clone();
+        let worker = std::thread::spawn(move || {
+            attaching.try_ensure_surface_with_kind(7, SurfaceKind::Pty, Some((80, 24)))
+        });
+        attach_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let update = session.set_cell_pixel_size(9, 18).unwrap();
+
+        assert!(update.failures.is_empty());
+        assert_eq!(*session.cell_pixels.lock().unwrap(), (9, 18));
+        assert_eq!(session.surface(7).unwrap().cell_pixel_size(), (9, 18));
+        release_attach_tx.send(()).unwrap();
+        assert!(worker.join().unwrap().unwrap().is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unrelated_remote_traffic_does_not_extend_attach_idle_deadline() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let peer = std::thread::spawn(move || {
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION})
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+
+            let mut line = String::new();
+            peer.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["cmd"], "attach-surface");
+            let traffic_deadline = Instant::now() + REMOTE_ATTACH_IDLE_TIMEOUT * 8;
+            while Instant::now() < traffic_deadline {
+                if writeln!(peer.get_mut(), "{}", json!({"event": "tree-changed"})).is_err() {
+                    break;
+                }
+                std::thread::sleep(REMOTE_ATTACH_IDLE_TIMEOUT / 4);
+            }
+        });
+        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
+
+        let started = Instant::now();
+        let error = session
+            .try_ensure_surface_with_kind(7, SurfaceKind::Pty, None)
+            .err()
+            .expect("missing attach response must time out");
+
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Timeout)
+        ));
+        assert!(
+            started.elapsed() < REMOTE_ATTACH_IDLE_TIMEOUT * 3,
+            "unrelated traffic extended the attach idle deadline to {:?}",
+            started.elapsed()
+        );
+        peer.join().unwrap();
+    }
+
+    #[test]
+    fn timed_out_attach_closes_transport_and_removes_local_mirror() {
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = test_session(Box::new(CloseTrackingWriter { closed: closed.clone() }));
+
+        let error = session
+            .try_ensure_surface_with_kind(7, SurfaceKind::Pty, None)
+            .err()
+            .expect("silent attach must time out");
+
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Timeout)
+        ));
+        assert!(!session.has_surface(7));
+        assert!(session.pending.lock().unwrap().is_empty());
+        assert!(session.shutdown.load(Ordering::Acquire));
+        assert!(closed.load(Ordering::Acquire));
     }
 
     #[cfg(unix)]
@@ -4745,6 +5975,9 @@ mod tests {
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new((8, 16)),
+            geometry_test_hook: Mutex::new(None),
             content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
@@ -4831,6 +6064,9 @@ mod tests {
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new((8, 16)),
+            geometry_test_hook: Mutex::new(None),
             content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
@@ -4890,6 +6126,9 @@ mod tests {
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new((8, 16)),
+            geometry_test_hook: Mutex::new(None),
             content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
@@ -4949,6 +6188,9 @@ mod tests {
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new((8, 16)),
+            geometry_test_hook: Mutex::new(None),
             content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
@@ -5015,6 +6257,9 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new((8, 16)),
+            geometry_test_hook: Mutex::new(None),
             content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
@@ -5060,6 +6305,9 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new((8, 16)),
+            geometry_test_hook: Mutex::new(None),
             content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
@@ -5100,6 +6348,9 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new((8, 16)),
+            geometry_test_hook: Mutex::new(None),
             content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
@@ -5196,6 +6447,205 @@ mod tests {
     }
 
     #[test]
+    fn remote_surface_resize_and_cell_pixel_update_are_one_geometry_transaction() {
+        let surface = test_remote_pty_surface(1, 80, 24, (8, 16));
+        let (resize_entered_tx, resize_entered_rx) = channel();
+        let (release_resize_tx, release_resize_rx) = channel();
+        let (cell_started_tx, cell_started_rx) = channel();
+        let release_resize_rx = Arc::new(Mutex::new(release_resize_rx));
+        *surface.geometry_test_hook.lock().unwrap() = Some(Arc::new({
+            move |step| match step {
+                RemoteGeometryTestStep::StreamResizeCommitBoundary => {
+                    resize_entered_tx.send(()).unwrap();
+                    release_resize_rx.lock().unwrap().recv().unwrap();
+                }
+                RemoteGeometryTestStep::CellPixelStarted => {
+                    cell_started_tx.send(()).unwrap();
+                }
+                _ => {}
+            }
+        }));
+
+        let resizing_surface = surface.clone();
+        let resizing = std::thread::spawn(move || {
+            resizing_surface.apply_stream_resize(100, 30, None, &[]).unwrap();
+        });
+        resize_entered_rx.recv().unwrap();
+
+        let updating_surface = surface.clone();
+        let (cell_done_tx, cell_done_rx) = channel();
+        let updating = std::thread::spawn(move || {
+            updating_surface.set_cell_pixel_size(9, 18).unwrap();
+            cell_done_tx.send(()).unwrap();
+        });
+        cell_started_rx.recv().unwrap();
+        let cell_completed_while_resize_was_uncommitted =
+            cell_done_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+
+        release_resize_tx.send(()).unwrap();
+        resizing.join().unwrap();
+        updating.join().unwrap();
+
+        assert!(
+            !cell_completed_while_resize_was_uncommitted,
+            "cell pixels committed while the ordered stream resize was paused"
+        );
+        assert_eq!(*surface.cell_pixels.lock().unwrap(), (9, 18));
+        let term = surface.term.lock().unwrap();
+        assert_eq!((term.cols(), term.rows()), (100, 30));
+    }
+
+    #[test]
+    fn stream_resize_without_pixel_dimensions_preserves_last_cell_measurement() {
+        let surface = test_remote_pty_surface(1, 80, 24, (8, 16));
+        surface.set_cell_pixel_size(11, 19).unwrap();
+
+        surface.apply_stream_resize(90, 31, None, &[]).unwrap();
+
+        assert_eq!(*surface.cell_pixels.lock().unwrap(), (11, 19));
+        let term = surface.term.lock().unwrap();
+        assert_eq!((term.cols(), term.rows()), (90, 31));
+    }
+
+    #[test]
+    fn rejected_cell_pixel_request_rolls_back_session_and_mirror_geometry() {
+        let session_slot: Arc<Mutex<Option<Weak<RemoteSession>>>> = Arc::new(Mutex::new(None));
+        let session = test_session(Box::new(RejectingWriter { session: session_slot.clone() }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        let surface = test_remote_pty_surface(7, 80, 24, (8, 16));
+        session.surfaces.lock().unwrap().insert(surface.id, surface.clone());
+
+        let error = session.set_cell_pixel_size(9, 18).err().expect("injected rejection must fail");
+
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Rejected {
+                error,
+                delivery: None,
+                ..
+            }) if error == "injected rejection"
+        ));
+        assert_eq!(*session.cell_pixels.lock().unwrap(), (8, 16));
+        assert_eq!(*surface.cell_pixels.lock().unwrap(), (8, 16));
+    }
+
+    #[test]
+    fn timed_out_cell_pixel_request_preserves_session_and_mirror_geometry() {
+        let session = test_session(Box::new(SilentWriter));
+        let surface = test_remote_pty_surface(7, 80, 24, (8, 16));
+        session.surfaces.lock().unwrap().insert(surface.id, surface.clone());
+
+        let error = session.set_cell_pixel_size(9, 18).err().expect("silent remote must time out");
+
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Timeout)
+        ));
+        assert_eq!(*session.cell_pixels.lock().unwrap(), (9, 18));
+        assert_eq!(*surface.cell_pixels.lock().unwrap(), (9, 18));
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn ambiguous_cell_pixel_timeout_does_not_overwrite_the_requested_geometry() {
+        let session = test_session(Box::new(SilentWriter));
+        let surface = test_remote_pty_surface(7, 80, 24, (8, 16));
+        session.surfaces.lock().unwrap().insert(surface.id, surface.clone());
+
+        let error = session.set_cell_pixel_size(9, 18).err().expect("silent remote must time out");
+
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Timeout)
+        ));
+        assert_eq!(
+            *session.cell_pixels.lock().unwrap(),
+            (9, 18),
+            "an ambiguous timeout restored a stale global geometry mirror"
+        );
+        assert_eq!(
+            *surface.cell_pixels.lock().unwrap(),
+            (9, 18),
+            "an ambiguous timeout overwrote geometry that the server may have committed"
+        );
+    }
+
+    #[test]
+    fn ambiguous_cell_pixel_timeout_reconciles_from_an_ordered_server_query() {
+        let session_slot: Arc<Mutex<Option<Weak<RemoteSession>>>> = Arc::new(Mutex::new(None));
+        let session =
+            test_session(Box::new(AmbiguousCellPixelWriter { session: session_slot.clone() }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        let surface = test_remote_pty_surface(7, 80, 24, (8, 16));
+        session.surfaces.lock().unwrap().insert(surface.id, surface.clone());
+
+        let error = session.set_cell_pixel_size(9, 18).err().expect("first reply must be lost");
+
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Timeout)
+        ));
+        assert_eq!(*session.cell_pixels.lock().unwrap(), (10, 20));
+        assert_eq!(*surface.cell_pixels.lock().unwrap(), (11, 22));
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn partial_cell_pixel_fanout_retries_before_publishing_the_remote_default() {
+        let session_slot: Arc<Mutex<Option<Weak<RemoteSession>>>> = Arc::new(Mutex::new(None));
+        let session = test_session(Box::new(CellPixelFanoutWriter {
+            session: session_slot.clone(),
+            fail_next: true,
+            deferred_failure: false,
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        let surface = test_remote_pty_surface(7, 80, 24, (8, 16));
+        session.surfaces.lock().unwrap().insert(surface.id, surface.clone());
+
+        let first = session.set_cell_pixel_size(9, 18).unwrap();
+        assert_eq!(first.failures, vec![(7, "injected fan-out failure".to_string())]);
+        assert_eq!(*session.cell_pixels.lock().unwrap(), (8, 16));
+        assert_eq!(*surface.cell_pixels.lock().unwrap(), (8, 16));
+
+        let retried = session.set_cell_pixel_size(9, 18).unwrap();
+        assert!(retried.failures.is_empty());
+        assert_eq!(*session.cell_pixels.lock().unwrap(), (9, 18));
+        assert_eq!(*surface.cell_pixels.lock().unwrap(), (9, 18));
+    }
+
+    #[test]
+    fn deferred_cell_pixel_failure_preserves_target_for_late_resize() {
+        let session_slot: Arc<Mutex<Option<Weak<RemoteSession>>>> = Arc::new(Mutex::new(None));
+        let session = test_session(Box::new(CellPixelFanoutWriter {
+            session: session_slot.clone(),
+            fail_next: true,
+            deferred_failure: true,
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        let surface = test_remote_pty_surface(7, 80, 24, (8, 16));
+        session.surfaces.lock().unwrap().insert(surface.id, surface.clone());
+
+        let update = session.set_cell_pixel_size(9, 18).unwrap();
+        assert_eq!(update.failures, vec![(7, "injected fan-out failure".to_string())]);
+        surface.apply_stream_resize(90, 31, None, &[]).unwrap();
+        let created = session
+            .try_ensure_surface_with_kind(8, SurfaceKind::Pty, Some((80, 24)))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            surface.cell_pixel_size(),
+            (9, 18),
+            "a late authoritative resize used the geometry from before the deferred request"
+        );
+        assert_eq!(
+            created.cell_pixel_size(),
+            (9, 18),
+            "a newly discovered surface used the geometry from before the deferred request"
+        );
+    }
+
+    #[test]
     fn resize_replay_replaces_mirror_with_server_truth_without_duplication() {
         let mut server = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
         for i in 0..12 {
@@ -5205,7 +6655,7 @@ mod tests {
         let server_text = server.plain_text().unwrap();
         let server_oldest = server.selection_text_absolute((0, 0), (4, 0)).unwrap();
         assert_eq!(server_oldest, "srv00");
-        let replay = server.vt_replay().unwrap();
+        let replay = server.vt_replay_bytes().unwrap();
 
         let surface = RemoteSurface {
             id: 1,
@@ -5213,6 +6663,9 @@ mod tests {
             term: Mutex::new(Terminal::new(20, 6, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new((8, 16)),
+            geometry_test_hook: Mutex::new(None),
             content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
@@ -5222,7 +6675,7 @@ mod tests {
             mirror.vt_write(b"mirror-only\r\nstate\r\n");
         }
 
-        surface.apply_stream_resize(8, 4, Some(&replay));
+        surface.apply_stream_resize(8, 4, Some(&replay), &[]).unwrap();
         let scrollback_rows = {
             let mut mirror = surface.term.lock().unwrap();
             assert_eq!(mirror.plain_text().unwrap(), server_text);
@@ -5230,10 +6683,171 @@ mod tests {
             mirror.scrollback_rows()
         };
 
-        surface.apply_stream_resize(8, 4, Some(&replay));
+        surface.apply_stream_resize(8, 4, Some(&replay), &[]).unwrap();
         let mut mirror = surface.term.lock().unwrap();
         assert_eq!(mirror.plain_text().unwrap(), server_text);
         assert_eq!(mirror.scrollback_rows(), scrollback_rows);
+    }
+
+    #[test]
+    fn failed_resize_alias_restore_keeps_the_previous_mirror() {
+        let surface = test_remote_pty_surface(7, 12, 4, (8, 16));
+        surface.term.lock().unwrap().vt_write(b"previous");
+        let previous = surface.term.lock().unwrap().plain_text().unwrap();
+        let mut authoritative = Terminal::new(8, 4, 100, Callbacks::default()).unwrap();
+        authoritative.vt_write(b"replacement");
+        let replay = authoritative.vt_replay().unwrap();
+
+        surface
+            .apply_stream_resize_with_colors(
+                8,
+                4,
+                Some(&replay.bytes),
+                &[ghostty_vt::KittyImageAlias { image_id: 999, image_number: 77 }],
+                Some(replay.kitty_state),
+                None,
+            )
+            .unwrap_err();
+
+        let mut mirror = surface.term.lock().unwrap();
+        assert_eq!(mirror.cols(), 12);
+        assert_eq!(mirror.plain_text().unwrap(), previous);
+    }
+
+    #[test]
+    fn malformed_resize_alias_sidecar_keeps_the_previous_mirror() {
+        let session = test_session(Box::new(SilentWriter));
+        let surface = test_remote_pty_surface(7, 12, 4, (8, 16));
+        surface.term.lock().unwrap().vt_write(b"previous");
+        let previous = surface.term.lock().unwrap().plain_text().unwrap();
+        session.surfaces.lock().unwrap().insert(7, surface.clone());
+        let mut authoritative = Terminal::new(8, 4, 100, Callbacks::default()).unwrap();
+        authoritative.vt_write(b"replacement");
+        let replay = authoritative.vt_replay_bytes().unwrap();
+
+        session.handle_line(json!({
+            "event": "resized",
+            "surface": 7,
+            "cols": 8,
+            "rows": 4,
+            "replay": base64::engine::general_purpose::STANDARD.encode(replay),
+            "kitty_image_aliases": [{"image_id": 7}],
+        }));
+
+        let mut mirror = surface.term.lock().unwrap();
+        assert_eq!(mirror.cols(), 12);
+        assert_eq!(mirror.plain_text().unwrap(), previous);
+    }
+
+    #[test]
+    fn remote_kitty_alias_sidecar_rejects_more_than_the_terminal_host_limit() {
+        let aliases = (1..=cmux_tui_core::terminal_host_protocol::MAX_KITTY_IMAGE_ALIASES + 1)
+            .map(|image_id| json!({"image_id": image_id, "image_number": image_id}))
+            .collect::<Vec<_>>();
+        let value = json!({"kitty_image_aliases": aliases});
+
+        assert!(parse_kitty_image_aliases(&value).is_err());
+    }
+
+    #[test]
+    fn remote_kitty_alias_sidecar_rejects_zero_values() {
+        for alias in
+            [json!({"image_id": 0, "image_number": 1}), json!({"image_id": 1, "image_number": 0})]
+        {
+            let value = json!({"kitty_image_aliases": [alias]});
+            assert!(parse_kitty_image_aliases(&value).is_err());
+        }
+    }
+
+    #[test]
+    fn remote_kitty_alias_sidecar_rejects_duplicate_image_ids() {
+        let value = json!({
+            "kitty_image_aliases": [
+                {"image_id": 7, "image_number": 41},
+                {"image_id": 7, "image_number": 42},
+            ],
+        });
+
+        assert!(parse_kitty_image_aliases(&value).is_err());
+    }
+
+    #[test]
+    fn remote_kitty_replay_state_is_bounded_and_strict() {
+        let limits = KittyGraphicsLimits::default();
+        let valid = json!({
+            "kitty_graphics_state": {
+                "image_bytes": limits.image_bytes,
+                "inflight_bytes": limits.inflight_bytes,
+                "images": limits.images,
+                "placements": limits.placements,
+                "replay_cursor_offset": 9,
+                "primary_replay_next_image_id": 41,
+                "primary_next_image_id": 42,
+                "alternate_replay_next_image_id": 43,
+                "alternate_next_image_id": 44,
+            }
+        });
+        assert_eq!(
+            parse_kitty_replay_state(&valid).unwrap(),
+            KittyReplayState {
+                limits,
+                replay_cursor_offset: 9,
+                replay_next_image_ids: KittyImageIdCursors { primary: 41, alternate: 43 },
+                next_image_ids: KittyImageIdCursors { primary: 42, alternate: 44 },
+            }
+        );
+        assert_eq!(parse_kitty_replay_state(&json!({})).unwrap(), KittyReplayState::disabled());
+
+        let mut oversized = valid.clone();
+        oversized["kitty_graphics_state"]["image_bytes"] = json!(u64::MAX);
+        assert!(parse_kitty_replay_state(&oversized).is_err());
+        let mut zero_cursor = valid.clone();
+        zero_cursor["kitty_graphics_state"]["alternate_next_image_id"] = json!(0);
+        assert!(parse_kitty_replay_state(&zero_cursor).is_err());
+        let mut extra = valid;
+        extra["kitty_graphics_state"]["future"] = json!(1);
+        assert!(parse_kitty_replay_state(&extra).is_err());
+    }
+
+    #[test]
+    fn resized_event_preserves_the_automatic_kitty_image_id_cursor() {
+        let session = test_session(Box::new(SilentWriter));
+        let surface = test_remote_pty_surface(7, 12, 4, (8, 16));
+        session.surfaces.lock().unwrap().insert(7, surface.clone());
+        let mut authoritative = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+        authoritative.vt_write(b"\x1b_Ga=t,t=d,f=24,I=1,s=1,v=1,q=2;/wAA\x1b\\");
+        let first_id = authoritative.kitty_graphics_snapshot().unwrap().images[0].id;
+        authoritative.vt_write(format!("\x1b_Ga=d,d=I,i={first_id},q=2;\x1b\\").as_bytes());
+        let replay = authoritative.vt_replay().unwrap();
+        let state = replay.kitty_state;
+
+        session.handle_line(json!({
+            "event": "resized",
+            "surface": 7,
+            "cols": 12,
+            "rows": 4,
+            "replay": base64::engine::general_purpose::STANDARD.encode(&replay.bytes),
+            "kitty_image_aliases": [],
+            "kitty_graphics_state": {
+                "image_bytes": state.limits.image_bytes,
+                "inflight_bytes": state.limits.inflight_bytes,
+                "images": state.limits.images,
+                "placements": state.limits.placements,
+                "replay_cursor_offset": state.replay_cursor_offset,
+                "primary_replay_next_image_id": state.replay_next_image_ids.primary,
+                "primary_next_image_id": state.next_image_ids.primary,
+                "alternate_replay_next_image_id": state.replay_next_image_ids.alternate,
+                "alternate_next_image_id": state.next_image_ids.alternate,
+            },
+        }));
+
+        let next = b"\x1b_Ga=t,t=d,f=24,I=2,s=1,v=1,q=2;AP8A\x1b\\";
+        authoritative.vt_write(next);
+        surface.term.lock().unwrap().vt_write(next);
+        assert_eq!(
+            surface.term.lock().unwrap().kitty_graphics_snapshot().unwrap().images[0].id,
+            authoritative.kitty_graphics_snapshot().unwrap().images[0].id
+        );
     }
 
     #[cfg(unix)]
@@ -5247,6 +6861,9 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new((8, 16)),
+            geometry_test_hook: Mutex::new(None),
             content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
@@ -5259,7 +6876,7 @@ mod tests {
         }
         authoritative.resize(8, 4, 8, 16).unwrap();
         let expected = authoritative.plain_text().unwrap();
-        let replay = authoritative.vt_replay().unwrap();
+        let replay = authoritative.vt_replay_bytes().unwrap();
         session.handle_line(json!({
             "event": "resized",
             "surface": 7,
@@ -5269,6 +6886,88 @@ mod tests {
         }));
 
         assert_eq!(surface.term.lock().unwrap().plain_text().unwrap(), expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn real_server_attach_and_resize_preserve_kitty_number_aliases() {
+        let mux = cmux_tui_core::Mux::new(
+            format!("remote-kitty-aliases-{}", std::process::id()),
+            cmux_tui_core::SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..Default::default()
+            },
+        );
+        let authoritative = mux.new_workspace(None, Some((20, 4))).unwrap();
+        authoritative
+            .try_with_terminal(|terminal| {
+                terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,I=77,s=1,v=1,q=2;/wAA\x1b\\");
+            })
+            .unwrap();
+        let image_id = authoritative
+            .try_with_terminal(|terminal| terminal.kitty_graphics_snapshot().unwrap().images[0].id)
+            .unwrap();
+
+        let socket = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+        let remote = RemoteSession::connect(&socket).unwrap();
+        let mirror = remote
+            .try_ensure_surface_with_kind(authoritative.id, SurfaceKind::Pty, Some((20, 4)))
+            .unwrap()
+            .unwrap();
+
+        let wait_for = |mut predicate: Box<dyn FnMut() -> bool>| {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !predicate() {
+                assert!(Instant::now() < deadline, "remote mirror did not converge");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        wait_for(Box::new({
+            let mirror = mirror.clone();
+            move || {
+                mirror
+                    .term
+                    .lock()
+                    .unwrap()
+                    .kitty_graphics_snapshot()
+                    .unwrap()
+                    .image(image_id)
+                    .is_some_and(|image| image.number == 77)
+            }
+        }));
+
+        mux.resize_surface(authoritative.id, 21, 4).unwrap();
+        wait_for(Box::new({
+            let mirror = mirror.clone();
+            move || {
+                let terminal = mirror.term.lock().unwrap();
+                terminal.cols() == 21
+                    && terminal
+                        .kitty_graphics_snapshot()
+                        .unwrap()
+                        .image(image_id)
+                        .is_some_and(|image| image.number == 77)
+            }
+        }));
+
+        authoritative.write_bytes(b"\x1b_Ga=p,I=77,p=12,c=1,r=1,q=2;\x1b\\\n").unwrap();
+        wait_for(Box::new({
+            move || {
+                mirror
+                    .term
+                    .lock()
+                    .unwrap()
+                    .kitty_graphics_snapshot()
+                    .unwrap()
+                    .placements
+                    .iter()
+                    .any(|placement| placement.image_id == image_id && placement.placement_id == 12)
+            }
+        }));
+
+        remote.begin_shutdown();
+        let _ = mux.close_surface(authoritative.id);
+        cmux_tui_core::server::cleanup(&socket);
     }
 
     #[cfg(unix)]
@@ -5283,6 +6982,9 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new((8, 16)),
+            geometry_test_hook: Mutex::new(None),
             content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(Some((12, 4))),
             browser: Mutex::new(RemoteBrowserState::default()),
@@ -5315,6 +7017,9 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new((8, 16)),
+            geometry_test_hook: Mutex::new(None),
             content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(Some((90, 31))),
             browser: Mutex::new(RemoteBrowserState::default()),
@@ -5340,6 +7045,31 @@ mod tests {
                 retry_after_ms: Some(250),
                 ..
             }
+        )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn graphics_status_event_preserves_localization_fields() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+
+        session.handle_line(json!({
+            "event": "graphics-status",
+            "kind": "kitty-image-budget-update-failed",
+            "retry_exhausted": true,
+            "summary": "surface 7: offline",
+        }));
+
+        assert!(events.try_iter().any(|event| matches!(
+            event,
+            MuxEvent::GraphicsStatus(
+                GraphicsStatus::KittyImageBudgetUpdateFailed {
+                    retry_exhausted: true,
+                    summary,
+                }
+            ) if summary.as_ref() == "surface 7: offline"
         )));
     }
 
@@ -5502,6 +7232,9 @@ mod tests {
             term: Mutex::new(Terminal::new(80, 24, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new((8, 16)),
+            geometry_test_hook: Mutex::new(None),
             content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
@@ -5691,10 +7424,10 @@ mod tests {
     fn ordered_resize_replay_recovers_from_stale_initial_replay() {
         let mut server = Terminal::new(12, 3, 100, Callbacks::default()).unwrap();
         server.vt_write(b"\x1b[7m%\x1b[0m");
-        let stale_replay = server.vt_replay().unwrap();
+        let stale_replay = server.vt_replay_bytes().unwrap();
 
         server.resize(10, 3, 8, 16).unwrap();
-        let resize_replay = server.vt_replay().unwrap();
+        let resize_replay = server.vt_replay_bytes().unwrap();
         let prompt = b"\r\x1b[Klawrence";
         server.vt_write(prompt);
         let server_text = server.plain_text().unwrap();
@@ -5706,13 +7439,16 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 3, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new((8, 16)),
+            geometry_test_hook: Mutex::new(None),
             content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
-        surface.apply_stream_resize(12, 3, None);
+        surface.apply_stream_resize(12, 3, None, &[]).unwrap();
         surface.term.lock().unwrap().vt_write(&stale_replay);
-        surface.apply_stream_resize(10, 3, Some(&resize_replay));
+        surface.apply_stream_resize(10, 3, Some(&resize_replay), &[]).unwrap();
         let mut mirror = surface.term.lock().unwrap();
         mirror.vt_write(prompt);
 

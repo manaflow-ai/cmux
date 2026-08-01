@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 4248b1dd1a8640da3f983118ddce2e8d5ff94db5dc2e18cb9ebc5ba41052284e.
+// cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -433,6 +433,11 @@ pub struct FocusPaneRequest {
 
 #[rustfmt::skip]
 pub type FocusPaneResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct GetCellPixelsRequest {
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1313,6 +1318,10 @@ impl CmuxClient {
 
     pub fn focus_pane(&mut self, request: FocusPaneRequest) -> Result<FocusPaneResult> {
         self.execute(&FOCUS_PANE_METADATA, &request)
+    }
+
+    pub fn get_cell_pixels(&mut self, request: GetCellPixelsRequest) -> Result<T::GetCellPixelsResult> {
+        self.execute(&GET_CELL_PIXELS_METADATA, &request)
     }
 
     pub fn get_frontend_projection(&mut self, request: GetFrontendProjectionRequest) -> Result<GetFrontendProjectionResult> {

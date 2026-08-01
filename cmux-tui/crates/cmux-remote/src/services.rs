@@ -1005,7 +1005,7 @@ where
         if size == 0 {
             return Ok(());
         }
-        if line.len() > crate::mux_codec::MAX_LINE_BYTES {
+        if line.len() > crate::mux_codec::MAX_MUX_LINE_BYTES {
             return Err(crate::mux_codec::MuxCodecError::LineTooLarge(line.len()).into());
         }
         let Some(lane) = tracker.classify_server_line(&line) else {

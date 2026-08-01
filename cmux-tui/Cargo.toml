@@ -85,6 +85,7 @@ ratatui = "0.30"
 unicode-width = "0.2"
 unicode-segmentation = "1"
 base64 = "0.22"
+png = "0.17"
 libc = "0.2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
@@ -95,6 +96,8 @@ getrandom = "0.3"
 bytes = "1"
 diffy = "0.4"
 fs4 = "1.1.0"
+terminput = "=0.5.11"
+terminput-crossterm = { version = "=0.4.7", default-features = false, features = ["crossterm_0_29"] }
 futures-util = "0.3"
 hmac = "0.12"
 http = "1"
@@ -121,6 +124,9 @@ zeroize = { version = "1", features = ["derive"] }
 # text while parsing CSI-u input. cmux needs those fields to preserve keyboard
 # layouts across its shortcut layer and nested terminals.
 crossterm = { path = "vendor/crossterm" }
+# The cmux Crossterm patch adds `Event::EnhancedKey`. Keep the adapter's
+# exhaustive event mapping in the same source-controlled compatibility layer.
+terminput-crossterm = { path = "vendor/terminput-crossterm" }
 
 [profile.release]
 lto = "thin"
