@@ -323,7 +323,7 @@ START OPTIONS
   --remote-admin-socket <path> Override the owner-only admin socket.
   --remote-resume-lease-seconds <seconds>
                     Retain crashed-client replay state for 1-86400 seconds.
-  --relay <url> --relay-slot <slot> --relay-ticket <ticket>
+  --relay <url> --relay-slot <routing-key> --relay-ticket <ticket>
                     Register with a relay; repeat up to four groups.
   --relay-ticket-file <path>  Refresh the relay ticket from a file.
   --relay-ticket-command <program> [--relay-ticket-command-arg <arg>]
@@ -1660,13 +1660,13 @@ mod remote_args_tests {
                 "--relay",
                 "relay+wss://relay.example",
                 "--relay-slot",
-                "native-slot",
+                "native-route-key",
                 "--relay-ticket",
                 "native-ticket",
                 "--relay",
                 "relay+do://worker.example",
                 "--relay-slot",
-                "do-slot",
+                "do-route-key",
                 "--relay-ticket-file",
                 "/tmp/do-ticket",
             ]
@@ -1701,7 +1701,7 @@ mod remote_args_tests {
     fn malformed_relay_endpoint_errors_do_not_echo_credentials() {
         let error = relay_daemon_options(
             vec!["relay+wss://dont-leak-me@[".into()],
-            vec!["slot".into()],
+            vec!["relay-route-key".into()],
             vec![RelayCredentialArg::Ticket("ticket".into())],
         )
         .expect_err("malformed relay endpoint should fail");

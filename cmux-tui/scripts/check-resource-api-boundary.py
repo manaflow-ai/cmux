@@ -47,6 +47,7 @@ class ScanRule:
     extensions: frozenset[str]
     exact_names: frozenset[str] = frozenset()
     cli_literals_only: bool = False
+    private_identity_exceptions: frozenset[str] = frozenset()
 
 
 # Every high-level package is scanned.  Tests, examples, generated manifest
@@ -97,6 +98,9 @@ SCAN_RULES = (
         "crates/cmux-tui/src/main.rs",
         frozenset({".rs"}),
         cli_literals_only=True,
+        # The remote daemon's relay routing key belongs to its separately
+        # versioned transport protocol, not to the resource-v1 selector model.
+        private_identity_exceptions=frozenset({"relay-slot"}),
     ),
     ScanRule(
         "public CLI",
@@ -3262,10 +3266,21 @@ def _identifier_parts(identifier: str) -> list[str]:
     return [part.lower() for part in re.split(r"[_-]+", value) if part]
 
 
-def _scan_region(path: Path, text: str, start: int, end: int) -> list[Diagnostic]:
+def _scan_region(
+    path: Path,
+    text: str,
+    start: int,
+    end: int,
+    private_identity_exceptions: frozenset[str] = frozenset(),
+) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     region = text[start:end]
     occupied: set[tuple[str, int]] = set()
+    private_identity_exception_spans = [
+        (match.start(), match.end())
+        for exception in private_identity_exceptions
+        for match in re.finditer(rf"(?i)\b{re.escape(exception)}\b", region)
+    ]
 
     for match in IDENTIFIER_RE.finditer(region):
         parts = _identifier_parts(match.group(0))
@@ -3295,6 +3310,11 @@ def _scan_region(path: Path, text: str, start: int, end: int) -> list[Diagnostic
         )
 
     for match in PRIVATE_IDENTITY_RE.finditer(region):
+        if any(
+            exception_start <= match.start() and match.end() <= exception_end
+            for exception_start, exception_end in private_identity_exception_spans
+        ):
+            continue
         offset = start + match.start()
         diagnostics.append(
             _diagnostic_at(
@@ -3359,7 +3379,15 @@ def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
             else:
                 regions = ((0, len(text)),)
             for start, end in regions:
-                diagnostics.extend(_scan_region(path, text, start, end))
+                diagnostics.extend(
+                    _scan_region(
+                        path,
+                        text,
+                        start,
+                        end,
+                        rule.private_identity_exceptions,
+                    )
+                )
     return sorted(set(diagnostics)), len(scanned)
 
 
