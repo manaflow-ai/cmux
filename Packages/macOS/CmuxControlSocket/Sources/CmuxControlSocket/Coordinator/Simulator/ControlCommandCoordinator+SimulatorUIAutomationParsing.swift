@@ -300,7 +300,7 @@ extension ControlCommandCoordinator {
         _ key: String
     ) -> String? {
         guard let ref = string(params, key),
-              ref.utf8.count <= 64,
+              ref.utf8.count <= 80,
               ref.first == "e" else {
             return nil
         }
@@ -308,9 +308,23 @@ extension ControlCommandCoordinator {
             separator: "_",
             omittingEmptySubsequences: false
         )
-        guard components.count == 2,
-              UInt64(components[0]) != nil,
-              let ordinal = UInt64(components[1]),
+        let sequenceComponent: Substring
+        let ordinalComponent: Substring
+        switch components.count {
+        case 2:
+            sequenceComponent = components[0]
+            ordinalComponent = components[1]
+        case 3:
+            guard UUID(uuidString: String(components[0])) != nil else {
+                return nil
+            }
+            sequenceComponent = components[1]
+            ordinalComponent = components[2]
+        default:
+            return nil
+        }
+        guard UInt64(sequenceComponent) != nil,
+              let ordinal = UInt64(ordinalComponent),
               ordinal > 0 else {
             return nil
         }
