@@ -66,7 +66,7 @@ final class WorkspaceSwitchCoordinator {
             requestID: requestID,
             sourceWorkspaceID: sourceWorkspaceID,
             targetWorkspaceID: targetWorkspaceID,
-            selectionCommitInterval: workspaceSwitchSignposts.begin(
+            selectionCommitInterval: WorkspaceSwitchSignposts.begin(
                 "ws.switch.selection-commit",
                 Self.details(
                     requestID: requestID,
@@ -74,7 +74,7 @@ final class WorkspaceSwitchCoordinator {
                     targetWorkspaceID: targetWorkspaceID
                 )
             ),
-            interactiveInterval: workspaceSwitchSignposts.begin(
+            interactiveInterval: WorkspaceSwitchSignposts.begin(
                 "ws.switch.interactive",
                 Self.details(
                     requestID: requestID,
@@ -102,7 +102,7 @@ final class WorkspaceSwitchCoordinator {
               transaction.targetWorkspaceID == targetWorkspaceID else {
             return
         }
-        workspaceSwitchSignposts.end(transaction.selectionCommitInterval)
+        WorkspaceSwitchSignposts.end(transaction.selectionCommitInterval)
         transaction.selectionCommitInterval = nil
         active = transaction
     }
@@ -146,7 +146,7 @@ final class WorkspaceSwitchCoordinator {
         )
 
         if !target.portalPresented {
-            transaction.portalShowInterval = workspaceSwitchSignposts.begin(
+            transaction.portalShowInterval = WorkspaceSwitchSignposts.begin(
                 "ws.switch.portal-show",
                 Self.details(
                     requestID: transaction.requestID,
@@ -160,7 +160,7 @@ final class WorkspaceSwitchCoordinator {
             finishFrameObservation(&transaction)
         }
         if target.interactionReady || !target.requiresInteraction {
-            workspaceSwitchSignposts.end(transaction.interactiveInterval)
+            WorkspaceSwitchSignposts.end(transaction.interactiveInterval)
             transaction.interactiveInterval = nil
         }
         finishIfPossible(&transaction)
@@ -182,7 +182,7 @@ final class WorkspaceSwitchCoordinator {
         }
         readiness.portalPresented = true
         transaction.readiness = readiness
-        workspaceSwitchSignposts.end(transaction.portalShowInterval)
+        WorkspaceSwitchSignposts.end(transaction.portalShowInterval)
         transaction.portalShowInterval = nil
         finishIfPossible(&transaction)
     }
@@ -195,7 +195,7 @@ final class WorkspaceSwitchCoordinator {
         }
         readiness.portalPresented = true
         transaction.readiness = readiness
-        workspaceSwitchSignposts.end(transaction.portalShowInterval)
+        WorkspaceSwitchSignposts.end(transaction.portalShowInterval)
         transaction.portalShowInterval = nil
         finishIfPossible(&transaction)
     }
@@ -224,7 +224,7 @@ final class WorkspaceSwitchCoordinator {
         }
         readiness.interactionReady = true
         transaction.readiness = readiness
-        workspaceSwitchSignposts.end(transaction.interactiveInterval)
+        WorkspaceSwitchSignposts.end(transaction.interactiveInterval)
         transaction.interactiveInterval = nil
         finishIfPossible(&transaction)
     }
@@ -241,7 +241,7 @@ final class WorkspaceSwitchCoordinator {
         }
         readiness.requiresInteraction = false
         transaction.readiness = readiness
-        workspaceSwitchSignposts.end(transaction.interactiveInterval)
+        WorkspaceSwitchSignposts.end(transaction.interactiveInterval)
         transaction.interactiveInterval = nil
         finishIfPossible(&transaction)
     }
@@ -252,7 +252,7 @@ final class WorkspaceSwitchCoordinator {
             return
         }
         if transaction.portalHideInterval == nil {
-            transaction.portalHideInterval = workspaceSwitchSignposts.begin(
+            transaction.portalHideInterval = WorkspaceSwitchSignposts.begin(
                 "ws.switch.portal-hide",
                 Self.details(
                     requestID: transaction.requestID,
@@ -269,7 +269,7 @@ final class WorkspaceSwitchCoordinator {
               transaction.sourceWorkspaceID == workspaceID else {
             return
         }
-        workspaceSwitchSignposts.end(transaction.portalHideInterval)
+        WorkspaceSwitchSignposts.end(transaction.portalHideInterval)
         transaction.portalHideInterval = nil
         transaction.sourceRetired = true
         // Once mount reconciliation has made the destination authoritative,
@@ -302,8 +302,8 @@ final class WorkspaceSwitchCoordinator {
 
         releaseRendererProtection(&transaction)
         releaseFrameObservation(&transaction)
-        workspaceSwitchSignposts.end(transaction.rendererRealizationInterval)
-        workspaceSwitchSignposts.end(transaction.firstFrameInterval)
+        WorkspaceSwitchSignposts.end(transaction.rendererRealizationInterval)
+        WorkspaceSwitchSignposts.end(transaction.firstFrameInterval)
         transaction.rendererRealizationInterval = nil
         transaction.firstFrameInterval = nil
         transaction.targetSurfaceID = nil
@@ -340,7 +340,7 @@ final class WorkspaceSwitchCoordinator {
         transaction.rendererProtectionActive = true
 
         if !rendererPresented {
-            transaction.rendererRealizationInterval = workspaceSwitchSignposts.begin(
+            transaction.rendererRealizationInterval = WorkspaceSwitchSignposts.begin(
                 "ws.switch.renderer-realization",
                 Self.details(
                     requestID: transaction.requestID,
@@ -351,7 +351,7 @@ final class WorkspaceSwitchCoordinator {
             )
         }
         guard !transaction.warmFrameAvailable else { return }
-        transaction.firstFrameInterval = workspaceSwitchSignposts.begin(
+        transaction.firstFrameInterval = WorkspaceSwitchSignposts.begin(
             "ws.switch.first-frame",
             Self.details(
                 requestID: transaction.requestID,
@@ -380,9 +380,9 @@ final class WorkspaceSwitchCoordinator {
     }
 
     private func finishFrameObservation(_ transaction: inout WorkspaceSwitchActiveTransaction) {
-        workspaceSwitchSignposts.end(transaction.rendererRealizationInterval)
+        WorkspaceSwitchSignposts.end(transaction.rendererRealizationInterval)
         transaction.rendererRealizationInterval = nil
-        workspaceSwitchSignposts.end(transaction.firstFrameInterval)
+        WorkspaceSwitchSignposts.end(transaction.firstFrameInterval)
         transaction.firstFrameInterval = nil
         releaseFrameObservation(&transaction)
     }
@@ -410,12 +410,12 @@ final class WorkspaceSwitchCoordinator {
     }
 
     private static func endAllIntervals(in transaction: WorkspaceSwitchActiveTransaction) {
-        workspaceSwitchSignposts.end(transaction.selectionCommitInterval)
-        workspaceSwitchSignposts.end(transaction.portalShowInterval)
-        workspaceSwitchSignposts.end(transaction.portalHideInterval)
-        workspaceSwitchSignposts.end(transaction.rendererRealizationInterval)
-        workspaceSwitchSignposts.end(transaction.firstFrameInterval)
-        workspaceSwitchSignposts.end(transaction.interactiveInterval)
+        WorkspaceSwitchSignposts.end(transaction.selectionCommitInterval)
+        WorkspaceSwitchSignposts.end(transaction.portalShowInterval)
+        WorkspaceSwitchSignposts.end(transaction.portalHideInterval)
+        WorkspaceSwitchSignposts.end(transaction.rendererRealizationInterval)
+        WorkspaceSwitchSignposts.end(transaction.firstFrameInterval)
+        WorkspaceSwitchSignposts.end(transaction.interactiveInterval)
     }
 
     private static func details(
