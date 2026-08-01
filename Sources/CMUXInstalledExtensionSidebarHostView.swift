@@ -143,6 +143,9 @@ final class CMUXSidebarSnapshotCache {
             return next
         }
         guard current != next else { return current }
+        var contentComparableNext = next
+        contentComparableNext.sequence = current.sequence
+        guard current != contentComparableNext else { return current }
         var updated = next
         updated.sequence = max(next.sequence, current.sequence &+ 1)
         snapshot = updated
