@@ -37,23 +37,23 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         let previewLineLimit: Int
     }
 
+    private enum GroupDropLanding {
+        case visibleChild(IndexPath)
+        case collapsedHeader(IndexPath)
+    }
+
     private static let cellReuseIdentifier = "WorkspaceListTableCell"
     private static let section = 0
 
     var configuration: WorkspaceListTable
     weak var tableViewController: WorkspaceListTableViewController?
     private var previousConfiguration: WorkspaceListTable?
-    private var dataSource: UITableViewDiffableDataSource<Int, WorkspaceListTableItem>?
+    private var dataSource: WorkspaceListTableDataSource?
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache = WorkspaceListRowHeightCache<HeightCacheKey>()
     private var configuredItemsByID: [String: WorkspaceListTableItem]
     private var isDragSessionActive = false
-    private var dragSessionHasEnded = false
     private var deferredConfigurationDuringDrag: WorkspaceListTable?
-    private var pendingAnimatedDrop: (
-        dragItemIdentifier: ObjectIdentifier,
-        commit: @MainActor () -> Void
-    )?
     private var dropIntoTarget: (
         sessionIdentifier: ObjectIdentifier,
         headerIndexPath: IndexPath,
@@ -212,18 +212,14 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return
         }
 
-        var snapshot: NSDiffableDataSourceSnapshot<Int, WorkspaceListTableItem>
         if structureChanged {
-            snapshot = NSDiffableDataSourceSnapshot<Int, WorkspaceListTableItem>()
-            snapshot.appendSections([Self.section])
-            snapshot.appendItems(next.items, toSection: Self.section)
-        } else {
-            snapshot = dataSource.snapshot()
-        }
-        snapshot.reconfigureItems(changed)
-        dataSource.apply(snapshot, animatingDifferences: false)
-        if structureChanged {
+            dataSource.replaceItems(next.items, in: tableView)
             appliedItems = next.items
+        } else {
+            let changedIndexPaths = changed.compactMap { dataSource.indexPath(for: $0) }
+            if !changedIndexPaths.isEmpty {
+                tableView.reloadRows(at: changedIndexPaths, with: .none)
+            }
         }
         #if DEBUG
         recordPayloadApplyRoute(.snapshotApply)
@@ -282,19 +278,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     func tableView(_ tableView: UITableView, dragSessionWillBegin session: UIDragSession) {
         dropIntoTarget = nil
         deferredConfigurationDuringDrag = nil
-        pendingAnimatedDrop = nil
-        dragSessionHasEnded = false
         setDragSessionActive(true, in: tableView)
     }
 
     func tableView(_ tableView: UITableView, dragSessionDidEnd session: UIDragSession) {
         dropIntoTarget = nil
-        dragSessionHasEnded = true
-        finishDragSessionIfReady(in: tableView)
-    }
-
-    private func finishDragSessionIfReady(in tableView: UITableView) {
-        guard dragSessionHasEnded, pendingAnimatedDrop == nil else { return }
         setDragSessionActive(false, in: tableView)
         if let deferredConfigurationDuringDrag {
             self.deferredConfigurationDuringDrag = nil
@@ -383,10 +371,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     ) {
         let intoTarget = dropIntoTarget
         dropIntoTarget = nil
-        // The dragged item's identity is the durable handle. The coordinator
-        // deliberately freezes diffable applies for the animation lifetime,
-        // but resolving by identity also keeps this path correct if UIKit does
-        // not provide a source index path for a local drag.
+        // The dragged item's identity is the durable handle. Live model
+        // refreshes are deferred for the drag lifetime, and the local array is
+        // mutated in the same synchronous batch UIKit animates.
         if let intoTarget,
            intoTarget.sessionIdentifier == ObjectIdentifier(coordinator.session),
            coordinator.proposal.intent == .insertIntoDestinationIndexPath,
@@ -400,45 +387,34 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
            let draggedItem = dropItem.dragItem.localObject as? WorkspaceListTableItem,
            case .workspace(let workspaceID, _) = draggedItem,
            workspaceID == intoTarget.workspaceID,
-           let sourceRow = configuration.items.firstIndex(of: draggedItem),
+           dataSource?.indexPath(for: draggedItem) != nil,
            dataSource?.itemIdentifier(for: destinationIndexPath)
                == .groupHeader(intoTarget.groupID),
            configuration.canDropIntoGroup?(workspaceID, intoTarget.groupID) == true,
            isMovable(draggedItem) {
-            let dragItemIdentifier = ObjectIdentifier(dropItem.dragItem)
-            pendingAnimatedDrop = (
-                dragItemIdentifier,
-                { dropIntoGroup(workspaceID, intoTarget.groupID) }
-            )
-            let animator: UIDragAnimating
-            if let footerIndexPath = dataSource?.indexPath(
-                for: .groupFooter(intoTarget.groupID)
-            ), let target = expandedGroupDropPreviewTarget(
-                in: tableView,
-                sourceIndexPath: IndexPath(row: sourceRow, section: Self.section),
-                footerIndexPath: footerIndexPath,
-                previewSize: dropItem.previewSize
-            ) {
-                animator = coordinator.drop(dropItem.dragItem, to: target)
-            } else {
-                let cellBounds = tableView.cellForRow(at: destinationIndexPath)?.bounds
+            guard let landing = applyLocalGroupDrop(
+                workspaceID: workspaceID,
+                groupID: intoTarget.groupID,
+                in: tableView
+            ) else { return }
+            switch landing {
+            case .visibleChild(let landingIndexPath):
+                coordinator.drop(dropItem.dragItem, toRowAt: landingIndexPath)
+            case .collapsedHeader(let landingIndexPath):
+                let cellBounds = tableView.cellForRow(at: landingIndexPath)?.bounds
                     ?? CGRect(
                         origin: .zero,
-                        size: tableView.rectForRow(at: destinationIndexPath).size
+                        size: tableView.rectForRow(at: landingIndexPath).size
                     )
-                animator = coordinator.drop(
+                coordinator.drop(
                     dropItem.dragItem,
-                    intoRowAt: destinationIndexPath,
+                    intoRowAt: landingIndexPath,
                     rect: cellBounds.inset(
                         by: UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
                     )
                 )
             }
-            finishAnimatedDrop(
-                animator,
-                dragItemIdentifier: dragItemIdentifier,
-                in: tableView
-            )
+            dropIntoGroup(workspaceID, intoTarget.groupID)
             return
         }
 
@@ -449,7 +425,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             let dropItem = coordinator.items.first,
             let destinationIndexPath = coordinator.destinationIndexPath,
             let draggedItem = dropItem.dragItem.localObject as? WorkspaceListTableItem,
-            let sourceRow = configuration.items.firstIndex(of: draggedItem),
+            let sourceIndexPath = dataSource?.indexPath(for: draggedItem),
             isMovable(draggedItem)
         else {
             MobileDebugLog.anchormux(
@@ -458,7 +434,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return
         }
         let chromePrefixCount = chromePrefixCount
-        let source = sourceRow - chromePrefixCount
+        let source = sourceIndexPath.row - chromePrefixCount
         let destination = destinationIndexPath.row - chromePrefixCount
         let movableItemCount = configuration.items.count - chromePrefixCount
         // destination == movableItemCount is UIKit's past-the-end insertion
@@ -479,24 +455,22 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             ? min(destination + 1, movableItemCount)
             : destination
 
-        guard let target = dropPreviewTarget(
-            in: tableView,
-            at: destinationIndexPath,
-            previewSize: dropItem.previewSize
-        ) else {
-            return
-        }
-        let dragItemIdentifier = ObjectIdentifier(dropItem.dragItem)
-        pendingAnimatedDrop = (
-            dragItemIdentifier,
-            { moveRows(IndexSet(integer: source), swiftUIDestination) }
+        let swiftUIDestinationFull = swiftUIDestination + chromePrefixCount
+        let insertionRow = swiftUIDestinationFull > sourceIndexPath.row
+            ? swiftUIDestinationFull - 1
+            : swiftUIDestinationFull
+        let landingIndexPath = IndexPath(
+            row: min(insertionRow, configuration.items.count - 1),
+            section: destinationIndexPath.section
         )
-        let animator = coordinator.drop(dropItem.dragItem, to: target)
-        finishAnimatedDrop(
-            animator,
-            dragItemIdentifier: dragItemIdentifier,
+        dataSource?.moveItem(
+            from: sourceIndexPath,
+            to: landingIndexPath,
             in: tableView
         )
+        appliedItems = dataSource?.items ?? appliedItems
+        coordinator.drop(dropItem.dragItem, toRowAt: landingIndexPath)
+        moveRows(IndexSet(integer: source), swiftUIDestination)
     }
 
     private func workspacePreviewParameters(
@@ -526,102 +500,43 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         return parameters
     }
 
-    /// Targets stable rendered geometry while the diffable snapshot is frozen.
-    /// The model publishes the moved identity only after this animator ends.
-    private func dropPreviewTarget(
-        in tableView: UITableView,
-        at indexPath: IndexPath,
-        previewSize: CGSize
-    ) -> UIDragPreviewTarget? {
-        guard let item = dataSource?.itemIdentifier(for: indexPath) else { return nil }
-        let contentInsets: UIEdgeInsets
-        switch item {
-        case .workspace:
-            contentInsets = UIEdgeInsets(
-                top: 4,
-                left: item.isIndentedWorkspace ? 32 : 12,
-                bottom: 4,
-                right: 12
-            )
-        case .groupHeader:
-            contentInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
-        case .chrome, .filterEmpty, .groupFooter:
-            contentInsets = .zero
-        }
-        let contentRect = tableView.rectForRow(at: indexPath).inset(by: contentInsets)
-        let transform: CGAffineTransform
-        if previewSize.width > 0, previewSize.height > 0 {
-            let scale = min(
-                contentRect.width / previewSize.width,
-                contentRect.height / previewSize.height
-            )
-            transform = CGAffineTransform(scaleX: scale, y: scale)
-        } else {
-            transform = .identity
-        }
-        return UIDragPreviewTarget(
-            container: tableView,
-            center: CGPoint(x: contentRect.midX, y: contentRect.midY),
-            transform: transform
-        )
-    }
-
-    private func expandedGroupDropPreviewTarget(
-        in tableView: UITableView,
-        sourceIndexPath: IndexPath,
-        footerIndexPath: IndexPath,
-        previewSize: CGSize
-    ) -> UIDragPreviewTarget? {
-        let sourceRect = tableView.rectForRow(at: sourceIndexPath)
-        let footerRect = tableView.rectForRow(at: footerIndexPath)
-        guard sourceRect.height > 0, footerRect.height > 0 else { return nil }
-        let finalRowTop = footerRect.minY
-            - (sourceIndexPath.row < footerIndexPath.row ? sourceRect.height : 0)
-        let finalRowRect = CGRect(
-            x: 0,
-            y: finalRowTop,
-            width: tableView.bounds.width,
-            height: sourceRect.height
-        ).inset(
-            by: UIEdgeInsets(top: 4, left: 32, bottom: 4, right: 12)
-        )
-        let transform: CGAffineTransform
-        if previewSize.width > 0, previewSize.height > 0 {
-            let scale = min(
-                finalRowRect.width / previewSize.width,
-                finalRowRect.height / previewSize.height
-            )
-            transform = CGAffineTransform(scaleX: scale, y: scale)
-        } else {
-            transform = .identity
-        }
-        return UIDragPreviewTarget(
-            container: tableView,
-            center: CGPoint(x: finalRowRect.midX, y: finalRowRect.midY),
-            transform: transform
-        )
-    }
-
-    private func finishAnimatedDrop(
-        _ animator: UIDragAnimating,
-        dragItemIdentifier: ObjectIdentifier,
+    private func applyLocalGroupDrop(
+        workspaceID: MobileWorkspacePreview.ID,
+        groupID: MobileWorkspaceGroupPreview.ID,
         in tableView: UITableView
-    ) {
-        animator.addCompletion { [weak self, weak tableView] position in
-            guard let self, let tableView else { return }
-            guard position == .end,
-                  let pendingAnimatedDrop = self.pendingAnimatedDrop,
-                  pendingAnimatedDrop.dragItemIdentifier == dragItemIdentifier else {
-                if self.pendingAnimatedDrop?.dragItemIdentifier == dragItemIdentifier {
-                    self.pendingAnimatedDrop = nil
-                }
-                self.finishDragSessionIfReady(in: tableView)
-                return
+    ) -> GroupDropLanding? {
+        guard
+            let dataSource,
+            let sourceIndexPath = dataSource.indexPath(where: {
+                $0.workspaceID == workspaceID
+            })
+        else { return nil }
+
+        var finalItems = dataSource.items
+        finalItems.remove(at: sourceIndexPath.row)
+        if let footerRow = finalItems.firstIndex(of: .groupFooter(groupID)) {
+            let landedItem = WorkspaceListTableItem.workspace(workspaceID, indented: true)
+            let landingIndexPath = IndexPath(row: footerRow, section: Self.section)
+            configuredItemsByID[landedItem.id] = landedItem
+            dataSource.moveItem(
+                from: sourceIndexPath,
+                to: landingIndexPath,
+                replacingWith: landedItem,
+                in: tableView
+            )
+            if let cell = tableView.cellForRow(at: landingIndexPath) {
+                configure(cell, for: landedItem)
             }
-            self.pendingAnimatedDrop = nil
-            pendingAnimatedDrop.commit()
-            self.finishDragSessionIfReady(in: tableView)
+            appliedItems = dataSource.items
+            return .visibleChild(landingIndexPath)
         }
+        guard let headerRow = finalItems.firstIndex(of: .groupHeader(groupID)) else {
+            return nil
+        }
+        let landingIndexPath = IndexPath(row: headerRow, section: Self.section)
+        dataSource.removeItem(at: sourceIndexPath, in: tableView)
+        appliedItems = dataSource.items
+        return .collapsedHeader(landingIndexPath)
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
@@ -1320,24 +1235,104 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     }
 }
 
-private final class WorkspaceListTableDataSource:
-    UITableViewDiffableDataSource<Int, WorkspaceListTableItem>
-{
-    weak var coordinator: WorkspaceListTableCoordinator?
+@MainActor
+private final class WorkspaceListTableDataSource: NSObject, UITableViewDataSource {
+    typealias CellProvider = (
+        UITableView,
+        IndexPath,
+        WorkspaceListTableItem
+    ) -> UITableViewCell?
 
-    override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
+    weak var coordinator: WorkspaceListTableCoordinator?
+    private let cellProvider: CellProvider
+    private(set) var items: [WorkspaceListTableItem] = []
+
+    init(tableView: UITableView, cellProvider: @escaping CellProvider) {
+        self.cellProvider = cellProvider
+        super.init()
+        tableView.dataSource = self
+    }
+
+    func numberOfSections(in tableView: UITableView) -> Int { 1 }
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        section == 0 ? items.count : 0
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        cellForRowAt indexPath: IndexPath
+    ) -> UITableViewCell {
+        guard items.indices.contains(indexPath.row) else { return UITableViewCell() }
+        return cellProvider(tableView, indexPath, items[indexPath.row]) ?? UITableViewCell()
+    }
+
+    func itemIdentifier(for indexPath: IndexPath) -> WorkspaceListTableItem? {
+        guard indexPath.section == 0, items.indices.contains(indexPath.row) else { return nil }
+        return items[indexPath.row]
+    }
+
+    func indexPath(for item: WorkspaceListTableItem) -> IndexPath? {
+        indexPath(where: { $0 == item })
+    }
+
+    func indexPath(
+        where predicate: (WorkspaceListTableItem) -> Bool
+    ) -> IndexPath? {
+        items.firstIndex(where: predicate).map { IndexPath(row: $0, section: 0) }
+    }
+
+    func replaceItems(_ items: [WorkspaceListTableItem], in tableView: UITableView) {
+        self.items = items
+        tableView.reloadData()
+    }
+
+    func moveItem(
+        from sourceIndexPath: IndexPath,
+        to destinationIndexPath: IndexPath,
+        replacingWith replacement: WorkspaceListTableItem? = nil,
+        in tableView: UITableView
+    ) {
+        guard
+            sourceIndexPath.section == 0,
+            destinationIndexPath.section == 0,
+            items.indices.contains(sourceIndexPath.row)
+        else { return }
+        let removed = items.remove(at: sourceIndexPath.row)
+        let destination = min(destinationIndexPath.row, items.count)
+        items.insert(replacement ?? removed, at: destination)
+        tableView.performBatchUpdates {
+            tableView.moveRow(
+                at: sourceIndexPath,
+                to: IndexPath(row: destination, section: 0)
+            )
+        }
+    }
+
+    func removeItem(at indexPath: IndexPath, in tableView: UITableView) {
+        guard indexPath.section == 0, items.indices.contains(indexPath.row) else { return }
+        items.remove(at: indexPath.row)
+        tableView.performBatchUpdates {
+            tableView.deleteRows(at: [indexPath], with: .none)
+        }
+    }
+
+    func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
         coordinator?.canEditRow(at: indexPath) ?? false
     }
 
-    override func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
+    func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
         coordinator?.canMoveRow(at: indexPath) ?? false
     }
 
-    override func tableView(
+    func tableView(
         _ tableView: UITableView,
         moveRowAt sourceIndexPath: IndexPath,
         to destinationIndexPath: IndexPath
     ) {
+        guard items.indices.contains(sourceIndexPath.row) else { return }
+        let item = items.remove(at: sourceIndexPath.row)
+        items.insert(item, at: min(destinationIndexPath.row, items.count))
         coordinator?.moveRow(from: sourceIndexPath, to: destinationIndexPath)
     }
 }
