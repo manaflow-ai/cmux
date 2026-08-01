@@ -96,9 +96,13 @@ export class UnixSocketTransport implements Transport {
         this.flushPending();
       } catch (error) {
         this.connected = false;
-        this.failAndClose(new CmuxConnectionError(
-          `socket dispatch failed: ${error instanceof Error ? error.message : String(error)}`,
-        ));
+        try {
+          this.failAndClose(new CmuxConnectionError(
+            `socket dispatch failed: ${error instanceof Error ? error.message : String(error)}`,
+          ));
+        } catch {
+          // Error observers already ran; do not throw through EventEmitter.
+        }
       }
     });
     this.socket.on("data", (chunk: Buffer) => this.receive(chunk));
