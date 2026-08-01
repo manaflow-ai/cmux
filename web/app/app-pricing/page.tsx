@@ -129,7 +129,7 @@ export default async function AppPricingPage({
               surface="app_pricing"
             />
 
-            <div className="mt-6 grid items-stretch gap-5 sm:grid-cols-2 min-[1800px]:grid-cols-4">
+            <div className="mt-6 grid items-stretch gap-5 sm:grid-cols-2 lg:grid-cols-4">
               <PlanCard
                 name={pricing.free.name}
                 price={pricing.free.price}

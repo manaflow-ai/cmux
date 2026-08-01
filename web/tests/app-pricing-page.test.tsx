@@ -101,7 +101,8 @@ describe("app pricing page", () => {
     expect(html).toContain("$35/user/month");
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
-    expect(html).toContain("sm:grid-cols-2 min-[1800px]:grid-cols-4");
+    expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
+    expect(html).toContain("sm:grid-cols-2 lg:grid-cols-4");
     expect(html.split("api/billing/checkout?plan=pro")).toHaveLength(2);
     expect(html.split("api/billing/checkout?plan=team")).toHaveLength(2);
     expect(html).toContain("Compare plans");

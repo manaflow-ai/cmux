@@ -81,7 +81,9 @@ export function PlanCard({
       <h2 className="pr-28 text-sm font-medium tracking-tight">{name}</h2>
       <div className="mt-3">
         <div className="flex items-baseline gap-1.5">
-          <span className="text-3xl font-medium tracking-tight">{price}</span>
+          <span className="text-3xl font-medium tabular-nums tracking-tight">
+            {price}
+          </span>
           {period ? (
             <span className="max-w-44 text-sm leading-snug text-muted">
               {period}
@@ -284,7 +286,7 @@ export function PricingSizeTable({
                 <td className="px-4 py-3 text-left align-top text-muted">
                   {row.use}
                 </td>
-                <td className="whitespace-nowrap px-4 py-3 text-left align-top">
+                <td className="whitespace-nowrap px-4 py-3 text-left align-top tabular-nums">
                   {row.rate}
                 </td>
               </tr>
@@ -308,7 +310,9 @@ function ColumnHead({
   return (
     <div className="px-4 text-left align-bottom font-medium">
       {name}
-      <span className="block text-xs font-normal text-muted">{price}</span>
+      <span className="block text-xs font-normal tabular-nums text-muted">
+        {price}
+      </span>
       {action ? <div className="mt-2 max-w-32">{action}</div> : null}
     </div>
   );

@@ -87,6 +87,7 @@ describe("localized pricing page", () => {
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
+    expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
   });
 
   test("renders Stack metadata-only Pro snapshots as Free", async () => {

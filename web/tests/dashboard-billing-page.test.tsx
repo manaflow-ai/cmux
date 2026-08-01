@@ -110,6 +110,7 @@ describe("dashboard billing page", () => {
     expect(html).toContain("/mo.");
     expect(html).toContain("/user/mo.");
     expect(html).not.toContain('style="min-height:4rem"');
+    expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
     expect(html).toContain('href="/dashboard/testflight"');
     expect(html).toContain("Join the iOS beta");
     expect(html).toContain("active personal Pro subscribers");
