@@ -44,11 +44,18 @@ const GET = makeAfterSignInHandler({
   }),
 });
 
-function signInRequest(nativeReturnTo: string, handoffNonce: string): NextRequest {
+function signInRequest(
+  nativeReturnTo: string,
+  handoffNonce: string,
+  webReturnTo?: string,
+): NextRequest {
   const encodedReturnTo = encodeURIComponent(nativeReturnTo);
   const encodedNonce = encodeURIComponent(handoffNonce);
+  const encodedWebReturnTo = webReturnTo
+    ? `&web_return_to=${encodeURIComponent(webReturnTo)}`
+    : "";
   return new NextRequest(
-    `https://cmux.test/handler/after-sign-in?native_app_return_to=${encodedReturnTo}&cmux_auth_handoff=${encodedNonce}`,
+    `https://cmux.test/handler/after-sign-in?native_app_return_to=${encodedReturnTo}&cmux_auth_handoff=${encodedNonce}${encodedWebReturnTo}`,
     {
       headers: {
         "accept-language": "en",
@@ -170,6 +177,30 @@ describe("after sign-in native handoff", () => {
     expect(afterSignInTarget.pathname).toBe("/handler/after-sign-in");
     expect(afterSignInTarget.searchParams.get("native_app_return_to")).toBe(nativeReturnTo);
     expect(afterSignInTarget.searchParams.has("after_auth_return_to")).toBe(false);
+  });
+
+  test("preserves the embedded pricing return path when switching accounts", async () => {
+    handoffCookie = "different-nonce";
+    const nativeReturnTo = "cmux://auth-callback";
+    const webReturnTo =
+      "/app-pricing?cmux_app=1&cmux_scheme=cmux-dev-test&appearance=dark&interval=year";
+
+    const response = await GET(
+      signInRequest(nativeReturnTo, "handoff-nonce", webReturnTo),
+    );
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    const switchURL = new URL(switchAccountHref(html), "https://cmux.test");
+    const nativeSignInTarget = new URL(
+      switchURL.searchParams.get("after_auth_return_to")!,
+      "https://cmux.test",
+    );
+    const afterSignInTarget = new URL(
+      nativeSignInTarget.searchParams.get("after_auth_return_to")!,
+      "https://cmux.test",
+    );
+    expect(afterSignInTarget.searchParams.get("web_return_to")).toBe(webReturnTo);
   });
 
   test("omits account switching when there is no native return target to preserve", async () => {

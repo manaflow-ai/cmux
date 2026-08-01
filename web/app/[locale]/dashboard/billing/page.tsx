@@ -12,7 +12,6 @@ import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import {
   FeatureList,
   PlanCard,
-  PrimaryLink,
   visibleProFeatures,
 } from "@/app/components/pricing-shared";
 import {
@@ -291,19 +290,6 @@ function FreePlanUpsell({
                   annual={pricingT("perMonthBilledYearly")}
                 />
               }
-              priceDetail={
-                <PricingIntervalValue
-                  monthly={null}
-                  annual={
-                    <p className="mt-2 text-sm text-muted">
-                      {pricingT("annualPriceDetail", {
-                        amount: PRO_PRICING_USD.year.billedAmount,
-                        discount: PRO_PRICING_USD.year.discountPercent,
-                      })}
-                    </p>
-                  }
-                />
-              }
             >
               <PricingCheckoutButton
                 hrefs={proCheckoutHrefs}
@@ -327,19 +313,6 @@ function FreePlanUpsell({
                 <PricingIntervalValue
                   monthly={pricingT("perUserMonth")}
                   annual={pricingT("perUserMonthBilledYearly")}
-                />
-              }
-              priceDetail={
-                <PricingIntervalValue
-                  monthly={null}
-                  annual={
-                    <p className="mt-2 text-sm text-muted">
-                      {pricingT("annualPriceDetail", {
-                        amount: TEAM_PRICING_USD.year.billedAmount,
-                        discount: TEAM_PRICING_USD.year.discountPercent,
-                      })}
-                    </p>
-                  }
                 />
               }
             >

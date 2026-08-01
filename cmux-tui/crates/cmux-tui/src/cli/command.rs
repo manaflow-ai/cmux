@@ -2155,13 +2155,13 @@ pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthority
             "--authority-file".into(),
             plan.authority_file,
         ];
-        return match crate::provider_authority::try_run(&args) {
+        match crate::provider_authority::try_run(&args) {
             Some(0) => super::wire::print_local_success(
                 &json!({"installed": true, "generation": output_generation}),
                 output,
             ),
             Some(_) | None => 1,
-        };
+        }
     }
     #[cfg(not(target_os = "linux"))]
     {
