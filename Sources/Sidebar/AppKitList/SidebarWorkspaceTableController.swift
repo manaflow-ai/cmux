@@ -34,9 +34,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorIncludesRowTargets = false
     private weak var unreadSource: SidebarUnreadModel?
     private var unreadSnapshot = SidebarUnreadSnapshot()
-    // Written only by setUnreadSource(), dismantleContainerView(), and deinit.
-    // The unsafe escape exists solely so nonisolated deinit can cancel it.
-    private nonisolated(unsafe) var unreadTask: Task<Void, Never>?
+    private var unreadObservation: SidebarUnreadObservation?
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?
     private lazy var mutationScheduler = SidebarWorkspaceTableMutationScheduler(
@@ -63,7 +61,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             NotificationCenter.default.removeObserver(resizeDidEndObserver)
         }
         previewBailoutTask?.cancel()
-        unreadTask?.cancel()
     }
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
@@ -163,8 +160,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let postUpdateActions = detachLoadedCells()
         workspaceDragSessionDidEnd()
         actions = nil
-        unreadTask?.cancel()
-        unreadTask = nil
+        unreadObservation?.cancel()
+        unreadObservation = nil
         unreadSource = nil
         unreadSnapshot = SidebarUnreadSnapshot()
         rows.removeAll(keepingCapacity: false)
@@ -188,15 +185,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// `VerticalTabsSidebar.body` and its O(workspaces) row construction.
     func setUnreadSource(_ source: SidebarUnreadModel) {
         guard unreadSource !== source else { return }
-        unreadTask?.cancel()
+        unreadObservation?.cancel()
         unreadSource = source
-        unreadSnapshot = source.snapshot
-        let changes = source.snapshotChanges()
-        unreadTask = Task { @MainActor [weak self] in
-            for await snapshot in changes {
-                guard let self, !Task.isCancelled else { return }
-                self.applyUnreadSnapshot(snapshot)
-            }
+        applyUnreadSnapshot(source.snapshot)
+        unreadObservation = source.observeChanges(owner: self) { controller, snapshot in
+            controller.applyUnreadSnapshot(snapshot)
         }
     }
 

@@ -1902,6 +1902,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
     private var lastShowsWorkspaceTitlebar = !WorkspacePresentationModeSettings.isMinimal()
+    private var lastTitlebarDebugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
@@ -1972,10 +1973,19 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         ) { [weak self] _ in
             guard let self else { return }
             let shouldShow = self.showsWorkspaceTitlebar
-            guard shouldShow != self.lastShowsWorkspaceTitlebar else { return }
-            self.applyWorkspaceTitlebarVisibility()
-            if shouldShow {
-                self.restoreSizeAfterMinimalMode()
+            let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
+            let visibilityChanged = shouldShow != self.lastShowsWorkspaceTitlebar
+            let debugLayoutChanged = debugSnapshot != self.lastTitlebarDebugSnapshot
+            guard visibilityChanged || debugLayoutChanged else { return }
+            self.lastTitlebarDebugSnapshot = debugSnapshot
+            if visibilityChanged {
+                self.applyWorkspaceTitlebarVisibility()
+                if shouldShow {
+                    self.restoreSizeAfterMinimalMode()
+                }
+            }
+            if debugLayoutChanged, shouldShow {
+                self.scheduleSizeUpdate(invalidateLayout: true)
             }
         }
         observeLayoutModel()

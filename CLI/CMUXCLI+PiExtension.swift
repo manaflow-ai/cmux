@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 extension CMUXCLI {
     private static let piExtensionMarker = "cmux-pi-session-extension-marker"
@@ -26,17 +27,68 @@ extension CMUXCLI {
         }
     }
 
+    private func withPiExtensionMutationLock<T>(
+        at extensionURL: URL,
+        createParentDirectory: Bool,
+        fileManager: FileManager = .default,
+        _ operation: () throws -> T
+    ) throws -> T {
+        let directoryURL = extensionURL.deletingLastPathComponent()
+        if createParentDirectory {
+            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        }
+        let lockURL = directoryURL.appendingPathComponent(".cmux-session.lock", isDirectory: false)
+        let descriptor = Darwin.open(
+            lockURL.path,
+            O_CREAT | O_RDWR,
+            mode_t(S_IRUSR | S_IWUSR)
+        )
+        guard descriptor >= 0 else {
+            throw piExtensionReadError(at: extensionURL)
+        }
+        defer { Darwin.close(descriptor) }
+        guard Darwin.flock(descriptor, LOCK_EX) == 0 else {
+            throw piExtensionReadError(at: extensionURL)
+        }
+        defer { Darwin.flock(descriptor, LOCK_UN) }
+        return try operation()
+    }
+
+    private func piExtensionReadError(at url: URL) -> CLIError {
+        CLIError(message: String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.pi.error.readFailed",
+                defaultValue: "Failed to read %@"
+            ),
+            url.path
+        ))
+    }
+
     func refreshManagedPiExtensionIfNeeded(_ def: AgentHookDef) {
         let extensionURL = piExtensionURL(for: def)
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: extensionURL.path) else { return }
         do {
-            let existing = try existingPiExtensionContents(at: extensionURL)
-            guard !existing.isEmpty,
-                  existing.contains(Self.piExtensionMarker),
-                  existing != Self.piExtensionSource
-            else {
-                return
+            try withPiExtensionMutationLock(
+                at: extensionURL,
+                createParentDirectory: false,
+                fileManager: fileManager
+            ) {
+                let existing = try existingPiExtensionContents(at: extensionURL, fileManager: fileManager)
+                guard !existing.isEmpty,
+                      existing.contains(Self.piExtensionMarker),
+                      existing != Self.piExtensionSource
+                else {
+                    return
+                }
+                // Revalidate immediately before replacement. All cmux install, refresh,
+                // and uninstall mutations share this lock, so an in-flight refresh
+                // cannot recreate an extension that another cmux process removed.
+                guard try existingPiExtensionContents(at: extensionURL, fileManager: fileManager) == existing else {
+                    return
+                }
+                try Self.piExtensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
             }
-            try Self.piExtensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
         } catch {
             // Hook delivery must continue when a managed extension cannot be refreshed.
         }
@@ -80,11 +132,25 @@ extension CMUXCLI {
                 return
             }
         }
-        try fileManager.createDirectory(
-            at: extensionURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Self.piExtensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
+        try withPiExtensionMutationLock(
+            at: extensionURL,
+            createParentDirectory: true,
+            fileManager: fileManager
+        ) {
+            let current = try existingPiExtensionContents(at: extensionURL, fileManager: fileManager)
+            if !current.isEmpty, !current.contains(Self.piExtensionMarker) {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.pi.error.notCmuxExtension",
+                        defaultValue: "%@ exists and is not a cmux extension; leaving it alone"
+                    ),
+                    extensionURL.path
+                ))
+            }
+            if current != Self.piExtensionSource {
+                try Self.piExtensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
+            }
+        }
         print(String.localizedStringWithFormat(
             String(
                 localized: "cli.hooks.pi.installed",
@@ -107,8 +173,23 @@ extension CMUXCLI {
             ))
             return
         }
-        let existing = try existingPiExtensionContents(at: extensionURL, fileManager: fm)
-        guard existing.contains(Self.piExtensionMarker) else {
+        var removed = false
+        var refused = false
+        try withPiExtensionMutationLock(
+            at: extensionURL,
+            createParentDirectory: false,
+            fileManager: fm
+        ) {
+            let existing = try existingPiExtensionContents(at: extensionURL, fileManager: fm)
+            guard !existing.isEmpty else { return }
+            guard existing.contains(Self.piExtensionMarker) else {
+                refused = true
+                return
+            }
+            try fm.removeItem(at: extensionURL)
+            removed = true
+        }
+        if refused {
             print(String.localizedStringWithFormat(
                 String(
                     localized: "cli.hooks.pi.refuseRemoveMissingMarker",
@@ -118,7 +199,16 @@ extension CMUXCLI {
             ))
             return
         }
-        try fm.removeItem(at: extensionURL)
+        guard removed else {
+            print(String.localizedStringWithFormat(
+                String(
+                    localized: "cli.hooks.pi.noneFound",
+                    defaultValue: "No Pi cmux extension found at %@"
+                ),
+                extensionURL.path
+            ))
+            return
+        }
         print(String.localizedStringWithFormat(
             String(
                 localized: "cli.hooks.pi.removed",

@@ -14,9 +14,7 @@ final class DockUnreadPanelProjection {
     @ObservationIgnored private var isActive = false
     @ObservationIgnored private var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>
     @ObservationIgnored private var focusedReadIndicatorByWorkspaceID: [UUID: UUID]
-    // Written only by init and deinit. The unsafe escape exists solely so
-    // nonisolated deinit can cancel it.
-    @ObservationIgnored private nonisolated(unsafe) var unreadTask: Task<Void, Never>?
+    @ObservationIgnored private var unreadObservation: SidebarUnreadObservation?
 
     init(
         source: SidebarUnreadModel,
@@ -27,23 +25,16 @@ final class DockUnreadPanelProjection {
         self.workspaceID = workspaceID
         self.panelIDs = panelIDs
         self.isActive = isActive
-        unreadSurfaceKeys = source.snapshot.unreadSurfaceKeys
-        focusedReadIndicatorByWorkspaceID = source.snapshot.focusedReadIndicatorByWorkspaceId
+        let initialSnapshot = source.snapshot
+        unreadSurfaceKeys = initialSnapshot.unreadSurfaceKeys
+        focusedReadIndicatorByWorkspaceID = initialSnapshot.focusedReadIndicatorByWorkspaceId
         refresh()
-        let changes = source.snapshotChanges()
-        unreadTask = Task { @MainActor [weak self] in
-            for await snapshot in changes {
-                guard let self, !Task.isCancelled else { return }
-                self.receive(
-                    unreadSurfaceKeys: snapshot.unreadSurfaceKeys,
-                    focusedReadIndicatorByWorkspaceID: snapshot.focusedReadIndicatorByWorkspaceId
-                )
-            }
+        unreadObservation = source.observeChanges(owner: self) { projection, snapshot in
+            projection.receive(
+                unreadSurfaceKeys: snapshot.unreadSurfaceKeys,
+                focusedReadIndicatorByWorkspaceID: snapshot.focusedReadIndicatorByWorkspaceId
+            )
         }
-    }
-
-    deinit {
-        unreadTask?.cancel()
     }
 
     func updateContext(panelIDs: Set<UUID>, isActive: Bool) {

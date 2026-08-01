@@ -114,11 +114,36 @@ public struct SidebarUnreadSnapshot: Equatable, Sendable {
     }
 }
 
+/// Cancels one imperative unread-snapshot observation.
+@MainActor
+public final class SidebarUnreadObservation {
+    nonisolated(unsafe) private weak var model: SidebarUnreadModel?
+    nonisolated private let id: UUID
+
+    fileprivate init(model: SidebarUnreadModel, id: UUID) {
+        self.model = model
+        self.id = id
+    }
+
+    /// Stops delivering snapshot changes.
+    public func cancel() {
+        model?.removeSnapshotObserver(id)
+        model = nil
+    }
+
+    deinit {
+        let model = model
+        let id = id
+        Task { @MainActor in
+            model?.removeSnapshotObserver(id)
+        }
+    }
+}
+
 /// Main-actor unread source of truth for leaf UI projections.
 ///
 /// Mutations publish one equality-guarded snapshot. SwiftUI tracks ``snapshot``
-/// through Observation, while AppKit consumers use ``snapshotChanges()`` so the
-/// app does not add Combine state or broad root-view subscriptions.
+/// through Observation, while imperative consumers register weak-owner callbacks.
 @MainActor
 @Observable
 public final class SidebarUnreadModel {
@@ -141,22 +166,25 @@ public final class SidebarUnreadModel {
     public var manualUnreadWorkspaceIds: Set<UUID> { snapshot.manualUnreadWorkspaceIds }
 
     @ObservationIgnored
-    private var snapshotObservers: [UUID: AsyncStream<SidebarUnreadSnapshot>.Continuation] = [:]
+    private var snapshotObservers: [UUID: (SidebarUnreadSnapshot) -> Bool] = [:]
 
     /// Creates an empty unread model.
     public init() {}
 
-    /// Returns a stream of changed snapshots, buffering only the newest value.
-    public func snapshotChanges() -> AsyncStream<SidebarUnreadSnapshot> {
-        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let id = UUID()
-            snapshotObservers[id] = continuation
-            continuation.onTermination = { [weak self] _ in
-                Task { @MainActor in
-                    self?.snapshotObservers[id] = nil
-                }
-            }
+    /// Observes changed snapshots synchronously after publication.
+    ///
+    /// The model retains neither `owner` nor the returned cancellation token.
+    public func observeChanges<Owner: AnyObject>(
+        owner: Owner,
+        _ receive: @escaping @MainActor (Owner, SidebarUnreadSnapshot) -> Void
+    ) -> SidebarUnreadObservation {
+        let id = UUID()
+        snapshotObservers[id] = { [weak owner] snapshot in
+            guard let owner else { return false }
+            receive(owner, snapshot)
+            return true
         }
+        return SidebarUnreadObservation(model: self, id: id)
     }
 
     /// Atomically applies one complete unread state and publishes only changes.
@@ -176,9 +204,15 @@ public final class SidebarUnreadModel {
         )
         guard snapshot != next else { return }
         snapshot = next
-        for observer in snapshotObservers.values {
-            observer.yield(next)
+        var expiredObserverIDs: [UUID] = []
+        for (id, observer) in snapshotObservers where !observer(next) {
+            expiredObserverIDs.append(id)
         }
+        for id in expiredObserverIDs { snapshotObservers[id] = nil }
+    }
+
+    fileprivate func removeSnapshotObserver(_ id: UUID) {
+        snapshotObservers[id] = nil
     }
 
     /// Returns the summary for one workspace.

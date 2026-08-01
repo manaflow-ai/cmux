@@ -174,6 +174,20 @@ private final class CMUXSidebarSnapshotCache {
     }
 }
 
+private struct CMUXSidebarUnreadSnapshotObserver: View {
+    let source: SidebarUnreadModel
+    let action: @MainActor (SidebarUnreadSnapshot) -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onChange(of: source.snapshot) { _, snapshot in
+                action(snapshot)
+            }
+    }
+}
+
 struct CMUXInstalledExtensionSidebarHostView: View {
     private static let selectedExtensionBundleIDDefaultsKey = "cmuxExtensionSidebar.selectedExtensionBundleId"
     private static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
@@ -219,7 +233,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                                 connection: connection,
                                 bundleIdentifier: identity.bundleIdentifier,
                                 snapshotProvider: {
-                                    snapshotCache.snapshot ?? snapshotProvider()
+                                    snapshotCache.replace(with: snapshotProvider())
                                 },
                                 actionHandler: actionHandler,
                                 onGrantChanged: { grant in
@@ -302,14 +316,13 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         .task {
             _ = snapshotCache.replace(with: snapshotProvider())
             xpcHost.update(
-                snapshotProvider: { snapshotCache.snapshot ?? snapshotProvider() },
+                snapshotProvider: { snapshotCache.replace(with: snapshotProvider()) },
                 actionHandler: actionHandler
             )
             await observeExtensionAvailability()
         }
-        .task {
-            for await unreadSnapshot in unreadSource.snapshotChanges() {
-                guard !Task.isCancelled else { return }
+        .background {
+            CMUXSidebarUnreadSnapshotObserver(source: unreadSource) { unreadSnapshot in
                 // Rebuild rich metadata only when workspace membership changed.
                 // The common unread-only path stays a cheap cache patch.
                 let membershipRefresh: CmuxSidebarSnapshot?
@@ -319,7 +332,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                     membershipRefresh = nil
                 }
                 guard let snapshot = snapshotCache.applyUnread(unreadSnapshot) ?? membershipRefresh else {
-                    continue
+                    return
                 }
                 xpcHost.sendSnapshotDidChange(snapshot)
             }

@@ -823,6 +823,21 @@ private struct SidebarUnreadSnapshotReader<Content: View>: View {
     }
 }
 
+/// Runs an imperative unread side effect from an isolated Observation leaf.
+private struct SidebarUnreadSnapshotObserver: View {
+    let source: SidebarUnreadModel
+    let action: @MainActor (SidebarUnreadSnapshot) -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onChange(of: source.snapshot) { _, snapshot in
+                action(snapshot)
+            }
+    }
+}
+
 struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
@@ -2874,12 +2889,10 @@ struct ContentView: View {
             scheduleTitlebarTextRefresh()
         })
 
-        view = AnyView(view.task {
-            // Update the AppKit-owned pane overlay directly. The titlebar badge
-            // and sidebar rows observe their own leaves, so no ContentView state
-            // mutation is needed for unread changes.
-            for await snapshot in sidebarUnread.snapshotChanges() {
-                guard !Task.isCancelled else { return }
+        view = AnyView(view.background {
+            // Update the AppKit-owned pane overlay from a dedicated Observation
+            // leaf, without making ContentView itself an unread observer.
+            SidebarUnreadSnapshotObserver(source: sidebarUnread) { snapshot in
                 refreshTmuxWorkspacePaneWindowOverlay(
                     in: observedWindow,
                     unreadSnapshot: snapshot
@@ -11552,7 +11565,9 @@ struct VerticalTabsSidebar: View, Equatable {
         // whether a change class re-renders the sidebar subtree or skips it.
         cmuxDebugLog("sidebar.table.rowsBuild items=\(renderContext.workspaceRenderItems.count)")
 #endif
-        let unreadSnapshot = sidebarUnread.snapshot
+        // AppKit applies the live unread snapshot inside its controller. Keep
+        // root row construction independent from notification publications.
+        let unreadSnapshot = SidebarUnreadSnapshot()
         let unreadSummariesByWorkspaceId = unreadSnapshot.summaryByWorkspaceId
         let notificationIndex = SidebarWorkspaceNotificationIndex(
             notifications: notificationStore.notifications
