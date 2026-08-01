@@ -408,8 +408,11 @@ public struct WorkspaceListLayoutPreviewView: View {
                             .font(.title2)
                             Text("Fixture workspace detail")
                                 .foregroundStyle(.secondary)
+                            Color.clear
+                                .frame(width: 1, height: 1)
+                                .accessibilityElement()
+                                .accessibilityIdentifier("FixtureWorkspaceDetail")
                         }
-                        .accessibilityIdentifier("FixtureWorkspaceDetail")
                         .onAppear {
                             fixtureNavTrail.append("detailAppear")
                             if pendingSearchFixtureRoute == route {
