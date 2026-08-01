@@ -213,6 +213,67 @@ describe("billing checkout route", () => {
     }
   });
 
+  test("preserves a validated tagged callback through the configured relay", async () => {
+    const previousURL = process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+    const previousSecret = process.env.CMUX_APP_PRICING_RELAY_SECRET;
+    const previousSchemes = process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES;
+    process.env.CMUX_APP_PRICING_CHECKOUT_URL =
+      "https://billing.example/api/billing/checkout";
+    process.env.CMUX_APP_PRICING_RELAY_SECRET =
+      "pricing-relay-test-secret-with-at-least-32-bytes";
+    process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES = "cmux-dev-test";
+    try {
+      const relayResponse = await GET(
+        new NextRequest(
+          "http://localhost:4100/api/billing/checkout?plan=pro&interval=year&cmux_scheme=cmux-dev-test&cmux_app_checkout=1",
+        ),
+      );
+      const relayLocation = relayResponse.headers.get("location");
+      expect(relayLocation).toBeString();
+      const relayURL = new URL(relayLocation!);
+      expect(relayURL.origin).toBe("https://billing.example");
+      expect(relayURL.searchParams.get("cmux_scheme")).toBe("cmux-dev-test");
+      expect(relayURL.searchParams.get("cmux_relay_expires")).toMatch(/^\d+$/);
+      expect(relayURL.searchParams.get("cmux_relay_signature")).toMatch(
+        /^[a-f0-9]{64}$/,
+      );
+
+      delete process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+      stripeConfigured = true;
+      userResponses = [null, anonymousUser];
+      const checkoutResponse = await GET(new NextRequest(relayURL));
+
+      expect(checkoutResponse.headers.get("location")).toBe(
+        "https://checkout.stripe.com/c/session",
+      );
+      expect(createdStripeSessions).toHaveLength(1);
+      expect(createdStripeSessions[0]).toMatchObject({
+        metadata: { nativeCallbackScheme: "cmux-dev-test" },
+        subscription_data: {
+          metadata: { nativeCallbackScheme: "cmux-dev-test" },
+        },
+        success_url:
+          "https://billing.example/api/billing/complete?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=cmux-dev-test",
+      });
+    } finally {
+      if (previousURL === undefined) {
+        delete process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+      } else {
+        process.env.CMUX_APP_PRICING_CHECKOUT_URL = previousURL;
+      }
+      if (previousSecret === undefined) {
+        delete process.env.CMUX_APP_PRICING_RELAY_SECRET;
+      } else {
+        process.env.CMUX_APP_PRICING_RELAY_SECRET = previousSecret;
+      }
+      if (previousSchemes === undefined) {
+        delete process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES;
+      } else {
+        process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES = previousSchemes;
+      }
+    }
+  });
+
   test("rejects invalid app-pricing relay parameters before forwarding", async () => {
     const previous = process.env.CMUX_APP_PRICING_CHECKOUT_URL;
     process.env.CMUX_APP_PRICING_CHECKOUT_URL =
