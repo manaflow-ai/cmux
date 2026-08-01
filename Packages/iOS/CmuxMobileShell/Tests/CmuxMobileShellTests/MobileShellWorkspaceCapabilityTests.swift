@@ -188,6 +188,10 @@ import Testing
         #expect(requests.first?.groupID == "group-a")
         #expect(requests.first?.action == "rename")
         #expect(requests.first?.title == "yu")
+        let authorization = await connected.router.authorization(for: "workspace.group.action")
+        #expect(authorization.count == 1)
+        #expect(authorization.first?.attachToken == nil)
+        #expect(authorization.first?.stackAccessToken == "test-stack-token")
     }
 
     @Test func accountAuthorizedGroupRenameIgnoresCurrentWorkspaceScopedRouteTicket() async throws {

@@ -215,6 +215,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             // A structural refresh re-derives every surviving row's native
             // state and invalidates any row identity captured at swipe start.
             deferredNativeActionReloadIDs.removeAll(keepingCapacity: true)
+            editedItemID = nil
         } else if let editedItemID, nativeActionReloadIDs.contains(editedItemID) {
             deferredNativeActionReloadIDs.insert(editedItemID)
         }

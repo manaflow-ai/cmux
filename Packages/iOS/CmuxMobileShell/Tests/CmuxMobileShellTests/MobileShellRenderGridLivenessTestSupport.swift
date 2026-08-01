@@ -429,6 +429,7 @@ actor LivenessHostRouter {
         delayedHostStatusRequestNumbers = []
         heldWorkspaceListRequestNumbers = []
         heldSubscribeRequestNumbers = []
+        heldProbeRequestNumbers = []
         delayedSubscribeRequestNumbers = []
         heldUnsubscribeRequestNumbers = []
         heldNotificationFeedRequestNumbers = []
