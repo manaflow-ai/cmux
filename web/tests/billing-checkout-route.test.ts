@@ -200,7 +200,33 @@ describe("billing checkout route", () => {
 
       expect(response.status).toBe(307);
       expect(response.headers.get("location")).toBe(
-        "https://billing.example/checkout?campaign=annual&plan=team&interval=year&cmux_scheme=cmux-dev-test",
+        "https://billing.example/checkout?campaign=annual&plan=team&interval=year&cmux_scheme=cmux",
+      );
+      expect(getUser).not.toHaveBeenCalled();
+      expect(createStripeSession).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+      } else {
+        process.env.CMUX_APP_PRICING_CHECKOUT_URL = previous;
+      }
+    }
+  });
+
+  test("rejects invalid app-pricing relay parameters before forwarding", async () => {
+    const previous = process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+    process.env.CMUX_APP_PRICING_CHECKOUT_URL =
+      "https://billing.example/checkout";
+    try {
+      const response = await GET(
+        new NextRequest(
+          "https://cmux.test/api/billing/checkout?plan=enterprise&interval=forever&cmux_scheme=https&cmux_app_checkout=1",
+        ),
+      );
+
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe(
+        "https://cmux.test/pricing?billing=invalid_plan",
       );
       expect(getUser).not.toHaveBeenCalled();
       expect(createStripeSession).not.toHaveBeenCalled();
