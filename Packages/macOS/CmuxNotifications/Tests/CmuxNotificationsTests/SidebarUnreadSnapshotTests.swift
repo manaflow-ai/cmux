@@ -38,6 +38,16 @@ struct SidebarUnreadSnapshotTests {
     }
 
     @Test
+    func manualUnreadStateControlsWorkspaceActionsWithoutANotificationCount() {
+        let workspaceID = UUID()
+        let snapshot = SidebarUnreadSnapshot(manualUnreadWorkspaceIds: [workspaceID])
+
+        #expect(snapshot.workspaceIsUnread(forWorkspaceId: workspaceID))
+        #expect(snapshot.canMarkWorkspaceRead(forWorkspaceIds: [workspaceID]))
+        #expect(!snapshot.canMarkWorkspaceUnread(forWorkspaceIds: [workspaceID]))
+    }
+
+    @Test
     @MainActor
     func modelPublishesOnlyChangedAtomicSnapshots() {
         let workspaceID = UUID()
