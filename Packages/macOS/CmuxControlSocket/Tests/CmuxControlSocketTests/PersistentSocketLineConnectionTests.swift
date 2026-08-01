@@ -278,6 +278,55 @@ import Testing
         ) == .success)
     }
 
+    @Test func connectionEstablishmentHonorsTheCommandDeadline() async throws {
+        let fixture = try makeBlockedConnectFixture()
+        defer { Darwin.close(fixture.peerSocket) }
+        let worker = makeWorker(connectDependencies: fixture.dependencies)
+        let startedAt = ContinuousClock.now
+
+        let response = await worker.command(
+            "blocked-connect",
+            at: "/unused/test.sock",
+            timeout: 0.1,
+            validatingPeer: { _ in true }
+        )
+        let elapsed = ContinuousClock.now - startedAt
+
+        #expect(response == nil)
+        #expect(elapsed < .milliseconds(400))
+        await worker.invalidate()
+    }
+
+    @Test func taskCancellationInterruptsConnectionEstablishment() async throws {
+        let connectStarted = DispatchSemaphore(value: 0)
+        let fixture = try makeBlockedConnectFixture(
+            connectStarted: connectStarted
+        )
+        defer { Darwin.close(fixture.peerSocket) }
+        let worker = makeWorker(connectDependencies: fixture.dependencies)
+        let command = Task {
+            await worker.command(
+                "blocked-connect",
+                at: "/unused/test.sock",
+                timeout: 5,
+                validatingPeer: { _ in true }
+            )
+        }
+        #expect(await wait(
+            for: connectStarted,
+            timeout: .now() + 1
+        ) == .success)
+        let startedAt = ContinuousClock.now
+
+        command.cancel()
+        let response = await command.value
+        let elapsed = ContinuousClock.now - startedAt
+
+        #expect(response == nil)
+        #expect(elapsed < .milliseconds(400))
+        await worker.invalidate()
+    }
+
     @Test func invalidationInterruptsAStalledResponseRead()
         async throws
     {
@@ -336,6 +385,88 @@ import Testing
         }
     }
 
+    private func makeWorker(
+        connectDependencies: PersistentSocketConnectDependencies
+    ) -> PersistentSocketLineConnectionWorker {
+        PersistentSocketLineConnectionWorker(
+            transport: SocketTransport(),
+            maximumResponseByteCount: 4_096,
+            queue: DispatchQueue(
+                label: "com.cmux.control-socket-tests.connect"
+            ),
+            connectDependencies: connectDependencies
+        )
+    }
+
+    private func makeBlockedConnectFixture(
+        connectStarted: DispatchSemaphore? = nil
+    ) throws -> (
+        dependencies: PersistentSocketConnectDependencies,
+        peerSocket: Int32
+    ) {
+        let sockets = try UnixSocketFixture.makeSocketPair()
+        do {
+            try fillSendBuffer(of: sockets.writer)
+        } catch {
+            Darwin.close(sockets.reader)
+            Darwin.close(sockets.writer)
+            throw error
+        }
+        let socketSource = OneShotSocketSource(sockets.writer)
+        let dependencies = PersistentSocketConnectDependencies(
+            makeSocket: { socketSource.take() },
+            connect: { socket, _ in
+                connectStarted?.signal()
+                let flags = Darwin.fcntl(socket, F_GETFL, 0)
+                guard flags >= 0 else { return -1 }
+                if flags & O_NONBLOCK == 0 {
+                    Darwin.usleep(750_000)
+                    Darwin.__error().pointee = ETIMEDOUT
+                } else {
+                    Darwin.__error().pointee = EINPROGRESS
+                }
+                return -1
+            }
+        )
+        return (dependencies, sockets.reader)
+    }
+
+    private func fillSendBuffer(of socket: Int32) throws {
+        let originalFlags = Darwin.fcntl(socket, F_GETFL, 0)
+        guard
+            originalFlags >= 0,
+            Darwin.fcntl(
+                socket,
+                F_SETFL,
+                originalFlags | O_NONBLOCK
+            ) == 0
+        else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        defer {
+            _ = Darwin.fcntl(socket, F_SETFL, originalFlags)
+        }
+        let bytes = [UInt8](repeating: 0x78, count: 4_096)
+        while true {
+            let count = bytes.withUnsafeBytes { buffer in
+                Darwin.write(socket, buffer.baseAddress, buffer.count)
+            }
+            if count > 0 {
+                continue
+            }
+            if count < 0, errno == EINTR {
+                continue
+            }
+            guard count < 0, errno == EAGAIN || errno == EWOULDBLOCK else {
+                throw NSError(
+                    domain: NSPOSIXErrorDomain,
+                    code: Int(errno)
+                )
+            }
+            return
+        }
+    }
+
     private func readLine(from socket: Int32) -> String? {
         var bytes: [UInt8] = []
         while bytes.count < 4_096 {
@@ -348,5 +479,32 @@ import Testing
             bytes.append(byte)
         }
         return nil
+    }
+}
+
+private final class OneShotSocketSource: @unchecked Sendable {
+    private let lock = NSLock()
+    private var socket: Int32
+
+    init(_ socket: Int32) {
+        self.socket = socket
+    }
+
+    deinit {
+        if socket >= 0 {
+            Darwin.close(socket)
+        }
+    }
+
+    func take() -> Int32 {
+        lock.lock()
+        defer { lock.unlock() }
+        guard socket >= 0 else {
+            Darwin.__error().pointee = EBADF
+            return -1
+        }
+        let result = socket
+        socket = -1
+        return result
     }
 }
