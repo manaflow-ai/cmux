@@ -1,5 +1,6 @@
 import {
   CmuxAbortError,
+  CmuxAuthenticationRejectedError,
   CmuxConnectionError,
   CmuxProtocolError,
   CmuxTimeoutError,
@@ -46,6 +47,7 @@ interface Pending {
   onResourceError?: () => void;
   validateAbandonedResult?: (value: unknown) => unknown;
   timer?: ReturnType<typeof setTimeout>;
+  readonly dispatchDeadline?: number;
   removeAbort?: () => void;
   cancelUndispatched?: Unsubscribe;
   abandonment?: RequestAbandonment;
@@ -214,6 +216,7 @@ export class ResourceProtocol {
         operation.class === "mutation"
         && idempotencyKey !== undefined
         && !(error instanceof ResourceError)
+        && !(error instanceof CmuxAuthenticationRejectedError)
         && !(error instanceof CmuxProtocolError)
         && !(error instanceof TypeError)
         && dispatchStarted
@@ -544,6 +547,9 @@ export class ResourceProtocol {
         reject,
         onResourceError,
         validateAbandonedResult,
+        ...(effectiveTimeout > 0
+          ? { dispatchDeadline: monotonicNow() + effectiveTimeout }
+          : {}),
       };
       let dispatchStarted = false;
       let dispatchComplete = false;
@@ -598,6 +604,21 @@ export class ResourceProtocol {
                 release?.();
                 onDispatchStarted?.();
                 onDispatched?.();
+              },
+              () => {
+                if (this.pending.get(requestId) !== pending) return false;
+                if (signal?.aborted) {
+                  abandon(abortError());
+                  return false;
+                }
+                if (
+                  pending.dispatchDeadline !== undefined
+                  && monotonicNow() >= pending.dispatchDeadline
+                ) {
+                  abandon(new CmuxTimeoutError(`${operation} timed out`));
+                  return false;
+                }
+                return true;
               },
             );
             if (
@@ -1201,6 +1222,10 @@ function remainingTime(deadline: number, message: string): number {
   const remaining = deadline - Date.now();
   if (remaining <= 0) throw new CmuxTimeoutError(message);
   return remaining;
+}
+
+function monotonicNow(): number {
+  return performance.now();
 }
 
 export class ResourceStream<Value>

@@ -1,5 +1,11 @@
-import type { Transport, Unsubscribe } from "../transport.js";
+import type {
+  DispatchGuard,
+  OnDispatched,
+  Transport,
+  Unsubscribe,
+} from "../transport.js";
 import { WebSocketLifecycle } from "../internal/websocket-lifecycle.js";
+import { CmuxAuthenticationRejectedError } from "./errors.js";
 import {
   MAX_INBOUND_MESSAGE_BYTES,
   MAX_OUTBOUND_MESSAGE_BYTES,
@@ -68,6 +74,8 @@ export interface PairingChallenge {
 interface PendingMessage {
   readonly json: string;
   readonly bytes: number;
+  readonly onDispatched: OnDispatched;
+  readonly dispatchGuard: DispatchGuard | undefined;
 }
 
 /** Sends and receives one JSON message per WebSocket text frame. */
@@ -119,6 +127,8 @@ export class WebSocketTransport implements Transport {
       maxInboundMessageBytes,
       maxPreauthenticationMessageBytes,
       createError: (message) => new Error(message),
+      createAuthenticationRejectedError: () =>
+        new CmuxAuthenticationRejectedError("WebSocket authentication rejected"),
       flushPending: () => this.flushPending(),
       clearPending: () => this.clearPending(),
       deliverMessage: (json) => this.deliverMessage(json),
@@ -133,6 +143,22 @@ export class WebSocketTransport implements Transport {
   }
 
   send(json: string): void {
+    this.enqueue(json, () => undefined);
+  }
+
+  sendCancellable(
+    json: string,
+    onDispatched: OnDispatched,
+    dispatchGuard?: DispatchGuard,
+  ): Unsubscribe {
+    return this.enqueue(json, onDispatched, dispatchGuard);
+  }
+
+  private enqueue(
+    json: string,
+    onDispatched: OnDispatched,
+    dispatchGuard?: DispatchGuard,
+  ): Unsubscribe {
     this.lifecycle.assertOpen();
     const bytes = utf8ByteLength(json);
     if (bytes > this.maxOutboundMessageBytes) {
@@ -149,9 +175,16 @@ export class WebSocketTransport implements Transport {
     ) {
       throw new Error("pending WebSocket message buffer is full");
     }
-    this.pending.push({ json, bytes });
+    const message = { json, bytes, onDispatched, dispatchGuard };
+    this.pending.push(message);
     this.pendingBytes += bytes;
     if (this.lifecycle.canDispatch) this.flushPending();
+    return () => {
+      const index = this.pending.indexOf(message);
+      if (index < 0) return;
+      this.pending.splice(index, 1);
+      this.pendingBytes -= bytes;
+    };
   }
 
   onMessage(handler: (json: string) => void): Unsubscribe {
@@ -199,7 +232,13 @@ export class WebSocketTransport implements Transport {
       while (this.lifecycle.canDispatch && this.pending.length > 0) {
         const message = this.pending.shift()!;
         this.pendingBytes -= message.bytes;
-        if (!this.lifecycle.dispatch(message.json)) return;
+        const result = this.lifecycle.dispatch(
+          message.json,
+          message.onDispatched,
+          message.dispatchGuard,
+        );
+        if (result === "vetoed") continue;
+        if (result === "failed") return;
       }
     } finally {
       this.flushing = false;

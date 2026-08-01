@@ -111,6 +111,13 @@ export interface CmuxClientOptions {
   streamTransportFactory?: () => Transport;
 }
 
+export interface SendRawOptions {
+  /** Overrides the client command acknowledgement timeout. */
+  timeoutMs?: number;
+  /** Cancels the request and any transport frame that has not started dispatch. */
+  signal?: AbortSignal;
+}
+
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
 export const DEFAULT_MAX_PENDING_RESPONSES = 256;
@@ -196,6 +203,7 @@ interface PendingResponse {
   timer?: ReturnType<typeof setTimeout>;
   signal?: AbortSignal;
   abort?: () => void;
+  cancelUndispatched?: Unsubscribe;
 }
 
 class MessageRouter {
@@ -251,7 +259,28 @@ class MessageRouter {
         }
       }
       try {
-        this.transport.send(stringifyWireJson(request));
+        const json = stringifyWireJson(request);
+        if (this.transport.sendCancellable) {
+          let dispatchStarted = false;
+          const cancelUndispatched = this.transport.sendCancellable(
+            json,
+            () => {
+              if (dispatchStarted) return;
+              dispatchStarted = true;
+              const release = pending.cancelUndispatched;
+              pending.cancelUndispatched = undefined;
+              release?.();
+            },
+            () => this.pending.get(key) === pending,
+          );
+          if (!dispatchStarted && this.pending.get(key) === pending) {
+            pending.cancelUndispatched = cancelUndispatched;
+          } else {
+            cancelUndispatched();
+          }
+        } else {
+          this.transport.send(json);
+        }
       } catch (error) {
         if (this.takePending(key, pending)) reject(this.connectionError(error));
       }
@@ -327,6 +356,9 @@ class MessageRouter {
     if (pending.signal && pending.abort) {
       pending.signal.removeEventListener("abort", pending.abort);
     }
+    const cancelUndispatched = pending.cancelUndispatched;
+    pending.cancelUndispatched = undefined;
+    cancelUndispatched?.();
     return true;
   }
 
@@ -571,7 +603,10 @@ export class CmuxClient {
     this.transport.close();
   }
 
-  async sendRaw(obj: JsonObject): Promise<CmuxResponse<unknown>> {
+  async sendRaw(
+    obj: JsonObject,
+    options: SendRawOptions = {},
+  ): Promise<CmuxResponse<unknown>> {
     const payload = this.dropUndefined({ ...obj });
     if (
       typeof payload.cmd === "string"
@@ -580,7 +615,11 @@ export class CmuxClient {
       this.assertCommandAuthority(payload.cmd as CmuxCommand);
     }
     if (!("id" in payload)) payload.id = this.nextId();
-    return this.router.send(payload, this.timeoutMs);
+    return this.router.send(
+      payload,
+      options.timeoutMs ?? this.timeoutMs,
+      options.signal,
+    );
   }
 
   request<C extends CmuxRequest>(request: C): Promise<CmuxResponseData<C>>;

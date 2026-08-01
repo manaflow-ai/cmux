@@ -3,7 +3,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { CmuxConnectionError } from "./errors.js";
 import { NewlineFrameBuffer } from "./internal/newline-frame-buffer.js";
-import type { OnDispatched, Transport, Unsubscribe } from "./transport.js";
+import type {
+  DispatchGuard,
+  OnDispatched,
+  Transport,
+  Unsubscribe,
+} from "./transport.js";
 import {
   MAX_INBOUND_MESSAGE_BYTES,
   MAX_OUTBOUND_MESSAGE_BYTES,
@@ -35,6 +40,7 @@ interface PendingMessage {
   readonly json: string;
   readonly bytes: number;
   readonly onDispatched: OnDispatched;
+  readonly dispatchGuard: DispatchGuard | undefined;
 }
 
 /** Unix-socket JSON-lines transport for Node.js. */
@@ -109,11 +115,19 @@ export class UnixSocketTransport implements Transport {
     this.enqueue(json, () => undefined);
   }
 
-  sendCancellable(json: string, onDispatched: OnDispatched): Unsubscribe {
-    return this.enqueue(json, onDispatched);
+  sendCancellable(
+    json: string,
+    onDispatched: OnDispatched,
+    dispatchGuard?: DispatchGuard,
+  ): Unsubscribe {
+    return this.enqueue(json, onDispatched, dispatchGuard);
   }
 
-  private enqueue(json: string, onDispatched: OnDispatched): Unsubscribe {
+  private enqueue(
+    json: string,
+    onDispatched: OnDispatched,
+    dispatchGuard?: DispatchGuard,
+  ): Unsubscribe {
     if (this.closed) throw new CmuxConnectionError("session socket closed");
     const bytes = utf8ByteLength(json);
     if (bytes > this.maxOutboundMessageBytes) {
@@ -133,7 +147,7 @@ export class UnixSocketTransport implements Transport {
     ) {
       throw new CmuxConnectionError("pending socket message buffer is full");
     }
-    const message = { json, bytes, onDispatched };
+    const message = { json, bytes, onDispatched, dispatchGuard };
     this.pending.push(message);
     this.pendingBytes += bytes;
     if (this.connected) this.flushPending();
@@ -186,6 +200,7 @@ export class UnixSocketTransport implements Transport {
       ) {
         const message = this.pending.shift()!;
         this.pendingBytes -= message.bytes;
+        if (message.dispatchGuard?.() === false) continue;
         message.onDispatched();
         this.write(message.json);
       }

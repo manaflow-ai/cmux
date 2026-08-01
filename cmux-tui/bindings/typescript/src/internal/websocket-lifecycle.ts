@@ -26,6 +26,7 @@ export interface WebSocketLifecycleOptions {
   readonly maxInboundMessageBytes: number;
   readonly maxPreauthenticationMessageBytes: number;
   readonly createError: (message: string) => Error;
+  readonly createAuthenticationRejectedError: () => Error;
   readonly flushPending: () => void;
   readonly clearPending: () => void;
   readonly deliverMessage: (json: string) => void;
@@ -41,6 +42,7 @@ export class WebSocketLifecycle {
   private readonly maxInboundMessageBytes: number;
   private readonly maxPreauthenticationMessageBytes: number;
   private readonly createError: (message: string) => Error;
+  private readonly createAuthenticationRejectedError: () => Error;
   private readonly flushPending: () => void;
   private readonly clearPending: () => void;
   private readonly deliverMessage: (json: string) => void;
@@ -59,6 +61,8 @@ export class WebSocketLifecycle {
     this.maxInboundMessageBytes = options.maxInboundMessageBytes;
     this.maxPreauthenticationMessageBytes = options.maxPreauthenticationMessageBytes;
     this.createError = options.createError;
+    this.createAuthenticationRejectedError =
+      options.createAuthenticationRejectedError;
     this.flushPending = options.flushPending;
     this.clearPending = options.clearPending;
     this.deliverMessage = options.deliverMessage;
@@ -146,17 +150,22 @@ export class WebSocketLifecycle {
     this.fail(webSocketEventError(event, this.createError));
   }
 
-  dispatch(json: string, onDispatched: () => void = () => undefined): boolean {
-    if (!this.canDispatch) return false;
+  dispatch(
+    json: string,
+    onDispatched: () => void = () => undefined,
+    dispatchGuard: () => boolean = () => true,
+  ): "sent" | "vetoed" | "failed" {
+    if (!this.canDispatch) return "failed";
     try {
+      if (!dispatchGuard()) return "vetoed";
       onDispatched();
       this.socket.send(json);
-      return true;
+      return "sent";
     } catch (error) {
       this.failAndClose(this.createError(
         `WebSocket dispatch failed: ${errorMessage(error)}`,
       ));
-      return false;
+      return "failed";
     }
   }
 
@@ -172,6 +181,7 @@ export class WebSocketLifecycle {
     this.closed = true;
     const callbacks: Array<() => void> = [this.clearPending];
     if (event?.code === 1008 && event.reason === "authentication failed") {
+      callbacks.push(() => this.fail(this.createAuthenticationRejectedError()));
       if (this.onAuthenticationRejected) callbacks.push(this.onAuthenticationRejected);
     }
     callbacks.push(...this.closeHandlers);

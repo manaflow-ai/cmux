@@ -1,6 +1,14 @@
-import { CmuxConnectionError } from "./errors.js";
+import {
+  CmuxAuthenticationRejectedError,
+  CmuxConnectionError,
+} from "./errors.js";
 import { WebSocketLifecycle } from "./internal/websocket-lifecycle.js";
-import type { OnDispatched, Transport, Unsubscribe } from "./transport.js";
+import type {
+  DispatchGuard,
+  OnDispatched,
+  Transport,
+  Unsubscribe,
+} from "./transport.js";
 import {
   MAX_INBOUND_MESSAGE_BYTES,
   MAX_OUTBOUND_MESSAGE_BYTES,
@@ -65,6 +73,7 @@ interface PendingMessage {
   readonly json: string;
   readonly bytes: number;
   readonly onDispatched: OnDispatched;
+  readonly dispatchGuard: DispatchGuard | undefined;
 }
 
 /** Browser-safe text-frame transport with bounded pre-open buffering. */
@@ -113,6 +122,8 @@ export class WebSocketTransport implements Transport {
       maxInboundMessageBytes,
       maxPreauthenticationMessageBytes,
       createError: (message) => new CmuxConnectionError(message),
+      createAuthenticationRejectedError: () =>
+        new CmuxAuthenticationRejectedError("WebSocket authentication rejected"),
       flushPending: () => this.flush(),
       clearPending: () => this.clearPending(),
       deliverMessage: (json) => this.deliverMessage(json),
@@ -133,11 +144,19 @@ export class WebSocketTransport implements Transport {
     this.enqueue(json, () => undefined);
   }
 
-  sendCancellable(json: string, onDispatched: OnDispatched): Unsubscribe {
-    return this.enqueue(json, onDispatched);
+  sendCancellable(
+    json: string,
+    onDispatched: OnDispatched,
+    dispatchGuard?: DispatchGuard,
+  ): Unsubscribe {
+    return this.enqueue(json, onDispatched, dispatchGuard);
   }
 
-  private enqueue(json: string, onDispatched: OnDispatched): Unsubscribe {
+  private enqueue(
+    json: string,
+    onDispatched: OnDispatched,
+    dispatchGuard?: DispatchGuard,
+  ): Unsubscribe {
     this.lifecycle.assertOpen();
     const bytes = utf8ByteLength(json);
     if (bytes > this.maxOutboundMessageBytes) {
@@ -156,7 +175,7 @@ export class WebSocketTransport implements Transport {
     ) {
       throw new CmuxConnectionError("pending WebSocket message buffer is full");
     }
-    const message = { json, bytes, onDispatched };
+    const message = { json, bytes, onDispatched, dispatchGuard };
     this.pending.push(message);
     this.pendingBytes += bytes;
     if (this.lifecycle.canDispatch) this.flush();
@@ -207,7 +226,13 @@ export class WebSocketTransport implements Transport {
       while (this.lifecycle.canDispatch && this.pending.length > 0) {
         const message = this.pending.shift()!;
         this.pendingBytes -= message.bytes;
-        if (!this.lifecycle.dispatch(message.json, message.onDispatched)) return;
+        const result = this.lifecycle.dispatch(
+          message.json,
+          message.onDispatched,
+          message.dispatchGuard,
+        );
+        if (result === "vetoed") continue;
+        if (result === "failed") return;
       }
     } finally {
       this.flushing = false;
