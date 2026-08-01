@@ -1,16 +1,48 @@
 import Foundation
 
 /// One exact port or inclusive port range omitted from sidebar port badges.
-public enum SidebarIgnoredPortRule: Sendable, Equatable {
-    /// Omits one exact port.
-    case port(Int)
+public struct SidebarIgnoredPortRule: Sendable, Equatable {
+    private enum Storage: Sendable, Equatable {
+        case port(Int)
+        case range(ClosedRange<Int>)
+    }
 
-    /// Omits every port in an inclusive range.
-    case range(ClosedRange<Int>)
+    private let storage: Storage
+
+    /// The IANA dynamic/private range used for OS-assigned ephemeral ports.
+    static let operatingSystemEphemeralRange = 49_152...65_535
+
+    /// The validated rule for the IANA dynamic/private port range.
+    static let operatingSystemEphemeralRangeRule = Self(
+        storage: .range(operatingSystemEphemeralRange)
+    )
+
+    /// Creates a rule that omits one exact valid port.
+    ///
+    /// - Parameter port: A port in `1...65535`.
+    public init?(port: Int) {
+        guard (1...65_535).contains(port) else { return nil }
+        storage = .port(port)
+    }
+
+    /// Creates a rule that omits one inclusive range of valid ports.
+    ///
+    /// - Parameter range: A range whose bounds are both in `1...65535`.
+    public init?(range: ClosedRange<Int>) {
+        guard (1...65_535).contains(range.lowerBound),
+              (1...65_535).contains(range.upperBound) else {
+            return nil
+        }
+        storage = .range(range)
+    }
+
+    private init(storage: Storage) {
+        self.storage = storage
+    }
 
     /// The canonical text representation used for range configuration and persistence.
     public var canonicalText: String {
-        switch self {
+        switch storage {
         case .port(let port):
             String(port)
         case .range(let range):
@@ -20,7 +52,7 @@ public enum SidebarIgnoredPortRule: Sendable, Equatable {
 
     /// Returns whether this rule omits `port` from sidebar publication.
     public func contains(_ port: Int) -> Bool {
-        switch self {
+        switch storage {
         case .port(let ignoredPort):
             port == ignoredPort
         case .range(let ignoredRange):
@@ -28,15 +60,10 @@ public enum SidebarIgnoredPortRule: Sendable, Equatable {
         }
     }
 
-    private static func validatedPort(_ port: Int) -> Self? {
-        guard (1...65_535).contains(port) else { return nil }
-        return .port(port)
-    }
-
     private static func parsedPersistedText(_ rawValue: String) -> Self? {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if let port = Int(value) {
-            return validatedPort(port)
+            return Self(port: port)
         }
 
         return parsedRangeText(value)
@@ -52,19 +79,20 @@ public enum SidebarIgnoredPortRule: Sendable, Equatable {
               lowerBound <= upperBound else {
             return nil
         }
-        return .range(lowerBound...upperBound)
+        return Self(range: lowerBound...upperBound)
     }
 }
 
 extension SidebarIgnoredPortRule: SettingCodable {
     /// Decodes a persisted exact port or inclusive range.
     public static func decodeFromUserDefaults(_ raw: Any?) -> Self? {
-        if let number = raw as? NSNumber,
-           CFGetTypeID(number) == CFBooleanGetTypeID() {
-            return nil
-        }
-        if let port = Int.decodeFromUserDefaults(raw) {
-            return validatedPort(port)
+        if let number = raw as? NSNumber {
+            let numericValue = number.doubleValue
+            guard CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  numericValue.rounded() == numericValue else {
+                return nil
+            }
+            return Self(port: number.intValue)
         }
         guard let value = String.decodeFromUserDefaults(raw) else { return nil }
         return parsedPersistedText(value)
@@ -78,7 +106,7 @@ extension SidebarIgnoredPortRule: SettingCodable {
     /// Decodes an exact integer port or an inclusive `"start-end"` JSON range.
     public static func decodeFromJSON(_ raw: Any?) -> Self? {
         if let port = Int.decodeFromJSON(raw) {
-            return validatedPort(port)
+            return Self(port: port)
         }
         guard let value = String.decodeFromJSON(raw) else { return nil }
         return parsedRangeText(value.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -86,7 +114,7 @@ extension SidebarIgnoredPortRule: SettingCodable {
 
     /// Encodes exact ports as integers and ranges as canonical strings.
     public func encodeForJSON() -> Any {
-        switch self {
+        switch storage {
         case .port(let port):
             port
         case .range:
