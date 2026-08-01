@@ -371,10 +371,10 @@ import Testing
         #expect(freshPrompt.choice == nil)
     }
 
-    /// A retryable accepted-install failure must also resolve the Sparkle terminal it replaces.
-    /// Otherwise Sparkle still owns an unanswered session and the Retry action can no-op behind
-    /// the visible error.
-    @Test func acceptedInstallFailureAcknowledgesReplacedSparkleTerminal() async {
+    /// Regression for #9262: an ungated attempt update performs a fresh check, so finding no update
+    /// is its normal successful outcome. The pipeline must preserve that result for the ordinary
+    /// no-update UI instead of replacing it with a misleading install/network error.
+    @Test func freshCheckFindingNothingPreservesNoUpdateResult() async {
         let harness = Harness()
         let stalePrompt = ChoiceBox()
         var didAcknowledgeNotFound = false
@@ -389,10 +389,15 @@ import Testing
             didAcknowledgeNotFound = true
         })))
 
-        await waitUntil("accepted-install error") {
-            errorCode(for: harness.model.state) == UpdateStateModel.installDidNotStartCode
+        await waitUntil("no-update attempt to resolve") {
+            !harness.controller.attemptCoordinator.isMonitoring
+                && !harness.controller.installWatchdog.isArmed
         }
-        #expect(didAcknowledgeNotFound)
+        guard case .notFound = harness.model.state else {
+            Issue.record("fresh no-update result was replaced by \(harness.model.state)")
+            return
+        }
+        #expect(!didAcknowledgeNotFound)
     }
 
     /// If the live prompt is still visible but already answered before the queued confirm

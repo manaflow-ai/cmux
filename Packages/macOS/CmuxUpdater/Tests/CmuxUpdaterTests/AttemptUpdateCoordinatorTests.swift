@@ -111,6 +111,28 @@ import Testing
         _ = coordinator.requestInstallLatest(currentState: updateAvailable("0.64.15"))
         coordinator.didStartFreshCheck()
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
+        #expect(coordinator.handleStateChange(.notFound(.init(acknowledgement: {}))) == .none)
+        #expect(!coordinator.isMonitoring)
+    }
+
+    /// A no-update result before the controller has actually started the promised fresh check does
+    /// not belong to that check. Treating it as success could let a stale terminal end the attempt.
+    @Test func notFoundBeforeFreshCheckStartsFailsInstall() {
+        var coordinator = AttemptUpdateCoordinator()
+        _ = coordinator.requestInstallLatest(currentState: updateAvailable("0.64.15"))
+
+        #expect(coordinator.handleStateChange(.notFound(.init(acknowledgement: {}))) == .installFailed)
+        #expect(!coordinator.isMonitoring)
+    }
+
+    /// Once a concrete freshly resolved update has been accepted, losing it to `.notFound` before
+    /// download starts is an unexpected install failure rather than an ordinary check result.
+    @Test func notFoundAfterInstallConfirmationFailsInstall() {
+        var coordinator = AttemptUpdateCoordinator()
+        _ = coordinator.requestInstallLatest(currentState: .idle)
+        coordinator.didStartFreshCheck()
+        #expect(coordinator.handleStateChange(updateAvailable("0.64.16")) == .confirmInstall)
+
         #expect(coordinator.handleStateChange(.notFound(.init(acknowledgement: {}))) == .installFailed)
         #expect(!coordinator.isMonitoring)
     }
