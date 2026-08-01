@@ -504,6 +504,7 @@ extension MobileShellComposite {
         port: Int,
         pairedMacDeviceID: String,
         instanceTag: String? = nil,
+        supersedesRecoveryAttempt: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
         await connectManualHost(
@@ -515,6 +516,7 @@ extension MobileShellComposite {
                 storedInstanceTag: instanceTag
             ),
             recordsPairingAttempt: false,
+            supersedesRecoveryAttempt: supersedesRecoveryAttempt,
             ifStillCurrent: ifStillCurrent
         )
     }
@@ -552,6 +554,7 @@ extension MobileShellComposite {
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
+        supersedesRecoveryAttempt: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         await connectStoredMacOutcome(
@@ -564,6 +567,7 @@ extension MobileShellComposite {
             legacyTailscaleRoutes: legacyTailscaleRoutes,
             automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
+            supersedesRecoveryAttempt: supersedesRecoveryAttempt,
             ifStillCurrent: ifStillCurrent
         )
     }
@@ -579,6 +583,7 @@ extension MobileShellComposite {
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
+        supersedesRecoveryAttempt: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         guard ifStillCurrent?() ?? true else { return .superseded }
@@ -653,6 +658,7 @@ extension MobileShellComposite {
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
                     recordsPairingAttempt: recordsPairingAttempt,
+                    supersedesRecoveryAttempt: supersedesRecoveryAttempt,
                     ifStillCurrent: ifStillCurrent
                 )
                 if connectionState == .connected,

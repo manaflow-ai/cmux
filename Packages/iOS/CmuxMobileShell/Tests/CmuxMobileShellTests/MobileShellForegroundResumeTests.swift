@@ -251,6 +251,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
     #expect(store.remoteClient === originalClient)
     #expect(store.connectionState == .connected)
     #expect(store.macConnectionStatus == .connected)
+    await router.releaseAllHeld()
 }
 
 @MainActor
