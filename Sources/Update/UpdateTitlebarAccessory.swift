@@ -2201,23 +2201,26 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             notificationsPopover.performClose(nil)
             return
         }
+        guard let window = externalAnchor?.window ?? view.window ?? hostingView.window ?? NSApp.keyWindow,
+              let contentView = window.contentView else {
+            return
+        }
         // Recreate content view each time to avoid stale observers when popover is hidden
         let hostingController = NSHostingController(
             rootView: NotificationsPopoverView(
                 notificationStore: notificationStore,
                 onDismiss: { [weak notificationsPopover] in
                     notificationsPopover?.performClose(nil)
+                },
+                onOpenPhoneForwarding: { [weak notificationsPopover, weak window] in
+                    notificationsPopover?.performClose(nil)
+                    openPhoneForwardingSettings(in: window)
                 }
             )
         )
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = .clear
         notificationsPopover.contentViewController = hostingController
-
-        guard let window = externalAnchor?.window ?? view.window ?? hostingView.window ?? NSApp.keyWindow,
-              let contentView = window.contentView else {
-            return
-        }
 
         // Force layout to ensure geometry is current.
         contentView.layoutSubtreeIfNeeded()
@@ -2295,10 +2298,22 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 }
 
+@MainActor
+private func openPhoneForwardingSettings(in window: NSWindow?) {
+    guard let window,
+          let appDelegate = AppDelegate.shared,
+          let context = appDelegate.contextForMainTerminalWindow(window) else {
+        NSSound.beep()
+        return
+    }
+    context.sidebarSelectionState.selection = .notifications
+}
+
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     let onDismiss: () -> Void
+    let onOpenPhoneForwarding: () -> Void
 
     @AppStorage("cmux.notifications.popover.width")
     private var savedWidth: Double = Double(NotificationsPopoverMetrics.defaultWidth)
@@ -2315,6 +2330,8 @@ private struct NotificationsPopoverView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            Divider()
+            phoneForwardingEntry
             Divider()
             content
         }
@@ -2478,6 +2495,36 @@ private struct NotificationsPopoverView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    private var phoneForwardingEntry: some View {
+        Button(action: onOpenPhoneForwarding) {
+            HStack(spacing: 8) {
+                CmuxSystemSymbolImage(systemName: "iphone", pointSize: 12, weight: .medium)
+                    .foregroundColor(.secondary)
+                Text(
+                    String(
+                        localized: "notifications.forwardToPhone.title",
+                        defaultValue: "Forward notifications to my iPhone"
+                    )
+                )
+                .cmuxFont(size: 12, weight: .medium)
+                Spacer()
+                CmuxSystemSymbolImage(systemName: "chevron.right", pointSize: 9, weight: .semibold)
+                    .foregroundColor(.secondary)
+            }
+            .contentShape(Rectangle())
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("notificationsPopover.phoneForwarding")
+        .safeHelp(
+            String(
+                localized: "notifications.forwardToPhone.subtitle",
+                defaultValue: "Send agent notifications to the cmux iPhone app. Off by default; nothing is uploaded unless this is on."
+            )
+        )
     }
 
     @ViewBuilder
@@ -2988,6 +3035,10 @@ final class UpdateTitlebarAccessoryController {
                 notificationStore: TerminalNotificationStore.shared,
                 onDismiss: { [weak popover] in
                     popover?.performClose(nil)
+                },
+                onOpenPhoneForwarding: { [weak popover, weak window] in
+                    popover?.performClose(nil)
+                    openPhoneForwardingSettings(in: window)
                 }
             )
         )

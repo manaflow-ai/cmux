@@ -18003,6 +18003,95 @@
           }
         }
       }
+    },
+    "mobile.accessibility.notSelected": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"not selected"}},"ja":{"stringUnit":{"state":"translated","value":"未選択"}}}},
+    "mobile.accessibility.selected": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"selected"}},"ja":{"stringUnit":{"state":"translated","value":"選択済み"}}}},
+    "mobile.notifications.awayExplanation": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Only When Away sends after the Mac is locked, asleep, or inactive."}},"ja":{"stringUnit":{"state":"translated","value":"「離席中のみ」では、Macがロック中、スリープ中、または操作されていないときに送信します。"}}}},
+    "mobile.notifications.hideContent": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Hide Notification Content"}},"ja":{"stringUnit":{"state":"translated","value":"通知内容を非表示"}}}},
+    "mobile.notifications.macForwarding": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Forward Alerts from This Mac"}},"ja":{"stringUnit":{"state":"translated","value":"このMacから通知を転送"}}}},
+    "mobile.notifications.macMode": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Forwarding Mode"}},"ja":{"stringUnit":{"state":"translated","value":"転送モード"}}}},
+    "mobile.notifications.macMutationFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The Mac did not save that change. Its last confirmed settings were restored."}},"ja":{"stringUnit":{"state":"translated","value":"Macに変更を保存できませんでした。最後に確認された設定に戻しました。"}}}},
+    "mobile.notifications.macUpdateRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Update cmux on this Mac to change forwarding from iPhone."}},"ja":{"stringUnit":{"state":"translated","value":"iPhoneから転送設定を変更するには、このMacのcmuxをアップデートしてください。"}}}},
+    "mobile.notifications.mode.always": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Always"}},"ja":{"stringUnit":{"state":"translated","value":"常に"}}}},
+    "mobile.notifications.mode.onlyWhenAway": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Only When Away"}},"ja":{"stringUnit":{"state":"translated","value":"離席中のみ"}}}},
+    "mobile.notifications.phoneEnabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Allow Push Alerts on This iPhone"}},"ja":{"stringUnit":{"state":"translated","value":"このiPhoneでプッシュ通知を許可"}}}},
+    "mobile.notifications.readiness": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Delivery Status"}},"ja":{"stringUnit":{"state":"translated","value":"配信状況"}}}},
+    "mobile.notifications.repair.connectMac": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connect a Mac"}},"ja":{"stringUnit":{"state":"translated","value":"Macに接続"}}}},
+    "mobile.notifications.repair.enablePhone": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Enable on This iPhone"}},"ja":{"stringUnit":{"state":"translated","value":"このiPhoneで有効にする"}}}},
+    "mobile.notifications.repair.openSettings": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open iOS Notification Settings"}},"ja":{"stringUnit":{"state":"translated","value":"iOSの通知設定を開く"}}}},
+    "mobile.notifications.repair.retryAPNs": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retry Notification Setup"}},"ja":{"stringUnit":{"state":"translated","value":"通知設定を再試行"}}}},
+    "mobile.notifications.repair.retryRegistration": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retry Registration"}},"ja":{"stringUnit":{"state":"translated","value":"登録を再試行"}}}},
+    "mobile.notifications.repair.signInAgain": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sign In with the Matching Account"}},"ja":{"stringUnit":{"state":"translated","value":"同じアカウントでサインイン"}}}},
+    "mobile.notifications.repair.useAlways": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Use Always Mode"}},"ja":{"stringUnit":{"state":"translated","value":"「常に」モードを使用"}}}},
+    "mobile.notifications.status.accountDeletion": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Account Deletion in Progress"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、アカウントを削除しています"}}}},
+    "mobile.notifications.status.accountMismatch": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Mac Account Does Not Match"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、Macのアカウントが一致しません"}}}},
+    "mobile.notifications.status.authenticationRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Sign In Again"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、再度サインインしてください"}}}},
+    "mobile.notifications.status.awaitingToken": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Waiting for Notification Setup"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、通知設定を待っています"}}}},
+    "mobile.notifications.status.backendRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Finishing Notification Setup"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、通知設定を完了しています"}}}},
+    "mobile.notifications.status.deviceLimitFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, %d-Device Limit Reached"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、%d台のデバイス上限に達しました"}}}},
+    "mobile.notifications.status.invalidConfiguration": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Invalid Push Configuration"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、プッシュ設定が無効です"}}}},
+    "mobile.notifications.status.limitedAuthorization": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Limited, Delivered Quietly"}},"ja":{"stringUnit":{"state":"translated","value":"制限あり、静かに配信"}}}},
+    "mobile.notifications.status.macActive": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Paused, Mac Is Active"}},"ja":{"stringUnit":{"state":"translated","value":"一時停止中、Macを使用中です"}}}},
+    "mobile.notifications.status.macForwardingOff": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Mac Forwarding Is Off"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、Macの転送がオフです"}}}},
+    "mobile.notifications.status.macUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Mac Status Unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、Macの状態を確認できません"}}}},
+    "mobile.notifications.status.offline": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Network Unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、ネットワークを利用できません"}}}},
+    "mobile.notifications.status.originMismatch": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Mac and iPhone Servers Differ"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、MacとiPhoneのサーバーが異なります"}}}},
+    "mobile.notifications.status.permissionDenied": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, iOS Permission Denied"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、iOSの許可が拒否されています"}}}},
+    "mobile.notifications.status.permissionNotRequested": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, iOS Permission Not Requested"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、iOSの許可が未要求です"}}}},
+    "mobile.notifications.status.phoneOff": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Off on This iPhone"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、このiPhoneではオフです"}}}},
+    "mobile.notifications.status.presentationLimited": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Limited, Check iOS Presentation Settings"}},"ja":{"stringUnit":{"state":"translated","value":"制限あり、iOSの表示設定を確認してください"}}}},
+    "mobile.notifications.status.queueFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Limited, Delivery Recovery Unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"制限あり、配信の復旧を利用できません"}}}},
+    "mobile.notifications.status.queueUnconfirmed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Limited, Delivery Recovery Unconfirmed"}},"ja":{"stringUnit":{"state":"translated","value":"制限あり、配信の復旧を確認できません"}}}},
+    "mobile.notifications.status.rateLimited": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Registration Rate Limited"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、登録回数が制限されています"}}}},
+    "mobile.notifications.status.readyAlways": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Ready, Always"}},"ja":{"stringUnit":{"state":"translated","value":"準備完了、常に配信"}}}},
+    "mobile.notifications.status.readyAway": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Ready, Only When Away"}},"ja":{"stringUnit":{"state":"translated","value":"準備完了、離席中のみ配信"}}}},
+    "mobile.notifications.status.registering": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Registering This Device"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、このデバイスを登録しています"}}}},
+    "mobile.notifications.status.registrationFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Registration Failed"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、登録に失敗しました"}}}},
+    "mobile.notifications.status.tokenFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Notification Setup Failed"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、通知設定に失敗しました"}}}},
+    "mobile.notifications.status.unsupported": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Blocked, Notifications Unsupported"}},"ja":{"stringUnit":{"state":"translated","value":"停止中、通知はサポートされていません"}}}},
+    "mobile.notifications.test.authentication": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not queued because the Mac is not signed in."}},"ja":{"stringUnit":{"state":"translated","value":"Macにサインインしていないため、キューに追加できませんでした。"}}}},
+    "mobile.notifications.test.encodingFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The alert could not be prepared for delivery."}},"ja":{"stringUnit":{"state":"translated","value":"通知を配信する準備ができませんでした。"}}}},
+    "mobile.notifications.test.forwardingOff": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not queued because Mac forwarding is off."}},"ja":{"stringUnit":{"state":"translated","value":"Macの転送がオフのため、キューに追加できませんでした。"}}}},
+    "mobile.notifications.test.macActive": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not queued because Only When Away is active and the Mac is in use."}},"ja":{"stringUnit":{"state":"translated","value":"「離席中のみ」が有効でMacを使用中のため、キューに追加できませんでした。"}}}},
+    "mobile.notifications.test.queueFull": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Delivery is busy. Try again shortly."}},"ja":{"stringUnit":{"state":"translated","value":"配信が混み合っています。しばらくしてから再試行してください。"}}}},
+    "mobile.notifications.test.queued": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Queued on Mac. iOS delivery is still pending."}},"ja":{"stringUnit":{"state":"translated","value":"Macのキューに追加しました。iOSへの配信はまだ確認中です。"}}}},
+    "mobile.notifications.test.send": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Send Test Alert"}},"ja":{"stringUnit":{"state":"translated","value":"テスト通知を送信"}}}},
+    "mobile.notifications.test.unavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The Mac could not confirm a queue stage."}},"ja":{"stringUnit":{"state":"translated","value":"Macでキューの状態を確認できませんでした。"}}}},
+    "push.test.body": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your Mac sent a test alert to cmux."}},"ja":{"stringUnit":{"state":"translated","value":"Mac から cmux にテスト通知が送信されました。"}}}},
+    "push.test.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Notification Test"}},"ja":{"stringUnit":{"state":"translated","value":"cmux 通知テスト"}}}},
+    "push.generic.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent needs your attention"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントからの通知があります"
+          }
+        }
+      }
+    },
+    "push.generic.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
