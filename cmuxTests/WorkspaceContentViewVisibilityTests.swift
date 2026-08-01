@@ -257,6 +257,69 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
+    @Test
+    func minimalModeSidebarFooterKeepsOnlyUpgradeControl() {
+        let minimalControls = SidebarFooterControl.allCases.filter {
+            SidebarFooterPresentationPolicy.isVisible($0, presentationMode: .minimal)
+        }
+        let standardControls = SidebarFooterControl.allCases.filter {
+            SidebarFooterPresentationPolicy.isVisible($0, presentationMode: .standard)
+        }
+
+        #expect(minimalControls == [.upgrade])
+        #expect(standardControls == SidebarFooterControl.allCases)
+    }
+
+    @Test
+    func sidebarAccountPictureAndIconPresentationsStayDistinct() {
+        let picture = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: true,
+            prefersProfileIcon: false
+        )
+        let toggledIcon = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: true,
+            prefersProfileIcon: true
+        )
+        let signedOutIcon = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: false,
+            prefersProfileIcon: false
+        )
+
+        #expect(picture.visual == .profilePicture)
+        #expect(picture.size == SidebarFooterButtonMetrics.accountAndHelpVisualSize)
+        #expect(
+            SidebarAccountButtonPresentation.defaultProfileIconSystemName
+                == "person.crop.circle"
+        )
+        #expect(
+            toggledIcon.visual == .profileIcon(
+                systemName: SidebarAccountButtonPresentation.defaultProfileIconSystemName
+            )
+        )
+        #expect(toggledIcon.size == SidebarFooterButtonMetrics.accountAndHelpVisualSize)
+        #expect(signedOutIcon == toggledIcon)
+        #expect(
+            SidebarFooterButtonMetrics.profilePictureSize
+                == SidebarFooterButtonMetrics.helpIconSize
+        )
+        #expect(
+            SidebarFooterButtonMetrics.profileIconSize
+                == SidebarFooterButtonMetrics.helpIconSize
+        )
+        #expect(
+            SidebarFooterCircularIconStyle.standard.pointSize
+                == SidebarFooterButtonMetrics.accountAndHelpVisualSize
+        )
+        #expect(SidebarFooterCircularIconStyle.standard.weight == .regular)
+#if DEBUG
+        #expect(SidebarFooterProfileIconDebugSettings.defaultIcon == .cropCircle)
+        #expect(
+            SidebarFooterHelpIconDebugSettings.defaultWeight.fontWeight
+                == SidebarFooterCircularIconStyle.standard.weight
+        )
+#endif
+    }
+
     @MainActor
     private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
         for _ in 0..<iterations {

@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 """
-Regression tests for cmux-claude-wrapper installing the bundled
-cmux-computer-use skill link under ~/.agents/skills.
-
-Only the Codex wrapper used to maintain that link. When a dev-build cleanup
-removed the app bundle the link targeted, every Claude session silently lost
-the skill until some Codex session happened to repair it. The Claude wrapper
-must install and repair the same link itself.
+Regression tests for cmux-claude-wrapper loading the bundled
+cmux-computer-use skill as a session-scoped Claude plugin. Global installation
+is available only through an explicit opt-in.
 """
 
 from __future__ import annotations
 
 import os
+import json
 import socket
 import subprocess
 import tempfile
@@ -47,10 +44,11 @@ def run_wrapper(
     disabled: bool = False,
     preexisting_link_target: Path | None = None,
     preexisting_directory: bool = False,
-) -> tuple[subprocess.CompletedProcess[str], Path, Path]:
+    install_global_skill: bool = False,
+) -> tuple[subprocess.CompletedProcess[str], Path, Path, list[str]]:
     """Run the wrapper inside a sandboxed HOME and fake app bundle.
 
-    Returns (result, skill_link_path, bundled_skill_dir).
+    Returns (result, skill_link_path, bundled_skill_dir, claude_args).
     """
     td = tempfile.mkdtemp(prefix="cmux-claude-wrapper-skill-")
     root = Path(td)
@@ -67,11 +65,28 @@ def run_wrapper(
     bundled_skill = bundle_bin.parent / "cmux-computer-use"
     bundled_skill.mkdir()
     (bundled_skill / "SKILL.md").write_text(SKILL_MD, encoding="utf-8")
+    manifest = bundled_skill / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir()
+    manifest.write_text(
+        json.dumps(
+            {
+                "name": "cmux-computer-use",
+                "version": "1.0.0",
+                "description": "Test bundled cmux Computer Use skill",
+                "skills": ["./"],
+            }
+        ),
+        encoding="utf-8",
+    )
 
+    args_log = root / "claude-args.log"
     write_executable(
         real_bin / "claude",
         """#!/bin/sh
-echo real-claude "$@"
+: > "$FAKE_CLAUDE_ARGS_LOG"
+for arg in "$@"; do
+  printf '%s\\n' "$arg" >> "$FAKE_CLAUDE_ARGS_LOG"
+done
 """,
     )
 
@@ -108,9 +123,16 @@ exit 1
         "TMPDIR": str(root),
         "CMUX_SURFACE_ID": "surface:test",
         "CMUX_SOCKET_PATH": str(socket_path),
+        "CMUX_CLAUDE_SKIP_DEFAULTS": "1",
+        "CMUX_CLAUDE_MANAGED_SETTINGS_FILE": str(root / "no-managed-settings.json"),
+        "CMUX_CLAUDE_MANAGED_SETTINGS_DIR": str(root / "no-managed-settings.d"),
+        "CMUX_CLAUDE_REMOTE_SETTINGS_FILE": str(root / "no-remote-settings.json"),
+        "FAKE_CLAUDE_ARGS_LOG": str(args_log),
     }
     if disabled:
         env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
+    if install_global_skill:
+        env["CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL"] = "1"
 
     try:
         result = subprocess.run(
@@ -123,38 +145,47 @@ exit 1
         )
     finally:
         listener.close()
-    return result, destination, bundled_skill
+    args = args_log.read_text(encoding="utf-8").splitlines() if args_log.exists() else []
+    return result, destination, bundled_skill, args
 
 
-def test_claude_installs_bundled_computer_use_skill(failures: list[str]) -> None:
-    result, link, bundled_skill = run_wrapper(["hello"])
+def plugin_dir_arg(args: list[str]) -> str | None:
+    for index, arg in enumerate(args[:-1]):
+        if arg == "--plugin-dir":
+            return args[index + 1]
+    return None
+
+
+def test_claude_skill_is_session_scoped_by_default(failures: list[str]) -> None:
+    result, link, bundled_skill, args = run_wrapper(["hello"])
     expect(
         result.returncode == 0,
         f"wrapper exited {result.returncode}: {result.stdout} {result.stderr}",
         failures,
     )
-    expect(link.is_symlink(), f"expected a skill symlink at {link}", failures)
     expect(
-        os.path.realpath(link) == os.path.realpath(bundled_skill),
-        f"expected link -> {bundled_skill}, got {os.readlink(link) if link.is_symlink() else 'missing'}",
+        plugin_dir_arg(args) is not None
+        and os.path.realpath(plugin_dir_arg(args) or "") == os.path.realpath(bundled_skill),
+        f"expected a session-only --plugin-dir for {bundled_skill}, got {args}",
         failures,
     )
-    content = (link / "SKILL.md").read_text(encoding="utf-8") if link.exists() else ""
     expect(
-        "name: cmux-computer-use" in content,
-        f"expected Claude-readable SKILL.md through the link, got {content!r}",
+        not link.exists() and not link.is_symlink(),
+        f"default launch must not create a global skill at {link}",
         failures,
     )
 
 
-def test_claude_repairs_dangling_skill_link(failures: list[str]) -> None:
+def test_claude_global_skill_install_requires_explicit_opt_in(failures: list[str]) -> None:
     # A removed dev build leaves the link targeting
     # .../<gone>.app/Contents/Resources/cmux-computer-use. Repair it.
     dangling = Path(
         "/nonexistent/cmux DEV old.app/Contents/Resources/cmux-computer-use"
     )
-    result, link, bundled_skill = run_wrapper(
-        ["hello"], preexisting_link_target=dangling
+    result, link, bundled_skill, args = run_wrapper(
+        ["hello"],
+        preexisting_link_target=dangling,
+        install_global_skill=True,
     )
     expect(
         result.returncode == 0,
@@ -164,15 +195,25 @@ def test_claude_repairs_dangling_skill_link(failures: list[str]) -> None:
     expect(
         link.is_symlink()
         and os.path.realpath(link) == os.path.realpath(bundled_skill),
-        f"expected dangling app-bundle link repaired to {bundled_skill}, got "
+        f"expected opt-in to repair the app-bundle link to {bundled_skill}, got "
         f"{os.readlink(link) if link.is_symlink() else 'missing'}",
+        failures,
+    )
+    expect(
+        plugin_dir_arg(args) is not None
+        and os.path.realpath(plugin_dir_arg(args) or "") == os.path.realpath(bundled_skill),
+        f"expected session plugin to remain active under global opt-in, got {args}",
         failures,
     )
 
 
 def test_claude_leaves_user_owned_skill_links_alone(failures: list[str]) -> None:
     foreign = Path("/nonexistent/user-owned-skill")
-    result, link, _ = run_wrapper(["hello"], preexisting_link_target=foreign)
+    result, link, _, _ = run_wrapper(
+        ["hello"],
+        preexisting_link_target=foreign,
+        install_global_skill=True,
+    )
     expect(
         result.returncode == 0,
         f"wrapper exited {result.returncode}: {result.stdout} {result.stderr}",
@@ -187,7 +228,11 @@ def test_claude_leaves_user_owned_skill_links_alone(failures: list[str]) -> None
 
 
 def test_claude_leaves_user_owned_skill_directories_alone(failures: list[str]) -> None:
-    result, link, _ = run_wrapper(["hello"], preexisting_directory=True)
+    result, link, _, _ = run_wrapper(
+        ["hello"],
+        preexisting_directory=True,
+        install_global_skill=True,
+    )
     expect(
         result.returncode == 0,
         f"wrapper exited {result.returncode}: {result.stdout} {result.stderr}",
@@ -206,8 +251,12 @@ def test_claude_leaves_user_owned_skill_directories_alone(failures: list[str]) -
     )
 
 
-def test_disabled_computer_use_skips_skill_install(failures: list[str]) -> None:
-    result, link, _ = run_wrapper(["hello"], disabled=True)
+def test_disabled_computer_use_skips_skill_loading(failures: list[str]) -> None:
+    result, link, _, args = run_wrapper(
+        ["hello"],
+        disabled=True,
+        install_global_skill=True,
+    )
     expect(
         result.returncode == 0,
         f"wrapper exited {result.returncode}: {result.stdout} {result.stderr}",
@@ -218,20 +267,44 @@ def test_disabled_computer_use_skips_skill_install(failures: list[str]) -> None:
         f"expected no skill install when computer use is disabled, found {link}",
         failures,
     )
+    expect(
+        plugin_dir_arg(args) is None,
+        f"expected no session plugin when computer use is disabled, got {args}",
+        failures,
+    )
+
+
+def test_strict_mcp_config_skips_all_computer_use_sideloading(failures: list[str]) -> None:
+    result, link, _, args = run_wrapper(
+        ["--strict-mcp-config", "--mcp-config", "{}", "-p", "hello"],
+        install_global_skill=True,
+    )
+    expect(
+        result.returncode == 0,
+        f"strict wrapper exited {result.returncode}: {result.stdout} {result.stderr}",
+        failures,
+    )
+    expect(plugin_dir_arg(args) is None, f"strict mode loaded cmux plugin: {args}", failures)
+    expect(
+        not link.exists() and not link.is_symlink(),
+        f"strict mode wrote global skill state at {link}",
+        failures,
+    )
 
 
 def main() -> int:
     failures: list[str] = []
-    test_claude_installs_bundled_computer_use_skill(failures)
-    test_claude_repairs_dangling_skill_link(failures)
+    test_claude_skill_is_session_scoped_by_default(failures)
+    test_claude_global_skill_install_requires_explicit_opt_in(failures)
     test_claude_leaves_user_owned_skill_links_alone(failures)
     test_claude_leaves_user_owned_skill_directories_alone(failures)
-    test_disabled_computer_use_skips_skill_install(failures)
+    test_disabled_computer_use_skips_skill_loading(failures)
+    test_strict_mcp_config_skips_all_computer_use_sideloading(failures)
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
-    print("PASS: claude wrapper installs and repairs the Computer Use skill link")
+    print("PASS: claude wrapper scopes the Computer Use skill to cmux sessions")
     return 0
 
 

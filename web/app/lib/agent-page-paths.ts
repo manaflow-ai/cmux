@@ -82,7 +82,6 @@ const blockedPrefixes = [
   "/handler",
 ];
 const englishOnlyPages = [
-  "/company-information",
   "/privacy-policy",
   "/terms-of-service",
   "/eula",
@@ -233,7 +232,6 @@ export const agentReadablePages = [
   { path: "/agents/aider", title: "Terminal for Aider" },
   { path: "/agents/amp", title: "Terminal for Amp" },
   { path: "/agents/cursor-cli", title: "Terminal for Cursor CLI" },
-  { path: "/company-information", title: "Company Information" },
   { path: "/privacy-policy", title: "Privacy Policy" },
   { path: "/terms-of-service", title: "Terms of Service" },
   { path: "/eula", title: "EULA" },

@@ -15,7 +15,8 @@ extension CmuxSidebarSurfaceKind {
             self = .filePreview
         case .rightSidebarTool:
             self = .rightSidebarTool
-        case .customSidebar, .simulator, .extensionBrowser, .workspaceTodo, .cloudVMLoading:
+        case .customSidebar, .simulator, .extensionBrowser, .workspaceTodo, .cloudVMLoading,
+             .mobilePairing, .accountSignIn:
             self = .unknown
         case .agentSession:
             self = .agentSession

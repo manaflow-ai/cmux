@@ -35,9 +35,13 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
   `/tmp/cmux-cua-<uid>/<scope>/cua.sock`; the Codex compatibility daemon uses
   `codex-cua.sock` beside it. Both fit Darwin's Unix-socket path limit and share
   the tag-scoped cmux Application Support state directory.
-- On the first attached Codex session, the wrapper links this bundled skill
-  into `~/.agents/skills/cmux-computer-use`. Codex can then discover it in any
-  working directory without a manual install. A user-owned directory or
+- The wrappers expose this signed, app-bundled skill only to the cmux-launched
+  process: Codex receives an invocation-scoped `skills.config` entry and Claude
+  receives a session-only `--plugin-dir`. Normal launches do not create or
+  modify `~/.agents`, `~/.codex`, or `~/.claude`.
+- Users who explicitly want global discovery can opt in by launching once with
+  `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1`. That creates the legacy
+  `~/.agents/skills/cmux-computer-use` link. A user-owned directory or
   unrelated symlink at that path is never replaced.
 - While Computer Use is enabled, the helper daemon starts quietly at cmux
   startup with its internal permission gate disabled. Starting cmux or an agent
@@ -235,8 +239,9 @@ Settings → Computer Use.
   lipos, and codesigns the binary plus the nested helper into the app bundle.
 - The helper daemon's `CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW=1` prevents
   agent-supplied `check_permissions {prompt:true}` from bypassing cmux
-  onboarding. The wrappers set `CUA_DRIVER_RS_MCP_FORCE_PROXY=1` and keep that
-  flag off in the proxy process so its first-call grant wait remains active.
+  onboarding. The wrappers set `CUA_DRIVER_RS_MCP_FORCE_PROXY=1` and preserve
+  the external-flow contract in the proxy process so protected calls wait for
+  cmux's post-verification readiness signal.
   `CMUX_CUA_DRIVER` may replace only Claude's native-profile proxy executable
   and never enables embedded mode. Codex ignores proxy-only overrides because
   its approval broker must match the running installed helper executable.

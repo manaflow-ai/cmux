@@ -155,6 +155,7 @@ def run_wrapper(
     auth_token_file: bool = False,
     installed_broker: bool = True,
     live_app_enabled: bool | None = None,
+    install_global_skill: bool = False,
 ) -> tuple[int, list[str], str, dict[str, object]]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -256,6 +257,7 @@ exit 1
             env.pop("CMUX_CUA_DRIVER", None)
             env.pop("CMUX_CUA_AUTH_TOKEN_FILE", None)
             env.pop("CMUX_CUA_CLIENT_PATH", None)
+            env.pop("CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL", None)
             env.pop("CUA_DRIVER_SOCKET_AUTH_TOKEN", None)
             env["CMUX_COMPUTER_USE_APP_ENABLED"] = "1"
             if live_app_enabled is not None:
@@ -326,6 +328,8 @@ exit 1
                 env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
             if hooks_disabled:
                 env["CMUX_CODEX_HOOKS_DISABLED"] = "1"
+            if install_global_skill:
+                env["CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL"] = "1"
 
             proc = subprocess.run(
                 [str(wrapper), *argv],
@@ -370,8 +374,18 @@ def args_config(args: list[str]) -> str | None:
     return arg_value(args, "mcp_servers.cmux-computer-use.args=")
 
 
+def configured_skill_path(args: list[str]) -> Path | None:
+    raw = arg_value(args, "skills.config=")
+    prefix = '[{path="'
+    suffix = '",enabled=true}]'
+    if raw is None or not raw.startswith(prefix) or not raw.endswith(suffix):
+        return None
+    escaped_path = raw[len(prefix) : -len(suffix)]
+    return Path(json.loads(f'"{escaped_path}"'))
+
+
 def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
-    code, args, stderr, _ = run_wrapper(["hello"])
+    code, args, stderr, skill = run_wrapper(["hello"])
     expect(code == 0, f"wrapper exited {code}: {stderr}", failures)
     expect("app-server" not in args, f"must not use codex app-server, got {args}", failures)
     expect(
@@ -380,6 +394,23 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
         failures,
     )
     expect("hello" in args, f"expected user prompt to survive, got {args}", failures)
+    skill_path = configured_skill_path(args)
+    expect(
+        skill_path is not None
+        and skill_path.parts[-4:] == (
+            "Contents",
+            "Resources",
+            "cmux-computer-use",
+            "SKILL.md",
+        ),
+        f"expected invocation-scoped app-bundled skill config, got {args}",
+        failures,
+    )
+    expect(
+        skill["exists"] is False and skill["is_symlink"] is False,
+        f"default launch must not create a global skill, got {skill}",
+        failures,
+    )
 
     cmd = command_config(args)
     mcp_args_raw = args_config(args)
@@ -430,31 +461,40 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
     )
 
 
-def test_codex_installs_bundled_computer_use_skill(failures: list[str]) -> None:
-    code, _, stderr, skill = run_wrapper(["hello"])
-    expect(code == 0, f"skill-install wrapper exited {code}: {stderr}", failures)
+def test_codex_skill_is_session_scoped_by_default(failures: list[str]) -> None:
+    code, args, stderr, skill = run_wrapper(["hello"])
+    expect(code == 0, f"session-skill wrapper exited {code}: {stderr}", failures)
     expect(
-        skill["exists"] is True,
-        f"expected the bundled skill in ~/.agents/skills on the first session, got {skill}",
+        configured_skill_path(args) is not None,
+        f"expected the bundled skill in invocation-scoped config, got {args}",
         failures,
     )
     expect(
-        skill["is_symlink"] is True,
-        f"expected a non-copying link to the current app-bundled skill, got {skill}",
+        skill["exists"] is False and skill["is_symlink"] is False,
+        f"expected no ~/.agents/skills write by default, got {skill}",
+        failures,
+    )
+
+
+def test_codex_global_skill_install_requires_explicit_opt_in(failures: list[str]) -> None:
+    code, args, stderr, skill = run_wrapper(
+        ["hello"],
+        install_global_skill=True,
+    )
+    expect(code == 0, f"opt-in skill wrapper exited {code}: {stderr}", failures)
+    expect(
+        configured_skill_path(args) is not None,
+        f"expected session-scoped skill to remain active under opt-in, got {args}",
         failures,
     )
     expect(
-        isinstance(skill["target"], str)
-        and skill["target"].endswith(
-            "/Contents/Resources/cmux-computer-use"
-        ),
-        f"expected the skill link to target the current cmux app bundle, got {skill}",
-        failures,
-    )
-    expect(
-        isinstance(skill["content"], str)
+        skill["exists"] is True
+        and skill["is_symlink"] is True
+        and isinstance(skill["target"], str)
+        and skill["target"].endswith("/Contents/Resources/cmux-computer-use")
+        and isinstance(skill["content"], str)
         and "name: cmux-computer-use" in skill["content"],
-        f"expected Codex-readable SKILL.md content, got {skill}",
+        f"expected explicit opt-in to install the app-bundled global link, got {skill}",
         failures,
     )
 
@@ -565,16 +605,20 @@ def test_codex_skips_when_installed_broker_is_unavailable(failures: list[str]) -
         failures,
     )
     expect(
-        skill["exists"] is True,
-        "the bundled skill must be discoverable before the helper finishes installing",
+        configured_skill_path(args) is not None
+        and skill["exists"] is False
+        and skill["is_symlink"] is False,
+        "the bundled skill must be session-local before the helper finishes installing",
         failures,
     )
 
 
 def test_codex_skips_when_disabled(failures: list[str]) -> None:
-    code, args, stderr, _ = run_wrapper(["hello"], disabled=True)
+    code, args, stderr, skill = run_wrapper(["hello"], disabled=True)
     expect(code == 0, f"disabled wrapper exited {code}: {stderr}", failures)
     expect(command_config(args) is None, f"expected no injection with kill switch, got {args}", failures)
+    expect(configured_skill_path(args) is None, f"expected no skill config with kill switch, got {args}", failures)
+    expect(skill["exists"] is False, f"expected no global skill with kill switch, got {skill}", failures)
 
 
 def test_codex_skips_when_live_app_setting_is_disabled(failures: list[str]) -> None:
@@ -679,13 +723,15 @@ def test_codex_skips_for_strict_mcp_config(failures: list[str]) -> None:
     code, args, stderr, _ = run_wrapper(["--strict-mcp-config", "-c", "mcp_servers.user.command=\"x\"", "hello"])
     expect(code == 0, f"strict wrapper exited {code}: {stderr}", failures)
     expect(command_config(args) is None, f"expected no cmux injection with strict config, got {args}", failures)
+    expect(configured_skill_path(args) is None, f"expected no cmux skill with strict config, got {args}", failures)
     expect("mcp_servers.user.command=\"x\"" in args, f"expected user's config to survive, got {args}", failures)
 
 
 def main() -> int:
     failures: list[str] = []
     test_codex_gets_cmux_cua_driver(failures)
-    test_codex_installs_bundled_computer_use_skill(failures)
+    test_codex_skill_is_session_scoped_by_default(failures)
+    test_codex_global_skill_install_requires_explicit_opt_in(failures)
     test_codex_computer_use_wrapper_is_a_pure_proxy(failures)
     test_codex_reads_private_daemon_credential_file(failures)
     test_codex_rejects_proxy_only_cua_driver_override(failures)
