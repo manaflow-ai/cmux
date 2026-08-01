@@ -2053,6 +2053,7 @@ mod unix {
         owner_token: CapabilityToken,
         capabilities: CapabilityStore,
         term: Mutex<Terminal>,
+        default_colors: Mutex<DefaultColors>,
         stream_progress: TerminalStreamProgress,
         writer: Mutex<Box<dyn Write + Send>>,
         master: Mutex<Box<dyn MasterPty + Send>>,
@@ -2269,6 +2270,9 @@ mod unix {
             // on the FIFO parser worker before advancing its snapshot
             // boundary. Legacy mirrors retain their coupled color update.
             let _source_order = self.source_order_lock.lock().unwrap();
+            if *self.default_colors.lock().unwrap() == colors {
+                return;
+            }
             let source_cursor =
                 self.smart.publish(Frame::new(MessageKind::ResyncRequired, Vec::new()));
             let (response, applied) = sync_channel(1);
@@ -2284,7 +2288,9 @@ mod unix {
                 self.smart.mark_applied(source_cursor);
                 return;
             }
-            if applied.recv().is_err() {
+            if applied.recv().is_ok() {
+                *self.default_colors.lock().unwrap() = colors;
+            } else {
                 self.smart.mark_applied(source_cursor);
             }
         }
@@ -3156,6 +3162,7 @@ mod unix {
             owner_token: bootstrapped.owner_token(),
             capabilities: CapabilityStore::new(64),
             term: Mutex::new(term),
+            default_colors: Mutex::new(launch.default_colors),
             stream_progress: TerminalStreamProgress::default(),
             writer: Mutex::new(pty_writer),
             master: Mutex::new(master),
@@ -4051,6 +4058,7 @@ mod unix {
                 owner_token: CapabilityToken::random().unwrap(),
                 capabilities: CapabilityStore::new(1),
                 term: Mutex::new(term),
+                default_colors: Mutex::new(DefaultColors::default()),
                 stream_progress: TerminalStreamProgress::default(),
                 writer: Mutex::new(Box::new(std::io::sink())),
                 master: Mutex::new(Box::new(ExitTestMaster)),

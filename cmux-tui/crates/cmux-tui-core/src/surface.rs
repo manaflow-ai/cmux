@@ -1610,6 +1610,7 @@ impl Surface {
                 'connection: loop {
                     let mut stager = HostedFrameStager::new(sequence_boundary, smart_renderer);
                     let mut received_exit = None;
+                    let mut resync_requested = false;
                     'host_stream: while let Ok(Some(frame)) =
                         crate::terminal_host_protocol::read_frame(
                             &mut reader,
@@ -1856,7 +1857,10 @@ impl Surface {
                                 received_exit = Some(exit);
                                 break;
                             }
-                            HostedTransition::ResyncRequired => break,
+                            HostedTransition::ResyncRequired => {
+                                resync_requested = true;
+                                break;
+                            }
                         }
                     }
                     control_responses.cancel_all();
@@ -1880,7 +1884,14 @@ impl Surface {
                         .host_connection_state
                         .swap(TerminalHostConnectionState::Reconnecting as u8, Ordering::AcqRel)
                         != TerminalHostConnectionState::Reconnecting as u8;
+                    // ResyncRequired is an ordered renderer reset from a live
+                    // host, not evidence that its admin stream or PTY was
+                    // lost. Reconnect from a fresh snapshot without moving
+                    // the durable lifecycle through Adopting. This also keeps
+                    // initial topology binding valid if defaults legitimately
+                    // change while a new hosted surface is being installed.
                     if first_loss
+                        && !resync_requested
                         && let Some(mux) = mux.upgrade()
                         && !mux.terminal_host_connection_lost(surface.id, &identity)
                     {
