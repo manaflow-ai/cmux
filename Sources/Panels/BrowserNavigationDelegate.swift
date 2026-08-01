@@ -522,48 +522,42 @@ import WebKit
         decisionHandler: (WKNavigationActionPolicy) -> Void
     ) -> Bool {
         guard let url = navigationAction.request.url else { return false }
-        switch authCallbackNavigationPolicy.disposition(for: navigationAction, url: url) {
-        case .passThrough:
-            return false
-        case .deliverInApp:
-            clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
-            let sourcePageURL = webView.url
-            // Cancel immediately because WebKit cannot render the native
-            // callback scheme. Account completion continues on MainActor.
-            decisionHandler(.cancel)
-            Task { @MainActor [weak self, weak webView] in
-                guard let self else { return }
-                let delivered = await authCallbackNavigationPolicy.deliverAuthCallbackInApp(url)
+        let disposition = authCallbackNavigationPolicy.disposition(
+            for: navigationAction,
+            url: url
+        )
+        return authCallbackNavigationPolicy.consume(
+            disposition: disposition,
+            callbackURL: url,
+            sourcePageURL: webView.url,
+            cancelNavigation: { [self] in
+                clearAttemptedRequest(discardPendingBypasses: true)
+                decisionHandler(.cancel)
+            },
+            reportTerminalCancellation: { [self] in
+                let report = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+                report()
+            },
+            deliver: authCallbackNavigationPolicy.deliverAuthCallbackInApp,
+            completion: { [weak self, weak webView] delivered, returnURL in
+                guard let self, let webView else { return }
 #if DEBUG
                 cmuxDebugLog(
                     "browser.nav.decidePolicy.action kind=deliverNativeAuthCallbackInApp " +
                     "delivered=\(delivered ? 1 : 0) scheme=\(url.scheme ?? "nil")"
                 )
 #endif
-                guard delivered else { return }
-                reportTerminalCancellation()
-                guard let webView,
-                      let returnURL = BrowserAuthCallbackNavigationPolicy.webReturnURL(
-                          fromPageURL: sourcePageURL
-                      ) else {
-                    return
-                }
-                recordAttemptedRequest(URLRequest(url: returnURL))
-                _ = browserLoadRequest(URLRequest(url: returnURL), in: webView)
+                BrowserAuthCallbackNavigationPolicy.finishDelivery(
+                    delivered: delivered,
+                    returnURL: returnURL,
+                    in: webView,
+                    prepareReturnRequest: { [weak self] request in
+                        self?.recordAttemptedRequest(request)
+                    },
+                    presentAlert: presentAlert
+                )
             }
-            return true
-        case .block:
-            clearAttemptedRequest(discardPendingBypasses: true)
-#if DEBUG
-            cmuxDebugLog(
-                "browser.nav.decidePolicy.action kind=blockUntrustedAuthCallback " +
-                "scheme=\(url.scheme ?? "nil")"
-            )
-#endif
-            decisionHandler(.cancel)
-            return true
-        }
+        )
     }
 
     private func restartNavigationForUserAgentPolicyIfNeeded(

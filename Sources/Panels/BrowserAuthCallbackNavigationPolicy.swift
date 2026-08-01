@@ -24,8 +24,9 @@ import WebKit
 ///   page, and that flow is always a user-activated main-frame link, so
 ///   anything else offering one is untrusted by construction and one
 ///   confirming click on a prompt must not hand attacker-chosen tokens to the
-///   app. Popup/new-window paths apply the same rule via
-///   ``shouldBlockExternalNavigation(_:)``.
+///   app. Existing popup delegates run the same disposition and delivery path;
+///   new-window creation paths, which cannot safely complete the flow, block
+///   callbacks via ``shouldBlockExternalNavigation(_:)``.
 /// - An accepted callback is delivered in-process through the app delegate's
 ///   auth handler, never through `NSWorkspace`/LaunchServices, so
 ///   the token-bearing URL cannot be routed to whatever app currently claims
@@ -84,11 +85,85 @@ struct BrowserAuthCallbackNavigationPolicy {
         return .deliverInApp
     }
 
-    /// Popup/new-window navigation paths cannot express the full disposition
-    /// (they create webviews rather than decide policies), so they apply the
-    /// blanket rule: an auth-callback-shaped URL must never reach the generic
-    /// external-app prompt. The legitimate flow is always a main-frame link
-    /// handled by ``disposition(for:url:)``.
+    /// Consumes a disposition with one lifecycle contract shared by main and
+    /// popup navigation delegates. Every consumed WebKit navigation is
+    /// cancelled and reported terminally before asynchronous auth work starts.
+    /// Delivery completion then receives the validated same-origin return URL,
+    /// whether sign-in succeeded or failed, so failures can return to a visible
+    /// signed-out retry state instead of leaving navigation bookkeeping open.
+    @discardableResult
+    func consume(
+        disposition: BrowserAuthCallbackNavigationDisposition,
+        callbackURL: URL,
+        sourcePageURL: URL?,
+        cancelNavigation: () -> Void,
+        reportTerminalCancellation: () -> Void,
+        deliver: @MainActor @escaping (URL) async -> Bool,
+        completion: @MainActor @escaping (Bool, URL?) -> Void
+    ) -> Bool {
+        switch disposition {
+        case .passThrough:
+            return false
+        case .block:
+            cancelNavigation()
+            reportTerminalCancellation()
+            return true
+        case .deliverInApp:
+            let returnURL = Self.webReturnURL(fromPageURL: sourcePageURL)
+            cancelNavigation()
+            reportTerminalCancellation()
+            Task { @MainActor in
+                completion(await deliver(callbackURL), returnURL)
+            }
+            return true
+        }
+    }
+
+    /// Completes a consumed callback consistently across browser surfaces.
+    /// Failed delivery presents a localized error, then returns to the signed-
+    /// out source page where the user can restart sign-in. Successful delivery
+    /// returns immediately so the refreshed plan state is visible.
+    static func finishDelivery(
+        delivered: Bool,
+        returnURL: URL?,
+        in webView: WKWebView,
+        prepareReturnRequest: @escaping @MainActor (URLRequest) -> Void,
+        presentAlert: BrowserAlertPresenter = browserPresentAlert,
+        loadRequest: @escaping @MainActor (URLRequest, WKWebView) -> Void = { request, webView in
+            _ = browserLoadRequest(request, in: webView)
+        }
+    ) {
+        let returnToSource: @MainActor () -> Void = { [weak webView] in
+            guard let webView, let returnURL else { return }
+            let request = URLRequest(url: returnURL)
+            prepareReturnRequest(request)
+            loadRequest(request, webView)
+        }
+
+        guard !delivered else {
+            returnToSource()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "account.signIn.error.unknown.title",
+            defaultValue: "Couldn\u{2019}t finish sign-in"
+        )
+        alert.informativeText = String(
+            localized: "account.signIn.notCompleted",
+            defaultValue: "Sign-in wasn\u{2019}t completed."
+        )
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        presentAlert(alert, webView, { _ in returnToSource() }, returnToSource)
+    }
+
+    /// New-window creation paths cannot express the full disposition because
+    /// they create webviews rather than decide policy for an existing one, so
+    /// an auth-callback-shaped URL must never reach their generic external-app
+    /// prompt. Existing main and popup navigation delegates use
+    /// ``disposition(for:url:)`` and ``consume(disposition:callbackURL:sourcePageURL:cancelNavigation:reportTerminalCancellation:deliver:completion:)``.
     static func shouldBlockExternalNavigation(_ url: URL) -> Bool {
         isAuthCallbackShapedURL(url)
     }
