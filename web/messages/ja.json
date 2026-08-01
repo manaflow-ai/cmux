@@ -1776,7 +1776,9 @@
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
           "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。",
-          "askWhereToSaveDownloads": "ブラウザのダウンロードを直接「ダウンロード」に保存せず、保存パネルを表示します。"
+          "askWhereToSaveDownloads": "ブラウザのダウンロードを直接「ダウンロード」に保存せず、保存パネルを表示します。",
+          "openTerminalLinksInCmuxBrowser": "クリックしたターミナル Web リンクを組み込みブラウザで開きます。false の場合、hostsToOpenInEmbeddedBrowser に含まれるホストも含め、すべてのターミナル Web リンクを外部で開きます。",
+          "hostsToOpenInEmbeddedBrowser": "openTerminalLinksInCmuxBrowser が true の場合に組み込みブラウザで開くホストの任意の許可リストです。false を上書きしません。空の場合はすべてのホストを許可します。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "グループ内で Cmd-N、グループヘッダーの + ボタン、設定済みグループアクションが新しいワークスペースを配置する場所のグローバル既定値です: `afterCurrent` (アクティブなグループ内ワークスペースの直後。ない場合は top)、`top` (アンカー直後の2番目の位置)、`end` (最後のメンバーの後)。",
