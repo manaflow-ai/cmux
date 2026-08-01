@@ -1238,6 +1238,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(self)
     }
 
+    /// Shared native auth callback entrypoint for LaunchServices and embedded
+    /// browser handoffs. The returned value reflects completed sign-in.
+    @MainActor
+    func handleAuthCallbackURLInProcess(_ url: URL) async -> Bool {
+        let callbackRouter = auth?.callbackRouter ?? AuthCallbackRouter()
+        guard callbackRouter.isAuthCallbackURL(url) else {
+            AuthDebugLog().log("auth.callback rejected: URL is not an accepted callback")
+            return false
+        }
+        guard let accountFlow = auth?.accountFlow else {
+            AuthDebugLog().log("auth.callback dropped: auth graph not configured yet")
+            return false
+        }
+
+        let signedIn = await accountFlow.handleCallbackURL(url)
+        guard signedIn else {
+            AuthDebugLog().log("auth.callback did not complete sign-in")
+            return false
+        }
+        await NativePricingPlanRefresh.refreshForProWelcomeChecklist()
+        return true
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         #if DEBUG
         AuthDebugLog().log("auth.openURLs.received count=\(urls.count) summaries=\(urls.map(Self.authURLDebugSummary).joined(separator: "|"))")
@@ -1256,17 +1279,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #if DEBUG
         AuthDebugLog().log("auth.openURLs.authCallbacks count=\(authCallbacks.count)")
         #endif
-        if let accountFlow = auth?.accountFlow {
-            for url in authCallbacks {
-                Task { @MainActor in
-                    let signedIn = await accountFlow.handleCallbackURL(url)
-                    if signedIn { await NativePricingPlanRefresh.refreshForProWelcomeChecklist() } else {
-                        AuthDebugLog().log("auth.callback did not complete sign-in")
-                    }
-                }
+        for url in authCallbacks {
+            Task { @MainActor in
+                _ = await handleAuthCallbackURLInProcess(url)
             }
-        } else if !authCallbacks.isEmpty {
-            AuthDebugLog().log("auth.callback dropped: auth graph not configured yet")
         }
 
         let externalFileURLs = externalOpenFileURLs(from: urls)
@@ -14199,7 +14215,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchesGhosttyGotoSplitFallback(event: event, route: .previous) {
+        // Pane focus cycling. `focusPreviousPane` / `focusNextPane` are the
+        // cmux-owned rebindable entries (default unbound). Ghostty's imported
+        // goto_split:previous/next triggers (⌘[ / ⌘] in Ghostty's macOS
+        // defaults) remain compatibility fallbacks that yield to any live
+        // configured shortcut (matchesGhosttyGotoSplitFallback), so a bound
+        // Focus Back/Forward keeps ⌘[ / ⌘] on global focus history.
+        if matchConfiguredShortcut(event: event, action: .focusPreviousPane) ||
+            matchesGhosttyGotoSplitFallback(event: event, route: .previous) {
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             let moved = routedTabs?.cyclePaneFocus(forward: false) ?? false
@@ -14215,7 +14238,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchesGhosttyGotoSplitFallback(event: event, route: .next) {
+        if matchConfiguredShortcut(event: event, action: .focusNextPane) ||
+            matchesGhosttyGotoSplitFallback(event: event, route: .next) {
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             let moved = routedTabs?.cyclePaneFocus(forward: true) ?? false

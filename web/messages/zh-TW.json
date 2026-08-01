@@ -3523,7 +3523,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "目前無法使用結算功能。請稍後再試。"
+    "billingUnavailable": "目前無法使用結算功能。請稍後再試。",
+    "signedOutNotice": "你尚未登入。登入後可查看目前方案或恢復既有購買。",
+    "signedOutSignIn": "登入"
   },
   "platforms": {
     "macos": "macOS",
