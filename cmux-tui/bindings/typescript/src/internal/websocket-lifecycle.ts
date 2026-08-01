@@ -153,7 +153,8 @@ export class WebSocketLifecycle {
 
   receiveError(event: unknown): void {
     if (this.terminal) return;
-    this.fail(webSocketEventError(event, this.createError));
+    void event;
+    this.fail(this.createError("WebSocket transport error"));
   }
 
   dispatch(
@@ -167,10 +168,8 @@ export class WebSocketLifecycle {
       onDispatched();
       this.socket.send(json);
       return "sent";
-    } catch (error) {
-      this.failAndClose(this.createError(
-        `WebSocket dispatch failed: ${errorMessage(error)}`,
-      ));
+    } catch {
+      this.failAndClose(this.createError("WebSocket dispatch failed"));
       return "failed";
     }
   }
@@ -181,10 +180,14 @@ export class WebSocketLifecycle {
     this.socket.close();
   }
 
-  finish(event?: WebSocketLifecycleCloseEvent): void {
+  finish(
+    eventOrCode?: WebSocketLifecycleCloseEvent | number,
+    rawReason?: unknown,
+  ): void {
     if (this.closed) return;
     this.closing = true;
     this.closed = true;
+    const event = normalizeCloseEvent(eventOrCode, rawReason);
     const callbacks: Array<() => void> = [this.clearPending];
     if (
       this.handshakeMode === "credential"
@@ -199,13 +202,23 @@ export class WebSocketLifecycle {
   }
 
   private sendPreamble(kind: "pairing" | "authentication", json: string): boolean {
+    if (utf8ByteLength(json) > this.maxPreauthenticationMessageBytes) {
+      this.failAndClose(
+        this.createError(
+          `WebSocket ${kind} preamble exceeds ${this.maxPreauthenticationMessageBytes} bytes`,
+        ),
+        1009,
+        "message too large",
+      );
+      return false;
+    }
     try {
       this.socket.send(json);
       return true;
-    } catch (error) {
-      this.failAndClose(this.createError(
-        `WebSocket ${kind} preamble failed: ${errorMessage(error)}`,
-      ));
+    } catch {
+      this.failAndClose(
+        this.createError(`WebSocket ${kind} preamble failed`),
+      );
       return false;
     }
   }
@@ -215,11 +228,11 @@ export class WebSocketLifecycle {
     try {
       value = parseWireJson(json);
     } catch {
-      this.fail(this.createError("WebSocket server sent invalid pairing data"));
+      this.failInvalidPairing();
       return;
     }
     if (!value || typeof value !== "object") {
-      this.fail(this.createError("WebSocket server sent invalid pairing data"));
+      this.failInvalidPairing();
       return;
     }
     const message = value as Record<string, unknown>;
@@ -242,15 +255,22 @@ export class WebSocketLifecycle {
       }
     }
     if (message.pairing_error && typeof message.pairing_error === "object") {
-      const pairingError = message.pairing_error as Record<string, unknown>;
-      this.fail(this.createError(
-        typeof pairingError.message === "string"
-          ? pairingError.message
-          : "Pairing failed",
-      ));
+      this.failAndClose(
+        this.createError("WebSocket pairing failed"),
+        1008,
+        "pairing failed",
+      );
       return;
     }
-    this.fail(this.createError("WebSocket server sent invalid pairing data"));
+    this.failInvalidPairing();
+  }
+
+  private failInvalidPairing(): void {
+    this.failAndClose(
+      this.createError("WebSocket server sent invalid pairing data"),
+      1002,
+      "invalid pairing data",
+    );
   }
 
   private fail(error: Error): void {
@@ -267,6 +287,32 @@ export class WebSocketLifecycle {
       () => this.socket.close(code, reason),
     ]);
   }
+}
+
+function normalizeCloseEvent(
+  eventOrCode: WebSocketLifecycleCloseEvent | number | undefined,
+  rawReason: unknown,
+): WebSocketLifecycleCloseEvent {
+  if (typeof eventOrCode === "number") {
+    return {
+      code: eventOrCode,
+      reason: decodeCloseReason(rawReason),
+    };
+  }
+  return eventOrCode ?? {};
+}
+
+function decodeCloseReason(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (value instanceof ArrayBuffer) {
+    return new TextDecoder().decode(new Uint8Array(value));
+  }
+  if (ArrayBuffer.isView(value)) {
+    return new TextDecoder().decode(
+      new Uint8Array(value.buffer, value.byteOffset, value.byteLength),
+    );
+  }
+  return undefined;
 }
 
 function pairingChallenge(value: unknown): WebSocketLifecycleChallenge | undefined {
@@ -306,24 +352,4 @@ function invokeCallbacks(callbacks: Iterable<() => void>): void {
     }
   }
   if (callbackThrew) throw callbackError;
-}
-
-function webSocketEventError(
-  event: unknown,
-  createError: (message: string) => Error,
-): Error {
-  if (event instanceof Error) return event;
-  if (
-    event
-    && typeof event === "object"
-    && "error" in event
-    && (event as { error?: unknown }).error instanceof Error
-  ) {
-    return (event as { error: Error }).error;
-  }
-  return createError("WebSocket transport error");
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

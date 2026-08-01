@@ -140,7 +140,9 @@ export class WebSocketTransport implements Transport {
     this.listen("open", () => this.lifecycle.open());
     this.listen("message", (event) => this.lifecycle.receive(event));
     this.listen("error", (event) => this.lifecycle.receiveError(event));
-    this.listen("close", (event) => this.lifecycle.finish(event));
+    this.listen("close", (event, reason) => {
+      this.lifecycle.finish(event, reason);
+    });
   }
 
   send(json: string): void {
@@ -213,7 +215,7 @@ export class WebSocketTransport implements Transport {
 
   private listen<K extends keyof WebSocketEventMap>(
     type: K,
-    handler: (event: WebSocketEventMap[K]) => void,
+    handler: (event: WebSocketEventMap[K], ...args: unknown[]) => void,
   ): void {
     if (this.socket.addEventListener) {
       this.socket.addEventListener(type, handler);
