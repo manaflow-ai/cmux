@@ -12,7 +12,7 @@ final class BrowserAppSessionStoreRegistry {
         ObjectIdentifier: BrowserAppSessionWeakReference<WKWebsiteDataStore>
     ] = [:]
     private var livePanels: [
-        ObjectIdentifier: BrowserAppSessionWeakReference<BrowserPanel>
+        ObjectIdentifier: BrowserAppSessionPanelOwnership
     ] = [:]
 
     init(
@@ -46,10 +46,14 @@ final class BrowserAppSessionStoreRegistry {
 
     func register(_ panel: BrowserPanel) {
         pruneReleasedOwnership()
-        guard liveStores[ObjectIdentifier(panel.websiteDataStore)]?.value != nil else {
+        let storeID = ObjectIdentifier(panel.websiteDataStore)
+        guard liveStores[storeID]?.value != nil else {
             return
         }
-        livePanels[ObjectIdentifier(panel)] = BrowserAppSessionWeakReference(panel)
+        livePanels[ObjectIdentifier(panel)] = BrowserAppSessionPanelOwnership(
+            panel: panel,
+            storeID: storeID
+        )
     }
 
     var hasOwnership: Bool {
@@ -59,9 +63,14 @@ final class BrowserAppSessionStoreRegistry {
 
     func panelsForCleanup() -> [BrowserPanel] {
         pruneReleasedOwnership()
-        return livePanels.values.compactMap(\.value).filter {
-            !$0.isClosingWebViewLifecycle
-                && liveStores[ObjectIdentifier($0.websiteDataStore)]?.value != nil
+        return livePanels.values.compactMap { ownership in
+            guard let panel = ownership.panel.value,
+                  !panel.isClosingWebViewLifecycle,
+                  ObjectIdentifier(panel.websiteDataStore) == ownership.storeID,
+                  liveStores[ownership.storeID]?.value != nil else {
+                return nil
+            }
+            return panel
         }
     }
 
@@ -94,16 +103,10 @@ final class BrowserAppSessionStoreRegistry {
 
     private func pruneReleasedOwnership() {
         liveStores = liveStores.filter { $0.value.value != nil }
-        // Panel ownership follows the exact authenticated store it was
-        // registered with. A sign-out replacement intentionally releases the
-        // panel association while the old store claim remains until cleanup.
-        livePanels = livePanels.filter { _, reference in
-            guard let panel = reference.value else { return false }
-            guard !panel.isClosingWebViewLifecycle else { return false }
-            return liveStores[
-                ObjectIdentifier(panel.websiteDataStore)
-            ]?.value != nil
-        }
+        // Mutable panel state is only a read-time cleanup filter. Retain the
+        // association until the panel deallocates so a transient close or
+        // replacement cannot permanently lose authenticated-store ownership.
+        livePanels = livePanels.filter { $0.value.panel.value != nil }
     }
 
     private static func legacyDefaultsKeys(
@@ -114,5 +117,15 @@ final class BrowserAppSessionStoreRegistry {
         defaults.dictionaryRepresentation().keys.filter {
             $0 != currentKey && $0.hasPrefix(prefix) && $0.count > prefix.count
         }
+    }
+}
+
+private struct BrowserAppSessionPanelOwnership {
+    let panel: BrowserAppSessionWeakReference<BrowserPanel>
+    let storeID: ObjectIdentifier
+
+    init(panel: BrowserPanel, storeID: ObjectIdentifier) {
+        self.panel = BrowserAppSessionWeakReference(panel)
+        self.storeID = storeID
     }
 }

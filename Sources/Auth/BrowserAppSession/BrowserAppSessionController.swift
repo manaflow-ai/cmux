@@ -9,6 +9,7 @@ import WebKit
 final class BrowserAppSessionController {
     static let appSessionWebsiteDataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
     private static let webKitCallbackTimeout: Duration = .seconds(5)
+    private static let maximumCleanupAttemptsPerOwnership = 2
 
     private let coordinator: AuthCoordinator
     private let handoff: BrowserAppSessionHandoff
@@ -17,8 +18,12 @@ final class BrowserAppSessionController {
     private let redirectDelegate: BrowserAppSessionRedirectRejectingDelegate
     private let session: URLSession
     private let storeRegistry: BrowserAppSessionStoreRegistry
+    private let clearWebsiteDataStore: @MainActor (
+        WKWebsiteDataStore
+    ) async -> BrowserAppSessionCallbackWaitOutcome
     private var generation: UInt64 = 0
     private var admission = BrowserAppSessionAdmission()
+    private var cleanupAttemptCount = 0
     private var activeTasks: [UUID: Task<BrowserAppSessionRequestOutcome, Never>] = [:]
     private var pendingCleanup: (
         id: UUID,
@@ -29,21 +34,29 @@ final class BrowserAppSessionController {
         coordinator: AuthCoordinator,
         webOrigin: URL,
         projectID: String,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        storeRegistry registryOverride: BrowserAppSessionStoreRegistry? = nil,
+        clearWebsiteDataStore: (@MainActor (
+            WKWebsiteDataStore
+        ) async -> BrowserAppSessionCallbackWaitOutcome)? = nil
     ) {
         self.coordinator = coordinator
         handoff = BrowserAppSessionHandoff(webOrigin: webOrigin)
         self.projectID = projectID
-        environment = BrowserAppSessionEnvironment(
+        let environment = BrowserAppSessionEnvironment(
             webOrigin: webOrigin,
             projectID: projectID
         )
-        storeRegistry = BrowserAppSessionStoreRegistry(
+        self.environment = environment
+        storeRegistry = registryOverride ?? BrowserAppSessionStoreRegistry(
             defaults: defaults,
             defaultsKey: "cmux.auth.browserAppSessionStores.v2",
             environment: environment,
             legacyDefaultsKeyPrefix: "cmux.auth.browserAppSessionStores."
         )
+        self.clearWebsiteDataStore = clearWebsiteDataStore ?? { store in
+            await Self.removeAppSessionWebsiteData(from: store)
+        }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
@@ -157,6 +170,9 @@ final class BrowserAppSessionController {
     func clearCmuxWebSession() async {
         beginAuthTransition()
         _ = await awaitPendingCleanup()
+        // A failed physical deletion does not keep the user signed in: live
+        // panels already point at fresh stores and admission stays closed while
+        // the old store remains owned. A later app-link request gets one retry.
     }
 
     private var currentAuthOwner: BrowserAppSessionAuthOwner? {
@@ -171,7 +187,11 @@ final class BrowserAppSessionController {
     }
 
     private func startCleanupIfNeeded() {
-        guard pendingCleanup == nil else { return }
+        guard pendingCleanup == nil,
+              cleanupAttemptCount < Self.maximumCleanupAttemptsPerOwnership else {
+            return
+        }
+        cleanupAttemptCount += 1
         let id = UUID()
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -185,13 +205,18 @@ final class BrowserAppSessionController {
            pendingCleanup == nil,
            storeRegistry.hasOwnership {
             startCleanupIfNeeded()
+            guard pendingCleanup != nil else { return false }
         }
         guard let cleanup = pendingCleanup else { return true }
         await cleanup.task.value
         if pendingCleanup?.id == cleanup.id {
             pendingCleanup = nil
         }
-        return !storeRegistry.hasOwnership
+        let hasOwnership = storeRegistry.hasOwnership
+        if !hasOwnership {
+            cleanupAttemptCount = 0
+        }
+        return !hasOwnership
     }
 
     private func performCleanup() async {
@@ -212,7 +237,7 @@ final class BrowserAppSessionController {
         let targets = storeRegistry.allEnvironmentStoresForCleanup()
         var cleanupCompleted = true
         for target in targets {
-            let outcome = await clearCmuxWebSession(in: target.store)
+            let outcome = await clearWebsiteDataStore(target.store)
             if outcome != .completed {
                 cleanupCompleted = false
             }
@@ -270,7 +295,7 @@ final class BrowserAppSessionController {
         }
 
         storeRegistry.register(websiteDataStore)
-        let clearOutcome = await clearCmuxWebSession(in: websiteDataStore)
+        let clearOutcome = await clearWebsiteDataStore(websiteDataStore)
         guard clearOutcome == .completed else {
             return clearOutcome == .cancelled ? .cancelled : .transientFailure
         }
@@ -315,8 +340,8 @@ final class BrowserAppSessionController {
             && authSessionGeneration == coordinator.authSessionGeneration
     }
 
-    private func clearCmuxWebSession(
-        in store: WKWebsiteDataStore
+    private static func removeAppSessionWebsiteData(
+        from store: WKWebsiteDataStore
     ) async -> BrowserAppSessionCallbackWaitOutcome {
         await awaitBrowserAppSessionCallback(
             timeout: Self.webKitCallbackTimeout

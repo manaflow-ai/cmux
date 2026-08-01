@@ -99,40 +99,7 @@ struct BrowserWebContentProcessTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let client = BrowserAppSessionRestoredSessionAuthClient()
-        let coordinator = AuthCoordinator(
-            client: client,
-            sessionCache: CMUXAuthSessionCache(
-                keyValueStore: defaults,
-                key: "auth-session"
-            ),
-            userCache: CMUXAuthIdentityStore(
-                keyValueStore: defaults,
-                key: "auth-user"
-            ),
-            teamSelection: CMUXAuthTeamSelectionStore(
-                keyValueStore: defaults,
-                key: "auth-team"
-            ),
-            anchor: AuthPresentationContextProvider(),
-            config: AuthConfig(
-                stack: CMUXAuthConfig(
-                    projectId: "project-a",
-                    publishableClientKey: "publishable-a"
-                ),
-                magicLinkCallbackURL: "http://127.0.0.1:1/auth/callback",
-                apiBaseURL: "http://127.0.0.1:1"
-            ),
-            launch: AuthLaunchOptions(
-                clearAuthRequested: false,
-                mockDataEnabled: false,
-                environment: [
-                    "CMUX_UITEST_AUTH_FIXTURE": "1",
-                    "CMUX_UITEST_AUTH_USER_ID": "restored-account",
-                ],
-                includesDevAuth: true
-            )
-        )
+        let coordinator = makeRestoredSessionCoordinator(defaults: defaults)
         coordinator.start()
         let controller = BrowserAppSessionController(
             coordinator: coordinator,
@@ -146,6 +113,49 @@ struct BrowserWebContentProcessTests {
         )
 
         #expect(outcome.shouldRetry)
+    }
+
+    @Test
+    func browserAppSessionCleanupFailureRetainsOwnershipAndBoundsRetries() async throws {
+        let suiteName = "BrowserAppSessionFailedCleanupTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = makeRestoredSessionCoordinator(defaults: defaults)
+        coordinator.start()
+        let environment = BrowserAppSessionEnvironment(
+            webOrigin: URL(string: "http://127.0.0.1:1")!,
+            projectID: "project-a"
+        )
+        let registry = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "failed-cleanup-stores",
+            environment: environment
+        )
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        registry.register(websiteDataStore)
+        var cleanupAttemptCount = 0
+        let controller = BrowserAppSessionController(
+            coordinator: coordinator,
+            webOrigin: environment.webOrigin,
+            projectID: environment.projectID,
+            defaults: defaults,
+            storeRegistry: registry,
+            clearWebsiteDataStore: { _ in
+                cleanupAttemptCount += 1
+                return .timedOut
+            }
+        )
+
+        for _ in 0..<3 {
+            let outcome = await controller.request(
+                destinationURL: URL(string: "http://127.0.0.1:1/dashboard")!
+            )
+            #expect(outcome.shouldRetry)
+        }
+
+        #expect(cleanupAttemptCount == 2)
+        #expect(registry.hasOwnership)
     }
 
     @Test
@@ -1117,6 +1127,44 @@ struct BrowserWebContentProcessTests {
         #expect(popupWebView.uiDelegate == nil)
         #expect(popupWebView.window == nil)
         #expect(!popupWindow.isVisible)
+    }
+
+    private func makeRestoredSessionCoordinator(
+        defaults: UserDefaults
+    ) -> AuthCoordinator {
+        AuthCoordinator(
+            client: BrowserAppSessionRestoredSessionAuthClient(),
+            sessionCache: CMUXAuthSessionCache(
+                keyValueStore: defaults,
+                key: "auth-session"
+            ),
+            userCache: CMUXAuthIdentityStore(
+                keyValueStore: defaults,
+                key: "auth-user"
+            ),
+            teamSelection: CMUXAuthTeamSelectionStore(
+                keyValueStore: defaults,
+                key: "auth-team"
+            ),
+            anchor: AuthPresentationContextProvider(),
+            config: AuthConfig(
+                stack: CMUXAuthConfig(
+                    projectId: "project-a",
+                    publishableClientKey: "publishable-a"
+                ),
+                magicLinkCallbackURL: "http://127.0.0.1:1/auth/callback",
+                apiBaseURL: "http://127.0.0.1:1"
+            ),
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false,
+                mockDataEnabled: false,
+                environment: [
+                    "CMUX_UITEST_AUTH_FIXTURE": "1",
+                    "CMUX_UITEST_AUTH_USER_ID": "restored-account",
+                ],
+                includesDevAuth: true
+            )
+        )
     }
 }
 
