@@ -554,6 +554,15 @@ mod tests {
         token: &WorkspaceHttpBearerToken,
         request_id: u128,
     ) -> Vec<u8> {
+        raw_capabilities_request_with_connection(address, token, request_id, "close")
+    }
+
+    fn raw_capabilities_request_with_connection(
+        address: SocketAddr,
+        token: &WorkspaceHttpBearerToken,
+        request_id: u128,
+        connection: &str,
+    ) -> Vec<u8> {
         let rpc = RpcRequest {
             id: RequestId::from_u128(request_id),
             timeout_ms: None,
@@ -561,13 +570,36 @@ mod tests {
         };
         let body = serde_json::to_vec(&rpc).unwrap();
         let mut request = format!(
-            "POST /v1/workspace-rpc HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "POST /v1/workspace-rpc HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: {connection}\r\n\r\n",
             token.0.as_str(),
             body.len()
         )
         .into_bytes();
         request.extend_from_slice(&body);
         request
+    }
+
+    async fn read_raw_http_response(connection: &mut TcpStream) -> Vec<u8> {
+        let mut response = Vec::new();
+        loop {
+            let header_end = response.windows(4).position(|bytes| bytes == b"\r\n\r\n");
+            if let Some(header_end) = header_end {
+                let headers = std::str::from_utf8(&response[..header_end]).unwrap();
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().unwrap())
+                    })
+                    .expect("raw HTTP response omitted Content-Length");
+                if response.len() >= header_end + 4 + content_length {
+                    return response;
+                }
+            }
+            let read = connection.read_buf(&mut response).await.unwrap();
+            assert_ne!(read, 0, "HTTP connection closed before its response completed");
+        }
     }
 
     #[tokio::test]
@@ -708,7 +740,7 @@ mod tests {
         let limits = WorkspaceHttpAdmissionLimits {
             maximum_connections: 1,
             header_timeout: Duration::from_secs(2),
-            maximum_header_bytes: 512,
+            maximum_header_bytes: 8 * 1024,
         };
         let server = serve_workspace_http_with_limits(
             WorkspaceService::new(),
@@ -754,5 +786,133 @@ mod tests {
             .unwrap();
         assert!(String::from_utf8(response).unwrap().starts_with("HTTP/1.1 200 OK"));
         server.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn partial_second_keep_alive_header_expires_and_releases_admission() {
+        let directory = tempdir().unwrap();
+        let limits = WorkspaceHttpAdmissionLimits {
+            maximum_connections: 1,
+            header_timeout: Duration::from_millis(200),
+            maximum_header_bytes: MAX_HTTP_HEADER_BYTES,
+        };
+        let server = serve_workspace_http_with_limits(
+            WorkspaceService::new(),
+            "127.0.0.1:0".parse().unwrap(),
+            directory.path().join("token"),
+            limits,
+        )
+        .await
+        .unwrap();
+        let address = server.local_addr();
+        let token = read_workspace_http_token(server.token_file()).unwrap();
+        let mut keep_alive = TcpStream::connect(address).await.unwrap();
+        keep_alive
+            .write_all(&raw_capabilities_request_with_connection(address, &token, 4, "keep-alive"))
+            .await
+            .unwrap();
+        let response = read_raw_http_response(&mut keep_alive).await;
+        assert!(String::from_utf8(response).unwrap().starts_with("HTTP/1.1 200 OK"));
+
+        keep_alive.write_all(b"POST /v1/workspace-rpc HTTP/1.1\r\nHost:").await.unwrap();
+        let mut first_byte = [0_u8; 1];
+        let expired =
+            tokio::time::timeout(Duration::from_secs(2), keep_alive.read(&mut first_byte))
+                .await
+                .expect("the second keep-alive header had no deadline");
+        assert!(matches!(expired, Ok(0) | Err(_)), "partial second header remained open");
+
+        let mut replacement = TcpStream::connect(address).await.unwrap();
+        replacement.write_all(&raw_capabilities_request(address, &token, 5)).await.unwrap();
+        let mut response = Vec::new();
+        tokio::time::timeout(Duration::from_secs(2), replacement.read_to_end(&mut response))
+            .await
+            .expect("expired keep-alive connection retained its admission permit")
+            .unwrap();
+        assert!(String::from_utf8(response).unwrap().starts_with("HTTP/1.1 200 OK"));
+        server.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn stalled_declared_request_body_expires_and_releases_admission() {
+        let directory = tempdir().unwrap();
+        let limits = WorkspaceHttpAdmissionLimits {
+            maximum_connections: 1,
+            header_timeout: Duration::from_millis(200),
+            maximum_header_bytes: MAX_HTTP_HEADER_BYTES,
+        };
+        let server = serve_workspace_http_with_limits(
+            WorkspaceService::new(),
+            "127.0.0.1:0".parse().unwrap(),
+            directory.path().join("token"),
+            limits,
+        )
+        .await
+        .unwrap();
+        let address = server.local_addr();
+        let token = read_workspace_http_token(server.token_file()).unwrap();
+        let mut stalled = TcpStream::connect(address).await.unwrap();
+        stalled
+            .write_all(
+                format!(
+                    "POST /v1/workspace-rpc HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{{",
+                    token.0.as_str()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut response = Vec::new();
+        tokio::time::timeout(Duration::from_secs(2), stalled.read_to_end(&mut response))
+            .await
+            .expect("declared request body had no idle deadline")
+            .unwrap();
+
+        let mut replacement = TcpStream::connect(address).await.unwrap();
+        replacement.write_all(&raw_capabilities_request(address, &token, 6)).await.unwrap();
+        let mut response = Vec::new();
+        tokio::time::timeout(Duration::from_secs(2), replacement.read_to_end(&mut response))
+            .await
+            .expect("stalled body retained its admission permit")
+            .unwrap();
+        assert!(String::from_utf8(response).unwrap().starts_with("HTTP/1.1 200 OK"));
+        server.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn workspace_http_shutdown_is_bounded_with_a_stalled_request() {
+        let directory = tempdir().unwrap();
+        let limits = WorkspaceHttpAdmissionLimits {
+            maximum_connections: 1,
+            header_timeout: Duration::from_millis(100),
+            maximum_header_bytes: MAX_HTTP_HEADER_BYTES,
+        };
+        let server = serve_workspace_http_with_limits(
+            WorkspaceService::new(),
+            "127.0.0.1:0".parse().unwrap(),
+            directory.path().join("token"),
+            limits,
+        )
+        .await
+        .unwrap();
+        let address = server.local_addr();
+        let token = read_workspace_http_token(server.token_file()).unwrap();
+        let mut stalled = TcpStream::connect(address).await.unwrap();
+        stalled
+            .write_all(
+                format!(
+                    "POST /v1/workspace-rpc HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{{",
+                    token.0.as_str()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        tokio::time::timeout(Duration::from_secs(1), server.shutdown())
+            .await
+            .expect("workspace HTTP graceful shutdown was unbounded")
+            .unwrap();
     }
 }

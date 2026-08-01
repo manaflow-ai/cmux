@@ -2272,6 +2272,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn successful_multi_link_admission_does_not_retain_its_expiry_task() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "completed-expiry", false).unwrap();
+        let identity = StaticIdentity::generate().unwrap();
+        enroll_test_device(&auth, &identity).await;
+        let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let metrics = tokio::runtime::Handle::current().metrics();
+
+        let (connection, links) = connect_enrolled_lane_partition(
+            &daemon,
+            &mut accepted,
+            &identity,
+            SessionId([31; 16]),
+            ConnectionAttemptId([31; 16]),
+            Lane::ALL.into_iter().map(|lane| vec![lane]).collect(),
+        )
+        .await;
+        tokio::time::pause();
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        assert!(daemon.state.lock().await.pending.is_empty());
+        let tasks_after_admission = metrics.num_alive_tasks();
+
+        tokio::time::advance(PENDING_LINK_TTL + Duration::from_secs(1)).await;
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(
+            metrics.num_alive_tasks(),
+            tasks_after_admission,
+            "successful admission retained its detached expiry timer"
+        );
+        drop(links);
+        drop(connection);
+    }
+
+    #[tokio::test]
     async fn stale_partial_lane_group_does_not_poison_next_connection_attempt() {
         let directory = tempdir().unwrap();
         let auth = AuthDatabase::load_or_create(directory.path(), "partial-startup", true).unwrap();
