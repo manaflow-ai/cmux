@@ -5,6 +5,13 @@ prefixed string IDs, tagged selectors, typed snapshots, explicit mutation
 receipts, structured errors, and cancellable streams. It supports Python 3.9+
 with no runtime dependencies.
 
+Install the `cmux-sdk` distribution. The Python import remains `cmux`, so it
+does not overlap the `uvx cmux` CLI distribution:
+
+```bash
+python -m pip install cmux-sdk
+```
+
 ```python
 from cmux import Client, SessionId, WorkspaceId, exact
 from cmux.options import RunOptions

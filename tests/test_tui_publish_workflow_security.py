@@ -65,6 +65,13 @@ def test_sdk_release_cut_dispatches_only_the_selected_four_languages() -> None:
     for publisher in ("crates", "go", "npm", "python"):
         assert f"gh workflow run sdk-publish-{publisher}.yml" in release
     assert "sdk-publish-java.yml" not in release
+    for publisher in ("crates", "npm", "python"):
+        command = next(
+            line
+            for line in release.splitlines()
+            if f"gh workflow run sdk-publish-{publisher}.yml" in line
+        )
+        assert "-f confirm_publish=true" in command
 
 
 def test_go_publisher_uses_the_nested_module_semver_tag() -> None:

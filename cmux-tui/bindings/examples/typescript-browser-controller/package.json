@@ -22,7 +22,7 @@
     "demo": "node dist/src/node-demo.js"
   },
   "dependencies": {
-    "cmux": "file:../../typescript"
+    "cmux-sdk": "file:../../typescript"
   },
   "devDependencies": {
     "@types/node": "20.19.25",

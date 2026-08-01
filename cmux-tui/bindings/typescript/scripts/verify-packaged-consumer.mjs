@@ -68,10 +68,10 @@ import {
   type Terminal,
   type TerminalWaitExitResult,
   type Transport,
-} from "cmux";
-import { WebSocketTransport } from "cmux/browser";
-import { NodeClient } from "cmux/node";
-import { CmuxClient, COMMAND_METADATA } from "cmux/raw";
+} from "cmux-sdk";
+import { WebSocketTransport } from "cmux-sdk/browser";
+import { NodeClient } from "cmux-sdk/node";
+import { CmuxClient, COMMAND_METADATA } from "cmux-sdk/raw";
 
 declare const transport: Transport;
 const client = new Client({ transport, timeoutMs: 5_000 });
@@ -166,9 +166,9 @@ void write;
     stdio: "inherit",
   });
 
-  const installedRoot = join(consumer, "node_modules/cmux");
+  const installedRoot = join(consumer, "node_modules/cmux-sdk");
   const installed = JSON.parse(readFileSync(join(installedRoot, "package.json"), "utf8"));
-  assert.equal(installed.name, "cmux");
+  assert.equal(installed.name, "cmux-sdk");
   assert.deepEqual(installed.dependencies ?? {}, {});
   assert.deepEqual(Object.keys(installed.exports).sort(), [".", "./browser", "./node", "./raw"]);
 
@@ -184,10 +184,10 @@ void write;
     "--input-type=module",
     "--eval",
     `Promise.all([
-      import("cmux"),
-      import("cmux/browser"),
-      import("cmux/node"),
-      import("cmux/raw"),
+      import("cmux-sdk"),
+      import("cmux-sdk/browser"),
+      import("cmux-sdk/node"),
+      import("cmux-sdk/raw"),
     ]).then(([root, browser, node, raw]) => process.stdout.write([
       typeof root.Client,
       typeof browser.WebSocketTransport,

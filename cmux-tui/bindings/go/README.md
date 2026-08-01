@@ -3,6 +3,12 @@
 Package `cmux` exposes the typed `cmux.protocol/1` resource API. Package
 `cmux/raw` preserves the legacy protocol-v10 API.
 
+Install the released nested module with its semantic-version tag:
+
+```bash
+go get github.com/manaflow-ai/cmux/cmux-tui/bindings/go@v1.0.0
+```
+
 ```go
 client, err := cmux.NewClient(ctx, cmux.ClientOptions{})
 if err != nil {

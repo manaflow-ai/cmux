@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   type WebSocketConstructor,
   type WebSocketLike,
-} from "cmux/browser";
+} from "cmux-sdk/browser";
 import { createWebSocketBrowserController } from "../src/index.js";
 
 class ServerWebSocket implements WebSocketLike {

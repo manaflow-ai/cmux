@@ -176,7 +176,7 @@ jobs:
           distribution = next(
               item
               for item in importlib.metadata.distributions(path=[str(package)])
-              if item.metadata["Name"] == "cmux"
+              if item.metadata["Name"] == "cmux-sdk"
           )
           assert not distribution.requires
           PY

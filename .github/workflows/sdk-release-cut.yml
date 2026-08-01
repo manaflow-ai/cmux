@@ -1,0 +1,130 @@
+name: sdk release cut
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Four-language SDK version to publish, for example 1.0.0"
+        required: true
+        type: string
+      confirm_publish:
+        description: "Create release tags and dispatch all four publishers"
+        required: true
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: sdk-release-cut
+  cancel-in-progress: false
+
+jobs:
+  cut-and-dispatch:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Require explicit publish confirmation
+        if: inputs.confirm_publish != true
+        run: |
+          echo "Refusing to publish SDKs without confirm_publish=true." >&2
+          exit 1
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: true
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Validate protected main and create release tags
+        id: release
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "Dispatch sdk-release-cut.yml from main, found $GITHUB_REF." >&2
+            exit 1
+          }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "version must match X.Y.Z" >&2
+            exit 1
+          }
+
+          git fetch --force origin main --tags
+          main_sha="$(git rev-parse origin/main)"
+          [[ "$GITHUB_SHA" == "$main_sha" ]] || {
+            echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
+            exit 1
+          }
+
+          python3 cmux-tui/bindings/check-versions.py \
+            --published-only \
+            --expected "$VERSION"
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import tomllib
+
+          root = pathlib.Path.cwd() / "cmux-tui" / "bindings"
+          npm_name = json.loads(
+              (root / "typescript" / "package.json").read_text()
+          )["name"]
+          pypi_name = tomllib.loads(
+              (root / "python" / "pyproject.toml").read_text()
+          )["project"]["name"]
+          if npm_name != "cmux-sdk" or pypi_name != "cmux-sdk":
+              raise SystemExit(
+                  f"SDK registry names must both be cmux-sdk, got {npm_name!r} and {pypi_name!r}"
+              )
+          PY
+
+          sdk_tag="cmux-sdk-v$VERSION"
+          go_tag="cmux-tui/bindings/go/v$VERSION"
+          for tag in "$sdk_tag" "$go_tag"; do
+            if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              echo "release tag already exists: $tag" >&2
+              exit 1
+            fi
+          done
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$sdk_tag" -m "cmux SDK $VERSION"
+          git tag -a "$go_tag" -m "cmux Go SDK $VERSION"
+          git push --atomic origin "refs/tags/$sdk_tag" "refs/tags/$go_tag"
+
+          {
+            echo "version=$VERSION"
+            echo "sdk_tag=$sdk_tag"
+            echo "go_tag=$go_tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch verified publishers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+          SDK_TAG: ${{ steps.release.outputs.sdk_tag }}
+          GO_TAG: ${{ steps.release.outputs.go_tag }}
+        run: |
+          set -euo pipefail
+          gh workflow run sdk-publish-crates.yml --repo "$GITHUB_REPOSITORY" --ref "$SDK_TAG" -f version="$VERSION" -f confirm_publish=true
+          gh workflow run sdk-publish-go.yml --repo "$GITHUB_REPOSITORY" --ref "$GO_TAG" -f version="$VERSION"
+          gh workflow run sdk-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$SDK_TAG" -f version="$VERSION" -f confirm_publish=true
+          gh workflow run sdk-publish-python.yml --repo "$GITHUB_REPOSITORY" --ref "$SDK_TAG" -f version="$VERSION" -f confirm_publish=true
+
+      - name: Summarize release
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          SDK_TAG: ${{ steps.release.outputs.sdk_tag }}
+          GO_TAG: ${{ steps.release.outputs.go_tag }}
+        run: |
+          {
+            echo "### cmux SDK $VERSION"
+            echo
+            echo "- Rust, TypeScript, and Python ref: \`$SDK_TAG\`"
+            echo "- Go module ref: \`$GO_TAG\`"
+            echo "- Dispatched: crates.io, Go module verification, npm, PyPI"
+          } >> "$GITHUB_STEP_SUMMARY"

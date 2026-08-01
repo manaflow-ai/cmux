@@ -68,7 +68,7 @@ class CheckVersionsTests(unittest.TestCase):
         files = {
             "typescript/package.json": f'{{"version": "{release_version}"}}',
             "python/pyproject.toml": (
-                f'[project]\nname = "cmux"\nversion = "{release_version}"\n'
+                f'[project]\nname = "cmux-sdk"\nversion = "{release_version}"\n'
             ),
             "rust/Cargo.toml": (
                 f'[package]\nname = "cmux-client"\nversion = "{release_version}"\n'

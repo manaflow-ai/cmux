@@ -3,7 +3,6 @@ name: sdk publish npm
 on:
   push:
     tags:
-      - "mux-sdk-v*"
       - "cmux-sdk-v*"
   workflow_dispatch:
     inputs:
@@ -11,8 +10,8 @@ on:
         description: "SDK version to validate/publish, for example 0.1.0"
         required: true
         type: string
-      confirm_npm_cmux:
-        description: "Set true only for the coordinated npm cmux SDK publish"
+      confirm_publish:
+        description: "Publish cmux-sdk after validation"
         required: true
         default: false
         type: boolean
@@ -45,13 +44,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            [[ "$GITHUB_REF_NAME" =~ ^(mux|cmux)-sdk-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-              echo "tag must match mux-sdk-vX.Y.Z or cmux-sdk-vX.Y.Z" >&2
+            [[ "$GITHUB_REF_NAME" =~ ^cmux-sdk-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "tag must match cmux-sdk-vX.Y.Z" >&2
               exit 1
             }
-            version="$GITHUB_REF_NAME"
-            version="${version#mux-sdk-v}"
-            version="${version#cmux-sdk-v}"
+            version="${GITHUB_REF_NAME#cmux-sdk-v}"
           else
             version="$DISPATCH_VERSION"
             [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -79,7 +76,9 @@ jobs:
               raise SystemExit(1)
           print(f"All package versions match {expected}")
           PY
-          python3 cmux-tui/bindings/check-versions.py --expected "$version"
+          python3 cmux-tui/bindings/check-versions.py \
+            --published-only \
+            --expected "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   bindings-e2e-typescript:
@@ -119,7 +118,9 @@ jobs:
 
       - name: Install TypeScript adapter dependencies
         working-directory: cmux-tui/bindings/typescript
-        run: npm ci --no-audit --no-fund
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
 
       - name: Build cmux-tui server
         working-directory: cmux-tui
@@ -138,10 +139,7 @@ jobs:
           grep -Eq '^PASS +typescript +live-creation-exit-restart-websocket$' "$report"
 
   publish:
-    # The npm package name "cmux" is currently a different live package
-    # (the cloud-VM CLI). Publishing the SDK there is a coordinated breaking
-    # action, so tag pushes never publish to npm and manual runs must opt in.
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' || inputs.confirm_publish == true
     needs: bindings-e2e-typescript
     # npm --provenance rejects self-hosted runners; the attestation is only
     # verifiable from a GitHub-hosted runner. This one publish job must stay on
@@ -152,14 +150,8 @@ jobs:
       id-token: write
     environment:
       name: npm
-      url: https://www.npmjs.com/package/cmux
+      url: https://www.npmjs.com/package/cmux-sdk
     steps:
-      - name: Require npm cmux confirmation
-        if: inputs.confirm_npm_cmux != true
-        run: |
-          echo "Refusing to publish npm package cmux without confirm_npm_cmux=true." >&2
-          exit 1
-
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -170,22 +162,19 @@ jobs:
           node-version: "22.14.0"
           registry-url: https://registry.npmjs.org
 
-      - name: Upgrade npm for OIDC trusted publishing
+      - name: Install npm with OIDC trusted publishing support
         # Node 22 bundles npm 10, which signs provenance but cannot
         # authenticate the publish via OIDC trusted publishing (the PUT is
         # unauthenticated and 404s). npm >= 11.5.1 performs the OIDC token
         # exchange for the publish itself.
-        run: npm install -g npm@^11.5.1
+        run: npm install -g npm@11.5.1
 
-      - name: Build package
+      - name: Build and test package
         working-directory: cmux-tui/bindings/typescript
         run: |
           npm ci --no-audit --no-fund
-          npm run build
+          npm test
 
       - name: Publish package to npm
         working-directory: cmux-tui/bindings/typescript
-        # The npm `cmux` name still serves the cloud-VM CLI on the `latest`
-        # dist-tag (0.8.3). The SDK ships on its own `sdk` tag so installing
-        # bare `cmux` keeps resolving the CLI; use `npm i cmux@sdk` for the SDK.
-        run: npm publish --provenance --tag sdk
+        run: npm publish --provenance

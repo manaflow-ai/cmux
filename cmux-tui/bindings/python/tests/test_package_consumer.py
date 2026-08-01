@@ -60,7 +60,7 @@ class PackagedConsumerTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            wheel = next(wheels.glob("cmux-*.whl"))
+            wheel = next(wheels.glob("cmux_sdk-*.whl"))
             subprocess.run(
                 [
                     builder,
@@ -84,6 +84,8 @@ class PackagedConsumerTests(unittest.TestCase):
                     "-c",
                     (
                         "import cmux, cmux.raw, cmux.raw._generated;"
+                        "from importlib.metadata import version;"
+                        "assert version('cmux-sdk') == '1.0.0';"
                         "assert hasattr(cmux, 'Client');"
                         "assert hasattr(cmux, 'ConfirmationRequiredDetails');"
                         "assert hasattr(cmux, 'ConfirmationRequiredError');"

@@ -3,7 +3,6 @@ name: sdk publish python
 on:
   push:
     tags:
-      - "mux-sdk-v*"
       - "cmux-sdk-v*"
   workflow_dispatch:
     inputs:
@@ -11,6 +10,11 @@ on:
         description: "SDK version to validate/publish, for example 0.1.0"
         required: true
         type: string
+      confirm_publish:
+        description: "Publish cmux-sdk after validation"
+        required: true
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -40,13 +44,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            [[ "$GITHUB_REF_NAME" =~ ^(mux|cmux)-sdk-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-              echo "tag must match mux-sdk-vX.Y.Z or cmux-sdk-vX.Y.Z" >&2
+            [[ "$GITHUB_REF_NAME" =~ ^cmux-sdk-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "tag must match cmux-sdk-vX.Y.Z" >&2
               exit 1
             }
-            version="$GITHUB_REF_NAME"
-            version="${version#mux-sdk-v}"
-            version="${version#cmux-sdk-v}"
+            version="${GITHUB_REF_NAME#cmux-sdk-v}"
           else
             version="$DISPATCH_VERSION"
             [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -74,7 +76,9 @@ jobs:
               raise SystemExit(1)
           print(f"All package versions match {expected}")
           PY
-          python3 cmux-tui/bindings/check-versions.py --expected "$version"
+          python3 cmux-tui/bindings/check-versions.py \
+            --published-only \
+            --expected "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   bindings-e2e-python:
@@ -108,6 +112,10 @@ jobs:
       - name: Build cmux-tui server
         working-directory: cmux-tui
         run: cargo build -p cmux-tui --bin cmux-tui --locked
+
+      - name: Test Python SDK package
+        working-directory: cmux-tui/bindings/python
+        run: PYTHONPATH=. python3 -m unittest discover -s tests -v
 
       - name: Python SDK conformance
         run: |
@@ -143,6 +151,7 @@ jobs:
           if-no-files-found: error
 
   publish:
+    if: github.event_name == 'push' || inputs.confirm_publish == true
     needs: build
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
@@ -150,7 +159,7 @@ jobs:
       id-token: write
     environment:
       name: pypi
-      url: https://pypi.org/p/cmux
+      url: https://pypi.org/p/cmux-sdk
     steps:
       - name: Download distributions
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

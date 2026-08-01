@@ -1,97 +1,100 @@
-# cmux-tui SDK releases
+# cmux SDK releases
 
-The cmux-tui SDKs share one version and one going-forward tag:
+The public release set contains four language packages at one version:
+
+| Language | Distribution | Release ref |
+| --- | --- | --- |
+| Rust | crates.io `cmux-client` and `cmux-sidebar` | `cmux-sdk-vX.Y.Z` |
+| Go | module `github.com/manaflow-ai/cmux/cmux-tui/bindings/go` | `cmux-tui/bindings/go/vX.Y.Z` |
+| TypeScript | npm `cmux-sdk` | `cmux-sdk-vX.Y.Z` |
+| Python | PyPI `cmux-sdk` with import package `cmux` | `cmux-sdk-vX.Y.Z` |
+
+Java, C++, and Zig remain source bindings with package and conformance tests.
+Their metadata does not gate these four releases.
+
+## CLI package isolation
+
+The npm and PyPI names `cmux` belong exclusively to the prebuilt TUI launcher.
+`npx cmux` and `uvx cmux` therefore keep installing the CLI. SDK consumers use:
 
 ```bash
-cmux-sdk-vX.Y.Z
+npm install cmux-sdk
+python -m pip install cmux-sdk
 ```
 
-Historical releases used `mux-sdk-vX.Y.Z`; the publish workflows still accept
-that prefix so old release history remains connected. These tags are separate
-from app release tags such as `vX.Y.Z`. Current SDK package versions are
-`1.0.0`.
-
-## Support matrix
-
-| SDK | Minimum toolchain/runtime | Runtime dependencies | Distribution |
-| --- | --- | --- | --- |
-| TypeScript | Node.js 20; browser ESM for the browser entry | none | npm package |
-| Python | CPython 3.9 | none | PyPI wheel and source distribution |
-| Rust | Rust 1.88 | base: `base64`, `getrandom`, `libc`, `serde`, `serde_json`; sidebar: `crossterm`, `ratatui`, `serde_json` | crates.io crates `cmux-client` and `cmux-sidebar` |
-| Go | Go 1.22 | standard library only | Go module tag |
-| Java | Java 17 | standard library only | Maven artifact |
-| C++ | C++20 and CMake 3.20 | standard library and platform socket APIs | installable CMake package |
-| Zig | Zig 0.15.2 | standard library only | source package |
-
-All packages target mux protocol 10 and expose the same 91 commands and 44
-events. The shared conformance suite verifies their common wire behavior.
+Do not publish SDK contents through `tui-publish-npm.yml` or
+`tui-publish-pypi.yml`.
 
 ## One-time registry setup
 
-- PyPI: create or claim the `cmux` project, then add a trusted publisher for
-  `manaflow-ai/cmux`, workflow `.github/workflows/sdk-publish-python.yml`, and
-  environment `pypi`. The workflow uses OIDC trusted publishing and PyPI
-  attestations, so no PyPI token is stored in GitHub.
-- crates.io: publish or claim the first `cmux-client` and `cmux-sidebar` releases
-  manually if crates.io still requires initial releases, then add trusted
-  publishers for owner `manaflow-ai`, repo `cmux`, workflow
-  `.github/workflows/sdk-publish-crates.yml`, and environment `crates-io`. The
-  workflow exchanges GitHub OIDC for a short-lived crates.io token via
-  `rust-lang/crates-io-auth-action`. It publishes `cmux-client`, waits for that
-  version to reach the crates.io index, then publishes `cmux-sidebar`.
-- npm: configure trusted publishing and required 2FA policy for package `cmux`,
-  workflow `.github/workflows/sdk-publish-npm.yml`, and environment `npm`.
-  Warning: the live npm package name `cmux` is currently a different cloud-VM CLI
-  package. Publishing the SDK to that name is a deliberate coordinated breaking
-  move; the npm workflow never publishes on tag push and requires manual
-  `workflow_dispatch` with `confirm_npm_cmux: true`.
-- Maven Central: verify the `com.cmux` namespace in Central Portal, add complete
-  Maven metadata, configure GPG signing, and decide the Central publishing
-  workflow. Java publishing is intentionally a CI stub until those prerequisites
-  are done.
-- Go: there is no registry publish step. Once the tag exists, users can install
-  with `go get github.com/manaflow-ai/cmux/cmux-tui/bindings/go@cmux-sdk-vX.Y.Z`.
-- C++: install the CMake package from source or consume a release archive. The
-  installed target is `cmux::sdk`.
-- Zig: use the release source tree as a package dependency with Zig 0.15.2.
+- npm: the package must exist before npm allows a trusted publisher. Publish the
+  first `cmux-sdk` release interactively from the merged release commit, then
+  configure repository `manaflow-ai/cmux`, workflow `sdk-publish-npm.yml`, and
+  allow `npm publish`. Keep the GitHub environment named `npm`.
+- PyPI: add a pending trusted publisher for project `cmux-sdk`, repository
+  `manaflow-ai/cmux`, workflow `sdk-publish-python.yml`, environment `pypi`.
+- crates.io: configure trusted publishers for existing crate `cmux-client` with
+  owner `manaflow-ai`, repository `cmux`, workflow `sdk-publish-crates.yml`,
+  environment `crates-io`. crates.io requires a manual first release for a new
+  crate, so publish `cmux-sidebar` interactively once, then add the same trusted
+  publisher configuration for subsequent releases.
+- Go: no registry account is required. The module becomes available when the
+  path-prefixed semantic-version tag is pushed.
+
+The npm and PyPI `cmux-sdk` names and the crates.io `cmux-sidebar` name were
+unclaimed when this release path was created. Recheck them immediately before
+the first publish. PyPI can claim its name through the pending publisher; npm
+and crates.io require the interactive bootstrap above.
 
 ## Cutting a release
 
-1. Update TypeScript, Python, both Rust crate manifests, Java, C++, and Zig
-   package metadata to the same version. Zig's authoritative package version is
-   `zig/build.zig.zon`; keep the example executable version in `zig/build.zig`
-   identical. Go follows the shared Git tag.
-2. Verify synchronized versions:
+1. Update the TypeScript, Python, `cmux-client`, and `cmux-sidebar` manifests to
+   the same `X.Y.Z`. Keep the `cmux-sidebar` dependency on `cmux-client` pinned
+   to that exact version. Go follows the path-prefixed tag.
+2. Verify the publish set:
 
    ```bash
-   python3 cmux-tui/bindings/check-versions.py --expected X.Y.Z
-   ```
-3. Run the cmux-tui binding tests locally or wait for `.github/workflows/cmux-tui.yml` on
-   the release PR. The publish workflows also run the language conformance gate
-   before publishing.
-4. Merge the version bump.
-5. Create and push the namespaced SDK tag:
-
-   ```bash
-   git tag cmux-sdk-vX.Y.Z
-   git push origin cmux-sdk-vX.Y.Z
+   python3 cmux-tui/bindings/check-versions.py \
+     --published-only \
+     --expected X.Y.Z
    ```
 
-6. Watch the SDK workflows. Python and Rust publish automatically after their
-   conformance gates pass. Rust publishes `cmux-client` before `cmux-sidebar`.
-   Go validates only. Java reports the Maven Central TODO. npm validates on tag
-   push but does not publish until a maintainer runs `sdk publish npm` manually
-   with `confirm_npm_cmux: true`.
+3. Merge the version and release-path changes to `main`.
+4. Run `.github/workflows/sdk-release-cut.yml` from `main` with `version=X.Y.Z`
+   and `confirm_publish=true`.
+
+The cut workflow verifies current protected `main`, creates
+`cmux-sdk-vX.Y.Z` and `cmux-tui/bindings/go/vX.Y.Z` atomically on the same
+commit, then dispatches exactly four workflows:
+
+- `sdk-publish-crates.yml`
+- `sdk-publish-go.yml`
+- `sdk-publish-npm.yml`
+- `sdk-publish-python.yml`
+
+Each publisher runs its package tests and live conformance case before any
+registry write. The Go workflow additionally resolves the tagged module from a
+clean external consumer.
+
+## Verification after publishing
+
+Use clean temporary projects with no repository-relative dependencies:
+
+```bash
+cargo add cmux-client@X.Y.Z
+go get github.com/manaflow-ai/cmux/cmux-tui/bindings/go@vX.Y.Z
+npm install cmux-sdk@X.Y.Z
+python -m pip install cmux-sdk==X.Y.Z
+```
+
+Also verify `npx cmux --version` and `uvx cmux --version` still resolve the TUI
+launcher release rather than an SDK artifact.
 
 ## Safety checks
 
-Each SDK workflow is triggered by `cmux-sdk-v*` tags, legacy `mux-sdk-v*` tags,
-or `workflow_dispatch`. The version guard extracts `X.Y.Z` from the tag, or uses
-the manual `version` input, and fails unless the TypeScript, Python, and both
-Rust package manifest versions all match.
-
-Publish jobs use least-privilege permissions. OIDC-capable registries use
-`id-token: write` only on the publish job. No long-lived registry tokens are
-committed or required for PyPI, crates.io, or npm trusted publishing. PyPI uses
-PEP 740 attestations; npm publishes with provenance. All GitHub Actions `uses:`
-entries are pinned to full commit SHAs.
+The cut workflow refuses non-`main` dispatches, mismatched manifest versions,
+existing tags, or package names other than `cmux-sdk`. It pushes both release
+tags atomically. Publisher jobs use least-privilege permissions. npm, PyPI, and
+crates.io authenticate with short-lived OIDC credentials. PyPI emits PEP 740
+attestations and npm publishes provenance. GitHub Actions are pinned to full
+commit SHAs.

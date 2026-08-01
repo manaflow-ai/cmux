@@ -181,7 +181,7 @@ def read_zig_example_version(bindings: Path = BINDINGS) -> str:
     return match.group(1)
 
 
-def read_versions(bindings: Path = BINDINGS) -> dict[str, str]:
+def read_published_versions(bindings: Path = BINDINGS) -> dict[str, str]:
     typescript = json.loads(
         (bindings / "typescript/package.json").read_text(encoding="utf-8")
     )["version"]
@@ -195,6 +195,17 @@ def read_versions(bindings: Path = BINDINGS) -> dict[str, str]:
         (bindings / "rust-sidebar/Cargo.toml").read_text(encoding="utf-8")
     )
     rust_sidebar = rust_sidebar_manifest["package"]["version"]
+
+    return {
+        "typescript": str(typescript),
+        "python": str(python),
+        "rust": str(rust),
+        "rust-sidebar": str(rust_sidebar),
+    }
+
+
+def read_versions(bindings: Path = BINDINGS) -> dict[str, str]:
+    versions = read_published_versions(bindings)
 
     java_root = ET.parse(bindings / "java/pom.xml").getroot()
     java = java_root.findtext("{http://maven.apache.org/POM/4.0.0}version")
@@ -212,10 +223,7 @@ def read_versions(bindings: Path = BINDINGS) -> dict[str, str]:
     zig = read_zig_package_version(bindings)
 
     return {
-        "typescript": str(typescript),
-        "python": str(python),
-        "rust": str(rust),
-        "rust-sidebar": str(rust_sidebar),
+        **versions,
         "java": java,
         "cpp": cpp_match.group(1),
         "zig": zig,
@@ -242,11 +250,27 @@ def read_sidebar_client_version(bindings: Path = BINDINGS) -> str:
 def main(argv: list[str] | None = None, *, bindings: Path = BINDINGS) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--expected", help="require this X.Y.Z release version")
+    parser.add_argument(
+        "--published-only",
+        action="store_true",
+        help=(
+            "check only the Rust, TypeScript, and Python package versions "
+            "published in this release"
+        ),
+    )
     arguments = parser.parse_args(argv)
     try:
-        versions = read_versions(bindings)
+        versions = (
+            read_published_versions(bindings)
+            if arguments.published_only
+            else read_versions(bindings)
+        )
         sidebar_client_version = read_sidebar_client_version(bindings)
-        zig_example_version = read_zig_example_version(bindings)
+        zig_example_version = (
+            None
+            if arguments.published_only
+            else read_zig_example_version(bindings)
+        )
     except (OSError, KeyError, ValueError, ET.ParseError) as error:
         print(f"SDK version error: {error}", file=sys.stderr)
         return 1
@@ -265,7 +289,7 @@ def main(argv: list[str] | None = None, *, bindings: Path = BINDINGS) -> int:
             file=sys.stderr,
         )
         return 1
-    if zig_example_version != version:
+    if zig_example_version is not None and zig_example_version != version:
         print(
             "SDK version error: zig/build.zig example executable version "
             f"must be {version}, found {zig_example_version}",
@@ -278,9 +302,11 @@ def main(argv: list[str] | None = None, *, bindings: Path = BINDINGS) -> int:
             file=sys.stderr,
         )
         return 1
+    label = "Published SDK versions" if arguments.published_only else "SDK versions"
     print(
-        f"SDK versions ok: {version} "
-        f"({', '.join(sorted(versions))}; Go follows the shared Git tag)"
+        f"{label} ok: {version} "
+        f"({', '.join(sorted(versions))}; "
+        "Go uses cmux-tui/bindings/go/vX.Y.Z)"
     )
     return 0
 
