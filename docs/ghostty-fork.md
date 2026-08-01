@@ -12,11 +12,19 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `59f2b5d2e`, merged into fork main by
+The submodule pinned by this branch is `88357634c`, the fork-main merge of
 https://github.com/manaflow-ai/ghostty/pull/175. It combines the initial cmux
-theme-picker render fix at `5068b3a37` with the fork-main Sentry environment
-race fix through `abcf5697d`. The previously documented renderer and font-action
-integration at `36a46414a` remains in its ancestry.
+theme-picker render fix at `5068b3a37` with terminal-owned semantic-prompt row
+lifecycle enforcement through `2d6e944e3` from
+https://github.com/manaflow-ai/ghostty/pull/176.
+The earlier integration combines the hidden-renderer reclamation and
+retry-deadline line through `4d6f0014f` with the resolved font-binding action
+callbacks originally ending at `80d7fb35a`.
+https://github.com/manaflow-ai/ghostty/pull/171 reapplied the font callback
+commits on current fork main and clarified the callback's non-reentrant
+contract. PR 172 then recorded the original font branch as ancestry without
+changing the integrated tree, so the final pin descends from both former
+gitlinks (`cd1f8e012` and `80d7fb35a`).
 
 The renderer line was reviewed in
 https://github.com/manaflow-ai/ghostty/pull/168, following the merged
@@ -48,6 +56,28 @@ The final font integration landed in merge commits `23003282d` and
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-59f2b5d2ec67a5f9dfe9138f6e5a4353b75d238e-crashsubdir-cmux-crash-v1
   - SHA-256 `3767b7bba0931f9cab359d0c8147885e14a2b6ce420044e5946b4b823fc093da`
     is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Semantic prompt row lifecycle
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/176
+- Commits:
+  - `afcda52a2` (terminal: test prompt mark cleared by output overwrite)
+  - `2d6e944e3` (terminal: clear stale prompt marks on output overwrite)
+- Files:
+  - `src/terminal/Terminal.zig`
+- Summary:
+  - Clears a row's OSC 133 prompt or prompt-continuation mark when printable
+    output actually overwrites that row.
+  - Applies the same invariant to scalar printing and the batched narrow/wide
+    print path, including a wide-character spacer written before wrapping.
+  - Preserves historical prompt metadata unless output replaces content on
+    that row, so prompt navigation remains intact while prompt-aware clear
+    logic cannot mistake repainted TUI output for a live shell prompt.
+  - Conflict note: every printable-output path that writes cells directly must
+    clear stale row-level prompt metadata for each row it mutates. Do not move
+    this responsibility into CSI erase handling or a specific shell protocol
+    transition.
 
 ### Hidden macOS renderer reclamation
 
@@ -203,12 +233,13 @@ The final font integration landed in merge commits `23003282d` and
     callback userdata alive until `ghostty_surface_free` returns, and never
     destroy or otherwise reenter the surface from the synchronous callback.
 
-The pinned `36a46414a` universal ReleaseFast GhosttyKit archive was built with
+The pinned `da1ddcf41` universal ReleaseFast GhosttyKit archive was built with
 Zig 0.16.0. It is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-36a46414a7c5dc122ffbf2992fec6d4a73cf7c65-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-da1ddcf41f6fd763c39bde4c69d1ac7323cb9bd0-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. The published
-asset was downloaded again and matched SHA-256
-`8784a1bd29d3d13250b9557b8982d362054fd326d48b8fc8c0deac56f4f71c0d`.
+asset was downloaded again, passed `scripts/validate-xcframework-archive.py`,
+and matched SHA-256
+`51bb73625dd8e53a98675fb75dc573931ab3b65646e02e5f0ef6bf7db89308da`.
 
 ### Ordered writes survive transient backpressure
 
