@@ -131,9 +131,89 @@ extension AgentNotificationRegressionTests {
         )
     }
 
+    @Test("Relay provenance survives repeated ordinary workspace moves")
+    func relayTTYProvenanceSurvivesRepeatedOrdinaryWorkspaceMoves() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        fixture.source.remoteConfiguration = relayConfiguration(
+            destination: "source.example.invalid",
+            relayPort: 64_007
+        )
+        fixture.source.trackRemoteTerminalSurface(fixture.panelId)
+        fixture.source.registerReportedSurfaceTTYName("pts/27", panelId: fixture.panelId)
+
+        try movePanel(fixture)
+        let secondDestination = fixture.manager.addWorkspace(select: false)
+        defer {
+            if fixture.manager.tabs.contains(where: { $0.id == secondDestination.id }) {
+                fixture.manager.closeWorkspace(secondDestination)
+            }
+        }
+        let transfer = try #require(
+            fixture.destination.detachSurface(panelId: fixture.panelId)
+        )
+        let destinationPaneID = try #require(
+            secondDestination.bonsplitController.allPaneIds.first
+        )
+        #expect(
+            secondDestination.attachDetachedSurface(
+                transfer,
+                inPane: destinationPaneID,
+                focus: false
+            ) == fixture.panelId
+        )
+
+        assertRelayTTYTarget(
+            authenticatedWorkspaceID: fixture.source.id,
+            ttyName: "pts/27",
+            expectedWorkspaceID: secondDestination.id,
+            expectedSurfaceID: fixture.panelId
+        )
+    }
+
+    @Test("A persistent retry after an ordinary workspace move preserves TTY proof")
+    func persistentRetryAfterOrdinaryWorkspaceMovePreservesTTYProof() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let terminal = try #require(
+            fixture.source.panels[fixture.panelId] as? TerminalPanel
+        )
+        fixture.source.remoteConfiguration = relayConfiguration(
+            destination: "source.example.invalid",
+            relayPort: 64_007,
+            preserveAfterTerminalExit: true
+        )
+        fixture.source.trackRemoteTerminalSurface(fixture.panelId)
+        #expect(
+            fixture.source.markRemoteTerminalSessionLaunching(
+                surfaceId: fixture.panelId,
+                terminalLifecycleID: terminal.surface.terminalLifecycleId,
+                attemptID: UUID()
+            )
+        )
+        fixture.source.registerReportedSurfaceTTYName("pts/28", panelId: fixture.panelId)
+
+        try movePanel(fixture)
+        #expect(
+            fixture.destination.markRemoteTerminalSessionLaunching(
+                surfaceId: fixture.panelId,
+                terminalLifecycleID: terminal.surface.terminalLifecycleId,
+                attemptID: UUID()
+            )
+        )
+
+        assertRelayTTYTarget(
+            authenticatedWorkspaceID: fixture.source.id,
+            ttyName: "pts/28",
+            expectedWorkspaceID: fixture.destination.id,
+            expectedSurfaceID: fixture.panelId
+        )
+    }
+
     private func relayConfiguration(
         destination: String,
-        relayPort: Int
+        relayPort: Int,
+        preserveAfterTerminalExit: Bool = false
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: destination,
@@ -145,7 +225,9 @@ extension AgentNotificationRegressionTests {
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
-            terminalStartupCommand: nil
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: preserveAfterTerminalExit,
+            persistentDaemonSlot: preserveAfterTerminalExit ? "relay-tty-test" : nil
         )
     }
 
