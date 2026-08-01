@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// Secure account-scoped cache for requested and effective relay preferences.
 public actor CmxIrohRelayPreferenceStore {
@@ -137,11 +137,11 @@ public actor CmxIrohRelayPreferenceStore {
               (1 ... Self.recordVersion).contains(record.version),
               record.preference.revision >= 0,
               record.preference.effectivePolicySequence.map({ $0 > 0 }) ?? true,
-              (record.preference.policyID == nil) == (record.preference.policyIssuedAt == nil),
-              record.preference.policyID.map({
-                  UUID(uuidString: $0)?.uuidString.lowercased() == $0
-              }) ?? true,
-              record.preference.policyIssuedAt.map({ $0 >= 0 }) ?? true,
+              (record.preference.policyID == nil && record.preference.policyIssuedAt == nil)
+                || CmxIrohRelayPolicyPublication(
+                    policyID: record.preference.policyID,
+                    issuedAt: record.preference.policyIssuedAt
+                ) != nil,
               record.preference.staleRelayIDs.count
                 <= CmxIrohRelayPolicyVerifier.maximumRelayCount,
               (try? JSONEncoder().encode(record.preference.requested)) != nil,
