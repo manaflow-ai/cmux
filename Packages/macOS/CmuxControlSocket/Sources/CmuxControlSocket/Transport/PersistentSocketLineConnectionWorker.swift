@@ -2,11 +2,24 @@ internal import Darwin
 internal import Dispatch
 internal import Foundation
 
+struct PersistentSocketConnectDependencies: Sendable {
+    let makeSocket: @Sendable () -> Int32
+    let connect: @Sendable (Int32, String) -> Int32
+
+    static let live = PersistentSocketConnectDependencies(
+        makeSocket: { Darwin.socket(AF_UNIX, SOCK_STREAM, 0) },
+        connect: { socket, path in
+            connectUnixSocket(socket, to: path)
+        }
+    )
+}
+
 /// Queue-confined mutable state for one persistent socket connection.
 final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
     private let queue: DispatchQueue
     private let transport: SocketTransport
     private let maximumResponseByteCount: Int
+    private let connectDependencies: PersistentSocketConnectDependencies
     private let activeOperationLock = NSLock()
     private var activeOperationID: UUID?
     private var activeOperationSocket: Int32?
@@ -15,11 +28,13 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
     init(
         transport: SocketTransport,
         maximumResponseByteCount: Int,
-        queue: DispatchQueue
+        queue: DispatchQueue,
+        connectDependencies: PersistentSocketConnectDependencies = .live
     ) {
         self.transport = transport
         self.maximumResponseByteCount = maximumResponseByteCount
         self.queue = queue
+        self.connectDependencies = connectDependencies
     }
 
     deinit {
@@ -92,6 +107,9 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
         guard ensureConnection(
             at: socketPath,
             timeout: timeout,
+            deadline: deadline,
+            operationID: operationID,
+            cancellation: cancellation,
             validatingPeer: validatingPeer
         ), var current = state else {
             return nil
@@ -129,6 +147,9 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
     private func ensureConnection(
         at socketPath: String,
         timeout: TimeInterval,
+        deadline: TimeInterval,
+        operationID: UUID,
+        cancellation: PersistentSocketLineCommandCancellation,
         validatingPeer: @Sendable (pid_t?) -> Bool
     ) -> Bool {
         if var current = state {
@@ -152,6 +173,9 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
         guard let connected = connect(
             to: socketPath,
             timeout: timeout,
+            deadline: deadline,
+            operationID: operationID,
+            cancellation: cancellation,
             validatingPeer: validatingPeer
         ) else {
             return false
@@ -163,52 +187,50 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
     private func connect(
         to socketPath: String,
         timeout: TimeInterval,
+        deadline: TimeInterval,
+        operationID: UUID,
+        cancellation: PersistentSocketLineCommandCancellation,
         validatingPeer: @Sendable (pid_t?) -> Bool
     ) -> PersistentSocketLineConnectionState? {
-        let socket = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        let socket = connectDependencies.makeSocket()
         guard socket >= 0 else { return nil }
         var shouldClose = true
         defer {
             if shouldClose {
-                Darwin.close(socket)
+                closeSocket(socket)
             }
         }
         guard
             transport.configureCloseOnExec(socket) == nil,
-            transport.configureNoSigPipe(socket) == nil
+            transport.configureNoSigPipe(socket) == nil,
+            transport.configureNonBlocking(socket) == nil
         else {
             return nil
         }
         transport.configureSocketTimeouts(socket, timeout: timeout)
+        setActiveOperationSocket(socket, operationID: operationID)
+        guard !cancellation.isCancelled else { return nil }
 
-        var address = sockaddr_un()
-        memset(&address, 0, MemoryLayout<sockaddr_un>.size)
-        address.sun_family = sa_family_t(AF_UNIX)
-        let pathBytes = Array(socketPath.utf8CString)
-        let maximumLength = MemoryLayout.size(ofValue: address.sun_path)
-        guard pathBytes.count <= maximumLength else { return nil }
-        withUnsafeMutablePointer(to: &address.sun_path) { pointer in
-            let buffer = UnsafeMutableRawPointer(pointer)
-                .assumingMemoryBound(to: CChar.self)
-            for index in pathBytes.indices {
-                buffer[index] = pathBytes[index]
+        let connectResult = connectDependencies.connect(socket, socketPath)
+        if connectResult != 0 {
+            let connectError = errno
+            guard
+                connectionIsInProgress(connectError),
+                waitForConnection(
+                    socket,
+                    deadline: deadline,
+                    cancellation: cancellation
+                )
+            else {
+                return nil
             }
         }
-        let pathOffset =
-            MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
-        let addressLength = socklen_t(pathOffset + pathBytes.count)
-#if os(macOS)
-        address.sun_len = UInt8(min(Int(addressLength), 255))
-#endif
-        let result = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(
-                to: sockaddr.self,
-                capacity: 1
-            ) { socketAddress in
-                Darwin.connect(socket, socketAddress, addressLength)
-            }
+        guard
+            !cancellation.isCancelled,
+            transport.configureBlocking(socket) == nil
+        else {
+            return nil
         }
-        guard result == 0 else { return nil }
         let peerProcessID = transport.peerProcessID(of: socket)
         guard validatingPeer(peerProcessID) else { return nil }
 
@@ -219,6 +241,61 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
             timeout: timeout,
             peerProcessID: peerProcessID
         )
+    }
+
+    private func waitForConnection(
+        _ socket: Int32,
+        deadline: TimeInterval,
+        cancellation: PersistentSocketLineCommandCancellation
+    ) -> Bool {
+        while !cancellation.isCancelled {
+            guard let remaining = remainingTimeoutMilliseconds(
+                until: deadline
+            ) else {
+                return false
+            }
+            var descriptor = pollfd(
+                fd: socket,
+                events: Int16(POLLOUT | POLLERR | POLLHUP),
+                revents: 0
+            )
+            let pollResult = Darwin.poll(
+                &descriptor,
+                1,
+                min(remaining, 50)
+            )
+            if pollResult < 0, errno == EINTR {
+                continue
+            }
+            if pollResult == 0 {
+                continue
+            }
+            guard pollResult > 0, !cancellation.isCancelled else {
+                return false
+            }
+            var socketError: Int32 = 0
+            var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+            let socketErrorResult = withUnsafeMutablePointer(
+                to: &socketError
+            ) { pointer in
+                Darwin.getsockopt(
+                    socket,
+                    SOL_SOCKET,
+                    SO_ERROR,
+                    pointer,
+                    &socketErrorLength
+                )
+            }
+            return socketErrorResult == 0 && socketError == 0
+        }
+        return false
+    }
+
+    private func connectionIsInProgress(_ errorCode: Int32) -> Bool {
+        errorCode == EINPROGRESS ||
+            errorCode == EALREADY ||
+            errorCode == EAGAIN ||
+            errorCode == EWOULDBLOCK
     }
 
     private func readResponseLine(
@@ -364,5 +441,37 @@ private final class PersistentSocketLineCommandCancellation:
         lock.lock()
         cancelled = true
         lock.unlock()
+    }
+}
+
+private func connectUnixSocket(_ socket: Int32, to path: String) -> Int32 {
+    var address = sockaddr_un()
+    memset(&address, 0, MemoryLayout<sockaddr_un>.size)
+    address.sun_family = sa_family_t(AF_UNIX)
+    let pathBytes = Array(path.utf8CString)
+    let maximumLength = MemoryLayout.size(ofValue: address.sun_path)
+    guard pathBytes.count <= maximumLength else {
+        Darwin.__error().pointee = ENAMETOOLONG
+        return -1
+    }
+    withUnsafeMutablePointer(to: &address.sun_path) { pointer in
+        let buffer = UnsafeMutableRawPointer(pointer)
+            .assumingMemoryBound(to: CChar.self)
+        for index in pathBytes.indices {
+            buffer[index] = pathBytes[index]
+        }
+    }
+    let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+    let addressLength = socklen_t(pathOffset + pathBytes.count)
+#if os(macOS)
+    address.sun_len = UInt8(min(Int(addressLength), 255))
+#endif
+    return withUnsafePointer(to: &address) { pointer in
+        pointer.withMemoryRebound(
+            to: sockaddr.self,
+            capacity: 1
+        ) { socketAddress in
+            Darwin.connect(socket, socketAddress, addressLength)
+        }
     }
 }
