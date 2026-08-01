@@ -106,9 +106,9 @@ struct SimulatorPaneCoordinatorOverflowTests {
         )
     }
 
-    @Test("External worker input waits for the active semantic transaction")
+    @Test("External worker input is rejected during a semantic transaction")
     @MainActor
-    func workerInputWaitsForSemanticTransaction() async throws {
+    func workerInputIsRejectedDuringSemanticTransaction() async throws {
         let client = SimulatorPaneClientSpy(devices: [])
         let coordinator = SimulatorPaneCoordinator(client: client)
         await coordinator.start()
@@ -127,7 +127,7 @@ struct SimulatorPaneCoordinatorOverflowTests {
                 await MainActor.run { coordinator.enqueue(key) }
             }.value
 
-            #expect(accepted)
+            #expect(!accepted)
             let current = try coordinator.currentUIAutomationSnapshot(
                 nowMilliseconds: 1_001
             )
@@ -135,14 +135,30 @@ struct SimulatorPaneCoordinatorOverflowTests {
             #expect(!(await client.messages().contains(key)))
         }
 
-        for _ in 0..<1_000 where !(await client.messages().contains(key)) {
-            await Task.yield()
-        }
-        #expect(await client.messages().contains(key))
-        #expect(throws: SimulatorUIAutomationReferenceError.snapshotMissing) {
-            _ = try coordinator.currentUIAutomationSnapshot(
-                nowMilliseconds: 1_001
-            )
+        for _ in 0..<100 { await Task.yield() }
+        #expect(!(await client.messages().contains(key)))
+        let current = try coordinator.currentUIAutomationSnapshot(
+            nowMilliseconds: 1_001
+        )
+        #expect(current.snapshot.sequence == record.snapshot.sequence)
+    }
+
+    @Test("Input cleanup bypasses an active semantic transaction")
+    @MainActor
+    func inputCleanupBypassesSemanticTransaction() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+
+        try await coordinator.withUIAutomationTransaction {
+            await Task.detached {
+                await MainActor.run { coordinator.releaseInputs() }
+            }.value
+            for _ in 0..<1_000
+                where !(await client.messages().contains(.releaseInputs)) {
+                await Task.yield()
+            }
+            #expect(await client.messages().contains(.releaseInputs))
         }
     }
 

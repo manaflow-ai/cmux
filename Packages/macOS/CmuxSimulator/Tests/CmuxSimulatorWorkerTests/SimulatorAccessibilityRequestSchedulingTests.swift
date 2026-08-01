@@ -132,6 +132,43 @@ struct SimulatorAccessibilityRequestSchedulingTests {
         ))
     }
 
+    @Test("A cancellation-blind accessibility read terminates after its hard deadline")
+    @MainActor
+    func accessibilityHardDeadlineTerminatesWorker() async throws {
+        let executor = GatedAccessibilityExecutor()
+        let fixture = try WorkerOutputFixture()
+        let sleeper = AccessibilityWatchdogSleeper()
+        let terminator = ToolOperationTerminationProbe()
+        let coordinator = SimulatorWorkerCoordinator(
+            channel: fixture.worker,
+            accessibilityExecutor: executor,
+            toolOperationSleeper: sleeper,
+            toolOperationContainment: SimulatorToolOperationContainment(
+                cancellationGrace: .milliseconds(1),
+                terminate: { terminator.terminate() }
+            )
+        )
+        coordinator.currentDeviceIdentifier = "DEVICE"
+        coordinator.currentDisplay = Self.display
+
+        #expect(await coordinator.handle(.requestAccessibility(UUID())))
+        await executor.waitForAccessibilityReadCount(1)
+        for _ in 0..<1_000 where !(await sleeper.deadlineIsArmed) {
+            await Task.yield()
+        }
+        let deadlineIsArmed = await sleeper.deadlineIsArmed
+        #expect(deadlineIsArmed)
+        guard deadlineIsArmed else {
+            await executor.releaseAccessibilityRead()
+            return
+        }
+
+        await sleeper.fireDeadline()
+        for _ in 0..<1_000 where terminator.count == 0 { await Task.yield() }
+        #expect(terminator.count == 1)
+        await executor.releaseAccessibilityRead()
+    }
+
     @Test("Camera setup releases the ordered worker consumer")
     @MainActor
     func cameraSetupDoesNotBlockConsumer() async throws {
@@ -169,4 +206,22 @@ struct SimulatorAccessibilityRequestSchedulingTests {
         orientation: .portrait,
         scale: 3
     )
+}
+
+private actor AccessibilityWatchdogSleeper: SimulatorHIDSleeping {
+    private var deadlineContinuation: CheckedContinuation<Void, Never>?
+
+    var deadlineIsArmed: Bool {
+        deadlineContinuation != nil
+    }
+
+    func sleep(for duration: Duration) async throws {
+        guard duration == .seconds(30) else { return }
+        await withCheckedContinuation { deadlineContinuation = $0 }
+    }
+
+    func fireDeadline() {
+        deadlineContinuation?.resume()
+        deadlineContinuation = nil
+    }
 }

@@ -62,6 +62,72 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect(first.snapshot.screenHash != changed.snapshot.screenHash)
     }
 
+    @Test("Screen hashes ignore offscreen-only accessibility changes")
+    func screenHashIgnoresOffscreenState() throws {
+        func source(offscreenLabel: String, offscreenY: Double) -> SimulatorAccessibilitySnapshot {
+            SimulatorAccessibilitySnapshot(
+                roots: [node(
+                    id: "0",
+                    role: "Application",
+                    label: "Example",
+                    frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                    children: [
+                        node(
+                            id: "0.0",
+                            role: "AXButton",
+                            label: "Visible",
+                            frame: SimulatorRect(x: 20, y: 100, width: 120, height: 44)
+                        ),
+                        node(
+                            id: "0.1",
+                            role: "StaticText",
+                            label: offscreenLabel,
+                            frame: SimulatorRect(
+                                x: 20,
+                                y: offscreenY,
+                                width: 120,
+                                height: 44
+                            )
+                        ),
+                    ]
+                )],
+                display: SimulatorDisplayMetadata(
+                    width: 1_170,
+                    height: 2_532,
+                    orientation: .portrait,
+                    scale: 3
+                )
+            )
+        }
+        let first = try source(
+            offscreenLabel: "Pending",
+            offscreenY: 900
+        ).uiAutomationRecord(
+            simulatorID: "SIM-1",
+            sequence: 1,
+            capturedAtMilliseconds: 1_000
+        )
+        let offscreenChanged = try source(
+            offscreenLabel: "Complete",
+            offscreenY: 900
+        ).uiAutomationRecord(
+            simulatorID: "SIM-1",
+            sequence: 2,
+            capturedAtMilliseconds: 2_000
+        )
+        let becameVisible = try source(
+            offscreenLabel: "Complete",
+            offscreenY: 700
+        ).uiAutomationRecord(
+            simulatorID: "SIM-1",
+            sequence: 3,
+            capturedAtMilliseconds: 3_000
+        )
+
+        #expect(first.snapshot.screenHash == offscreenChanged.snapshot.screenHash)
+        #expect(first.snapshot.screenHash != becameVisible.snapshot.screenHash)
+    }
+
     @Test("Text fields advertise typing only when they can be reidentified")
     func typeTextRequiresStableSelector() throws {
         let source = SimulatorAccessibilitySnapshot(
@@ -101,6 +167,48 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect(!record.snapshot.actions.contains {
             $0.elementRef == textField.ref && $0.action == .typeText
         })
+    }
+
+    @Test("Text fields advertise typing only when their selector is unique")
+    func typeTextRequiresUniqueSelector() throws {
+        let source = SimulatorAccessibilitySnapshot(
+            roots: [node(
+                id: "0",
+                role: "Application",
+                label: "Example",
+                frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                children: [
+                    node(
+                        id: "0.0",
+                        role: "AXTextField",
+                        label: "Name",
+                        frame: SimulatorRect(x: 20, y: 100, width: 200, height: 44)
+                    ),
+                    node(
+                        id: "0.1",
+                        role: "AXTextField",
+                        label: "Name",
+                        frame: SimulatorRect(x: 20, y: 160, width: 200, height: 44)
+                    ),
+                ]
+            )],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+        let record = try source.uiAutomationRecord(
+            simulatorID: "SIM-1",
+            sequence: 1,
+            capturedAtMilliseconds: 1_000
+        )
+        let textFields = record.snapshot.elements.filter { $0.role == .textField }
+
+        #expect(textFields.count == 2)
+        #expect(textFields.allSatisfy { !$0.actions.contains(.typeText) })
+        #expect(!record.snapshot.actions.contains { $0.action == .typeText })
     }
 
     @Test("Stable selectors prefer runtime identifiers and directional points stay bounded")

@@ -1,5 +1,6 @@
 import CmuxControlSocket
 import CmuxSimulator
+import Foundation
 import Testing
 @testable import CmuxSimulatorUI
 @testable import CmuxSimulatorUIAutomation
@@ -7,6 +8,86 @@ import Testing
 @MainActor
 @Suite("Simulator UI automation executor waits")
 struct SimulatorUIAutomationExecutorWaitTests {
+    @Test("Cancellation after a committed tap returns success with a warning")
+    func cancellationAfterCommittedTapReturnsSuccess() async throws {
+        let snapshot = Self.actionSnapshot()
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot),
+            cancelsControlActionBeforeReturning: true
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let capturedAtMilliseconds = Int64(Date().timeIntervalSince1970 * 1_000)
+        let record = try await coordinator.recordUIAutomationSnapshot(
+            snapshot,
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: capturedAtMilliseconds,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+        let elementRef = try #require(record.snapshot.elements.first {
+            $0.identifier == "continue"
+        }?.ref)
+
+        let operation = Task { @MainActor in
+            try await SimulatorUIAutomationExecutor().perform(
+                .uiAction(.tap(
+                    elementRef: elementRef,
+                    preDelayMilliseconds: 0,
+                    postDelayMilliseconds: 0
+                )),
+                coordinator: coordinator
+            )
+        }
+        let result = await operation.result
+
+        switch result {
+        case let .success(.object(payload)):
+            #expect(payload["completed"] == .bool(true))
+            #expect(payload["snapshot_warning"] != nil)
+        case let .success(value):
+            Issue.record("Expected an object result, got \(value)")
+        case let .failure(error):
+            Issue.record("Expected committed success, got \(error)")
+        }
+        await coordinator.close()
+    }
+
+    @Test("Ambiguous text fields are rejected before focus changes")
+    func ambiguousTextFieldDoesNotTap() async throws {
+        let snapshot = Self.ambiguousTextFieldSnapshot()
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let record = try await coordinator.recordUIAutomationSnapshot(
+            snapshot,
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+        let elementRef = try #require(record.snapshot.elements.first {
+            $0.role == .textField
+        }?.ref)
+
+        do {
+            _ = try await SimulatorUIAutomationExecutor(
+                scheduler: AdvancingActionScheduler(nowMilliseconds: 1_000)
+            ).perform(
+                .uiAction(.typeText(
+                    elementRef: elementRef,
+                    text: "Hello",
+                    replaceExisting: false
+                )),
+                coordinator: coordinator
+            )
+            Issue.record("Expected the ambiguous text field to be rejected")
+        } catch {}
+
+        #expect(await client.actions().isEmpty)
+        await coordinator.close()
+    }
+
     @Test("Text-only gone waits reject heterogeneous matches")
     func textOnlyGoneRejectsAmbiguousMatches() async {
         let display = SimulatorDisplayMetadata(
@@ -79,5 +160,111 @@ struct SimulatorUIAutomationExecutorWaitTests {
             Issue.record("Expected target_ambiguous, got \(error)")
         }
         await coordinator.close()
+    }
+
+    private static func actionCoordinator(
+        client: SimulatorPaneClientSpy,
+        snapshot: SimulatorAccessibilitySnapshot
+    ) -> SimulatorPaneCoordinator {
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.selectedDeviceID = "SIM-1"
+        coordinator.capabilities = [.accessibility, .touch, .keyboard]
+        coordinator.display = snapshot.display
+        return coordinator
+    }
+
+    private static func actionSnapshot() -> SimulatorAccessibilitySnapshot {
+        SimulatorAccessibilitySnapshot(
+            roots: [SimulatorAccessibilityNode(
+                id: "root",
+                role: "Application",
+                label: "Example",
+                value: nil,
+                frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                isEnabled: true,
+                children: [SimulatorAccessibilityNode(
+                    id: "continue",
+                    identifier: "continue",
+                    role: "AXButton",
+                    label: "Continue",
+                    value: nil,
+                    frame: SimulatorRect(x: 20, y: 100, width: 120, height: 44),
+                    isEnabled: true,
+                    children: []
+                )]
+            )],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+    }
+
+    private static func ambiguousTextFieldSnapshot() -> SimulatorAccessibilitySnapshot {
+        SimulatorAccessibilitySnapshot(
+            roots: [SimulatorAccessibilityNode(
+                id: "root",
+                role: "Application",
+                label: "Example",
+                value: nil,
+                frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                isEnabled: true,
+                children: [
+                    SimulatorAccessibilityNode(
+                        id: "first",
+                        role: "AXTextField",
+                        label: "Name",
+                        value: nil,
+                        frame: SimulatorRect(x: 20, y: 100, width: 200, height: 44),
+                        isEnabled: true,
+                        children: []
+                    ),
+                    SimulatorAccessibilityNode(
+                        id: "second",
+                        role: "AXTextField",
+                        label: "Name",
+                        value: nil,
+                        frame: SimulatorRect(x: 20, y: 160, width: 200, height: 44),
+                        isEnabled: true,
+                        children: []
+                    ),
+                ]
+            )],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+    }
+}
+
+private final class AdvancingActionScheduler:
+    SimulatorUIAutomationScheduling,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var nowMilliseconds: Int64
+
+    init(nowMilliseconds: Int64) {
+        self.nowMilliseconds = nowMilliseconds
+    }
+
+    func monotonicNowMilliseconds() -> Int64 {
+        lock.withLock { nowMilliseconds }
+    }
+
+    func wallTimeNowMilliseconds() -> Int64 {
+        lock.withLock { nowMilliseconds }
+    }
+
+    func nextEvent(after duration: Duration) async throws {
+        let components = duration.components
+        let milliseconds = components.seconds * 1_000
+            + components.attoseconds / 1_000_000_000_000_000
+        lock.withLock { nowMilliseconds += milliseconds }
     }
 }
