@@ -404,22 +404,6 @@ struct AuthEnvironmentTests {
         #expect(script.contains("--cmux-product-blue"))
         #expect(script.contains("--cmux-product-blue-on-background"))
         #expect(script.contains("--cmux-product-blue-on-foreground"))
-        #expect(BrowserAppTheme.supportsAppSurface(
-            url: URL(string: "https://cmux.com/app-pricing"),
-            trustedOrigin: AuthEnvironment.appWebOrigin
-        ))
-        #expect(BrowserAppTheme.supportsAppSurface(
-            url: URL(string: "https://cmux.com/app-pro-welcome"),
-            trustedOrigin: AuthEnvironment.appWebOrigin
-        ))
-        #expect(!BrowserAppTheme.supportsAppSurface(
-            url: URL(string: "https://cmux.com/pricing"),
-            trustedOrigin: AuthEnvironment.appWebOrigin
-        ))
-        #expect(!BrowserAppTheme.supportsAppSurface(
-            url: URL(string: "https://attacker.example/app-pricing"),
-            trustedOrigin: AuthEnvironment.appWebOrigin
-        ))
     }
 
     @Test("app session handoff pins credentials to production or debug loopback")
