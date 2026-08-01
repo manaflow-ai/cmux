@@ -218,10 +218,7 @@ import UIKit
         #expect(tableView.numberOfRows(inSection: 0) == 2)
         #expect(recorder.dropLifecycleEvents == ["native"])
 
-        coordinator.tableView(
-            tableView,
-            dragSessionDidEnd: session.embeddedDragSession
-        )
+        dropCoordinator.completeAnimations()
 
         #expect(recorder.dropIntoGroupCalls.count == 1)
         #expect(recorder.dropIntoGroupCalls.first?.0.rawValue == "mover")
@@ -255,13 +252,10 @@ import UIKit
 
         #expect(recorder.dropIntoGroupCalls.isEmpty)
         #expect(dropCoordinator.dropToRowCalls.isEmpty)
-        #expect(dropCoordinator.dropToTargetCalls.isEmpty)
-        #expect(dropCoordinator.dropIntoRowCalls == [IndexPath(row: 0, section: 0)])
+        #expect(dropCoordinator.dropToTargetCalls.count == 1)
+        #expect(dropCoordinator.dropIntoRowCalls.isEmpty)
 
-        coordinator.tableView(
-            tableView,
-            dragSessionDidEnd: session.embeddedDragSession
-        )
+        dropCoordinator.completeAnimations()
 
         #expect(recorder.dropIntoGroupCalls.count == 1)
     }
@@ -342,6 +336,11 @@ import UIKit
         }
         coordinator.tableView(tableView, performDropWith: dropCoordinator)
 
+        #expect(recorder.moveRowsCalls.isEmpty)
+        #expect(recorder.dropLifecycleEvents == ["native"])
+
+        dropCoordinator.completeAnimations()
+
         #expect(recorder.moveRowsCalls.count == 1)
         #expect(recorder.moveRowsCalls.first?.0 == IndexSet(integer: 1))
         #expect(recorder.moveRowsCalls.first?.1 == 0)
@@ -384,6 +383,10 @@ import UIKit
             destinationIndexPath: IndexPath(row: 0, section: 0)
         )
         coordinator.tableView(tableView, performDropWith: dropCoordinator)
+
+        #expect(recorder.dropIntoGroupCalls.isEmpty)
+
+        dropCoordinator.completeAnimations()
 
         #expect(recorder.dropIntoGroupCalls.count == 1)
         #expect(recorder.dropIntoGroupCalls.first?.1.rawValue == "group-a")
@@ -510,8 +513,20 @@ private final class FakeDropItem: NSObject, UITableViewDropItem {
 }
 
 private final class FakeDragAnimating: NSObject, UIDragAnimating {
+    private var completions: [(UIViewAnimatingPosition) -> Void] = []
+
     func addAnimations(_ animations: @escaping () -> Void) {}
-    func addCompletion(_ completion: @escaping (UIViewAnimatingPosition) -> Void) {}
+    func addCompletion(_ completion: @escaping (UIViewAnimatingPosition) -> Void) {
+        completions.append(completion)
+    }
+
+    func complete(at position: UIViewAnimatingPosition = .end) {
+        let completions = completions
+        self.completions.removeAll()
+        for completion in completions {
+            completion(position)
+        }
+    }
 }
 
 private final class FakeDropCoordinator: NSObject, UITableViewDropCoordinator {
@@ -523,6 +538,7 @@ private final class FakeDropCoordinator: NSObject, UITableViewDropCoordinator {
     private(set) var dropIntoRowRects: [CGRect] = []
     private(set) var dropToRowCalls: [IndexPath] = []
     private(set) var dropToTargetCalls: [UIDragPreviewTarget] = []
+    private let animator = FakeDragAnimating()
     var dropIntoRowObserver: (() -> Void)?
     var dropToTargetObserver: (() -> Void)?
 
@@ -545,7 +561,7 @@ private final class FakeDropCoordinator: NSObject, UITableViewDropCoordinator {
     @discardableResult
     func drop(_ dragItem: UIDragItem, toRowAt indexPath: IndexPath) -> UIDragAnimating {
         dropToRowCalls.append(indexPath)
-        return FakeDragAnimating()
+        return animator
     }
 
     @discardableResult
@@ -553,14 +569,18 @@ private final class FakeDropCoordinator: NSObject, UITableViewDropCoordinator {
         dropIntoRowCalls.append(indexPath)
         dropIntoRowRects.append(rect)
         dropIntoRowObserver?()
-        return FakeDragAnimating()
+        return animator
     }
 
     @discardableResult
     func drop(_ dragItem: UIDragItem, to target: UIDragPreviewTarget) -> UIDragAnimating {
         dropToTargetCalls.append(target)
         dropToTargetObserver?()
-        return FakeDragAnimating()
+        return animator
+    }
+
+    func completeAnimations(at position: UIViewAnimatingPosition = .end) {
+        animator.complete(at: position)
     }
 }
 #endif
