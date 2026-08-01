@@ -2,7 +2,7 @@
 ///
 /// Keeping this mapping exhaustive in one place prevents lifecycle collaborators from silently
 /// assigning contradictory meanings to the same ``UpdateState``.
-enum UpdateAttemptDisposition: Equatable {
+enum UpdateAttemptDisposition {
     /// No update activity is visible.
     case idle
     /// Sparkle is requesting automatic-check permission.
