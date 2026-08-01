@@ -15,6 +15,10 @@
 #include <stdexcept>
 #include <utility>
 
+#if defined(CMUX_CPP_TESTING)
+#include "resource_test_hooks.hpp"
+#endif
+
 #if defined(__APPLE__)
 #include <stdlib.h>
 #elif defined(__linux__)
@@ -22,6 +26,46 @@
 #endif
 
 namespace cmux {
+
+#if defined(CMUX_CPP_TESTING)
+namespace detail {
+namespace {
+
+std::atomic<std::size_t> simulated_request_lock_failures{0};
+std::atomic<std::size_t> observed_request_lock_failures{0};
+
+}  // namespace
+
+void simulate_spurious_request_lock_failures(std::size_t count) noexcept {
+    observed_request_lock_failures.store(0, std::memory_order_release);
+    simulated_request_lock_failures.store(count, std::memory_order_release);
+}
+
+std::size_t simulated_request_lock_failures_observed() noexcept {
+    return observed_request_lock_failures.load(std::memory_order_acquire);
+}
+
+bool consume_simulated_request_lock_failure() noexcept {
+    auto remaining =
+        simulated_request_lock_failures.load(std::memory_order_acquire);
+    while (remaining != 0) {
+        if (simulated_request_lock_failures.compare_exchange_weak(
+                remaining,
+                remaining - 1,
+                std::memory_order_acq_rel,
+                std::memory_order_acquire)) {
+            observed_request_lock_failures.fetch_add(
+                1,
+                std::memory_order_release);
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace detail
+#endif
+
 namespace {
 
 struct OperationInfo {
@@ -1281,7 +1325,11 @@ public:
             if (call.cancel.stop_possible()) {
                 timeout = std::min(timeout, Timeout(25));
                 (void)lock.try_lock_for(timeout);
-            } else if (!lock.try_lock_until(deadline)) {
+            } else if (
+#if defined(CMUX_CPP_TESTING)
+                detail::consume_simulated_request_lock_failure() ||
+#endif
+                !lock.try_lock_until(deadline)) {
                 return make_error(
                     ErrorCode::timeout,
                     "operation timed out before request admission");

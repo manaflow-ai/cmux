@@ -18,6 +18,7 @@
 
 #include "cmux/client.hpp"
 #include "cmux/raw/client.hpp"
+#include "resource_test_hooks.hpp"
 
 namespace {
 
@@ -1010,6 +1011,89 @@ TEST("queued request admission obeys deadline and cancellation without sending")
     CHECK(*first_result);
     std::lock_guard lock(state->mutex);
     CHECK_EQ(state->outgoing.size(), 1U);
+    CHECK_EQ(state->close_calls, 0U);
+}
+
+TEST("queued request retries a failed timed lock attempt before its deadline") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    std::optional<cmux::Result<cmux::Json>> first_result;
+    std::thread first([&] {
+        first_result = client.read(cmux::Operation::session_ping);
+    });
+    wait_for_writes(state, 1);
+
+    cmux::detail::simulate_spurious_request_lock_failures(1);
+    std::optional<cmux::Result<cmux::Json>> queued_result;
+    std::thread queued([&] {
+        queued_result = client.read(
+            cmux::Operation::session_ping,
+            {},
+            cmux::CallOptions::with_timeout(std::chrono::seconds(2)));
+    });
+
+    const auto observation_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (
+        cmux::detail::simulated_request_lock_failures_observed() == 0 &&
+        std::chrono::steady_clock::now() < observation_deadline) {
+        std::this_thread::yield();
+    }
+    const bool failure_was_observed =
+        cmux::detail::simulated_request_lock_failures_observed() == 1;
+
+    std::string first_id;
+    {
+        std::lock_guard lock(state->mutex);
+        first_id = std::string(
+            cmux::Json::parse(state->outgoing.front())
+                .value()
+                .find("id")
+                ->as_string()
+                .value());
+    }
+    enqueue(
+        state,
+        response(
+            first_id,
+            R"({"alive":true,"cursor":{"generation":"g","revision":"1"}})"));
+    first.join();
+
+    bool queued_was_sent = false;
+    std::string queued_id;
+    {
+        std::unique_lock lock(state->mutex);
+        queued_was_sent = state->changed.wait_for(
+            lock,
+            std::chrono::seconds(1),
+            [&] { return state->outgoing.size() >= 2; });
+        if (queued_was_sent) {
+            queued_id = std::string(
+                cmux::Json::parse(state->outgoing.at(1))
+                    .value()
+                    .find("id")
+                    ->as_string()
+                    .value());
+        }
+    }
+    if (queued_was_sent) {
+        enqueue(
+            state,
+            response(
+                queued_id,
+                R"({"alive":true,"cursor":{"generation":"g","revision":"2"}})"));
+    }
+    queued.join();
+    cmux::detail::simulate_spurious_request_lock_failures(0);
+
+    CHECK(failure_was_observed);
+    CHECK(first_result.has_value());
+    CHECK(*first_result);
+    CHECK(queued_was_sent);
+    CHECK(queued_result.has_value());
+    CHECK(*queued_result);
+    std::lock_guard lock(state->mutex);
+    CHECK_EQ(state->outgoing.size(), 2U);
     CHECK_EQ(state->close_calls, 0U);
 }
 
