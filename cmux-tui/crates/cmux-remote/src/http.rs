@@ -3,15 +3,12 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{self, OpenOptions};
-use std::future::Future;
 use std::io::{self, Read, Write};
 use std::net::SocketAddr;
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::Duration;
 
 use axum::extract::{DefaultBodyLimit, Path as AxumPath, Query, Request, State};
@@ -20,18 +17,21 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
-use axum::serve::Listener;
 use axum::{Json, Router};
 use base64::Engine;
 use cmux_remote_protocol::{
     RpcError, RpcRequest, RpcResponse, WorkspaceId, WorkspaceRequest, WorkspaceResponse,
 };
+use hyper::server::conn::http1;
+use hyper_util::rt::{TokioIo, TokioTimer};
+use hyper_util::service::TowerToHyperService;
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
-use tokio::time::Sleep;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot, watch};
+use tokio::task::JoinSet;
+use tower::ServiceBuilder;
+use tower_http::timeout::RequestBodyTimeoutLayer;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::workspace::WorkspaceService;
@@ -42,12 +42,16 @@ const MAX_HTTP_RPC_BODY_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CONCURRENT_HTTP_REQUESTS: usize = 64;
 const MAX_RAW_HTTP_CONNECTIONS: usize = 64;
 const HTTP_HEADER_TIMEOUT: Duration = Duration::from_secs(5);
+const HTTP_REQUEST_BODY_TIMEOUT: Duration = Duration::from_secs(5);
+const HTTP_GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_HTTP_HEADER_BYTES: usize = 16 * 1024;
 
 #[derive(Clone, Copy)]
 struct WorkspaceHttpAdmissionLimits {
     maximum_connections: usize,
     header_timeout: Duration,
+    request_body_timeout: Duration,
+    graceful_shutdown_timeout: Duration,
     maximum_header_bytes: usize,
 }
 
@@ -55,6 +59,8 @@ const WORKSPACE_HTTP_ADMISSION_LIMITS: WorkspaceHttpAdmissionLimits =
     WorkspaceHttpAdmissionLimits {
         maximum_connections: MAX_RAW_HTTP_CONNECTIONS,
         header_timeout: HTTP_HEADER_TIMEOUT,
+        request_body_timeout: HTTP_REQUEST_BODY_TIMEOUT,
+        graceful_shutdown_timeout: HTTP_GRACEFUL_SHUTDOWN_TIMEOUT,
         maximum_header_bytes: MAX_HTTP_HEADER_BYTES,
     };
 
@@ -200,163 +206,6 @@ struct ApplyPatchQuery {
     dry_run: bool,
 }
 
-struct WorkspaceHttpAdmissionListener {
-    inner: TcpListener,
-    permits: Arc<Semaphore>,
-    header_timeout: Duration,
-    maximum_header_bytes: usize,
-}
-
-impl WorkspaceHttpAdmissionListener {
-    fn new(inner: TcpListener, limits: WorkspaceHttpAdmissionLimits) -> Self {
-        Self {
-            inner,
-            permits: Arc::new(Semaphore::new(limits.maximum_connections)),
-            header_timeout: limits.header_timeout,
-            maximum_header_bytes: limits.maximum_header_bytes,
-        }
-    }
-}
-
-impl Listener for WorkspaceHttpAdmissionListener {
-    type Io = WorkspaceHttpAdmissionStream;
-    type Addr = SocketAddr;
-
-    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
-        loop {
-            let permit = self
-                .permits
-                .clone()
-                .acquire_owned()
-                .await
-                .expect("workspace HTTP admission semaphore is never closed");
-            match self.inner.accept().await {
-                Ok((stream, address)) => {
-                    let _ = stream.set_nodelay(true);
-                    return (
-                        WorkspaceHttpAdmissionStream::new(
-                            stream,
-                            permit,
-                            self.header_timeout,
-                            self.maximum_header_bytes,
-                        ),
-                        address,
-                    );
-                }
-                Err(_) => {
-                    drop(permit);
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-            }
-        }
-    }
-
-    fn local_addr(&self) -> io::Result<Self::Addr> {
-        self.inner.local_addr()
-    }
-}
-
-struct WorkspaceHttpAdmissionStream {
-    inner: TcpStream,
-    _permit: OwnedSemaphorePermit,
-    header_deadline: Pin<Box<Sleep>>,
-    maximum_header_bytes: usize,
-    header_bytes: usize,
-    delimiter_bytes: u8,
-    header_complete: bool,
-}
-
-impl WorkspaceHttpAdmissionStream {
-    fn new(
-        inner: TcpStream,
-        permit: OwnedSemaphorePermit,
-        header_timeout: Duration,
-        maximum_header_bytes: usize,
-    ) -> Self {
-        Self {
-            inner,
-            _permit: permit,
-            header_deadline: Box::pin(tokio::time::sleep(header_timeout)),
-            maximum_header_bytes,
-            header_bytes: 0,
-            delimiter_bytes: 0,
-            header_complete: false,
-        }
-    }
-
-    fn observe_read(&mut self, bytes: &[u8]) -> io::Result<()> {
-        if self.header_complete {
-            return Ok(());
-        }
-        for &byte in bytes {
-            self.header_bytes = self.header_bytes.checked_add(1).ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "HTTP header byte count overflowed")
-            })?;
-            if self.header_bytes > self.maximum_header_bytes {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "workspace HTTP headers exceeded the byte limit",
-                ));
-            }
-            self.delimiter_bytes = match (self.delimiter_bytes, byte) {
-                (0, b'\r') => 1,
-                (1, b'\n') => 2,
-                (1, b'\r') => 1,
-                (2, b'\r') => 3,
-                (3, b'\n') => 4,
-                (_, b'\r') => 1,
-                _ => 0,
-            };
-            if self.delimiter_bytes == 4 {
-                self.header_complete = true;
-                break;
-            }
-        }
-        Ok(())
-    }
-}
-
-impl AsyncRead for WorkspaceHttpAdmissionStream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        context: &mut Context<'_>,
-        buffer: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        if !self.header_complete && self.header_deadline.as_mut().poll(context).is_ready() {
-            return Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "workspace HTTP headers were not completed before the deadline",
-            )));
-        }
-        let previous_length = buffer.filled().len();
-        match Pin::new(&mut self.inner).poll_read(context, buffer) {
-            Poll::Ready(Ok(())) => {
-                let bytes = &buffer.filled()[previous_length..];
-                Poll::Ready(self.observe_read(bytes))
-            }
-            ready => ready,
-        }
-    }
-}
-
-impl AsyncWrite for WorkspaceHttpAdmissionStream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        context: &mut Context<'_>,
-        buffer: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.inner).poll_write(context, buffer)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(context)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(context)
-    }
-}
-
 pub struct WorkspaceHttpServer {
     local_addr: SocketAddr,
     token_file: PathBuf,
@@ -434,15 +283,10 @@ async fn serve_workspace_http_with_limits(
     let token = load_or_create_workspace_http_token(&token_file)?;
     let listener = TcpListener::bind(address).await?;
     let local_addr = listener.local_addr()?;
-    let listener = WorkspaceHttpAdmissionListener::new(listener, admission_limits);
     let router = workspace_http_router(workspace, token);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let task = tokio::spawn(async move {
-        axum::serve(listener, router)
-            .with_graceful_shutdown(async move {
-                let _ = shutdown_rx.await;
-            })
-            .await
+        run_workspace_http_server(listener, router, admission_limits, shutdown_rx).await
     });
     Ok(WorkspaceHttpServer {
         local_addr,
@@ -450,6 +294,113 @@ async fn serve_workspace_http_with_limits(
         shutdown: Some(shutdown_tx),
         task: Some(task),
     })
+}
+
+async fn run_workspace_http_server(
+    listener: TcpListener,
+    router: Router,
+    limits: WorkspaceHttpAdmissionLimits,
+    mut shutdown: oneshot::Receiver<()>,
+) -> Result<(), io::Error> {
+    let permits = Arc::new(Semaphore::new(limits.maximum_connections));
+    let (connection_shutdown, _) = watch::channel(false);
+    let mut connections = JoinSet::new();
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut shutdown => break,
+            Some(result) = connections.join_next(), if !connections.is_empty() => {
+                if let Err(error) = result
+                    && error.is_panic()
+                {
+                    return Err(io::Error::other(format!(
+                        "workspace HTTP connection task panicked: {error}"
+                    )));
+                }
+            }
+            permit = permits.clone().acquire_owned() => {
+                let permit = permit.expect("workspace HTTP admission semaphore is never closed");
+                let accepted = tokio::select! {
+                    biased;
+                    _ = &mut shutdown => {
+                        drop(permit);
+                        break;
+                    }
+                    accepted = listener.accept() => accepted,
+                };
+                match accepted {
+                    Ok((stream, _)) => {
+                        let _ = stream.set_nodelay(true);
+                        connections.spawn(serve_workspace_http_connection(
+                            stream,
+                            permit,
+                            router.clone(),
+                            limits,
+                            connection_shutdown.subscribe(),
+                        ));
+                    }
+                    Err(_) => {
+                        drop(permit);
+                        tokio::select! {
+                            biased;
+                            _ = &mut shutdown => break,
+                            _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    connection_shutdown.send_replace(true);
+    let graceful = tokio::time::timeout(limits.graceful_shutdown_timeout, async {
+        while let Some(result) = connections.join_next().await {
+            if let Err(error) = result
+                && error.is_panic()
+            {
+                return Err(io::Error::other(format!(
+                    "workspace HTTP connection task panicked: {error}"
+                )));
+            }
+        }
+        Ok(())
+    })
+    .await;
+    match graceful {
+        Ok(result) => result,
+        Err(_) => {
+            connections.abort_all();
+            while connections.join_next().await.is_some() {}
+            Ok(())
+        }
+    }
+}
+
+async fn serve_workspace_http_connection(
+    stream: TcpStream,
+    _permit: OwnedSemaphorePermit,
+    router: Router,
+    limits: WorkspaceHttpAdmissionLimits,
+    mut shutdown: watch::Receiver<bool>,
+) {
+    let service = ServiceBuilder::new()
+        .layer(RequestBodyTimeoutLayer::new(limits.request_body_timeout))
+        .service(router);
+    let mut builder = http1::Builder::new();
+    builder
+        .timer(TokioTimer::new())
+        .header_read_timeout(limits.header_timeout)
+        .max_buf_size(limits.maximum_header_bytes.max(8 * 1024));
+    let connection =
+        builder.serve_connection(TokioIo::new(stream), TowerToHyperService::new(service));
+    tokio::pin!(connection);
+    tokio::select! {
+        _ = &mut connection => {}
+        _ = shutdown.changed() => {
+            connection.as_mut().graceful_shutdown();
+            let _ = connection.await;
+        }
+    }
 }
 
 fn workspace_http_router(workspace: WorkspaceService, token: WorkspaceHttpBearerToken) -> Router {
@@ -686,6 +637,8 @@ mod tests {
         let limits = WorkspaceHttpAdmissionLimits {
             maximum_connections: 1,
             header_timeout: Duration::from_millis(300),
+            request_body_timeout: Duration::from_millis(300),
+            graceful_shutdown_timeout: Duration::from_millis(300),
             maximum_header_bytes: MAX_HTTP_HEADER_BYTES,
         };
         let server = serve_workspace_http_with_limits(
@@ -740,6 +693,8 @@ mod tests {
         let limits = WorkspaceHttpAdmissionLimits {
             maximum_connections: 1,
             header_timeout: Duration::from_secs(2),
+            request_body_timeout: Duration::from_secs(2),
+            graceful_shutdown_timeout: Duration::from_secs(2),
             maximum_header_bytes: 8 * 1024,
         };
         let server = serve_workspace_http_with_limits(
@@ -794,6 +749,8 @@ mod tests {
         let limits = WorkspaceHttpAdmissionLimits {
             maximum_connections: 1,
             header_timeout: Duration::from_millis(200),
+            request_body_timeout: Duration::from_millis(200),
+            graceful_shutdown_timeout: Duration::from_millis(200),
             maximum_header_bytes: MAX_HTTP_HEADER_BYTES,
         };
         let server = serve_workspace_http_with_limits(
@@ -839,6 +796,8 @@ mod tests {
         let limits = WorkspaceHttpAdmissionLimits {
             maximum_connections: 1,
             header_timeout: Duration::from_millis(200),
+            request_body_timeout: Duration::from_millis(200),
+            graceful_shutdown_timeout: Duration::from_millis(200),
             maximum_header_bytes: MAX_HTTP_HEADER_BYTES,
         };
         let server = serve_workspace_http_with_limits(
@@ -885,6 +844,8 @@ mod tests {
         let limits = WorkspaceHttpAdmissionLimits {
             maximum_connections: 1,
             header_timeout: Duration::from_millis(100),
+            request_body_timeout: Duration::from_secs(60),
+            graceful_shutdown_timeout: Duration::from_millis(100),
             maximum_header_bytes: MAX_HTTP_HEADER_BYTES,
         };
         let server = serve_workspace_http_with_limits(

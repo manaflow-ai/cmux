@@ -1,13 +1,9 @@
 use std::cell::Cell;
 use std::ffi::{CStr, CString, OsStr, OsString};
 use std::fs::File;
-#[cfg(target_os = "linux")]
-use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-#[cfg(target_os = "linux")]
-use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -20,21 +16,11 @@ pub(crate) struct Slave(File);
 
 struct DescriptorCleanup {
     descriptor_limit: RawFd,
-    #[cfg(target_os = "linux")]
-    proc_fd_directory: Option<File>,
 }
 
 impl DescriptorCleanup {
     fn new(descriptor_limit: RawFd) -> Self {
-        Self {
-            descriptor_limit,
-            #[cfg(target_os = "linux")]
-            proc_fd_directory: OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
-                .open("/proc/self/fd")
-                .ok(),
-        }
+        Self { descriptor_limit }
     }
 }
 
@@ -166,8 +152,13 @@ fn mark_inherited_descriptors_close_on_exec(cleanup: &DescriptorCleanup) -> io::
         ) {
             return Err(error);
         }
-        if let Some(directory) = cleanup.proc_fd_directory.as_ref() {
-            return mark_proc_descriptors_close_on_exec(directory.as_raw_fd());
+        if let Ok(directory_fd) = open_child_proc_descriptor_directory() {
+            let result = mark_proc_descriptors_close_on_exec(directory_fd);
+            // The directory is already CLOEXEC, so a failed close cannot leak
+            // through exec. Do not retry close after EINTR because the fd may
+            // already have been reused.
+            unsafe { libc::close(directory_fd) };
+            return result;
         }
         const MAX_BOUNDED_DESCRIPTOR_SCAN: RawFd = 65_536;
         if cleanup.descriptor_limit > MAX_BOUNDED_DESCRIPTOR_SCAN {
@@ -175,6 +166,32 @@ fn mark_inherited_descriptors_close_on_exec(cleanup: &DescriptorCleanup) -> io::
         }
     }
     mark_descriptors_close_on_exec_individually(cleanup.descriptor_limit)
+}
+
+#[cfg(target_os = "linux")]
+fn open_child_proc_descriptor_directory() -> io::Result<RawFd> {
+    const PROC_SELF_FD: &[u8] = b"/proc/self/fd\0";
+    loop {
+        // Open after fork so `/proc/self/fd` resolves to the child's table.
+        // Raw syscalls avoid allocator and libc lock state in `pre_exec`.
+        let descriptor = unsafe {
+            libc::syscall(
+                libc::SYS_openat,
+                libc::AT_FDCWD,
+                PROC_SELF_FD.as_ptr().cast::<libc::c_char>(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+                0,
+            )
+        };
+        if descriptor >= 0 {
+            return RawFd::try_from(descriptor)
+                .map_err(|_| io::Error::from_raw_os_error(libc::EOVERFLOW));
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EINTR) {
+            return Err(error);
+        }
+    }
 }
 
 fn mark_descriptors_close_on_exec_individually(descriptor_limit: RawFd) -> io::Result<()> {

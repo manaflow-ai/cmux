@@ -29,6 +29,8 @@ getrandom.workspace = true
 ghostty-vt.workspace = true
 hmac.workspace = true
 http.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
 iroh = { workspace = true, optional = true }
 libc.workspace = true
 serde.workspace = true
@@ -39,6 +41,8 @@ snow.workspace = true
 subtle.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
+tower.workspace = true
+tower-http.workspace = true
 url.workspace = true
 uuid.workspace = true
 x25519-dalek.workspace = true
@@ -54,5 +58,4 @@ cmux-relay = { path = "../cmux-relay" }
 rcgen = "0.14"
 tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }
-tower = { version = "0.5", features = ["util"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }

@@ -224,6 +224,27 @@ impl Drop for ResumeExpiryTask {
 }
 
 #[derive(Debug)]
+struct PendingLinkExpiryTask(Option<tokio::task::AbortHandle>);
+
+impl PendingLinkExpiryTask {
+    fn new(task: tokio::task::AbortHandle) -> Self {
+        Self(Some(task))
+    }
+
+    fn disarm(mut self) {
+        self.0.take();
+    }
+}
+
+impl Drop for PendingLinkExpiryTask {
+    fn drop(&mut self) {
+        if let Some(task) = self.0.take() {
+            task.abort();
+        }
+    }
+}
+
+#[derive(Debug)]
 struct ServerLifecycle {
     disconnected_generation: Option<u64>,
     resume_deadline: Option<Instant>,
@@ -720,6 +741,7 @@ struct DaemonState {
 
 struct PendingLinks {
     created_at: Instant,
+    expiry_task: Option<PendingLinkExpiryTask>,
     routes: Vec<LinkRoute>,
     assigned: BTreeSet<Lane>,
     client_resume: BTreeMap<Lane, u64>,
@@ -919,6 +941,7 @@ impl RemoteDaemon {
             inserted = true;
             PendingLinks {
                 created_at: now,
+                expiry_task: None,
                 routes: Vec::new(),
                 assigned: BTreeSet::new(),
                 client_resume: accepted.resume.clone(),
@@ -931,16 +954,17 @@ impl RemoteDaemon {
         }
         pending.routes.push(LinkRoute { lanes: accepted.lanes, link: Arc::new(accepted.link) });
         if pending.assigned.len() != Lane::ALL.len() {
-            drop(state);
             if inserted {
-                self.schedule_pending_link_expiry(pending_key, now);
+                pending.expiry_task = Some(self.schedule_pending_link_expiry(pending_key, now));
             }
+            drop(state);
             return Ok(());
         }
         if pending.assigned.iter().copied().ne(Lane::ALL) {
             return Err(DaemonError::Protocol("physical links did not cover every lane".into()));
         }
-        let pending = state.pending.remove(&pending_key).expect("pending entry exists");
+        let mut pending = state.pending.remove(&pending_key).expect("pending entry exists");
+        drop(pending.expiry_task.take());
         drop(state);
         let mut lane_bindings =
             pending.routes.iter().map(|route| route.lanes.clone()).collect::<Vec<_>>();
@@ -1102,21 +1126,27 @@ impl RemoteDaemon {
         self: &Arc<Self>,
         key: (ClientKey, u64, ConnectionAttemptId),
         created_at: Instant,
-    ) {
+    ) -> PendingLinkExpiryTask {
         let daemon = Arc::downgrade(self);
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             tokio::time::sleep_until((created_at + PENDING_LINK_TTL).into()).await;
             let Some(daemon) = daemon.upgrade() else {
                 return;
             };
-            let expired = {
+            let mut expired = {
                 let mut state = daemon.state.lock().await;
                 let matches =
                     state.pending.get(&key).is_some_and(|pending| pending.created_at == created_at);
                 matches.then(|| state.pending.remove(&key)).flatten()
             };
+            if let Some(expiry_task) =
+                expired.as_mut().and_then(|pending| pending.expiry_task.take())
+            {
+                expiry_task.disarm();
+            }
             close_pending_links(expired).await;
         });
+        PendingLinkExpiryTask::new(task.abort_handle())
     }
 
     async fn remove_connection_if(
@@ -1201,7 +1231,8 @@ impl Drop for RemoteDaemon {
 }
 
 async fn close_pending_links(pending: Option<PendingLinks>) {
-    if let Some(pending) = pending {
+    if let Some(mut pending) = pending {
+        drop(pending.expiry_task.take());
         for route in pending.routes {
             let _ = tokio::time::timeout(TERMINAL_CLOSE_TIMEOUT, route.link.close()).await;
         }
@@ -2396,13 +2427,15 @@ mod tests {
             key.clone(),
             PendingLinks {
                 created_at,
+                expiry_task: None,
                 routes: vec![LinkRoute { lanes: vec![Lane::Interactive], link: Arc::new(link) }],
                 assigned: BTreeSet::from([Lane::Interactive]),
                 client_resume: BTreeMap::new(),
                 grant_generation: 0,
             },
         );
-        daemon.schedule_pending_link_expiry(key, created_at);
+        let expiry_task = daemon.schedule_pending_link_expiry(key.clone(), created_at);
+        daemon.state.lock().await.pending.get_mut(&key).unwrap().expiry_task = Some(expiry_task);
 
         tokio::time::advance(PENDING_LINK_TTL + Duration::from_secs(1)).await;
         tokio::task::yield_now().await;
