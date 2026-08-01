@@ -414,53 +414,34 @@ private func simulatorPointIsNormalized(_ point: SimulatorPoint) -> Bool {
         return send(message)
     }
 
-    func sendSystemGesture(endY: Double) async -> Bool {
+    func sendSystemGesture(
+        endY: Double,
+        durationMilliseconds: Int? = nil
+    ) async -> Bool {
         let edge = SimulatorEdge.bottom
-        var succeeded = send(
-            SimulatorPointerEvent(
-                phase: .began,
-                primary: SimulatorPoint(x: 0.5, y: 0.96),
-                edge: edge
-            )
-        )
-        do {
-            try await sleeper.sleep(for: .milliseconds(16))
-        } catch {
-            _ = send(SimulatorPointerEvent(
-                phase: .cancelled,
-                primary: SimulatorPoint(x: 0.5, y: 0.96),
-                edge: edge
-            ))
-            return false
-        }
+        var events = [SimulatorPointerEvent(
+            phase: .began,
+            primary: SimulatorPoint(x: 0.5, y: 0.96),
+            edge: edge
+        )]
         for index in 1...10 {
             let ratio = Double(index) / 10
             let y = 0.96 + (endY - 0.96) * ratio
-            succeeded = send(
-                SimulatorPointerEvent(
-                    phase: .moved,
-                    primary: SimulatorPoint(x: 0.5, y: y),
-                    edge: edge
-                )
-            ) && succeeded
-            do {
-                try await sleeper.sleep(for: .milliseconds(16))
-            } catch {
-                _ = send(SimulatorPointerEvent(
-                    phase: .cancelled,
-                    primary: SimulatorPoint(x: 0.5, y: y),
-                    edge: edge
-                ))
-                return false
-            }
-        }
-        return send(
-            SimulatorPointerEvent(
-                phase: .ended,
-                primary: SimulatorPoint(x: 0.5, y: endY),
+            events.append(SimulatorPointerEvent(
+                phase: .moved,
+                primary: SimulatorPoint(x: 0.5, y: y),
                 edge: edge
-            )
-        ) && succeeded
+            ))
+        }
+        events.append(SimulatorPointerEvent(
+            phase: .ended,
+            primary: SimulatorPoint(x: 0.5, y: endY),
+            edge: edge
+        ))
+        return await sendGestureSequence(
+            events,
+            totalDurationMilliseconds: durationMilliseconds ?? 176
+        )
     }
 
     private func updatePointerState(after event: SimulatorPointerEvent) {

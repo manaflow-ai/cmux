@@ -21,12 +21,16 @@ extension SimulatorPaneCoordinator {
         } else {
             durationMilliseconds = plan.durationMilliseconds
         }
+        let phase: SimulatorAgentCursorPhase = plan.beginsTouch ? .pressed : .clicked
         agentCursorPresentation = SimulatorAgentCursorPresentation(
             generation: generation,
             origin: origin,
             destination: plan.destination,
             durationMilliseconds: durationMilliseconds,
-            phase: plan.beginsTouch ? .pressed : .clicked
+            phase: phase,
+            clickPhaseDelayMilliseconds: phase == .clicked
+                ? max(0, durationMilliseconds - plan.durationMilliseconds)
+                : 0
         )
         return generation
     }
@@ -46,7 +50,13 @@ extension SimulatorPaneCoordinator {
             origin: presentation.origin,
             destination: presentation.destination,
             durationMilliseconds: presentation.durationMilliseconds,
-            phase: completionPhase
+            phase: completionPhase,
+            clickPhaseDelayMilliseconds: completionPhase == .clicked
+                ? max(
+                    0,
+                    presentation.durationMilliseconds - plan.durationMilliseconds
+                )
+                : 0
         )
     }
 
@@ -62,7 +72,8 @@ extension SimulatorPaneCoordinator {
             origin: presentation.origin,
             destination: presentation.destination,
             durationMilliseconds: presentation.durationMilliseconds,
-            phase: .cancelled
+            phase: .cancelled,
+            clickPhaseDelayMilliseconds: 0
         )
     }
 
@@ -76,7 +87,8 @@ extension SimulatorPaneCoordinator {
             origin: center,
             destination: center,
             durationMilliseconds: 0,
-            phase: .resting
+            phase: .resting,
+            clickPhaseDelayMilliseconds: 0
         )
     }
 

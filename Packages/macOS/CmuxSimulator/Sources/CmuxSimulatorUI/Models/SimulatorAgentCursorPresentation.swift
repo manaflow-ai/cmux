@@ -12,4 +12,6 @@ struct SimulatorAgentCursorPresentation: Equatable, Sendable {
     let durationMilliseconds: Int
     /// Current touch state rendered at the action point.
     let phase: SimulatorAgentCursorPhase
+    /// Delay before rendering a completed click while cursor travel finishes.
+    let clickPhaseDelayMilliseconds: Int
 }
