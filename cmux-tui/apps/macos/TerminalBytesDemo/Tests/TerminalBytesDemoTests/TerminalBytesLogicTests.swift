@@ -45,7 +45,7 @@ struct TerminalBytesLogicTests {
 
         let configuration = DemoLaunchConfiguration.processEnvironment([
             "CMUX_TERMINAL_INVITATION_FILE": invitation.path,
-            "CMUX_TERMINAL_SURFACE": "73",
+            "CMUX_TERMINAL_ID": "term_0123456789abcdef0123456789abcdef",
             "CMUX_TERMINAL_AUTOCONNECT": "1",
         ])
 
@@ -53,9 +53,17 @@ struct TerminalBytesLogicTests {
             configuration
                 == DemoLaunchConfiguration(
                     invitation: "cmux://enroll/fresh",
-                    surface: "73",
+                    terminalID: "term_0123456789abcdef0123456789abcdef",
                     autoConnect: true
                 ))
+    }
+
+    @Test
+    func stableTerminalIDValidationRejectsLegacySurfaceHandles() {
+        #expect(isTerminalPublicID("term_0123456789abcdef0123456789abcdef"))
+        #expect(!isTerminalPublicID("73"))
+        #expect(!isTerminalPublicID("term_0123456789ABCDEF0123456789ABCDEF"))
+        #expect(!isTerminalPublicID("pane_0123456789abcdef0123456789abcdef"))
     }
 
     @Test
@@ -142,14 +150,14 @@ struct TerminalBytesLogicTests {
     func clientHandleRetainsEnrollmentAndPropagatesInputFailure() throws {
         let raw = try #require(OpaquePointer(bitPattern: 1))
         var attached: [OpaquePointer] = []
-        var attachedSurfaces: [UInt64] = []
+        var attachedTerminals: [String] = []
         var detached: [OpaquePointer] = []
         var destroyed: [OpaquePointer] = []
         let handle = TerminalClientHandle(
             raw: raw,
-            attachClient: { client, surface, _, _ in
+            attachClient: { client, terminal, _, _ in
                 attached.append(client)
-                attachedSurfaces.append(surface)
+                attachedTerminals.append(String(cString: terminal!))
                 return true
             },
             destroyClient: { destroyed.append($0) },
@@ -167,10 +175,14 @@ struct TerminalBytesLogicTests {
         handle.disconnect()
         handle.disconnect()
         #expect(detached == [raw])
-        #expect(handle.reconnect(surface: 73) == nil)
-        #expect(handle.reconnect(surface: 73) == nil)
+        #expect(
+            handle.reconnect(terminalID: "term_0123456789abcdef0123456789abcdef") == nil
+        )
+        #expect(
+            handle.reconnect(terminalID: "term_0123456789abcdef0123456789abcdef") == nil
+        )
         #expect(attached == [raw])
-        #expect(attachedSurfaces == [73])
+        #expect(attachedTerminals == ["term_0123456789abcdef0123456789abcdef"])
 
         handle.shutdown()
         handle.shutdown()
@@ -198,7 +210,7 @@ struct TerminalBytesLogicTests {
         let model = TerminalModel(
             configuration: DemoLaunchConfiguration(
                 invitation: "",
-                surface: "73",
+                terminalID: "term_0123456789abcdef0123456789abcdef",
                 autoConnect: false
             ),
             retainedClient: handle
@@ -233,7 +245,7 @@ struct TerminalBytesLogicTests {
         let model = TerminalModel(
             configuration: DemoLaunchConfiguration(
                 invitation: "",
-                surface: "73",
+                terminalID: "term_0123456789abcdef0123456789abcdef",
                 autoConnect: false
             ),
             retainedClient: handle,

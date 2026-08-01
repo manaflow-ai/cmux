@@ -56,7 +56,7 @@ final class TerminalClientHandle: @unchecked Sendable {
     private let attachClient:
         (
             OpaquePointer,
-            UInt64,
+            UnsafePointer<CChar>?,
             UnsafeMutablePointer<CChar>?,
             Int
         ) -> Bool
@@ -99,7 +99,7 @@ final class TerminalClientHandle: @unchecked Sendable {
         attachClient:
             @escaping (
                 OpaquePointer,
-                UInt64,
+                UnsafePointer<CChar>?,
                 UnsafeMutablePointer<CChar>?,
                 Int
             ) -> Bool = {
@@ -175,7 +175,7 @@ final class TerminalClientHandle: @unchecked Sendable {
         detachClient(raw)
     }
 
-    func reconnect(surface: UInt64) -> String? {
+    func reconnect(terminalID: String) -> String? {
         lock.lock()
         defer { lock.unlock() }
         guard let raw else {
@@ -183,7 +183,10 @@ final class TerminalClientHandle: @unchecked Sendable {
         }
         guard !isAttached else { return nil }
         var error = [CChar](repeating: 0, count: 1_024)
-        guard attachClient(raw, surface, &error, error.count) else {
+        let attached = terminalID.withCString { terminalPointer in
+            attachClient(raw, terminalPointer, &error, error.count)
+        }
+        guard attached else {
             return String(
                 decoding: error.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
                 as: UTF8.self
@@ -252,7 +255,7 @@ final class TerminalClientHandle: @unchecked Sendable {
 
 struct DemoLaunchConfiguration: Equatable {
     let invitation: String
-    let surface: String
+    let terminalID: String
     let autoConnect: Bool
 
     static func processEnvironment(
@@ -265,9 +268,18 @@ struct DemoLaunchConfiguration: Equatable {
             ?? ""
         return DemoLaunchConfiguration(
             invitation: invitation,
-            surface: environment["CMUX_TERMINAL_SURFACE"] ?? "",
+            terminalID: environment["CMUX_TERMINAL_ID"] ?? "",
             autoConnect: environment["CMUX_TERMINAL_AUTOCONNECT"] == "1"
         )
+    }
+}
+
+func isTerminalPublicID(_ value: String) -> Bool {
+    let bytes = Array(value.utf8)
+    guard bytes.count == 37, bytes.starts(with: Array("term_".utf8)) else { return false }
+    return bytes.dropFirst(5).allSatisfy { byte in
+        (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
+            || (UInt8(ascii: "a")...UInt8(ascii: "f")).contains(byte)
     }
 }
 
@@ -293,7 +305,7 @@ func copyGrowingCString(
 @MainActor
 final class TerminalModel: ObservableObject {
     @Published var invitation: String
-    @Published var surface: String
+    @Published var terminalID: String
     @Published private(set) var frame = ""
     @Published private(set) var diagnostics = ""
     @Published private(set) var errorMessage = ""
@@ -314,7 +326,7 @@ final class TerminalModel: ObservableObject {
         initiallyConnected: Bool = false
     ) {
         invitation = configuration.invitation
-        surface = configuration.surface
+        terminalID = configuration.terminalID
         shouldAutoConnect = configuration.autoConnect
         client = retainedClient
         isConnected = retainedClient != nil && initiallyConnected
@@ -328,8 +340,12 @@ final class TerminalModel: ObservableObject {
 
     func connect() {
         guard !isConnecting, !isShuttingDown else { return }
-        guard let surfaceID = UInt64(surface) else {
-            errorMessage = L10n.text("error.surface", "Enter a numeric surface ID.")
+        let terminalID = terminalID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isTerminalPublicID(terminalID) else {
+            errorMessage = L10n.text(
+                "error.terminal",
+                "Enter a terminal ID such as term_0123456789abcdef0123456789abcdef."
+            )
             return
         }
         if let client {
@@ -339,7 +355,7 @@ final class TerminalModel: ObservableObject {
             let operation = connectionOperation
             Task {
                 let reconnectError = await Task.detached(priority: .userInitiated) {
-                    client.reconnect(surface: surfaceID)
+                    client.reconnect(terminalID: terminalID)
                 }.value
                 guard operation == connectionOperation, !isShuttingDown else { return }
                 isConnecting = false
@@ -367,12 +383,14 @@ final class TerminalModel: ObservableObject {
             let result = await Task.detached(priority: .userInitiated) {
                 var error = [CChar](repeating: 0, count: 1_024)
                 let handle = invitation.withCString { invitationPointer in
-                    cmux_terminal_client_connect(
-                        invitationPointer,
-                        surfaceID,
-                        &error,
-                        error.count
-                    )
+                    terminalID.withCString { terminalPointer in
+                        cmux_terminal_client_connect(
+                            invitationPointer,
+                            terminalPointer,
+                            &error,
+                            error.count
+                        )
+                    }
                 }
                 return ConnectedHandle(
                     raw: handle,

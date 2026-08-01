@@ -20,7 +20,7 @@ fresh `--iroh` daemon with mux, admin, link, terminal-host, and state paths
 under one `mktemp` directory. The state is durable only for the demo lifetime,
 which enables the per-PTY host required by `terminal-bytes-v1`. It creates a
 new workspace and invitation, launches
-the app with the invitation file and numeric surface prefilled, waits for the
+the app with the invitation file and stable `term_…` ID prefilled, waits for the
 app to claim that exact invitation ID, then approves only that ID. Closing the
 app stops the daemon and removes the temporary directory. It never discovers
 or connects to the ambient cmux session.
@@ -34,7 +34,7 @@ Verification:
 3. Resize the window, paste Japanese text, and select text. The PTY dimensions
    in diagnostics should change while selection remains local.
 4. Diagnostics should report `carrier: "iroh"`,
-   `service: "terminal-bytes-v1"`, the requested `surface`, `ready: true`,
+   `service: "terminal-bytes-v1"`, the requested `terminal`, `ready: true`,
    `resync_count: 0`, and a numeric `generation`.
    `snapshot_boundary` is the authoritative parser boundary; later
    `local_parser_cursor` and `raw_frames` prove that raw PTY bytes are being
@@ -54,7 +54,7 @@ source-order cursors greater than N. The host retains at most 8 MiB or 4096
 source frames, bounds each renderer queue at 8 MiB, and bounds unapplied parser
 backlog at 16 MiB. A retention gap or failed published transition emits
 `ResyncRequired`; this demo surfaces `resync-required` and stops applying the
-stream, after which Disconnect/Connect starts a fresh attach. Unknown frames
+old stream, then opens a fresh attach for the same stable terminal ID. Unknown frames
 close only this service stream. Clients without the
 smart-renderer flag retain the existing parser-ordered CMTH snapshot and replay
 behavior, so mux control, process streams, legacy snapshots, and other

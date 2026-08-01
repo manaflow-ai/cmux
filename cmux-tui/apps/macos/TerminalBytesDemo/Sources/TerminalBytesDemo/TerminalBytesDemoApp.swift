@@ -38,11 +38,11 @@ struct ContentView: View {
                 )
                 .textFieldStyle(.roundedBorder)
                 TextField(
-                    L10n.text("field.surface", "Surface ID"),
-                    text: $model.surface
+                    L10n.text("field.terminal", "Terminal ID"),
+                    text: $model.terminalID
                 )
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 110)
+                .frame(width: 300)
                 if model.isConnected {
                     Button(L10n.text("button.disconnect", "Disconnect")) {
                         model.disconnect()

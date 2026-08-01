@@ -657,6 +657,14 @@ enum Command {
         #[serde(default = "default_renderer_capability_ttl_ms")]
         ttl_ms: u64,
     },
+    /// Mint a renderer credential from the stable public terminal identity.
+    /// Remote clients must not depend on this daemon generation's local
+    /// numeric surface handle.
+    MintTerminalRendererByTerminal {
+        terminal: TerminalPublicId,
+        #[serde(default = "default_renderer_capability_ttl_ms")]
+        ttl_ms: u64,
+    },
     /// Resolve a process-stable hosted terminal UUID to this daemon
     /// generation's local surface handle without creating anything.
     ResolveTerminal {
@@ -7614,6 +7622,22 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::MintTerminalRenderer { surface, ttl_ms } => {
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;
+            Ok(json!({
+                "endpoint": grant.endpoint,
+                "terminal_id": grant.terminal_id,
+                "incarnation": grant.incarnation,
+                "token": grant.token,
+                "rights": grant.rights.bits(),
+                "ttl_ms": ttl_ms,
+            }))
+        }
+        Command::MintTerminalRendererByTerminal { terminal, ttl_ms } => {
+            let surface = mux
+                .resource_surface_for_terminal(&terminal)
+                .ok_or_else(|| anyhow::anyhow!("terminal {terminal} is not live"))?;
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
             let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;

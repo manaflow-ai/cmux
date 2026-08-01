@@ -1,10 +1,10 @@
 "app.title" = "TerminalBytes デモ";
 "field.invitation" = "登録用招待";
-"field.surface" = "サーフェス ID";
+"field.terminal" = "ターミナル ID";
 "button.connect" = "接続";
 "button.connecting" = "接続中…";
 "button.disconnect" = "切断";
-"error.surface" = "数値のサーフェス ID を入力してください。";
+"error.terminal" = "term_0123456789abcdef0123456789abcdef の形式でターミナル ID を入力してください。";
 "error.invitation" = "登録用招待を貼り付けてください。";
 "error.client.closed" = "ターミナルクライアントは閉じられています。";
 "error.input.rejected" = "ターミナル入力をキューに追加できませんでした。再接続して、もう一度お試しください。";

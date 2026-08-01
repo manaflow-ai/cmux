@@ -10,6 +10,7 @@ use cmux_remote_protocol::{
     RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse, Service, ServiceControl, WorkspaceRequest,
     WorkspaceResponse,
 };
+use cmux_tui_core::resource::TerminalPublicId;
 #[cfg(unix)]
 use cmux_tui_core::terminal_host::{
     CapabilityRights, CapabilityToken, ClientHello, ClientRole, HostHello, HostIncarnation,
@@ -606,7 +607,7 @@ impl DaemonServices {
         stream: ServiceStream,
         metadata: BTreeMap<String, String>,
     ) -> Result<(), ServicesError> {
-        let surface = terminal_bytes_metadata(&metadata)?;
+        let terminal = terminal_bytes_metadata(&metadata)?;
         let mux_path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
@@ -616,8 +617,8 @@ impl DaemonServices {
         let mut mux = tokio::net::UnixStream::connect(mux_path).await?;
         let request = serde_json::to_vec(&serde_json::json!({
             "id": 1,
-            "cmd": "mint-terminal-renderer",
-            "surface": surface,
+            "cmd": "mint-terminal-renderer-by-terminal",
+            "terminal": terminal,
             "ttl_ms": 10_000,
         }))?;
         mux.write_all(&request).await?;
@@ -766,17 +767,23 @@ impl DaemonServices {
     }
 }
 
-fn terminal_bytes_metadata(metadata: &BTreeMap<String, String>) -> Result<u64, ServicesError> {
-    if metadata.keys().any(|key| key != "surface") {
+fn terminal_bytes_metadata(
+    metadata: &BTreeMap<String, String>,
+) -> Result<TerminalPublicId, ServicesError> {
+    if metadata.keys().any(|key| key != "terminal") {
         return Err(ServicesError::Metadata(
-            "terminal byte stream metadata only supports surface".into(),
+            "terminal byte stream metadata only supports terminal".into(),
         ));
     }
-    metadata
-        .get("surface")
-        .ok_or_else(|| ServicesError::Metadata("terminal byte stream requires surface".into()))?
-        .parse::<u64>()
-        .map_err(|_| ServicesError::Metadata("terminal byte stream surface is invalid".into()))
+    TerminalPublicId::parse(
+        metadata
+            .get("terminal")
+            .ok_or_else(|| {
+                ServicesError::Metadata("terminal byte stream requires terminal".into())
+            })?
+            .clone(),
+    )
+    .map_err(|_| ServicesError::Metadata("terminal byte stream terminal is invalid".into()))
 }
 
 #[cfg(unix)]
@@ -1803,8 +1810,10 @@ mod tests {
             ])),
             Err(ServicesError::Metadata(_))
         ));
-        assert!(terminal_bytes_metadata(&BTreeMap::from([("terminal".into(), TERMINAL.into())]))
-            .is_ok());
+        assert!(
+            terminal_bytes_metadata(&BTreeMap::from([("terminal".into(), TERMINAL.into())]))
+                .is_ok()
+        );
         assert!(matches!(
             terminal_bytes_metadata(&BTreeMap::from([("surface".into(), "9".into())])),
             Err(ServicesError::Metadata(_))
@@ -1820,6 +1829,7 @@ mod tests {
         let mux_listener = tokio::net::UnixListener::bind(&mux_path).unwrap();
         let host_listener = tokio::net::UnixListener::bind(&host_path).unwrap();
         let terminal_id = TerminalId::random().unwrap();
+        let terminal = "term_0123456789abcdef0123456789abcdef";
         let incarnation = HostIncarnation::random().unwrap();
         let token = CapabilityToken::random().unwrap();
         let token_hex =
@@ -1846,8 +1856,8 @@ mod tests {
                 let mut socket = BufReader::new(socket);
                 socket.read_line(&mut request).await.unwrap();
                 let request: serde_json::Value = serde_json::from_str(&request).unwrap();
-                assert_eq!(request["cmd"], "mint-terminal-renderer");
-                assert_eq!(request["surface"], 73);
+                assert_eq!(request["cmd"], "mint-terminal-renderer-by-terminal");
+                assert_eq!(request["terminal"], terminal);
                 let response = serde_json::json!({
                     "id": 1,
                     "ok": true,
@@ -1906,7 +1916,7 @@ mod tests {
         let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
         let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
         let client_stream = client_mux
-            .open(Service::TerminalBytes, BTreeMap::from([("surface".into(), "73".into())]))
+            .open(Service::TerminalBytes, BTreeMap::from([("terminal".into(), terminal.into())]))
             .await
             .unwrap();
         let incoming = daemon_mux.accept().await.unwrap().unwrap();

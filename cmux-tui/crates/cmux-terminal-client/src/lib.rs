@@ -15,6 +15,7 @@ use cmux_remote::provider::{
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer, ServiceStream};
 use cmux_remote_protocol::{Lane, LanePolicy, Service, ServiceControl, SessionId};
 use cmux_tui_core::apply_terminal_color_overrides;
+use cmux_tui_core::resource::TerminalPublicId;
 use cmux_tui_core::terminal_host_protocol::{
     Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MessageKind, encode_frame,
 };
@@ -70,7 +71,7 @@ struct ClientState {
     transport_provider: String,
     transport_path: String,
     generation: u64,
-    surface: u64,
+    terminal_id: TerminalPublicId,
     snapshot_boundary: u64,
     snapshot_bytes: u64,
     bootstrap_frames: u64,
@@ -90,7 +91,7 @@ struct Diagnostics<'a> {
     carrier: &'a str,
     path: &'a str,
     generation: u64,
-    surface: u64,
+    terminal: &'a str,
     service: &'static str,
     status: &'a str,
     snapshot_boundary: u64,
@@ -115,7 +116,12 @@ enum FrameEffect {
 }
 
 impl ClientState {
-    fn new(provider: String, path: String, generation: u64, surface: u64) -> Result<Self, String> {
+    fn new(
+        provider: String,
+        path: String,
+        generation: u64,
+        terminal_id: TerminalPublicId,
+    ) -> Result<Self, String> {
         Ok(Self {
             terminal: None,
             key_encoder: KeyEncoder::new().map_err(|error| error.to_string())?,
@@ -126,7 +132,7 @@ impl ClientState {
             transport_provider: provider,
             transport_path: path,
             generation,
-            surface,
+            terminal_id,
             snapshot_boundary: 0,
             snapshot_bytes: 0,
             bootstrap_frames: 0,
@@ -142,12 +148,12 @@ impl ClientState {
         })
     }
 
-    fn prepare_handshake(&mut self, surface: u64) -> Result<(), String> {
+    fn prepare_handshake(&mut self, terminal_id: TerminalPublicId) -> Result<(), String> {
         self.terminal = None;
         self.render = RenderState::new().map_err(|error| error.to_string())?;
         self.render_dirty = false;
         self.status = "resyncing".into();
-        self.surface = surface;
+        self.terminal_id = terminal_id;
         self.snapshot_boundary = 0;
         self.snapshot_bytes = 0;
         self.bootstrap_frames = 0;
@@ -300,7 +306,7 @@ impl ClientState {
             carrier: &self.transport_provider,
             path: &self.transport_path,
             generation: self.generation,
-            surface: self.surface,
+            terminal: self.terminal_id.as_str(),
             service: "terminal-bytes-v1",
             status: &self.status,
             snapshot_boundary: self.snapshot_boundary,
@@ -358,11 +364,14 @@ fn resolve_iroh_route(route: &str) -> Result<(Url, BTreeMap<String, String>), St
 
 async fn open_terminal_stream(
     multiplexer: &Arc<ServiceMultiplexer>,
-    surface: u64,
+    terminal_id: &TerminalPublicId,
 ) -> Result<Arc<ServiceStream>, String> {
     let stream = Arc::new(
         multiplexer
-            .open(Service::TerminalBytes, BTreeMap::from([("surface".into(), surface.to_string())]))
+            .open(
+                Service::TerminalBytes,
+                BTreeMap::from([("terminal".into(), terminal_id.to_string())]),
+            )
             .await
             .map_err(|error| format!("open terminal-bytes-v1: {error}"))?,
     );
@@ -391,7 +400,7 @@ async fn open_terminal_stream(
 
 async fn connect_client(
     invitation_uri: &str,
-    surface: u64,
+    terminal_id: TerminalPublicId,
 ) -> Result<
     (
         Arc<ServiceStream>,
@@ -456,11 +465,16 @@ async fn connect_client(
         .map(|path| format!("{:?}", path.kind).to_lowercase())
         .unwrap_or_else(|| snapshot.transport.route.clone());
     let state = Arc::new(Mutex::new(
-        ClientState::new(snapshot.transport.provider, path, snapshot.generation, surface)
-            .map_err(|error| format!("libghostty: {error}"))?,
+        ClientState::new(
+            snapshot.transport.provider,
+            path,
+            snapshot.generation,
+            terminal_id.clone(),
+        )
+        .map_err(|error| format!("libghostty: {error}"))?,
     ));
     let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
-    let stream = open_terminal_stream(&multiplexer, surface).await?;
+    let stream = open_terminal_stream(&multiplexer, &terminal_id).await?;
     Ok((stream, connection, provider, multiplexer, state))
 }
 
@@ -552,7 +566,7 @@ async fn receive_frames(
 
 async fn supervise_terminal_stream(
     multiplexer: Arc<ServiceMultiplexer>,
-    surface: u64,
+    terminal_id: TerminalPublicId,
     initial_stream: Arc<ServiceStream>,
     streams: tokio::sync::watch::Sender<Option<Arc<ServiceStream>>>,
     closed: Arc<AtomicBool>,
@@ -568,7 +582,7 @@ async fn supervise_terminal_stream(
         if outcome == StreamOutcome::Stop || closed.load(Ordering::Acquire) {
             return;
         }
-        if let Err(error) = state.lock().unwrap().prepare_handshake(surface) {
+        if let Err(error) = state.lock().unwrap().prepare_handshake(terminal_id.clone()) {
             state.lock().unwrap().status = format!("resync: {error}");
             return;
         }
@@ -576,7 +590,7 @@ async fn supervise_terminal_stream(
             if closed.load(Ordering::Acquire) {
                 return;
             }
-            match open_terminal_stream(&multiplexer, surface).await {
+            match open_terminal_stream(&multiplexer, &terminal_id).await {
                 Ok(next) => {
                     stream = next;
                     streams.send_replace(Some(stream.clone()));
@@ -595,14 +609,14 @@ fn start_terminal_tasks(
     runtime: &Runtime,
     stream: Arc<ServiceStream>,
     multiplexer: Arc<ServiceMultiplexer>,
-    surface: u64,
+    terminal_id: TerminalPublicId,
     state: Arc<Mutex<ClientState>>,
 ) -> ActiveTerminal {
     let closed = Arc::new(AtomicBool::new(false));
     let (streams, mut command_streams) = tokio::sync::watch::channel(Some(stream.clone()));
     let receiver_task = runtime.spawn(supervise_terminal_stream(
         multiplexer,
-        surface,
+        terminal_id,
         stream,
         streams.clone(),
         closed.clone(),
@@ -653,12 +667,13 @@ fn start_terminal_tasks(
 }
 
 impl CmuxTerminalClient {
-    fn attach_terminal(&self, surface: u64) -> Result<(), String> {
+    fn attach_terminal(&self, terminal_id: TerminalPublicId) -> Result<(), String> {
         let mut terminal = self.terminal.lock().unwrap();
         if terminal.is_some() {
             return Ok(());
         }
-        let stream = self.runtime.block_on(open_terminal_stream(&self.multiplexer, surface))?;
+        let stream =
+            self.runtime.block_on(open_terminal_stream(&self.multiplexer, &terminal_id))?;
         let snapshot = self.runtime.block_on(self.connection.snapshot());
         let path = snapshot
             .transport
@@ -666,13 +681,17 @@ impl CmuxTerminalClient {
             .as_ref()
             .map(|path| format!("{:?}", path.kind).to_lowercase())
             .unwrap_or_else(|| snapshot.transport.route.clone());
-        *self.state.lock().unwrap() =
-            ClientState::new(snapshot.transport.provider, path, snapshot.generation, surface)?;
+        *self.state.lock().unwrap() = ClientState::new(
+            snapshot.transport.provider,
+            path,
+            snapshot.generation,
+            terminal_id.clone(),
+        )?;
         *terminal = Some(start_terminal_tasks(
             &self.runtime,
             stream,
             self.multiplexer.clone(),
-            surface,
+            terminal_id,
             self.state.clone(),
         ));
         Ok(())
@@ -709,6 +728,18 @@ fn enqueue_command(client: &CmuxTerminalClient, frame: Frame) -> bool {
     sender.is_some_and(|sender| sender.try_send(Bytes::from(encoded)).is_ok())
 }
 
+unsafe fn terminal_id_from_ffi(terminal_id: *const c_char) -> Result<TerminalPublicId, String> {
+    if terminal_id.is_null() {
+        return Err("terminal ID is null".into());
+    }
+    // SAFETY: the C API requires a readable NUL-terminated terminal ID.
+    let terminal_id = unsafe { CStr::from_ptr(terminal_id) }
+        .to_str()
+        .map_err(|error| format!("terminal ID is not UTF-8: {error}"))?;
+    TerminalPublicId::parse(terminal_id.to_owned())
+        .map_err(|error| format!("terminal ID is invalid: {error}"))
+}
+
 /// Connects a terminal client and returns an owning handle, or null on failure.
 ///
 /// # Safety
@@ -721,7 +752,7 @@ fn enqueue_command(client: &CmuxTerminalClient, frame: Frame) -> bool {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_connect(
     invitation_uri: *const c_char,
-    surface: u64,
+    terminal_id: *const c_char,
     error_buffer: *mut c_char,
     error_capacity: usize,
 ) -> *mut CmuxTerminalClient {
@@ -742,6 +773,13 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
             return std::ptr::null_mut();
         }
     };
+    let terminal_id = match unsafe { terminal_id_from_ffi(terminal_id) } {
+        Ok(terminal_id) => terminal_id,
+        Err(error) => {
+            copy_utf8(&error, error_buffer, error_capacity);
+            return std::ptr::null_mut();
+        }
+    };
     let runtime = match Runtime::new() {
         Ok(runtime) => runtime,
         Err(error) => {
@@ -749,7 +787,7 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
             return std::ptr::null_mut();
         }
     };
-    match runtime.block_on(connect_client(invitation, surface)) {
+    match runtime.block_on(connect_client(invitation, terminal_id.clone())) {
         Ok((stream, connection, provider, multiplexer, state)) => {
             let diagnostics_connection = connection.clone();
             let diagnostics_state = state.clone();
@@ -769,8 +807,13 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
                     state.generation = snapshot.generation;
                 }
             });
-            let terminal =
-                start_terminal_tasks(&runtime, stream, multiplexer.clone(), surface, state.clone());
+            let terminal = start_terminal_tasks(
+                &runtime,
+                stream,
+                multiplexer.clone(),
+                terminal_id,
+                state.clone(),
+            );
             Box::into_raw(Box::new(CmuxTerminalClient {
                 runtime,
                 connection,
@@ -798,7 +841,7 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_attach(
     client: *mut CmuxTerminalClient,
-    surface: u64,
+    terminal_id: *const c_char,
     error_buffer: *mut c_char,
     error_capacity: usize,
 ) -> bool {
@@ -806,7 +849,14 @@ pub unsafe extern "C" fn cmux_terminal_client_attach(
         copy_utf8("terminal client is null", error_buffer, error_capacity);
         return false;
     };
-    match client.attach_terminal(surface) {
+    let terminal_id = match unsafe { terminal_id_from_ffi(terminal_id) } {
+        Ok(terminal_id) => terminal_id,
+        Err(error) => {
+            copy_utf8(&error, error_buffer, error_capacity);
+            return false;
+        }
+    };
+    match client.attach_terminal(terminal_id) {
         Ok(()) => true,
         Err(error) => {
             copy_utf8(&error, error_buffer, error_capacity);
@@ -868,7 +918,7 @@ unsafe fn bytes_from_ffi<'a>(bytes: *const u8, length: usize) -> Option<&'a [u8]
     Some(unsafe { std::slice::from_raw_parts(bytes, length) })
 }
 
-/// Queues raw terminal input bytes for the connected surface.
+/// Queues raw terminal input bytes for the connected terminal.
 ///
 /// # Safety
 ///
@@ -933,7 +983,7 @@ pub unsafe extern "C" fn cmux_terminal_client_send_key(
     enqueue_command(client, Frame::new(MessageKind::Input, encoded))
 }
 
-/// Queues opaque paste bytes for the connected surface.
+/// Queues opaque paste bytes for the connected terminal.
 ///
 /// # Safety
 ///
@@ -1032,6 +1082,10 @@ mod tests {
     use tokio::sync::{Mutex as AsyncMutex, mpsc, watch};
 
     use super::*;
+
+    fn test_terminal_id() -> TerminalPublicId {
+        TerminalPublicId::parse("term_0123456789abcdef0123456789abcdef").unwrap()
+    }
 
     struct TestEndpoint {
         outgoing: mpsc::Sender<ReceivedFrame>,
@@ -1149,7 +1203,8 @@ mod tests {
 
     #[test]
     fn named_key_encoding_uses_the_local_terminal_keyboard_modes() {
-        let mut state = ClientState::new("test".into(), "memory".into(), 1, 73).unwrap();
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
         state.terminal = Some(Terminal::new(80, 24, 0, Callbacks::default()).unwrap());
 
         assert_eq!(state.encode_key("up", false).unwrap(), b"\x1b[A");
@@ -1166,7 +1221,10 @@ mod tests {
                 multiplexer: Arc<ServiceMultiplexer>,
             ) -> (Arc<ServiceMultiplexer>, ServiceStream) {
                 let stream = multiplexer
-                    .open(Service::TerminalBytes, BTreeMap::from([("surface".into(), "7".into())]))
+                    .open(
+                        Service::TerminalBytes,
+                        BTreeMap::from([("terminal".into(), test_terminal_id().to_string())]),
+                    )
                     .await
                     .unwrap();
                 (multiplexer, stream)
@@ -1216,9 +1274,9 @@ mod tests {
                 }
             });
 
-            let first = open_terminal_stream(&client, 73).await.unwrap();
+            let first = open_terminal_stream(&client, &test_terminal_id()).await.unwrap();
             first.close().await.unwrap();
-            let second = open_terminal_stream(&client, 73).await.unwrap();
+            let second = open_terminal_stream(&client, &test_terminal_id()).await.unwrap();
             assert_ne!(first.id(), second.id());
             second.close().await.unwrap();
 
@@ -1257,7 +1315,7 @@ mod tests {
                 }
             });
 
-            assert!(open_terminal_stream(&client, 73).await.is_err());
+            assert!(open_terminal_stream(&client, &test_terminal_id()).await.is_err());
             daemon_task.await.unwrap();
             client.shutdown().await;
             daemon.shutdown().await;
@@ -1273,13 +1331,16 @@ mod tests {
             let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
             let stream = Arc::new(
                 client
-                    .open(Service::TerminalBytes, BTreeMap::from([("surface".into(), "73".into())]))
+                    .open(
+                        Service::TerminalBytes,
+                        BTreeMap::from([("terminal".into(), test_terminal_id().to_string())]),
+                    )
                     .await
                     .unwrap(),
             );
             let incoming = daemon.accept().await.unwrap().unwrap();
             let state = Arc::new(Mutex::new(
-                ClientState::new("test".into(), "memory".into(), 1, 73).unwrap(),
+                ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap(),
             ));
             let receiver = tokio::spawn(receive_frames(stream, state.clone()));
 
@@ -1311,13 +1372,16 @@ mod tests {
             let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
             let stream = Arc::new(
                 client
-                    .open(Service::TerminalBytes, BTreeMap::from([("surface".into(), "73".into())]))
+                    .open(
+                        Service::TerminalBytes,
+                        BTreeMap::from([("terminal".into(), test_terminal_id().to_string())]),
+                    )
                     .await
                     .unwrap(),
             );
             let incoming = daemon.accept().await.unwrap().unwrap();
             let state = Arc::new(Mutex::new(
-                ClientState::new("test".into(), "memory".into(), 1, 73).unwrap(),
+                ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap(),
             ));
             let receiver = tokio::spawn(receive_frames(stream, state.clone()));
 
@@ -1421,15 +1485,16 @@ mod tests {
                 }
             });
 
-            let stream = open_terminal_stream(&client, 73).await.unwrap();
+            let terminal_id = test_terminal_id();
+            let stream = open_terminal_stream(&client, &terminal_id).await.unwrap();
             let state = Arc::new(Mutex::new(
-                ClientState::new("test".into(), "memory".into(), 1, 73).unwrap(),
+                ClientState::new("test".into(), "memory".into(), 1, terminal_id.clone()).unwrap(),
             ));
             let active = start_terminal_tasks(
                 &runtime,
                 stream,
                 client.clone(),
-                73,
+                terminal_id,
                 state.clone(),
             );
 

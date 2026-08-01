@@ -1,10 +1,10 @@
 "app.title" = "TerminalBytes Demo";
 "field.invitation" = "Enrollment invitation";
-"field.surface" = "Surface ID";
+"field.terminal" = "Terminal ID";
 "button.connect" = "Connect";
 "button.connecting" = "Connecting…";
 "button.disconnect" = "Disconnect";
-"error.surface" = "Enter a numeric surface ID.";
+"error.terminal" = "Enter a terminal ID such as term_0123456789abcdef0123456789abcdef.";
 "error.invitation" = "Paste an enrollment invitation.";
 "error.client.closed" = "The terminal client is closed.";
 "error.input.rejected" = "Terminal input was not queued. Reconnect and try again.";

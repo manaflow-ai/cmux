@@ -65,7 +65,8 @@ INVITATION_FILE="$DEMO_ROOT/invitation.txt"
 DAEMON_LOG="$DEMO_ROOT/daemon.log"
 DAEMON_PID=""
 APP_PID=""
-SURFACE=""
+WORKSPACE=""
+TERMINAL=""
 
 cleanup() {
   set +e
@@ -73,8 +74,8 @@ cleanup() {
     kill "$APP_PID" 2>/dev/null
     wait "$APP_PID" 2>/dev/null
   fi
-  if [[ "$SURFACE" =~ ^[0-9]+$ && -S "$MUX_SOCKET" ]]; then
-    "$CMUX_TUI" --socket "$MUX_SOCKET" close-surface --surface "$SURFACE" \
+  if [[ "$WORKSPACE" == ws_* && -S "$MUX_SOCKET" ]]; then
+    "$CMUX_TUI" --socket "$MUX_SOCKET" workspace "$WORKSPACE" close --json \
       >/dev/null 2>&1
     sleep 0.2
   fi
@@ -122,7 +123,7 @@ for _ in $(seq 1 300); do
     exit 1
   fi
   if [[ -S "$MUX_SOCKET" && -S "$ADMIN_SOCKET" ]] \
-    && "$CMUX_TUI" --socket "$MUX_SOCKET" ping >/dev/null 2>&1; then
+    && "$CMUX_TUI" --socket "$MUX_SOCKET" session current ping >/dev/null 2>&1; then
     ready=1
     break
   fi
@@ -134,15 +135,17 @@ if [[ "$ready" != "1" ]]; then
   exit 1
 fi
 
-SURFACE="$("$CMUX_TUI" --socket "$MUX_SOCKET" new-workspace \
-  --name TerminalBytesDemo --cols 100 --rows 30)"
-if [[ ! "$SURFACE" =~ ^[0-9]+$ ]]; then
-  echo "Could not create the isolated terminal surface: $SURFACE" >&2
+CREATED="$("$CMUX_TUI" --socket "$MUX_SOCKET" workspace create \
+  --name TerminalBytesDemo --json)"
+WORKSPACE="$(printf '%s' "$CREATED" | jq -er '.value.workspace_id')"
+TERMINAL="$(printf '%s' "$CREATED" | jq -er '.value.terminal_id')"
+if [[ "$WORKSPACE" != ws_* || "$TERMINAL" != term_* ]]; then
+  echo "Could not create the isolated terminal: $CREATED" >&2
   exit 1
 fi
-"$CMUX_TUI" --socket "$MUX_SOCKET" send --surface "$SURFACE" \
+"$CMUX_TUI" --socket "$MUX_SOCKET" terminal "$TERMINAL" write \
   --text "printf '\\033[2J\\033[H\\033[1;36mTerminalBytes over Iroh\\033[0m\\nSwift UI, Rust transport, local libghostty parser.\\n日本語 input and ANSI control bytes are parsed locally.\\n\\nType a command below to verify input and resize:\\n'"
-"$CMUX_TUI" --socket "$MUX_SOCKET" send-key --surface "$SURFACE" enter
+"$CMUX_TUI" --socket "$MUX_SOCKET" terminal "$TERMINAL" keys enter
 
 INVITATION="$("$CMUX_TUI" enroll create \
   --admin-socket "$ADMIN_SOCKET" --ttl 300)"
@@ -162,9 +165,9 @@ INVITATION_ID="$(printf '%s' "$STANDARD" \
   | openssl base64 -d -A \
   | jq -er '.id')"
 
-echo "Launching surface $SURFACE. The app will claim invitation $INVITATION_ID."
+echo "Launching terminal $TERMINAL. The app will claim invitation $INVITATION_ID."
 CMUX_TERMINAL_INVITATION_FILE="$INVITATION_FILE" \
-CMUX_TERMINAL_SURFACE="$SURFACE" \
+CMUX_TERMINAL_ID="$TERMINAL" \
 CMUX_TERMINAL_AUTOCONNECT=1 \
   "$APP_EXECUTABLE" &
 APP_PID=$!
