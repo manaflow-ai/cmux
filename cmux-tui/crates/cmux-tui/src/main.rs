@@ -495,12 +495,8 @@ fn workspace_schema_startup_error(
     else {
         return error;
     };
-    let Some(database_path) = schema.database_path() else {
-        return error;
-    };
     let messages = &localization::catalog().startup;
     let socket = socket_path.display().to_string();
-    let database = database_path.display().to_string();
     let stop_command =
         format!("cmux --socket {} session current shutdown --force", shell_quote(&socket));
     let socket_recovery = match cmux_tui_core::platform::transport::connect(socket_path) {
@@ -518,7 +514,7 @@ fn workspace_schema_startup_error(
     let separate_session = format!("{session}-schema{}", schema.newest_supported());
     let separate_command = format!("cmux --session {}", shell_quote(&separate_session));
     anyhow::anyhow!(format!(
-        "{}\n{}: {}\n{}: {}\n{}\n{}\n{}\n  {}",
+        "{}\n{}: {}\n{}\n{}\n{}\n  {}",
         messages.schema_too_new(
             session,
             schema.found(),
@@ -527,8 +523,6 @@ fn workspace_schema_startup_error(
         ),
         messages.session_socket,
         socket,
-        messages.state_database,
-        database,
         socket_recovery,
         messages.saved_state_requires_newer,
         messages.start_separate_session,

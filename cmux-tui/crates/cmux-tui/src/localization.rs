@@ -460,7 +460,6 @@ const fn decimal_width(mut value: u16) -> usize {
 pub(crate) struct StartupMessages {
     schema_too_new: &'static str,
     pub session_socket: &'static str,
-    pub state_database: &'static str,
     pub stop_newer_server: &'static str,
     pub no_server_listening: &'static str,
     server_check_failed: &'static str,
@@ -518,7 +517,6 @@ static ENGLISH: Catalog = Catalog {
     startup: StartupMessages {
         schema_too_new: "cannot open session \"{session}\": saved state uses workspace schema {found}, but cmux {version} supports through {supported}",
         session_socket: "session socket",
-        state_database: "state database",
         stop_newer_server: "if a newer server is still using this socket, stop it:",
         no_server_listening: "no server is listening on this socket; nothing needs to be stopped",
         server_check_failed: "could not check whether a server is listening on this socket: {error}",
@@ -768,7 +766,6 @@ static JAPANESE: Catalog = Catalog {
     startup: StartupMessages {
         schema_too_new: "セッション \"{session}\" を開けません。保存状態のワークスペーススキーマは {found} ですが、cmux {version} は {supported} まで対応しています",
         session_socket: "セッションソケット",
-        state_database: "状態データベース",
         stop_newer_server: "新しいサーバーがこのソケットをまだ使用している場合は停止:",
         no_server_listening: "このソケットを待ち受けているサーバーはありません。停止は不要です",
         server_check_failed: "このソケットをサーバーが待ち受けているか確認できませんでした: {error}",
