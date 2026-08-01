@@ -497,6 +497,104 @@ import Testing
         ) == .timedOut)
     }
 
+    @Test func commandDeadlineIncludesTimeQueuedBehindAnActiveCommand()
+        async throws
+    {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+        let commandEnqueued = DispatchSemaphore(value: 0)
+        let activeCommandReceived = DispatchSemaphore(value: 0)
+        let releaseActiveCommand = DispatchSemaphore(value: 0)
+        let queuedCommandReceived = DispatchSemaphore(value: 0)
+        let serverStopped = DispatchSemaphore(value: 0)
+        DispatchQueue(
+            label: "com.cmux.control-socket-tests.queued-deadline",
+            qos: .userInitiated
+        ).async {
+            defer { serverStopped.signal() }
+            let clientFD = Darwin.accept(listenerFD, nil, nil)
+            guard clientFD >= 0 else { return }
+            defer { Darwin.close(clientFD) }
+            #expect(readLine(from: clientFD) == "active")
+            activeCommandReceived.signal()
+            _ = releaseActiveCommand.wait(timeout: .now() + 1)
+            #expect(SocketTransport().writeAll(
+                Data("active-response\n".utf8),
+                to: clientFD
+            ))
+
+            var descriptor = pollfd(
+                fd: clientFD,
+                events: Int16(POLLIN),
+                revents: 0
+            )
+            guard Darwin.poll(&descriptor, 1, 500) > 0 else { return }
+            if readLine(from: clientFD) == "queued" {
+                queuedCommandReceived.signal()
+                #expect(SocketTransport().writeAll(
+                    Data("queued-response\n".utf8),
+                    to: clientFD
+                ))
+            }
+        }
+        let worker = PersistentSocketLineConnectionWorker(
+            transport: SocketTransport(),
+            maximumResponseByteCount: 4_096,
+            queue: DispatchQueue(
+                label: "com.cmux.control-socket-tests.queued-deadline-worker"
+            ),
+            didEnqueueCommand: {
+                commandEnqueued.signal()
+            }
+        )
+        let active = Task {
+            await worker.command(
+                "active",
+                at: path,
+                timeout: 2,
+                validatingPeer: { _ in true }
+            )
+        }
+        #expect(await wait(
+            for: commandEnqueued,
+            timeout: .now() + 1
+        ) == .success)
+        #expect(await wait(
+            for: activeCommandReceived,
+            timeout: .now() + 1
+        ) == .success)
+        let queued = Task {
+            await worker.command(
+                "queued",
+                at: path,
+                timeout: 0.1,
+                validatingPeer: { _ in true }
+            )
+        }
+        #expect(await wait(
+            for: commandEnqueued,
+            timeout: .now() + 1
+        ) == .success)
+
+        try await Task.sleep(for: .milliseconds(250))
+        releaseActiveCommand.signal()
+
+        #expect(await active.value?.response == "active-response")
+        #expect(await queued.value == nil)
+        #expect(await wait(
+            for: serverStopped,
+            timeout: .now() + 1
+        ) == .success)
+        #expect(await wait(
+            for: queuedCommandReceived,
+            timeout: .now()
+        ) == .timedOut)
+    }
+
     private func wait(
         for semaphore: DispatchSemaphore,
         timeout: DispatchTime
