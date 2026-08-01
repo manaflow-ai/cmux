@@ -422,7 +422,9 @@ struct SidebarAccountAvatar: View {
                 avatarURL: avatarURL,
                 displayName: displayName,
                 email: email,
-                size: size
+                size: size,
+                loadingPlaceholder: .systemIcon(name: signedOutSystemName),
+                identityFallbackStyle: .neutral
             )
         } else {
             SidebarFooterCircularIcon(
