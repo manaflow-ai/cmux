@@ -732,7 +732,12 @@ extension TerminalSurface {
         let wpx = pixelDimension(from: backingSize.width)
         let hpx = pixelDimension(from: backingSize.height)
         if wpx > 0, hpx > 0 {
-            ghostty_surface_set_size(createdSurface, wpx, hpx)
+            applySurfaceSize(
+                createdSurface,
+                width: wpx,
+                height: hpx,
+                caller: "runtime.create.initial"
+            )
             lastPixelWidth = wpx
             lastPixelHeight = hpx
             lastUncappedPixelWidth = wpx
