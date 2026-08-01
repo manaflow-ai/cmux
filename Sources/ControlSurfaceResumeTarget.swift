@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import CmuxControlSocket
 import Foundation
 
@@ -41,6 +42,24 @@ enum ControlSurfaceResumeTarget {
             workspace.surfaceResumeBinding(panelId: surfaceID)
         case .dock(_, let dock, let surfaceID):
             dock.surfaceResumeBinding(panelId: surfaceID)
+        }
+    }
+
+    var restorableAgent: SessionRestorableAgentSnapshot? {
+        switch self {
+        case .workspace(_, let workspace, let surfaceID):
+            workspace.restoredAgentSnapshotsByPanelId[surfaceID]
+        case .dock(_, let dock, let surfaceID):
+            dock.restoredAgentLifecycle.snapshotsByPanelId[surfaceID]
+        }
+    }
+
+    var restoredResumeWorkingDirectory: String? {
+        switch self {
+        case .workspace(_, let workspace, let surfaceID):
+            workspace.restoredResumeSessionWorkingDirectoriesByPanelId[surfaceID]
+        case .dock(_, let dock, let surfaceID):
+            dock.restoredResumeSessionWorkingDirectoriesByPanelId[surfaceID]
         }
     }
 
@@ -239,7 +258,123 @@ extension TerminalController {
             paneID: target.paneID,
             surfaceID: target.surfaceID,
             cleared: cleared,
-            binding: controlResumeBinding(from: binding)
+            binding: controlResumeBinding(from: binding),
+            restoreRecord: cleared
+                ? nil
+                : controlSurfaceRestoreRecord(target: target, binding: binding)
+        )
+    }
+
+    private func controlSurfaceRestoreRecord(
+        target: ControlSurfaceResumeTarget,
+        binding: SurfaceResumeBindingSnapshot?
+    ) -> ControlSurfaceRestoreRecord? {
+        // Structured fields remain untouched; only the explicit legacy fallback
+        // receives restore-time provider refreshes that older records depended on.
+        let compatibilityBinding = binding.map {
+            Workspace.makeSessionRestorePolicyService()
+                .bindingForCompatibilityShellRestore($0)
+        }
+        // A hook can replace the live binding after this surface was restored,
+        // while the restore-time agent snapshot still names the previous
+        // conversation. Reuse the session-restore identity gate so the record
+        // returned to the CLI always agrees with the binding that generated its
+        // typed `cmux restore <kind> <checkpoint>` selector.
+        let compatibleAgent: SessionRestorableAgentSnapshot? =
+            if binding == nil || binding?.isAgentHookBinding == true {
+                Workspace.restorableAgentForSessionRestore(
+                    target.restorableAgent,
+                    resumeBinding: binding
+                )
+            } else {
+                nil
+            }
+        if let agent = compatibleAgent {
+            let launchCommand = binding?.launchCommand ?? agent.launchCommand
+            let workingDirectory = target.restoredResumeWorkingDirectory
+                ?? binding?.cwd
+                ?? agent.workingDirectory
+                ?? launchCommand?.workingDirectory
+            let permissionMode = binding?.permissionMode ?? agent.permissionMode
+            let mode: AgentRestoreRequestMode = agent.kind.restoreMode == .relaunchCommand
+                ? .relaunchAgent
+                : .resumeAgent
+            let preparedArguments = agent.kind.restoreMode == .resumeSession
+                ? agent.preparedResumeArguments(
+                    launchCommand: launchCommand,
+                    workingDirectory: workingDirectory,
+                    observedPermissionMode: permissionMode
+                )
+                : nil
+            return ControlSurfaceRestoreRecord(
+                modeRawValue: mode.rawValue,
+                kind: agent.kind.rawValue,
+                checkpointID: agent.sessionId,
+                source: "session-snapshot",
+                workingDirectory: workingDirectory,
+                environment: binding?.environment ?? [:],
+                launchCommand: launchCommand.map {
+                    controlAgentLaunchCommand(
+                        $0,
+                        replaySafeEnvironmentFor: agent.kind.rawValue
+                    )
+                },
+                preparedArguments: preparedArguments,
+                preparedArgumentsWorkingDirectory: preparedArguments == nil
+                    ? nil
+                    : workingDirectory,
+                permissionMode: permissionMode,
+                legacyCommand: compatibilityBinding?.inlineStartupInput
+            )
+        }
+        guard let binding else { return nil }
+        let trimmedKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedKind = trimmedKind.flatMap { $0.isEmpty ? nil : $0 } ?? "command"
+        let mode: AgentRestoreRequestMode = binding.isAgentHookBinding
+            ? .resumeAgent
+            : .direct
+        return ControlSurfaceRestoreRecord(
+            modeRawValue: mode.rawValue,
+            kind: normalizedKind,
+            checkpointID: binding.checkpointId,
+            source: binding.source,
+            workingDirectory: target.restoredResumeWorkingDirectory
+                ?? binding.cwd
+                ?? binding.launchCommand?.workingDirectory,
+            environment: binding.environment ?? [:],
+            launchCommand: binding.launchCommand.map {
+                controlAgentLaunchCommand(
+                    $0,
+                    replaySafeEnvironmentFor: normalizedKind
+                )
+            },
+            preparedArguments: mode == .direct ? binding.launchCommand?.arguments : nil,
+            preparedArgumentsWorkingDirectory: nil,
+            permissionMode: binding.permissionMode,
+            legacyCommand: compatibilityBinding?.inlineStartupInput
+        )
+    }
+
+    func controlAgentLaunchCommand(
+        _ command: AgentLaunchCommandSnapshot,
+        replaySafeEnvironmentFor kind: String? = nil
+    ) -> ControlAgentLaunchCommand {
+        let environment = kind.flatMap { kind in
+            command.environment.map {
+                AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+                    from: $0,
+                    kind: kind
+                )
+            }
+        } ?? command.environment
+        return ControlAgentLaunchCommand(
+            launcher: command.launcher,
+            executablePath: command.executablePath,
+            arguments: command.arguments,
+            workingDirectory: command.workingDirectory,
+            environment: environment,
+            capturedAt: command.capturedAt,
+            source: command.source
         )
     }
 
@@ -367,6 +502,18 @@ extension TerminalController {
             checkpointId: inputs.checkpointID,
             source: inputs.source,
             environment: inputs.environment,
+            launchCommand: inputs.launchCommand.map {
+                AgentLaunchCommandSnapshot(
+                    launcher: $0.launcher,
+                    executablePath: $0.executablePath,
+                    arguments: $0.arguments,
+                    workingDirectory: $0.workingDirectory,
+                    environment: $0.environment,
+                    capturedAt: $0.capturedAt,
+                    source: $0.source
+                )
+            },
+            permissionMode: inputs.permissionMode,
             autoResume: inputs.autoResume,
             updatedAt: Date.now.timeIntervalSince1970
         )
