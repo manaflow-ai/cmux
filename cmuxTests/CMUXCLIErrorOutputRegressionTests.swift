@@ -710,6 +710,73 @@ import Testing
         #expect(restoreParams["surface_id"] as? String != staleTTYSurfaceID)
     }
 
+    @Test func testRestoreRetriesUntilFreshTTYRegistrationIsVisible() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let notFoundResponse = try jsonErrorResponse(
+            code: "not_found",
+            message: "No live delivery target"
+        )
+        let liveTargetResponse = try restoreResponse(
+            result: [:],
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        let recordResponse = try restoreResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-registration-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [notFoundResponse, liveTargetResponse, recordResponse]
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "agent.resolve_delivery_target",
+            "agent.resolve_delivery_target",
+            "surface.resume.get",
+        ])
+        for request in requests.prefix(2) {
+            let params = try #require(request["params"] as? [String: Any])
+            #expect((params["pid"] as? Int).map { $0 > 0 } == true)
+            #expect(params["pid_resolution"] as? String == "controlling_tty")
+        }
+        let restoreParams = try #require(requests.last?["params"] as? [String: Any])
+        #expect(restoreParams["surface_id"] as? String == surfaceID)
+    }
+
     @Test func testRestoreFailsClosedWhenLiveProcessTargetIsNotFound() throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = "pi-\(UUID().uuidString.lowercased())"
