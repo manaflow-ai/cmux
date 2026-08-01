@@ -56,11 +56,11 @@ struct AttemptUpdateCoordinator {
     ///   captured update is deliberately *not* installed; it only gates the mid-install no-op.
     mutating func requestInstallLatest(currentState: UpdateState) -> Action {
         guard phase == .inactive else { return .none }
-        switch currentState {
-        case .startingDownload, .downloading, .extracting, .installing:
+        switch currentState.attemptDisposition {
+        case .startingDownload, .installProgress:
             // An install is already underway; don't interrupt it to re-resolve.
             return .none
-        case .idle, .permissionRequest, .preparingCheck, .checking, .updateAvailable, .notFound, .error:
+        case .idle, .permissionRequest, .preparingCheck, .checking, .updateAvailable, .noUpdate, .error:
             // Ignore any update captured in `currentState`; re-resolve the feed to the latest.
             phase = .awaitingFreshCheck
             return .startFreshCheck
@@ -81,14 +81,13 @@ struct AttemptUpdateCoordinator {
             return .none
 
         case .awaitingFreshCheck:
-            switch state {
+            switch state.attemptDisposition {
             case .preparingCheck, .permissionRequest:
                 return .none
             case .error:
                 phase = .inactive
                 return .none
-            case .idle, .checking, .updateAvailable, .notFound,
-                    .startingDownload, .downloading, .extracting, .installing:
+            case .idle, .checking, .updateAvailable, .noUpdate, .startingDownload, .installProgress:
                 // No model emission can prove that a new Sparkle check started. If the explicit
                 // controller signal never arrived, this accepted attempt ended unexpectedly.
                 phase = .inactive
@@ -96,17 +95,16 @@ struct AttemptUpdateCoordinator {
             }
 
         case .awaitingResult:
-            switch state {
+            switch state.attemptDisposition {
             case .updateAvailable:
                 phase = .startingDownload
                 return .confirmInstall
-            case .idle, .notFound:
+            case .idle:
                 phase = .inactive
                 return .installFailed
-            case .error:
-                phase = .inactive
-                return .none
-            case .downloading, .extracting, .installing:
+            case .noUpdate, .error, .installProgress:
+                // An ungated attempt performs a fresh check, so no update is a normal successful
+                // result here. Preserve that model state for the ordinary up-to-date UI.
                 phase = .inactive
                 return .none
             case .preparingCheck, .checking, .permissionRequest, .startingDownload:
@@ -114,16 +112,15 @@ struct AttemptUpdateCoordinator {
             }
 
         case .startingDownload:
-            switch state {
-            case .downloading, .extracting, .installing:
-                phase = .inactive
-                return .none
-            case .error:
+            switch state.attemptDisposition {
+            case .installProgress, .error:
                 phase = .inactive
                 return .none
             case .startingDownload:
                 return .none
-            case .idle, .preparingCheck, .checking, .updateAvailable, .notFound, .permissionRequest:
+            case .idle, .preparingCheck, .checking, .updateAvailable, .noUpdate, .permissionRequest:
+                // A concrete fresh update was already accepted. Losing it before any install
+                // progress is unexpected even when the replacement state is normally benign.
                 phase = .inactive
                 return .installFailed
             }

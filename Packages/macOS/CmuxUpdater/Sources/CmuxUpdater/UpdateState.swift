@@ -33,6 +33,48 @@ public enum UpdateState: Equatable {
     /// The update is installing (and may relaunch the app).
     case installing(Installing)
 
+    /// Payload-free state categories shared by the install-attempt coordinator and watchdog.
+    ///
+    /// Keeping this mapping on `UpdateState` makes additions exhaustive in one place and prevents
+    /// lifecycle collaborators from silently assigning contradictory meanings to the same state.
+    enum AttemptDisposition: Equatable {
+        case idle
+        case permissionRequest
+        case preparingCheck
+        case checking
+        case updateAvailable
+        /// A fresh check completed normally without finding an update.
+        case noUpdate
+        case error
+        case startingDownload
+        /// Download, extraction, or installation has visibly progressed.
+        case installProgress
+    }
+
+    /// The shared semantic category used by install-attempt lifecycle policy.
+    var attemptDisposition: AttemptDisposition {
+        switch self {
+        case .idle:
+            .idle
+        case .permissionRequest:
+            .permissionRequest
+        case .preparingCheck:
+            .preparingCheck
+        case .checking:
+            .checking
+        case .updateAvailable:
+            .updateAvailable
+        case .notFound:
+            .noUpdate
+        case .error:
+            .error
+        case .startingDownload:
+            .startingDownload
+        case .downloading, .extracting, .installing:
+            .installProgress
+        }
+    }
+
     /// Whether this is the ``idle`` case.
     public var isIdle: Bool {
         if case .idle = self { return true }
