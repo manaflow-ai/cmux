@@ -292,6 +292,11 @@ struct CmxIrohRelayPolicyServiceTests {
     func equivalentPreferenceRebasesAfterBrokerRevisionReset() async throws {
         let fixture = RelayPolicyServiceTestFixture()
         let stores = makeStores()
+        let restoredBrokerAutomatic = try CmxIrohAccountRelayConfiguration(
+            mode: .automatic,
+            selectedManagedRelayIDs: ["cmux-us"],
+            customRelays: []
+        )
         _ = try await stores.service.install(
             response: CmxIrohRelayPolicyResponse(
                 policy: fixture.token(
@@ -313,7 +318,7 @@ struct CmxIrohRelayPolicyServiceTests {
                     sequence: 2,
                     expiresAt: Int64(fixture.now.timeIntervalSince1970) + 7_200
                 ),
-                preference: .automatic,
+                preference: restoredBrokerAutomatic,
                 preferenceRevision: 24
             ),
             accountID: "account-a",
@@ -329,7 +334,7 @@ struct CmxIrohRelayPolicyServiceTests {
             try await stores.preferenceStore.load(accountID: "account-a")
         )
         #expect(stored.revision == 24)
-        #expect(stored.requested == .automatic)
+        #expect(stored.requested == restoredBrokerAutomatic)
         #expect(await stores.service.diagnosticsSnapshot().failure == nil)
     }
 
