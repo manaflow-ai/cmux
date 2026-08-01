@@ -72,6 +72,10 @@ validated registry artifacts. Only after all four preflights pass does the
 workflow create `cmux-sdk-vX.Y.Z` and `cmux-tui/bindings/go/vX.Y.Z` atomically
 on the same commit.
 
+The Rust preflight uses the same pinned Cargo version as publishing. It packages
+both crates and tests the extracted `cmux-sidebar` archive with the extracted
+unpublished `cmux-client` archive patched in locally before any tag is created.
+
 The workflow next resolves the public Go module from a clean consumer. It then
 publishes npm, the PyPI wheel, and the PyPI source distribution in separate
 jobs while publishing `cmux-client` before `cmux-sidebar`. Each irreversible

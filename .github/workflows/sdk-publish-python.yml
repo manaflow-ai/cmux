@@ -118,6 +118,12 @@ jobs:
         working-directory: cmux-tui
         run: cargo build -p cmux-tui --bin cmux-tui --locked
 
+      - name: Install declared Python build backend
+        run: |
+          python3 -m pip install \
+            --disable-pip-version-check \
+            "setuptools==80.9.0"
+
       - name: Test Python SDK package
         working-directory: cmux-tui/bindings/python
         run: PYTHONPATH=. python3 -m unittest discover -s tests -v

@@ -15,6 +15,9 @@ on:
 
 permissions: {}
 
+env:
+  RUST_TOOLCHAIN: "1.95.0"
+
 concurrency:
   group: sdk-release-cut
   cancel-in-progress: false
@@ -238,6 +241,13 @@ jobs:
             exit 1
           }
 
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          cargo --version
+          rustc --version
+
       - name: Build the exact cmux-client crate artifact
         working-directory: cmux-tui
         run: cargo package -p cmux-client --locked
@@ -304,6 +314,13 @@ jobs:
             echo "release tag $SDK_TAG is not on protected main" >&2
             exit 1
           }
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          cargo --version
+          rustc --version
 
       - name: Wait for cmux-client to reach the crates.io index
         env:

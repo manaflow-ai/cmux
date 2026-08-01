@@ -263,7 +263,8 @@ def test_rust_release_uses_pinned_cargo_and_verifies_packaged_sidebar() -> None:
         assert 'rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal' in text
         assert 'rustup default "$RUST_TOOLCHAIN"' in text
 
-    assert "cargo package -p cmux-sidebar --locked --no-verify" in preflight
+    assert "-p cmux-sidebar" in preflight
+    assert "--no-verify" in preflight
     assert "cmux-sidebar-$CMUX_SDK_VERSION.crate" in preflight
     assert "cmux-client-$CMUX_SDK_VERSION.crate" in preflight
     assert "patch.crates-io.cmux-client.path" in preflight

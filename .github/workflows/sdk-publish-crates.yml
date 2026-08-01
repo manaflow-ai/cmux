@@ -16,6 +16,9 @@ on:
 
 permissions: {}
 
+env:
+  RUST_TOOLCHAIN: "1.95.0"
+
 concurrency:
   group: sdk-publish-crates-${{ github.ref }}
   cancel-in-progress: false
@@ -106,13 +109,12 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Rust version
+      - name: Install pinned Rust toolchain
         run: |
-          rustc --version || true
-          if ! command -v cargo >/dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          fi
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          cargo --version
+          rustc --version
 
       - name: Build cmux-tui server
         working-directory: cmux-tui
@@ -120,10 +122,33 @@ jobs:
 
       - name: Test Rust SDK packages
         working-directory: cmux-tui
+        env:
+          CMUX_SDK_VERSION: ${{ needs.version.outputs.version }}
         run: |
+          set -euo pipefail
           cargo test -p cmux-client -p cmux-sidebar --locked
           cargo package -p cmux-client --locked
-          cargo package -p cmux-sidebar --locked --list
+          cargo package \
+            -p cmux-sidebar \
+            --locked \
+            --no-verify \
+            --config \
+              "patch.crates-io.cmux-client.path='$GITHUB_WORKSPACE/cmux-tui/bindings/rust'"
+
+          verify_root="$RUNNER_TEMP/cmux-rust-package-verify"
+          mkdir -p "$verify_root"
+          tar -xzf \
+            "target/package/cmux-client-$CMUX_SDK_VERSION.crate" \
+            -C "$verify_root"
+          tar -xzf \
+            "target/package/cmux-sidebar-$CMUX_SDK_VERSION.crate" \
+            -C "$verify_root"
+          cargo test \
+            --manifest-path \
+              "$verify_root/cmux-sidebar-$CMUX_SDK_VERSION/Cargo.toml" \
+            --config \
+              "patch.crates-io.cmux-client.path='$verify_root/cmux-client-$CMUX_SDK_VERSION'" \
+            --all-targets
 
       - name: Rust SDK conformance
         run: |
