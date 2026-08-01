@@ -17,6 +17,149 @@ struct BrowserWebContentProcessTests {
     private let recoveryURL = URL(string: "data:text/html,cmux-recovery")!
 
     @Test
+    func authCallbackNavigationPolicyIsPureAndFailClosed() {
+        let policy = BrowserAuthCallbackNavigationPolicy(
+            trustedSourcePageOrigin: URL(string: "https://cmux.test")!,
+            callbackScheme: "cmux-dev-test"
+        )
+        let callbackURL = URL(string: "cmux-dev-test://auth-callback?refresh_token=secret")!
+
+        switch policy.disposition(
+            for: callbackURL,
+            targetFrameIsMainFrame: true,
+            isLinkActivated: true,
+            sourceOriginMatches: true
+        ) {
+        case .deliverInApp:
+            break
+        case .block, .passThrough:
+            Issue.record("Trusted user-activated callback should be delivered in-process")
+        }
+
+        for rejectedContext in [
+            (false, true, true),
+            (true, false, true),
+            (true, true, false),
+        ] {
+            switch policy.disposition(
+                for: callbackURL,
+                targetFrameIsMainFrame: rejectedContext.0,
+                isLinkActivated: rejectedContext.1,
+                sourceOriginMatches: rejectedContext.2
+            ) {
+            case .block:
+                break
+            case .deliverInApp, .passThrough:
+                Issue.record("Auth callbacks that fail a trust check must be blocked")
+            }
+        }
+
+        switch policy.disposition(
+            for: URL(string: "https://cmux.test/app-pricing")!,
+            targetFrameIsMainFrame: true,
+            isLinkActivated: true,
+            sourceOriginMatches: true
+        ) {
+        case .passThrough:
+            break
+        case .block, .deliverInApp:
+            Issue.record("Ordinary web navigation should pass through")
+        }
+
+        #expect(BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(callbackURL))
+        #expect(
+            !BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(
+                URL(string: "https://cmux.test/app-pricing")!
+            )
+        )
+    }
+
+    @Test
+    func authCallbackConsumptionTerminatesNavigationAndSurfacesDeliveryFailure() async {
+        let policy = BrowserAuthCallbackNavigationPolicy(
+            trustedSourcePageOrigin: URL(string: "https://cmux.test")!,
+            callbackScheme: "cmux-dev-test"
+        )
+        let callbackURL = URL(string: "cmux-dev-test://auth-callback?refresh_token=secret")!
+        let sourcePageURL = URL(
+            string: "https://cmux.test/handler/after-sign-in?web_return_to=%2Fapp-pricing%3Fcmux_app%3D1"
+        )!
+        var cancelled = false
+        var reportedTerminalCancellation = false
+
+        let completion = await withCheckedContinuation {
+            (continuation: CheckedContinuation<(Bool, URL?), Never>) in
+            let consumed = policy.consume(
+                disposition: .deliverInApp,
+                callbackURL: callbackURL,
+                sourcePageURL: sourcePageURL,
+                cancelNavigation: { cancelled = true },
+                reportTerminalCancellation: { reportedTerminalCancellation = true },
+                deliver: { _ in false },
+                completion: { delivered, returnURL in
+                    continuation.resume(returning: (delivered, returnURL))
+                }
+            )
+            #expect(consumed)
+            #expect(cancelled)
+            #expect(reportedTerminalCancellation)
+        }
+
+        #expect(!completion.0)
+        #expect(completion.1?.absoluteString == "https://cmux.test/app-pricing?cmux_app=1")
+
+        let webView = WKWebView()
+        var presentedFailure = false
+        var preparedReturnURL: URL?
+        var loadedReturnURL: URL?
+        BrowserAuthCallbackNavigationPolicy.finishDelivery(
+            delivered: completion.0,
+            returnURL: completion.1,
+            in: webView,
+            prepareReturnRequest: { preparedReturnURL = $0.url },
+            presentAlert: { _, _, completion, _ in
+                presentedFailure = true
+                completion(.alertFirstButtonReturn)
+            },
+            loadRequest: { request, _ in loadedReturnURL = request.url }
+        )
+
+        #expect(presentedFailure)
+        #expect(preparedReturnURL == completion.1)
+        #expect(loadedReturnURL == completion.1)
+    }
+
+    @Test
+    func blockedAuthCallbackConsumptionStillTerminatesNavigation() {
+        let policy = BrowserAuthCallbackNavigationPolicy(
+            trustedSourcePageOrigin: URL(string: "https://cmux.test")!,
+            callbackScheme: "cmux-dev-test"
+        )
+        let callbackURL = URL(string: "cmux-nightly://auth-callback?refresh_token=secret")!
+        var cancelled = false
+        var reportedTerminalCancellation = false
+
+        let consumed = policy.consume(
+            disposition: .block,
+            callbackURL: callbackURL,
+            sourcePageURL: nil,
+            cancelNavigation: { cancelled = true },
+            reportTerminalCancellation: { reportedTerminalCancellation = true },
+            deliver: { _ in
+                Issue.record("Blocked callbacks must never be delivered")
+                return false
+            },
+            completion: { _, _ in
+                Issue.record("Blocked callbacks must not complete delivery")
+            }
+        )
+
+        #expect(consumed)
+        #expect(cancelled)
+        #expect(reportedTerminalCancellation)
+    }
+
+    @Test
     func browserPanelsShareDefaultWebsiteDataStore() {
         let first = BrowserPanel(workspaceId: UUID())
         let second = BrowserPanel(workspaceId: UUID())

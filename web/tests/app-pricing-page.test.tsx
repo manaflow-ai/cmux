@@ -96,13 +96,49 @@ describe("app pricing page", () => {
     expect(html).toContain(
       "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test",
     );
-    expect(html).toContain("$35/user/month");
+    expect(html).toContain("/mo");
+    expect(html).toContain("/user/mo");
+    expect(html).not.toContain("/mo.");
+    expect(html).toContain("$35/user/mo");
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
-    expect(html).toContain("sm:grid-cols-2 min-[1800px]:grid-cols-4");
+    expect(html).not.toContain('style="min-height:4rem"');
+    expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
+    expect(html).toContain("sm:grid-cols-2 lg:grid-cols-4");
     expect(html.split("api/billing/checkout?plan=pro")).toHaveLength(2);
     expect(html.split("api/billing/checkout?plan=team")).toHaveLength(2);
     expect(html).toContain("Compare plans");
     expect(html).not.toContain("/api/billing/portal");
+  });
+
+  test("renders signed-out recovery without claiming Free is the current plan", async () => {
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        cmux_scheme: "cmux-dev-test",
+        appearance: "dark",
+        background: "#112233",
+        interval: "year",
+      }),
+    });
+    const html = renderToStaticMarkup(element).replaceAll("&amp;", "&");
+
+    expect(html).toContain("not signed in.");
+    expect(html).not.toContain("Current plan");
+    const signInHref = html.match(
+      /href="(\/handler\/native-sign-in\?after_auth_return_to=[^"]+)"/,
+    )?.[1];
+    expect(signInHref).toBeTruthy();
+    const nativeSignIn = new URL(signInHref!, "https://cmux.test");
+    const afterSignIn = new URL(
+      nativeSignIn.searchParams.get("after_auth_return_to")!,
+      "https://cmux.test",
+    );
+    expect(afterSignIn.searchParams.get("native_app_return_to")).toBe(
+      "cmux-dev-test://auth-callback",
+    );
+    expect(afterSignIn.searchParams.get("web_return_to")).toBe(
+      "/app-pricing?cmux_app=1&cmux_scheme=cmux-dev-test&appearance=dark&background=%23112233&interval=year",
+    );
   });
 
   test("renders annual pricing and preserves native checkout context", async () => {
@@ -121,11 +157,16 @@ describe("app pricing page", () => {
 
     expect(html).toContain("$24");
     expect(html).toContain("$28");
-    expect(html).toContain("per month billed yearly");
-    expect(html).toContain("per user per month billed yearly");
-    expect(html).toContain("Billed $288 annually · save 20%");
-    expect(html).toContain("Billed $336 annually · save 20%");
-    expect(html).toContain("$28/user/month · $336/user/year");
+    expect(html).toContain("/mo");
+    expect(html).toContain("/user/mo");
+    expect(html).toContain("/mo, billed yearly");
+    expect(html).toContain("/user/mo, billed yearly");
+    expect(html).not.toContain("/mo.");
+    expect(html).not.toContain("Billed $288 annually · save 20%");
+    expect(html).not.toContain("Billed $336 annually · save 20%");
+    expect(html).toContain("$28/user/mo");
+    expect(html).not.toContain("$288/year");
+    expect(html).not.toContain("$336/user/year");
     expect(html).toContain(
       "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=year",
     );
@@ -180,6 +221,8 @@ describe("app pricing page", () => {
     expect(html).toContain(
       "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test",
     );
+    expect(html).toContain("Current plan");
+    expect(html).not.toContain("not signed in.");
   });
 
   test("hides the billing portal link for Pro users in App Store distribution mode", async () => {
