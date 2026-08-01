@@ -273,6 +273,20 @@ def _pypi_status(
     )
     metadata = _json(url)
     if metadata is None:
+        project_url = (
+            "https://pypi.org/pypi/"
+            f"{quote(package, safe='')}/json"
+        )
+        project = _json(project_url)
+        if project is None:
+            raise RegistryProjectMissing(
+                f"PyPI project {package!r} does not exist; "
+                "run the bootstrap workflow before cutting release tags"
+            )
+        if not isinstance(project.get("info"), dict):
+            raise RegistryError(
+                f"PyPI project metadata is malformed for {package}"
+            )
         return MISSING
     files = metadata.get("urls")
     if not isinstance(files, list):

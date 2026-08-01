@@ -233,6 +233,25 @@ jobs:
             --allowed-artifact "${python_wheels[0]}" \
             --allowed-artifact "${python_sdists[0]}"
 
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12.8"
+
+      - name: Install the pinned PyPI provenance verifier
+        run: |
+          python3 -m pip install \
+            --disable-pip-version-check \
+            "pypi-attestations==0.0.29"
+
+      - name: Verify the PyPI ownership bootstrap with pypi-attestations verify pypi
+        run: |
+          python3 cmux-tui/bindings/verify_pypi_provenance.py \
+            --package cmux-sdk \
+            --version 0.0.0a0 \
+            --filename cmux_sdk-0.0.0a0-py3-none-any.whl \
+            --filename cmux_sdk-0.0.0a0.tar.gz \
+            --repository https://github.com/manaflow-ai/cmux
+
   cut-tags:
     needs:
       - validate-release

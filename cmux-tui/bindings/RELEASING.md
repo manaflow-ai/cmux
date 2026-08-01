@@ -41,8 +41,14 @@ wire-behavior conformance suite.
   `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, and the `npm` environment
   as the trusted publisher, then delete the bootstrap token. Keep `1.0.0`
   unpublished for the coordinated OIDC release.
-- PyPI: add a pending trusted publisher for project `cmux-sdk`, repository
-  `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, environment `pypi`.
+- PyPI: create the `pypi-bootstrap` GitHub environment, then add a pending
+  trusted publisher for project `cmux-sdk`, repository `manaflow-ai/cmux`,
+  workflow `sdk-bootstrap-pypi.yml`, environment `pypi-bootstrap`. Run that
+  workflow once from current `main` with `confirm_bootstrap=true`. It tests and
+  publishes the attested prerelease `0.0.0a0`, which creates the project and
+  reserves its name before release tags can exist. Then add repository
+  `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, environment `pypi` as a
+  trusted publisher for stable releases.
 - crates.io: configure trusted publishers for existing crate `cmux-client` with
   owner `manaflow-ai`, repository `cmux`, workflow `sdk-release-cut.yml`,
   environment `crates-io`. crates.io requires a manual first release for a new
@@ -52,9 +58,10 @@ wire-behavior conformance suite.
   path-prefixed semantic-version tag is pushed.
 
 The npm and PyPI `cmux-sdk` names and the crates.io `cmux-sidebar` name were
-unclaimed when this release path was created. Recheck them immediately before
-the first publish. PyPI can claim its name through the pending publisher; npm
-uses `sdk-bootstrap-npm.yml`, and crates.io requires the interactive bootstrap
+unclaimed when this release path was created. Reserve npm with
+`sdk-bootstrap-npm.yml` and PyPI with `sdk-bootstrap-pypi.yml` before cutting
+release tags. The release preflight verifies the attested PyPI `0.0.0a0`
+bootstrap against this repository. crates.io requires the interactive bootstrap
 above.
 
 ## Cutting a release
@@ -81,10 +88,12 @@ TypeScript, and Python package and live-conformance preflights in parallel
 against that exact commit. The TypeScript and Python preflights retain the
 validated registry artifacts, and the Rust preflight retains both verified
 crate archives. A credential-free registry preflight then requires each target
-version to be missing or byte-identical and usable, before the workflow creates
-`cmux-sdk-vX.Y.Z` and `cmux-tui/bindings/go/vX.Y.Z` atomically on the same
-commit. Immediately before that atomic push, it rechecks the fetched SDK tag
-history so a newer release cannot overtake a long-running preflight.
+version to be missing or byte-identical and usable. It also verifies that this
+repository's trusted publisher created the exact PyPI bootstrap files. Only
+then does the workflow create `cmux-sdk-vX.Y.Z` and
+`cmux-tui/bindings/go/vX.Y.Z` atomically on the same commit. Immediately before
+that atomic push, it rechecks the fetched SDK tag history so a newer release
+cannot overtake a long-running preflight.
 
 The Rust preflight uses the same pinned Cargo version as publishing. It packages
 both crates and tests the extracted `cmux-sidebar` archive with the extracted
