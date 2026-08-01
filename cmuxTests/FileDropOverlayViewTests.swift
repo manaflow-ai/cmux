@@ -4,7 +4,6 @@ import SwiftUI
 import Testing
 import WebKit
 import CmuxUpdater
-import CmuxNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

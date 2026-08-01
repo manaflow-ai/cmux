@@ -42,13 +42,18 @@ extension CMUXCLI {
         let lockURL = directoryURL.appendingPathComponent(".cmux-session.lock", isDirectory: false)
         let descriptor = Darwin.open(
             lockURL.path,
-            O_CREAT | O_RDWR,
+            O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW,
             mode_t(S_IRUSR | S_IWUSR)
         )
         guard descriptor >= 0 else {
             throw piExtensionReadError(at: extensionURL)
         }
         defer { Darwin.close(descriptor) }
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
+            throw piExtensionReadError(at: extensionURL)
+        }
         let lockOperation = LOCK_EX | (acquireNonBlocking ? LOCK_NB : 0)
         guard flock(descriptor, lockOperation) == 0 else {
             if acquireNonBlocking, errno == EWOULDBLOCK || errno == EAGAIN {

@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-/// Immutable render input for one pure-AppKit sidebar group header row.
+/// Value-snapshot render input for one pure-AppKit sidebar group header row.
 ///
 /// Value fields only: action closures live in ``SidebarGroupHeaderRowActions``
 /// and are excluded from equality so recycled cells can reconfigure cheaply

@@ -135,11 +135,32 @@ private struct CMUXSidebarExtensionLimitedChoiceStore {
 
 @MainActor
 final class CMUXSidebarSnapshotCache {
+    private struct CachedUnreadState: Equatable {
+        let unreadCount: Int
+        let latestNotification: String?
+
+        init(workspace: CmuxSidebarWorkspace) {
+            unreadCount = workspace.unreadCount
+            latestNotification = workspace.latestNotification
+        }
+
+        init(summary: SidebarWorkspaceUnreadSummary) {
+            unreadCount = summary.unreadCount
+            latestNotification = summary.latestNotificationText
+        }
+
+        var isEmpty: Bool {
+            unreadCount == 0 && latestNotification == nil
+        }
+    }
+
     private(set) var snapshot: CmuxSidebarSnapshot?
+    private var workspaceIndexByID: [UUID: Int] = [:]
+    private var unreadStateByWorkspaceID: [UUID: CachedUnreadState] = [:]
 
     func replace(with next: CmuxSidebarSnapshot) -> CmuxSidebarSnapshot {
         guard let current = snapshot else {
-            snapshot = next
+            store(next)
             return next
         }
         guard current != next else { return current }
@@ -148,23 +169,27 @@ final class CMUXSidebarSnapshotCache {
         guard current != contentComparableNext else { return current }
         var updated = next
         updated.sequence = max(next.sequence, current.sequence &+ 1)
-        snapshot = updated
+        store(updated)
         return updated
     }
 
     func applyUnread(_ unread: SidebarUnreadSnapshot) -> CmuxSidebarSnapshot? {
         guard var next = snapshot else { return nil }
+        var candidateWorkspaceIDs = Set(unreadStateByWorkspaceID.keys)
+        candidateWorkspaceIDs.formUnion(unread.summaryByWorkspaceId.keys)
         var changed = false
-        for index in next.workspaces.indices {
-            let summary = unread.summary(forWorkspaceId: next.workspaces[index].id)
-            if next.workspaces[index].unreadCount != summary.unreadCount {
-                next.workspaces[index].unreadCount = summary.unreadCount
-                changed = true
+        for workspaceID in candidateWorkspaceIDs {
+            guard let index = workspaceIndexByID[workspaceID] else { continue }
+            let state = CachedUnreadState(summary: unread.summary(forWorkspaceId: workspaceID))
+            guard unreadStateByWorkspaceID[workspaceID] != state else { continue }
+            next.workspaces[index].unreadCount = state.unreadCount
+            next.workspaces[index].latestNotification = state.latestNotification
+            if state.isEmpty {
+                unreadStateByWorkspaceID[workspaceID] = nil
+            } else {
+                unreadStateByWorkspaceID[workspaceID] = state
             }
-            if next.workspaces[index].latestNotification != summary.latestNotificationText {
-                next.workspaces[index].latestNotification = summary.latestNotificationText
-                changed = true
-            }
+            changed = true
         }
         guard changed else { return nil }
         next.sequence &+= 1
@@ -172,8 +197,17 @@ final class CMUXSidebarSnapshotCache {
         return next
     }
 
-    func containsWorkspaces(_ workspaceIDs: [UUID]) -> Bool {
-        snapshot?.workspaces.map(\.id) == workspaceIDs
+    private func store(_ next: CmuxSidebarSnapshot) {
+        snapshot = next
+        workspaceIndexByID = Dictionary(
+            uniqueKeysWithValues: next.workspaces.enumerated().map { ($1.id, $0) }
+        )
+        unreadStateByWorkspaceID = Dictionary(
+            uniqueKeysWithValues: next.workspaces.compactMap { workspace in
+                let state = CachedUnreadState(workspace: workspace)
+                return state.isEmpty ? nil : (workspace.id, state)
+            }
+        )
     }
 }
 
@@ -182,7 +216,6 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     private static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
 
     var snapshotProvider: @MainActor () -> CmuxSidebarSnapshot
-    var workspaceIDsProvider: @MainActor () -> [UUID]
     var snapshotUpdateToken: UInt64 = 0
     let unreadSource: SidebarUnreadModel
     var actionHandler: @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult
@@ -312,13 +345,6 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
         .background {
             SidebarUnreadSnapshotObserver(source: unreadSource) { unreadSnapshot in
-                // Rebuild rich metadata only when workspace membership changed.
-                // The common unread-only path stays a cheap cache patch.
-                if !snapshotCache.containsWorkspaces(workspaceIDsProvider()) {
-                    let snapshot = snapshotCache.replace(with: snapshotProvider())
-                    xpcHost.sendSnapshotDidChange(snapshot)
-                    return
-                }
                 guard let snapshot = snapshotCache.applyUnread(unreadSnapshot) else {
                     return
                 }
