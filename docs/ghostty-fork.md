@@ -12,10 +12,13 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `da1ddcf41`, the fork-main merge of
-https://github.com/manaflow-ai/ghostty/pull/176. It descends from the previously
-documented `36a46414a` renderer/font integration and adds terminal-owned
-semantic-prompt row lifecycle enforcement through `2d6e944e3`.
+The submodule pinned by this branch is `6dc671074`, the fork-main merge of
+https://github.com/manaflow-ai/ghostty/pull/177. It adds cached, enablement-gated
+macOS unified logging on top of the previously pinned `da1ddcf41` semantic
+prompt lifecycle line and current fork `main`.
+`da1ddcf41` descends from the previously documented `36a46414a` renderer/font
+integration and adds terminal-owned semantic-prompt row lifecycle enforcement
+through `2d6e944e3`.
 The earlier integration combines the hidden-renderer reclamation and
 retry-deadline line through `4d6f0014f` with the resolved font-binding action
 callbacks originally ending at `80d7fb35a`.
@@ -41,6 +44,34 @@ The seven PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
 `2fc66ed15`, `3c1b75d25`, `c467d389c`, `64d7fca66`, and `4d6f0014f`.
 The final font integration landed in merge commits `23003282d` and
 `36a46414a`.
+
+### Cached macOS unified loggers
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/177
+- Commits:
+  - `a019bcab2` (test: skip formatting for disabled macOS logs)
+  - `ee691e86b` (fix: cache and gate macOS loggers)
+- Files:
+  - `pkg/macos/os.zig`
+  - `pkg/macos/os/log.zig`
+  - `src/main_ghostty.zig`
+- Summary:
+  - Gives each compile-time Ghostty log scope one lazily initialized,
+    process-lifetime `os_log_t` through `dispatch_once_f`, replacing per-event
+    `os_log_create` and `os_release` calls.
+  - Checks `os_log_type_enabled` before allocating or formatting at the shared
+    `Log.log` boundary, so disabled types cannot pay the enabled-path setup
+    cost.
+  - Adds an always-disabled-log formatting probe and a counter-backed cache
+    initialization test. The first commit intentionally fails the probe before
+    the production fix.
+  - In a ReleaseFast workload targeting 25 million disabled events over five
+    seconds, median normalized CPU fell from 0.904 core to 0.123 core; median
+    CPU seconds per million events fell from 0.2072 to 0.0248.
+  - Conflict note: keep logger identity scoped by compile-time subsystem and
+    category, keep initialization thread-safe and process-lifetime, and keep
+    the type-enablement check before every message allocation or formatter.
 
 ### Semantic prompt row lifecycle
 
@@ -218,8 +249,8 @@ The final font integration landed in merge commits `23003282d` and
     callback userdata alive until `ghostty_surface_free` returns, and never
     destroy or otherwise reenter the surface from the synchronous callback.
 
-The pinned `da1ddcf41` universal ReleaseFast GhosttyKit archive was built with
-Zig 0.16.0. It is published at
+The previously pinned `da1ddcf41` universal ReleaseFast GhosttyKit archive was
+built with Zig 0.16.0. It is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-da1ddcf41f6fd763c39bde4c69d1ac7323cb9bd0-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. The published
 asset was downloaded again, passed `scripts/validate-xcframework-archive.py`,
