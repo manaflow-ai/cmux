@@ -772,7 +772,7 @@ struct CMUXMobileRootView: View {
             return true
         }
         Task {
-            await dogfoodAttachPreparation.run {
+            await dogfoodAttachPreparation.run(pairingURL: attachURL) {
                 await store.connectPairingURL(attachURL)
             }
             startupConnectionCoordinator.finishInjectedAttach(startupAttempt)

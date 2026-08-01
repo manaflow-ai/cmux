@@ -892,7 +892,7 @@ final class MobileHostService {
             return
         }
 
-        CmxIrohTCPFirstActivation.start(
+        CmxIrohTCPFirstActivation().start(
             startTCP: { startListener(usePreferredPort: true) },
             scheduleIroh: { MobileHostIrohRuntime.shared.setDesiredActive(true) }
         )

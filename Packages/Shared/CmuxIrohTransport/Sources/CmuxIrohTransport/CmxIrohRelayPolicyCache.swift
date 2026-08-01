@@ -1,5 +1,10 @@
 public import Foundation
 
+struct CmxIrohRelayPolicyRollbackAnchor: Sendable {
+    let sequence: Int64
+    let policy: CmxIrohManagedRelayPolicy?
+}
+
 /// Securely caches the latest root-verified relay policy with rollback protection.
 public actor CmxIrohRelayPolicyCache {
     private struct CachedRelay: Codable, Equatable {
@@ -90,6 +95,49 @@ public actor CmxIrohRelayPolicyCache {
             accessibility: .afterFirstUnlockThisDeviceOnly
         )
         return policy
+    }
+
+    /// Verifies a candidate without advancing the persistent rollback floor.
+    func verifyCandidate(
+        signedPolicy: String,
+        trustRoot: CmxIrohRelayPolicyTrustRoot,
+        now: Date
+    ) throws -> CmxIrohManagedRelayPolicy {
+        try verifier.verify(signedPolicy, trustRoot: trustRoot, now: now)
+    }
+
+    /// Returns the last verified publication even after its runtime authority
+    /// expires. Preference migration uses only its signed identity and issue
+    /// time, while normal relay use still goes through ``load(trustRoot:now:)``.
+    func rollbackPolicy(
+        trustRoot: CmxIrohRelayPolicyTrustRoot
+    ) async throws -> CmxIrohManagedRelayPolicy? {
+        try await rollbackAnchor(trustRoot: trustRoot)?.policy
+    }
+
+    /// Returns the persistent sequence floor plus a best-effort authenticated
+    /// historical publication. A removed signing key must not strand a newer
+    /// policy, while the sequence floor still prevents rollback.
+    func rollbackAnchor(
+        trustRoot: CmxIrohRelayPolicyTrustRoot
+    ) async throws -> CmxIrohRelayPolicyRollbackAnchor? {
+        await acquire()
+        defer { release() }
+        guard let record = try await storedRecord() else { return nil }
+        let policy = try? verifier.verifyPublication(
+            record.signedPolicy,
+            trustRoot: trustRoot
+        )
+        let verifiedPolicy = policy.flatMap { candidate in
+            candidate.sequence == record.highestSequence
+                && Self.metadataMatches(candidate, record: record)
+                    ? candidate
+                    : nil
+        }
+        return CmxIrohRelayPolicyRollbackAnchor(
+            sequence: record.highestSequence,
+            policy: verifiedPolicy
+        )
     }
 
     /// Loads and re-verifies the cached policy at the current time.

@@ -29,6 +29,23 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         }
     }
 
+    private func pairingURL(routes: [CmxAttachRoute]) throws -> String {
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: nil,
+            macDeviceID: "123e4567-e89b-42d3-a456-426614174074",
+            macDisplayName: "Test Mac",
+            routes: routes
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let payload = try encoder.encode(ticket).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return "cmux-ios://attach?v=1&payload=\(payload)"
+    }
+
     @Test
     func discoveryRateLimitFloorsOnlyDiscoveryAndSurfacesRetryAfter() async throws {
         let fixture = try await MobileIrohCooldownFixture.make(
@@ -307,6 +324,84 @@ struct MobileIrohRuntimeCompositionCooldownTests {
     }
 
     @Test
+    func initialRelayRefreshGatesIdentityOnlyConnectionWithoutBlockingDirectPath() async throws {
+        let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap(
+            suspendRelayBootstrap: true
+        )
+        await fixture.broker.waitForBootstrapRequest()
+
+        let publicRequest = try fixture.requestWithDirectPath(privacyScope: .publicInternet)
+        let privateRequest = try fixture.requestWithDirectPath(privacyScope: .privateNetwork)
+        #expect(!MobileIrohRuntimeComposition.requiresInitialRelayPolicy(
+            request: publicRequest,
+            now: fixture.clock.now
+        ))
+        #expect(MobileIrohRuntimeComposition.requiresInitialRelayPolicy(
+            request: privateRequest,
+            now: fixture.clock.now
+        ))
+
+        // A route with an explicit public direct address remains available
+        // while relay bootstrap is suspended, including the tagged attach-URL
+        // entrypoint used by mobile-dev-launch.
+        _ = try await fixture.composition.transport(for: publicRequest)
+        await fixture.composition.prepareForConnection(
+            pairingURL: try pairingURL(routes: [publicRequest.route])
+        )
+
+        // The identity-only attach barrier must stay pending until the first
+        // relay-policy attempt settles. Otherwise a cold launch consumes its
+        // one-shot pairing URL against an empty relay allowlist.
+        let completion = MobileIrohCooldownCompletionProbe()
+        let preparation = Task { @MainActor in
+            await completion.markStarted()
+            await fixture.composition.prepareForConnection()
+            await completion.markComplete()
+        }
+        await completion.waitUntilStarted()
+        for _ in 0 ..< 100 where !(await completion.isComplete()) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(!(await completion.isComplete()))
+
+        await fixture.broker.resumeRelayBootstrap()
+        for _ in 0 ..< 500 where !(await completion.isComplete()) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await completion.isComplete())
+        preparation.cancel()
+    }
+
+    @Test
+    func signOutReleasesIdentityOnlyRelayBarrierWithoutBrokerCompletion() async throws {
+        let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap(
+            suspendRelayBootstrap: true
+        )
+        await fixture.broker.waitForBootstrapRequest()
+
+        let completion = MobileIrohCooldownCompletionProbe()
+        let preparation = Task { @MainActor in
+            await completion.markStarted()
+            await fixture.composition.prepareForConnection()
+            await completion.markComplete()
+        }
+        await completion.waitUntilStarted()
+        for _ in 0 ..< 100 where !(await completion.isComplete()) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(!(await completion.isComplete()))
+
+        _ = await fixture.composition.beginSignOutPreparation().value
+        for _ in 0 ..< 500 where !(await completion.isComplete()) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await completion.isComplete())
+
+        preparation.cancel()
+        await fixture.broker.resumeRelayBootstrap()
+    }
+
+    @Test
     func activeRuntimeRateLimitFloorsRelayRefreshWithoutBlockingDiscovery() async throws {
         let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap()
         await settleActivation(fixture) {
@@ -364,6 +459,34 @@ struct MobileIrohRuntimeCompositionCooldownTests {
 
         await recreated.composition.refreshIrohSettings()
         #expect(await recreated.broker.bootstrapRequestCount() == bootstrapCountAtFloor)
+    }
+}
+
+private actor MobileIrohCooldownCompletionProbe {
+    private var started = false
+    private var complete = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func markStarted() {
+        started = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func markComplete() {
+        complete = true
+    }
+
+    func isComplete() -> Bool {
+        complete
     }
 }
 
@@ -622,6 +745,56 @@ private struct MobileIrohCooldownFixture {
             auth: auth,
             networkPathChangeHook: networkPathChangeHook,
             compositionFactory: compositionFactory
+        )
+    }
+
+    func requestWithDirectPath(
+        privacyScope: CmxIrohPathHintPrivacyScope
+    ) throws -> CmxByteTransportRequest {
+        guard case let .peer(identity, _) = request.route.endpoint else {
+            throw MobileIrohCooldownTestError.unavailable
+        }
+        let hint: CmxIrohPathHint
+        switch privacyScope {
+        case .publicInternet:
+            hint = try CmxIrohPathHint(
+                kind: .directAddress,
+                value: "8.8.8.8:443",
+                source: .native,
+                privacyScope: privacyScope
+            )
+        case .localNetwork, .privateNetwork:
+            let source: CmxIrohPathHintSource = privacyScope == .localNetwork
+                ? .lan
+                : .tailscale
+            hint = try CmxIrohPathHint(
+                kind: .directAddress,
+                value: privacyScope == .localNetwork
+                    ? "192.168.50.10:443"
+                    : "100.64.0.10:443",
+                source: source,
+                privacyScope: privacyScope,
+                observedAt: clock.now,
+                expiresAt: clock.now.addingTimeInterval(600),
+                networkProfile: CmxIrohNetworkProfileKey(
+                    source: source,
+                    profileID: String(repeating: "a", count: 64)
+                )
+            )
+        }
+        return CmxByteTransportRequest(
+            route: try CmxAttachRoute(
+                id: request.route.id,
+                kind: request.route.kind,
+                endpoint: .peer(
+                    identity: identity,
+                    pathHints: [hint]
+                ),
+                priority: request.route.priority
+            ),
+            expectedPeerDeviceID: request.expectedPeerDeviceID,
+            authorizationMode: request.authorizationMode,
+            sessionPurpose: request.sessionPurpose
         )
     }
 

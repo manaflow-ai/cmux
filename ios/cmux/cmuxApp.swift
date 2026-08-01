@@ -151,8 +151,8 @@ struct cmuxApp: App {
         .environment(\.irohSettingsController, Self.root.iroh)
         .environment(
             \.dogfoodAttachPreparation,
-            DogfoodAttachPreparation {
-                await Self.root.iroh.prepareForConnection()
+            DogfoodAttachPreparation { pairingURL in
+                await Self.root.iroh.prepareForConnection(pairingURL: pairingURL)
             }
         )
     }
