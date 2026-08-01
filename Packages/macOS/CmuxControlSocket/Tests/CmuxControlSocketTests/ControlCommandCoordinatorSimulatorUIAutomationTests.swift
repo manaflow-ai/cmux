@@ -121,6 +121,29 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
         )))
     }
 
+    @Test("Semantic typing preserves exact text content")
+    func semanticTypePreservesWhitespace() throws {
+        #expect(try operation("simulator.type_text", [
+            "element_ref": .string("e1_7"),
+            "text": .string("  hello\n"),
+            "replace_existing": .bool(false),
+        ]) == .uiAction(.typeText(
+            elementRef: "e1_7",
+            text: "  hello\n",
+            replaceExisting: false
+        )))
+
+        #expect(try operation("simulator.type_text", [
+            "element_ref": .string("e1_7"),
+            "text": .string("   "),
+            "replace_existing": .bool(false),
+        ]) == .uiAction(.typeText(
+            elementRef: "e1_7",
+            text: "   ",
+            replaceExisting: false
+        )))
+    }
+
     @Test("Key, button, gesture, and batch actions route with structured values")
     func nonElementActionRouting() throws {
         #expect(try operation("simulator.key_press", [
