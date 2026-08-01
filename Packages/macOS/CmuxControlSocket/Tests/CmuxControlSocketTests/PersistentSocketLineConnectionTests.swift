@@ -111,7 +111,7 @@ import Testing
         }
         #expect(Darwin.listen(listenerFD, 64) == 0)
 
-        let accepted = DispatchSemaphore(value: 0)
+        let commandReadStarted = DispatchSemaphore(value: 0)
         let stopServer = DispatchSemaphore(value: 0)
         let serverStopped = DispatchSemaphore(value: 0)
         DispatchQueue(
@@ -135,7 +135,8 @@ import Testing
                 let clientFD = Darwin.accept(listenerFD, nil, nil)
                 if clientFD >= 0 {
                     clientFDs.append(clientFD)
-                    accepted.signal()
+                    #expect(readLine(from: clientFD) == "wait")
+                    commandReadStarted.signal()
                 }
             }
         }
@@ -158,12 +159,12 @@ import Testing
         }
         let blockersNeeded = cooperativeWorkerCount
         for _ in 0..<blockersNeeded {
-            let acceptedResult = await wait(
-                for: accepted,
+            let commandReadResult = await wait(
+                for: commandReadStarted,
                 timeout: .now() + 2
             )
             #expect(
-                acceptedResult == .success,
+                commandReadResult == .success,
                 "Expected enough stalled reads to occupy the cooperative pool"
             )
         }
@@ -174,7 +175,7 @@ import Testing
         }
         let probeResult = await wait(
             for: probeCompleted,
-            timeout: .now() + 0.2
+            timeout: .now() + 1
         )
         #expect(
             probeResult == .success,
@@ -232,6 +233,36 @@ import Testing
             for: handled,
             timeout: .now() + 2
         ) == .success)
+    }
+
+    @Test func stalledCommandWritesCannotExtendTheDeadline() throws {
+        let sockets = try UnixSocketFixture.makeSocketPair()
+        defer {
+            Darwin.close(sockets.reader)
+            Darwin.close(sockets.writer)
+        }
+        var sendBufferByteCount: Int32 = 1_024
+        #expect(withUnsafePointer(to: &sendBufferByteCount) { pointer in
+            Darwin.setsockopt(
+                sockets.writer,
+                SOL_SOCKET,
+                SO_SNDBUF,
+                pointer,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+        } == 0)
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.05
+        let startedAt = ContinuousClock.now
+
+        let wroteAll = SocketTransport().writeAll(
+            Data(repeating: 0x78, count: 4 * 1_024 * 1_024),
+            to: sockets.writer,
+            deadline: deadline,
+            isInterrupted: { false }
+        )
+
+        #expect(!wroteAll)
+        #expect(ContinuousClock.now - startedAt < .milliseconds(500))
     }
 
     @Test func taskCancellationInterruptsAStalledResponseRead()

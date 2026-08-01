@@ -556,6 +556,48 @@ struct ApplicationSurfaceTests {
         #expect(batches[1] == backlog)
     }
 
+    @Test func inputPumpNeverExceedsTheHelperProtocolBatchLimit() async {
+        var batches: [[ApplicationSurfaceInputEvent]] = []
+        var releaseFirstBatch: CheckedContinuation<Void, Never>?
+        let pump = ApplicationSurfaceInputPump(
+            maximumQueuedEventCount: 128,
+            batchSender: { events in
+                batches.append(events)
+                if batches.count == 1 {
+                    await withCheckedContinuation { continuation in
+                        releaseFirstBatch = continuation
+                    }
+                }
+                return true
+            }
+        )
+        let first = ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: 1,
+            keyDown: true
+        )
+        #expect(pump.enqueue(first) == .accepted)
+        while batches.isEmpty {
+            await Task.yield()
+        }
+
+        let backlog = (2 ... 101).map {
+            ApplicationSurfaceInputEvent(
+                kind: .key,
+                keyCode: UInt16($0),
+                keyDown: true
+            )
+        }
+        for event in backlog {
+            #expect(pump.enqueue(event) == .accepted)
+        }
+        releaseFirstBatch?.resume()
+        await pump.waitUntilIdle()
+
+        #expect(batches.map(\.count) == [1, 64, 36])
+        #expect(Array(batches.dropFirst().joined()) == backlog)
+    }
+
     @Test func inputPumpSynthesizesReleasesForDeliveredPresses() async {
         var delivered: [ApplicationSurfaceInputEvent] = []
         let pump = ApplicationSurfaceInputPump { events in
@@ -707,6 +749,28 @@ struct ApplicationSurfaceTests {
         let secondView = panel.captureView(windowID: 42, processID: 43)
 
         #expect(firstView === secondView)
+        panel.close()
+    }
+
+    @Test func dismantlingRepresentableSuspendsItsHostedCapture() {
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime()
+        )!
+        let view = panel.captureView(windowID: 42, processID: 43)
+        panel.setCaptureVisibleInUI(true, view: view)
+        #expect(panel.captureEligibleForCurrentVisibility)
+
+        ApplicationCaptureRepresentable.dismantleNSView(
+            view,
+            coordinator: ()
+        )
+
+        #expect(!panel.captureEligibleForCurrentVisibility)
         panel.close()
     }
 
@@ -883,6 +947,23 @@ struct ApplicationSurfaceTests {
         #expect(fallbackCallCount == 1)
     }
 
+    @Test func applicationEditingCommandsFollowTheProducedCharacter() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "z",
+            charactersIgnoringModifiers: "z",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Q)
+        ))
+
+        #expect(shouldRouteApplicationCommandEquivalentThroughContentFirst(event))
+    }
+
     @Test func explicitCmuxShortcutWinsOverFocusedApplicationPane() throws {
         _ = NSApplication.shared
         let runtime = FakeApplicationSurfaceRuntime()
@@ -1000,6 +1081,47 @@ struct ApplicationSurfaceTests {
         #expect(restoredPanel.captureTarget == nil)
         #expect(restoredPanel.targetFrameRate == 45)
         #expect(restoredPanel.runtime === runtime)
+        #expect(
+            restoredPanel.displayTitle
+                == String(
+                    localized: "panel.application.defaultTitle",
+                    defaultValue: "Application"
+                )
+        )
+    }
+
+    @Test func pickerFailuresDoNotExposeRawHelperDiagnostics() async throws {
+        let privateDiagnostic =
+            "Failed to map /Users/private/Library/Application Support/cmux/frame"
+        let runtime = FakeApplicationSurfaceRuntime()
+        runtime.windowListError = NSError(
+            domain: "ComputerUseHelper",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: privateDiagnostic]
+        )
+        let lease = ApplicationSurfaceRuntimeLease(
+            service: ComputerUseRuntimeService(),
+            identifier: UUID()
+        )
+        let panel = try #require(ApplicationPanel(
+            workspaceId: UUID(),
+            targetFrameRate: 60,
+            runtime: runtime,
+            runtimeLease: lease
+        ))
+        defer { panel.close() }
+
+        panel.refreshAvailableWindows()
+        while panel.pickerModel.phase == .loading {
+            await Task.yield()
+        }
+
+        guard case let .failed(message) = panel.pickerModel.phase else {
+            Issue.record("Expected a sanitized picker failure")
+            return
+        }
+        #expect(!message.contains(privateDiagnostic))
+        #expect(!message.contains("/Users/private"))
     }
 
     @Test func restoredWorkspacesKeepApplicationSurfaceRuntime() throws {
@@ -1461,6 +1583,8 @@ struct ApplicationSurfaceTests {
 
 @MainActor
 private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
+    var windowListError: (any Error)?
+
     func acquireApplicationSurfaceLease() async -> ApplicationSurfaceRuntimeLease? {
         nil
     }
@@ -1468,7 +1592,10 @@ private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
     func listApplicationWindows(
         lease: ApplicationSurfaceRuntimeLease
     ) async throws -> [ApplicationWindowDescriptor] {
-        []
+        if let windowListError {
+            throw windowListError
+        }
+        return []
     }
 
     func startApplicationSurface(

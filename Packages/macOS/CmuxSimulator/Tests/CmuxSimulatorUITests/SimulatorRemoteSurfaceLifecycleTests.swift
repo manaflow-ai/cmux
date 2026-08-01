@@ -175,6 +175,31 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         ) == 0xFF_77_88_99)
     }
 
+    @Test("A producer failure reaches the Simulator coordinator callback")
+    func producerFailureReachesCoordinatorCallback() {
+        let descriptor = simulatorFrameTransportDescriptor(52)
+        let view = SimulatorRemoteSurfaceView(
+            frameSourceFactory: { _ in FailedSimulatorFrameSurfaceSource() }
+        )
+        var reportedDescriptor: SimulatorFrameTransportDescriptor?
+        var reportedFailure: SimulatorFailure?
+        view.onFrameTransportFailure = { descriptor, failure in
+            reportedDescriptor = descriptor
+            reportedFailure = failure
+        }
+
+        view.update(
+            frameTransport: descriptor,
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        view.renderLatestFrame()
+
+        #expect(reportedDescriptor == descriptor)
+        #expect(reportedFailure?.code == "framebuffer_unavailable")
+        #expect(reportedFailure?.isRecoverable == true)
+    }
+
     @Test("Frame publication signals wake a static pipeline without display polling")
     func publicationSignalsWakeStaticPipeline() async throws {
         let source = SignaledSimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(

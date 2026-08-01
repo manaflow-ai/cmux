@@ -2038,7 +2038,8 @@ struct ComputerUseUXTests {
                 ])
             Issue.record("Expected helper response to throw")
         } catch let error as ApplicationSurfaceRuntimeError {
-            #expect(error == .failed(detail))
+            #expect(error == .invalidResponse)
+            #expect(!error.localizedDescription.contains(detail))
         } catch {
             Issue.record("Unexpected error: \(error)")
         }
