@@ -170,8 +170,31 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func applyBackgroundStyle(_ style: SidebarWorkspaceRowBackgroundStyle) {
-        backgroundView.layer?.backgroundColor = (style.color ?? .clear)
-            .withAlphaComponent((style.color == nil ? 0 : style.opacity) * ((style.color?.alphaComponent) ?? 1)).cgColor
+        backgroundView.layer?.backgroundColor = resolvedCGColor {
+            (style.color ?? .clear)
+                .withAlphaComponent((style.color == nil ? 0 : style.opacity) * ((style.color?.alphaComponent) ?? 1))
+        }
+    }
+
+    /// Resolves a dynamic color against this cell's own effective appearance.
+    /// Configure can run inside another view's display pass (the synchronous
+    /// selection commit swaps the dark terminal view mid-click), where
+    /// `withAlphaComponent`/`cgColor` snapshot the ambient appearance's
+    /// variant — dynamic text then rendered white-on-white and vanished.
+    private func resolvedColor(_ make: () -> NSColor) -> NSColor {
+        var resolved = NSColor.clear
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            resolved = make()
+        }
+        return resolved
+    }
+
+    private func resolvedCGColor(_ make: () -> NSColor) -> CGColor {
+        var resolved = CGColor(gray: 0, alpha: 0)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            resolved = make().cgColor
+        }
+        return resolved
     }
 
     override var isFlipped: Bool { true }
@@ -363,7 +386,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
             backgroundView.layer?.borderWidth = 1.5
-            backgroundView.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.5).cgColor
+            backgroundView.layer?.borderColor = resolvedCGColor { NSColor.labelColor.withAlphaComponent(0.5) }
         } else {
             backgroundView.layer?.borderWidth = 0
         }
@@ -476,12 +499,16 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 descriptionView.attributedStringValue = SidebarRowPalette.attributed(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10.5)),
-                    color: model.isActive ? palette.secondary(0.84) : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+                    color: model.isActive
+                        ? palette.secondary(0.84)
+                        : resolvedColor { NSColor.secondaryLabelColor.withAlphaComponent(0.95) }
                 )
             } else {
                 descriptionView.stringValue = display
                 descriptionView.font = .systemFont(ofSize: model.scaled(10.5))
-                descriptionView.textColor = model.isActive ? palette.secondary(0.84) : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+                descriptionView.textColor = model.isActive
+                    ? palette.secondary(0.84)
+                    : resolvedColor { NSColor.secondaryLabelColor.withAlphaComponent(0.95) }
             }
         }
 
@@ -728,7 +755,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
         let toggleColor = model.isActive
             ? palette.secondary(0.9)
-            : NSColor.secondaryLabelColor.withAlphaComponent(0.9)
+            : resolvedColor { NSColor.secondaryLabelColor.withAlphaComponent(0.9) }
         metadataToggleButton.isHidden = allEntries.count <= 3
         if !metadataToggleButton.isHidden {
             metadataToggleButton.configure(
@@ -783,7 +810,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             progressView.configure(
                 fraction: CGFloat(progress.value),
                 barHeight: max(3, 3 * model.fontScale),
-                trackColor: model.isActive ? palette.selectedForeground(0.15) : NSColor.secondaryLabelColor.withAlphaComponent(0.2),
+                trackColor: model.isActive
+                    ? palette.selectedForeground(0.15)
+                    : resolvedColor { NSColor.secondaryLabelColor.withAlphaComponent(0.2) },
                 fillColor: model.isActive ? palette.selectedForeground(0.8) : cmuxAccentNSColor(),
                 labelText: progress.label,
                 labelFont: labelFont,
