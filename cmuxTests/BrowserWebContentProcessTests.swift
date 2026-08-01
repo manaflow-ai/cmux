@@ -17,6 +17,57 @@ struct BrowserWebContentProcessTests {
     private let recoveryURL = URL(string: "data:text/html,cmux-recovery")!
 
     @Test
+    func authCallbackNavigationPolicyIsPureAndFailClosed() {
+        let policy = BrowserAuthCallbackNavigationPolicy(
+            trustedSourcePageOrigin: URL(string: "https://cmux.test")!,
+            callbackScheme: "cmux-dev-test"
+        )
+        let callbackURL = URL(string: "cmux-dev-test://auth-callback?refresh_token=secret")!
+
+        switch policy.disposition(
+            for: callbackURL,
+            targetFrameIsMainFrame: true,
+            isLinkActivated: true,
+            sourceOriginMatches: true
+        ) {
+        case .deliverInApp:
+            break
+        case .block, .passThrough:
+            Issue.record("Trusted user-activated callback should be delivered in-process")
+        }
+
+        for rejectedContext in [
+            (false, true, true),
+            (true, false, true),
+            (true, true, false),
+        ] {
+            switch policy.disposition(
+                for: callbackURL,
+                targetFrameIsMainFrame: rejectedContext.0,
+                isLinkActivated: rejectedContext.1,
+                sourceOriginMatches: rejectedContext.2
+            ) {
+            case .block:
+                break
+            case .deliverInApp, .passThrough:
+                Issue.record("Auth callbacks that fail a trust check must be blocked")
+            }
+        }
+
+        switch policy.disposition(
+            for: URL(string: "https://cmux.test/app-pricing")!,
+            targetFrameIsMainFrame: true,
+            isLinkActivated: true,
+            sourceOriginMatches: true
+        ) {
+        case .passThrough:
+            break
+        case .block, .deliverInApp:
+            Issue.record("Ordinary web navigation should pass through")
+        }
+    }
+
+    @Test
     func browserPanelsShareDefaultWebsiteDataStore() {
         let first = BrowserPanel(workspaceId: UUID())
         let second = BrowserPanel(workspaceId: UUID())
