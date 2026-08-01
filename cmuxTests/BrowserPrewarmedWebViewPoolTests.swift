@@ -422,16 +422,12 @@ struct BrowserPrewarmedWebViewPoolTests {
     @Test func focusedPreviewSurvivesPointerExitAndReleasesFocusOnOutsidePress() async throws {
         let url = try #require(URL(string: "https://example.com/focused-preview"))
         let target = TerminalLinkOpenCoordinator.PreviewTarget(url: url, profileID: profileID)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 650),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
+        let view = TerminalLinkHoverIndicatorView(
+            frame: NSRect(x: 0, y: 0, width: 900, height: 650)
         )
-        defer { window.close() }
-        let view = TerminalLinkHoverIndicatorView(frame: window.contentView?.bounds ?? .zero)
-        window.contentView = view
         var detachCount = 0
+        var ownsPreviewFocus = true
+        var releaseFocusCount = 0
         let controller = TerminalLinkPreviewController(
             view: view,
             targetResolver: { _ in target },
@@ -442,6 +438,11 @@ struct BrowserPrewarmedWebViewPoolTests {
             detach: { _ in detachCount += 1 },
             delayMilliseconds: { 650 },
             animateDismissal: false,
+            previewOwnsFocus: { ownsPreviewFocus },
+            releasePreviewFocus: {
+                ownsPreviewFocus = false
+                releaseFocusCount += 1
+            },
             sleep: { _ in }
         )
 
@@ -453,11 +454,6 @@ struct BrowserPrewarmedWebViewPoolTests {
         )
         await Task.yield()
         await Task.yield()
-
-        let focusedControl = NSTextField(frame: view.previewWebViewHost.bounds)
-        view.previewWebViewHost.addSubview(focusedControl)
-        #expect(window.makeFirstResponder(focusedControl))
-        #expect(view.previewOwnsFirstResponder)
 
         controller.update(
             rawURL: nil,
@@ -475,7 +471,8 @@ struct BrowserPrewarmedWebViewPoolTests {
         controller.previewPointerDidPress(isInside: false)
 
         #expect(!view.isPreviewVisible)
-        #expect(!view.previewOwnsFirstResponder)
+        #expect(!ownsPreviewFocus)
+        #expect(releaseFocusCount == 1)
         #expect(detachCount == 1)
     }
 

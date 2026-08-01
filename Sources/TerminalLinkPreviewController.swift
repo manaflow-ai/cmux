@@ -17,6 +17,8 @@ final class TerminalLinkPreviewController {
     ) -> BrowserPrewarmedWebViewPool.PreviewAttachment?
     typealias Detach = @MainActor (BrowserPrewarmedWebViewPool.PreviewAttachment) -> Void
     typealias Sleep = @Sendable (Duration) async throws -> Void
+    typealias PreviewOwnsFocus = @MainActor () -> Bool
+    typealias ReleasePreviewFocus = @MainActor () -> Void
 
     private weak var view: TerminalLinkHoverIndicatorView?
     private let targetResolver: TargetResolver
@@ -26,6 +28,8 @@ final class TerminalLinkPreviewController {
     private let delayMilliseconds: @MainActor () -> Int
     private let dismissalGraceMilliseconds: Int
     private let animateDismissal: Bool
+    private let previewOwnsFocus: PreviewOwnsFocus
+    private let releasePreviewFocus: ReleasePreviewFocus
     private let sleep: Sleep
 
     private var currentRawURL: String?
@@ -62,6 +66,8 @@ final class TerminalLinkPreviewController {
         delayMilliseconds: (@MainActor () -> Int)? = nil,
         dismissalGraceMilliseconds: Int = 200,
         animateDismissal: Bool = true,
+        previewOwnsFocus: PreviewOwnsFocus? = nil,
+        releasePreviewFocus: ReleasePreviewFocus? = nil,
         sleep: @escaping Sleep = { duration in try await Task.sleep(for: duration) }
     ) {
         self.view = view
@@ -76,6 +82,12 @@ final class TerminalLinkPreviewController {
         }
         self.dismissalGraceMilliseconds = dismissalGraceMilliseconds
         self.animateDismissal = animateDismissal
+        self.previewOwnsFocus = previewOwnsFocus ?? { [weak view] in
+            view?.previewOwnsFirstResponder == true
+        }
+        self.releasePreviewFocus = releasePreviewFocus ?? { [weak view] in
+            view?.resignPreviewFirstResponderIfNeeded()
+        }
         self.sleep = sleep
         view.onPreviewPointerChange = { [weak self] isInside in
             self?.previewPointerDidChange(isInside: isInside)
@@ -161,7 +173,7 @@ final class TerminalLinkPreviewController {
             cancelPendingDismissalAndRestorePreview()
         } else if !isSourceLinkHovered,
                   !isInteractionPinned,
-                  view?.previewOwnsFirstResponder != true {
+                  !previewOwnsFocus() {
             schedulePreviewDismissal()
         }
     }
@@ -237,7 +249,7 @@ final class TerminalLinkPreviewController {
         }
         guard !isPointerInsidePreview,
               !isInteractionPinned,
-              view?.previewOwnsFirstResponder != true else { return }
+              !previewOwnsFocus() else { return }
         schedulePreviewDismissal()
     }
 
@@ -281,7 +293,7 @@ final class TerminalLinkPreviewController {
     private func completePreviewDismissal(generation dismissedGeneration: UInt64) {
         guard generation == dismissedGeneration, isDismissalAnimating else { return }
         isDismissalAnimating = false
-        view?.resignPreviewFirstResponderIfNeeded()
+        releasePreviewFocus()
         if let attachment {
             self.attachment = nil
             detach(attachment)
