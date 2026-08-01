@@ -194,53 +194,42 @@ extension CMUXCLI {
         }
 
         let resolution = AgentProcessBindingResolution.controllingTTY.rawValue
-        let retryDelays: [useconds_t] = [25_000, 50_000, 100_000, 200_000, 400_000]
-        var retryIndex = 0
-        while true {
-            do {
-                let payload = try client.sendV2(
-                    method: "agent.resolve_delivery_target",
-                    params: [
-                        "pid": Int(ProcessInfo.processInfo.processIdentifier),
-                        "pid_resolution": resolution,
-                    ]
+        do {
+            let payload = try client.sendV2(
+                method: "agent.resolve_delivery_target",
+                params: [
+                    "pid": Int(ProcessInfo.processInfo.processIdentifier),
+                    "pid_resolution": resolution,
+                ]
+            )
+            guard payload["source"] as? String == "pid",
+                  payload["pid_resolution"] as? String == resolution,
+                  let workspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
+                  isUUID(workspaceID),
+                  let surfaceID = normalizedHandleValue(payload["surface_id"] as? String),
+                  isUUID(surfaceID) else {
+                throw currentRestoreSurfaceUnknownError()
+            }
+            return surfaceID
+        } catch let error as CLIError {
+            switch error.v2Code {
+            case "not_found":
+                client.close()
+                throw currentRestoreSurfaceUnknownError()
+            case "method_not_found", "unrecognized_method":
+                // These protocol replies were consumed in full, so the socket
+                // remains synchronized for the legacy discovery request.
+                return legacyRestoreSurfaceID(
+                    client: client,
+                    workspaceID: nil
                 )
-                guard payload["source"] as? String == "pid",
-                      payload["pid_resolution"] as? String == resolution,
-                      let workspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
-                      isUUID(workspaceID),
-                      let surfaceID = normalizedHandleValue(payload["surface_id"] as? String),
-                      isUUID(surfaceID) else {
-                    throw currentRestoreSurfaceUnknownError()
-                }
-                return surfaceID
-            } catch let error as CLIError {
-                switch error.v2Code {
-                case "not_found" where retryIndex < retryDelays.count:
-                    // Local shell integration registers its TTY in a background
-                    // child. A complete `not_found` reply leaves this socket
-                    // synchronized, so briefly wait for that registration and
-                    // retry without trusting persisted or ambient surface ids.
-                    usleep(retryDelays[retryIndex])
-                    retryIndex += 1
-                case "not_found":
-                    client.close()
-                    throw currentRestoreSurfaceUnknownError()
-                case "method_not_found", "unrecognized_method":
-                    // These protocol replies were consumed in full, so the socket
-                    // remains synchronized for the legacy discovery request.
-                    return legacyRestoreSurfaceID(
-                        client: client,
-                        workspaceID: nil
-                    )
-                default:
-                    client.close()
-                    throw error
-                }
-            } catch {
+            default:
                 client.close()
                 throw error
             }
+        } catch {
+            client.close()
+            throw error
         }
     }
 
@@ -265,58 +254,51 @@ extension CMUXCLI {
             params["workspace_id"] = workspaceID
         }
 
-        let retryDelays: [useconds_t] = [25_000, 50_000, 100_000, 200_000, 400_000]
-        var retryIndex = 0
-        while true {
-            do {
-                let payload = try client.sendV2(
-                    method: "agent.resolve_delivery_target",
-                    params: params
+        do {
+            let payload = try client.sendV2(
+                method: "agent.resolve_delivery_target",
+                params: params
+            )
+            if payload["source"] as? String == "workspace",
+               payload["surface_id"] == nil || payload["surface_id"] is NSNull,
+               let resolvedWorkspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
+               isUUID(resolvedWorkspaceID) {
+                // Previous app versions ignore the TTY probe and resolve
+                // only workspace_id. Use their alias-rewritten result to
+                // scope the legacy terminal list, not the stale remote
+                // shell environment value that produced the request.
+                return legacyRestoreSurfaceID(
+                    client: client,
+                    workspaceID: resolvedWorkspaceID
                 )
-                if payload["source"] as? String == "workspace",
-                   payload["surface_id"] == nil || payload["surface_id"] is NSNull,
-                   let resolvedWorkspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
-                   isUUID(resolvedWorkspaceID) {
-                    // Previous app versions ignore the TTY probe and resolve
-                    // only workspace_id. Use their alias-rewritten result to
-                    // scope the legacy terminal list, not the stale remote
-                    // shell environment value that produced the request.
-                    return legacyRestoreSurfaceID(
-                        client: client,
-                        workspaceID: resolvedWorkspaceID
-                    )
-                }
-                guard payload["source"] as? String == "tty",
-                      payload["tty_resolution"] as? String == resolution,
-                      let resolvedWorkspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
-                      isUUID(resolvedWorkspaceID),
-                      let surfaceID = normalizedHandleValue(payload["surface_id"] as? String),
-                      isUUID(surfaceID) else {
-                    throw currentRestoreSurfaceUnknownError()
-                }
-                return surfaceID
-            } catch let error as CLIError {
-                switch error.v2Code {
-                case "not_found" where retryIndex < retryDelays.count:
-                    usleep(retryDelays[retryIndex])
-                    retryIndex += 1
-                case "not_found":
-                    client.close()
-                    throw currentRestoreSurfaceUnknownError()
-                case "method_not_found", "unrecognized_method":
-                    guard let workspaceID, isUUID(workspaceID) else { return nil }
-                    return legacyRestoreSurfaceID(
-                        client: client,
-                        workspaceID: workspaceID
-                    )
-                default:
-                    client.close()
-                    throw error
-                }
-            } catch {
+            }
+            guard payload["source"] as? String == "tty",
+                  payload["tty_resolution"] as? String == resolution,
+                  let resolvedWorkspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
+                  isUUID(resolvedWorkspaceID),
+                  let surfaceID = normalizedHandleValue(payload["surface_id"] as? String),
+                  isUUID(surfaceID) else {
+                throw currentRestoreSurfaceUnknownError()
+            }
+            return surfaceID
+        } catch let error as CLIError {
+            switch error.v2Code {
+            case "not_found":
+                client.close()
+                throw currentRestoreSurfaceUnknownError()
+            case "method_not_found", "unrecognized_method":
+                guard let workspaceID, isUUID(workspaceID) else { return nil }
+                return legacyRestoreSurfaceID(
+                    client: client,
+                    workspaceID: workspaceID
+                )
+            default:
                 client.close()
                 throw error
             }
+        } catch {
+            client.close()
+            throw error
         }
     }
 

@@ -117,6 +117,9 @@ extension Workspace {
             return false
         }
         endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(forKey: surfaceId)
+        if remoteTerminalAttemptIDsBySurfaceId[surfaceId] != attemptID {
+            invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
+        }
         remoteTerminalAttemptIDsBySurfaceId[surfaceId] = attemptID
         markRemoteTerminalSessionLaunching(surfaceId: surfaceId)
         applyRemoteTerminalLaunchingPresentation()

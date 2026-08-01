@@ -63,11 +63,13 @@ extension DockSplitStore {
            transfer.remoteTerminalLifecycleID == terminalLifecycleID {
             return false
         }
-        let beginsNewLifecycle = transfer.remoteTerminalLifecycleID != terminalLifecycleID
+        let beginsNewRuntime =
+            transfer.remoteTerminalLifecycleID != terminalLifecycleID ||
+            transfer.remoteTerminalAttemptID != attemptID
         transfer.remoteTerminalSessionPhase = .launching
         transfer.remoteTerminalLifecycleID = terminalLifecycleID
         transfer.remoteTerminalAttemptID = attemptID
-        if beginsNewLifecycle {
+        if beginsNewRuntime {
             transfer.ttyNameWasReportedByCurrentRuntime = false
         }
         setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
