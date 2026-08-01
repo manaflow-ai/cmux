@@ -501,6 +501,11 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         let capturedPair: CmxIrohBrokerCredentials?
         do {
             capturedPair = try await tokenSource.credentialPair()
+        } catch is CancellationError {
+            // A cancelled caller must observe cancellation, not a retryable
+            // network failure: classifying it connectivity would let retry
+            // and cached-policy fallbacks keep working on a cancelled task.
+            throw CancellationError()
         } catch {
             // The source could not read a coherent pair right now (token store
             // mid-transition, re-mint in flight or offline). That is transient
