@@ -361,6 +361,64 @@ extension DockSocketLifecycleTests {
         #expect(store.surfaceResumeBinding(panelId: panel.id) == nil)
     }
 
+    @Test("Dock completion for an older restored session preserves a replacement binding")
+    @MainActor
+    func dockOlderRestoredSessionCompletionPreservesReplacementBinding() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = TerminalPanel(
+            workspaceId: sourceWorkspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let restoredSessionId = "grok-dock-restored-\(UUID().uuidString)"
+        let replacementSessionId = "grok-dock-replacement-\(UUID().uuidString)"
+        let restoredAgent = SessionRestorableAgentSnapshot(
+            kind: .grok,
+            sessionId: restoredSessionId,
+            workingDirectory: "/tmp/cmux-grok-dock-restored",
+            launchCommand: nil
+        )
+        let restoredBinding = SurfaceResumeBindingSnapshot(
+            name: "Grok",
+            kind: "grok",
+            command: "grok -r \(restoredSessionId)",
+            checkpointId: restoredSessionId,
+            source: "agent-hook",
+            autoResume: true
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: restoredAgent,
+            restorableAgentResumeState: .autoResumeCommandRunning,
+            shellActivityState: .commandRunning,
+            resumeBinding: restoredBinding
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+
+        let replacementBinding = SurfaceResumeBindingSnapshot(
+            name: "Grok",
+            kind: "grok",
+            command: "grok -r \(replacementSessionId)",
+            checkpointId: replacementSessionId,
+            source: "agent-hook",
+            autoResume: true
+        )
+        store.surfaceResumeBindingsByPanelId[panel.id] = replacementBinding
+        store.managedAgentResumeBindingsByPanelId[panel.id] = replacementBinding
+
+        store.updatePanelShellActivityState(panelId: panel.id, state: .promptIdle)
+
+        let retainedBinding = try #require(store.surfaceResumeBinding(panelId: panel.id))
+        #expect(retainedBinding.checkpointId == replacementSessionId)
+        #expect(retainedBinding.autoResume == true)
+    }
+
     @Test("Dock transfer drops a restored snapshot superseded by a live hook session")
     @MainActor
     func dockTransferDropsRestoredSnapshotSupersededByLiveHookSession() throws {
