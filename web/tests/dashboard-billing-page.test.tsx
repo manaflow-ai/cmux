@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { stripeCustomers, stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
+import jaMessages from "../messages/ja.json";
 import { withAccountMutationLeaseSupport } from
   "./helpers/account-mutation-db-mock";
 
@@ -221,7 +222,7 @@ describe("dashboard billing page", () => {
     expect(await renderBillingPage()).toContain("$336/seat/year");
   });
 
-  test("labels annual Stripe Team subscriptions from checkout metadata", async () => {
+  test("uses the current Stripe price interval over stale checkout metadata", async () => {
     proUser.selectedTeam = { id: "team-pro", displayName: "Team Pro" };
     subscriptionResults = [
       [],
@@ -232,14 +233,35 @@ describe("dashboard billing page", () => {
           plan: "team",
           scope: "team",
           seats: 4,
-          lookupKey: "operator-managed-annual-price",
+          lookupKey: "cmux-team-monthly",
           billingInterval: "year",
         }),
       ],
     ];
     customerRows = [{ id: "cus_team" }];
 
+    expect(await renderBillingPage()).toContain("$35/seat/month");
+
+    subscriptionResults = [
+      [],
+      [],
+      [
+        stripeSubscriptionRow({
+          cancelAtPeriodEnd: false,
+          plan: "team",
+          scope: "team",
+          seats: 4,
+          lookupKey: "operator-managed-annual-price",
+          recurringInterval: "year",
+        }),
+      ],
+    ];
     expect(await renderBillingPage()).toContain("$336/seat/year");
+  });
+
+  test("localizes active annual Pro prices", () => {
+    expect(enMessages.dashboard.billing.pro.annualPrice).toBe("$288/year");
+    expect(jaMessages.dashboard.billing.pro.annualPrice).toBe("$288/年");
   });
 
   test("renders active Stripe Team for a paid team when no team is selected", async () => {
@@ -328,6 +350,7 @@ function stripeSubscriptionRow({
   seats = null,
   lookupKey = "cmux-pro-monthly",
   billingInterval,
+  recurringInterval,
 }: {
   cancelAtPeriodEnd: boolean;
   plan?: string;
@@ -335,6 +358,7 @@ function stripeSubscriptionRow({
   seats?: number | null;
   lookupKey?: string;
   billingInterval?: "month" | "year";
+  recurringInterval?: "month" | "year";
 }) {
   return {
     id: "sub_123",
@@ -352,6 +376,7 @@ function stripeSubscriptionRow({
           {
             price: {
               lookup_key: lookupKey,
+              recurring: recurringInterval ? { interval: recurringInterval } : undefined,
             },
           },
         ],

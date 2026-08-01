@@ -241,7 +241,10 @@ describe("billing checkout route", () => {
       delete process.env.CMUX_APP_PRICING_CHECKOUT_URL;
       stripeConfigured = true;
       userResponses = [null, anonymousUser];
+      const originalNow = Date.now;
+      Date.now = () => originalNow() - 1_000;
       const checkoutResponse = await GET(new NextRequest(relayURL));
+      Date.now = originalNow;
 
       expect(checkoutResponse.headers.get("location")).toBe(
         "https://checkout.stripe.com/c/session",
@@ -263,12 +266,11 @@ describe("billing checkout route", () => {
         "cmux_relay_signature",
         `${signature[0] === "0" ? "1" : "0"}${signature.slice(1)}`,
       );
-      await GET(new NextRequest(relayURL));
-      expect(createdStripeSessions[0]).toMatchObject({
-        metadata: { nativeCallbackScheme: "cmux" },
-        success_url:
-          "https://billing.example/api/billing/complete?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=cmux",
-      });
+      const invalidRelayResponse = await GET(new NextRequest(relayURL));
+      expect(invalidRelayResponse.headers.get("location")).toBe(
+        "https://billing.example/pricing?billing=invalid_relay",
+      );
+      expect(createdStripeSessions).toHaveLength(0);
     } finally {
       if (previousURL === undefined) {
         delete process.env.CMUX_APP_PRICING_CHECKOUT_URL;

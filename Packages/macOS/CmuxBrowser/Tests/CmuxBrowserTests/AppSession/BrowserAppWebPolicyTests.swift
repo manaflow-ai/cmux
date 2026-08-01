@@ -147,6 +147,10 @@ struct BrowserAppWebPolicyTests {
             url: URL(string: "https://cmux.com/app-pricing"),
             trustedOrigin: trustedOrigin
         ))
+        #expect(BrowserAppTheme.supportsAppSurface(
+            url: URL(string: "https://cmux.com/app-pricing"),
+            trustedOrigin: trustedOrigin
+        ))
         #expect(theme.supports(
             url: URL(string: "https://cmux.com/app-pro-welcome"),
             trustedOrigin: trustedOrigin
@@ -160,6 +164,10 @@ struct BrowserAppWebPolicyTests {
             trustedOrigin: trustedOrigin
         ))
         #expect(!theme.supports(
+            url: URL(string: "https://cmux.com/pricing"),
+            trustedOrigin: trustedOrigin
+        ))
+        #expect(!BrowserAppTheme.supportsAppSurface(
             url: URL(string: "https://cmux.com/pricing"),
             trustedOrigin: trustedOrigin
         ))

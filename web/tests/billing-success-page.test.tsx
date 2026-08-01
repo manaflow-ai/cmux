@@ -102,6 +102,9 @@ describe("billing success page", () => {
   });
 
   test("opens the tagged app recorded by the trusted checkout", async () => {
+    const previousSecret = process.env.CMUX_APP_PRICING_RELAY_SECRET;
+    process.env.CMUX_APP_PRICING_RELAY_SECRET =
+      "pricing-relay-test-secret-with-at-least-32-bytes";
     nativeCallbackScheme = "cmux-dev-test";
     try {
       const element = await BillingSuccessPage({
@@ -115,8 +118,16 @@ describe("billing success page", () => {
       expect(html).toContain(
         "native_app_return_to=cmux-dev-test%3A%2F%2Fauth-callback",
       );
+      expect(html).toContain("cmux_checkout_session=cs_123");
+      expect(html).toContain("cmux_native_return_expires=");
+      expect(html).toMatch(/cmux_native_return_signature=[a-f0-9]{64}/);
     } finally {
       nativeCallbackScheme = undefined;
+      if (previousSecret === undefined) {
+        delete process.env.CMUX_APP_PRICING_RELAY_SECRET;
+      } else {
+        process.env.CMUX_APP_PRICING_RELAY_SECRET = previousSecret;
+      }
     }
   });
 });
