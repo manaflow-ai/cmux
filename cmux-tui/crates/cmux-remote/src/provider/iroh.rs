@@ -1929,7 +1929,12 @@ mod tests {
         let auth = AuthDatabase::load_or_create(temp.path(), "test-daemon", false).unwrap();
         let (daemon, mut accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
         let server_key = secret(12);
-        let listener = IrohListener::bind(
+        let limits = IrohListenerLimits {
+            maximum_connections: 1,
+            maximum_connection_overflow: 0,
+            ..IrohListenerLimits::default()
+        };
+        let listener = IrohListener::bind_with_limits(
             daemon,
             IrohProviderConfig {
                 secret_key: Some(server_key.clone()),
@@ -1939,6 +1944,7 @@ mod tests {
                 alpn: CMUX_IROH_ALPN.to_vec(),
                 maximum_frame_bytes: MAX_WIRE_FRAME_BYTES,
             },
+            limits,
         )
         .await
         .unwrap();
