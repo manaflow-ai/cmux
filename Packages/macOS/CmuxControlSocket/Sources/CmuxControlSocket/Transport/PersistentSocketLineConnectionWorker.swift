@@ -8,6 +8,7 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
     private let transport: SocketTransport
     private let maximumResponseByteCount: Int
     private let connectDependencies: PersistentSocketConnectDependencies
+    private let didEnqueueCommand: @Sendable () -> Void
     private let activeInterruption = PersistentSocketInterruptionSignal()
     private var state: PersistentSocketLineConnectionState?
 
@@ -15,12 +16,14 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
         transport: SocketTransport,
         maximumResponseByteCount: Int,
         queue: DispatchQueue,
-        connectDependencies: PersistentSocketConnectDependencies = .live
+        connectDependencies: PersistentSocketConnectDependencies = .live,
+        didEnqueueCommand: @escaping @Sendable () -> Void = {}
     ) {
         self.transport = transport
         self.maximumResponseByteCount = maximumResponseByteCount
         self.queue = queue
         self.connectDependencies = connectDependencies
+        self.didEnqueueCommand = didEnqueueCommand
     }
 
     deinit {
@@ -54,6 +57,7 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
                         )
                     continuation.resume(returning: result)
                 }
+                didEnqueueCommand()
             }
         } onCancel: {
             cancellation.trigger(generation: cancellationGeneration)

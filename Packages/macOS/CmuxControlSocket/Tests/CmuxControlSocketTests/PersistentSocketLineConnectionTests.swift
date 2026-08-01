@@ -401,6 +401,102 @@ import Testing
         ) == .success)
     }
 
+    @Test func invalidationRejectsCommandsAlreadyQueuedBehindAnActiveCommand()
+        async throws
+    {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+        let commandEnqueued = DispatchSemaphore(value: 0)
+        let activeCommandReceived = DispatchSemaphore(value: 0)
+        let queuedCommandReceived = DispatchSemaphore(value: 0)
+        let serverStopped = DispatchSemaphore(value: 0)
+        DispatchQueue(
+            label: "com.cmux.control-socket-tests.invalidation-barrier",
+            qos: .userInitiated
+        ).async {
+            defer { serverStopped.signal() }
+            let activeClient = Darwin.accept(listenerFD, nil, nil)
+            guard activeClient >= 0 else { return }
+            defer { Darwin.close(activeClient) }
+            #expect(readLine(from: activeClient) == "active")
+            activeCommandReceived.signal()
+            var byte: UInt8 = 0
+            _ = Darwin.read(activeClient, &byte, 1)
+
+            var descriptor = pollfd(
+                fd: listenerFD,
+                events: Int16(POLLIN),
+                revents: 0
+            )
+            guard Darwin.poll(&descriptor, 1, 500) > 0 else { return }
+            let queuedClient = Darwin.accept(listenerFD, nil, nil)
+            guard queuedClient >= 0 else { return }
+            defer { Darwin.close(queuedClient) }
+            if readLine(from: queuedClient) == "queued" {
+                queuedCommandReceived.signal()
+                #expect(SocketTransport().writeAll(
+                    Data("unexpected-response\n".utf8),
+                    to: queuedClient
+                ))
+            }
+        }
+        let worker = PersistentSocketLineConnectionWorker(
+            transport: SocketTransport(),
+            maximumResponseByteCount: 4_096,
+            queue: DispatchQueue(
+                label: "com.cmux.control-socket-tests.invalidation-worker"
+            ),
+            didEnqueueCommand: {
+                commandEnqueued.signal()
+            }
+        )
+        let active = Task {
+            await worker.command(
+                "active",
+                at: path,
+                timeout: 2,
+                validatingPeer: { _ in true }
+            )
+        }
+        #expect(await wait(
+            for: commandEnqueued,
+            timeout: .now() + 1
+        ) == .success)
+        #expect(await wait(
+            for: activeCommandReceived,
+            timeout: .now() + 1
+        ) == .success)
+        let queued = Task {
+            await worker.command(
+                "queued",
+                at: path,
+                timeout: 2,
+                validatingPeer: { _ in true }
+            )
+        }
+        #expect(await wait(
+            for: commandEnqueued,
+            timeout: .now() + 1
+        ) == .success)
+
+        await worker.invalidate()
+
+        #expect(await active.value == nil)
+        #expect(await queued.value == nil)
+        #expect(await wait(
+            for: serverStopped,
+            timeout: .now() + 1
+        ) == .success)
+        #expect(await wait(
+            for: queuedCommandReceived,
+            timeout: .now()
+        ) == .timedOut)
+    }
+
     private func wait(
         for semaphore: DispatchSemaphore,
         timeout: DispatchTime
