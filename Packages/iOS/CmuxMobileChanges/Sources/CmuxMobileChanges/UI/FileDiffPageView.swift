@@ -13,8 +13,10 @@ public struct FileDiffPageView: View {
     let onLoadCurrentLines: @MainActor @Sendable (String) async throws -> DiffExpansionCurrentFile
     let onCopy: @MainActor @Sendable (String) -> Void
     let inlinePreview: (@MainActor @Sendable (_ index: Int, _ revision: FileDiffPreviewRevision) -> AnyView)?
+    var initialScrollRowID: String?
     @State var loadState: FileDiffLoadState = .loading
-    @State var scrollRowID: String?
+    @State var rowTracker = ScrollRowTracker(topRowID: nil)
+    @State private var didRestoreScroll = false
     @State private var magnificationStart: Double?
     @State var previewRevision: FileDiffPreviewRevision = .current
     @State var expansionState = DiffExpansionState()
@@ -42,7 +44,7 @@ public struct FileDiffPageView: View {
                 cancelPageTasks()
                 // Unmount can arrive while a fling is still settling; persist
                 // the row here since no further idle phase will report it.
-                onScrollRowIDChanged(scrollRowID)
+                onScrollRowIDChanged(rowTracker.topRowID)
             }
     }
     @ViewBuilder
@@ -97,38 +99,43 @@ public struct FileDiffPageView: View {
             let gutterWidth = DiffGutterLayout(
                 maximumLineNumber: presentation.maximumLineNumber
             ).measuredWidth(fontSize: fontSize)
-            ScrollView {
-                let continuation = FileDiffContinuation(
-                    lineBudget: lineBudget,
-                    document: document,
-                    reachedTransportCeiling: reachedTransportCeiling
-                )
-                LazyVStack(spacing: 0) {
-                    ForEach(presentation.rows) { row in
-                        diffRow(row, gutterWidth: gutterWidth)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    let continuation = FileDiffContinuation(
+                        lineBudget: lineBudget,
+                        document: document,
+                        reachedTransportCeiling: reachedTransportCeiling
+                    )
+                    LazyVStack(spacing: 0) {
+                        ForEach(presentation.rows) { row in
+                            diffRow(row, gutterWidth: gutterWidth)
+                        }
+                        if continuation.shouldShowFooter {
+                            FileDiffContinuationFooter(
+                                continuation: continuation,
+                                state: continuationLoadState,
+                                onShowMore: showMore
+                            )
+                        }
                     }
-                    if continuation.shouldShowFooter {
-                        FileDiffContinuationFooter(
-                            continuation: continuation,
-                            state: continuationLoadState,
-                            onShowMore: showMore
-                        )
+                    .scrollTargetLayout()
+                }
+                .modifier(SettledScrollRowReporter(
+                    tracker: rowTracker,
+                    onSettled: onScrollRowIDChanged
+                ))
+                .refreshable { await load(forceRefresh: true) }
+                .simultaneousGesture(magnifyGesture)
+                .onAppear {
+                    // One-shot programmatic restore; after this the scroll
+                    // offset has a single owner (the scroll view's physics).
+                    guard !didRestoreScroll else { return }
+                    didRestoreScroll = true
+                    if let initialScrollRowID {
+                        proxy.scrollTo(initialScrollRowID, anchor: .top)
                     }
                 }
-                .scrollTargetLayout()
             }
-            // No anchor on the live binding: a non-nil anchor makes every
-            // tracked-position update re-align that row to the viewport edge
-            // on layout, which snaps and kills fling deceleration at the
-            // first row crossing (verified on-sim; Settings-style momentum
-            // returns with the anchor removed).
-            .scrollPosition(id: $scrollRowID)
-            .modifier(SettledScrollRowReporter(
-                rowID: $scrollRowID,
-                onSettled: onScrollRowIDChanged
-            ))
-            .refreshable { await load(forceRefresh: true) }
-            .simultaneousGesture(magnifyGesture)
         }
     }
     @ViewBuilder
