@@ -25,9 +25,15 @@ struct TopVisibleRowPolicy {
     let rowOrderIndex: [String: Int]
 
     func topRow(among visibleIDs: [String]) -> String? {
-        visibleIDs.min { lhs, rhs in
-            (rowOrderIndex[lhs] ?? Int.max, lhs) < (rowOrderIndex[rhs] ?? Int.max, rhs)
+        visibleIDs.compactMap { id -> (order: Int, id: String)? in
+            guard let order = rowOrderIndex[id] else { return nil }
+            return (order, id)
         }
+        .min { lhs, rhs in
+            if lhs.order == rhs.order { return lhs.id < rhs.id }
+            return lhs.order < rhs.order
+        }?
+        .id
     }
 }
 
@@ -47,8 +53,7 @@ struct SettledScrollRowReporter: ViewModifier {
             content
                 .onScrollTargetVisibilityChange(idType: String.self, threshold: 0.01) { visibleIDs in
                     let policy = TopVisibleRowPolicy(rowOrderIndex: rowOrderIndex)
-                    guard let top = policy.topRow(among: visibleIDs) else { return }
-                    tracker.topRowID = top
+                    tracker.topRowID = policy.topRow(among: visibleIDs)
                 }
                 .onScrollPhaseChange { _, newPhase in
                     guard newPhase == .idle else { return }

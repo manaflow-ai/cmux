@@ -132,8 +132,8 @@ public struct FileDiffPageView: View {
                     // offset has a single owner (the scroll view's physics).
                     guard !didRestoreScroll else { return }
                     didRestoreScroll = true
-                    if let initialScrollRowID {
-                        proxy.scrollTo(initialScrollRowID, anchor: .top)
+                    if let restoreRowID = rowTracker.topRowID ?? initialScrollRowID {
+                        proxy.scrollTo(restoreRowID, anchor: .top)
                     }
                 }
             }
@@ -198,6 +198,12 @@ public struct FileDiffPageView: View {
         cancelContinuationTask()
         let generation = requestGeneration.begin()
         resetExpansion()
+        switch loadState {
+        case .loading:
+            break
+        case .failed, .loaded(_):
+            didRestoreScroll = false
+        }
         loadState = .loading
         continuationLoadState = .idle
         do {

@@ -18,9 +18,9 @@ import Testing
     }
 
     @Test
-    func unknownIDsSortAfterKnownRows() {
+    func unknownIDsDoNotOverrideKnownRows() {
         #expect(policy.topRow(among: ["ghost", "row-3"]) == "row-3")
-        #expect(policy.topRow(among: ["ghost-b", "ghost-a"]) == "ghost-a")
+        #expect(policy.topRow(among: ["ghost-b", "ghost-a"]) == nil)
     }
 
     @Test
