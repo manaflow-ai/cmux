@@ -223,7 +223,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         var workspaceSurfaceCount = 0
         var rightSidebarDockSurfaceCount = 0
         for object in objects {
-            switch surfaceFocusPlacements[object.id] {
+            switch surfaceFocusPlacementsByIdentity[ObjectIdentifier(object)] {
             case .workspace:
                 workspaceSurfaceCount += 1
             case .rightSidebarDock:

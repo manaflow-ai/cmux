@@ -329,4 +329,21 @@ struct TerminalSurfaceRegistryTests {
         #expect(snapshot.payload()["registered_surface_count"] as? Int == 1)
         #expect(snapshot.payload()["runtime_surface_count"] as? Int == 1)
     }
+
+    @Test func diagnosticSnapshotCountsDuplicateIdPlacementsByRegistration() {
+        let registry = TerminalSurfaceRegistry()
+        let sharedID = UUID()
+        let original = FakeSurface(id: sharedID, focusPlacement: .workspace)
+        let replacement = FakeSurface(
+            id: sharedID,
+            focusPlacement: .rightSidebarDock
+        )
+        registry.register(original)
+        registry.register(replacement)
+
+        let snapshot = registry.diagnosticSnapshot()
+        #expect(snapshot.registeredSurfaceCount == 2)
+        #expect(snapshot.workspaceSurfaceCount == 1)
+        #expect(snapshot.rightSidebarDockSurfaceCount == 1)
+    }
 }

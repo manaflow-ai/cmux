@@ -4,11 +4,6 @@ import Foundation
 import GhosttyKit
 import OSLog
 
-private let controlTerminalBindingLogger = Logger(
-    subsystem: "com.cmuxterm.app",
-    category: "socket.terminal-binding"
-)
-
 /// Relationship between workspace-panel ownership and the canonical terminal
 /// model used by socket I/O.
 enum ControlTerminalSocketBindingState: String {
@@ -27,6 +22,11 @@ enum ControlTerminalSocketBindingState: String {
 /// instead of pinning itself to the outgoing panel wrapper.
 @MainActor
 struct ControlTerminalSocketTarget {
+    nonisolated private static let logger = Logger(
+        subsystem: "com.cmuxterm.app",
+        category: "socket.terminal-binding"
+    )
+
     let surfaceID: UUID
     let panel: TerminalPanel
     let surface: TerminalSurface
@@ -118,7 +118,7 @@ private extension ControlTerminalSocketTarget {
             ? .bound
             : .registryRebound
         if state == .registryRebound {
-            controlTerminalBindingLogger.debug(
+            logger.debug(
                 "Rebound socket surface=\(surfaceID, privacy: .public) workspace=\(workspaceID, privacy: .public)"
             )
         }
@@ -137,11 +137,12 @@ extension TerminalController {
         for panel: any Panel,
         terminalTarget: ControlTerminalSocketTarget?
     ) -> ControlSurfaceHealthEntry {
-        if panel is TerminalPanel {
+        if let terminalPanel = panel as? TerminalPanel {
             return ControlSurfaceHealthEntry(
                 surfaceID: panel.id,
                 typeRawValue: panel.panelType.rawValue,
-                inWindow: terminalTarget?.surface.isViewInWindow,
+                inWindow: terminalTarget?.surface.isViewInWindow
+                    ?? terminalPanel.surface.isViewInWindow,
                 socketBindingRawValue: terminalTarget?.bindingState.rawValue
                     ?? ControlTerminalSocketBindingState.unavailable.rawValue
             )

@@ -84,6 +84,24 @@ struct SocketTerminalBindingRegressionTests {
         }
     }
 
+    @Test func unavailableBindingPreservesPanelWindowHealth() async throws {
+        try await withAppContext { workspace in
+            let panel = try #require(
+                workspace.focusedPanelId.flatMap {
+                    workspace.panels[$0] as? TerminalPanel
+                }
+            )
+            let entry = TerminalController.shared.controlSurfaceHealthEntry(
+                for: panel,
+                terminalTarget: nil
+            )
+
+            #expect(entry.inWindow != nil)
+            #expect(entry.inWindow == panel.surface.isViewInWindow)
+            #expect(entry.socketBindingRawValue == "unavailable")
+        }
+    }
+
     private func waitForLiveSurface(_ surface: TerminalSurface) async {
         guard !surface.hasLiveSurface else { return }
         let previousOnRuntimeReady = surface.onRuntimeReady
