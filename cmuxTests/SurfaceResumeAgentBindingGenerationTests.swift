@@ -124,6 +124,16 @@ struct SurfaceResumeAgentBindingGenerationTests {
                 firstRestore.restoredAgentResumeStatesByPanelId[firstPanelID]
                     == .awaitingAutoResumeCommand
             )
+            let queuedLaunchSnapshot = firstRestore.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: .empty,
+                surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [:])
+            )
+            #expect(queuedLaunchSnapshot.panels.first?.terminal?.wasAgentRunning == false)
+            #expect(
+                queuedLaunchSnapshot.panels.first?.terminal?.resumeBinding?.checkpointId
+                    == sessionID
+            )
             firstRestore.updatePanelShellActivityState(panelId: firstPanelID, state: .commandRunning)
             #expect(
                 firstRestore.restoredAgentResumeStatesByPanelId[firstPanelID]
@@ -175,6 +185,49 @@ struct SurfaceResumeAgentBindingGenerationTests {
                     == expectedRestoreInput
             )
         }
+    }
+
+    @Test("A replacement binding cannot inherit restored-command liveness")
+    func replacementBindingCannotInheritRestoredCommandLiveness() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let restoredSessionID = "a22293b7-bcef-4707-8439-2f538c8517a4"
+        let restoredBinding = codexBinding(sessionID: restoredSessionID)
+
+        #expect(workspace.setSurfaceResumeBinding(restoredBinding, panelId: panelID))
+        workspace.restoredAgentSnapshotsByPanelId[panelID] = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: restoredSessionID,
+            workingDirectory: "/tmp/repo",
+            launchCommand: nil
+        )
+        workspace.restoredAgentResumeStatesByPanelId[panelID] = .autoResumeCommandRunning
+
+        let sameSessionRefresh = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "/opt/codex/bin/codex resume \(restoredSessionID)",
+            cwd: "/tmp/refreshed-repo",
+            checkpointId: restoredSessionID,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_777_777_779
+        )
+        #expect(workspace.setSurfaceResumeBinding(sameSessionRefresh, panelId: panelID))
+        #expect(
+            workspace.restoredAgentResumeStatesByPanelId[panelID]
+                == .autoResumeCommandRunning
+        )
+        #expect(workspace.restoredAgentSnapshotsByPanelId[panelID]?.sessionId == restoredSessionID)
+
+        let replacementSessionID = "13a40ce0-f096-4c56-885b-592af90407c4"
+        #expect(workspace.setSurfaceResumeBinding(
+            codexBinding(sessionID: replacementSessionID),
+            panelId: panelID
+        ))
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panelID] == nil)
+        #expect(workspace.restoredAgentSnapshotsByPanelId[panelID] == nil)
     }
 
     private func withFixture(
@@ -245,17 +298,21 @@ struct SurfaceResumeAgentBindingGenerationTests {
     ) -> SurfaceResumeBindingIndex {
         SurfaceResumeBindingIndex(bindingsByPanel: [
             SurfaceResumeBindingIndex.PanelKey(workspaceId: workspaceID, panelId: panelID):
-                SurfaceResumeBindingSnapshot(
-                    name: "Codex",
-                    kind: "codex",
-                    command: "codex resume \(sessionID)",
-                    cwd: "/tmp/repo",
-                    checkpointId: sessionID,
-                    source: "agent-hook",
-                    autoResume: true,
-                    updatedAt: 1_777_777_778
-                ),
+                codexBinding(sessionID: sessionID),
         ])
+    }
+
+    private func codexBinding(sessionID: String) -> SurfaceResumeBindingSnapshot {
+        SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume \(sessionID)",
+            cwd: "/tmp/repo",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_777_777_778
+        )
     }
 
     private func writeCodexHookRecord(
