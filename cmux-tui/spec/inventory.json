@@ -197,6 +197,7 @@
     "frontend": [
       "sidebar-plugin",
       "mint-terminal-renderer",
+      "get-cell-pixels",
       "set-cell-pixels",
       "browser-frame-presented",
       "browser-mouse",
@@ -237,6 +238,7 @@
     {"name": "empty", "streams": ["subscribe"]},
     {"name": "frame", "streams": ["attach-browser"]},
     {"name": "frontend-projection-changed", "streams": ["subscribe"]},
+    {"name": "graphics-status", "streams": ["subscribe"]},
     {"name": "layout-changed", "streams": ["subscribe"]},
     {"name": "notification", "streams": ["subscribe", "attach-byte", "attach-browser"]},
     {"name": "output", "streams": ["attach-byte"]},
@@ -438,6 +440,8 @@
         "Capability": 15,
         "ResizeAck": 16,
         "ClearHistoryAck": 17,
+        "CellPixelSizeAck": 18,
+        "KittyGraphicsLimitsAck": 19,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,
@@ -445,7 +449,9 @@
         "Terminate": 104,
         "MintCapability": 105,
         "SetDefaults": 106,
-        "ClearHistory": 107
+        "ClearHistory": 107,
+        "SetCellPixelSize": 108,
+        "SetKittyGraphicsLimits": 109
       }
     },
     "machine_provider_v1": {

@@ -145,7 +145,7 @@ fn terminal_state_read(
         .map_err(resource_operation_error)?
         .map_err(|error| resource_operation_error(error.into()))?;
     Ok(json!({
-        "state_base64":base64::engine::general_purpose::STANDARD.encode(state),
+        "state_base64":base64::engine::general_purpose::STANDARD.encode(state.bytes),
         "cols":cols,
         "rows":rows,
     }))

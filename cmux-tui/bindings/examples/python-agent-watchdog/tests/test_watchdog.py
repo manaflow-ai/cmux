@@ -138,6 +138,7 @@ def full_snapshot(*, blocked: bool) -> Dict[str, Any]:
             {
                 "id": TERMINAL_ID,
                 "tab_id": TAB_ID,
+                "tab_ids": [TAB_ID],
                 "title": "Codex",
                 "cwd": "/tmp/project",
                 "cols": 80,

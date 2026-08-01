@@ -108,7 +108,7 @@ The initial snapshot and render tap are registered under one lock, so there is n
 
 Call [`list-agents`](commands.md#list-agents) to read current agent records, optionally filtered by surface or state. Agent producers report state through [`report-agent`](commands.md#report-agent); a presentation-only frontend normally reads and displays these records rather than inventing its own agent state. There is no dedicated agent-change event in protocol v10, so re-fetch after a frontend reports state and when tree or surface lifecycle events make the presentation stale.
 
-`render-state.scrollback_rows` and later count changes tell the frontend whether history exists. Fetch visible history in bounded pages with [`read-scrollback`](commands.md#read-scrollback); do not assume indexes remain stable across eviction or resize reflow.
+`render-state.scrollback_rows` and later count changes tell the frontend whether history exists. Fetch visible history in bounded pages with [`read-scrollback`](commands.md#read-scrollback); do not assume indexes remain stable across eviction or resize reflow. Merge pages and project absolute graphics anchors only when the page `epoch` equals the render `history_epoch`; suppress graphics and reload the page after a mismatch.
 
 Browser surfaces use default attach mode. The initial `browser-state` contains URL, title, lifecycle status, frame-stall state, and the latest frame when available. Later `browser-state` and `frame` events update metadata and pixels separately. Send pointer input with `browser-mouse` and `browser-wheel`, keyboard input with `browser-key` or `browser-insert-text`, and navigation through `browser-navigate`, `browser-back`, `browser-forward`, `browser-reload`, and `browser-activate`. Each command acknowledges queueing with `{}`; observe the attach stream for eventual state.
 
@@ -153,7 +153,7 @@ S> {"id":2,"ok":true,"data":{}}
 C> {"id":3,"cmd":"list-workspaces"}
 S> {"id":3,"ok":true,"data":{"workspaces":[...]}}
 C> {"id":4,"cmd":"attach-surface","surface":1,"mode":"render"}
-S> {"event":"render-state","surface":1,"size":{"cols":3,"rows":1},"cursor":{"x":2,"y":0,"style":"block","blink":true,"visible":true,"color":null},"default_fg":"#d8d9da","default_bg":"#131415","scrollback_rows":0,"rows":[{"row":0,"runs":[{"text":"$ x","fg":null,"bg":null,"attrs":0}]}]}
+S> {"event":"render-state","surface":1,"size":{"cols":3,"rows":1},"cursor":{"x":2,"y":0,"style":"block","blink":true,"visible":true,"color":null},"default_fg":"#d8d9da","default_bg":"#131415","scrollback_rows":0,"history_epoch":1,"rows":[{"row":0,"runs":[{"text":"$ x","fg":null,"bg":null,"attrs":0}]}]}
 S> {"id":4,"ok":true,"data":{}}
 C> {"id":5,"cmd":"send","surface":1,"text":"echo ready\n"}
 S> {"id":5,"ok":true,"data":{}}
