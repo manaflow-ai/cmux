@@ -163,6 +163,68 @@ struct DockControlDefinitionDecodingTests {
         #expect(file.controls[1].url == "https://example.com")
     }
 
+    @Test("Configured Dock terminal follows live titles without replacing a custom name")
+    @MainActor
+    func configuredTerminalFollowsLiveTitlesWithoutReplacingCustomName() throws {
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { store.closeAllPanels() }
+
+        let resolution = DockConfigResolution(
+            controls: [
+                DockControlDefinition(
+                    id: "agent",
+                    title: "Agent",
+                    command: "codex"
+                )
+            ],
+            sourceURL: nil,
+            baseDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+            isProjectSource: false
+        )
+        store.applyConfigurationLoadResult(
+            .resolved(resolution),
+            generation: 0,
+            replacingPanels: false
+        )
+
+        let tabID = try #require(store.bonsplitController.allTabIds.first)
+        let terminal = try #require(store.panel(for: tabID) as? TerminalPanel)
+        #expect(store.bonsplitController.tab(tabID)?.title == "Agent")
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: store.workspaceId,
+                surfaceId: terminal.id,
+                title: "codex · issue 9337",
+                sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+            ).userInfo
+        )
+
+        #expect(terminal.displayTitle == "codex · issue 9337")
+        #expect(store.bonsplitController.tab(tabID)?.title == "codex · issue 9337")
+
+        store.bonsplitController.updateTab(
+            tabID,
+            title: "Pinned agent",
+            hasCustomTitle: true
+        )
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: store.workspaceId,
+                surfaceId: terminal.id,
+                title: "zsh",
+                sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+            ).userInfo
+        )
+
+        #expect(terminal.displayTitle == "zsh")
+        #expect(store.bonsplitController.tab(tabID)?.title == "Pinned agent")
+    }
+
     @Test("Project config identity follows the resolved dock file, not child cwd")
     @MainActor
     func projectConfigIdentityUsesResolvedDockFile() throws {
