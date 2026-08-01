@@ -31,6 +31,7 @@ private final class AgentChatProseStreamWakeDriver {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                self?.streamer.subscribersDidChange()
                 self?.refreshDemand(kickIfRetained: true)
             }
         })
@@ -687,11 +688,6 @@ final class AgentChatTranscriptService {
     private func emit(frame: ChatSessionEventFrame) {
         guard let payload = wirePayload(frame) else { return }
         emitEventPayload(payload)
-    }
-
-    private func settleProseTurn(sessionID: String) {
-        guard let turnState = proseTurnStates[sessionID] else { return }
-        settleProseTurn(sessionID: sessionID, turnState: turnState)
     }
 
     private func settleProseTurn(sessionID: String, turnState: ProseTurnState) {

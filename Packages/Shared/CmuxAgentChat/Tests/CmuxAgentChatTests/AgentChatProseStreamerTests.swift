@@ -185,6 +185,80 @@ final class AgentChatProseStreamerTests: XCTestCase {
         streamer.turnEnded(sessionID: sessionID)
     }
 
+    func testSubscriberChangeReplaysUnchangedPreview() async throws {
+        let surfaceID = UUID()
+        let sessionID = "session-replays-preview-to-new-subscriber"
+        let expectedText = "The unchanged preview should replay."
+        let firstFrame = expectation(description: "initial preview emitted")
+        let replayFrame = expectation(description: "unchanged preview replayed after subscription change")
+        var previewTexts: [String] = []
+        let streamer = AgentChatProseStreamer(
+            emit: { frame in
+                guard case .streamingProse(let message?) = frame.event,
+                      case .prose(let prose) = message.kind else { return }
+                previewTexts.append(prose.text)
+                if previewTexts.count == 1 {
+                    firstFrame.fulfill()
+                } else if previewTexts.count == 2 {
+                    replayFrame.fulfill()
+                }
+            },
+            snapshot: { requestedSurfaceID in
+                requestedSurfaceID == surfaceID ? Self.codexRows(answer: expectedText) : nil
+            },
+            hasSubscribers: { true },
+            now: { Date(timeIntervalSince1970: 1_711_111_111) }
+        )
+
+        streamer.turnStarted(sessionID: sessionID, surfaceID: surfaceID, agentKind: .codex)
+        streamer.surfaceDidChange(surfaceID)
+        await fulfillment(of: [firstFrame], timeout: 1.0)
+
+        streamer.subscribersDidChange()
+        await fulfillment(of: [replayFrame], timeout: 1.0)
+
+        XCTAssertEqual(previewTexts, [expectedText, expectedText])
+        streamer.turnEnded(sessionID: sessionID)
+    }
+
+    func testMissingExtractionClearsPreviousPreview() async throws {
+        let surfaceID = UUID()
+        let sessionID = "session-clears-preview-when-prose-disappears"
+        let expectedText = "This preview should disappear."
+        var currentRows = Self.codexRows(answer: expectedText)
+        let previewFrame = expectation(description: "initial preview emitted")
+        let clearFrame = expectation(description: "preview cleared after extraction disappears")
+        var emittedFrames: [ChatSessionEventFrame] = []
+        let streamer = AgentChatProseStreamer(
+            emit: { frame in
+                emittedFrames.append(frame)
+                if case .streamingProse(let message?) = frame.event,
+                   case .prose(let prose) = message.kind,
+                   prose.text == expectedText {
+                    previewFrame.fulfill()
+                } else if case .streamingProse(nil) = frame.event {
+                    clearFrame.fulfill()
+                }
+            },
+            snapshot: { requestedSurfaceID in
+                requestedSurfaceID == surfaceID ? currentRows : nil
+            },
+            hasSubscribers: { true },
+            now: { Date(timeIntervalSince1970: 1_711_111_111) }
+        )
+
+        streamer.turnStarted(sessionID: sessionID, surfaceID: surfaceID, agentKind: .codex)
+        streamer.surfaceDidChange(surfaceID)
+        await fulfillment(of: [previewFrame], timeout: 1.0)
+
+        currentRows = []
+        streamer.surfaceDidChange(surfaceID)
+        await fulfillment(of: [clearFrame], timeout: 1.0)
+
+        XCTAssertEqual(emittedFrames.count, 2)
+        streamer.turnEnded(sessionID: sessionID)
+    }
+
     func testRearmingSessionOnDifferentSurfaceClearsPreviousPreview() async throws {
         let originalSurfaceID = UUID()
         let reboundSurfaceID = UUID()

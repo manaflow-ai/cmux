@@ -138,6 +138,16 @@ public final class AgentChatProseStreamer {
         scheduleFlush()
     }
 
+    /// A chat client subscribed or unsubscribed. Invalidate the shared preview
+    /// cache so a newly subscribed client receives the latest unchanged prose.
+    public func subscribersDidChange() {
+        guard hasSubscribers(), hasActiveUnsettledTurns else { return }
+        for sessionID in turns.keys where turns[sessionID]?.settled == false {
+            turns[sessionID]?.lastEmitted = nil
+        }
+        terminalDidTick()
+    }
+
     /// The authoritative prose for the turn landed; drop the preview and stop
     /// emitting until the next turn.
     ///
@@ -258,9 +268,15 @@ public final class AgentChatProseStreamer {
               turn.generation == target.generation,
               !turn.settled,
               hasSubscribers() else { return }
-        guard let lines = await snapshot(target.surfaceID) else { return }
+        guard let lines = await snapshot(target.surfaceID) else {
+            clearPreviewIfCurrent(target)
+            return
+        }
         guard !Task.isCancelled else { return }
-        guard let prose = await extractionWorker.extract(lines: lines, agentKind: target.agentKind) else { return }
+        guard let prose = await extractionWorker.extract(lines: lines, agentKind: target.agentKind) else {
+            clearPreviewIfCurrent(target)
+            return
+        }
         guard !Task.isCancelled else { return }
         guard let current = turns[target.sessionID],
               current.generation == target.generation,
@@ -272,6 +288,16 @@ public final class AgentChatProseStreamer {
             sessionID: target.sessionID,
             event: .streamingProse(previewMessage(sessionID: target.sessionID, text: prose))
         ))
+    }
+
+    private func clearPreviewIfCurrent(_ target: FlushTarget) {
+        guard let current = turns[target.sessionID],
+              current.generation == target.generation,
+              !current.settled,
+              hasSubscribers(),
+              current.lastEmitted != nil else { return }
+        turns[target.sessionID]?.lastEmitted = nil
+        clearPreview(sessionID: target.sessionID)
     }
 
     private func removePendingWork(sessionID: String, turn: ActiveTurn) {
