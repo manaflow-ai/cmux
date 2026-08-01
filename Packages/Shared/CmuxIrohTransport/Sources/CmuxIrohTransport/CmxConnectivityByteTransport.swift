@@ -1,51 +1,51 @@
 import CMUXMobileCore
 import Foundation
 
-/// Projects a pooled admitted session's control lane through the legacy byte seam.
-actor CmxIrohPooledByteTransport:
+/// Projects a connectivity-v2 peer's control lane through the mobile RPC byte seam.
+actor CmxConnectivityByteTransport:
     CmxByteTransport,
     CmxByteTransportClosureObserving,
     CmxByteTransportContinuityIdentifying,
     CmxByteTransportSessionPurposeUpdating
 {
     private var request: CmxByteTransportRequest
-    private let pool: CmxIrohClientSessionPool
+    private let engine: CmxConnectivityEngine
     private let ownerID = UUID()
-    private var session: CmxIrohClientSession?
+    private var session: (any CmxConnectivitySession)?
     private var ownsControlSession = false
     private var closed = false
 
-    init(request: CmxByteTransportRequest, pool: CmxIrohClientSessionPool) {
+    init(request: CmxByteTransportRequest, engine: CmxConnectivityEngine) {
         self.request = request
-        self.pool = pool
+        self.engine = engine
     }
 
     func connect() async throws {
         guard !closed else { throw CmxIrohByteTransportError.alreadyClosed }
         if session != nil { return }
-        let acquired = try await pool.acquireControlSession(
+        let connected = try await engine.acquireControl(
             for: request,
             ownerID: ownerID
         )
         guard !closed else {
-            await pool.releaseControlSession(for: request, ownerID: ownerID)
+            await engine.releaseControl(for: request, ownerID: ownerID)
             throw CmxIrohByteTransportError.alreadyClosed
         }
         ownsControlSession = true
-        session = acquired
+        session = connected
     }
 
     func receive() async throws -> Data? {
         guard !closed else { throw CmxIrohByteTransportError.alreadyClosed }
         guard let session else { throw CmxIrohByteTransportError.notConnected }
         do {
-            return try await session.receiveControl()
+            return try await session.receiveControl(maximumByteCount: 64 * 1_024)
         } catch {
+            self.session = nil
             await releaseOwnedControlSession(
                 reason: .controlReadFailed,
                 failure: DiagnosticFailureKind.classify(error)
             )
-            self.session = nil
             throw error
         }
     }
@@ -56,11 +56,11 @@ actor CmxIrohPooledByteTransport:
         do {
             try await session.sendControl(data)
         } catch {
+            self.session = nil
             await releaseOwnedControlSession(
                 reason: .controlWriteFailed,
                 failure: DiagnosticFailureKind.classify(error)
             )
-            self.session = nil
             throw error
         }
     }
@@ -69,9 +69,6 @@ actor CmxIrohPooledByteTransport:
         guard !closed else { return }
         closed = true
         session = nil
-        // The mobile RPC session owns control framing and may leave a cancelled
-        // read or partial frame behind. Never hand that stream to a replacement
-        // RPC owner; close the peer session so the next control transport redials.
         await releaseOwnedControlSession(
             reason: .controlOwnerReleased,
             failure: .none
@@ -93,7 +90,7 @@ actor CmxIrohPooledByteTransport:
         guard request.sessionPurpose != purpose else { return }
         request = request.withSessionPurpose(purpose)
         guard ownsControlSession else { return }
-        await pool.updateControlSessionPurpose(
+        await engine.updateControlPurpose(
             for: request,
             ownerID: ownerID,
             purpose: purpose
@@ -106,7 +103,7 @@ actor CmxIrohPooledByteTransport:
     ) async {
         guard ownsControlSession else { return }
         ownsControlSession = false
-        await pool.releaseControlSession(
+        await engine.releaseControl(
             for: request,
             ownerID: ownerID,
             reason: reason,

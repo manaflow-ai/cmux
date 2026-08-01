@@ -734,11 +734,13 @@ export const irohAccountSecurityStates = pgTable(
   {
     userId: text("user_id").primaryKey(),
     lanDiscoveryGeneration: integer("lan_discovery_generation").notNull().default(1),
+    routeRevision: bigint("route_revision", { mode: "number" }).notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check("iroh_account_security_states_generation_check", sql`${table.lanDiscoveryGeneration} >= 1`),
+    check("iroh_account_security_states_route_revision_check", sql`${table.routeRevision} >= 0`),
   ],
 );
 
