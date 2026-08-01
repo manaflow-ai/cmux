@@ -2038,6 +2038,18 @@ actor MobileHostConnection {
         }
         MobileTerminalRenderGridAnchorRegistry.shared.remove(connectionID: id)
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
+        if didPublishUsableSession {
+            CmuxEventBus.shared.publish(
+                name: "mobile.rpc.closed",
+                category: "mobile",
+                source: "mobile.host",
+                payload: [
+                    "connection_id": id.uuidString,
+                    "lifecycle": exit.lifecycle.rawValue,
+                    "failure": exit.failure.rawValue,
+                ]
+            )
+        }
         await independentEventWriter?.close()
         await transport.close()
         await onClose(id)

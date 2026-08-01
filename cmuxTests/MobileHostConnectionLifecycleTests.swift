@@ -39,12 +39,7 @@ extension MobileHostAuthorizationTests {
         await transport.finishReceiving()
         await runTask.value
 
-        let closedEvents = Self.retainedConnectionEvents(named: "mobile.rpc.closed")
-        #expect(closedEvents.count == 1)
-        #expect(
-            (closedEvents.first?["payload"] as? [String: Any])?["connection_id"] as? String
-                == session.connectionID.uuidString
-        )
+        #expect(Self.retainedConnectionEvents(named: "mobile.rpc.closed").isEmpty)
         await session.close(reason: "duplicate close after remote EOF")
 
         #expect(await transport.observedConnectCount() == 1)
@@ -177,6 +172,13 @@ extension MobileHostAuthorizationTests {
 
         await transport.finishReceiving()
         await runTask.value
+
+        let closedEvents = Self.retainedConnectionEvents(named: "mobile.rpc.closed")
+        #expect(closedEvents.count == 1)
+        #expect(
+            (closedEvents.first?["payload"] as? [String: Any])?["connection_id"] as? String
+                == session.connectionID.uuidString
+        )
     }
 
     private static func mobileHostStatusFrame(id: String) throws -> Data {

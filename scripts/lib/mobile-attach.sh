@@ -190,11 +190,23 @@ cmux_attach_readiness_cursor() {
   printf '%s' "$cursor"
 }
 
-# Waits on the host's explicit usable-RPC event after the launch baseline.
-# Args: <tag> <repo_root> <baseline_event_sequence> <timeout_seconds>.
+# Waits on the host's explicit usable-RPC event after the launch baseline, then
+# proves that exact connection stays alive through online admission
+# revalidation. Ready and closed are paired by connection ID so unrelated
+# mobile clients cannot produce a false failure.
+# Args: <tag> <repo_root> <baseline_event_sequence> <timeout_seconds>
+#       [<stability_seconds>].
 cmux_attach_wait_for_usable_session() {
-  local tag="$1" repo_root="$2" baseline="$3" timeout="$4"
-  if cmux_attach_events \
+  local tag="$1" repo_root="$2" baseline="$3" timeout="$4" stability="${5:-35}"
+  local ready_event ready_connection_id ready_sequence closed_events closed_status=0
+  local closed_connection_ids stability_started stability_elapsed post_cursor
+
+  if [[ ! "$stability" =~ ^[0-9]+$ ]]; then
+    echo "error: mobile RPC stability window must be a non-negative integer" >&2
+    return 1
+  fi
+
+  if ! ready_event="$(cmux_attach_events \
     "$tag" \
     "$repo_root" \
     --after "$baseline" \
@@ -202,13 +214,54 @@ cmux_attach_wait_for_usable_session() {
     --limit 1 \
     --timeout "$timeout" \
     --no-ack \
-    --no-heartbeat \
-    >/dev/null; then
+    --no-heartbeat)"; then
+    echo "error: mobile app launched but did not establish a usable RPC session with tagged Mac '$tag' before the readiness deadline" >&2
+    echo "error: dogfood setup is not ready; inspect phone RPC and subscription diagnostics before handoff" >&2
+    return 1
+  fi
+
+  ready_connection_id="$(printf '%s\n' "$ready_event" \
+    | sed -nE 's/.*"connection_id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' \
+    | head -1)"
+  ready_sequence="$(printf '%s\n' "$ready_event" \
+    | sed -nE 's/.*"seq"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' \
+    | head -1)"
+  if [[ -z "$ready_connection_id" || -z "$ready_sequence" ]]; then
+    echo "error: tagged Mac '$tag' returned malformed mobile RPC readiness evidence" >&2
+    return 1
+  fi
+
+  if [[ "$stability" -le 0 ]]; then
     return 0
   fi
-  echo "error: mobile app launched but did not establish a usable RPC session with tagged Mac '$tag' before the readiness deadline" >&2
-  echo "error: dogfood setup is not ready; inspect phone RPC and subscription diagnostics before handoff" >&2
-  return 1
+
+  stability_started="$SECONDS"
+  closed_events="$(cmux_attach_events \
+    "$tag" \
+    "$repo_root" \
+    --after "$ready_sequence" \
+    --name mobile.rpc.closed \
+    --timeout "$stability" \
+    --no-ack \
+    --no-heartbeat 2>&1)" || closed_status=$?
+  stability_elapsed=$((SECONDS - stability_started))
+
+  closed_connection_ids="$(printf '%s\n' "$closed_events" \
+    | sed -nE 's/.*"connection_id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')"
+  if printf '%s\n' "$closed_connection_ids" | grep -Fxq "$ready_connection_id"; then
+    echo "error: mobile RPC session $ready_connection_id closed during admission revalidation on tagged Mac '$tag'" >&2
+    echo "error: dogfood setup is not stable; repair host registration or broker policy before handoff" >&2
+    return 1
+  fi
+  if [[ "$closed_status" -eq 0 || "$stability_elapsed" -lt "$stability" ]]; then
+    echo "error: mobile RPC stability stream ended before the admission revalidation window completed on tagged Mac '$tag'" >&2
+    return 1
+  fi
+  if ! post_cursor="$(cmux_attach_readiness_cursor "$tag" "$repo_root")" \
+    || [[ "$post_cursor" -lt "$ready_sequence" ]]; then
+    echo "error: tagged Mac '$tag' could not prove continuous event history after mobile admission revalidation" >&2
+    return 1
+  fi
 }
 
 # Ensure the tagged Mac app is running AND its iOS pairing listener

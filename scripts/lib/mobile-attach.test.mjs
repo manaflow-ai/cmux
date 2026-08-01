@@ -72,9 +72,10 @@ function waitForUsableSession(status = 0, baseline = "100", timeout = "30") {
           'cmux_attach_events() {',
           '  shift 2',
           '  printf "%s\\n" "$*" > "$CMUX_TEST_ARGS"',
+          '  printf \'%s\\n\' \'{"type":"event","seq":101,"name":"mobile.rpc.ready","payload":{"connection_id":"connection-A"}}\'',
           '  return "$CMUX_TEST_STATUS"',
           '}',
-          'cmux_attach_wait_for_usable_session "ready" "$2" "$3" "$4"',
+          'cmux_attach_wait_for_usable_session "ready" "$2" "$3" "$4" 0',
         ].join("\n"),
         "mobile-admission-test",
         validator,
@@ -116,6 +117,34 @@ function waitForSessionThatClosesDuringAdmissionRevalidation() {
         'cmux_attach_wait_for_usable_session "ready" "$2" 100 30 35',
       ].join("\n"),
       "mobile-admission-revalidation-test",
+      validator,
+      repoRoot,
+    ],
+  );
+}
+
+function waitForSessionThatSurvivesAdmissionRevalidation() {
+  return run(
+    "bash",
+    [
+      "-c",
+      [
+        'source "$1"',
+        'cmux_attach_events() {',
+        '  local args=" $* "',
+        '  if [[ "$args" == *" --name mobile.rpc.ready "* ]]; then',
+        '    printf \'%s\\n\' \'{"type":"event","seq":101,"name":"mobile.rpc.ready","payload":{"connection_id":"connection-A"}}\'',
+        '    return 0',
+        '  fi',
+        '  if [[ "$args" == *" --name mobile.rpc.closed "* ]]; then',
+        '    sleep 1',
+        '    return 1',
+        '  fi',
+        '  printf \'%s\\n\' \'{"type":"ack","resume":{"latest_seq":101}}\'',
+        '}',
+        'cmux_attach_wait_for_usable_session "ready" "$2" 100 30 1',
+      ].join("\n"),
+      "mobile-admission-stability-test",
       validator,
       repoRoot,
     ],
@@ -500,6 +529,12 @@ test("dogfood readiness fails when the usable RPC session closes during admissio
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /closed during admission revalidation/i);
+});
+
+test("dogfood readiness accepts a usable RPC session that survives admission revalidation", () => {
+  const result = waitForSessionThatSurvivesAdmissionRevalidation();
+
+  assert.equal(result.status, 0, result.stderr);
 });
 
 test("macOS and iOS reloads share the dev API backend override", () => {
