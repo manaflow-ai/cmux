@@ -59,7 +59,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         addSubview(backgroundView)
 
         pinImageView.imageScaling = .scaleProportionallyDown
-        pinImageView.contentTintColor = NSColor.secondaryLabelColor.withAlphaComponent(0.8)
+        // Dynamic color + alphaValue, not withAlphaComponent: see applyModel.
+        pinImageView.contentTintColor = .secondaryLabelColor
+        pinImageView.alphaValue = 0.8
         addSubview(pinImageView)
 
         chevronButton.onClick = { [weak self] in self?.actions?.onToggleCollapsed() }
@@ -139,7 +141,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         // Legacy parity: no implicit layer actions on content/color changes.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
+        defer {
+            CATransaction.commit()
+#if DEBUG
+            logTitlePaintProbe(model)
+#endif
+        }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let percent = model.globalFontMagnificationPercent
 
@@ -178,7 +185,13 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
             weight: .semibold
         )
-        nameField.textColor = model.isAnchorActive ? .labelColor : NSColor.labelColor.withAlphaComponent(0.9)
+        // Dim via alphaValue, never withAlphaComponent: resolving a dynamic
+        // color at configure time snapshots the ambient drawing appearance,
+        // and the synchronous selection commit can configure this cell inside
+        // the dark terminal's display pass — the title then rendered
+        // white-on-white in a light sidebar and vanished.
+        nameField.textColor = .labelColor
+        nameField.alphaValue = model.isAnchorActive ? 1 : 0.9
 
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
@@ -213,10 +226,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         backgroundView.layer?.cornerRadius = model.isMultiSelected && !model.isAnchorActive
             ? 6
             : 4
-        backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
+        backgroundView.layer?.backgroundColor = resolvedCGColor { self.headerBackgroundColor(for: model) }
 
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        topDropIndicator.layer?.backgroundColor = resolvedCGColor { cmuxAccentNSColor() }
+        bottomDropIndicator.layer?.backgroundColor = resolvedCGColor { cmuxAccentNSColor() }
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
 
@@ -236,15 +249,56 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// Live drop-line painting during native reorder drags; see
     /// `SidebarWorkspaceRowTableCellView.paintControllerDropIndicator`.
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        topDropIndicator.layer?.backgroundColor = resolvedCGColor { cmuxAccentNSColor() }
+        bottomDropIndicator.layer?.backgroundColor = resolvedCGColor { cmuxAccentNSColor() }
         topDropIndicator.isHidden = !top
         bottomDropIndicator.isHidden = !bottom
     }
 
 #if DEBUG
+    /// Ground truth for the disappearing-title investigation: records what
+    /// the title would actually draw as, resolved through the cell's own
+    /// appearance, plus the ambient drawing appearance at configure time
+    /// (the suspect when the title snapshots the wrong variant).
+    private func logTitlePaintProbe(_ model: SidebarGroupHeaderRowModel) {
+        var brightness: CGFloat = -1
+        var colorAlpha: CGFloat = -1
+        if let color = nameField.textColor {
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                if let rgb = color.usingColorSpace(.sRGB) {
+                    brightness = rgb.brightnessComponent
+                    colorAlpha = rgb.alphaComponent
+                }
+            }
+        }
+        let activeFlag: Int = model.isAnchorActive ? 1 : 0
+        // labelColor resolved WITHOUT an explicit appearance reports the
+        // ambient drawing appearance: ~1.0 means a dark appearance was
+        // current at configure time (the snapshot-resolution suspect).
+        let ambientProbe = NSColor.labelColor.usingColorSpace(.sRGB)?.brightnessComponent ?? -1
+        let effectiveName: String = effectiveAppearance.name.rawValue
+        let ambientText = String(format: "%.2f", ambientProbe)
+        let brightnessText = String(format: "%.2f", brightness)
+        let colorAlphaText = String(format: "%.2f", colorAlpha)
+        let fieldAlphaText = String(format: "%.2f", nameField.alphaValue)
+        let frameWidth = Int(nameField.frame.width)
+        var line = "sidebar.groupHeader.titlePaint name=\(model.name.prefix(12)) active=\(activeFlag)"
+        line += " ambientLabelBrightness=\(ambientText) effective=\(effectiveName)"
+        line += " brightness=\(brightnessText) colorAlpha=\(colorAlphaText)"
+        line += " fieldAlpha=\(fieldAlphaText) frameW=\(frameWidth)"
+        cmuxDebugLog(line)
+    }
+
     var dropIndicatorPaintForTesting: (top: Bool, bottom: Bool) {
         (!topDropIndicator.isHidden, !bottomDropIndicator.isHidden)
+    }
+
+    var titlePaintForTesting: (text: String, color: NSColor?, alpha: CGFloat) {
+        (nameField.stringValue, nameField.textColor, nameField.alphaValue)
+    }
+
+    var headerBackgroundLayerColorForTesting: CGColor? {
+        backgroundView.layer?.backgroundColor
     }
 #endif
 
@@ -270,9 +324,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 4
-        backgroundView.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        backgroundView.layer?.backgroundColor = resolvedCGColor { NSColor.labelColor.withAlphaComponent(0.08) }
         CATransaction.commit()
-        nameField.textColor = .labelColor
+        nameField.alphaValue = 1
     }
 
     /// Modifier-click preview: paints the same dim membership tint as an
@@ -282,7 +336,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 6
-        backgroundView.layer?.backgroundColor = headerMultiSelectionBackgroundColor(for: model).cgColor
+        backgroundView.layer?.backgroundColor = resolvedCGColor { self.headerMultiSelectionBackgroundColor(for: model) }
         CATransaction.commit()
     }
 
@@ -295,7 +349,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         backgroundView.layer?.cornerRadius = 4
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         CATransaction.commit()
-        nameField.textColor = NSColor.labelColor.withAlphaComponent(0.9)
+        // The title color stays the dynamic label color; only the settled
+        // dim is previewed, so no appearance resolution happens mid-click.
+        nameField.alphaValue = 0.9
+#if DEBUG
+        logTitlePaintProbe(model)
+#endif
     }
 
     /// Inverse of the press treatment: previewing a different row must peel a
@@ -306,6 +365,26 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     func clearOptimisticAnchorActive() {
         guard let model, !model.isAnchorActive else { return }
         applyModel(model)
+    }
+
+    /// Resolves a dynamic color against this cell's own effective appearance.
+    /// Layer colors are CGColors and resolve at conversion time; converting
+    /// under the ambient drawing appearance (which can belong to another
+    /// view mid-click — see the title comment in `applyModel`) snapshots the
+    /// wrong variant.
+    private func resolvedCGColor(_ make: () -> NSColor) -> CGColor {
+        var resolved = CGColor(gray: 0, alpha: 0)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            resolved = make().cgColor
+        }
+        return resolved
+    }
+
+    /// Layer colors were resolved through the appearance current at the last
+    /// configure; a theme flip must re-resolve them.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        if let model { applyModel(model) }
     }
 
     private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel) -> NSColor {

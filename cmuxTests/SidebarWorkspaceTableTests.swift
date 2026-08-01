@@ -38,6 +38,38 @@ struct SidebarWorkspaceTableTests {
     }
 
     @Test
+    @MainActor
+    func rapidGroupHeaderThenChildClickCommitsChildSelectionSynchronously() async throws {
+        let fixture = try await makeGroupedSelectionFixture()
+        defer { fixture.window.close() }
+
+        try clickRow(0, in: fixture.container)
+        #expect(fixture.tabManager.selectedTabId == fixture.anchorWorkspace.id)
+
+        try clickRow(1, in: fixture.container)
+        #expect(
+            fixture.tabManager.selectedTabId == fixture.childWorkspace.id,
+            "Once the child paints as focused, workspace commands must resolve the child instead of the group anchor."
+        )
+    }
+
+    @Test
+    @MainActor
+    func rapidChildThenGroupHeaderClickCommitsAnchorSelectionSynchronously() async throws {
+        let fixture = try await makeGroupedSelectionFixture()
+        defer { fixture.window.close() }
+
+        try clickRow(1, in: fixture.container)
+        #expect(fixture.tabManager.selectedTabId == fixture.childWorkspace.id)
+
+        try clickRow(0, in: fixture.container)
+        #expect(
+            fixture.tabManager.selectedTabId == fixture.anchorWorkspace.id,
+            "A genuinely focused group header must resolve its anchor workspace without retaining the child selection."
+        )
+    }
+
+    @Test
     func rowHeightEstimateAccountsForScaleWrappingAndDetails() {
         let calculator = SidebarWorkspaceTableRowHeightCalculator()
         let compact = calculator.estimatedWorkspaceHeight(
@@ -527,6 +559,170 @@ struct SidebarWorkspaceTableTests {
                 continuation.resume()
             }
         }
+    }
+
+    @MainActor
+    private func makeGroupedSelectionFixture() async throws -> (
+        tabManager: TabManager,
+        anchorWorkspace: Workspace,
+        childWorkspace: Workspace,
+        container: SidebarWorkspaceTableContainerView,
+        window: NSWindow
+    ) {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let childWorkspace = tabManager.addWorkspace(
+            select: false,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false
+        )
+        let groupId = try #require(tabManager.createWorkspaceGroup(
+            name: "Selection Group",
+            childWorkspaceIds: [childWorkspace.id]
+        ))
+        let group = try #require(tabManager.workspaceGroups.first { $0.id == groupId })
+        let anchorWorkspace = try #require(
+            tabManager.tabs.first { $0.id == group.anchorWorkspaceId }
+        )
+        let headerModel = SidebarGroupHeaderRowModel(
+            groupId: group.id,
+            anchorWorkspaceId: anchorWorkspace.id,
+            name: group.name,
+            iconSymbol: "folder",
+            tintHex: nil,
+            isCollapsed: false,
+            isPinned: false,
+            isAnchorActive: true,
+            isMultiSelected: false,
+            multiSelectionBackgroundStyle: .clear,
+            memberCount: 2,
+            anchorUnreadCount: 0,
+            canMarkRead: false,
+            canMarkUnread: true,
+            hasLatestNotifications: false,
+            canMarkAllRead: false,
+            canMarkAllUnread: true,
+            shortcutHintText: nil,
+            shortcutHintXOffset: 0,
+            shortcutHintYOffset: 0,
+            fontScale: 1,
+            globalFontMagnificationPercent: 100,
+            cwdContextMenuItems: [],
+            rowSpacing: 2,
+            isFirstRow: true,
+            isBeingDragged: false,
+            topDropIndicatorVisible: false,
+            bottomDropIndicatorVisible: false
+        )
+        let headerActions = SidebarGroupHeaderRowActions(
+            onToggleCollapsed: {},
+            onFocusAnchor: { _ in tabManager.selectWorkspace(anchorWorkspace) },
+            onTapPlus: {},
+            onRunResolvedItem: { _ in },
+            onRename: {},
+            onTogglePinned: {},
+            onMarkRead: {},
+            onMarkUnread: {},
+            onClearLatestNotifications: {},
+            onMarkAllRead: {},
+            onMarkAllUnread: {},
+            onUngroup: {},
+            onDelete: {},
+            onEditConfig: {},
+            onOpenDocs: {}
+        )
+        let childModel = SidebarWorkspaceRowSuspensionTests.makeModel(
+            workspaceId: childWorkspace.id
+        )
+#if DEBUG
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+#else
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100
+        )
+#endif
+        let rows = [
+            SidebarWorkspaceTableRowConfiguration(
+                groupHeaderModel: headerModel,
+                actions: headerActions,
+                environment: environment
+            ),
+            SidebarWorkspaceTableRowConfiguration(
+                workspaceRowModel: childModel,
+                actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                    model: childModel,
+                    workspace: childWorkspace,
+                    tabManager: tabManager
+                ),
+                groupId: group.id,
+                isPinned: false,
+                environment: environment
+            ),
+        ]
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        controller.apply(
+            rows: rows,
+            actions: makeSelectionTableActions(),
+            workspaceIds: tabManager.tabs.map(\.id),
+            selectedWorkspaceId: anchorWorkspace.id,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        return (tabManager, anchorWorkspace, childWorkspace, container, window)
+    }
+
+    @MainActor
+    private func clickRow(
+        _ row: Int,
+        in container: SidebarWorkspaceTableContainerView
+    ) throws {
+        let table = container.tableView
+        let action = try #require(table.action)
+        let target = try #require(table.target)
+        table.setValue(row, forKey: "clickedRow")
+        defer { table.setValue(-1, forKey: "clickedRow") }
+        #expect(table.sendAction(action, to: target))
+    }
+
+    @MainActor
+    private func makeSelectionTableActions() -> SidebarWorkspaceTableActions {
+        SidebarWorkspaceTableActions(
+            attachScrollView: { _ in },
+            closeWorkspace: { _ in },
+            createWorkspaceAtEnd: {},
+            createEmptyWorkspaceGroup: {},
+            beginWorkspaceDrag: { _ in },
+            movingWorkspaceCount: { _ in 1 },
+            endWorkspaceDrag: {},
+            isValidWorkspaceDrag: { true },
+            updateWorkspaceDrag: { _, _, _ in nil },
+            performWorkspaceDrop: { _, _, _ in false },
+            commitWorkspaceDropPlan: { _ in false },
+            clearWorkspaceDropIndicator: {},
+            currentDropIndicator: { nil },
+            currentDropIndicatorScope: { .raw },
+            canPerformBonsplitAction: { _, _ in false },
+            moveBonsplitToExistingWorkspace: { _, _ in false },
+            moveBonsplitToNewWorkspace: { _, _ in nil },
+            didMoveBonsplitToWorkspace: { _ in },
+            updateDragAutoscroll: {},
+            setBonsplitDropTargetCollectionActive: { _ in },
+            setBonsplitDropIndicator: { _ in }
+        )
     }
 
 #if DEBUG

@@ -867,4 +867,116 @@ struct SidebarAppKitRowCellTests {
             #expect(!Self.makeModel(settings: settings).settings.details[keyPath: detailKey])
         }
     }
+
+    // MARK: Group header appearance resolution
+
+    private static func makeGroupHeaderModel(isAnchorActive: Bool) -> SidebarGroupHeaderRowModel {
+        SidebarGroupHeaderRowModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            name: "Group",
+            iconSymbol: "folder",
+            tintHex: nil,
+            isCollapsed: false,
+            isPinned: false,
+            isAnchorActive: isAnchorActive,
+            isMultiSelected: false,
+            multiSelectionBackgroundStyle: .clear,
+            memberCount: 2,
+            anchorUnreadCount: 0,
+            canMarkRead: false,
+            canMarkUnread: true,
+            hasLatestNotifications: false,
+            canMarkAllRead: false,
+            canMarkAllUnread: true,
+            shortcutHintText: nil,
+            shortcutHintXOffset: 0,
+            shortcutHintYOffset: 0,
+            fontScale: 1,
+            globalFontMagnificationPercent: 100,
+            cwdContextMenuItems: [],
+            rowSpacing: 2,
+            isFirstRow: true,
+            isBeingDragged: false,
+            topDropIndicatorVisible: false,
+            bottomDropIndicatorVisible: false
+        )
+    }
+
+    private static func makeGroupHeaderActions() -> SidebarGroupHeaderRowActions {
+        SidebarGroupHeaderRowActions(
+            onToggleCollapsed: {},
+            onFocusAnchor: { _ in },
+            onTapPlus: {},
+            onRunResolvedItem: { _ in },
+            onRename: {},
+            onTogglePinned: {},
+            onMarkRead: {},
+            onMarkUnread: {},
+            onClearLatestNotifications: {},
+            onMarkAllRead: {},
+            onMarkAllUnread: {},
+            onUngroup: {},
+            onDelete: {},
+            onEditConfig: {},
+            onOpenDocs: {}
+        )
+    }
+
+    private static func makeConfiguredGroupHeaderCell(
+        isAnchorActive: Bool,
+        ambientAppearance: NSAppearance
+    ) -> SidebarGroupHeaderTableCellView {
+        let cell = SidebarGroupHeaderTableCellView()
+        cell.appearance = NSAppearance(named: .aqua)
+        ambientAppearance.performAsCurrentDrawingAppearance {
+            cell.configure(
+                model: makeGroupHeaderModel(isAnchorActive: isAnchorActive),
+                actions: makeGroupHeaderActions(),
+                isPointerHovering: false,
+                contextMenuDidOpen: {},
+                contextMenuDidClose: {}
+            )
+        }
+        return cell
+    }
+
+    /// Selection now commits synchronously inside the click dispatch, so the
+    /// header reconfigure can run while another view's (dark) appearance is
+    /// the current drawing appearance — e.g. the dark terminal swapped in by
+    /// `selectWorkspace`. The title paint must resolve against the sidebar's
+    /// draw-time appearance, not the ambient one at configure time; snapshot
+    /// resolution rendered the group title white-on-white after clicking the
+    /// header and then a grouped child (issue #9199 dogfood).
+    @Test
+    func groupHeaderTitleIgnoresAmbientAppearanceAtConfigureTime() throws {
+        let cell = Self.makeConfiguredGroupHeaderCell(
+            isAnchorActive: false,
+            ambientAppearance: NSAppearance(named: .darkAqua)!
+        )
+        let paint = cell.titlePaintForTesting
+        #expect(paint.text == "Group")
+        #expect(paint.alpha > 0.85)
+        let color = try #require(paint.color)
+        var lightBrightness: CGFloat = 1
+        NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
+            lightBrightness = color.usingColorSpace(.sRGB)?.brightnessComponent ?? 1
+        }
+        #expect(lightBrightness < 0.5)
+    }
+
+    /// Same invariant for the anchor-active tint pill: the layer color is a
+    /// CGColor and must be resolved through the cell's own effective
+    /// appearance, never the ambient drawing appearance.
+    @Test
+    func anchorActiveGroupHeaderTintResolvesAgainstCellAppearance() throws {
+        let cell = Self.makeConfiguredGroupHeaderCell(
+            isAnchorActive: true,
+            ambientAppearance: NSAppearance(named: .darkAqua)!
+        )
+        let layerColor = try #require(cell.headerBackgroundLayerColorForTesting)
+        let color = try #require(NSColor(cgColor: layerColor)?.usingColorSpace(.sRGB))
+        #expect(color.alphaComponent > 0)
+        #expect(color.brightnessComponent < 0.5)
+    }
 }

@@ -517,16 +517,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let configuration = rows[row]
         if let actions = configuration.appKitWorkspaceRowActions {
             previewSelection(row: row, modifiers: click.modifiers, hitView: nil)
-            dispatchSelection(modifiers: click.modifiers) {
-                actions.commands.updateSelection(modifiers: click.modifiers)
-            }
+            actions.commands.updateSelection(modifiers: click.modifiers)
             return .dispatched
         }
         if let headerActions = configuration.appKitGroupHeaderActions {
             previewSelection(row: row, modifiers: click.modifiers, hitView: nil)
-            dispatchSelection(modifiers: click.modifiers) {
-                headerActions.onFocusAnchor(click.modifiers)
-            }
+            headerActions.onFocusAnchor(click.modifiers)
             return .dispatched
         }
         if configuration.appKitWorkspaceRowModel != nil
@@ -534,21 +530,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             return .awaitingActions
         }
         return .invalid
-    }
-
-    private func dispatchSelection(
-        modifiers: NSEvent.ModifierFlags,
-        action: @escaping @MainActor () -> Void
-    ) {
-        if modifiers.contains(.command) || modifiers.contains(.shift) {
-            // Multi-select mutations are order-dependent and extend the
-            // selection the user currently sees: flush (not drop) a plain
-            // click still in the coalescing window first.
-            selectionCoalescer.flushNow()
-            action()
-        } else {
-            selectionCoalescer.request(action)
-        }
     }
 
     private func replayDeferredRowClickIfPossible() {
@@ -561,7 +542,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func cancelSelectionIntent() {
         deferredRowClick = nil
-        selectionCoalescer.cancel()
     }
 
     @objc private func didDoubleClickTableRow() {
@@ -574,13 +554,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
               rows[row].appKitWorkspaceRowModel != nil,
               let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView else { return }
-        // The single-click action fires for both clicks of a double-click, so
-        // click 2 has a trailing selection application queued. Letting it land
-        // after the rename field takes the field editor re-activates the
-        // workspace, which pulls first responder back to the terminal and
-        // end-editing commits the untouched title — the field flashes and
-        // vanishes. A double-click is a rename gesture: drop the queued
-        // selection before starting the edit.
+        // A reveal-time row can retain a completed click while its live action
+        // bundle is still pending. A double-click is a rename gesture: discard
+        // that deferred replay before the field editor takes first responder.
         cancelSelectionIntent()
         cell.beginInlineRename()
     }
@@ -758,8 +734,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // authoritative selection apply will reconcile the optimistic press
         // highlight painted in previewSelection — without this rollback a
         // fast drag leaves the grabbed row painted selected and every other
-        // visible row peeled. Drop the queued selection and restore visible
-        // cells from their stored models before drop targets paint.
+        // visible row peeled. Drop any reveal-time deferred click and restore
+        // visible cells from their stored models before drop targets paint.
         cancelSelectionIntent()
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
@@ -1195,7 +1171,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         updateReorderDrag(windowPoint: windowPoint)
     }
 
-    private let selectionCoalescer = SidebarSelectionCoalescer<ContinuousClock>()
     private var lastMeasuredWidth: CGFloat = 0
     private var widthRemeasureTask: Task<Void, Never>?
     private var lastLiveMeasuredWidth: CGFloat = 0
