@@ -892,7 +892,7 @@ public struct SimulatorUIAutomationExecutor {
         case "exists":
             return (!candidates.isEmpty, candidates)
         case "gone":
-            if selector == nil, candidates.count > 1,
+            if selector?.hasFields != true, candidates.count > 1,
                !record.candidatesShareMatchingText(candidates, containing: wait.text ?? "") {
                 throw simulatorUIAmbiguousWaitFailure(candidates)
             }

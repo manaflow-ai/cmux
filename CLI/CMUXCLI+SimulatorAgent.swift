@@ -100,7 +100,7 @@ extension CMUXCLI {
                     try simulatorUIDelayParameters(arguments),
                     uniquingKeysWith: { _, new in new }
                 )
-                return request("simulator.tap", params)
+                return simulatorUIActionRequest("simulator.tap", params)
             }
             if arguments.hasAccessibilitySelector {
                 try requireSimulatorUIOptions(arguments, subcommand: subcommand)
@@ -117,7 +117,7 @@ extension CMUXCLI {
                 if let role = arguments.accessibilityRole {
                     params["role"] = simulatorUIRoleName(role)
                 }
-                return request("simulator.tap", params)
+                return simulatorUIActionRequest("simulator.tap", params)
             }
             try requireSimulatorUIOptions(arguments, subcommand: subcommand)
             guard values.count == 2 || values.count == 4 else {
@@ -154,7 +154,7 @@ extension CMUXCLI {
                     || (arguments.hasFlag("down") && arguments.hasFlag("up")) else {
                 throw simulatorArgumentsError(subcommand)
             }
-            return request("simulator.touch", [
+            return simulatorUIActionRequest("simulator.touch", [
                 "element_ref": elementRef,
                 "down": arguments.hasFlag("down"),
                 "up": arguments.hasFlag("up"),
@@ -191,7 +191,7 @@ extension CMUXCLI {
                   let duration = Int(rawDuration), (1...10_000).contains(duration) else {
                 throw simulatorArgumentsError(subcommand)
             }
-            return request("simulator.long_press", [
+            return simulatorUIActionRequest("simulator.long_press", [
                 "element_ref": elementRef,
                 "duration_milliseconds": duration,
             ])
@@ -234,7 +234,7 @@ extension CMUXCLI {
                 maximum: 10_000,
                 defaultValue: 50
             )
-            return request("simulator.key_press", [
+            return simulatorUIActionRequest("simulator.key_press", [
                 "key_code": code,
                 "duration_milliseconds": duration,
             ])
@@ -279,13 +279,12 @@ extension CMUXCLI {
             guard action.fitsReceiptDeadline else {
                 throw simulatorArgumentsError(subcommand)
             }
-            return request(
+            return simulatorUIActionRequest(
                 "simulator.key_sequence",
                 [
                     "key_codes": codes,
                     "delay_milliseconds": delay,
-                ],
-                timeout: simulatorOperationDeadlines.clientTimeout(for: 140)
+                ]
             )
         case "batch":
             try requireSimulatorUIOptions(arguments, subcommand: subcommand)
@@ -392,7 +391,7 @@ extension CMUXCLI {
                     defaultValue: 0
                 )
             }
-            return request("simulator.button", params)
+            return simulatorUIActionRequest("simulator.button", params)
         case "rotate":
             guard let value = oneSimulatorValue(arguments) else { throw simulatorArgumentsError(subcommand) }
             return request("simulator.rotate", ["orientation": value.replacingOccurrences(of: "-", with: "_")])
@@ -601,7 +600,7 @@ extension CMUXCLI {
             try simulatorUIDelayParameters(arguments),
             uniquingKeysWith: { _, new in new }
         )
-        return request(method, params)
+        return simulatorUIActionRequest(method, params)
     }
 
     private func simulatorUISemanticTypeRequest(
@@ -614,14 +613,13 @@ extension CMUXCLI {
         guard !text.isEmpty else {
             throw simulatorArgumentsError("type")
         }
-        return request(
+        return simulatorUIActionRequest(
             "simulator.type_text",
             [
                 "element_ref": elementRef,
                 "text": text,
                 "replace_existing": arguments.hasFlag("replace-existing"),
-            ],
-            timeout: simulatorOperationDeadlines.clientTimeout(for: 140)
+            ]
         )
     }
 
@@ -685,10 +683,9 @@ extension CMUXCLI {
         guard action.fitsReceiptDeadline else {
             throw simulatorArgumentsError("batch")
         }
-        return request(
+        return simulatorUIActionRequest(
             "simulator.batch",
-            ["steps": parsedSteps.map(\.params)],
-            timeout: simulatorOperationDeadlines.clientTimeout(for: 140)
+            ["steps": parsedSteps.map(\.params)]
         )
     }
 
@@ -725,7 +722,7 @@ extension CMUXCLI {
             try simulatorUIDelayParameters(arguments),
             uniquingKeysWith: { _, new in new }
         )
-        return request("simulator.gesture_preset", params)
+        return simulatorUIActionRequest("simulator.gesture_preset", params)
     }
 
     private func simulatorUIDelayParameters(
@@ -885,6 +882,17 @@ extension CMUXCLI {
         }
         guard values.isEmpty else { throw simulatorArgumentsError("camera") }
         return params
+    }
+
+    private func simulatorUIActionRequest(
+        _ method: String,
+        _ params: [String: Any]
+    ) -> SimulatorAgentRequest {
+        request(
+            method,
+            params,
+            timeout: simulatorOperationDeadlines.clientTimeout(for: 140)
+        )
     }
 
     func request(

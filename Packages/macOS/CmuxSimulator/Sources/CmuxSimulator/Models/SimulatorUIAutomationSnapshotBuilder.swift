@@ -142,10 +142,13 @@ struct SimulatorUIAutomationSnapshotBuilder {
         let visibleFrame = frameIntersection(frame, viewport)
         let visible = visibleFrame != nil
         let enabled = node.isEnabled != false
+        let hasStableSelector = normalizedIdentifier != nil
+            || (role != nil && (normalizedLabel != nil || normalizedValue != nil))
         let actions = supportedActions(
             node: node,
             role: role,
             hasSemanticIdentity: normalizedLabel != nil || normalizedIdentifier != nil,
+            hasStableSelector: hasStableSelector,
             enabled: enabled,
             visible: visible,
             frame: frame,
@@ -232,6 +235,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
         node: SimulatorAccessibilityNode,
         role: SimulatorUIAutomationRole?,
         hasSemanticIdentity: Bool,
+        hasStableSelector: Bool,
         enabled: Bool,
         visible: Bool,
         frame: SimulatorRect,
@@ -246,7 +250,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
             || (hasSemanticIdentity && node.children.isEmpty && role != .text) {
             actions.append(.tap)
         }
-        if role == .textField {
+        if role == .textField, hasStableSelector {
             actions.append(.typeText)
         }
         if role != .application, role != .window {
