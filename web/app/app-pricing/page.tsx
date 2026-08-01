@@ -164,7 +164,7 @@ export default async function AppPricingPage({
                 period={
                   <PricingIntervalValue
                     monthly={pricing.perMonth}
-                    annual={pricing.perMonth}
+                    annual={pricing.perMonthBilledYearly}
                   />
                 }
                 priceDetail={
@@ -222,7 +222,7 @@ export default async function AppPricingPage({
                 period={
                   <PricingIntervalValue
                     monthly={pricing.perUserMonth}
-                    annual={pricing.perUserMonth}
+                    annual={pricing.perUserMonthBilledYearly}
                   />
                 }
                 priceDetail={

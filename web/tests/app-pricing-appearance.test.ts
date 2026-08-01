@@ -24,6 +24,12 @@ describe("app pricing contrast-adjusted accent", () => {
     );
   });
 
+  test("uses RGB distance when both contrast directions are readable", () => {
+    expect(appPricingContrastAdjustedAccent("#000040", "#8060D0")).toBe(
+      "#000000",
+    );
+  });
+
   test("derives separate canvas and selected-button tokens from Ghostty colors", () => {
     const theme = appPricingTheme({
       appearance: "light",

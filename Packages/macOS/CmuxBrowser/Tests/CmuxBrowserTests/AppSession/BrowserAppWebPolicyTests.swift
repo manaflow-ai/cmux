@@ -143,35 +143,27 @@ struct BrowserAppWebPolicyTests {
         let script = try #require(theme.applyingJavaScript())
         #expect(script.contains("[data-cmux-app-theme]"))
         #expect(script.contains("--cmux-product-blue-on-background"))
-        #expect(theme.supports(
-            url: URL(string: "https://cmux.com/app-pricing"),
-            trustedOrigin: trustedOrigin
-        ))
         #expect(BrowserAppTheme.supportsAppSurface(
             url: URL(string: "https://cmux.com/app-pricing"),
             trustedOrigin: trustedOrigin
         ))
-        #expect(theme.supports(
+        #expect(BrowserAppTheme.supportsAppSurface(
             url: URL(string: "https://cmux.com/app-pro-welcome"),
             trustedOrigin: trustedOrigin
         ))
-        #expect(theme.supports(
+        #expect(BrowserAppTheme.supportsAppSurface(
             url: URL(string: "https://cmux.com/app-pricing/"),
             trustedOrigin: trustedOrigin
         ))
-        #expect(theme.supports(
+        #expect(BrowserAppTheme.supportsAppSurface(
             url: URL(string: "https://cmux.com/app-pro-welcome/"),
-            trustedOrigin: trustedOrigin
-        ))
-        #expect(!theme.supports(
-            url: URL(string: "https://cmux.com/pricing"),
             trustedOrigin: trustedOrigin
         ))
         #expect(!BrowserAppTheme.supportsAppSurface(
             url: URL(string: "https://cmux.com/pricing"),
             trustedOrigin: trustedOrigin
         ))
-        #expect(!theme.supports(
+        #expect(!BrowserAppTheme.supportsAppSurface(
             url: URL(string: "https://attacker.example/app-pricing"),
             trustedOrigin: trustedOrigin
         ))

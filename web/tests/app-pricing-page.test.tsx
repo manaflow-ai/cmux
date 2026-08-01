@@ -121,8 +121,8 @@ describe("app pricing page", () => {
 
     expect(html).toContain("$24");
     expect(html).toContain("$28");
-    expect(html).not.toContain("per month billed yearly");
-    expect(html).not.toContain("per user per month billed yearly");
+    expect(html).toContain("per month billed yearly");
+    expect(html).toContain("per user per month billed yearly");
     expect(html).toContain("Billed $288 annually · save 20%");
     expect(html).toContain("Billed $336 annually · save 20%");
     expect(html).toContain("$28/user/month · $336/user/year");
@@ -132,7 +132,8 @@ describe("app pricing page", () => {
     expect(html).toContain(
       "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=year",
     );
-    expect(html).toContain('<button type="button" aria-pressed="true"');
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain('<button type="button" role="radio" aria-checked="true"');
     expect(html).not.toContain("appearance=dark&amp;interval=month");
     expect(html).toContain('data-cmux-app-theme="true"');
     expect(html).toContain("--ghostty-background:#112233");

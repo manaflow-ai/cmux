@@ -116,7 +116,12 @@ export function appPricingContrastAdjustedAccent(
         ];
         const contrast = appPricingContrastRatio(color, background);
         if (contrast >= minimumContrast) {
-          return { color, contrast, step };
+          const distanceSquared = color.reduce(
+            (sum, component, index) =>
+              sum + (component - preferred[index]) ** 2,
+            0,
+          );
+          return { color, contrast, distanceSquared };
         }
       }
       return null;
@@ -124,10 +129,18 @@ export function appPricingContrastAdjustedAccent(
     .filter(
       (
         candidate,
-      ): candidate is { color: RGB; contrast: number; step: number } =>
+      ): candidate is {
+        color: RGB;
+        contrast: number;
+        distanceSquared: number;
+      } =>
         candidate !== null,
     )
-    .sort((lhs, rhs) => lhs.step - rhs.step || rhs.contrast - lhs.contrast);
+    .sort(
+      (lhs, rhs) =>
+        lhs.distanceSquared - rhs.distanceSquared
+        || rhs.contrast - lhs.contrast,
+    );
 
   return candidates[0] ? appPricingHex(candidates[0].color) : preferredColor;
 }

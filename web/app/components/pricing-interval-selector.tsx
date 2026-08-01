@@ -6,7 +6,9 @@ import {
   useContext,
   useRef,
   useState,
+  type KeyboardEvent,
   type ReactNode,
+  type Ref,
 } from "react";
 
 import { posthog } from "../lib/posthog-client";
@@ -76,6 +78,8 @@ export function PricingIntervalSelector({
 }) {
   const { interval, setInterval } = usePricingInterval();
   const capturedView = useRef(false);
+  const monthlyButton = useRef<HTMLButtonElement>(null);
+  const annualButton = useRef<HTMLButtonElement>(null);
   const captureView = useCallback(
     (node: HTMLDivElement | null) => {
       if (!node || capturedView.current) return;
@@ -84,37 +88,58 @@ export function PricingIntervalSelector({
     },
     [interval, surface],
   );
+  const selectInterval = useCallback(
+    (nextInterval: BillingInterval) => {
+      setInterval(nextInterval);
+      capturePricingEvent(
+        "cmuxterm_pricing_interval_selected",
+        nextInterval,
+        surface,
+      );
+    },
+    [setInterval, surface],
+  );
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    let nextInterval: BillingInterval | null = null;
+    switch (event.key) {
+      case "ArrowLeft":
+      case "ArrowRight":
+      case "ArrowUp":
+      case "ArrowDown":
+        nextInterval = interval === "month" ? "year" : "month";
+        break;
+      case "Home":
+        nextInterval = "month";
+        break;
+      case "End":
+        nextInterval = "year";
+        break;
+    }
+    if (!nextInterval) return;
+    event.preventDefault();
+    selectInterval(nextInterval);
+    (nextInterval === "month" ? monthlyButton : annualButton).current?.focus();
+  };
 
   return (
     <div
       ref={captureView}
       className="mx-auto mt-6 flex w-fit border border-border p-1 text-sm"
-      role="group"
+      role="radiogroup"
       aria-label={billingPeriodLabel}
+      onKeyDown={handleKeyDown}
     >
       <IntervalButton
+        buttonRef={monthlyButton}
         selected={interval === "month"}
-        onSelect={() => {
-          setInterval("month");
-          capturePricingEvent(
-            "cmuxterm_pricing_interval_selected",
-            "month",
-            surface,
-          );
-        }}
+        onSelect={() => selectInterval("month")}
       >
         {monthlyLabel}
       </IntervalButton>
       <IntervalButton
+        buttonRef={annualButton}
         selected={interval === "year"}
-        onSelect={() => {
-          setInterval("year");
-          capturePricingEvent(
-            "cmuxterm_pricing_interval_selected",
-            "year",
-            surface,
-          );
-        }}
+        onSelect={() => selectInterval("year")}
       >
         {annualLabel}
         <span
@@ -188,18 +213,23 @@ export function PricingCheckoutButton({
 }
 
 function IntervalButton({
+  buttonRef,
   selected,
   onSelect,
   children,
 }: {
+  buttonRef: Ref<HTMLButtonElement>;
   selected: boolean;
   onSelect: () => void;
   children: ReactNode;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
-      aria-pressed={selected}
+      role="radio"
+      aria-checked={selected}
+      tabIndex={selected ? 0 : -1}
       onClick={onSelect}
       className={
         selected
