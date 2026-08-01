@@ -128,6 +128,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let dogfoodFeedbackCapability = "dogfood.v1"
     static let workspaceGroupsCapability = "workspace.groups.v1"
     static let notificationFeedCapability = "notification.feed.v1"
+    static let notificationDismissCapability = "notification.dismiss.v1"
+    static let notificationReconcileCapability = "notification.reconcile.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
     /// How long the render-grid stream may stay silent (no event of any topic)
     /// before the liveness watchdog suspects the push subscription is dead and
