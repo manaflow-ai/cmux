@@ -2,14 +2,6 @@ import AppKit
 import CmuxSimulator
 import QuartzCore
 
-/// Stable failure kinds reported by the remote-frame transport.
-///
-/// The embedding app owns user-facing localization.
-public enum CmuxRemoteFrameTransportFailure: Sendable, Equatable {
-    case invalidTransport
-    case producerFailed
-}
-
 /// A read-only host for the versioned packed-BGRA frame-ring protocol.
 ///
 /// Capture producers stay outside the cmux process. This view maps the ring

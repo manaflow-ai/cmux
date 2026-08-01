@@ -481,30 +481,3 @@ import Testing
         return nil
     }
 }
-
-private final class OneShotSocketSource: @unchecked Sendable {
-    private let lock = NSLock()
-    private var socket: Int32
-
-    init(_ socket: Int32) {
-        self.socket = socket
-    }
-
-    deinit {
-        if socket >= 0 {
-            Darwin.close(socket)
-        }
-    }
-
-    func take() -> Int32 {
-        lock.lock()
-        defer { lock.unlock() }
-        guard socket >= 0 else {
-            Darwin.__error().pointee = EBADF
-            return -1
-        }
-        let result = socket
-        socket = -1
-        return result
-    }
-}

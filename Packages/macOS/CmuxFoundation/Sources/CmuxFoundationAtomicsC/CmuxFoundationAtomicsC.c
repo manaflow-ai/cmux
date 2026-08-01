@@ -41,6 +41,26 @@ void CmuxAtomicUInt64StoreRelaxed(CmuxAtomicUInt64Storage *storage, uint64_t val
     atomic_store_explicit(&storage->value, value, memory_order_relaxed);
 }
 
+uint64_t CmuxAtomicUInt64ExchangeAcquiringAndReleasing(
+    CmuxAtomicUInt64Storage *storage,
+    uint64_t value
+) {
+    return atomic_exchange_explicit(&storage->value, value, memory_order_acq_rel);
+}
+
+bool CmuxAtomicUInt64CompareExchangeAcquiringAndReleasing(
+    CmuxAtomicUInt64Storage *storage,
+    uint64_t expected,
+    uint64_t desired
+) {
+    return atomic_compare_exchange_strong_explicit(
+        &storage->value,
+        &expected,
+        desired,
+        memory_order_acq_rel,
+        memory_order_acquire);
+}
+
 uint64_t CmuxAtomicUInt64IncrementRelaxed(CmuxAtomicUInt64Storage *storage) {
     return atomic_fetch_add_explicit(&storage->value, 1, memory_order_relaxed) + 1;
 }

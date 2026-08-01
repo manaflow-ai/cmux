@@ -13,6 +13,22 @@ struct AtomicUInt64ValueTests {
         #expect(value.loadRelaxed() == 8)
     }
 
+    @Test func exchangesValues() {
+        let value = AtomicUInt64Value(41)
+
+        #expect(value.exchangeAcquiringAndReleasing(42) == 41)
+        #expect(value.loadRelaxed() == 42)
+        #expect(value.compareExchangeAcquiringAndReleasing(
+            expected: 42,
+            desired: 43
+        ))
+        #expect(!value.compareExchangeAcquiringAndReleasing(
+            expected: 42,
+            desired: 44
+        ))
+        #expect(value.loadRelaxed() == 43)
+    }
+
     @Test func concurrentIncrementsAreNotLost() async {
         let value = AtomicUInt64Value()
         await withTaskGroup(of: Void.self) { group in
