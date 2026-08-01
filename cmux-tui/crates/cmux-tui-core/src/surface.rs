@@ -4557,12 +4557,16 @@ mod tests {
         let mut output = Vec::new();
         let colors = loop {
             assert!(Instant::now() < deadline, "local cursor activity was not published");
-            match attach.stream.recv_timeout(Duration::from_millis(250)).unwrap() {
-                AttachFrame::Output(bytes) => output.extend_from_slice(&bytes),
-                AttachFrame::ColorsChanged(colors) => break colors,
-                AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => {}
-                AttachFrame::OutputWithColors { .. } => {
+            match attach.stream.recv_timeout(Duration::from_millis(250)) {
+                Ok(AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+                Ok(AttachFrame::ColorsChanged(colors)) => break colors,
+                Ok(AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. }) => {}
+                Ok(AttachFrame::OutputWithColors { .. }) => {
                     panic!("local PTYs must use ordered Output then ColorsChanged")
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!("local cursor activity stream disconnected")
                 }
             }
         };

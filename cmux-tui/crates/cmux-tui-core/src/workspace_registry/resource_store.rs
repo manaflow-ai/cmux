@@ -466,7 +466,27 @@ impl WorkspaceRegistry {
             .map_err(Into::into)
     }
 
+    /// Resolve the immutable resource-to-host relationship, including after
+    /// explicit close, so lifecycle reads can distinguish tombstones from
+    /// identifiers that never existed.
     pub fn terminal_host_id(&self, public_id: &TerminalPublicId) -> anyhow::Result<Option<String>> {
+        self.connection
+            .query_row(
+                "SELECT terminal_id FROM resource_terminals
+                 WHERE public_id = ?1",
+                [public_id.as_str()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// Resolve only a live resource-to-host relationship for mutations that
+    /// must never act on a tombstoned terminal.
+    pub fn live_terminal_host_id(
+        &self,
+        public_id: &TerminalPublicId,
+    ) -> anyhow::Result<Option<String>> {
         self.connection
             .query_row(
                 "SELECT terminal_id FROM resource_terminals

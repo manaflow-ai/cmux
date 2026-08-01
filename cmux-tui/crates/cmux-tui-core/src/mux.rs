@@ -3813,7 +3813,7 @@ impl Mux {
         let (host_id, incarnation) = {
             let registry = self.workspace_registry.lock().unwrap();
             let host_id = registry
-                .terminal_host_id(terminal_id)?
+                .live_terminal_host_id(terminal_id)?
                 .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
             let incarnation =
                 registry.terminal_record(&host_id)?.and_then(|terminal| terminal.incarnation);
@@ -4070,14 +4070,12 @@ impl Mux {
         let Some(runtime_id) = runtime_id else { return vec![surface_id] };
         {
             let state = self.state.lock().unwrap();
-            let mut placements = vec![runtime_id];
-            placements.extend(
-                state
-                    .surfaces
-                    .values()
-                    .filter(|surface| surface.terminal_runtime_id() == Some(runtime_id))
-                    .map(|surface| surface.id),
-            );
+            let mut placements = state
+                .surfaces
+                .values()
+                .filter(|surface| surface.terminal_runtime_id() == Some(runtime_id))
+                .map(|surface| surface.id)
+                .collect::<Vec<_>>();
             placements.sort_unstable();
             placements.dedup();
             placements
@@ -6499,21 +6497,7 @@ impl Mux {
 
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
-        let surfaces = {
-            let state = self.state.lock().unwrap();
-            let mut seen_terminals = HashSet::new();
-            state
-                .terminal_catalog
-                .values()
-                .chain(state.surfaces.values())
-                .filter(|surface| {
-                    surface
-                        .terminal_runtime_id()
-                        .is_none_or(|runtime| seen_terminals.insert(runtime))
-                })
-                .cloned()
-                .collect::<Vec<_>>()
-        };
+        let surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
         for surface in surfaces {
             surface.disconnect_for_daemon_shutdown();
         }
@@ -6903,34 +6887,34 @@ impl Mux {
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) {
-        let state = self.state.lock().unwrap();
         let surfaces = {
+            let state = self.state.lock().unwrap();
             let mut current = self.default_colors.lock().unwrap();
             if *current == colors {
                 return;
             }
             *current = colors;
-            state.surfaces.values().cloned().collect::<Vec<_>>()
+            unique_surface_runtimes(&state)
         };
         for surface in surfaces {
             surface.set_default_colors(colors);
-            self.emit(MuxEvent::SurfaceOutput(surface.id));
+            self.emit_terminal_output(surface.id);
         }
     }
 
     pub fn seed_default_colors_if_no_durable_override(&self, colors: DefaultColors) {
-        let state = self.state.lock().unwrap();
         let surfaces = {
+            let state = self.state.lock().unwrap();
             let mut current = self.default_colors.lock().unwrap();
             if self.durable_terminal_defaults.load(Ordering::Acquire) || *current == colors {
                 return;
             }
             *current = colors;
-            state.surfaces.values().cloned().collect::<Vec<_>>()
+            unique_surface_runtimes(&state)
         };
         for surface in surfaces {
             surface.set_default_colors(colors);
-            self.emit(MuxEvent::SurfaceOutput(surface.id));
+            self.emit_terminal_output(surface.id);
         }
     }
 
@@ -6969,7 +6953,7 @@ impl Mux {
             &selectors,
         )
         .map_err(anyhow::Error::new)?;
-        let surfaces = state.surfaces.values().cloned().collect::<Vec<_>>();
+        let surfaces = unique_surface_runtimes(&state);
         let commit = registry.commit_resource_patch(
             mutation,
             "session.terminal_defaults.update",
@@ -6983,12 +6967,14 @@ impl Mux {
         state.resource_revision = commit.revision;
         self.durable_terminal_defaults.store(true, Ordering::Release);
         *self.default_colors.lock().unwrap() = colors;
-        for surface in surfaces {
+        for surface in &surfaces {
             surface.set_default_colors(colors);
-            self.emit(MuxEvent::SurfaceOutput(surface.id));
         }
         drop(state);
         drop(registry);
+        for surface in surfaces {
+            self.emit_terminal_output(surface.id);
+        }
         if !commit.replayed {
             self.publish_resource_event();
         }
@@ -11801,6 +11787,22 @@ fn terminal_placement_for_runtime(state: &State, runtime: &Surface) -> Option<Su
         })
 }
 
+/// Return one representative for each content runtime plus every nonterminal
+/// surface. Runtime-wide mutations must not repeat host I/O or render work for
+/// every terminal view, and catalog-only terminals still need those updates.
+fn unique_surface_runtimes(state: &State) -> Vec<Arc<Surface>> {
+    let mut seen_terminals = HashSet::new();
+    state
+        .terminal_catalog
+        .values()
+        .chain(state.surfaces.values())
+        .filter(|surface| {
+            surface.terminal_runtime_id().is_none_or(|runtime| seen_terminals.insert(runtime))
+        })
+        .cloned()
+        .collect()
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -15109,7 +15111,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_runtime_events_fan_out_to_every_view_and_the_content_endpoint() {
+    fn terminal_runtime_events_fan_out_only_to_materialized_views() {
         let mux = test_mux();
         let source = mux.new_workspace(None, Some((80, 24))).unwrap();
         let projected = projected_terminal_view(&mux, &source);
@@ -15171,6 +15173,24 @@ mod tests {
             }),
             expected
         );
+
+        mux.set_default_colors(DefaultColors {
+            fg: Some(crate::Rgb { r: 0x11, g: 0x22, b: 0x33 }),
+            ..Default::default()
+        });
+        assert_eq!(
+            collect_two(|event| match event {
+                MuxEvent::SurfaceOutput(surface) => Some(surface),
+                _ => None,
+            }),
+            expected
+        );
+        assert!(matches!(events.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
+
+        mux.remove_surface_runtime_for_test(source.id).unwrap();
+        mux.remove_surface_runtime_for_test(projected.id).unwrap();
+        mux.emit_terminal_output(source.id);
+        assert!(matches!(events.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
     }
 
     #[test]
