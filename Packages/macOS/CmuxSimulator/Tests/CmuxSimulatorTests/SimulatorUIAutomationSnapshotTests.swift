@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxSimulator
 
@@ -260,6 +261,17 @@ struct SimulatorUIAutomationSnapshotTests {
                             label: "Negative width",
                             frame: SimulatorRect(x: 20, y: 160, width: -10, height: 44)
                         ),
+                        node(
+                            id: "0.2",
+                            role: "Button",
+                            label: "Non-finite origin",
+                            frame: SimulatorRect(
+                                x: .nan,
+                                y: .infinity,
+                                width: 44,
+                                height: 44
+                            )
+                        ),
                     ]
                 ),
             ],
@@ -280,7 +292,12 @@ struct SimulatorUIAutomationSnapshotTests {
         for element in record.snapshot.elements.dropFirst() {
             #expect(!element.state.isVisible)
             #expect(element.actions.isEmpty)
+            #expect(element.frame.x.isFinite)
+            #expect(element.frame.y.isFinite)
+            #expect(element.frame.width.isFinite)
+            #expect(element.frame.height.isFinite)
         }
+        _ = try JSONEncoder().encode(record.snapshot)
     }
 
     @Test("Duplicate refs retain the first lookup record without trapping")
