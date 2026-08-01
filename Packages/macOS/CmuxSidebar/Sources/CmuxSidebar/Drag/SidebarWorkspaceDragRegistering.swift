@@ -26,4 +26,14 @@ public protocol SidebarWorkspaceDragRegistering: AnyObject {
     /// Clear the active drag, but only if `workspaceId` still matches the
     /// in-flight drag, so a stale clear from a superseded drag is a no-op.
     func end(workspaceId: UUID)
+
+    /// Makes `owner` the sole autoscroll destination for the active drag.
+    ///
+    /// The previous owner is asked to relinquish before this method returns.
+    /// - Parameter owner: The destination taking autoscroll ownership.
+    func claimAutoscroll(owner: any SidebarWorkspaceDragAutoscrollOwning)
+
+    /// Releases ownership when `owner` still owns autoscroll.
+    /// - Parameter owner: The destination giving up autoscroll ownership.
+    func releaseAutoscroll(owner: any SidebarWorkspaceDragAutoscrollOwning)
 }

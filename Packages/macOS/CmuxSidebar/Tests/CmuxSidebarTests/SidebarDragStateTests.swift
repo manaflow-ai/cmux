@@ -23,6 +23,10 @@ private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
         endCalls.append(workspaceId)
         if current == workspaceId { current = nil }
     }
+
+    func claimAutoscroll(owner: any SidebarWorkspaceDragAutoscrollOwning) {}
+
+    func releaseAutoscroll(owner: any SidebarWorkspaceDragAutoscrollOwning) {}
 }
 
 @MainActor
@@ -103,6 +107,30 @@ private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
 
 @MainActor
 @Suite struct SidebarWorkspaceDragRegistryTests {
+    @Test func newerDestinationRelinquishesPreviousAutoscrollOwner() {
+        let registry = SidebarWorkspaceDragRegistry()
+        let source = SidebarDragState(workspaceDragRegistry: registry)
+        let firstDestination = SidebarDragState(workspaceDragRegistry: registry)
+        let secondDestination = SidebarDragState(workspaceDragRegistry: registry)
+        let workspaceId = UUID()
+        var firstRelinquishCount = 0
+        var secondRelinquishCount = 0
+
+        source.beginDragging(tabId: workspaceId)
+        #expect(firstDestination.claimWorkspaceDragAutoscroll {
+            firstRelinquishCount += 1
+        })
+        #expect(secondDestination.claimWorkspaceDragAutoscroll {
+            secondRelinquishCount += 1
+        })
+
+        #expect(firstRelinquishCount == 1)
+        #expect(secondRelinquishCount == 0)
+
+        source.clearDrag()
+        #expect(secondRelinquishCount == 1)
+    }
+
     @Test func endIgnoresStaleClearFromSupersededDrag() {
         let registry = SidebarWorkspaceDragRegistry()
         let first = UUID()
