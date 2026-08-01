@@ -113,6 +113,20 @@ struct SimulatorUIAutomationTickSequenceTests {
         #expect(try await iterator.next() == nil)
         #expect(timing.sleepCount == 0)
     }
+
+    @Test("A wall-clock rollback cannot extend a monotonic deadline")
+    func wallClockRollbackDoesNotExtendDeadline() async throws {
+        let timing = RollingBackSimulatorUIAutomationTiming(nowMilliseconds: 1_000)
+        var iterator = SimulatorUIAutomationTickSequence(
+            scheduler: timing,
+            intervalMilliseconds: 100,
+            deadlineMilliseconds: 1_100,
+            includesImmediateEvent: false
+        ).makeAsyncIterator()
+
+        #expect(try await iterator.next() == nil)
+        #expect(timing.sleepCount == 1)
+    }
 }
 
 private final class AdvancingSimulatorUIAutomationTiming:

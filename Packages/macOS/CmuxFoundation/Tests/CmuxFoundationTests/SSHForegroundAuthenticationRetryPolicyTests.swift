@@ -299,6 +299,15 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(Darwin.kill(leafPID, 0) != 0)
     }
 
+    @Test func forceKillRetainsAndIdentityChecksBothFrozenSnapshots() {
+        let shell = SSHForegroundAuthenticationRetryPolicy()
+            .processTreeTerminationShellFunction()
+
+        #expect(shell.contains("cmux_ssh_auth_process_has_identity"))
+        #expect(shell.contains("cmux_ssh_auth_tree_first_frozen_processes"))
+        #expect(shell.contains("cmux_ssh_auth_tree_second_frozen_processes"))
+    }
+
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

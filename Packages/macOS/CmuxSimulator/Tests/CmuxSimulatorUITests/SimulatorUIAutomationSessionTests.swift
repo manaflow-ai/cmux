@@ -99,6 +99,29 @@ struct SimulatorUIAutomationSessionTests {
         }
     }
 
+    @Test("A ref-derived wait selector must identify one source element")
+    func stableSelectorRejectsAmbiguousSource() throws {
+        let session = SimulatorUIAutomationSession()
+        let record = try session.record(
+            snapshotWithDuplicateIdentifiers(),
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000
+        )
+        let ref = try #require(record.snapshot.elements.first {
+            $0.identifier == "duplicate"
+        }?.ref)
+
+        do {
+            _ = try session.stableSelector(
+                elementRef: ref,
+                nowMilliseconds: 1_001
+            )
+            Issue.record("Expected the duplicate source selector to be rejected")
+        } catch {
+            // Any failure is safer than silently rebinding this ref-derived wait.
+        }
+    }
+
     @Test("Recording and device reset preserve a monotonic sequence")
     func sequenceRemainsMonotonicAcrossReset() throws {
         let session = SimulatorUIAutomationSession()
@@ -196,6 +219,49 @@ struct SimulatorUIAutomationSessionTests {
                             label: "Continue",
                             value: nil,
                             frame: SimulatorRect(x: 20, y: 100, width: 120, height: 44),
+                            isEnabled: true,
+                            children: []
+                        ),
+                    ]
+                ),
+            ],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+    }
+
+    private func snapshotWithDuplicateIdentifiers() -> SimulatorAccessibilitySnapshot {
+        SimulatorAccessibilitySnapshot(
+            roots: [
+                SimulatorAccessibilityNode(
+                    id: "0",
+                    role: "Application",
+                    label: "Example",
+                    value: nil,
+                    frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                    isEnabled: true,
+                    children: [
+                        SimulatorAccessibilityNode(
+                            id: "0.0",
+                            identifier: "duplicate",
+                            role: "Button",
+                            label: "Continue",
+                            value: nil,
+                            frame: SimulatorRect(x: 20, y: 100, width: 120, height: 44),
+                            isEnabled: true,
+                            children: []
+                        ),
+                        SimulatorAccessibilityNode(
+                            id: "0.1",
+                            identifier: "duplicate",
+                            role: "Button",
+                            label: "Continue",
+                            value: nil,
+                            frame: SimulatorRect(x: 20, y: 160, width: 120, height: 44),
                             isEnabled: true,
                             children: []
                         ),
