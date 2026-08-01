@@ -1,0 +1,189 @@
+import Testing
+@testable import CmuxNestedTopology
+
+@Suite("Nested topology association and title authority")
+struct NestedTopologyAssociationTests {
+    @Test("a successful heuristic association is not rewritten by later guesses")
+    func heuristicRunsOncePerAssociationKey() throws {
+        let fixture = NestedTopologyTestFixture()
+        let reducer = NestedTopologyReducer()
+        let original = fixture.pane(
+            tabRawID: "tab-1",
+            associationAuthority: .heuristic,
+            heuristicAlreadySatisfied: true
+        )
+        let snapshot = try fixture.snapshot(
+            tabs: [
+                fixture.tab("tab-1", order: 0),
+                fixture.tab("tab-2", order: 1),
+            ],
+            panes: [original]
+        )
+        let laterGuess = fixture.pane(
+            tabRawID: "tab-2",
+            title: NestedNodeTitle(value: "Guessed again", authority: .inferred),
+            associationAuthority: .heuristic,
+            heuristicAlreadySatisfied: true
+        )
+
+        let result = try reducer.applying(
+            fixture.event(.paneUpdated(laterGuess)),
+            to: snapshot
+        )
+
+        #expect(result.panes[0].association.tabID == fixture.id("tab-1", kind: .tab))
+        #expect(result.panes[0].association.heuristicAlreadySatisfied)
+    }
+
+    @Test("authoritative provider parentage can replace a prior heuristic")
+    func providerParentageWins() throws {
+        let fixture = NestedTopologyTestFixture()
+        let reducer = NestedTopologyReducer()
+        let original = fixture.pane(
+            tabRawID: "tab-1",
+            associationAuthority: .heuristic,
+            heuristicAlreadySatisfied: true
+        )
+        let snapshot = try fixture.snapshot(
+            tabs: [
+                fixture.tab("tab-1", order: 0),
+                fixture.tab("tab-2", order: 1),
+            ],
+            panes: [original]
+        )
+        let authoritative = fixture.pane(
+            tabRawID: "tab-2",
+            associationAuthority: .provider,
+            heuristicAlreadySatisfied: false
+        )
+
+        let result = try reducer.applying(
+            fixture.event(.paneUpdated(authoritative)),
+            to: snapshot
+        )
+
+        #expect(result.panes[0].association.tabID == fixture.id("tab-2", kind: .tab))
+        #expect(result.panes[0].association.authority == .provider)
+        #expect(result.panes[0].association.heuristicAlreadySatisfied)
+    }
+
+    @Test("a new agent session gets a fresh one-shot association key")
+    func sessionChangeInvalidatesHeuristicLock() throws {
+        let fixture = NestedTopologyTestFixture()
+        let reducer = NestedTopologyReducer()
+        let original = fixture.pane(
+            tabRawID: "tab-1",
+            sessionID: "session-old",
+            associationAuthority: .heuristic,
+            heuristicAlreadySatisfied: true
+        )
+        let snapshot = try fixture.snapshot(
+            tabs: [
+                fixture.tab("tab-1", order: 0),
+                fixture.tab("tab-2", order: 1),
+            ],
+            panes: [original]
+        )
+        let replacementSession = fixture.pane(
+            tabRawID: "tab-2",
+            sessionID: "session-new",
+            associationAuthority: .heuristic,
+            heuristicAlreadySatisfied: true
+        )
+
+        let result = try reducer.applying(
+            fixture.event(.paneUpdated(replacementSession)),
+            to: snapshot
+        )
+
+        #expect(result.panes[0].association.key.sessionID == "session-new")
+        #expect(result.panes[0].association.tabID == fixture.id("tab-2", kind: .tab))
+    }
+
+    @Test("authoritative titles cannot be overwritten by inference")
+    func titleAuthorityLock() throws {
+        let fixture = NestedTopologyTestFixture()
+        let reducer = NestedTopologyReducer()
+        let original = fixture.pane(
+            title: NestedNodeTitle(value: "Provider title", authority: .provider)
+        )
+        let snapshot = try fixture.snapshot(panes: [original])
+        let inferred = fixture.pane(
+            title: NestedNodeTitle(value: "Prompt guess", authority: .inferred)
+        )
+
+        let result = try reducer.applying(
+            fixture.event(.paneUpdated(inferred)),
+            to: snapshot
+        )
+
+        #expect(result.panes[0].title == original.title)
+    }
+
+    @Test("user title locks survive provider updates")
+    func userTitleLock() throws {
+        let fixture = NestedTopologyTestFixture()
+        let reducer = NestedTopologyReducer()
+        let userTitle = NestedNodeTitle(value: "My title", authority: .user)
+        let snapshot = try fixture.snapshot(panes: [fixture.pane(title: userTitle)])
+        let providerUpdate = fixture.pane(
+            title: NestedNodeTitle(value: "Provider refresh", authority: .provider)
+        )
+
+        let result = try reducer.applying(
+            fixture.event(.paneUpdated(providerUpdate)),
+            to: snapshot
+        )
+
+        #expect(result.panes[0].title == userTitle)
+    }
+
+    @Test("provider titles replace unlocked inferred titles")
+    func providerReplacesInference() throws {
+        let fixture = NestedTopologyTestFixture()
+        let reducer = NestedTopologyReducer()
+        let snapshot = try fixture.snapshot(panes: [fixture.pane(
+            title: NestedNodeTitle(value: "Guess", authority: .inferred)
+        )])
+        let providerTitle = NestedNodeTitle(value: "Canonical", authority: .provider)
+
+        let result = try reducer.applying(
+            fixture.event(.paneUpdated(fixture.pane(title: providerTitle))),
+            to: snapshot
+        )
+
+        #expect(result.panes[0].title == providerTitle)
+    }
+
+    @Test("resolved parentage stays stable when independent event batches are reordered")
+    func shuffledBatchParentStability() throws {
+        let fixture = NestedTopologyTestFixture()
+        let reducer = NestedTopologyReducer()
+        let original = fixture.pane(
+            tabRawID: "tab-1",
+            associationAuthority: .heuristic,
+            heuristicAlreadySatisfied: true
+        )
+        let snapshot = try fixture.snapshot(
+            tabs: [
+                fixture.tab("tab-1", order: 0),
+                fixture.tab("tab-2", order: 1),
+            ],
+            panes: [original]
+        )
+        let repeatedGuess = fixture.event(.paneUpdated(fixture.pane(
+            tabRawID: "tab-2",
+            associationAuthority: .heuristic,
+            heuristicAlreadySatisfied: true
+        )))
+        let statusUpdate = fixture.event(.agentUpdated(fixture.agent(
+            status: NestedAgentStatus(presentation: .done, providerRawValue: "done")
+        )))
+
+        let first = try reducer.applying([repeatedGuess, statusUpdate], to: snapshot)
+        let second = try reducer.applying([statusUpdate, repeatedGuess], to: snapshot)
+
+        #expect(first == second)
+        #expect(first.panes[0].association.tabID == fixture.id("tab-1", kind: .tab))
+    }
+}

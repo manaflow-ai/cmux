@@ -1,0 +1,68 @@
+import Foundation
+import Testing
+@testable import CmuxNestedTopology
+
+@Suite("Nested node identity")
+struct NestedNodeIDTests {
+    @Test("identical raw IDs from separate provider instances never collide")
+    func providerInstanceCollisionResistance() {
+        let first = NestedTopologyTestFixture(
+            instanceRawValue: "server-a",
+            generation: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        )
+        let second = NestedTopologyTestFixture(
+            instanceRawValue: "server-b",
+            generation: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        )
+
+        #expect(first.id("pane-1", kind: .pane) != second.id("pane-1", kind: .pane))
+        #expect(Set([
+            first.id("pane-1", kind: .pane),
+            second.id("pane-1", kind: .pane),
+        ]).count == 2)
+    }
+
+    @Test("reconnect generations invalidate node identity")
+    func reconnectGenerationIsolation() {
+        let first = NestedTopologyTestFixture(
+            generation: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        )
+        let reconnected = NestedTopologyTestFixture(
+            generation: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        )
+
+        #expect(first.id("pane-1", kind: .pane) != reconnected.id("pane-1", kind: .pane))
+    }
+
+    @Test("the same provider raw ID is distinct at every topology level")
+    func nodeKindCollisionResistance() {
+        let fixture = NestedTopologyTestFixture()
+        let ids = Set(NestedNodeKind.allCases.map { fixture.id("shared", kind: $0) })
+
+        #expect(ids.count == NestedNodeKind.allCases.count)
+    }
+
+    @Test("opaque provider IDs retain delimiter-like content")
+    func opaqueRawIDRoundTrip() throws {
+        let fixture = NestedTopologyTestFixture()
+        let original = fixture.id("workspace:one/pane\u{0}token", kind: .pane)
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(NestedNodeID.self, from: data)
+
+        #expect(decoded == original)
+        #expect(decoded.rawID == "workspace:one/pane\u{0}token")
+    }
+
+    @Test("serialized identity is structured and explicitly versioned")
+    func structuredEncoding() throws {
+        let id = NestedTopologyTestFixture().id("pane:17", kind: .pane)
+        let data = try JSONEncoder().encode(id)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        #expect(object["version"] as? Int == Int(NestedNodeID.currentVersion))
+        #expect(object["providerKind"] as? String == "herdr")
+        #expect(object["rawID"] as? String == "pane:17")
+        #expect(object["kind"] as? String == "pane")
+        #expect(object["providerInstanceID"] is [String: Any])
+    }
+}
