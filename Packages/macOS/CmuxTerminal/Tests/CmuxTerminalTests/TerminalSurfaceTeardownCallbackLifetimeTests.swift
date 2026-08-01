@@ -5,6 +5,18 @@ import GhosttyKit
 import Testing
 @testable import CmuxTerminal
 
+@_silgen_name("cmux_test_ghostty_surface_free_blocking_begin")
+private func cmuxTestGhosttySurfaceFreeBlockingBegin()
+
+@_silgen_name("cmux_test_ghostty_surface_free_wait_until_started")
+private func cmuxTestGhosttySurfaceFreeWaitUntilStarted()
+
+@_silgen_name("cmux_test_ghostty_surface_free_release")
+private func cmuxTestGhosttySurfaceFreeRelease()
+
+@_silgen_name("cmux_test_ghostty_surface_free_blocking_reset")
+private func cmuxTestGhosttySurfaceFreeBlockingReset()
+
 /// The ghostty PTY tee callback and the MANUAL-mode `io_write_cb` fire on
 /// ghostty's IO threads until `ghostty_surface_free` joins those threads. The
 /// retained callback userdata (the byte-tee lease's context and the manual IO
@@ -25,6 +37,42 @@ import Testing
         wait.cancel()
 
         #expect(await wait.value == false)
+    }
+
+    @Test func teardownSurfaceKeepsMainActorResponsiveWhileNativeFreeIsBlocked() async {
+        let surface = makeSurface()
+        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        cmuxTestGhosttySurfaceFreeBlockingBegin()
+        defer {
+            cmuxTestGhosttySurfaceFreeRelease()
+            cmuxTestGhosttySurfaceFreeBlockingReset()
+        }
+
+        let probeResult = AsyncStream<Bool>.makeStream()
+        DispatchQueue.global(qos: .userInitiated).async {
+            cmuxTestGhosttySurfaceFreeWaitUntilStarted()
+
+            // Test-only watchdog: the main-actor probe must run while the
+            // native free is still gate-blocked. Always release the gate so a
+            // regression fails instead of deadlocking the test process.
+            let mainActorProbe = DispatchSemaphore(value: 0)
+            Task { @MainActor in
+                mainActorProbe.signal()
+            }
+            let mainActorStayedResponsive =
+                mainActorProbe.wait(timeout: .now() + 1) == .success
+            cmuxTestGhosttySurfaceFreeRelease()
+            probeResult.continuation.yield(mainActorStayedResponsive)
+            probeResult.continuation.finish()
+        }
+
+        surface.teardownSurface()
+
+        var probeResultIterator = probeResult.stream.makeAsyncIterator()
+        #expect(
+            await probeResultIterator.next() == true,
+            "ghostty_surface_free blocked the main actor while joining Ghostty's renderer thread"
+        )
     }
 
     @Test func teardownSurfaceKeepsTeeLeaseUntilNativeFree() async {

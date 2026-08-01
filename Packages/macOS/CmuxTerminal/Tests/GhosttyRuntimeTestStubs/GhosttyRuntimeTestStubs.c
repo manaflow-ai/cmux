@@ -1,4 +1,5 @@
 #include "include/GhosttyRuntimeTestStubs.h"
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -34,11 +35,51 @@ static bool cmux_test_font_binding_succeeds = true;
 static void* cmux_test_font_callback_surface = NULL;
 static ghostty_font_size_action_cb cmux_test_font_callback = NULL;
 static void* cmux_test_font_callback_userdata = NULL;
+static pthread_mutex_t cmux_test_surface_free_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t cmux_test_surface_free_condition = PTHREAD_COND_INITIALIZER;
+static bool cmux_test_surface_free_should_block = false;
+static bool cmux_test_surface_free_started = false;
+static bool cmux_test_surface_free_released = false;
 
 void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_needs_confirm_quit = false;
     cmux_test_foreground_pid = 0;
     cmux_test_tty_name = NULL;
+}
+
+void cmux_test_ghostty_surface_free_blocking_begin(void) {
+    pthread_mutex_lock(&cmux_test_surface_free_mutex);
+    cmux_test_surface_free_should_block = true;
+    cmux_test_surface_free_started = false;
+    cmux_test_surface_free_released = false;
+    pthread_mutex_unlock(&cmux_test_surface_free_mutex);
+}
+
+void cmux_test_ghostty_surface_free_wait_until_started(void) {
+    pthread_mutex_lock(&cmux_test_surface_free_mutex);
+    while (!cmux_test_surface_free_started) {
+        pthread_cond_wait(
+            &cmux_test_surface_free_condition,
+            &cmux_test_surface_free_mutex
+        );
+    }
+    pthread_mutex_unlock(&cmux_test_surface_free_mutex);
+}
+
+void cmux_test_ghostty_surface_free_release(void) {
+    pthread_mutex_lock(&cmux_test_surface_free_mutex);
+    cmux_test_surface_free_released = true;
+    pthread_cond_broadcast(&cmux_test_surface_free_condition);
+    pthread_mutex_unlock(&cmux_test_surface_free_mutex);
+}
+
+void cmux_test_ghostty_surface_free_blocking_reset(void) {
+    pthread_mutex_lock(&cmux_test_surface_free_mutex);
+    cmux_test_surface_free_should_block = false;
+    cmux_test_surface_free_started = false;
+    cmux_test_surface_free_released = true;
+    pthread_cond_broadcast(&cmux_test_surface_free_condition);
+    pthread_mutex_unlock(&cmux_test_surface_free_mutex);
 }
 
 void cmux_test_ghostty_renderer_realized_begin(void* surface) {
@@ -229,6 +270,19 @@ bool ghostty_surface_set_font_size_action_callback(
 
 void ghostty_surface_config_new(void) {}
 void ghostty_surface_free(void *surface) {
+    pthread_mutex_lock(&cmux_test_surface_free_mutex);
+    if (cmux_test_surface_free_should_block) {
+        cmux_test_surface_free_started = true;
+        pthread_cond_broadcast(&cmux_test_surface_free_condition);
+        while (!cmux_test_surface_free_released) {
+            pthread_cond_wait(
+                &cmux_test_surface_free_condition,
+                &cmux_test_surface_free_mutex
+            );
+        }
+    }
+    pthread_mutex_unlock(&cmux_test_surface_free_mutex);
+
     if (cmux_test_font_callback_surface == surface) {
         cmux_test_font_callback_surface = NULL;
         cmux_test_font_callback = NULL;
