@@ -642,6 +642,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */; };
 		REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */; };
 		925800000000000000000002 /* CMUXCLI+Restore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925800000000000000000001 /* CMUXCLI+Restore.swift */; };
+		92580000000000000000000B /* CMUXCLI+RestoreExecution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92580000000000000000000C /* CMUXCLI+RestoreExecution.swift */; };
+		925800000000000000000009 /* CMUXCLI+RestoreFailureReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92580000000000000000000A /* CMUXCLI+RestoreFailureReporting.swift */; };
 		925800000000000000000003 /* CMUXCLI+RestorePreflight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925800000000000000000004 /* CMUXCLI+RestorePreflight.swift */; };
 		925800000000000000000007 /* CMUXCLI+RestoreRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925800000000000000000008 /* CMUXCLI+RestoreRecord.swift */; };
 		925800000000000000000005 /* CMUXCLI+RestoreSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925800000000000000000006 /* CMUXCLI+RestoreSelector.swift */; };
@@ -3274,6 +3276,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemotePTYErrors.swift"; sourceTree = "<group>"; };
 		REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Remotes.swift"; sourceTree = "<group>"; };
 		925800000000000000000001 /* CMUXCLI+Restore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Restore.swift"; sourceTree = "<group>"; };
+		92580000000000000000000C /* CMUXCLI+RestoreExecution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreExecution.swift"; sourceTree = "<group>"; };
+		92580000000000000000000A /* CMUXCLI+RestoreFailureReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreFailureReporting.swift"; sourceTree = "<group>"; };
 		925800000000000000000004 /* CMUXCLI+RestorePreflight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestorePreflight.swift"; sourceTree = "<group>"; };
 		925800000000000000000008 /* CMUXCLI+RestoreRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreRecord.swift"; sourceTree = "<group>"; };
 		925800000000000000000006 /* CMUXCLI+RestoreSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreSelector.swift"; sourceTree = "<group>"; };
@@ -7159,6 +7163,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B90000D1A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift */,
 				925800000000000000000001 /* CMUXCLI+Restore.swift */,
 				925800000000000000000004 /* CMUXCLI+RestorePreflight.swift */,
+				92580000000000000000000A /* CMUXCLI+RestoreFailureReporting.swift */,
+				92580000000000000000000C /* CMUXCLI+RestoreExecution.swift */,
 				925800000000000000000008 /* CMUXCLI+RestoreRecord.swift */,
 				925800000000000000000006 /* CMUXCLI+RestoreSelector.swift */,
 				C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */,
@@ -10037,6 +10043,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */,
 					REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */,
 				925800000000000000000002 /* CMUXCLI+Restore.swift in Sources */,
+				92580000000000000000000B /* CMUXCLI+RestoreExecution.swift in Sources */,
+				925800000000000000000009 /* CMUXCLI+RestoreFailureReporting.swift in Sources */,
 				925800000000000000000003 /* CMUXCLI+RestorePreflight.swift in Sources */,
 				925800000000000000000007 /* CMUXCLI+RestoreRecord.swift in Sources */,
 				925800000000000000000005 /* CMUXCLI+RestoreSelector.swift in Sources */,

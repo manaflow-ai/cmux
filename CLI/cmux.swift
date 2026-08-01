@@ -3765,7 +3765,7 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
-        let client: SocketClient
+        let client = SocketClient(path: resolvedSocketPath)
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
                 "socket.path.autodiscovered",
@@ -3783,24 +3783,18 @@ struct CMUXCLI {
             ]
         )
         do {
-            // App-driven restore has no explicit --socket and can reach this
-            // point before bootstrap starts the listener. Explicit callers
-            // preserve the normal fail-fast socket contract.
-            if command == "restore", explicitSocketPath == nil {
-                client = try restoreSocketClient(path: resolvedSocketPath)
-            } else {
-                client = SocketClient(path: resolvedSocketPath)
-                try client.connect()
-            }
+            try client.connect()
             cliTelemetry.breadcrumb("socket.connect.success", data: ["path": resolvedSocketPath])
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
             if command == "restore", explicitSocketPath == nil {
-                throw CLIError(
+                throw loggedRestoreError(
+                    stage: "socket.startup",
+                    detail: String(reflecting: error),
                     message: String(
                         localized: "cli.restore.error.socketNotReady",
-                        defaultValue: "restore: cmux is not ready to provide this surface's persisted record. Retry the visible restore command after cmux finishes opening. \(error)"
+                        defaultValue: "restore: cmux is still opening. Retry the visible restore command in a moment."
                     )
                 )
             }

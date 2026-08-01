@@ -47635,15 +47635,15 @@
     "cli.restore.error.checkpointMismatch": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: checkpoint does not match this surface's persisted record. Run 'cmux restore --surface' to use the current record." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: チェックポイントがこのサーフェスの保存済みレコードと一致しません。現在のレコードを使用するには 'cmux restore --surface' を実行してください。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this command no longer matches the session. Run 'cmux restore --surface' to use the current record." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このコマンドは現在のセッションと一致しません。現在の状態を使用するには 'cmux restore --surface' を実行してください。" } }
       }
     },
     "cli.restore.error.compatibilityShellFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: compatibility shell failed (%lld): %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: 互換シェルの実行に失敗しました (%lld): %@" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the saved process could not be started. Retry the visible restore command." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存されたプロセスを開始できませんでした。表示されている復元コマンドを再実行してください。" } }
       }
     },
     "cli.restore.error.currentSurfaceUnknown": {
@@ -47656,127 +47656,127 @@
     "cli.restore.error.executableNotFound": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: executable '%@' was not found" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: 実行ファイル '%@' が見つかりません" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the saved agent command is unavailable. Make sure the agent is installed, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存されたエージェントコマンドを利用できません。エージェントがインストールされていることを確認してから、再試行してください。" } }
       }
     },
     "cli.restore.error.execveFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: execve failed (%lld): %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: execve に失敗しました (%lld): %@" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the saved process could not be started. Retry the visible restore command." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存されたプロセスを開始できませんでした。表示されている復元コマンドを再実行してください。" } }
       }
     },
     "cli.restore.error.incompleteData": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: persisted structured launch data is incomplete" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存された構造化起動データが不完全です" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this session's saved restore data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このセッションの保存済み復元データには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
       }
     },
     "cli.restore.error.kindMismatch": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: expected kind '%@', but the surface records '%@'. Run 'cmux restore --surface' to use the current record." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: 種類 '%@' を期待しましたが、サーフェスには '%@' が記録されています。現在のレコードを使用するには 'cmux restore --surface' を実行してください。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this command no longer matches the session. Run 'cmux restore --surface' to use the current record." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このコマンドは現在のセッションと一致しません。現在の状態を使用するには 'cmux restore --surface' を実行してください。" } }
       }
     },
     "cli.restore.error.malformedArguments": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: malformed structured launch arguments" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: 構造化された起動引数が不正です" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this session's saved restore data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このセッションの保存済み復元データには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
       }
     },
     "cli.restore.error.malformedRecord": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: malformed restore record" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: 復元レコードが不正です" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this session's saved restore data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このセッションの保存済み復元データには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
       }
     },
     "cli.restore.error.noRecord": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: this surface has no restorable process record" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: このサーフェスには復元可能なプロセスレコードがありません" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this session has nothing to restore. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このセッションには復元できるものがありません。このターミナルでエージェントをもう一度起動してください。" } }
       }
     },
     "cli.restore.error.providerSetupConfigurationFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: could not configure provider setup" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を構成できませんでした" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup could not start. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を開始できませんでした。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
       }
     },
     "cli.restore.error.providerSetupExited": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup failed with status %lld" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定がステータス %lld で失敗しました" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup failed. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定に失敗しました。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
       }
     },
     "cli.restore.error.providerSetupSignaled": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup terminated by signal %lld" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定がシグナル %lld で終了しました" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup failed. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定に失敗しました。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
       }
     },
     "cli.restore.error.providerSetupStartFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: could not start provider setup" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を開始できませんでした" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup could not start. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を開始できませんでした。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
       }
     },
     "cli.restore.error.providerSetupTimedOut": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup timed out after 10 seconds" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定が10秒後にタイムアウトしました" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup took too long. Check the provider connection, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定に時間がかかりすぎました。プロバイダー接続を確認してから、再試行してください。" } }
       }
     },
     "cli.restore.error.providerSetupUnavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup is unavailable" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を利用できません" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup is unavailable. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を利用できません。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
       }
     },
     "cli.restore.error.providerSetupWaitFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: could not wait for provider setup" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定の完了を待機できませんでした" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup could not complete. Retry the visible restore command." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を完了できませんでした。表示されている復元コマンドを再実行してください。" } }
       }
     },
     "cli.restore.error.socketNotReady": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: cmux is not ready to provide this surface's persisted record. Retry the visible restore command after cmux finishes opening. %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: cmux はこのサーフェスの保存済みレコードをまだ提供できません。cmux の起動完了後、表示されている復元コマンドを再試行してください。%@" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: cmux is still opening. Retry the visible restore command in a moment." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: cmux はまだ起動中です。しばらくしてから、表示されている復元コマンドを再実行してください。" } }
       }
     },
     "cli.restore.error.surfaceNotFound": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: surface '%@' was not found" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: サーフェス '%@' が見つかりません" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the requested surface was not found. Check the surface reference, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 指定されたサーフェスが見つかりません。サーフェスの参照を確認してから、再試行してください。" } }
       }
     },
     "cli.restore.error.unsupportedMode": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: unsupported persisted restore mode '%@'" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存された復元モード '%@' はサポートされていません" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this session's saved restore data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このセッションの保存済み復元データには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
       }
     },
     "cli.restore.error.workingDirectoryFailed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "restore: cannot enter working directory '%@': %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "restore: 作業ディレクトリ '%@' に移動できません: %@" } }
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the saved working directory is inaccessible. Restore access to it, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存された作業ディレクトリにアクセスできません。アクセスを復元してから、再試行してください。" } }
       }
     },
     "cli.restore.help": {

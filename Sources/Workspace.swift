@@ -5062,6 +5062,18 @@ final class Workspace: Identifiable, ObservableObject {
               !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
+        // This transient cwd belongs to the binding restored at launch. Let a
+        // same-session hook refresh keep its cwd rescue, but never let it
+        // override a replacement session's structured restore record.
+        if let previous = surfaceResumeBindingsByPanelId[panelId],
+           previous.kind != binding.kind
+            || previous.checkpointId != binding.checkpointId
+            || previous.cwd != binding.cwd
+            || previous.launchCommand?.workingDirectory != binding.launchCommand?.workingDirectory
+            || (previous.launchCommand == nil && binding.launchCommand == nil
+                && previous.command != binding.command) {
+            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        }
         surfaceResumeBindingsByPanelId[panelId] = binding
         return true
     }

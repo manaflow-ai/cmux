@@ -15,20 +15,24 @@ extension CMUXCLI {
             invocation.executable,
             environment: invocationEnvironment
         ) else {
-            throw CLIError(
+            throw loggedRestoreError(
+                stage: "provider.resolve",
+                detail: invocation.executable,
                 message: String(
                     localized: "cli.restore.error.providerSetupUnavailable",
-                    defaultValue: "restore: provider setup is unavailable"
+                    defaultValue: "restore: provider setup is unavailable. Check the agent's provider settings, then retry."
                 )
             )
         }
         var fileActions: posix_spawn_file_actions_t?
         let actionsStatus = posix_spawn_file_actions_init(&fileActions)
         guard actionsStatus == 0 else {
-            throw CLIError(
+            throw loggedRestoreError(
+                stage: "provider.file-actions",
+                errorCode: actionsStatus,
                 message: String(
                     localized: "cli.restore.error.providerSetupConfigurationFailed",
-                    defaultValue: "restore: could not configure provider setup"
+                    defaultValue: "restore: provider setup could not start. Check the agent's provider settings, then retry."
                 )
             )
         }
@@ -66,10 +70,12 @@ extension CMUXCLI {
             }
         }
         guard redirectStatus == 0 else {
-            throw CLIError(
+            throw loggedRestoreError(
+                stage: "provider.redirect",
+                errorCode: redirectStatus,
                 message: String(
                     localized: "cli.restore.error.providerSetupConfigurationFailed",
-                    defaultValue: "restore: could not configure provider setup"
+                    defaultValue: "restore: provider setup could not start. Check the agent's provider settings, then retry."
                 )
             )
         }
@@ -90,10 +96,13 @@ extension CMUXCLI {
             }
         }
         guard status == 0 else {
-            throw CLIError(
+            throw loggedRestoreError(
+                stage: "provider.spawn",
+                detail: executable,
+                errorCode: status,
                 message: String(
                     localized: "cli.restore.error.providerSetupStartFailed",
-                    defaultValue: "restore: could not start provider setup"
+                    defaultValue: "restore: provider setup could not start. Check the agent's provider settings, then retry."
                 )
             )
         }
@@ -111,10 +120,12 @@ extension CMUXCLI {
             timeout: 10
         ) else {
             terminateRestorePreflight(processID, exitQueue: exitQueue)
-            throw CLIError(
+            throw loggedRestoreError(
+                stage: "provider.timeout",
+                detail: "pid=\(processID)",
                 message: String(
                     localized: "cli.restore.error.providerSetupTimedOut",
-                    defaultValue: "restore: provider setup timed out after 10 seconds"
+                    defaultValue: "restore: provider setup took too long. Check the provider connection, then retry."
                 )
             )
         }
@@ -124,26 +135,24 @@ extension CMUXCLI {
         let exitStatus = (waitStatus >> 8) & 0xff
         if exitedNormally {
             guard exitStatus == 0 else {
-                throw CLIError(
-                    message: String.localizedStringWithFormat(
-                        String(
-                            localized: "cli.restore.error.providerSetupExited",
-                            defaultValue: "restore: provider setup failed with status %lld"
-                        ),
-                        Int64(exitStatus)
+                throw loggedRestoreError(
+                    stage: "provider.exit",
+                    errorCode: exitStatus,
+                    message: String(
+                        localized: "cli.restore.error.providerSetupExited",
+                        defaultValue: "restore: provider setup failed. Check the agent's provider settings, then retry."
                     )
                 )
             }
             return
         }
         let terminationSignal = waitStatus & 0x7f
-        throw CLIError(
-            message: String.localizedStringWithFormat(
-                String(
-                    localized: "cli.restore.error.providerSetupSignaled",
-                    defaultValue: "restore: provider setup terminated by signal %lld"
-                ),
-                Int64(terminationSignal)
+        throw loggedRestoreError(
+            stage: "provider.signal",
+            errorCode: terminationSignal,
+            message: String(
+                localized: "cli.restore.error.providerSetupSignaled",
+                defaultValue: "restore: provider setup failed. Check the agent's provider settings, then retry."
             )
         )
     }
@@ -151,7 +160,10 @@ extension CMUXCLI {
     private func restorePreflightExitQueue(_ processID: pid_t) throws -> Int32 {
         let queue = kqueue()
         guard queue >= 0 else {
-            throw restorePreflightWaitError()
+            throw restorePreflightWaitError(
+                stage: "provider.wait-queue",
+                errorCode: errno
+            )
         }
 
         var event = kevent(
@@ -167,7 +179,10 @@ extension CMUXCLI {
                 continue
             }
             close(queue)
-            throw restorePreflightWaitError()
+            throw restorePreflightWaitError(
+                stage: "provider.wait-register",
+                errorCode: errno
+            )
         }
         return queue
     }
@@ -193,7 +208,10 @@ extension CMUXCLI {
                 return false
             }
             if errno != EINTR {
-                throw restorePreflightWaitError()
+                throw restorePreflightWaitError(
+                    stage: "provider.wait-event",
+                    errorCode: errno
+                )
             }
         }
     }
@@ -237,15 +255,23 @@ extension CMUXCLI {
             if waitResult == -1 && errno == EINTR {
                 continue
             }
-            throw restorePreflightWaitError()
+            throw restorePreflightWaitError(
+                stage: "provider.wait-reap",
+                errorCode: errno
+            )
         }
     }
 
-    private func restorePreflightWaitError() -> CLIError {
-        CLIError(
+    private func restorePreflightWaitError(
+        stage: String,
+        errorCode: Int32
+    ) -> CLIError {
+        loggedRestoreError(
+            stage: stage,
+            errorCode: errorCode,
             message: String(
                 localized: "cli.restore.error.providerSetupWaitFailed",
-                defaultValue: "restore: could not wait for provider setup"
+                defaultValue: "restore: provider setup could not complete. Retry the visible restore command."
             )
         )
     }
