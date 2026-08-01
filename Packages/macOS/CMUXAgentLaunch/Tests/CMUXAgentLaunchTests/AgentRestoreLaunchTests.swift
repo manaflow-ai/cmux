@@ -128,7 +128,7 @@ import Testing
             observedPermissionMode: "bypassPermissions"
         )
         let invocation = try #require(AgentRestorePlanner(
-            isExecutableFile: { $0 == "/shim/claude" }
+            isExecutableFile: { $0 == "/shim/claude" || $0 == "/opt/claude" }
         ).invocation(
             for: request,
             ambientEnvironment: ["CMUX_CLAUDE_WRAPPER_SHIM": "/shim/claude"]
@@ -139,6 +139,8 @@ import Testing
         #expect(invocation.arguments.contains(sessionID))
         #expect(invocation.arguments.contains("--permission-mode"))
         #expect(invocation.arguments.contains("bypassPermissions"))
+        #expect(invocation.environment["CMUX_RESOLVED_CLAUDE_PATH"] == "/opt/claude")
+        #expect(invocation.environment["CMUX_CUSTOM_CLAUDE_PATH"] == nil)
         #expect(
             invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"]
                 == "claude:\(sessionID)"
