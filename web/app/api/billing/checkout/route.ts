@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 
 import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
 import {
+  appPricingCheckoutRelayURL,
   appStorePricingUnavailableURL,
   isAppStoreDistributionMode,
 } from "../../../lib/billing";
@@ -16,8 +17,11 @@ import {
   resolveProPrice,
   resolveTeamPrice,
   stripe,
-  type ProBillingInterval,
 } from "../../../../services/billing/stripe";
+import {
+  billingInterval,
+  type BillingInterval,
+} from "../../../../services/billing/plans";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +55,11 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(appStorePricingUnavailableURL(request.nextUrl));
   }
 
+  const configuredRelayURL = appPricingCheckoutRelayURL(request.nextUrl);
+  if (configuredRelayURL) {
+    return NextResponse.redirect(configuredRelayURL);
+  }
+
   const stackServerApp = await checkoutStackServerApp();
   if (!stackServerApp) {
     return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
@@ -60,16 +69,22 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   if (!plan) {
     return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
   }
+  const interval = checkoutBillingInterval(
+    request.nextUrl.searchParams.get("interval"),
+  );
+  if (!interval) {
+    return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
+  }
 
   if (!isStripeBillingConfigured()) {
     return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
   }
 
   if (plan === "pro") {
-    return stripeProCheckout(request, stackServerApp);
+    return stripeProCheckout(request, stackServerApp, interval);
   }
   if (plan === "team") {
-    return stripeTeamCheckout(request, stackServerApp);
+    return stripeTeamCheckout(request, stackServerApp, interval);
   }
   // checkoutPlan only yields "pro" | "team" | null (null handled above); this is
   // unreachable but keeps GET returning a NextResponse instead of possibly-undefined.
@@ -79,6 +94,7 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
 async function stripeProCheckout(
   request: NextRequest,
   stackServerApp: CheckoutStackServerApp,
+  interval: BillingInterval,
 ) {
   const user =
     (await stackServerApp.getUser({ or: "return-null" })) ??
@@ -96,15 +112,16 @@ async function stripeProCheckout(
     request.nextUrl.searchParams.get("cmux_scheme"),
     request,
   );
-  const interval = checkoutInterval(request.nextUrl.searchParams.get("interval"));
   const successUrl =
     `${request.nextUrl.origin}/api/billing/complete` +
     `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(scheme)}`;
   const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
+  cancelUrl.searchParams.set("interval", interval);
   const metadata = {
     stackUserId: user.id,
     plan: "pro",
     app: "cmux",
+    billingInterval: interval,
   };
 
   try {
@@ -139,6 +156,7 @@ async function stripeProCheckout(
 async function stripeTeamCheckout(
   request: NextRequest,
   stackServerApp: CheckoutStackServerApp,
+  interval: BillingInterval,
 ) {
   const user =
     (await stackServerApp.getUser({ or: "return-null" })) ??
@@ -160,10 +178,12 @@ async function stripeTeamCheckout(
     `${request.nextUrl.origin}/api/billing/complete` +
     `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(scheme)}`;
   const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
+  cancelUrl.searchParams.set("interval", interval);
   const metadata = {
     stackTeamId: teamId,
     plan: "team",
     app: "cmux",
+    billingInterval: interval,
   };
 
   try {
@@ -172,7 +192,7 @@ async function stripeTeamCheckout(
       mode: "subscription",
       line_items: [
         {
-          price: await resolveTeamPrice(),
+          price: await resolveTeamPrice(interval),
           quantity: await checkoutTeamSeatCount(team),
           adjustable_quantity: {
             enabled: true,
@@ -194,6 +214,7 @@ async function stripeTeamCheckout(
     captureBillingError(error, {
       route: "/api/billing/checkout",
       plan: "team",
+      interval,
       stackTeamId: teamId,
     });
     return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
@@ -299,8 +320,9 @@ function checkoutPlan(raw: string | null): "pro" | "team" | null {
   return null;
 }
 
-function checkoutInterval(raw: string | null): ProBillingInterval {
-  return raw === "year" ? "year" : "month";
+function checkoutBillingInterval(raw: string | null): BillingInterval | null {
+  if (raw === null) return billingInterval(raw);
+  return raw === "month" || raw === "year" ? raw : null;
 }
 
 async function checkoutStackServerApp(): Promise<CheckoutStackServerApp | null> {
