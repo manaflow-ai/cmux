@@ -277,6 +277,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
     ))
     #expect(store.connectionRecoveryOwner.fail(failedAttempt))
     store.applyConnectionRecoveryOwnerState()
+    store.isReconnectingStoredMac = false
     store.didFinishStoredMacReconnectAttempt = true
     let workspaceListCount = await router.count(of: "workspace.list")
 

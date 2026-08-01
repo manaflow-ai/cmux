@@ -610,7 +610,10 @@ extension MobileShellComposite {
                 persistedRoutes: legacyTailscaleRoutes
             ) != nil
         }
-        if firstRoute.kind == .iroh || hasAuthorizedLegacyTailscaleRoute {
+        let routeCanUseStoredTicket = firstRoute.kind == .iroh
+            || hasAuthorizedLegacyTailscaleRoute
+            || MobileShellRouteAuthPolicy.routeAllowsStackAuth(firstRoute)
+        if routeCanUseStoredTicket {
             do {
                 let ticket = try Self.storedMacTicket(
                     name: name,
