@@ -1223,13 +1223,15 @@ final class MobileHostService {
                 )
             },
             onAuthorizedRequest: { request in
-                await Self.retireSupersededIrohConnections(
-                    newestConnectionID: id
-                )
                 guard let clientID = Self.clientID(from: request.params) else {
                     return
                 }
                 await MobileHostService.shared.recordClientID(clientID, for: id)
+            },
+            onUsableSession: {
+                await Self.retireSupersededIrohConnections(
+                    newestConnectionID: id
+                )
             },
             handleRequest: { request in
                 if request.method == "mobile.host.status" {
@@ -1432,7 +1434,8 @@ final class MobileHostService {
 
     /// The registry is lock-protected and connection close is actor-isolated,
     /// so Iroh handoff never needs to queue behind unrelated AppKit work on the
-    /// main actor. This path runs before every authorized RPC.
+    /// main actor. This path runs only after the replacement has served its
+    /// workspace list and accepted its usable event subscription.
     nonisolated private static func retireSupersededIrohConnections(
         newestConnectionID: UUID
     ) async {
@@ -1857,6 +1860,7 @@ actor MobileHostConnection {
     private let idleTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
+    private let onUsableSession: @Sendable () async -> Void
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     private let onClose: @Sendable (UUID) async -> Void
     private let responseWorkQuota = MobileHostRPCWorkQuota()
@@ -1904,6 +1908,7 @@ actor MobileHostConnection {
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
+        onUsableSession: @escaping @Sendable () async -> Void = {},
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void
     ) {
@@ -1917,6 +1922,7 @@ actor MobileHostConnection {
         self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
+        self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
         self.onClose = onClose
     }
@@ -1930,6 +1936,7 @@ actor MobileHostConnection {
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
+        onUsableSession: @escaping @Sendable () async -> Void = {},
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void
     ) {
@@ -1942,6 +1949,7 @@ actor MobileHostConnection {
         self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
+        self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
         self.onClose = onClose
     }
@@ -2365,7 +2373,7 @@ actor MobileHostConnection {
            request.method == "workspace.list"
             || request.method == "mobile.workspace.list" {
             didServeWorkspaceList = true
-            publishUsableSessionIfReady()
+            await publishUsableSessionIfReady()
         }
         return MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result)
     }
@@ -2419,7 +2427,7 @@ actor MobileHostConnection {
                 || topics.contains("terminal.bytes")
             if includesWorkspaceState, includesTerminalOutput {
                 didAcceptUsableEventSubscription = true
-                publishUsableSessionIfReady()
+                await publishUsableSessionIfReady()
             }
             if topics.contains("terminal.render_grid") {
                 // Anchor negotiation: "screen" clients own their local
@@ -2453,7 +2461,7 @@ actor MobileHostConnection {
         }
     }
 
-    private func publishUsableSessionIfReady() {
+    private func publishUsableSessionIfReady() async {
         guard didServeWorkspaceList,
               didAcceptUsableEventSubscription,
               !didPublishUsableSession,
@@ -2461,6 +2469,7 @@ actor MobileHostConnection {
             return
         }
         didPublishUsableSession = true
+        await onUsableSession()
         CmuxEventBus.shared.publish(
             name: "mobile.rpc.ready",
             category: "mobile",

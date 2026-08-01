@@ -234,14 +234,11 @@ public actor CmxIrohEndpointServer {
         let activeForIdentity = activeConnections.values.lazy.filter {
             $0.remoteIdentity == remoteIdentity
         }.count
-        let isSameIdentityReplacement = pendingForIdentity == 0 && activeForIdentity > 0
-        guard pendingAdmissions.count + activeConnections.count < maximumConnections
-            || isSameIdentityReplacement else {
+        guard pendingAdmissions.count + activeConnections.count < maximumConnections else {
             await connection.close(errorCode: 1, reason: "connection_capacity")
             return
         }
-        guard pendingForIdentity + activeForIdentity < maximumConnectionsPerIdentity
-            || isSameIdentityReplacement else {
+        guard pendingForIdentity + activeForIdentity < maximumConnectionsPerIdentity else {
             await connection.close(
                 errorCode: 1,
                 reason: "connection_identity_capacity"
@@ -286,32 +283,16 @@ public actor CmxIrohEndpointServer {
         }
         admission.deadlineTask.cancel()
 
-        // One endpoint identity represents one installed client identity. A
-        // newly authenticated connection from that identity is therefore the
-        // authoritative replacement for older connections that may still look
-        // alive after the client was force-quit, crashed, or changed networks.
-        // Wait until admission succeeds before evicting them so an unauthenticated
-        // or failed reconnect cannot disrupt a healthy session.
-        let superseded = activeConnections.filter { _, connection in
-            connection.generation == generation
-                && connection.remoteIdentity == admission.remoteIdentity
-        }
-        for supersededID in superseded.keys {
-            activeConnections[supersededID] = nil
-        }
+        // Admission proves transport identity, not that the candidate can serve
+        // application RPCs. Preserve the bounded overlap reserved above. The
+        // host promotes a replacement only after it serves a workspace list and
+        // accepts the usable event subscription, then closes the older session.
         activeConnections[id] = ActiveConnection(
             generation: generation,
             remoteIdentity: admission.remoteIdentity,
             connection: admission.connection,
             handlerTask: admission.handlerTask
         )
-        for connection in superseded.values {
-            connection.handlerTask.cancel()
-            await connection.connection.close(
-                errorCode: 0,
-                reason: "superseded_connection"
-            )
-        }
         return true
     }
 
