@@ -190,15 +190,15 @@ def _request(url: str, accept: str) -> Optional[bytes]:
         if error.code == 404:
             return None
         raise RegistryLookupError(
-            f"registry request failed with HTTP {error.code}: {url}"
+            f"registry request failed with HTTP {error.code}"
         ) from error
     except URLError as error:
         raise RegistryLookupError(
-            f"registry request failed: {url}: {error.reason}"
+            "registry request failed before receiving a response"
         ) from error
     except (OSError, http.client.IncompleteRead) as error:
         raise RegistryLookupError(
-            f"registry response was interrupted: {url}: {error}"
+            "registry response was interrupted"
         ) from error
 
 
@@ -209,9 +209,9 @@ def _json(url: str) -> Optional[dict[str, Any]]:
     try:
         value = json.loads(payload)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise RegistryError(f"registry returned invalid JSON: {url}") from error
+        raise RegistryError("registry returned invalid JSON") from error
     if not isinstance(value, dict):
-        raise RegistryError(f"registry returned a non-object JSON response: {url}")
+        raise RegistryError("registry returned a non-object JSON response")
     return value
 
 
