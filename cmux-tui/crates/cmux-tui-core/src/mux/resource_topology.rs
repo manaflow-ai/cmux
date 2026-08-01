@@ -2087,21 +2087,30 @@ impl Mux {
         drop(registry);
         drop(workspace_lifecycle);
 
-        self.terminate_discovered_terminal_hosts(&plan.unmaterialized_terminals);
+        let unmaterialized_termination = if plan.closed_workspace_key.is_none() {
+            self.terminate_discovered_terminal_hosts(&plan.unmaterialized_terminals)
+        } else {
+            Ok(())
+        };
         self.notify_terminal_exit_waiters(closed_public_ids);
         self.publish_resource_event();
         for surface in &plan.removed {
             self.purge_surface_side_tables(surface.id);
         }
         self.retire_surface_runtimes(plan.removed);
-        if let Some(workspace_key) = plan.closed_workspace_key {
-            self.terminate_tombstoned_workspace_hosts(&workspace_key);
-        }
+        let workspace_termination =
+            if let Some(workspace_key) = plan.closed_workspace_key.as_deref() {
+                self.terminate_tombstoned_workspace_hosts(workspace_key)
+            } else {
+                Ok(())
+            };
         self.emit_tree_delta(plan.delta, plan.selection_resync);
         for screen in plan.changed_screens {
             self.emit(MuxEvent::LayoutChanged(screen));
         }
         self.emit_empty_if_current(empty_revision);
+        unmaterialized_termination?;
+        workspace_termination?;
         Ok(close.resource)
     }
 

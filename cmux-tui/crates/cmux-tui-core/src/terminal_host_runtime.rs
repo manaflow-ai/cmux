@@ -2408,6 +2408,34 @@ mod unix {
         )
     }
 
+    /// Load the one canonical discovery record for `terminal_id` without
+    /// scanning unrelated hosts. A missing record means there is no discovery
+    /// owner to terminate; malformed or unreadable records remain errors so a
+    /// close cannot silently abandon a live host.
+    pub(crate) fn load_terminal_host_record(
+        root: &Path,
+        terminal_id: &str,
+    ) -> anyhow::Result<Option<(PathBuf, TerminalHostRecord)>> {
+        let terminal = TerminalId::from_hex(terminal_id)
+            .ok_or_else(|| anyhow::anyhow!("terminal-host id is not a canonical UUIDv4"))?;
+        anyhow::ensure!(terminal.to_hex() == terminal_id, "terminal-host id is not canonical");
+        let path = root.join(format!("{terminal_id}.json"));
+        match read_terminal_host_record_until(
+            &path,
+            Instant::now() + TERMINAL_HOST_RECORD_SCAN_TIMEOUT,
+        ) {
+            Ok(record) => Ok(Some((path, record))),
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     /// Load every discovery record without omission. Adoption tolerates
     /// transient or stale files, but an atomic server shutdown must account
     /// for every record before it discards topology.
@@ -6974,6 +7002,20 @@ mod unix {
         }
 
         #[test]
+        fn exact_record_loader_does_not_read_unrelated_host_files() {
+            let (record_path, record, lease) = record_fixture("exact-record");
+            let root = record_path.parent().unwrap();
+            fs::write(root.join("unrelated.json"), b"{invalid-json").unwrap();
+
+            let loaded = load_terminal_host_record(root, &record.terminal_id).unwrap();
+
+            assert_eq!(loaded, Some((record_path.clone(), record.clone())));
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
         fn private_directory_setup_rejects_symlink_without_changing_target_permissions() {
             let root = std::env::temp_dir().join(format!(
                 "cmux-host-private-dir-symlink-{}-{}",
@@ -8457,6 +8499,7 @@ mod unix {
 pub(crate) use unix::{
     ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
     adopt_terminal_host_with_kitty_limits, decode_host_resize_payload_for_version,
+    load_terminal_host_record,
 };
 #[cfg(unix)]
 pub use unix::{

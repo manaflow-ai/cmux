@@ -7540,8 +7540,10 @@ impl Mux {
                 self.emit(MuxEvent::LayoutChanged(screen));
             }
         }
-        self.terminate_discovered_terminal_host(terminal_id, terminal_incarnation.as_deref());
+        let termination =
+            self.terminate_discovered_terminal_host(terminal_id, terminal_incarnation.as_deref());
         self.emit_empty_if_current(empty_revision);
+        termination?;
         Ok(TerminalCloseResult {
             surface: target,
             terminal_id: terminal_id.to_string(),
@@ -7615,16 +7617,23 @@ impl Mux {
         Ok(())
     }
 
-    fn terminate_discovered_terminal_host(&self, terminal_id: &str, incarnation: Option<&str>) {
+    fn terminate_discovered_terminal_host(
+        &self,
+        terminal_id: &str,
+        incarnation: Option<&str>,
+    ) -> anyhow::Result<()> {
         self.terminate_discovered_terminal_hosts(&[(
             terminal_id.to_string(),
             incarnation.map(str::to_string),
-        )]);
+        )])
     }
 
-    fn terminate_discovered_terminal_hosts(&self, terminals: &[(String, Option<String>)]) {
+    fn terminate_discovered_terminal_hosts(
+        &self,
+        terminals: &[(String, Option<String>)],
+    ) -> anyhow::Result<()> {
         if terminals.is_empty() {
-            return;
+            return Ok(());
         }
         #[cfg(test)]
         self.discovered_terminal_termination_requests
@@ -7634,29 +7643,34 @@ impl Mux {
         #[cfg(unix)]
         {
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
-            let Some(root) = root else { return };
-            let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(&root)
-            else {
-                return;
-            };
-            let targets = terminals
-                .iter()
-                .map(|(terminal_id, incarnation)| (terminal_id.as_str(), incarnation.as_deref()))
-                .collect::<HashMap<_, _>>();
-            for (path, record) in records {
-                let Some(expected_incarnation) = targets.get(record.terminal_id.as_str()) else {
+            let Some(root) = root else { return Ok(()) };
+            for (terminal_id, expected_incarnation) in terminals {
+                let Some((path, record)) =
+                    crate::terminal_host_runtime::load_terminal_host_record(&root, terminal_id)
+                        .with_context(|| {
+                            format!("load exact terminal-host record for {terminal_id}")
+                        })?
+                else {
                     continue;
                 };
-                if match *expected_incarnation {
-                    Some(expected) => record.incarnation == expected,
-                    None => true,
-                } {
-                    terminate_host_record(record, path);
-                }
+                anyhow::ensure!(
+                    expected_incarnation
+                        .as_deref()
+                        .is_none_or(|expected| record.incarnation == expected),
+                    "terminal-host incarnation changed while closing {terminal_id}"
+                );
+                anyhow::ensure!(
+                    cleanup_terminal_host_record(&record, &path),
+                    "could not clean up terminal host {terminal_id}"
+                );
             }
+            Ok(())
         }
         #[cfg(not(unix))]
-        let _ = terminals;
+        {
+            let _ = terminals;
+            Ok(())
+        }
     }
 
     #[cfg(test)]
@@ -7666,37 +7680,21 @@ impl Mux {
         std::mem::take(&mut *self.discovered_terminal_termination_requests.lock().unwrap())
     }
 
-    fn terminate_tombstoned_workspace_hosts(&self, workspace_key: &str) {
+    fn terminate_tombstoned_workspace_hosts(&self, workspace_key: &str) -> anyhow::Result<()> {
         #[cfg(unix)]
         {
-            let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
-            let Some(root) = root else { return };
-            let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(&root)
-            else {
-                return;
-            };
-            for (path, record) in records {
-                let terminal = self
-                    .workspace_registry
-                    .lock()
-                    .unwrap()
-                    .terminal_record(&record.terminal_id)
-                    .ok()
-                    .flatten();
-                if terminal.as_ref().is_some_and(|terminal| {
-                    terminal.workspace_key == workspace_key
-                        && terminal.lifecycle == TerminalLifecycle::Tombstoned
-                        && terminal
-                            .incarnation
-                            .as_deref()
-                            .is_none_or(|expected| expected == record.incarnation)
-                }) {
-                    terminate_host_record(record, path);
-                }
-            }
+            let terminals = self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .tombstoned_terminal_host_identities_in_workspace(workspace_key)?;
+            self.terminate_discovered_terminal_hosts(&terminals)
         }
         #[cfg(not(unix))]
-        let _ = workspace_key;
+        {
+            let _ = workspace_key;
+            Ok(())
+        }
     }
 
     /// Run `f` with the session state.
@@ -12148,7 +12146,7 @@ impl Mux {
                 let result = workspace_mutation_result(&commit)?;
                 let key = result.key.clone();
                 drop(registry);
-                self.terminate_tombstoned_workspace_hosts(&key);
+                self.terminate_tombstoned_workspace_hosts(&key)?;
                 return Ok(result);
             }
         }
@@ -12210,7 +12208,7 @@ impl Mux {
             let result = workspace_mutation_result(&commit)?;
             let key = result.key.clone();
             drop(registry);
-            self.terminate_tombstoned_workspace_hosts(&key);
+            self.terminate_tombstoned_workspace_hosts(&key)?;
             return Ok(result);
         }
         let terminal_revision_before = registry.terminal_snapshot()?.revision;
@@ -12324,9 +12322,10 @@ impl Mux {
             self.purge_surface_side_tables(surface.id);
         }
         self.retire_surface_runtimes(removed);
-        self.terminate_tombstoned_workspace_hosts(&closed_workspace_key);
+        let host_termination = self.terminate_tombstoned_workspace_hosts(&closed_workspace_key);
         self.emit_tree_delta(delta, selection_resync);
         self.emit_empty_if_current(empty_revision);
+        host_termination?;
         Ok(result)
     }
 
