@@ -10373,24 +10373,41 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         client: MobileCoreRPCClient,
         generation: UUID
     ) async {
-        let exchange = try? await client.sendRequestAndAuthenticatedHostStatus(
-            MobileCoreRPCClient.requestData(
-                method: "phone_push.status.get",
-                params: [:]
-            ),
-            timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds,
-            hostStatusTimeoutNanoseconds: {
-                Self.terminalOutputCapabilityTimeoutNanoseconds
+        let exchange: (response: Data, hostStatusResponse: Data)
+        do {
+            exchange = try await client.sendRequestAndAuthenticatedHostStatus(
+                MobileCoreRPCClient.requestData(
+                    method: "phone_push.status.get",
+                    params: [:]
+                ),
+                timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds,
+                hostStatusTimeoutNanoseconds: {
+                    Self.terminalOutputCapabilityTimeoutNanoseconds
+                }
+            )
+        } catch {
+            guard isCurrentRemoteConnection(
+                client: client,
+                generation: generation
+            ) else { return }
+            // This status probe is authenticated: a definitive authorization
+            // failure here means the session itself is revoked or mismatched,
+            // not merely that push readiness is unknown. Route it to the
+            // shared reauth disconnect instead of staying connected with a
+            // silently cleared readiness.
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else {
+                return
             }
-        )
+            phonePushMacStatus = nil
+            return
+        }
         guard isCurrentRemoteConnection(
             client: client,
             generation: generation
         ) else { return }
-        guard let exchange,
-              let status = try? MobileHostStatusResponse.decode(
-                  exchange.hostStatusResponse
-              ) else {
+        guard let status = try? MobileHostStatusResponse.decode(
+            exchange.hostStatusResponse
+        ) else {
             phonePushMacStatus = nil
             return
         }
