@@ -25,7 +25,7 @@ use std::mem::{offset_of, size_of};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -37,6 +37,7 @@ use ghostty_vt::{
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use tungstenite::protocol::CloseFrame;
 use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::protocol::{Role, WebSocketConfig};
@@ -47,23 +48,33 @@ use crate::browser::{
     BrowserAttachUpdate, BrowserFrameUpdate, BrowserMouseDispatch, BrowserPointerOwner,
 };
 use crate::model::{Screen, State, Workspace};
-use crate::mux::clamp_terminal_size;
+use crate::mux::{DaemonHandoffRequest, ResourceWaitWake, clamp_terminal_size};
 use crate::platform::{self, transport};
+use crate::resource::{
+    BrowserPublicId, ClientPublicId, ContentPublicId, RequestId as ResourceRequestId,
+    ResourceError, ResourceOperation, ResponseEnvelope as ResourceResponseEnvelope, Selector,
+    SessionPublicId, StreamPublicId, TerminalPublicId, WireDecimal,
+};
+use crate::sidebar_resource::{
+    SidebarRenderAttachment, SidebarRenderClientState, attach_sidebar_render, resolve_sidebar_view,
+    sidebar_attach_snapshot, sidebar_snapshot,
+};
 use crate::surface::{
     AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, ClearHistoryDelivery, ClearHistoryFailure,
 };
 use crate::{
-    AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
-    LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node, NotificationLevel,
-    PairingDecision, PaneId, RenderAttachFrame, Rgb, ScreenId, SidebarPluginStatus, SplitDir,
-    SplitId, SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame, TerminalColors,
-    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
-    assign_short_ids,
+    AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
+    DefaultColors, Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux,
+    MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame,
+    RenderAttachStream, Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId,
+    SurfaceKind, SurfaceNotification, SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind,
+    ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guard-v1";
+pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
@@ -83,6 +94,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
+        DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
@@ -467,6 +479,8 @@ enum Command {
     ShutdownDaemon {
         pid: u32,
         generation: String,
+        #[serde(default)]
+        force: bool,
     },
     Ping,
     SetClientInfo {
@@ -1250,12 +1264,95 @@ const OUTBOUND_CAPACITY: usize = 256;
 const OUTBOUND_CONTROL_RESERVE: usize = 256;
 const OUTBOUND_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 const OUTBOUND_CONTROL_BYTE_RESERVE: usize = 16 * 1024 * 1024;
+const OUTBOUND_CONNECTION_CAPACITY: usize = OUTBOUND_CAPACITY * 16;
+const OUTBOUND_CONNECTION_BYTE_CAPACITY: usize = OUTBOUND_BYTE_CAPACITY * 8;
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 const CONNECTION_SURFACE_QUEUE_CAPACITY: usize = 256;
 const CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 const CONNECTION_SURFACE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const SERVER_SURFACE_WORKER_CAPACITY: usize = 16;
 const SERVER_SURFACE_RETAINED_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
+const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
+const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
+const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
+
+#[derive(Default)]
+struct ResourceWorkerAdmissionState {
+    active: usize,
+    active_by_client: HashMap<u64, usize>,
+}
+
+struct ResourceWorkerAdmission {
+    per_client_capacity: usize,
+    server_capacity: usize,
+    state: Mutex<ResourceWorkerAdmissionState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResourceWorkerAdmissionError {
+    ClientCapacity,
+    ServerCapacity,
+}
+
+#[derive(Clone)]
+struct ResourceWorkerPermit {
+    _lease: Arc<ResourceWorkerPermitLease>,
+}
+
+struct ResourceWorkerPermitLease {
+    admission: Arc<ResourceWorkerAdmission>,
+    client: u64,
+}
+
+impl Drop for ResourceWorkerPermitLease {
+    fn drop(&mut self) {
+        let mut state = self.admission.state.lock().unwrap();
+        state.active = state.active.saturating_sub(1);
+        let remove_client = state.active_by_client.get_mut(&self.client).is_some_and(|active| {
+            *active = active.saturating_sub(1);
+            *active == 0
+        });
+        if remove_client {
+            state.active_by_client.remove(&self.client);
+        }
+    }
+}
+
+impl ResourceWorkerAdmission {
+    fn new(per_client_capacity: usize, server_capacity: usize) -> Arc<Self> {
+        Arc::new(Self {
+            per_client_capacity,
+            server_capacity,
+            state: Mutex::new(ResourceWorkerAdmissionState::default()),
+        })
+    }
+
+    fn try_reserve(
+        self: &Arc<Self>,
+        client: u64,
+    ) -> Result<ResourceWorkerPermit, ResourceWorkerAdmissionError> {
+        let mut state = self.state.lock().unwrap();
+        if state.active_by_client.get(&client).copied().unwrap_or_default()
+            >= self.per_client_capacity
+        {
+            return Err(ResourceWorkerAdmissionError::ClientCapacity);
+        }
+        if state.active >= self.server_capacity {
+            return Err(ResourceWorkerAdmissionError::ServerCapacity);
+        }
+        state.active += 1;
+        *state.active_by_client.entry(client).or_default() += 1;
+        Ok(ResourceWorkerPermit {
+            _lease: Arc::new(ResourceWorkerPermitLease { admission: self.clone(), client }),
+        })
+    }
+
+    #[cfg(test)]
+    fn active(&self) -> usize {
+        self.state.lock().unwrap().active
+    }
+}
 
 #[derive(Default)]
 struct ServerSurfaceOperationState {
@@ -1385,7 +1482,7 @@ struct OutboundStream {
     id: u64,
     open: Arc<AtomicBool>,
     terminal_enqueued: Arc<AtomicBool>,
-    overflow_text: Arc<str>,
+    overflow_text: Arc<Mutex<String>>,
 }
 
 impl OutboundStream {
@@ -1394,7 +1491,7 @@ impl OutboundStream {
             id,
             open: Arc::new(AtomicBool::new(true)),
             terminal_enqueued: Arc::new(AtomicBool::new(false)),
-            overflow_text: overflow_text.into(),
+            overflow_text: Arc::new(Mutex::new(overflow_text)),
         }
     }
 
@@ -1404,6 +1501,11 @@ impl OutboundStream {
 
     fn close(&self) {
         self.open.store(false, Ordering::Release);
+    }
+
+    fn update_overflow(&self, value: &Value) -> std::io::Result<()> {
+        *self.overflow_text.lock().unwrap() = serde_json::to_string(value)?;
+        Ok(())
     }
 }
 
@@ -1425,6 +1527,7 @@ struct MessageWriter {
     sink: Arc<dyn MessageSink>,
     open: Arc<AtomicBool>,
     next_stream_id: Arc<AtomicU64>,
+    wait_wakeups: Arc<Mutex<Vec<Weak<ResourceWaitWake>>>>,
 }
 
 impl MessageWriter {
@@ -1433,6 +1536,7 @@ impl MessageWriter {
             sink: Arc::new(sink),
             open: Arc::new(AtomicBool::new(true)),
             next_stream_id: Arc::new(AtomicU64::new(1)),
+            wait_wakeups: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -1495,8 +1599,23 @@ impl MessageWriter {
         self.sink.set_write_timeout(timeout)
     }
 
+    fn register_wait_wakeup(&self, wake: &Arc<ResourceWaitWake>) {
+        let mut wakeups = self.wait_wakeups.lock().unwrap();
+        wakeups.retain(|registered| registered.strong_count() > 0);
+        if self.is_open() {
+            wakeups.push(Arc::downgrade(wake));
+        } else {
+            drop(wakeups);
+            wake.notify();
+        }
+    }
+
     fn close(&self) {
         if self.open.swap(false, Ordering::AcqRel) {
+            let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().unwrap());
+            for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
+                wake.notify();
+            }
             self.sink.close();
         }
     }
@@ -1828,9 +1947,16 @@ struct BoundedOutboundState {
     initial: VecDeque<RegularOutbound>,
     control: VecDeque<String>,
     regular: VecDeque<RegularOutbound>,
+    stream_usage: HashMap<u64, StreamOutboundUsage>,
     control_bytes: usize,
     regular_bytes: usize,
     closed: bool,
+}
+
+struct StreamOutboundUsage {
+    messages: usize,
+    bytes: usize,
+    stream: OutboundStream,
 }
 
 struct RegularOutbound {
@@ -1891,9 +2017,26 @@ impl BoundedOutbound {
                 "outbound queue overflowed",
             ));
         }
+        let (stream_messages, stream_bytes) = state
+            .stream_usage
+            .get(&stream.id)
+            .map(|usage| (usage.messages, usage.bytes))
+            .unwrap_or_default();
+        if stream_messages >= OUTBOUND_CAPACITY
+            || bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(stream_bytes)
+        {
+            Self::terminate_stream_locked(&mut state, stream)?;
+            self.changed.notify_one();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "outbound stream queue overflowed",
+            ));
+        }
         loop {
-            let byte_full = bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(state.regular_bytes);
-            let count_full = state.initial.len() + state.regular.len() >= OUTBOUND_CAPACITY;
+            let byte_full =
+                bytes > OUTBOUND_CONNECTION_BYTE_CAPACITY.saturating_sub(state.regular_bytes);
+            let count_full =
+                state.initial.len() + state.regular.len() >= OUTBOUND_CONNECTION_CAPACITY;
             if !byte_full && !count_full {
                 break;
             }
@@ -1916,6 +2059,13 @@ impl BoundedOutbound {
             }
         }
         state.regular_bytes += bytes;
+        let usage = state.stream_usage.entry(stream.id).or_insert_with(|| StreamOutboundUsage {
+            messages: 0,
+            bytes: 0,
+            stream: stream.clone(),
+        });
+        usage.messages += 1;
+        usage.bytes += bytes;
         let message = RegularOutbound { text, stream: stream.clone() };
         if initial {
             state.initial.push_back(message);
@@ -1954,7 +2104,8 @@ impl BoundedOutbound {
         if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
-        if let Err(error) = Self::push_control_locked(state, stream.overflow_text.to_string()) {
+        let overflow_text = stream.overflow_text.lock().unwrap().clone();
+        if let Err(error) = Self::push_control_locked(state, overflow_text) {
             state.closed = true;
             return Err(std::io::Error::new(
                 std::io::ErrorKind::BrokenPipe,
@@ -1965,38 +2116,19 @@ impl BoundedOutbound {
     }
 
     fn purge_stream_locked(state: &mut BoundedOutboundState, stream_id: u64) {
-        let mut removed_bytes = 0;
-        state.initial.retain(|message| {
-            if message.stream.id == stream_id {
-                removed_bytes += message.text.len();
-                false
-            } else {
-                true
-            }
-        });
-        state.regular.retain(|message| {
-            if message.stream.id == stream_id {
-                removed_bytes += message.text.len();
-                false
-            } else {
-                true
-            }
-        });
-        state.regular_bytes -= removed_bytes;
+        state.initial.retain(|message| message.stream.id != stream_id);
+        state.regular.retain(|message| message.stream.id != stream_id);
+        if let Some(usage) = state.stream_usage.remove(&stream_id) {
+            state.regular_bytes = state.regular_bytes.saturating_sub(usage.bytes);
+        }
     }
 
     fn largest_stream(state: &BoundedOutboundState, by_bytes: bool) -> Option<OutboundStream> {
-        let mut usage = HashMap::<u64, (usize, usize, OutboundStream)>::new();
-        for message in state.initial.iter().chain(&state.regular) {
-            let entry =
-                usage.entry(message.stream.id).or_insert_with(|| (0, 0, message.stream.clone()));
-            entry.0 += 1;
-            entry.1 += message.text.len();
-        }
-        usage
-            .into_values()
-            .max_by_key(|(messages, bytes, _)| if by_bytes { *bytes } else { *messages })
-            .map(|(_, _, stream)| stream)
+        state
+            .stream_usage
+            .values()
+            .max_by_key(|usage| if by_bytes { usage.bytes } else { usage.messages })
+            .map(|usage| usage.stream.clone())
     }
 
     fn push_control_locked(state: &mut BoundedOutboundState, text: String) -> std::io::Result<()> {
@@ -2038,7 +2170,7 @@ impl BoundedOutbound {
 
     fn pop_locked(state: &mut BoundedOutboundState) -> Option<String> {
         if let Some(message) = state.initial.pop_front() {
-            state.regular_bytes -= message.text.len();
+            Self::record_stream_pop(state, &message);
             return Some(message.text);
         }
         if let Some(text) = state.control.pop_front() {
@@ -2046,8 +2178,21 @@ impl BoundedOutbound {
             return Some(text);
         }
         let message = state.regular.pop_front()?;
-        state.regular_bytes -= message.text.len();
+        Self::record_stream_pop(state, &message);
         Some(message.text)
+    }
+
+    fn record_stream_pop(state: &mut BoundedOutboundState, message: &RegularOutbound) {
+        let bytes = message.text.len();
+        state.regular_bytes = state.regular_bytes.saturating_sub(bytes);
+        let remove = state.stream_usage.get_mut(&message.stream.id).is_some_and(|usage| {
+            usage.messages = usage.messages.saturating_sub(1);
+            usage.bytes = usage.bytes.saturating_sub(bytes);
+            usage.messages == 0
+        });
+        if remove {
+            state.stream_usage.remove(&message.stream.id);
+        }
     }
 
     fn is_open(&self) -> bool {
@@ -2197,6 +2342,152 @@ struct DetachedSurface {
     rollback: Option<crate::mux::ClientSizeRollback>,
 }
 
+struct ResourceClientStream {
+    outbound: OutboundStream,
+    canceled: Arc<AtomicBool>,
+    _worker_permit: ResourceWorkerPermit,
+}
+
+impl Drop for ResourceClientStream {
+    fn drop(&mut self) {
+        self.canceled.store(true, Ordering::Release);
+        self.outbound.close();
+    }
+}
+
+struct ResourceClientWait {
+    canceled: Arc<ResourceWaitCancellation>,
+    _worker_permit: ResourceWorkerPermit,
+}
+
+impl Drop for ResourceClientWait {
+    fn drop(&mut self) {
+        self.canceled.cancel();
+    }
+}
+
+#[derive(Default)]
+struct ResourceWaitCancellation {
+    canceled: AtomicBool,
+    wakeups: Mutex<Vec<Weak<ResourceWaitWake>>>,
+    lifecycle: Mutex<ResourceWaitLifecycleState>,
+    lifecycle_changed: Condvar,
+}
+
+#[derive(Default)]
+struct ResourceWaitLifecycleState {
+    completion_started: bool,
+    response_attempted: bool,
+    worker_finished: bool,
+}
+
+impl ResourceWaitCancellation {
+    fn is_canceled(&self) -> bool {
+        self.canceled.load(Ordering::Acquire)
+    }
+
+    fn register(&self, wake: &Arc<ResourceWaitWake>) {
+        let mut wakeups = self.wakeups.lock().unwrap();
+        wakeups.retain(|registered| registered.strong_count() > 0);
+        if self.is_canceled() {
+            drop(wakeups);
+            wake.notify();
+        } else {
+            wakeups.push(Arc::downgrade(wake));
+        }
+    }
+
+    fn cancel(&self) {
+        if self.canceled.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let wakeups = std::mem::take(&mut *self.wakeups.lock().unwrap());
+        for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
+            wake.notify();
+        }
+    }
+
+    fn begin_completion(&self) -> bool {
+        let mut lifecycle = self.lifecycle.lock().unwrap();
+        if self.is_canceled() || lifecycle.completion_started {
+            return false;
+        }
+        lifecycle.completion_started = true;
+        true
+    }
+
+    fn completion_started(&self) -> bool {
+        self.lifecycle.lock().unwrap().completion_started
+    }
+
+    fn mark_response_attempted(&self) {
+        let mut lifecycle = self.lifecycle.lock().unwrap();
+        lifecycle.response_attempted = true;
+        self.lifecycle_changed.notify_all();
+    }
+
+    fn wait_for_response_attempt(&self) -> bool {
+        let mut lifecycle = self.lifecycle.lock().unwrap();
+        while !lifecycle.response_attempted && !lifecycle.worker_finished {
+            lifecycle = self.lifecycle_changed.wait(lifecycle).unwrap();
+        }
+        lifecycle.response_attempted
+    }
+
+    fn mark_worker_finished(&self) {
+        let mut lifecycle = self.lifecycle.lock().unwrap();
+        lifecycle.worker_finished = true;
+        self.lifecycle_changed.notify_all();
+    }
+
+    fn wait_for_worker_finish(&self) {
+        let mut lifecycle = self.lifecycle.lock().unwrap();
+        while !lifecycle.worker_finished {
+            lifecycle = self.lifecycle_changed.wait(lifecycle).unwrap();
+        }
+    }
+}
+
+enum ResourceWaitCancel {
+    Missing,
+    Canceled(Arc<ResourceWaitCancellation>),
+    Completing(Arc<ResourceWaitCancellation>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResourceStreamInstallError {
+    UnknownClient,
+    Duplicate,
+    ClientCapacity,
+    ServerCapacity,
+}
+
+impl From<ResourceWorkerAdmissionError> for ResourceStreamInstallError {
+    fn from(error: ResourceWorkerAdmissionError) -> Self {
+        match error {
+            ResourceWorkerAdmissionError::ClientCapacity => Self::ClientCapacity,
+            ResourceWorkerAdmissionError::ServerCapacity => Self::ServerCapacity,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResourceWaitInstallError {
+    UnknownClient,
+    Duplicate,
+    ClientCapacity,
+    ServerCapacity,
+}
+
+impl From<ResourceWorkerAdmissionError> for ResourceWaitInstallError {
+    fn from(error: ResourceWorkerAdmissionError) -> Self {
+        match error {
+            ResourceWorkerAdmissionError::ClientCapacity => Self::ClientCapacity,
+            ResourceWorkerAdmissionError::ServerCapacity => Self::ServerCapacity,
+        }
+    }
+}
+
 struct ClientRecord {
     transport: ClientTransport,
     connected_at: Instant,
@@ -2205,8 +2496,20 @@ struct ClientRecord {
     capabilities: HashSet<String>,
     browser_pointer_owner: Option<BrowserPointerOwner>,
     attached: BTreeMap<SurfaceId, AttachedSurface>,
+    resource_streams: HashMap<String, ResourceClientStream>,
+    resource_waits: HashMap<ResourceRequestId, ResourceClientWait>,
     announced_attached: bool,
     writer: MessageWriter,
+}
+
+#[derive(Clone)]
+struct ResourceClientRecord {
+    client: u64,
+    transport: &'static str,
+    connected_seconds: u64,
+    name: Option<String>,
+    kind: Option<String>,
+    attached: Vec<(SurfaceId, Option<(u16, u16)>)>,
 }
 
 #[derive(Default)]
@@ -2217,12 +2520,25 @@ struct ClientRegistryState {
 
 pub(crate) struct ClientRegistry {
     next_id: AtomicU64,
+    resource_stream_admission: Arc<ResourceWorkerAdmission>,
+    resource_wait_admission: Arc<ResourceWorkerAdmission>,
     state: Mutex<ClientRegistryState>,
 }
 
 impl ClientRegistry {
     pub(crate) fn new() -> Self {
-        Self { next_id: AtomicU64::new(1), state: Mutex::new(ClientRegistryState::default()) }
+        Self {
+            next_id: AtomicU64::new(1),
+            resource_stream_admission: ResourceWorkerAdmission::new(
+                RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
+                RESOURCE_STREAMS_SERVER_CAPACITY,
+            ),
+            resource_wait_admission: ResourceWorkerAdmission::new(
+                RESOURCE_WAITS_PER_CLIENT_CAPACITY,
+                RESOURCE_WAITS_SERVER_CAPACITY,
+            ),
+            state: Mutex::new(ClientRegistryState::default()),
+        }
     }
 
     fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
@@ -2237,6 +2553,8 @@ impl ClientRegistry {
                 capabilities: HashSet::new(),
                 browser_pointer_owner: None,
                 attached: BTreeMap::new(),
+                resource_streams: HashMap::new(),
+                resource_waits: HashMap::new(),
                 announced_attached: false,
                 writer,
             },
@@ -2251,6 +2569,148 @@ impl ClientRegistry {
             .clients
             .get(&client)
             .is_some_and(|record| matches!(record.transport, ClientTransport::Unix))
+    }
+
+    fn install_resource_stream(
+        &self,
+        client: u64,
+        stream_id: &StreamPublicId,
+        outbound: OutboundStream,
+    ) -> Result<(Arc<AtomicBool>, ResourceWorkerPermit), ResourceStreamInstallError> {
+        let mut state = self.state.lock().unwrap();
+        let record =
+            state.clients.get_mut(&client).ok_or(ResourceStreamInstallError::UnknownClient)?;
+        if record.resource_streams.contains_key(stream_id.as_str()) {
+            return Err(ResourceStreamInstallError::Duplicate);
+        }
+        let worker_permit = self.resource_stream_admission.try_reserve(client)?;
+        let canceled = Arc::new(AtomicBool::new(false));
+        record.resource_streams.insert(
+            stream_id.to_string(),
+            ResourceClientStream {
+                outbound,
+                canceled: canceled.clone(),
+                _worker_permit: worker_permit.clone(),
+            },
+        );
+        Ok((canceled, worker_permit))
+    }
+
+    fn take_resource_stream(
+        &self,
+        client: u64,
+        stream_id: &StreamPublicId,
+    ) -> Option<ResourceClientStream> {
+        self.state
+            .lock()
+            .unwrap()
+            .clients
+            .get_mut(&client)?
+            .resource_streams
+            .remove(stream_id.as_str())
+    }
+
+    fn finish_resource_stream(&self, client: u64, stream_id: &StreamPublicId, outbound_id: u64) {
+        let mut state = self.state.lock().unwrap();
+        let Some(record) = state.clients.get_mut(&client) else { return };
+        if record
+            .resource_streams
+            .get(stream_id.as_str())
+            .is_some_and(|stream| stream.outbound.id == outbound_id)
+        {
+            record.resource_streams.remove(stream_id.as_str());
+        }
+    }
+
+    fn install_resource_wait(
+        &self,
+        client: u64,
+        request_id: &ResourceRequestId,
+    ) -> Result<(Arc<ResourceWaitCancellation>, ResourceWorkerPermit), ResourceWaitInstallError>
+    {
+        let mut state = self.state.lock().unwrap();
+        let record =
+            state.clients.get_mut(&client).ok_or(ResourceWaitInstallError::UnknownClient)?;
+        if record.resource_waits.contains_key(request_id) {
+            return Err(ResourceWaitInstallError::Duplicate);
+        }
+        let worker_permit = self.resource_wait_admission.try_reserve(client)?;
+        let canceled = Arc::new(ResourceWaitCancellation::default());
+        record.resource_waits.insert(
+            request_id.clone(),
+            ResourceClientWait {
+                canceled: canceled.clone(),
+                _worker_permit: worker_permit.clone(),
+            },
+        );
+        Ok((canceled, worker_permit))
+    }
+
+    /// Atomically claim completion for one exact request registration.
+    ///
+    /// The cancellation identity check prevents an old worker from removing a
+    /// replacement that reused the same public request id after cancellation.
+    fn begin_resource_wait_completion(
+        &self,
+        client: u64,
+        request_id: &ResourceRequestId,
+        canceled: &Arc<ResourceWaitCancellation>,
+    ) -> bool {
+        let state = self.state.lock().unwrap();
+        let Some(record) = state.clients.get(&client) else { return false };
+        record
+            .resource_waits
+            .get(request_id)
+            .filter(|wait| Arc::ptr_eq(&wait.canceled, canceled))
+            .is_some_and(|_| canceled.begin_completion())
+    }
+
+    fn finish_resource_wait(
+        &self,
+        client: u64,
+        request_id: &ResourceRequestId,
+        canceled: &Arc<ResourceWaitCancellation>,
+    ) -> bool {
+        let removed = {
+            let mut state = self.state.lock().unwrap();
+            let Some(record) = state.clients.get_mut(&client) else { return false };
+            if record
+                .resource_waits
+                .get(request_id)
+                .is_some_and(|wait| Arc::ptr_eq(&wait.canceled, canceled))
+            {
+                record.resource_waits.remove(request_id)
+            } else {
+                None
+            }
+        };
+        removed.is_some()
+    }
+
+    /// Remove and wake a detached wait by its public request id. Removal is
+    /// the cancellation linearization point, so repeated and late requests
+    /// return false and a worker that lost this race cannot send a response.
+    fn cancel_resource_wait(
+        &self,
+        client: u64,
+        request_id: &ResourceRequestId,
+    ) -> ResourceWaitCancel {
+        {
+            let mut state = self.state.lock().unwrap();
+            let Some(record) = state.clients.get_mut(&client) else {
+                return ResourceWaitCancel::Missing;
+            };
+            let Some(wait) = record.resource_waits.get(request_id) else {
+                return ResourceWaitCancel::Missing;
+            };
+            if wait.canceled.completion_started() {
+                ResourceWaitCancel::Completing(wait.canceled.clone())
+            } else {
+                let canceled = wait.canceled.clone();
+                record.resource_waits.remove(request_id);
+                ResourceWaitCancel::Canceled(canceled)
+            }
+        }
     }
 
     fn set_info(
@@ -2287,6 +2747,68 @@ impl ClientRegistry {
         Ok((record.name.clone(), record.kind.clone()))
     }
 
+    fn set_resource_info(
+        &self,
+        client: u64,
+        name: Option<Option<String>>,
+        kind: Option<Option<String>>,
+        daemon_handoff_pending: &AtomicBool,
+    ) -> Result<(Option<String>, Option<String>), ResourceError> {
+        let name = name.map(|name| validate_resource_client_label("name", name)).transpose()?;
+        let kind = kind.map(|kind| validate_resource_client_label("kind", kind)).transpose()?;
+        let mut state = self.state.lock().unwrap();
+        if kind.as_ref().and_then(|kind| kind.as_deref()) == Some("native-browser")
+            && daemon_handoff_pending.load(Ordering::Acquire)
+        {
+            return Err(ResourceError::operation_failed(
+                "client.metadata.update",
+                "daemon handoff is already in progress",
+                json!({}),
+            ));
+        }
+        let record = state.clients.get_mut(&client).ok_or_else(|| {
+            ResourceError::operation_failed(
+                "client.metadata.update",
+                format!("unknown client {client}"),
+                json!({}),
+            )
+        })?;
+        if let Some(name) = name {
+            record.name = name;
+        }
+        if let Some(kind) = kind {
+            record.kind = kind;
+        }
+        Ok((record.name.clone(), record.kind.clone()))
+    }
+
+    fn resource_records(&self) -> Vec<ResourceClientRecord> {
+        self.state
+            .lock()
+            .unwrap()
+            .clients
+            .iter()
+            .map(|(client, record)| ResourceClientRecord {
+                client: *client,
+                transport: match record.transport {
+                    ClientTransport::Unix => "unix",
+                    ClientTransport::WebSocket => "websocket",
+                },
+                connected_seconds: record.connected_at.elapsed().as_secs(),
+                name: record.name.clone(),
+                kind: record.kind.clone(),
+                attached: record
+                    .attached
+                    .iter()
+                    .filter_map(|(surface, attached)| {
+                        (!attached.streams.is_empty())
+                            .then_some((*surface, attached.committed_size))
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
     fn supports_capability(&self, client: u64, capability: &str) -> bool {
         self.state
             .lock()
@@ -2318,6 +2840,7 @@ impl ClientRegistry {
         &self,
         requesting_client: u64,
         daemon_handoff_pending: &AtomicBool,
+        force: bool,
     ) -> anyhow::Result<()> {
         let state = self.state.lock().unwrap();
         let requester = state
@@ -2327,9 +2850,11 @@ impl ClientRegistry {
         if !matches!(requester.transport, ClientTransport::Unix) {
             anyhow::bail!("daemon shutdown requires a trusted local connection");
         }
-        if state.clients.iter().any(|(client, record)| {
-            *client != requesting_client && record.kind.as_deref() == Some("native-browser")
-        }) {
+        if !force
+            && state.clients.iter().any(|(client, record)| {
+                *client != requesting_client && record.kind.as_deref() == Some("native-browser")
+            })
+        {
             anyhow::bail!("another native-browser frontend still owns this daemon");
         }
         daemon_handoff_pending
@@ -2611,6 +3136,26 @@ fn clamp_client_label(value: String) -> String {
     sanitize_window_title(&value).chars().take(64).collect()
 }
 
+fn validate_resource_client_label(
+    field: &'static str,
+    value: Option<String>,
+) -> Result<Option<String>, ResourceError> {
+    let Some(value) = value else { return Ok(None) };
+    if value.chars().count() > 64 {
+        return Err(ResourceError::validation_invalid(
+            Some(field),
+            "client metadata labels cannot exceed 64 characters",
+        ));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(ResourceError::validation_invalid(
+            Some(field),
+            "client metadata labels cannot contain control characters",
+        ));
+    }
+    Ok(Some(value))
+}
+
 /// Bind the socket and serve connections on background threads.
 pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
@@ -2790,6 +3335,7 @@ fn handle_connection_with_permit(
         control: Some(SinkControl::Unix(control)),
     });
     let writer_outbound = outbound;
+    let writer_close = writer.clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
             while let Some(text) = writer_outbound.recv() {
@@ -2801,6 +3347,7 @@ fn handle_connection_with_permit(
                     break;
                 }
             }
+            writer_close.close();
             let _ = write_half.shutdown(Shutdown::Both);
         })
     else {
@@ -2896,6 +3443,7 @@ fn handle_websocket_connection_with_permit(
         control: Some(SinkControl::WebSocket(control)),
     });
     let writer_outbound = outbound;
+    let writer_close = writer.clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
             let mut websocket = WebSocket::from_raw_socket(writer_stream, Role::Server, None);
@@ -2905,6 +3453,7 @@ fn handle_websocket_connection_with_permit(
                     break;
                 }
             }
+            writer_close.close();
             let _ = websocket.close(None);
             let _ = websocket.flush();
             let _ = writer_shutdown.shutdown(Shutdown::Both);
@@ -3063,6 +3612,2270 @@ fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWr
     }
 }
 
+struct SessionEventStreamStart {
+    stream_id: StreamPublicId,
+    outbound: OutboundStream,
+    canceled: Arc<AtomicBool>,
+    _worker_permit: ResourceWorkerPermit,
+    initial_items: Vec<(Value, Value)>,
+    next_sequence: u64,
+    last_revision: u64,
+    epoch: u64,
+}
+
+const fn handles_resource_connection_operation(operation: ResourceOperation) -> bool {
+    matches!(
+        operation,
+        ResourceOperation::SessionEvents
+            | ResourceOperation::SessionShutdown
+            | ResourceOperation::PairingRequestList
+            | ResourceOperation::PairingRequestResolve
+            | ResourceOperation::RequestCancel
+            | ResourceOperation::ClientList
+            | ResourceOperation::ClientGet
+            | ResourceOperation::ClientMetadataUpdate
+            | ResourceOperation::ClientSizingSet
+            | ResourceOperation::ClientSizingRelease
+            | ResourceOperation::ClientCellPixelsSet
+            | ResourceOperation::ClientDetach
+            | ResourceOperation::TerminalRendererGrantCreate
+            | ResourceOperation::TerminalViewerResize
+            | ResourceOperation::TerminalViewerRelease
+            | ResourceOperation::TerminalAttach
+            | ResourceOperation::BrowserViewerResize
+            | ResourceOperation::BrowserViewerRelease
+            | ResourceOperation::BrowserAttach
+            | ResourceOperation::SidebarViewAttach
+            | ResourceOperation::StreamCancel
+    )
+}
+
+fn trusted_local_resource_client(
+    mux: &Mux,
+    client: u64,
+    operation: ResourceOperation,
+) -> Result<(), ResourceError> {
+    if mux.control_clients.is_unix(client) {
+        Ok(())
+    } else {
+        let operation = serde_json::to_value(operation)
+            .expect("resource operations serialize")
+            .as_str()
+            .expect("resource operations serialize as strings")
+            .to_string();
+        Err(ResourceError::operation_failed(
+            operation,
+            "operation requires a trusted local connection",
+            json!({"required_authority":"trusted_local"}),
+        ))
+    }
+}
+
+fn handle_resource_session_shutdown(
+    mux: &Arc<Mux>,
+    client: u64,
+    request: crate::resource_router::ParsedResourceRequest,
+    id: ResourceRequestId,
+    writer: &MessageWriter,
+) -> bool {
+    let operation = ResourceOperation::SessionShutdown;
+    let force =
+        request.fields["force"].as_bool().expect("catalog validates the shutdown force flag");
+    let result = trusted_local_resource_client(mux, client, operation).and_then(|()| {
+        mux.begin_daemon_handoff(client, DaemonHandoffRequest::unfenced(force)).map_err(|error| {
+            ResourceError::operation_failed(
+                "session.shutdown",
+                error.to_string(),
+                json!({"force":force}),
+            )
+        })
+    });
+    if let Err(error) = result {
+        return send_resource_response(writer, id, operation, Err(error));
+    }
+
+    match crate::resource_router::commit_session_shutdown(mux, request) {
+        Ok(result) => {
+            let sent = send_resource_response(writer, id, operation, Ok(result));
+            if sent {
+                mux.request_daemon_shutdown();
+            } else {
+                mux.cancel_daemon_handoff();
+            }
+            sent
+        }
+        Err(error) => {
+            mux.cancel_daemon_handoff();
+            send_resource_response(writer, id, operation, Err(error))
+        }
+    }
+}
+
+fn handle_resource_connection_message(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+) -> bool {
+    let request = match crate::resource_router::parse_resource_request(message) {
+        Ok(request) => request,
+        Err(error) => {
+            let response = crate::resource_router::malformed_resource_response(message, error);
+            return writer.send_control(&response).is_ok();
+        }
+    };
+    let id = request.envelope.id.clone();
+    let operation = request.envelope.operation;
+    debug_assert_eq!(
+        handles_resource_connection_operation(operation),
+        crate::resource_router::requires_connection_context(operation)
+    );
+    match operation {
+        ResourceOperation::SessionShutdown => {
+            handle_resource_session_shutdown(mux, client, request, id, writer)
+        }
+        ResourceOperation::PairingRequestList | ResourceOperation::PairingRequestResolve => {
+            let result = trusted_local_resource_client(mux, client, operation).and_then(|()| {
+                crate::resource_router::handle_trusted_local_auxiliary(mux, request)
+            });
+            send_resource_response(writer, id, operation, result)
+        }
+        ResourceOperation::ClientList
+        | ResourceOperation::ClientGet
+        | ResourceOperation::ClientMetadataUpdate
+        | ResourceOperation::ClientSizingSet
+        | ResourceOperation::ClientSizingRelease
+        | ResourceOperation::ClientCellPixelsSet
+        | ResourceOperation::TerminalRendererGrantCreate
+        | ResourceOperation::TerminalViewerResize
+        | ResourceOperation::TerminalViewerRelease
+        | ResourceOperation::BrowserViewerResize
+        | ResourceOperation::BrowserViewerRelease => {
+            let result = handle_resource_connection_control(mux, client, &request);
+            send_resource_response(writer, id, operation, result)
+        }
+        ResourceOperation::ClientDetach => {
+            let result = prepare_resource_client_detach(mux, client, &request);
+            match result {
+                Ok(target) if target == client => {
+                    if !send_resource_response(writer, id, operation, Ok(json!({}))) {
+                        return false;
+                    }
+                    false
+                }
+                Ok(target) => {
+                    let result = if disconnect_client(mux, target, true) {
+                        Ok(json!({}))
+                    } else {
+                        Err(ResourceError::not_found(
+                            "client",
+                            request.selectors.client.as_deref().unwrap_or("<missing>"),
+                        ))
+                    };
+                    send_resource_response(writer, id, operation, result)
+                }
+                Err(error) => send_resource_response(writer, id, operation, Err(error)),
+            }
+        }
+        ResourceOperation::TerminalAttach => {
+            match prepare_terminal_resource_attach(mux, client, writer, &request) {
+                Ok((result, start)) => {
+                    if !send_resource_response(writer, id, operation, Ok(result)) {
+                        cleanup_resource_attach(mux, client, &start.common);
+                        return false;
+                    }
+                    start_terminal_resource_attach(mux.clone(), client, writer.clone(), start);
+                    true
+                }
+                Err(error) => send_resource_response(writer, id, operation, Err(error)),
+            }
+        }
+        ResourceOperation::BrowserAttach => {
+            match prepare_browser_resource_attach(mux, client, writer, &request) {
+                Ok((result, start)) => {
+                    if !send_resource_response(writer, id, operation, Ok(result)) {
+                        cleanup_resource_attach(mux, client, &start.common);
+                        return false;
+                    }
+                    start_browser_resource_attach(mux.clone(), client, writer.clone(), start);
+                    true
+                }
+                Err(error) => send_resource_response(writer, id, operation, Err(error)),
+            }
+        }
+        ResourceOperation::SidebarViewAttach => {
+            match prepare_sidebar_resource_attach(mux, client, writer, &request) {
+                Ok((result, start)) => {
+                    if !send_resource_response(writer, id, operation, Ok(result)) {
+                        cleanup_resource_stream(mux, client, &start.stream_id);
+                        return false;
+                    }
+                    start_sidebar_resource_attach(mux.clone(), client, writer.clone(), start);
+                    true
+                }
+                Err(error) => send_resource_response(writer, id, operation, Err(error)),
+            }
+        }
+        ResourceOperation::SessionEvents => {
+            match prepare_session_event_stream(mux, client, writer, &request) {
+                Ok((result, start)) => {
+                    if !send_resource_response(writer, id, operation, Ok(result)) {
+                        let _ = mux.control_clients.take_resource_stream(client, &start.stream_id);
+                        return false;
+                    }
+                    start_session_event_stream(mux.clone(), client, writer.clone(), start);
+                    true
+                }
+                Err(error) => send_resource_response(writer, id, operation, Err(error)),
+            }
+        }
+        ResourceOperation::SessionSnapshot => {
+            let result = resource_session_snapshot(mux, client, &request.selectors);
+            send_resource_response(writer, id, operation, result)
+        }
+        ResourceOperation::TerminalWait | ResourceOperation::TerminalWaitExit => {
+            start_resource_wait(mux.clone(), client, writer.clone(), request, id)
+        }
+        ResourceOperation::RequestCancel => {
+            let result = cancel_resource_request(mux, client, writer, &request);
+            send_resource_response(writer, id, operation, result)
+        }
+        ResourceOperation::StreamCancel => {
+            let result = cancel_resource_stream(mux, client, writer, &request);
+            send_resource_response(writer, id, operation, result)
+        }
+        _ => {
+            debug_assert!(
+                !crate::resource_router::requires_connection_context(request.envelope.operation),
+                "connection-owned operation fell through to the transport-independent router"
+            );
+            match crate::resource_router::handle_parsed_resource_request(mux, request) {
+                Ok(response) => writer.send_control(&response).is_ok(),
+                Err(error) => {
+                    let response =
+                        crate::resource_router::malformed_resource_response(message, error);
+                    writer.send_control(&response).is_ok()
+                }
+            }
+        }
+    }
+}
+
+struct ResourceWaitWorkerGuard {
+    mux: Arc<Mux>,
+    client: u64,
+    request_id: ResourceRequestId,
+    canceled: Arc<ResourceWaitCancellation>,
+}
+
+impl ResourceWaitWorkerGuard {
+    fn claim_completion(&self) -> bool {
+        self.mux.control_clients.begin_resource_wait_completion(
+            self.client,
+            &self.request_id,
+            &self.canceled,
+        )
+    }
+
+    fn finish_response_attempt(&self) {
+        self.canceled.mark_response_attempted();
+        let _ = self.mux.control_clients.finish_resource_wait(
+            self.client,
+            &self.request_id,
+            &self.canceled,
+        );
+    }
+}
+
+impl Drop for ResourceWaitWorkerGuard {
+    fn drop(&mut self) {
+        let _ = self.mux.control_clients.finish_resource_wait(
+            self.client,
+            &self.request_id,
+            &self.canceled,
+        );
+        self.canceled.mark_worker_finished();
+    }
+}
+
+fn resource_wait_runtime_error(error: impl std::fmt::Display) -> ResourceError {
+    ResourceError::operation_failed("resource.runtime", error.to_string(), json!({}))
+}
+
+fn resource_wait_timeout(
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Option<Duration> {
+    request.fields.get("timeout_ms").map(|value| {
+        Duration::from_millis(
+            serde_json::from_value::<WireDecimal>(value.clone())
+                .expect("catalog validates terminal wait timeout")
+                .get(),
+        )
+    })
+}
+
+fn resource_wait_stopped(canceled: &ResourceWaitCancellation, writer: &MessageWriter) -> bool {
+    canceled.is_canceled() || !writer.is_open()
+}
+
+fn run_terminal_resource_wait(
+    mux: &Arc<Mux>,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+    canceled: &ResourceWaitCancellation,
+) -> Result<Option<Value>, ResourceError> {
+    let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
+    let pattern = request.fields["pattern"].as_str().expect("catalog validates wait pattern");
+    let regex = Regex::new(pattern).map_err(|_| {
+        ResourceError::validation_invalid(
+            None,
+            "terminal wait pattern is not a valid regular expression",
+        )
+    })?;
+    let timeout = resource_wait_timeout(request);
+    let deadline = timeout
+        .map(|timeout| {
+            Instant::now().checked_add(timeout).ok_or_else(|| {
+                ResourceError::validation_invalid(
+                    Some("timeout_ms"),
+                    "terminal wait timeout exceeds the platform deadline range",
+                )
+            })
+        })
+        .transpose()?;
+    let check = || -> Result<String, ResourceError> {
+        surface
+            .try_with_terminal(|terminal| terminal.viewport_text())
+            .map_err(resource_wait_runtime_error)?
+            .map_err(resource_wait_runtime_error)
+    };
+    loop {
+        if resource_wait_stopped(canceled, writer) {
+            return Ok(None);
+        }
+        // Register every wake source before reading terminal state. Output,
+        // cancellation, and connection close therefore share one blocking
+        // primitive without a read/wait gap or an idle polling deadline.
+        let subscription =
+            surface.subscribe_terminal_stream_change().map_err(resource_wait_runtime_error)?;
+        let wake = subscription.wake();
+        canceled.register(&wake);
+        writer.register_wait_wakeup(&wake);
+        if resource_wait_stopped(canceled, writer) {
+            return Ok(None);
+        }
+        let text = check()?;
+        if regex.is_match(&text) {
+            return Ok(Some(json!({"matched":true,"text":text})));
+        }
+        if timeout == Some(Duration::ZERO) {
+            return Ok(Some(json!({"matched":false,"text":text})));
+        }
+
+        if !subscription.wait_until(deadline) {
+            // Close the output/deadline race with one final authoritative
+            // snapshot after the one deadline wake.
+            let text = check()?;
+            return Ok(Some(json!({
+                "matched":regex.is_match(&text),
+                "text":text,
+            })));
+        }
+    }
+}
+
+fn run_terminal_resource_wait_exit(
+    mux: &Arc<Mux>,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+    canceled: &ResourceWaitCancellation,
+) -> Result<Option<Value>, ResourceError> {
+    let path = mux.resolve_resource_path(crate::ResourceTarget::Terminal, &request.selectors)?;
+    let terminal_id =
+        path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+    let timeout = resource_wait_timeout(request);
+    let deadline = timeout
+        .map(|timeout| {
+            Instant::now().checked_add(timeout).ok_or_else(|| {
+                resource_wait_runtime_error("terminal exit timeout exceeds deadline range")
+            })
+        })
+        .transpose()?;
+    if resource_wait_stopped(canceled, writer) {
+        return Ok(None);
+    }
+    // Register every wake source before the initial query. A concurrent exit,
+    // connection close, or client cleanup therefore cannot strand this wait.
+    let subscription = mux.subscribe_terminal_exit(&terminal_id);
+    let wake = subscription.wake();
+    canceled.register(&wake);
+    writer.register_wait_wakeup(&wake);
+    if resource_wait_stopped(canceled, writer) {
+        return Ok(None);
+    }
+    let state = mux.terminal_exit_state(&terminal_id).map_err(resource_wait_runtime_error)?;
+    if state["state"] == "exited" || timeout == Some(Duration::ZERO) {
+        return Ok(Some(state));
+    }
+
+    let _explicit_wake = subscription.wait_until(deadline);
+    if resource_wait_stopped(canceled, writer) {
+        return Ok(None);
+    }
+    mux.terminal_exit_state(&terminal_id).map(Some).map_err(resource_wait_runtime_error)
+}
+
+fn run_resource_wait(
+    mux: &Arc<Mux>,
+    writer: &MessageWriter,
+    request: crate::resource_router::ParsedResourceRequest,
+    canceled: &ResourceWaitCancellation,
+) -> Option<Result<Value, ResourceError>> {
+    if canceled.is_canceled() || !writer.is_open() {
+        return None;
+    }
+    let result = match request.envelope.operation {
+        ResourceOperation::TerminalWait => {
+            run_terminal_resource_wait(mux, writer, &request, canceled)
+        }
+        ResourceOperation::TerminalWaitExit => {
+            run_terminal_resource_wait_exit(mux, writer, &request, canceled)
+        }
+        _ => unreachable!("only terminal waits use the detached request path"),
+    };
+    match result {
+        Ok(result) => result.map(Ok),
+        Err(error) => Some(Err(error)),
+    }
+}
+
+fn start_resource_wait(
+    mux: Arc<Mux>,
+    client: u64,
+    writer: MessageWriter,
+    request: crate::resource_router::ParsedResourceRequest,
+    id: crate::resource::RequestId,
+) -> bool {
+    let operation = request.envelope.operation;
+    let name = match operation {
+        ResourceOperation::TerminalWait => "terminal.wait",
+        ResourceOperation::TerminalWaitExit => "terminal.wait_exit",
+        _ => unreachable!("only terminal waits use the detached request path"),
+    };
+    let (canceled, worker_permit) = match mux.control_clients.install_resource_wait(client, &id) {
+        Ok(installed) => installed,
+        Err(error) => {
+            return send_resource_response(
+                &writer,
+                id,
+                operation,
+                Err(resource_wait_install_error(name, error)),
+            );
+        }
+    };
+    let worker_writer = writer.clone();
+    let worker_mux = mux.clone();
+    let worker_canceled = canceled.clone();
+    let worker_id = id.clone();
+    let spawn =
+        std::thread::Builder::new().name("mux-resource-terminal-wait".into()).spawn(move || {
+            let _registration = ResourceWaitWorkerGuard {
+                mux: worker_mux.clone(),
+                client,
+                request_id: worker_id.clone(),
+                canceled: worker_canceled.clone(),
+            };
+            let _worker_permit = worker_permit;
+            if let Some(result) =
+                run_resource_wait(&worker_mux, &worker_writer, request, &worker_canceled)
+                && _registration.claim_completion()
+            {
+                let _ = send_resource_response(&worker_writer, worker_id, operation, result);
+                _registration.finish_response_attempt();
+            }
+        });
+    match spawn {
+        Ok(_) => true,
+        Err(error) => {
+            mux.control_clients.finish_resource_wait(client, &id, &canceled);
+            send_resource_response(
+                &writer,
+                id,
+                operation,
+                Err(ResourceError::operation_failed(name, error.to_string(), json!({}))),
+            )
+        }
+    }
+}
+
+fn handle_resource_connection_control(
+    mux: &Arc<Mux>,
+    client: u64,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    match request.envelope.operation {
+        ResourceOperation::ClientList => resource_client_list(mux, client, request),
+        ResourceOperation::ClientGet => resource_client_get(mux, client, request),
+        ResourceOperation::ClientMetadataUpdate => {
+            resource_client_metadata_update(mux, client, request)
+        }
+        ResourceOperation::ClientSizingSet => resource_client_sizing_set(mux, client, request),
+        ResourceOperation::ClientSizingRelease => {
+            resource_client_sizing_release(mux, client, request)
+        }
+        ResourceOperation::ClientCellPixelsSet => {
+            resource_client_cell_pixels_set(mux, client, request)
+        }
+        ResourceOperation::TerminalViewerResize => {
+            resource_terminal_viewer_resize(mux, client, request)
+        }
+        ResourceOperation::TerminalViewerRelease => {
+            resource_terminal_viewer_release(mux, client, request)
+        }
+        ResourceOperation::BrowserViewerResize => {
+            resource_browser_viewer_resize(mux, client, request)
+        }
+        ResourceOperation::BrowserViewerRelease => {
+            resource_browser_viewer_release(mux, client, request)
+        }
+        ResourceOperation::TerminalRendererGrantCreate => {
+            resource_terminal_renderer_grant(mux, request)
+        }
+        operation => unreachable!("connection handler received {operation:?}"),
+    }
+}
+
+fn resource_session_id(
+    mux: &Mux,
+    selectors: &crate::ResourceSelectors,
+) -> Result<SessionPublicId, ResourceError> {
+    let route = crate::ResourceSelectors {
+        machine: selectors.machine.clone(),
+        session: selectors.session.clone(),
+        ..Default::default()
+    };
+    mux.resolve_resource_path(crate::ResourceTarget::Session, &route)?
+        .session
+        .ok_or_else(|| ResourceError::not_found("session", "<resolved>"))
+}
+
+fn public_client_id(
+    session_id: &SessionPublicId,
+    client: u64,
+) -> Result<ClientPublicId, ResourceError> {
+    let mut digest = Sha256::new();
+    digest.update(b"cmux.protocol/1/client/");
+    digest.update(session_id.as_str().as_bytes());
+    digest.update(b"/");
+    digest.update(client.to_be_bytes());
+    let digest = digest.finalize();
+    let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    ClientPublicId::parse(format!("client_{payload}"))
+}
+
+fn resolve_resource_client(
+    mux: &Mux,
+    requesting_client: u64,
+    selectors: &crate::ResourceSelectors,
+) -> Result<(u64, SessionPublicId), ResourceError> {
+    let session_id = resource_session_id(mux, selectors)?;
+    let raw = selectors.client.as_deref().ok_or_else(|| {
+        ResourceError::selector_invalid("client", "", "missing required client selector")
+    })?;
+    let records = mux.control_clients.resource_records();
+    let selected = match Selector::parse(raw)? {
+        Selector::Current => records
+            .iter()
+            .any(|record| record.client == requesting_client)
+            .then_some(requesting_client),
+        Selector::Id(id) => {
+            let id = ClientPublicId::parse(id)?;
+            records.iter().find_map(|record| {
+                public_client_id(&session_id, record.client)
+                    .ok()
+                    .filter(|candidate| candidate == &id)
+                    .map(|_| record.client)
+            })
+        }
+        Selector::Name(name) => {
+            let matches = records
+                .iter()
+                .filter(|record| record.name.as_deref() == Some(name.as_str()))
+                .collect::<Vec<_>>();
+            if matches.len() > 1 {
+                return Err(ResourceError::ambiguous(
+                    "client",
+                    raw,
+                    matches
+                        .into_iter()
+                        .filter_map(|record| public_client_id(&session_id, record.client).ok())
+                        .map(|id| id.to_string())
+                        .collect(),
+                ));
+            }
+            matches.first().map(|record| record.client)
+        }
+    };
+    selected
+        .map(|selected| (selected, session_id))
+        .ok_or_else(|| ResourceError::not_found("client", raw))
+}
+
+fn resource_client_snapshot(
+    mux: &Mux,
+    requesting_client: u64,
+    session_id: &SessionPublicId,
+    record: &ResourceClientRecord,
+) -> Result<Value, ResourceError> {
+    let mut attached_terminal_ids = Vec::<TerminalPublicId>::new();
+    let mut sizes = Vec::<Value>::new();
+    for (surface_id, size) in &record.attached {
+        let Some(surface) = mux.surface(*surface_id) else {
+            continue;
+        };
+        let Some(identity) = surface.resource_identity() else {
+            continue;
+        };
+        let ContentPublicId::Terminal(terminal_id) = &identity.content_id else {
+            continue;
+        };
+        attached_terminal_ids.push(terminal_id.clone());
+        let (cols, rows) =
+            size.map_or((Value::Null, Value::Null), |(cols, rows)| (json!(cols), json!(rows)));
+        sizes.push(json!({
+            "terminal_id":terminal_id,
+            "cols":cols,
+            "rows":rows,
+            "participating":mux.client_size_participates(*surface_id, record.client),
+        }));
+    }
+    attached_terminal_ids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+    attached_terminal_ids.dedup();
+    sizes.sort_by(|left, right| {
+        left["terminal_id"]
+            .as_str()
+            .unwrap_or_default()
+            .cmp(right["terminal_id"].as_str().unwrap_or_default())
+    });
+    Ok(json!({
+        "id":public_client_id(session_id, record.client)?,
+        "session_id":session_id,
+        "name":record.name,
+        "client_kind":record.kind,
+        "transport":record.transport,
+        "connected_seconds":record.connected_seconds.to_string(),
+        "attached_terminal_ids":attached_terminal_ids,
+        "sizes":sizes,
+        "self":record.client == requesting_client,
+    }))
+}
+
+fn resource_client_list(
+    mux: &Mux,
+    requesting_client: u64,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let session_id = resource_session_id(mux, &request.selectors)?;
+    Ok(Value::Array(resource_client_snapshots(mux, requesting_client, &session_id)?))
+}
+
+fn resource_client_snapshots(
+    mux: &Mux,
+    requesting_client: u64,
+    session_id: &SessionPublicId,
+) -> Result<Vec<Value>, ResourceError> {
+    let mut clients = mux
+        .control_clients
+        .resource_records()
+        .iter()
+        .map(|record| resource_client_snapshot(mux, requesting_client, session_id, record))
+        .collect::<Result<Vec<_>, _>>()?;
+    clients.sort_by(|left, right| {
+        left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
+    });
+    Ok(clients)
+}
+
+fn resource_session_snapshot(
+    mux: &Mux,
+    requesting_client: u64,
+    selectors: &crate::ResourceSelectors,
+) -> Result<Value, ResourceError> {
+    let session_id = resource_session_id(mux, selectors)?;
+    let mut snapshot = crate::resource_api::public_session_snapshot(mux)?;
+    snapshot["clients"] =
+        Value::Array(resource_client_snapshots(mux, requesting_client, &session_id)?);
+    Ok(snapshot)
+}
+
+fn resource_client_get(
+    mux: &Mux,
+    requesting_client: u64,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let (target, session_id) = resolve_resource_client(mux, requesting_client, &request.selectors)?;
+    let record = mux
+        .control_clients
+        .resource_records()
+        .into_iter()
+        .find(|record| record.client == target)
+        .ok_or_else(|| ResourceError::not_found("client", target.to_string().as_str()))?;
+    resource_client_snapshot(mux, requesting_client, &session_id, &record)
+}
+
+fn resource_client_metadata_update(
+    mux: &Mux,
+    requesting_client: u64,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let (target, session_id) = resolve_resource_client(mux, requesting_client, &request.selectors)?;
+    let name = request.fields.get("name").map(|value| value.as_str().map(str::to_string));
+    let kind = request.fields.get("kind").map(|value| value.as_str().map(str::to_string));
+    let (name, kind) =
+        mux.control_clients.set_resource_info(target, name, kind, &mux.daemon_handoff_pending)?;
+    mux.emit(MuxEvent::ClientChanged { client: target, name, kind });
+    let record = mux
+        .control_clients
+        .resource_records()
+        .into_iter()
+        .find(|record| record.client == target)
+        .ok_or_else(|| {
+            ResourceError::not_found(
+                "client",
+                request.selectors.client.as_deref().unwrap_or("<missing>"),
+            )
+        })?;
+    resource_client_snapshot(mux, requesting_client, &session_id, &record)
+}
+
+fn resource_terminal_surface(
+    mux: &Mux,
+    selectors: &crate::ResourceSelectors,
+) -> Result<(TerminalPublicId, Arc<crate::Surface>), ResourceError> {
+    let mut route = selectors.clone();
+    route.client = None;
+    let terminal_id = mux
+        .resolve_resource_path(crate::ResourceTarget::Terminal, &route)?
+        .terminal
+        .ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+    let surface_id = mux
+        .resource_surface_for_terminal(&terminal_id)
+        .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;
+    let surface = mux
+        .surface(surface_id)
+        .filter(|surface| surface.kind() == SurfaceKind::Pty)
+        .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;
+    Ok((terminal_id, surface))
+}
+
+fn resource_browser_surface(
+    mux: &Mux,
+    selectors: &crate::ResourceSelectors,
+) -> Result<(BrowserPublicId, Arc<crate::Surface>), ResourceError> {
+    let browser_id = mux
+        .resolve_resource_path(crate::ResourceTarget::Browser, selectors)?
+        .browser
+        .ok_or_else(|| ResourceError::not_found("browser", "<resolved>"))?;
+    let surface = mux
+        .with_state(|state| {
+            state
+                .resource_indexes
+                .content
+                .get(&ContentPublicId::Browser(browser_id.clone()))
+                .and_then(|surface| state.surfaces.get(surface))
+                .cloned()
+        })
+        .filter(|surface| surface.kind() == SurfaceKind::Browser)
+        .ok_or_else(|| ResourceError::not_found("browser", browser_id.as_str()))?;
+    Ok((browser_id, surface))
+}
+
+fn resource_client_sizing_set(
+    mux: &Mux,
+    requesting_client: u64,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let operation = "client.sizing.set";
+    let (target, session_id) = resolve_resource_client(mux, requesting_client, &request.selectors)?;
+    let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
+    let enabled =
+        request.fields["enabled"].as_bool().expect("catalog validates client sizing enabled");
+    let exclusive = request.fields.get("exclusive").and_then(Value::as_bool).unwrap_or(false);
+    if exclusive && !enabled {
+        return Err(ResourceError::validation_invalid(
+            Some("exclusive"),
+            "exclusive client sizing must be enabled",
+        ));
+    }
+    let changed = if exclusive {
+        mux.use_only_client_size(surface.id, target)
+    } else {
+        mux.set_client_size_participation(surface.id, target, enabled)
+    }
+    .ok_or_else(|| {
+        ResourceError::operation_failed(
+            operation,
+            "the selected client has no size lease for the terminal",
+            json!({}),
+        )
+    })?;
+    let _ = changed;
+    let record = mux
+        .control_clients
+        .resource_records()
+        .into_iter()
+        .find(|record| record.client == target)
+        .ok_or_else(|| {
+            ResourceError::not_found(
+                "client",
+                request.selectors.client.as_deref().unwrap_or("<missing>"),
+            )
+        })?;
+    resource_client_snapshot(mux, requesting_client, &session_id, &record)
+}
+
+fn resource_client_sizing_release(
+    mux: &Mux,
+    requesting_client: u64,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let (target, session_id) = resolve_resource_client(mux, requesting_client, &request.selectors)?;
+    let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
+    let attached = mux.control_clients.clear_size(target, surface.id);
+    let had_report = mux.client_surface_size(surface.id, target).is_some();
+    if had_report {
+        mux.remove_surface_size_client(surface.id, target);
+    }
+    if attached.as_ref().is_some_and(|(changed, _, _)| *changed) || had_report {
+        let (name, kind) = attached
+            .map(|(_, name, kind)| (name, kind))
+            .or_else(|| mux.control_clients.client_info(target))
+            .unwrap_or((None, None));
+        mux.emit(MuxEvent::ClientChanged { client: target, name, kind });
+    }
+    let record = mux
+        .control_clients
+        .resource_records()
+        .into_iter()
+        .find(|record| record.client == target)
+        .ok_or_else(|| {
+            ResourceError::not_found(
+                "client",
+                request.selectors.client.as_deref().unwrap_or("<missing>"),
+            )
+        })?;
+    resource_client_snapshot(mux, requesting_client, &session_id, &record)
+}
+
+fn checked_resource_u16(
+    operation: &'static str,
+    fields: &serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<u16, ResourceError> {
+    let value = fields[field].as_u64().expect("catalog validates integer fields");
+    u16::try_from(value).map_err(|_| {
+        ResourceError::operation_failed(
+            operation,
+            format!("{field} exceeds the runtime uint16 limit"),
+            json!({"field":field,"value":value}),
+        )
+    })
+}
+
+fn surface_public_content_id(mux: &Mux, surface: SurfaceId) -> Option<String> {
+    let surface = mux.surface(surface)?;
+    surface.resource_identity().map(|identity| identity.content_id.as_str().to_string())
+}
+
+fn resource_client_cell_pixels_set(
+    mux: &Mux,
+    requesting_client: u64,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let operation = "client.cell_pixels.set";
+    let _ = resolve_resource_client(mux, requesting_client, &request.selectors)?;
+    let width_px = checked_resource_u16(operation, &request.fields, "width_px")?;
+    let height_px = checked_resource_u16(operation, &request.fields, "height_px")?;
+    let update = mux.set_cell_pixel_size(width_px, height_px);
+    let mut resized_terminals = update
+        .resizes
+        .into_iter()
+        .filter_map(|(surface, _, _)| {
+            let surface = mux.surface(surface)?;
+            let identity = surface.resource_identity()?;
+            let ContentPublicId::Terminal(terminal_id) = &identity.content_id else {
+                return None;
+            };
+            Some(terminal_id.clone())
+        })
+        .collect::<Vec<_>>();
+    resized_terminals.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+    resized_terminals.dedup();
+    let failures = update
+        .failures
+        .into_iter()
+        .filter_map(|failure| {
+            surface_public_content_id(mux, failure.surface)
+                .map(|id| (id, Value::String(failure.error)))
+        })
+        .collect::<serde_json::Map<_, _>>();
+    Ok(json!({
+        "width_px":u32::from(width_px),
+        "height_px":u32::from(height_px),
+        "resized_terminals":resized_terminals,
+        "failures":failures,
+    }))
+}
+
+fn resource_terminal_viewer_resize(
+    mux: &Mux,
+    client: u64,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let operation = "terminal.viewer.resize";
+    let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
+    let cols = checked_resource_u16(operation, &request.fields, "cols")?;
+    let rows = checked_resource_u16(operation, &request.fields, "rows")?;
+    let (cols, rows) = clamp_terminal_size(cols, rows);
+    let resize = mux
+        .resize_surface_for_control_client_with_reservation(surface.id, client, cols, rows)
+        .map_err(|error| {
+            ResourceError::operation_failed(operation, error.to_string(), json!({}))
+        })?;
+    if let Some((true, name, kind, _)) = resize.attached {
+        mux.emit(MuxEvent::ClientChanged { client, name, kind });
+    }
+    Ok(json!({"accepted":resize.accepted,"size":{"cols":cols,"rows":rows}}))
+}
+
+fn release_resource_viewer_size(mux: &Mux, client: u64, surface: SurfaceId) {
+    let attached = mux.control_clients.clear_size(client, surface);
+    let had_report = mux.client_surface_size(surface, client).is_some();
+    if had_report {
+        mux.remove_surface_size_client(surface, client);
+    }
+    if attached.as_ref().is_some_and(|(changed, _, _)| *changed)
+        || (attached.is_none() && had_report)
+    {
+        let (name, kind) = attached
+            .map(|(_, name, kind)| (name, kind))
+            .or_else(|| mux.control_clients.client_info(client))
+            .unwrap_or((None, None));
+        mux.emit(MuxEvent::ClientChanged { client, name, kind });
+    }
+}
+
+fn resource_terminal_viewer_release(
+    mux: &Mux,
+    client: u64,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
+    release_resource_viewer_size(mux, client, surface.id);
+    Ok(json!({}))
+}
+
+fn browser_cells_for_pixels(mux: &Mux, width_px: u32, height_px: u32) -> (u16, u16) {
+    let (cell_width, cell_height) = mux.cell_pixel_size();
+    let cols = width_px.div_ceil(u32::from(cell_width.max(1)));
+    let rows = height_px.div_ceil(u32::from(cell_height.max(1)));
+    clamp_terminal_size(
+        u16::try_from(cols).unwrap_or(u16::MAX),
+        u16::try_from(rows).unwrap_or(u16::MAX),
+    )
+}
+
+fn browser_pixels_for_cells(mux: &Mux, cols: u16, rows: u16) -> (u32, u32) {
+    let (cell_width, cell_height) = mux.cell_pixel_size();
+    (
+        u32::from(cols) * u32::from(cell_width.max(1)),
+        u32::from(rows) * u32::from(cell_height.max(1)),
+    )
+}
+
+fn resource_browser_viewer_resize(
+    mux: &Mux,
+    client: u64,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let operation = "browser.viewer.resize";
+    let (_, surface) = resource_browser_surface(mux, &request.selectors)?;
+    let width_px =
+        u32::try_from(request.fields["width_px"].as_u64().expect("catalog validates width_px"))
+            .expect("catalog validates uint32");
+    let height_px =
+        u32::try_from(request.fields["height_px"].as_u64().expect("catalog validates height_px"))
+            .expect("catalog validates uint32");
+    let (cols, rows) = browser_cells_for_pixels(mux, width_px, height_px);
+    let resize = mux
+        .resize_surface_for_control_client_with_reservation(surface.id, client, cols, rows)
+        .map_err(|error| {
+            ResourceError::operation_failed(operation, error.to_string(), json!({}))
+        })?;
+    if let Some((true, name, kind, _)) = resize.attached {
+        mux.emit(MuxEvent::ClientChanged { client, name, kind });
+    }
+    let (width_px, height_px) = browser_pixels_for_cells(mux, cols, rows);
+    Ok(json!({"accepted":resize.accepted,"size":{"width_px":width_px,"height_px":height_px}}))
+}
+
+fn resource_browser_viewer_release(
+    mux: &Mux,
+    client: u64,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let (_, surface) = resource_browser_surface(mux, &request.selectors)?;
+    release_resource_viewer_size(mux, client, surface.id);
+    Ok(json!({}))
+}
+
+fn resource_terminal_renderer_grant(
+    mux: &Mux,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let operation = "terminal.renderer_grant.create";
+    let (terminal_id, surface) = resource_terminal_surface(mux, &request.selectors)?;
+    let ttl_ms = request.fields.get("ttl_ms").and_then(Value::as_u64).unwrap_or(30_000);
+    let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms)).map_err(|error| {
+        ResourceError::operation_failed(operation, error.to_string(), json!({}))
+    })?;
+    Ok(json!({
+        "endpoint":grant.endpoint,
+        "terminal_id":terminal_id,
+        "token":grant.token,
+        "rights":["render"],
+        "ttl_ms":u32::try_from(ttl_ms).expect("catalog validates renderer grant TTL"),
+    }))
+}
+
+fn prepare_resource_client_detach(
+    mux: &Mux,
+    requesting_client: u64,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<u64, ResourceError> {
+    resolve_resource_client(mux, requesting_client, &request.selectors).map(|(target, _)| target)
+}
+
+struct ResourceSurfaceAttachStart {
+    stream_id: StreamPublicId,
+    outbound: OutboundStream,
+    canceled: Arc<AtomicBool>,
+    _worker_permit: ResourceWorkerPermit,
+    surface: SurfaceId,
+    lifecycle: AttachLifecycle,
+    size_rollback: Option<crate::mux::ClientSizeRollback>,
+    client_changed: Option<(Option<String>, Option<String>)>,
+}
+
+struct TerminalResourceAttachStart {
+    common: ResourceSurfaceAttachStart,
+    terminal_id: TerminalPublicId,
+    attach: RenderAttachStream,
+}
+
+struct BrowserResourceAttachStart {
+    common: ResourceSurfaceAttachStart,
+    initial: BrowserAttachState,
+    frames: BrowserFrameStream,
+    snapshot: Value,
+}
+
+struct SidebarResourceAttachStart {
+    stream_id: StreamPublicId,
+    outbound: OutboundStream,
+    canceled: Arc<AtomicBool>,
+    _worker_permit: ResourceWorkerPermit,
+    attachment: SidebarRenderAttachment,
+}
+
+fn resource_stream_id(
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<StreamPublicId, ResourceError> {
+    serde_json::from_value(request.fields["stream_id"].clone()).map_err(|_| {
+        ResourceError::selector_invalid(
+            "stream",
+            request.fields["stream_id"].as_str().unwrap_or(""),
+            "expected an opaque stream id",
+        )
+    })
+}
+
+fn resource_transport_error(reason: impl Into<String>) -> ResourceError {
+    ResourceError::transport_closed(reason)
+}
+
+fn resource_stream_install_error(
+    operation: &'static str,
+    stream_id: &StreamPublicId,
+    error: ResourceStreamInstallError,
+) -> ResourceError {
+    let (reason, reason_code, scope, limit) = match error {
+        ResourceStreamInstallError::UnknownClient => {
+            ("control connection is no longer registered", "connection_closed", "client", 0)
+        }
+        ResourceStreamInstallError::Duplicate => (
+            "resource stream id is already open on this connection",
+            "stream_id_in_use",
+            "client",
+            RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
+        ),
+        ResourceStreamInstallError::ClientCapacity => (
+            "resource stream capacity exceeded for this connection",
+            "resource_stream_capacity",
+            "client",
+            RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
+        ),
+        ResourceStreamInstallError::ServerCapacity => (
+            "resource stream capacity exceeded for this server",
+            "resource_stream_capacity",
+            "server",
+            RESOURCE_STREAMS_SERVER_CAPACITY,
+        ),
+    };
+    ResourceError::operation_failed(
+        operation,
+        reason,
+        json!({
+            "reason_code":reason_code,
+            "scope":scope,
+            "limit":limit,
+            "stream_id":stream_id,
+        }),
+    )
+}
+
+fn resource_wait_install_error(
+    operation: &'static str,
+    error: ResourceWaitInstallError,
+) -> ResourceError {
+    let (reason, reason_code, scope, limit) = match error {
+        ResourceWaitInstallError::UnknownClient => {
+            ("control connection is no longer registered", "connection_closed", "client", 0)
+        }
+        ResourceWaitInstallError::Duplicate => (
+            "request id already owns a detached terminal wait on this connection",
+            "request_id_in_use",
+            "client",
+            1,
+        ),
+        ResourceWaitInstallError::ClientCapacity => (
+            "terminal wait capacity exceeded for this connection",
+            "terminal_wait_capacity",
+            "client",
+            RESOURCE_WAITS_PER_CLIENT_CAPACITY,
+        ),
+        ResourceWaitInstallError::ServerCapacity => (
+            "terminal wait capacity exceeded for this server",
+            "terminal_wait_capacity",
+            "server",
+            RESOURCE_WAITS_SERVER_CAPACITY,
+        ),
+    };
+    ResourceError::operation_failed(
+        operation,
+        reason,
+        json!({"reason_code":reason_code,"scope":scope,"limit":limit}),
+    )
+}
+
+fn register_resource_outbound(
+    mux: &Mux,
+    client: u64,
+    stream_id: &StreamPublicId,
+    outbound: &OutboundStream,
+    operation: &'static str,
+) -> Result<(Arc<AtomicBool>, ResourceWorkerPermit), ResourceError> {
+    match mux.control_clients.install_resource_stream(client, stream_id, outbound.clone()) {
+        Ok(installed) => Ok(installed),
+        Err(error) => {
+            outbound.close();
+            Err(resource_stream_install_error(operation, stream_id, error))
+        }
+    }
+}
+
+fn install_resource_outbound(
+    mux: &Mux,
+    client: u64,
+    writer: &MessageWriter,
+    stream_id: &StreamPublicId,
+    operation: &'static str,
+) -> Result<(OutboundStream, Arc<AtomicBool>, ResourceWorkerPermit), ResourceError> {
+    let overflow =
+        resource_stream_end(stream_id, "gap", None, Some("open a fresh attachment stream"), None);
+    let outbound = writer
+        .start_stream(&overflow)
+        .map_err(|error| resource_transport_error(error.to_string()))?;
+    let (canceled, worker_permit) =
+        register_resource_outbound(mux, client, stream_id, &outbound, operation)?;
+    Ok((outbound, canceled, worker_permit))
+}
+
+fn prepare_resource_surface_attach(
+    mux: &Mux,
+    client: u64,
+    writer: &MessageWriter,
+    operation: &'static str,
+    stream_id: StreamPublicId,
+    surface: SurfaceId,
+    initial_size: Option<(u16, u16)>,
+) -> Result<(ResourceSurfaceAttachStart, MarkedClientAttach), ResourceError> {
+    let (outbound, canceled, worker_permit) =
+        install_resource_outbound(mux, client, writer, &stream_id, operation)?;
+    let lifecycle = AttachLifecycle::default();
+    let marked = match mark_client_attached(mux, client, surface, outbound.clone(), initial_size) {
+        Ok(marked) => marked,
+        Err(error) => {
+            cleanup_resource_stream(mux, client, &stream_id);
+            return Err(ResourceError::operation_failed(operation, error.to_string(), json!({})));
+        }
+    };
+    Ok((
+        ResourceSurfaceAttachStart {
+            stream_id,
+            outbound,
+            canceled,
+            _worker_permit: worker_permit,
+            surface,
+            lifecycle,
+            size_rollback: marked.size_rollback,
+            client_changed: marked.client_changed.clone(),
+        },
+        marked,
+    ))
+}
+
+fn cleanup_resource_stream(mux: &Mux, client: u64, stream_id: &StreamPublicId) {
+    let _ = mux.control_clients.take_resource_stream(client, stream_id);
+}
+
+fn cleanup_resource_attach(mux: &Mux, client: u64, start: &ResourceSurfaceAttachStart) {
+    start.lifecycle.cancel();
+    cleanup_resource_stream(mux, client, &start.stream_id);
+    rollback_failed_attach(mux, client, start.surface, start.outbound.id, start.size_rollback);
+}
+
+fn prepare_terminal_resource_attach(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<(Value, TerminalResourceAttachStart), ResourceError> {
+    let operation = "terminal.attach";
+    let (terminal_id, surface) = resource_terminal_surface(mux, &request.selectors)?;
+    let stream_id = resource_stream_id(request)?;
+    let initial_size = match (request.fields.get("cols"), request.fields.get("rows")) {
+        (Some(cols), Some(rows)) => Some((
+            u16::try_from(cols.as_u64().expect("catalog validates terminal attach cols"))
+                .expect("catalog validates uint16"),
+            u16::try_from(rows.as_u64().expect("catalog validates terminal attach rows"))
+                .expect("catalog validates uint16"),
+        )),
+        (None, None) => None,
+        _ => unreachable!("catalog validates paired terminal attach size"),
+    };
+    let (common, _) = prepare_resource_surface_attach(
+        mux,
+        client,
+        writer,
+        operation,
+        stream_id.clone(),
+        surface.id,
+        initial_size,
+    )?;
+    let attach = match surface.attach_render_stream() {
+        Ok(attach) => attach,
+        Err(error) => {
+            cleanup_resource_attach(mux, client, &common);
+            return Err(ResourceError::operation_failed(operation, error.to_string(), json!({})));
+        }
+    };
+    Ok((
+        json!({"stream_id":stream_id}),
+        TerminalResourceAttachStart { common, terminal_id, attach },
+    ))
+}
+
+fn terminal_resource_snapshot(terminal_id: &TerminalPublicId, frame: &SurfaceRenderFrame) -> Value {
+    let mut render = render_state_json(0, frame);
+    let render = render.as_object_mut().expect("render snapshot is an object");
+    render.remove("event");
+    render.remove("surface");
+    json!({
+        "kind":"snapshot",
+        "terminal_id":terminal_id,
+        "render":render,
+    })
+}
+
+fn terminal_resource_patch(
+    terminal_id: &TerminalPublicId,
+    state: &mut RenderClientState,
+    frame: &SurfaceRenderFrame,
+) -> Value {
+    let mut render = state.delta_json(0, frame);
+    let render = render.as_object_mut().expect("render patch is an object");
+    render.remove("event");
+    render.remove("surface");
+    let full_reset = render.remove("full").expect("render patch contains full");
+    render.insert("full_reset".to_string(), full_reset);
+    json!({
+        "kind":"patch",
+        "terminal_id":terminal_id,
+        "render":render,
+    })
+}
+
+fn terminal_resource_scroll(terminal_id: &TerminalPublicId, offset: u64, at_bottom: bool) -> Value {
+    json!({
+        "kind":"scroll",
+        "terminal_id":terminal_id,
+        "scroll":{
+            "offset":offset.to_string(),
+            "at_bottom":at_bottom,
+        },
+    })
+}
+
+fn send_resource_uncursored_stream_item(
+    writer: &MessageWriter,
+    outbound: &OutboundStream,
+    stream_id: &StreamPublicId,
+    sequence: u64,
+    item: Value,
+) -> bool {
+    writer
+        .send_stream(
+            &json!({
+                "protocol":"cmux.protocol/1",
+                "type":"stream_item",
+                "stream_id":stream_id,
+                "sequence":sequence.to_string(),
+                "item":item,
+            }),
+            outbound,
+        )
+        .is_ok()
+}
+
+fn finish_resource_surface_attach(
+    mux: &Mux,
+    client: u64,
+    writer: &MessageWriter,
+    start: &ResourceSurfaceAttachStart,
+    reason: &str,
+) {
+    if writer.is_open() && start.outbound.is_open() && !start.canceled.load(Ordering::Acquire) {
+        let end = resource_stream_end(&start.stream_id, reason, None, None, None);
+        let _ = writer.send_terminal(&end, &start.outbound);
+    }
+    mux.control_clients.finish_resource_stream(client, &start.stream_id, start.outbound.id);
+    detach_committed_attach(mux, client, start.surface, start.outbound.id);
+}
+
+fn start_terminal_resource_attach(
+    mux: Arc<Mux>,
+    client: u64,
+    writer: MessageWriter,
+    start: TerminalResourceAttachStart,
+) {
+    let stream_id = start.common.stream_id.clone();
+    let outbound = start.common.outbound.clone();
+    let surface = start.common.surface;
+    let lifecycle = start.common.lifecycle.clone();
+    let client_changed = start.common.client_changed.clone();
+    let size_rollback = start.common.size_rollback;
+    let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
+    let worker_mux = mux.clone();
+    let worker_writer = writer.clone();
+    let spawn =
+        std::thread::Builder::new().name("mux-resource-terminal-attach".into()).spawn(move || {
+            if worker_committed.recv().is_err() {
+                return;
+            }
+            let mut sequence = 0u64;
+            if !send_resource_uncursored_stream_item(
+                &worker_writer,
+                &start.common.outbound,
+                &start.common.stream_id,
+                sequence,
+                terminal_resource_snapshot(&start.terminal_id, &start.attach.initial),
+            ) {
+                finish_resource_surface_attach(
+                    &worker_mux,
+                    client,
+                    &worker_writer,
+                    &start.common,
+                    "gap",
+                );
+                return;
+            }
+            sequence = sequence.saturating_add(1);
+            let mut render_state = RenderClientState::new(&start.attach.initial);
+            while worker_writer.is_open()
+                && start.common.outbound.is_open()
+                && !start.common.canceled.load(Ordering::Acquire)
+                && !start.common.lifecycle.is_canceled()
+            {
+                let item = match start.attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
+                    Ok(RenderAttachFrame::Frame(frame)) => {
+                        terminal_resource_patch(&start.terminal_id, &mut render_state, &frame)
+                    }
+                    Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
+                        terminal_resource_scroll(&start.terminal_id, offset, at_bottom)
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                };
+                if !send_resource_uncursored_stream_item(
+                    &worker_writer,
+                    &start.common.outbound,
+                    &start.common.stream_id,
+                    sequence,
+                    item,
+                ) {
+                    break;
+                }
+                sequence = sequence.saturating_add(1);
+            }
+            finish_resource_surface_attach(
+                &worker_mux,
+                client,
+                &worker_writer,
+                &start.common,
+                "closed",
+            );
+        });
+    if let Err(error) = spawn {
+        let end = resource_stream_end(
+            &stream_id,
+            "error",
+            None,
+            Some("open a fresh terminal attachment"),
+            Some((
+                ResourceOperation::TerminalAttach,
+                ResourceError::operation_failed("terminal.attach", error.to_string(), json!({})),
+            )),
+        );
+        let _ = writer.send_terminal(&end, &outbound);
+        lifecycle.cancel();
+        cleanup_resource_stream(&mux, client, &stream_id);
+        rollback_failed_attach(&mux, client, surface, outbound.id, size_rollback);
+        return;
+    }
+    if let Err(error) = commit_client_attach_and_start_worker(
+        &mux,
+        client,
+        surface,
+        outbound.id,
+        AttachWorkerCommit {
+            start: worker_start,
+            lifecycle,
+            changed: client_changed,
+            size_rollback,
+        },
+    ) {
+        let end = resource_stream_end(
+            &stream_id,
+            "error",
+            None,
+            Some("open a fresh terminal attachment"),
+            Some((
+                ResourceOperation::TerminalAttach,
+                ResourceError::operation_failed("terminal.attach", error.to_string(), json!({})),
+            )),
+        );
+        let _ = writer.send_terminal(&end, &outbound);
+        cleanup_resource_stream(&mux, client, &stream_id);
+    }
+}
+
+fn browser_snapshot_for_id(
+    mux: &Mux,
+    browser_id: &BrowserPublicId,
+) -> Result<Value, ResourceError> {
+    crate::resource_api::public_session_snapshot(mux)?["browsers"]
+        .as_array()
+        .and_then(|browsers| browsers.iter().find(|browser| browser["id"] == browser_id.as_str()))
+        .cloned()
+        .ok_or_else(|| ResourceError::not_found("browser", browser_id.as_str()))
+}
+
+fn prepare_browser_resource_attach(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<(Value, BrowserResourceAttachStart), ResourceError> {
+    let operation = "browser.attach";
+    let (browser_id, surface) = resource_browser_surface(mux, &request.selectors)?;
+    let stream_id = resource_stream_id(request)?;
+    let initial_size = match (request.fields.get("width_px"), request.fields.get("height_px")) {
+        (Some(width), Some(height)) => Some(browser_cells_for_pixels(
+            mux,
+            u32::try_from(width.as_u64().expect("catalog validates browser attach width"))
+                .expect("catalog validates uint32"),
+            u32::try_from(height.as_u64().expect("catalog validates browser attach height"))
+                .expect("catalog validates uint32"),
+        )),
+        (None, None) => None,
+        _ => unreachable!("catalog validates paired browser attach size"),
+    };
+    let (common, marked) = prepare_resource_surface_attach(
+        mux,
+        client,
+        writer,
+        operation,
+        stream_id.clone(),
+        surface.id,
+        initial_size,
+    )?;
+    if let Some(reservation) = marked.resize_reservation
+        && let Err(error) = wait_for_initial_browser_resize(
+            marked
+                .resize_completion
+                .as_ref()
+                .expect("sized browser attach has a completion receiver"),
+            surface.id,
+            reservation,
+        )
+    {
+        cleanup_resource_attach(mux, client, &common);
+        return Err(ResourceError::operation_failed(operation, error.to_string(), json!({})));
+    }
+    let (initial, frames) = surface.attach_frames().map_err(|error| {
+        cleanup_resource_attach(mux, client, &common);
+        ResourceError::operation_failed(operation, error.to_string(), json!({}))
+    })?;
+    let browser = match browser_snapshot_for_id(mux, &browser_id) {
+        Ok(browser) => browser,
+        Err(error) => {
+            cleanup_resource_attach(mux, client, &common);
+            return Err(error);
+        }
+    };
+    let (width_px, height_px) = browser_pixels_for_cells(mux, initial.cols, initial.rows);
+    let snapshot = json!({
+        "kind":"snapshot",
+        "browser":browser,
+        "size":{"width_px":width_px,"height_px":height_px},
+    });
+    Ok((
+        json!({"stream_id":stream_id}),
+        BrowserResourceAttachStart { common, initial, frames, snapshot },
+    ))
+}
+
+fn browser_resource_state(state: &BrowserAttachState) -> Value {
+    json!({
+        "kind":"state",
+        "url":state.url,
+        "title":state.title,
+        "loading":matches!(state.status, crate::BrowserStatus::Starting),
+    })
+}
+
+fn browser_resource_frame(frame: &crate::BrowserFrame, pointer_frame_seq: Option<u64>) -> Value {
+    json!({
+        "kind":"frame",
+        "mime_type":"image/png",
+        "data_base64":frame.data_b64,
+        "width_px":frame.image_width.max(1),
+        "height_px":frame.image_height.max(1),
+        "pointer_frame_seq":pointer_frame_seq.map(WireDecimal::new),
+    })
+}
+
+fn start_browser_resource_attach(
+    mux: Arc<Mux>,
+    client: u64,
+    writer: MessageWriter,
+    start: BrowserResourceAttachStart,
+) {
+    let stream_id = start.common.stream_id.clone();
+    let outbound = start.common.outbound.clone();
+    let surface = start.common.surface;
+    let lifecycle = start.common.lifecycle.clone();
+    let client_changed = start.common.client_changed.clone();
+    let size_rollback = start.common.size_rollback;
+    let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
+    let worker_mux = mux.clone();
+    let worker_writer = writer.clone();
+    let spawn =
+        std::thread::Builder::new().name("mux-resource-browser-attach".into()).spawn(move || {
+            if worker_committed.recv().is_err() {
+                return;
+            }
+            let mut sequence = 0u64;
+            if !send_resource_uncursored_stream_item(
+                &worker_writer,
+                &start.common.outbound,
+                &start.common.stream_id,
+                sequence,
+                start.snapshot,
+            ) {
+                finish_resource_surface_attach(
+                    &worker_mux,
+                    client,
+                    &worker_writer,
+                    &start.common,
+                    "gap",
+                );
+                return;
+            }
+            sequence = sequence.saturating_add(1);
+            if let Some(frame) = start.initial.frame.as_ref() {
+                if !send_resource_uncursored_stream_item(
+                    &worker_writer,
+                    &start.common.outbound,
+                    &start.common.stream_id,
+                    sequence,
+                    browser_resource_frame(frame, start.initial.pointer_frame_seq),
+                ) {
+                    finish_resource_surface_attach(
+                        &worker_mux,
+                        client,
+                        &worker_writer,
+                        &start.common,
+                        "gap",
+                    );
+                    return;
+                }
+                sequence = sequence.saturating_add(1);
+            }
+            while worker_writer.is_open()
+                && start.common.outbound.is_open()
+                && !start.common.canceled.load(Ordering::Acquire)
+                && !start.common.lifecycle.is_canceled()
+            {
+                match start.frames.notify.recv_timeout(STREAM_DISCONNECT_POLL) {
+                    Ok(()) => {}
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+                let update = std::mem::take(&mut *start.frames.slot.lock().unwrap());
+                let mut items = Vec::with_capacity(2);
+                if let Some(state) = update.state.as_ref() {
+                    items.push(browser_resource_state(state));
+                }
+                if let Some(frame) = update.frame.as_ref() {
+                    items.push(browser_resource_frame(&frame.frame, frame.pointer_frame_seq));
+                }
+                for item in items {
+                    if !send_resource_uncursored_stream_item(
+                        &worker_writer,
+                        &start.common.outbound,
+                        &start.common.stream_id,
+                        sequence,
+                        item,
+                    ) {
+                        finish_resource_surface_attach(
+                            &worker_mux,
+                            client,
+                            &worker_writer,
+                            &start.common,
+                            "gap",
+                        );
+                        return;
+                    }
+                    sequence = sequence.saturating_add(1);
+                }
+            }
+            finish_resource_surface_attach(
+                &worker_mux,
+                client,
+                &worker_writer,
+                &start.common,
+                "closed",
+            );
+        });
+    if let Err(error) = spawn {
+        let end = resource_stream_end(
+            &stream_id,
+            "error",
+            None,
+            Some("open a fresh browser attachment"),
+            Some((
+                ResourceOperation::BrowserAttach,
+                ResourceError::operation_failed("browser.attach", error.to_string(), json!({})),
+            )),
+        );
+        let _ = writer.send_terminal(&end, &outbound);
+        lifecycle.cancel();
+        cleanup_resource_stream(&mux, client, &stream_id);
+        rollback_failed_attach(&mux, client, surface, outbound.id, size_rollback);
+        return;
+    }
+    if let Err(error) = commit_client_attach_and_start_worker(
+        &mux,
+        client,
+        surface,
+        outbound.id,
+        AttachWorkerCommit {
+            start: worker_start,
+            lifecycle,
+            changed: client_changed,
+            size_rollback,
+        },
+    ) {
+        let end = resource_stream_end(
+            &stream_id,
+            "error",
+            None,
+            Some("open a fresh browser attachment"),
+            Some((
+                ResourceOperation::BrowserAttach,
+                ResourceError::operation_failed("browser.attach", error.to_string(), json!({})),
+            )),
+        );
+        let _ = writer.send_terminal(&end, &outbound);
+        cleanup_resource_stream(&mux, client, &stream_id);
+    }
+}
+
+fn prepare_sidebar_resource_attach(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<(Value, SidebarResourceAttachStart), ResourceError> {
+    let (sidebar_id, session_id) = resolve_sidebar_view(mux, &request.selectors)?;
+    let (status, last_size, configured) = mux.sidebar_plugin_resource_status();
+    if !configured {
+        return Err(ResourceError::not_found("sidebar_view", sidebar_id.as_str()));
+    }
+    let surface = status
+        .surface
+        .and_then(|surface| mux.surface(surface))
+        .filter(|surface| surface.kind() == SurfaceKind::Pty && !surface.is_dead())
+        .ok_or_else(|| ResourceError::not_found("sidebar_view", sidebar_id.as_str()))?;
+    let sidebar = sidebar_snapshot(
+        &sidebar_id,
+        &session_id,
+        last_size.unwrap_or_else(|| surface.size()),
+        Some(&surface),
+    );
+    let attachment = attach_sidebar_render(sidebar_id, sidebar, &surface)?;
+    let stream_id = resource_stream_id(request)?;
+    let (outbound, canceled, worker_permit) =
+        install_resource_outbound(mux, client, writer, &stream_id, "sidebar_view.attach")?;
+    Ok((
+        json!({"stream_id":stream_id}),
+        SidebarResourceAttachStart {
+            stream_id,
+            outbound,
+            canceled,
+            _worker_permit: worker_permit,
+            attachment,
+        },
+    ))
+}
+
+fn start_sidebar_resource_attach(
+    mux: Arc<Mux>,
+    client: u64,
+    writer: MessageWriter,
+    start: SidebarResourceAttachStart,
+) {
+    let stream_id = start.stream_id.clone();
+    let outbound = start.outbound.clone();
+    let worker_mux = mux.clone();
+    let worker_writer = writer.clone();
+    let spawn =
+        std::thread::Builder::new().name("mux-resource-sidebar-attach".into()).spawn(move || {
+            let mut sequence = 0u64;
+            if !send_resource_uncursored_stream_item(
+                &worker_writer,
+                &start.outbound,
+                &start.stream_id,
+                sequence,
+                sidebar_attach_snapshot(&start.attachment),
+            ) {
+                worker_mux.control_clients.finish_resource_stream(
+                    client,
+                    &start.stream_id,
+                    start.outbound.id,
+                );
+                return;
+            }
+            sequence = sequence.saturating_add(1);
+            let mut render_state = SidebarRenderClientState::new(&start.attachment.initial);
+            while worker_writer.is_open()
+                && start.outbound.is_open()
+                && !start.canceled.load(Ordering::Acquire)
+            {
+                let item = match start.attachment.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
+                    Ok(RenderAttachFrame::Frame(frame)) => {
+                        render_state.patch(&start.attachment.sidebar_view_id, &frame)
+                    }
+                    Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
+                        SidebarRenderClientState::scroll(
+                            &start.attachment.sidebar_view_id,
+                            offset,
+                            at_bottom,
+                        )
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                };
+                if !send_resource_uncursored_stream_item(
+                    &worker_writer,
+                    &start.outbound,
+                    &start.stream_id,
+                    sequence,
+                    item,
+                ) {
+                    break;
+                }
+                sequence = sequence.saturating_add(1);
+            }
+            if worker_writer.is_open()
+                && start.outbound.is_open()
+                && !start.canceled.load(Ordering::Acquire)
+            {
+                let end = resource_stream_end(&start.stream_id, "closed", None, None, None);
+                let _ = worker_writer.send_terminal(&end, &start.outbound);
+            }
+            worker_mux.control_clients.finish_resource_stream(
+                client,
+                &start.stream_id,
+                start.outbound.id,
+            );
+        });
+    if let Err(error) = spawn {
+        let end = resource_stream_end(
+            &stream_id,
+            "error",
+            None,
+            Some("open a fresh sidebar attachment"),
+            Some((
+                ResourceOperation::SidebarViewAttach,
+                ResourceError::operation_failed(
+                    "sidebar_view.attach",
+                    error.to_string(),
+                    json!({}),
+                ),
+            )),
+        );
+        let _ = writer.send_terminal(&end, &outbound);
+        cleanup_resource_stream(&mux, client, &stream_id);
+    }
+}
+
+fn send_resource_response(
+    writer: &MessageWriter,
+    id: ResourceRequestId,
+    operation: ResourceOperation,
+    result: Result<Value, ResourceError>,
+) -> bool {
+    let result = crate::resource_router::validate_operation_outcome(operation, result);
+    let envelope = match result {
+        Ok(result) => ResourceResponseEnvelope::success(id, result),
+        Err(error) => ResourceResponseEnvelope::failure(id, error),
+    };
+    serde_json::to_value(envelope).is_ok_and(|value| writer.send_control(&value).is_ok())
+}
+
+fn prepare_session_event_stream(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<(Value, SessionEventStreamStart), ResourceError> {
+    mux.resolve_resource_path(crate::ResourceTarget::Session, &request.selectors)?;
+    let stream_id = resource_stream_id(request)?;
+    let epoch = mux.resource_event_epoch();
+    let snapshot = resource_session_snapshot(mux, client, &request.selectors)?;
+    let snapshot_cursor = snapshot["cursor"].clone();
+    let snapshot_generation = snapshot_cursor["generation"]
+        .as_str()
+        .expect("public snapshot cursor generation")
+        .to_string();
+    let snapshot_revision = snapshot_cursor["revision"]
+        .as_str()
+        .and_then(|revision| revision.parse::<u64>().ok())
+        .expect("public snapshot cursor revision");
+    let requested_cursor = request
+        .fields
+        .get("cursor")
+        .map(|cursor| {
+            let generation = cursor["generation"]
+                .as_str()
+                .ok_or_else(|| {
+                    ResourceError::validation_invalid(
+                        Some("cursor"),
+                        "cursor generation is missing",
+                    )
+                })?
+                .to_string();
+            let revision = serde_json::from_value::<WireDecimal>(cursor["revision"].clone())
+                .map(WireDecimal::get)
+                .map_err(|_| {
+                    ResourceError::validation_invalid(Some("cursor"), "cursor revision is invalid")
+                })?;
+            Ok::<_, ResourceError>((generation, revision))
+        })
+        .transpose()?;
+
+    let mut initial_items = Vec::new();
+    let last_revision;
+    let opened_cursor;
+    match requested_cursor {
+        None => {
+            initial_items.push((
+                snapshot_cursor.clone(),
+                json!({
+                    "kind":"snapshot",
+                    "cursor":snapshot_cursor,
+                    "reset_reason":"initial",
+                    "snapshot":snapshot,
+                }),
+            ));
+            last_revision = snapshot_revision;
+            opened_cursor = json!({
+                "generation":snapshot_generation,
+                "revision":snapshot_revision.to_string(),
+            });
+        }
+        Some((generation, _)) if generation != snapshot_generation => {
+            initial_items.push((
+                snapshot_cursor.clone(),
+                json!({
+                    "kind":"snapshot",
+                    "cursor":snapshot_cursor,
+                    "reset_reason":"generation_changed",
+                    "snapshot":snapshot,
+                }),
+            ));
+            last_revision = snapshot_revision;
+            opened_cursor = json!({
+                "generation":snapshot_generation,
+                "revision":snapshot_revision.to_string(),
+            });
+        }
+        Some((generation, revision)) => match mux.resource_events_after(revision) {
+            Ok(page) => {
+                for batch in page.batches {
+                    let cursor = json!({
+                        "generation":page.generation,
+                        "revision":batch.revision.to_string(),
+                    });
+                    initial_items.push((
+                        cursor.clone(),
+                        json!({
+                            "kind":"delta",
+                            "cursor":cursor,
+                            "previous_revision":batch.previous_revision.to_string(),
+                            "revision":batch.revision.to_string(),
+                            "changes":batch.changes,
+                        }),
+                    ));
+                }
+                last_revision = page.head_revision;
+                opened_cursor = json!({
+                    "generation":page.generation,
+                    "revision":page.head_revision.to_string(),
+                });
+            }
+            Err(error) if error.to_string().starts_with("cursor.gap:") => {
+                initial_items.push((
+                    snapshot_cursor.clone(),
+                    json!({
+                        "kind":"snapshot",
+                        "cursor":snapshot_cursor,
+                        "reset_reason":"cursor_expired",
+                        "snapshot":snapshot,
+                    }),
+                ));
+                last_revision = snapshot_revision;
+                opened_cursor = json!({
+                    "generation":snapshot_generation,
+                    "revision":snapshot_revision.to_string(),
+                });
+            }
+            Err(error) if error.to_string().starts_with("cursor.invalid:") => {
+                return Err(ResourceError::new(
+                    "cursor.invalid",
+                    "cursor revision is ahead of the session",
+                    json!({
+                        "requested":{
+                            "generation":generation,
+                            "revision":revision.to_string(),
+                        },
+                        "current":snapshot_cursor,
+                        "reason":"cursor revision is ahead of the session",
+                    }),
+                    false,
+                ));
+            }
+            Err(error) => {
+                return Err(ResourceError::operation_failed(
+                    "session.events",
+                    "could not read session event journal",
+                    json!({"error":error.to_string()}),
+                ));
+            }
+        },
+    }
+    let overflow = resource_stream_end(
+        &stream_id,
+        "gap",
+        Some(opened_cursor.clone()),
+        Some("request a fresh session snapshot"),
+        None,
+    );
+    let outbound = writer
+        .start_stream(&overflow)
+        .map_err(|_| ResourceError::transport_closed("could not allocate an outbound stream"))?;
+    let (canceled, worker_permit) =
+        register_resource_outbound(mux, client, &stream_id, &outbound, "session.events")?;
+    Ok((
+        json!({"stream_id":stream_id,"cursor":opened_cursor}),
+        SessionEventStreamStart {
+            stream_id,
+            outbound,
+            canceled,
+            _worker_permit: worker_permit,
+            initial_items,
+            next_sequence: 0,
+            last_revision,
+            epoch,
+        },
+    ))
+}
+
+fn start_session_event_stream(
+    mux: Arc<Mux>,
+    client: u64,
+    writer: MessageWriter,
+    start: SessionEventStreamStart,
+) {
+    let stream_id = start.stream_id.clone();
+    let outbound = start.outbound.clone();
+    let worker_mux = mux.clone();
+    let worker_writer = writer.clone();
+    let spawn = std::thread::Builder::new()
+        .name("mux-resource-session-events".into())
+        .spawn(move || run_session_event_stream(&worker_mux, client, &worker_writer, start));
+    if spawn.is_err() {
+        let _ = mux.control_clients.take_resource_stream(client, &stream_id);
+        let end = resource_stream_end(
+            &stream_id,
+            "error",
+            None,
+            Some("open a new session event stream"),
+            Some((
+                ResourceOperation::SessionEvents,
+                ResourceError::operation_failed(
+                    "session.events",
+                    "could not start the session event stream",
+                    json!({}),
+                ),
+            )),
+        );
+        let _ = writer.send_terminal(&end, &outbound);
+    }
+}
+
+fn run_session_event_stream(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    mut stream: SessionEventStreamStart,
+) {
+    for (cursor, item) in stream.initial_items.drain(..) {
+        if stream.canceled.load(Ordering::Acquire)
+            || !send_resource_stream_item(
+                writer,
+                &stream.outbound,
+                &stream.stream_id,
+                stream.next_sequence,
+                &cursor,
+                item,
+            )
+        {
+            mux.control_clients.finish_resource_stream(
+                client,
+                &stream.stream_id,
+                stream.outbound.id,
+            );
+            return;
+        }
+        stream.next_sequence = stream.next_sequence.saturating_add(1);
+    }
+
+    loop {
+        if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+            break;
+        }
+        let epoch = mux.wait_for_resource_event(stream.epoch, Duration::from_secs(1));
+        if epoch == stream.epoch {
+            continue;
+        }
+        stream.epoch = epoch;
+        let page = match mux.resource_events_after(stream.last_revision) {
+            Ok(page) => page,
+            Err(error) => {
+                let end = resource_stream_end(
+                    &stream.stream_id,
+                    "gap",
+                    None,
+                    Some("request a fresh session snapshot"),
+                    None,
+                );
+                let _ = error;
+                let _ = writer.send_terminal(&end, &stream.outbound);
+                break;
+            }
+        };
+        for batch in page.batches {
+            let cursor = json!({
+                "generation":page.generation,
+                "revision":batch.revision.to_string(),
+            });
+            let end = resource_stream_end(
+                &stream.stream_id,
+                "gap",
+                Some(cursor.clone()),
+                Some("request a fresh session snapshot"),
+                None,
+            );
+            let _ = stream.outbound.update_overflow(&end);
+            if stream.canceled.load(Ordering::Acquire)
+                || !send_resource_stream_item(
+                    writer,
+                    &stream.outbound,
+                    &stream.stream_id,
+                    stream.next_sequence,
+                    &cursor,
+                    json!({
+                        "kind":"delta",
+                        "cursor":cursor,
+                        "previous_revision":batch.previous_revision.to_string(),
+                        "revision":batch.revision.to_string(),
+                        "changes":batch.changes,
+                    }),
+                )
+            {
+                mux.control_clients.finish_resource_stream(
+                    client,
+                    &stream.stream_id,
+                    stream.outbound.id,
+                );
+                return;
+            }
+            stream.next_sequence = stream.next_sequence.saturating_add(1);
+            stream.last_revision = batch.revision;
+        }
+    }
+    mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
+}
+
+fn send_resource_stream_item(
+    writer: &MessageWriter,
+    outbound: &OutboundStream,
+    stream_id: &StreamPublicId,
+    sequence: u64,
+    cursor: &Value,
+    item: Value,
+) -> bool {
+    writer
+        .send_stream(
+            &json!({
+                "protocol":"cmux.protocol/1",
+                "type":"stream_item",
+                "stream_id":stream_id,
+                "sequence":sequence.to_string(),
+                "cursor":cursor,
+                "item":item,
+            }),
+            outbound,
+        )
+        .is_ok()
+}
+
+fn cancel_resource_stream(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let route = crate::ResourceSelectors {
+        machine: request.selectors.machine.clone(),
+        session: request.selectors.session.clone(),
+        ..Default::default()
+    };
+    mux.resolve_resource_path(crate::ResourceTarget::Session, &route)?;
+    let stream_id: StreamPublicId = request
+        .selectors
+        .stream
+        .as_deref()
+        .ok_or_else(|| ResourceError::not_found("stream", "<missing>"))
+        .and_then(|stream| StreamPublicId::parse(stream.to_string()))?;
+    if let Some(stream) = mux.control_clients.take_resource_stream(client, &stream_id) {
+        stream.canceled.store(true, Ordering::Release);
+        let end = resource_stream_end(&stream_id, "canceled", None, None, None);
+        writer
+            .send_terminal(&end, &stream.outbound)
+            .map_err(|_| ResourceError::transport_closed("could not end the canceled stream"))?;
+    }
+    Ok(json!({}))
+}
+
+fn cancel_resource_request(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let request_id = ResourceRequestId::parse(
+        request.fields["request_id"].as_str().expect("catalog validates request cancellation ids"),
+    )?;
+    let canceled = match mux.control_clients.cancel_resource_wait(client, &request_id) {
+        ResourceWaitCancel::Missing => false,
+        ResourceWaitCancel::Canceled(lifecycle) => {
+            lifecycle.wait_for_worker_finish();
+            true
+        }
+        ResourceWaitCancel::Completing(lifecycle) => {
+            if !lifecycle.wait_for_response_attempt() {
+                writer.close();
+                return Err(ResourceError::transport_closed(
+                    "terminal wait completion ended before attempting its response",
+                ));
+            }
+            false
+        }
+    };
+    Ok(json!({"canceled":canceled}))
+}
+
+fn resource_stream_end(
+    stream_id: &StreamPublicId,
+    reason: &str,
+    cursor: Option<Value>,
+    recovery: Option<&str>,
+    error: Option<(ResourceOperation, ResourceError)>,
+) -> Value {
+    let mut end = json!({
+        "protocol":"cmux.protocol/1",
+        "type":"stream_end",
+        "stream_id":stream_id,
+        "reason":reason,
+    });
+    if let Some(cursor) = cursor {
+        end["cursor"] = cursor;
+    }
+    if let Some(recovery) = recovery {
+        end["recovery"] = json!(recovery);
+    }
+    if let Some((operation, error)) = error {
+        let error = crate::resource_router::validate_operation_error(operation, error);
+        end["error"] = json!(error);
+    }
+    end
+}
+
 fn handle_connection_message(
     mux: &Arc<Mux>,
     client: u64,
@@ -3070,6 +5883,9 @@ fn handle_connection_message(
     writer: &MessageWriter,
     scheduler: &Arc<ConnectionSurfaceScheduler>,
 ) -> bool {
+    if crate::resource_router::is_resource_protocol_message(message) {
+        return handle_resource_connection_message(mux, client, message, writer);
+    }
     let request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
         Err(error) => return send_request_error(writer, None, &format!("bad request: {error}")),
@@ -3389,9 +6205,16 @@ fn pane_json(
         "tabs": pane.tabs.iter().map(|sid| {
             let surface = state.surfaces.get(sid);
             let terminal_identity = surface.and_then(|surface| surface.terminal_host_identity());
+            let terminal_resource_id = surface
+                .and_then(|surface| surface.resource_identity())
+                .and_then(|identity| match &identity.content_id {
+                    ContentPublicId::Terminal(id) => Some(id),
+                    ContentPublicId::Browser(_) => None,
+                });
             json!({
                 "surface": sid,
                 "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
+                "terminal_resource_id": terminal_resource_id,
                 "terminal_incarnation": terminal_identity
                     .as_ref()
                     .map(|identity| &identity.incarnation),
@@ -3983,7 +6806,7 @@ impl RenderClientState {
 
 fn browser_state_json(
     surface: SurfaceId,
-    state: &crate::BrowserAttachState,
+    state: &BrowserAttachState,
     include_frame: bool,
 ) -> Value {
     let mut value = json!({
@@ -4341,20 +7164,15 @@ fn handle_command_with_cancellation(
                 "daemon_handoff": 1,
             }))
         }
-        Command::ShutdownDaemon { pid, generation } => {
-            let actual_pid = std::process::id();
-            if pid != actual_pid {
-                anyhow::bail!("daemon pid changed; identify again");
-            }
-            let (_, actual_generation) = mux.registry_identity();
-            if generation != actual_generation {
-                anyhow::bail!("daemon generation changed; identify again");
-            }
-            mux.begin_daemon_handoff(client)?;
+        Command::ShutdownDaemon { pid, generation, force } => {
+            let actual_identity = mux.begin_daemon_handoff(
+                client,
+                DaemonHandoffRequest::fenced(pid, generation, force),
+            )?;
             Ok(json!({
                 "accepted": true,
-                "pid": actual_pid,
-                "generation": actual_generation,
+                "pid": actual_identity.pid,
+                "generation": actual_identity.generation,
             }))
         }
         Command::Ping => Ok(json!({
@@ -4756,7 +7574,7 @@ fn handle_command_with_cancellation(
             if let Some(surface) = surface {
                 get_surface(mux, surface)?;
             }
-            let notification = mux.post_notification(title, body, level, surface);
+            let notification = mux.post_notification(title, body, level, surface)?;
             Ok(json!({ "notification": notification }))
         }
         Command::ListAgents { surface, state } => {
@@ -4774,7 +7592,7 @@ fn handle_command_with_cancellation(
             get_surface(mux, surface)?;
             let state = parse_agent_state(&state)?;
             let source = parse_agent_source(&source)?;
-            let record = mux.report_agent(surface, state, source, session);
+            let record = mux.report_agent(surface, state, source, session)?;
             Ok(json!({
                 "surface": record.surface,
                 "state": record.state.as_str(),
@@ -5089,6 +7907,19 @@ fn handle_command_with_cancellation(
                     mutation.expected_generation.as_deref(),
                     mutation.expected_revision,
                     &workspace_mutation,
+                )?;
+                let projection_fingerprint = json!({
+                    "terminal_id":result.terminal_id,
+                    "workspace_key":key,
+                });
+                mux.commit_full_resource_projection_with_mutation(
+                    &workspace_mutation,
+                    "raw.terminal.create",
+                    &projection_fingerprint,
+                    json!({
+                        "terminal_id":result.terminal_id,
+                        "workspace_key":key,
+                    }),
                 )?;
                 let placement = result.placement;
                 Ok(json!({
@@ -6171,7 +9002,7 @@ pub fn cleanup(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ProviderWorkspaceAuthority, SurfaceOptions};
+    use crate::{ProviderWorkspaceAuthority, SidebarPluginOptions, SurfaceOptions};
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
 
@@ -6232,9 +9063,2038 @@ mod tests {
         })
     }
 
+    fn captured_writer() -> (MessageWriter, Arc<BoundedOutbound>) {
+        let outbound = Arc::new(BoundedOutbound::default());
+        (MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None }), outbound)
+    }
+
+    struct BlockingControlSink {
+        outbound: Arc<BoundedOutbound>,
+        blocked_request_id: String,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl MessageSink for BlockingControlSink {
+        fn send_initial(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
+            self.outbound.push_initial(serde_json::to_string(value)?, stream)
+        }
+
+        fn send_stream(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
+            self.outbound.push_regular(serde_json::to_string(value)?, stream)
+        }
+
+        fn send_control(&self, value: &Value) -> std::io::Result<()> {
+            if value["type"] == "response"
+                && value["id"].as_str() == Some(self.blocked_request_id.as_str())
+            {
+                self.entered.send(()).map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "response blocker observer closed",
+                    )
+                })?;
+                self.release.lock().unwrap().recv().map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "response blocker release closed",
+                    )
+                })?;
+            }
+            self.outbound.push_control(serde_json::to_string(value)?)
+        }
+
+        fn send_terminal(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
+            self.outbound.push_terminal(serde_json::to_string(value)?, stream)
+        }
+
+        fn is_open(&self) -> bool {
+            self.outbound.is_open()
+        }
+
+        fn close(&self) {
+            self.outbound.close();
+        }
+    }
+
+    fn blocking_control_writer(
+        request_id: &str,
+    ) -> (
+        MessageWriter,
+        Arc<BoundedOutbound>,
+        std::sync::mpsc::Receiver<()>,
+        std::sync::mpsc::SyncSender<()>,
+    ) {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let writer = MessageWriter::new(BlockingControlSink {
+            outbound: outbound.clone(),
+            blocked_request_id: request_id.to_string(),
+            entered: entered_tx,
+            release: Mutex::new(release_rx),
+        });
+        (writer, outbound, entered_rx, release_tx)
+    }
+
+    fn pop_json(outbound: &BoundedOutbound) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if let Some(message) = outbound.try_pop() {
+                return serde_json::from_str(&message).expect("outbound JSON");
+            }
+            assert!(Instant::now() < deadline, "timed out waiting for outbound JSON");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    fn resource_request(
+        id: &str,
+        operation: &str,
+        params: Value,
+        idempotency_key: Option<&str>,
+    ) -> String {
+        let mut request = json!({
+            "protocol":"cmux.protocol/1",
+            "type":"request",
+            "id":id,
+            "operation":operation,
+            "params":params,
+        });
+        if let Some(idempotency_key) = idempotency_key {
+            request["idempotency_key"] = json!(idempotency_key);
+        }
+        serde_json::to_string(&request).unwrap()
+    }
+
+    fn test_stream_id(index: u64) -> StreamPublicId {
+        StreamPublicId::parse(format!("stream_{index:032x}"))
+            .expect("test stream id uses the public wire format")
+    }
+
+    #[test]
+    fn resource_protocol_responses_are_identical_for_unix_and_websocket_clients() {
+        let mux = test_mux();
+        let request = serde_json::to_string(&json!({
+            "protocol":"cmux.protocol/1",
+            "type":"request",
+            "id":"transport-parity",
+            "operation":"session.ping",
+            "params":{"machine":"current","session":"current"},
+        }))
+        .unwrap();
+        let mut responses = Vec::new();
+        for transport in [ClientTransport::Unix, ClientTransport::WebSocket] {
+            let (writer, outbound) = captured_writer();
+            let client = mux.control_clients.register(transport, writer.clone());
+            let scheduler =
+                Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+            assert!(handle_connection_message(&mux, client, &request, &writer, &scheduler));
+            responses.push(outbound.try_pop().expect("one resource response"));
+            disconnect_client(&mux, client, false);
+        }
+
+        assert_eq!(responses[0], responses[1]);
+        let response: Value = serde_json::from_str(&responses[0]).unwrap();
+        assert_eq!(response["protocol"], "cmux.protocol/1");
+        assert_eq!(response["type"], "response");
+        assert_eq!(response["id"], "transport-parity");
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["alive"], true);
+        assert_eq!(response["result"]["cursor"]["revision"], "0");
+        assert!(response["result"]["cursor"]["generation"].as_str().is_some());
+    }
+
+    #[test]
+    fn terminal_waits_do_not_block_ping_or_stream_cancel_on_the_same_connection() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-waits",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-waits"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        assert_eq!(created["ok"], true, "{created}");
+        let terminal_id =
+            created["result"]["value"]["terminal_id"].as_str().expect("created terminal ID");
+        let stream_id = "stream_00000000000000000000000000000042";
+        let open = resource_request(
+            "events-open-for-wait",
+            "session.events",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":stream_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["id"], "events-open-for-wait");
+        assert_eq!(pop_json(&outbound)["type"], "stream_item");
+
+        for (id, operation, extra) in [
+            ("screen-wait", "terminal.wait", json!({"pattern":"cmux-pattern-that-never-matches"})),
+            ("process-wait", "terminal.wait_exit", json!({})),
+        ] {
+            let mut params = json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "timeout_ms":"250",
+            });
+            params.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            let wait = resource_request(id, operation, params, None);
+            assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        }
+
+        let ping = resource_request(
+            "ping-during-waits",
+            "session.ping",
+            json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &ping, &writer, &scheduler));
+        let cancel = resource_request(
+            "cancel-during-waits",
+            "stream.cancel",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream":stream_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+
+        let first = pop_json(&outbound);
+        assert_eq!(
+            first["id"], "ping-during-waits",
+            "a wait completed before the same-connection ping: {first}"
+        );
+        let messages = (0..4).map(|_| pop_json(&outbound)).collect::<Vec<_>>();
+        assert!(messages.iter().any(|message| {
+            message["type"] == "stream_end" && message["stream_id"] == stream_id
+        }));
+        let responses =
+            messages.iter().filter(|message| message["type"] == "response").collect::<Vec<_>>();
+        assert!(
+            responses.iter().all(|response| response["ok"] == true),
+            "wait/cancel responses failed: {responses:?}"
+        );
+        assert!(responses.iter().any(|response| response["id"] == "cancel-during-waits"));
+        let wait_ids = responses
+            .iter()
+            .filter_map(|response| response["id"].as_str())
+            .filter(|id| *id != "cancel-during-waits")
+            .map(str::to_string)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            wait_ids,
+            ["process-wait".to_string(), "screen-wait".to_string()].into_iter().collect()
+        );
+
+        disconnect_client(&mux, client, false);
+    }
+
+    #[test]
+    fn connection_terminal_wait_coalesces_more_than_attach_capacity() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-coalesced-wait",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-coalesced-wait"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let surface = mux
+            .resource_surface_for_terminal(&terminal_id)
+            .and_then(|surface| mux.surface(surface))
+            .expect("created terminal surface");
+        let wait = resource_request(
+            "coalesced-wait",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"READY",
+                "timeout_ms":"2000",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while surface.terminal_stream_waiter_count_for_test() != Some(1) {
+            assert!(Instant::now() < waiting_deadline, "terminal wait did not subscribe");
+            std::thread::yield_now();
+        }
+        for _ in 0..300 {
+            surface.apply_stream_output_for_test(b"\r").unwrap();
+        }
+        surface.apply_stream_output_for_test(b"READY").unwrap();
+
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "coalesced-wait");
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["result"]["matched"], true, "{response}");
+        disconnect_client(&mux, client, false);
+    }
+
+    #[test]
+    fn request_cancel_suppresses_target_response_and_reuses_request_id_and_capacity() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-request-cancel",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-request-cancel"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let surface = mux
+            .resource_surface_for_terminal(&terminal_id)
+            .and_then(|surface| mux.surface(surface))
+            .expect("created terminal surface");
+
+        let wait = resource_request(
+            "reused-request-id",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"cmux-request-cancel-never-matches",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while surface.terminal_stream_waiter_count_for_test() != Some(1) {
+            assert!(Instant::now() < waiting_deadline, "terminal wait did not subscribe");
+            std::thread::yield_now();
+        }
+        assert_eq!(mux.control_clients.resource_wait_admission.active(), 1);
+
+        let cancel = resource_request(
+            "cancel-reused-request-id",
+            "request.cancel",
+            json!({"request_id":"reused-request-id"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+        let canceled = pop_json(&outbound);
+        assert_eq!(canceled["id"], "cancel-reused-request-id");
+        assert_eq!(canceled["ok"], true, "{canceled}");
+        assert_eq!(canceled["result"], json!({"canceled":true}));
+        assert_eq!(
+            mux.control_clients.resource_wait_admission.active(),
+            0,
+            "cancel confirmation preceded worker permit release"
+        );
+        assert_eq!(surface.terminal_stream_waiter_count_for_test(), Some(0));
+        assert!(outbound.try_pop().is_none(), "canceled target emitted a response");
+
+        let repeated = resource_request(
+            "repeat-cancel",
+            "request.cancel",
+            json!({"request_id":"reused-request-id"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &repeated, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["result"], json!({"canceled":false}));
+
+        let replacement = resource_request(
+            "reused-request-id",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"CMUX_REUSED_REQUEST_READY",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &replacement, &writer, &scheduler));
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while surface.terminal_stream_waiter_count_for_test() != Some(1) {
+            assert!(
+                Instant::now() < waiting_deadline,
+                "replacement terminal wait did not subscribe"
+            );
+            std::thread::yield_now();
+        }
+        surface.apply_stream_output_for_test(b"CMUX_REUSED_REQUEST_READY").unwrap();
+        let replacement = pop_json(&outbound);
+        assert_eq!(replacement["id"], "reused-request-id");
+        assert_eq!(replacement["result"]["matched"], true, "{replacement}");
+
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(Instant::now() < cleanup_deadline, "completed wait retained admission");
+            std::thread::yield_now();
+        }
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn request_cancel_wakes_wait_exit_and_is_connection_local() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let (other_writer, other_outbound) = captured_writer();
+        let other = mux.control_clients.register(ClientTransport::Unix, other_writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let other_scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-wait-exit-cancel",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-wait-exit-cancel"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let wait = resource_request(
+            "connection-owned-wait-exit",
+            "terminal.wait_exit",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.terminal_exit_waiter_count_for_test(&terminal_id) != 1 {
+            assert!(Instant::now() < waiting_deadline, "wait_exit did not subscribe");
+            std::thread::yield_now();
+        }
+
+        let foreign_cancel = resource_request(
+            "foreign-cancel",
+            "request.cancel",
+            json!({"request_id":"connection-owned-wait-exit"}),
+            None,
+        );
+        assert!(handle_connection_message(
+            &mux,
+            other,
+            &foreign_cancel,
+            &other_writer,
+            &other_scheduler,
+        ));
+        assert_eq!(pop_json(&other_outbound)["result"], json!({"canceled":false}));
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&terminal_id), 1);
+
+        let owner_cancel = resource_request(
+            "owner-cancel",
+            "request.cancel",
+            json!({"request_id":"connection-owned-wait-exit"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &owner_cancel, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["result"], json!({"canceled":true}));
+        assert_eq!(
+            mux.control_clients.resource_wait_admission.active(),
+            0,
+            "wait_exit cancel confirmation preceded worker permit release"
+        );
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&terminal_id), 0);
+        assert!(outbound.try_pop().is_none(), "canceled wait_exit emitted a response");
+
+        assert!(disconnect_client(&mux, other, false));
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn completion_winner_queues_target_response_before_cancel_false() {
+        let mux = test_mux();
+        let (writer, outbound, target_send_entered, release_target_send) =
+            blocking_control_writer("ordered-target");
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-cancel-order",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-cancel-order"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let surface = mux
+            .resource_surface_for_terminal(&terminal_id)
+            .and_then(|surface| mux.surface(surface))
+            .expect("created terminal surface");
+        let wait = resource_request(
+            "ordered-target",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"CMUX_ORDERED_TARGET_READY",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while surface.terminal_stream_waiter_count_for_test() != Some(1) {
+            assert!(Instant::now() < waiting_deadline, "ordered wait did not subscribe");
+            std::thread::yield_now();
+        }
+        surface.apply_stream_output_for_test(b"CMUX_ORDERED_TARGET_READY").unwrap();
+        target_send_entered
+            .recv_timeout(Duration::from_secs(1))
+            .expect("wait completion did not begin its target response");
+
+        let cancel = resource_request(
+            "ordered-cancel",
+            "request.cancel",
+            json!({"request_id":"ordered-target"}),
+            None,
+        );
+        std::thread::scope(|scope| {
+            let cancel_mux = mux.clone();
+            let cancel_writer = writer.clone();
+            let cancel_scheduler = scheduler.clone();
+            let cancel = scope.spawn(move || {
+                handle_connection_message(
+                    &cancel_mux,
+                    client,
+                    &cancel,
+                    &cancel_writer,
+                    &cancel_scheduler,
+                )
+            });
+            std::thread::yield_now();
+            assert!(
+                outbound.try_pop().is_none(),
+                "cancel responded before the completing target attempted its response"
+            );
+            release_target_send.send(()).unwrap();
+            assert!(cancel.join().unwrap());
+        });
+
+        let target = pop_json(&outbound);
+        let canceled = pop_json(&outbound);
+        assert_eq!(target["id"], "ordered-target", "{target}");
+        assert_eq!(target["result"]["matched"], true, "{target}");
+        assert_eq!(canceled["id"], "ordered-cancel", "{canceled}");
+        assert_eq!(canceled["result"], json!({"canceled":false}));
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(Instant::now() < cleanup_deadline, "completed wait retained admission");
+            std::thread::yield_now();
+        }
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn request_cancel_and_completion_have_one_atomic_winner() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer);
+        for index in 0..128 {
+            let request_id = ResourceRequestId::parse(format!("request-race-{index}")).unwrap();
+            let (canceled, worker_permit) =
+                mux.control_clients.install_resource_wait(client, &request_id).unwrap();
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+            let completion = std::thread::scope(|scope| {
+                let completion_barrier = barrier.clone();
+                let completion_id = request_id.clone();
+                let completion_canceled = canceled.clone();
+                let completion_mux = mux.clone();
+                let completion = scope.spawn(move || {
+                    completion_barrier.wait();
+                    let won = completion_mux.control_clients.begin_resource_wait_completion(
+                        client,
+                        &completion_id,
+                        &completion_canceled,
+                    );
+                    if won {
+                        completion_canceled.mark_response_attempted();
+                        completion_mux.control_clients.finish_resource_wait(
+                            client,
+                            &completion_id,
+                            &completion_canceled,
+                        );
+                    }
+                    completion_canceled.mark_worker_finished();
+                    won
+                });
+                barrier.wait();
+                let cancellation =
+                    match mux.control_clients.cancel_resource_wait(client, &request_id) {
+                        ResourceWaitCancel::Missing => false,
+                        ResourceWaitCancel::Canceled(lifecycle) => {
+                            lifecycle.wait_for_worker_finish();
+                            true
+                        }
+                        ResourceWaitCancel::Completing(lifecycle) => {
+                            assert!(lifecycle.wait_for_response_attempt());
+                            false
+                        }
+                    };
+                (completion.join().unwrap(), cancellation)
+            });
+            assert_ne!(
+                completion.0, completion.1,
+                "completion and cancellation did not have exactly one winner"
+            );
+            drop(worker_permit);
+        }
+        assert_eq!(mux.control_clients.resource_wait_admission.active(), 0);
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn idle_terminal_wait_worker_registers_once_without_polling() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-idle-screen-wait",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-idle-screen-wait"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let surface = mux
+            .resource_surface_for_terminal(&terminal_id)
+            .and_then(|surface| mux.surface(surface))
+            .expect("created terminal surface");
+        let wait = resource_request(
+            "idle-screen-wait",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"cmux-idle-pattern-that-never-matches",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while surface.terminal_stream_waiter_count_for_test() != Some(1)
+            || surface.terminal_stream_subscription_count_for_test() != Some(1)
+        {
+            assert!(Instant::now() < waiting_deadline, "terminal wait did not become idle");
+            std::thread::yield_now();
+        }
+        std::thread::sleep(Duration::from_millis(350));
+        assert_eq!(
+            surface.terminal_stream_subscription_count_for_test(),
+            Some(1),
+            "idle terminal.wait worker polled"
+        );
+
+        let cancel = resource_request(
+            "cancel-idle-screen-wait",
+            "request.cancel",
+            json!({"request_id":"idle-screen-wait"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["result"], json!({"canceled":true}));
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(Instant::now() < cleanup_deadline, "idle wait retained admission");
+            std::thread::yield_now();
+        }
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn idle_wait_exit_workers_do_not_poll_the_terminal_registry() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-idle-exit-waits",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-idle-exit-waits"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        mux.reset_terminal_exit_state_query_count_for_test();
+
+        for index in 0..RESOURCE_WAITS_PER_CLIENT_CAPACITY {
+            let wait = resource_request(
+                &format!("idle-exit-wait-{index}"),
+                "terminal.wait_exit",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "terminal":terminal_id,
+                }),
+                None,
+            );
+            assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        }
+        let admission_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.terminal_exit_waiter_count_for_test(&terminal_id)
+            != RESOURCE_WAITS_PER_CLIENT_CAPACITY
+            || mux.terminal_exit_state_query_count_for_test()
+                != RESOURCE_WAITS_PER_CLIENT_CAPACITY as u64
+        {
+            assert!(Instant::now() < admission_deadline, "exit waits did not become idle");
+            std::thread::yield_now();
+        }
+        std::thread::sleep(Duration::from_millis(350));
+        assert_eq!(
+            mux.terminal_exit_state_query_count_for_test(),
+            RESOURCE_WAITS_PER_CLIENT_CAPACITY as u64,
+            "idle wait_exit workers polled the registry"
+        );
+
+        assert!(disconnect_client(&mux, client, false));
+        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(Instant::now() < cleanup_deadline, "canceled exit waits stayed blocked");
+            std::thread::yield_now();
+        }
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&terminal_id), 0);
+        assert_eq!(
+            mux.terminal_exit_state_query_count_for_test(),
+            RESOURCE_WAITS_PER_CLIENT_CAPACITY as u64,
+            "cancellation performed a redundant terminal query"
+        );
+    }
+
+    #[test]
+    fn wait_exit_deadline_performs_only_one_final_targeted_query() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-exit-deadline",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-exit-deadline"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id = created["result"]["value"]["terminal_id"].as_str().unwrap();
+        mux.reset_terminal_exit_state_query_count_for_test();
+
+        let wait = resource_request(
+            "bounded-exit-wait",
+            "terminal.wait_exit",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "timeout_ms":"25",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "bounded-exit-wait");
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["result"]["state"], "pending", "{response}");
+        assert_eq!(response["result"]["lifecycle"], "running", "{response}");
+        assert_eq!(
+            mux.terminal_exit_state_query_count_for_test(),
+            2,
+            "a deadline should perform one initial and one final query"
+        );
+
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(Instant::now() < cleanup_deadline, "bounded exit wait retained admission");
+            std::thread::yield_now();
+        }
+        disconnect_client(&mux, client, false);
+    }
+
+    #[test]
+    fn concurrent_terminal_close_settles_unbounded_connection_wait_exit() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-close-exit-wait",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-close-exit-wait"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        mux.reset_terminal_exit_state_query_count_for_test();
+
+        let wait = resource_request(
+            "wait-until-concurrent-close",
+            "terminal.wait_exit",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.terminal_exit_waiter_count_for_test(&terminal_id) != 1
+            || mux.terminal_exit_state_query_count_for_test() != 1
+        {
+            assert!(Instant::now() < waiting_deadline, "exit wait did not subscribe");
+            std::thread::yield_now();
+        }
+
+        let close = resource_request(
+            "close-terminal-during-exit-wait",
+            "terminal.close",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+            }),
+            Some("close-terminal-during-exit-wait"),
+        );
+        assert!(handle_connection_message(&mux, client, &close, &writer, &scheduler));
+        let responses = [pop_json(&outbound), pop_json(&outbound)];
+        let close_response =
+            responses.iter().find(|response| response["id"] == "close-terminal-during-exit-wait");
+        let wait_response =
+            responses.iter().find(|response| response["id"] == "wait-until-concurrent-close");
+        let close_response = close_response.expect("terminal close response");
+        let wait_response = wait_response.expect("terminal wait_exit response");
+        assert_eq!(close_response["ok"], true, "{close_response}");
+        assert_eq!(wait_response["ok"], false, "{wait_response}");
+        assert_eq!(wait_response["error"]["code"], "operation.failed");
+        assert!(
+            wait_response["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("is not live")),
+            "{wait_response}"
+        );
+        assert_eq!(mux.terminal_exit_state_query_count_for_test(), 2);
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&terminal_id), 0);
+
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(Instant::now() < cleanup_deadline, "settled exit wait retained admission");
+            std::thread::yield_now();
+        }
+        disconnect_client(&mux, client, false);
+    }
+
+    #[test]
+    fn disconnect_cancels_unbounded_terminal_waits_and_releases_worker_capacity() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-unbounded-waits",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-unbounded-waits"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            created["result"]["value"]["terminal_id"].as_str().expect("created terminal ID");
+
+        for index in 0..RESOURCE_WAITS_PER_CLIENT_CAPACITY {
+            let wait = resource_request(
+                &format!("unbounded-wait-{index}"),
+                "terminal.wait",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "terminal":terminal_id,
+                    "pattern":format!("cmux-pattern-that-never-matches-{index}"),
+                }),
+                None,
+            );
+            assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        }
+        let admission_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.control_clients.resource_wait_admission.active()
+            != RESOURCE_WAITS_PER_CLIENT_CAPACITY
+        {
+            assert!(Instant::now() < admission_deadline, "wait workers did not start");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+
+        let rejected = resource_request(
+            "unbounded-wait-rejected",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"cmux-pattern-that-never-matches-rejected",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &rejected, &writer, &scheduler));
+        let rejection = pop_json(&outbound);
+        assert_eq!(rejection["id"], "unbounded-wait-rejected");
+        assert_eq!(rejection["error"]["code"], "operation.failed");
+        assert_eq!(rejection["error"]["details"]["extra"]["reason_code"], "terminal_wait_capacity");
+        assert_eq!(rejection["error"]["details"]["extra"]["scope"], "client");
+
+        assert!(disconnect_client(&mux, client, false));
+        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(
+                Instant::now() < cleanup_deadline,
+                "disconnected unbounded waits retained worker capacity"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    #[test]
+    fn writer_close_cancels_unbounded_wait_before_client_registry_cleanup() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-writer-close-wait",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-writer-close-wait"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            created["result"]["value"]["terminal_id"].as_str().expect("created terminal ID");
+        let wait = resource_request(
+            "writer-close-wait",
+            "terminal.wait_exit",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        assert_eq!(mux.control_clients.resource_wait_admission.active(), 1);
+        let terminal_id = TerminalPublicId::parse(terminal_id).unwrap();
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.terminal_exit_waiter_count_for_test(&terminal_id) != 1 {
+            assert!(Instant::now() < waiting_deadline, "exit wait did not subscribe");
+            std::thread::yield_now();
+        }
+
+        writer.close();
+        assert!(
+            mux.control_clients.contains(client),
+            "test must isolate writer failure from registry disconnect"
+        );
+        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(
+                Instant::now() < cleanup_deadline,
+                "closed writer retained terminal wait worker capacity"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(mux.control_clients.contains(client));
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn zero_timeout_terminal_waits_complete_once_and_release_worker_capacity() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-zero-wait",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-zero-wait"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            created["result"]["value"]["terminal_id"].as_str().expect("created terminal ID");
+        let wait = resource_request(
+            "zero-timeout-wait",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"cmux-pattern-that-never-matches-zero-timeout",
+                "timeout_ms":"0",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "zero-timeout-wait");
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["matched"], false);
+
+        let wait_exit = resource_request(
+            "zero-timeout-wait-exit",
+            "terminal.wait_exit",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "timeout_ms":"0",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait_exit, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "zero-timeout-wait-exit");
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["state"], "pending");
+
+        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(Instant::now() < cleanup_deadline, "zero-timeout wait retained capacity");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn resource_stream_capacity_is_stable_and_reused_after_worker_exit() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let mut installed = Vec::new();
+        for index in 0..RESOURCE_STREAMS_PER_CLIENT_CAPACITY {
+            let stream_id = test_stream_id(index as u64 + 1);
+            let stream = writer.start_stream(&json!({})).unwrap();
+            let (canceled, worker_permit) = mux
+                .control_clients
+                .install_resource_stream(client, &stream_id, stream)
+                .expect("stream below the per-client capacity");
+            installed.push((stream_id, canceled, worker_permit));
+        }
+        assert_eq!(
+            mux.control_clients.resource_stream_admission.active(),
+            RESOURCE_STREAMS_PER_CLIENT_CAPACITY
+        );
+
+        let overflow_id = test_stream_id(10_000);
+        let denied_outbound = writer.start_stream(&json!({})).unwrap();
+        let denied = register_resource_outbound(
+            &mux,
+            client,
+            &overflow_id,
+            &denied_outbound,
+            "session.events",
+        );
+        let Err(denied) = denied else { panic!("stream above capacity was admitted") };
+        assert_eq!(denied.code, "operation.failed");
+        assert!(!denied_outbound.is_open(), "denied stream retained an open outbound handle");
+        assert_eq!(
+            mux.control_clients.resource_stream_admission.active(),
+            RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
+            "denied stream consumed admission capacity"
+        );
+        let open_overflow = |request_id: &str| {
+            resource_request(
+                request_id,
+                "session.events",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "stream_id":overflow_id,
+                }),
+                None,
+            )
+        };
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        assert!(handle_connection_message(
+            &mux,
+            client,
+            &open_overflow("stream-overflow-first"),
+            &writer,
+            &scheduler,
+        ));
+        let first_rejection = pop_json(&outbound);
+        assert_eq!(first_rejection["error"]["code"], "operation.failed");
+        assert_eq!(
+            first_rejection["error"]["details"]["extra"]["reason_code"],
+            "resource_stream_capacity"
+        );
+        assert_eq!(first_rejection["error"]["details"]["extra"]["scope"], "client");
+        assert_eq!(
+            first_rejection["error"]["details"]["extra"]["limit"],
+            RESOURCE_STREAMS_PER_CLIENT_CAPACITY
+        );
+
+        let (first_id, first_canceled, first_worker_permit) = installed.remove(0);
+        drop(
+            mux.control_clients
+                .take_resource_stream(client, &first_id)
+                .expect("installed stream remains registered"),
+        );
+        assert!(first_canceled.load(Ordering::Acquire));
+        assert!(handle_connection_message(
+            &mux,
+            client,
+            &open_overflow("stream-overflow-worker-still-live"),
+            &writer,
+            &scheduler,
+        ));
+        assert_eq!(pop_json(&outbound)["error"]["code"], "operation.failed");
+
+        drop(first_worker_permit);
+        assert!(handle_connection_message(
+            &mux,
+            client,
+            &open_overflow("stream-overflow-reused"),
+            &writer,
+            &scheduler,
+        ));
+        assert_eq!(pop_json(&outbound)["id"], "stream-overflow-reused");
+        assert_eq!(pop_json(&outbound)["type"], "stream_item");
+        let cancel = resource_request(
+            "stream-overflow-cancel",
+            "stream.cancel",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream":overflow_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["reason"], "canceled");
+        assert_eq!(pop_json(&outbound)["id"], "stream-overflow-cancel");
+
+        for (stream_id, _, worker_permit) in installed {
+            drop(mux.control_clients.take_resource_stream(client, &stream_id));
+            drop(worker_permit);
+        }
+        assert!(disconnect_client(&mux, client, false));
+        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.control_clients.resource_stream_admission.active() != 0 {
+            assert!(
+                Instant::now() < cleanup_deadline,
+                "ended streams retained server worker capacity"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    #[test]
+    fn resource_stream_server_capacity_survives_disconnect_until_workers_exit() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let mut clients = Vec::new();
+        let mut worker_permits = Vec::new();
+        for client_index in
+            0..(RESOURCE_STREAMS_SERVER_CAPACITY / RESOURCE_STREAMS_PER_CLIENT_CAPACITY)
+        {
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            let mut client_permits = Vec::new();
+            for stream_index in 0..RESOURCE_STREAMS_PER_CLIENT_CAPACITY {
+                let id = test_stream_id(
+                    (client_index * RESOURCE_STREAMS_PER_CLIENT_CAPACITY + stream_index + 1) as u64,
+                );
+                let stream = writer.start_stream(&json!({})).unwrap();
+                let (_, permit) = mux
+                    .control_clients
+                    .install_resource_stream(client, &id, stream)
+                    .expect("stream below the server capacity");
+                client_permits.push(permit);
+            }
+            clients.push(client);
+            worker_permits.push(client_permits);
+        }
+        assert_eq!(
+            mux.control_clients.resource_stream_admission.active(),
+            RESOURCE_STREAMS_SERVER_CAPACITY
+        );
+
+        let (extra_writer, extra_outbound) = captured_writer();
+        let extra = mux.control_clients.register(ClientTransport::Unix, extra_writer.clone());
+        let extra_id = test_stream_id(20_000);
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let open = resource_request(
+            "server-stream-overflow",
+            "session.events",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":extra_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, extra, &open, &extra_writer, &scheduler,));
+        let rejection = pop_json(&extra_outbound);
+        assert_eq!(rejection["error"]["code"], "operation.failed");
+        assert_eq!(
+            rejection["error"]["details"]["extra"]["reason_code"],
+            "resource_stream_capacity"
+        );
+        assert_eq!(rejection["error"]["details"]["extra"]["scope"], "server");
+        assert_eq!(
+            rejection["error"]["details"]["extra"]["limit"],
+            RESOURCE_STREAMS_SERVER_CAPACITY
+        );
+
+        assert!(disconnect_client(&mux, clients[0], false));
+        let still_rejected = mux.control_clients.install_resource_stream(
+            extra,
+            &extra_id,
+            extra_writer.start_stream(&json!({})).unwrap(),
+        );
+        assert!(matches!(still_rejected, Err(ResourceStreamInstallError::ServerCapacity)));
+        drop(worker_permits.remove(0));
+        let (_, extra_permit) = mux
+            .control_clients
+            .install_resource_stream(
+                extra,
+                &extra_id,
+                extra_writer.start_stream(&json!({})).unwrap(),
+            )
+            .expect("disconnect cleanup is reusable after its workers exit");
+
+        for client in clients.into_iter().skip(1) {
+            assert!(disconnect_client(&mux, client, false));
+        }
+        drop(worker_permits);
+        drop(mux.control_clients.take_resource_stream(extra, &extra_id));
+        drop(extra_permit);
+        assert!(disconnect_client(&mux, extra, false));
+        assert_eq!(mux.control_clients.resource_stream_admission.active(), 0);
+    }
+
+    #[test]
+    fn session_event_stream_acknowledges_before_snapshot_and_cancel_ends_before_response() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let stream_id = "stream_00000000000000000000000000000001";
+        let open = resource_request(
+            "events-open",
+            "session.events",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":stream_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+
+        let response = pop_json(&outbound);
+        assert_eq!(response["type"], "response");
+        assert_eq!(response["id"], "events-open");
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["stream_id"], stream_id);
+        let snapshot = pop_json(&outbound);
+        assert_eq!(snapshot["type"], "stream_item");
+        assert_eq!(snapshot["stream_id"], stream_id);
+        assert_eq!(snapshot["sequence"], "0");
+        assert_eq!(snapshot["item"]["kind"], "snapshot");
+        assert_eq!(snapshot["item"]["reset_reason"], "initial");
+        let clients = snapshot["item"]["snapshot"]["clients"].as_array().unwrap();
+        assert_eq!(clients.len(), 1);
+        assert_eq!(clients[0]["self"], true);
+        assert_eq!(clients[0]["transport"], "unix");
+
+        let cancel = resource_request(
+            "events-cancel",
+            "stream.cancel",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream":stream_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+        let end = pop_json(&outbound);
+        assert_eq!(end["type"], "stream_end");
+        assert_eq!(end["stream_id"], stream_id);
+        assert_eq!(end["reason"], "canceled");
+        let response = pop_json(&outbound);
+        assert_eq!(response["type"], "response");
+        assert_eq!(response["id"], "events-cancel");
+        assert_eq!(response["ok"], true);
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(outbound.try_pop().is_none(), "an item followed stream_end");
+        disconnect_client(&mux, client, false);
+    }
+
+    #[test]
+    fn resource_shutdown_requires_local_authority_and_force_for_a_live_browser_owner() {
+        let mux = test_mux();
+        let owner_writer = test_writer();
+        let owner = mux.control_clients.register(ClientTransport::Unix, owner_writer.clone());
+        handle_command(
+            &mux,
+            owner,
+            Command::SetClientInfo {
+                name: Some("browser owner".to_string()),
+                kind: Some("native-browser".to_string()),
+                capabilities: None,
+            },
+            &owner_writer,
+        )
+        .unwrap();
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+
+        let (websocket_writer, websocket_outbound) = captured_writer();
+        let websocket =
+            mux.control_clients.register(ClientTransport::WebSocket, websocket_writer.clone());
+        let websocket_request = resource_request(
+            "websocket-shutdown",
+            "session.shutdown",
+            json!({"machine":"current","session":"current","force":true}),
+            Some("websocket-shutdown"),
+        );
+        assert!(handle_connection_message(
+            &mux,
+            websocket,
+            &websocket_request,
+            &websocket_writer,
+            &scheduler,
+        ));
+        let rejected = pop_json(&websocket_outbound);
+        assert_eq!(rejected["ok"], false);
+        assert!(rejected["error"]["message"].as_str().unwrap().contains("trusted local"));
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(!mux.daemon_handoff_pending.load(Ordering::Acquire));
+
+        let (local_writer, local_outbound) = captured_writer();
+        let local = mux.control_clients.register(ClientTransport::Unix, local_writer.clone());
+        let ordinary_request = resource_request(
+            "ordinary-shutdown",
+            "session.shutdown",
+            json!({"machine":"current","session":"current","force":false}),
+            Some("ordinary-shutdown"),
+        );
+        assert!(handle_connection_message(
+            &mux,
+            local,
+            &ordinary_request,
+            &local_writer,
+            &scheduler,
+        ));
+        let rejected = pop_json(&local_outbound);
+        assert_eq!(rejected["ok"], false);
+        assert!(rejected["error"]["message"].as_str().unwrap().contains("still owns"));
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(!mux.daemon_handoff_pending.load(Ordering::Acquire));
+
+        let forced_request = resource_request(
+            "forced-shutdown",
+            "session.shutdown",
+            json!({"machine":"current","session":"current","force":true}),
+            Some("forced-shutdown"),
+        );
+        assert!(
+            handle_connection_message(&mux, local, &forced_request, &local_writer, &scheduler,)
+        );
+        // Observing shutdown means the durable result was returned and queued
+        // before the owning loop was asked to exit.
+        assert!(mux.daemon_shutdown_requested());
+        assert!(mux.daemon_handoff_pending.load(Ordering::Acquire));
+        let accepted = pop_json(&local_outbound);
+        assert_eq!(accepted["ok"], true);
+        assert_eq!(accepted["result"]["value"]["accepted"], true);
+        assert_eq!(accepted["result"]["replayed"], false);
+    }
+
+    #[test]
+    fn resource_shutdown_replay_reserves_handoff_and_retries_the_post_ack_exit() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-resource-shutdown-replay-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let request = resource_request(
+            "shutdown-replay",
+            "session.shutdown",
+            json!({"machine":"current","session":"current","force":false}),
+            Some("shutdown-replay"),
+        );
+
+        let first =
+            Mux::open_persistent("shutdown-replay", SurfaceOptions::default(), &root).unwrap();
+        let (closed_writer, _) = captured_writer();
+        let client = first.control_clients.register(ClientTransport::Unix, closed_writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(first.surface_operation_admission.clone()));
+        closed_writer.close();
+        assert!(!handle_connection_message(&first, client, &request, &closed_writer, &scheduler,));
+        assert!(!first.daemon_shutdown_requested());
+        assert!(!first.daemon_handoff_pending.load(Ordering::Acquire));
+        drop(scheduler);
+        drop(first);
+
+        let reopened =
+            Mux::open_persistent("shutdown-replay", SurfaceOptions::default(), &root).unwrap();
+        let (writer, outbound) = captured_writer();
+        let client = reopened.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(reopened.surface_operation_admission.clone()));
+        assert!(handle_connection_message(&reopened, client, &request, &writer, &scheduler,));
+        assert!(reopened.daemon_shutdown_requested());
+        assert!(reopened.daemon_handoff_pending.load(Ordering::Acquire));
+        let replay = pop_json(&outbound);
+        assert_eq!(replay["ok"], true);
+        assert_eq!(replay["result"]["value"]["accepted"], true);
+        assert_eq!(replay["result"]["replayed"], true);
+        drop(scheduler);
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn pairing_request_resources_require_a_trusted_local_connection() {
+        let mux = test_mux();
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let (websocket_writer, websocket_outbound) = captured_writer();
+        // Registered WebSocket clients are already authenticated or paired;
+        // pairing never upgrades their transport to trusted local authority.
+        let websocket =
+            mux.control_clients.register(ClientTransport::WebSocket, websocket_writer.clone());
+
+        let list = resource_request(
+            "pairing-list-websocket",
+            "pairing_request.list",
+            json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, websocket, &list, &websocket_writer, &scheduler,));
+        let rejected = pop_json(&websocket_outbound);
+        assert_eq!(rejected["ok"], false);
+        assert!(rejected["error"]["message"].as_str().unwrap().contains("trusted local"));
+
+        let resolve = resource_request(
+            "pairing-resolve-websocket",
+            "pairing_request.resolve",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "pairing_request":format!("pairing_{:032x}", challenge.id),
+                "decision":"accept",
+            }),
+            Some("pairing-resolve-websocket"),
+        );
+        assert!(handle_connection_message(
+            &mux,
+            websocket,
+            &resolve,
+            &websocket_writer,
+            &scheduler,
+        ));
+        let rejected = pop_json(&websocket_outbound);
+        assert_eq!(rejected["ok"], false);
+        assert!(rejected["error"]["message"].as_str().unwrap().contains("trusted local"));
+        assert_eq!(mux.pending_pairings().len(), 1);
+        assert!(matches!(decision.try_recv(), Err(TryRecvError::Empty)));
+
+        let (local_writer, local_outbound) = captured_writer();
+        let local = mux.control_clients.register(ClientTransport::Unix, local_writer.clone());
+        assert!(handle_connection_message(&mux, local, &list, &local_writer, &scheduler,));
+        let listed = pop_json(&local_outbound);
+        assert_eq!(listed["ok"], true);
+        assert_eq!(listed["result"].as_array().unwrap().len(), 1);
+        assert_eq!(listed["result"][0]["code"], challenge.code);
+    }
+
+    #[test]
+    fn resource_clients_use_opaque_ids_and_preserve_exact_nullable_metadata() {
+        let mux = test_mux();
+        let (first_writer, first_outbound) = captured_writer();
+        let first = mux.control_clients.register(ClientTransport::Unix, first_writer.clone());
+        let (second_writer, second_outbound) = captured_writer();
+        let second =
+            mux.control_clients.register(ClientTransport::WebSocket, second_writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+
+        let update = resource_request(
+            "client-metadata",
+            "client.metadata.update",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "client":"current",
+                "name":"  α  ",
+                "kind":null,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, first, &update, &first_writer, &scheduler));
+        let updated = pop_json(&first_outbound);
+        assert_eq!(updated["ok"], true);
+        assert_eq!(updated["result"]["name"], "  α  ");
+        assert_eq!(updated["result"]["client_kind"], Value::Null);
+        assert_eq!(updated["result"]["transport"], "unix");
+        let first_id = updated["result"]["id"].as_str().unwrap().to_string();
+        assert!(first_id.starts_with("client_"));
+        assert!(!first_id.ends_with(&format!("{first:032x}")));
+
+        let list = resource_request(
+            "client-list",
+            "client.list",
+            json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, first, &list, &first_writer, &scheduler));
+        let listed = pop_json(&first_outbound);
+        assert_eq!(listed["result"].as_array().unwrap().len(), 2);
+        assert!(listed["result"].as_array().unwrap().iter().any(|client| {
+            client["id"] == first_id && client["self"] == true && client["transport"] == "unix"
+        }));
+        assert!(
+            listed["result"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|client| { client["self"] == false && client["transport"] == "websocket" })
+        );
+
+        let snapshot = resource_request(
+            "session-snapshot-with-clients",
+            "session.snapshot",
+            json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, first, &snapshot, &first_writer, &scheduler));
+        let snapshot = pop_json(&first_outbound);
+        let clients = snapshot["result"]["clients"].as_array().unwrap();
+        assert_eq!(clients.len(), 2);
+        assert!(clients.iter().any(|client| client["id"] == first_id && client["self"] == true));
+        assert!(
+            clients
+                .iter()
+                .any(|client| client["self"] == false && client["transport"] == "websocket")
+        );
+
+        let clear = resource_request(
+            "client-clear-name",
+            "client.metadata.update",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "client":first_id,
+                "name":null,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, first, &clear, &first_writer, &scheduler));
+        assert_eq!(pop_json(&first_outbound)["result"]["name"], Value::Null);
+
+        let websocket_update = resource_request(
+            "websocket-client-metadata",
+            "client.metadata.update",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "client":"current",
+                "name":"websocket exact α",
+                "kind":"web-client",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(
+            &mux,
+            second,
+            &websocket_update,
+            &second_writer,
+            &scheduler,
+        ));
+        let updated = pop_json(&second_outbound);
+        assert_eq!(updated["ok"], true);
+        assert_eq!(updated["result"]["transport"], "websocket");
+        assert_eq!(updated["result"]["name"], "websocket exact α");
+        assert_eq!(updated["result"]["client_kind"], "web-client");
+
+        for (id, field, value) in [
+            ("websocket-client-metadata-control", "name", "\u{1b}]0;evil\u{07}".to_string()),
+            ("websocket-client-metadata-c1-control", "name", "c1\u{0085}control".to_string()),
+            ("websocket-client-metadata-long", "kind", "k".repeat(65)),
+        ] {
+            let mut params = json!({
+                "machine":"current",
+                "session":"current",
+                "client":"current",
+            });
+            params[field] = json!(value);
+            let invalid = resource_request(id, "client.metadata.update", params, None);
+            assert!(handle_connection_message(&mux, second, &invalid, &second_writer, &scheduler,));
+            let rejected = pop_json(&second_outbound);
+            assert_eq!(rejected["ok"], false);
+            assert_eq!(rejected["error"]["code"], "validation.invalid");
+            assert_eq!(rejected["error"]["details"]["field"], field);
+        }
+
+        let unchanged = resource_request(
+            "websocket-client-metadata-unchanged",
+            "client.get",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "client":"current",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, second, &unchanged, &second_writer, &scheduler,));
+        let unchanged = pop_json(&second_outbound);
+        assert_eq!(unchanged["result"]["name"], "websocket exact α");
+        assert_eq!(unchanged["result"]["client_kind"], "web-client");
+
+        let websocket_clear = resource_request(
+            "websocket-client-metadata-clear",
+            "client.metadata.update",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "client":"current",
+                "name":null,
+                "kind":null,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(
+            &mux,
+            second,
+            &websocket_clear,
+            &second_writer,
+            &scheduler,
+        ));
+        let cleared = pop_json(&second_outbound);
+        assert_eq!(cleared["result"]["name"], Value::Null);
+        assert_eq!(cleared["result"]["client_kind"], Value::Null);
+        disconnect_client(&mux, first, false);
+        disconnect_client(&mux, second, false);
+    }
+
+    #[test]
+    fn connection_handler_owns_every_router_connection_operation() {
+        let catalog: Value =
+            serde_json::from_str(include_str!("../../../spec/resource-operations-v1.json"))
+                .unwrap();
+        let mut connection_operations = 0usize;
+        for name in catalog["operations"].as_object().unwrap().keys() {
+            let operation: ResourceOperation =
+                serde_json::from_value(Value::String(name.clone())).unwrap();
+            let requires_connection =
+                crate::resource_router::requires_connection_context(operation);
+            assert_eq!(
+                handles_resource_connection_operation(operation),
+                requires_connection,
+                "{name} has inconsistent connection ownership"
+            );
+            connection_operations += usize::from(requires_connection);
+        }
+        assert_eq!(connection_operations, 21);
+    }
+
+    #[test]
+    fn terminal_resource_attach_acknowledges_before_styled_snapshot_and_cancels() {
+        let mux = test_mux();
+        let created = crate::resource_router::handle_resource_message(
+            &mux,
+            &resource_request(
+                "terminal-attach-create",
+                "workspace.create",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "name":"attach",
+                    "initial_content":"terminal",
+                }),
+                Some("terminal-resource-attach-create"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(created["ok"], true);
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let terminal_id =
+            snapshot["terminals"][0]["id"].as_str().expect("created terminal id").to_string();
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let stream_id = "stream_00000000000000000000000000000021";
+        let attach = resource_request(
+            "terminal-attach-open",
+            "terminal.attach",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "stream_id":stream_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &attach, &writer, &scheduler));
+
+        let response = pop_json(&outbound);
+        assert_eq!(response["type"], "response");
+        assert_eq!(response["id"], "terminal-attach-open");
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["stream_id"], stream_id);
+        let item = pop_json(&outbound);
+        assert_eq!(item["type"], "stream_item");
+        assert_eq!(item["stream_id"], stream_id);
+        assert_eq!(item["sequence"], "0");
+        assert!(item.get("cursor").is_none());
+        assert_eq!(item["item"]["kind"], "snapshot");
+        assert_eq!(item["item"]["terminal_id"], terminal_id);
+        assert_eq!(
+            item["item"]["render"]["rows"].as_array().unwrap().len(),
+            item["item"]["render"]["size"]["rows"].as_u64().unwrap() as usize
+        );
+
+        let cancel = resource_request(
+            "terminal-attach-cancel",
+            "stream.cancel",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream":stream_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+        let end = pop_json(&outbound);
+        assert_eq!(end["type"], "stream_end");
+        assert_eq!(end["stream_id"], stream_id);
+        assert_eq!(end["reason"], "canceled");
+        assert_eq!(pop_json(&outbound)["id"], "terminal-attach-cancel");
+        disconnect_client(&mux, client, false);
+    }
+
+    #[test]
+    fn sidebar_resource_attach_acknowledges_before_styled_snapshot_and_cancels() {
+        let mux = Mux::new("server-sidebar-resource", SurfaceOptions::default());
+        mux.configure_sidebar_plugin(Some(SidebarPluginOptions {
+            command: vec!["/bin/cat".to_string()],
+            cwd: None,
+        }));
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let ensure = resource_request(
+            "sidebar-attach-ensure",
+            "sidebar_view.ensure",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "cols":20,
+                "rows":4,
+            }),
+            Some("server-sidebar-attach-ensure"),
+        );
+        assert!(handle_connection_message(&mux, client, &ensure, &writer, &scheduler));
+        let ensured = pop_json(&outbound);
+        assert_eq!(ensured["ok"], true);
+        let sidebar_id =
+            ensured["result"]["value"]["id"].as_str().expect("sidebar view id").to_string();
+
+        let stream_id = "stream_00000000000000000000000000000022";
+        let attach = resource_request(
+            "sidebar-attach-open",
+            "sidebar_view.attach",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "sidebar_view":sidebar_id,
+                "stream_id":stream_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &attach, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["type"], "response");
+        assert_eq!(response["id"], "sidebar-attach-open");
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["stream_id"], stream_id);
+        let item = pop_json(&outbound);
+        assert_eq!(item["type"], "stream_item");
+        assert_eq!(item["stream_id"], stream_id);
+        assert_eq!(item["sequence"], "0");
+        assert!(item.get("cursor").is_none());
+        assert_eq!(item["item"]["kind"], "snapshot");
+        assert_eq!(item["item"]["sidebar_view"]["id"], sidebar_id);
+        assert_eq!(
+            item["item"]["render"]["rows"].as_array().unwrap().len(),
+            item["item"]["render"]["size"]["rows"].as_u64().unwrap() as usize
+        );
+
+        let cancel = resource_request(
+            "sidebar-attach-cancel",
+            "stream.cancel",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream":stream_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+        let end = pop_json(&outbound);
+        assert_eq!(end["type"], "stream_end");
+        assert_eq!(end["stream_id"], stream_id);
+        assert_eq!(end["reason"], "canceled");
+        assert_eq!(pop_json(&outbound)["id"], "sidebar-attach-cancel");
+        disconnect_client(&mux, client, false);
+    }
+
+    #[test]
+    fn session_event_stream_replays_covered_cursor_and_rejects_ahead_cursor() {
+        let mux = test_mux();
+        let initial = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let generation = initial["cursor"]["generation"].as_str().unwrap().to_string();
+        let created = crate::resource_router::handle_resource_message(
+            &mux,
+            &resource_request(
+                "create-for-replay",
+                "workspace.create",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "name":"replayed",
+                    "initial_content":"empty",
+                }),
+                Some("create-for-session-event-replay"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(created["result"]["revision"], "1");
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let stream_id = "stream_00000000000000000000000000000002";
+        let open = resource_request(
+            "events-replay",
+            "session.events",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":stream_id,
+                "cursor":{"generation":generation,"revision":"0"},
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["id"], "events-replay");
+        let delta = pop_json(&outbound);
+        assert_eq!(delta["item"]["kind"], "delta");
+        assert_eq!(delta["item"]["previous_revision"], "0");
+        assert_eq!(delta["item"]["revision"], "1");
+        assert_eq!(delta["item"]["changes"][0]["kind"], "upsert");
+        assert_eq!(delta["item"]["changes"][0]["resource"], "workspace");
+
+        let ahead_id = "stream_00000000000000000000000000000003";
+        let ahead = resource_request(
+            "events-ahead",
+            "session.events",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":ahead_id,
+                "cursor":{"generation":generation,"revision":"999"},
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &ahead, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "events-ahead");
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "cursor.invalid");
+        disconnect_client(&mux, client, false);
+    }
+
+    #[test]
+    fn generation_mismatch_resets_one_stream_without_interrupting_another() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let first_id = "stream_00000000000000000000000000000004";
+        let second_id = "stream_00000000000000000000000000000005";
+        for (request_id, stream_id, cursor) in [
+            ("events-reset", first_id, Some(json!({"generation":"stale","revision":"0"}))),
+            ("events-live", second_id, None),
+        ] {
+            let mut params = json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":stream_id,
+            });
+            if let Some(cursor) = cursor {
+                params["cursor"] = cursor;
+            }
+            let open = resource_request(request_id, "session.events", params, None);
+            assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+            assert_eq!(pop_json(&outbound)["id"], request_id);
+            let snapshot = pop_json(&outbound);
+            assert_eq!(snapshot["stream_id"], stream_id);
+            assert_eq!(
+                snapshot["item"]["reset_reason"],
+                if stream_id == first_id { "generation_changed" } else { "initial" }
+            );
+        }
+
+        let cancel = resource_request(
+            "cancel-reset",
+            "stream.cancel",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream":first_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["stream_id"], first_id);
+        assert_eq!(pop_json(&outbound)["id"], "cancel-reset");
+
+        crate::resource_router::handle_resource_message(
+            &mux,
+            &resource_request(
+                "create-for-live",
+                "workspace.create",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "name":"live",
+                    "initial_content":"empty",
+                }),
+                Some("create-for-live-session-event"),
+            ),
+        )
+        .unwrap();
+        let delta = pop_json(&outbound);
+        assert_eq!(delta["type"], "stream_item");
+        assert_eq!(delta["stream_id"], second_id);
+        assert_eq!(delta["item"]["kind"], "delta");
+        disconnect_client(&mux, client, false);
+    }
+
     #[test]
     fn browser_state_json_exposes_pointer_admission_separately_from_the_retained_frame() {
-        let state = crate::BrowserAttachState {
+        let state = BrowserAttachState {
             url: "https://example.test".to_string(),
             title: "example".to_string(),
             cols: 10,
@@ -6289,6 +11149,25 @@ mod tests {
     }
 
     #[test]
+    fn browser_resource_frame_couples_exact_nullable_pointer_authority() {
+        let frame = crate::BrowserFrame {
+            session_id: "session-test".to_string(),
+            data_b64: "AAAA".to_string(),
+            css_width: 80,
+            css_height: 48,
+            image_width: 80,
+            image_height: 48,
+            seq: 7,
+        };
+
+        let guarded = browser_resource_frame(&frame, Some(u64::MAX));
+        assert_eq!(guarded["pointer_frame_seq"], u64::MAX.to_string());
+
+        let retained = browser_resource_frame(&frame, None);
+        assert_eq!(retained.get("pointer_frame_seq"), Some(&Value::Null));
+    }
+
+    #[test]
     fn browser_attach_stream_publishes_frame_before_positive_state_authority() {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
@@ -6309,7 +11188,7 @@ mod tests {
                 pointer_frame_floor_seq: Some(7),
                 pointer_frame_seq: Some(7),
             }),
-            state: Some(crate::BrowserAttachState {
+            state: Some(BrowserAttachState {
                 url: "https://example.test".to_string(),
                 title: "example".to_string(),
                 cols: 10,
@@ -6336,7 +11215,7 @@ mod tests {
 
     #[test]
     fn browser_state_serializes_css_and_encoded_image_dimensions() {
-        let state = crate::BrowserAttachState {
+        let state = BrowserAttachState {
             url: "https://example.com".to_string(),
             title: "Example".to_string(),
             cols: 80,
@@ -7055,7 +11934,7 @@ mod tests {
     }
 
     #[test]
-    fn global_pressure_terminates_the_stream_occupying_the_backlog() {
+    fn each_stream_has_an_independent_message_budget() {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
         let noisy = writer.start_stream(&json!({"event": "overflow", "stream": "noisy"})).unwrap();
@@ -7065,6 +11944,10 @@ mod tests {
             writer.send_stream(&json!({"event": "output", "sequence": sequence}), &noisy).unwrap();
         }
         writer.send_stream(&json!({"event": "tree-changed"}), &quiet).unwrap();
+        assert_eq!(
+            writer.send_stream(&json!({"event": "one-too-many"}), &noisy).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
 
         let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(terminal["stream"], "noisy");
@@ -7253,6 +12136,12 @@ mod tests {
         assert_eq!(data["ghostty_commit"].as_str(), stamped_ghostty_commit());
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
         assert_eq!(identity["daemon_handoff"].as_u64(), Some(1));
+        assert!(
+            identity["capabilities"].as_array().is_some_and(|capabilities| capabilities
+                .iter()
+                .any(|capability| capability == DAEMON_HANDOFF_FORCE_CAPABILITY)),
+            "the server must advertise forced fenced daemon handoff"
+        );
         assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
         assert_eq!(PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION, 10);
@@ -7263,6 +12152,39 @@ mod tests {
                 .any(|capability| capability == "browser-pointer-frame-guard-v1")),
             "the server must advertise guarded browser pointer input"
         );
+    }
+
+    #[test]
+    fn raw_report_agent_command_commits_public_revision_projection_and_event() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let revision = mux.with_state(|state| state.resource_revision);
+        let epoch = mux.resource_event_epoch();
+
+        let result = handle_command(
+            &mux,
+            0,
+            Command::ReportAgent {
+                surface: surface.id,
+                state: "working".into(),
+                source: "socket".into(),
+                session: Some("raw-command".into()),
+            },
+            &test_writer(),
+        )
+        .unwrap();
+
+        assert_eq!(result["surface"], surface.id);
+        assert_eq!(result["state"], "working");
+        assert_eq!(result["source"], "socket");
+        assert_eq!(result["session"], "raw-command");
+        assert_eq!(mux.with_state(|state| state.resource_revision), revision + 1);
+        assert_eq!(mux.resource_event_epoch(), epoch + 1);
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+        let events = mux.resource_events_after(revision).unwrap();
+        assert_eq!(events.batches.len(), 1);
+        assert_eq!(events.batches[0].changes[0]["resource"], "agent");
+        assert_eq!(events.batches[0].changes[0]["value"]["source_session"], "raw-command");
     }
 
     #[test]
@@ -7551,6 +12473,24 @@ mod tests {
     }
 
     #[test]
+    fn workspace_tree_exposes_the_public_terminal_id_for_startup_attach() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let expected = match &surface.resource_identity().unwrap().content_id {
+            ContentPublicId::Terminal(id) => id.as_str(),
+            ContentPublicId::Browser(_) => panic!("workspace started with a browser"),
+        };
+
+        let tree = handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap();
+
+        assert_eq!(
+            tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["terminal_resource_id"],
+            expected
+        );
+        mux.shutdown();
+    }
+
+    #[test]
     fn projected_split_ratio_range_failure_is_not_reported_as_unknown() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 22))).unwrap();
@@ -7663,6 +12603,46 @@ mod tests {
                 "create-terminal cols and rows must be supplied together"
             );
         }
+    }
+
+    #[test]
+    fn mutation_specific_raw_terminal_create_updates_public_projection_once() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap().workspace;
+        let command = || Command::CreateTerminal {
+            workspace: Some(workspace),
+            key: None,
+            argv: None,
+            command: None,
+            cwd: None,
+            name: Some("raw terminal".to_string()),
+            cols: Some(80),
+            rows: Some(24),
+            terminal_id: Some("00000000000040008000000000000001".to_string()),
+            mutation: MutationRequest {
+                origin: Some("raw-projection-test".to_string()),
+                mutation_id: Some("raw-terminal-create-once".to_string()),
+                expected_generation: None,
+                expected_revision: None,
+            },
+        };
+
+        let first = handle_command(&mux, 0, command(), &test_writer()).unwrap();
+        assert_eq!(first["replayed"], false);
+        let first_snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert_eq!(first_snapshot["screens"].as_array().unwrap().len(), 1);
+        assert_eq!(first_snapshot["panes"].as_array().unwrap().len(), 1);
+        assert_eq!(first_snapshot["tabs"].as_array().unwrap().len(), 1);
+        assert_eq!(first_snapshot["terminals"].as_array().unwrap().len(), 1);
+        assert_eq!(first_snapshot["tabs"][0]["content_id"], first_snapshot["terminals"][0]["id"]);
+        let first_revision = first_snapshot["cursor"]["revision"].clone();
+
+        let replay = handle_command(&mux, 0, command(), &test_writer()).unwrap();
+        assert_eq!(replay["replayed"], true);
+        let replayed_snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert_eq!(replayed_snapshot["cursor"]["revision"], first_revision);
+        assert_eq!(replayed_snapshot["terminals"].as_array().unwrap().len(), 1);
+        mux.shutdown();
     }
 
     #[test]
@@ -7808,6 +12788,63 @@ mod tests {
     }
 
     #[test]
+    fn daemon_shutdown_force_preserves_the_identity_fence() {
+        let mux = test_mux();
+        let owner_writer = test_writer();
+        let owner = mux.control_clients.register(ClientTransport::Unix, owner_writer.clone());
+        handle_command(
+            &mux,
+            owner,
+            Command::SetClientInfo {
+                name: Some("browser owner".to_string()),
+                kind: Some("native-browser".to_string()),
+                capabilities: None,
+            },
+            &owner_writer,
+        )
+        .unwrap();
+
+        let (requester_writer, outbound) = captured_writer();
+        let requester =
+            mux.control_clients.register(ClientTransport::Unix, requester_writer.clone());
+        let (_, generation) = mux.registry_identity();
+        assert!(handle_message(
+            &mux,
+            requester,
+            &json!({
+                "id": 95,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id(),
+                "generation": "stale-generation",
+                "force": true,
+            })
+            .to_string(),
+            &requester_writer,
+        ));
+        let rejected = pop_json(&outbound);
+        assert_eq!(rejected["ok"], false);
+        assert!(rejected["error"].as_str().unwrap().contains("generation changed"));
+        assert!(!mux.daemon_shutdown_requested());
+
+        assert!(handle_message(
+            &mux,
+            requester,
+            &json!({
+                "id": 96,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id(),
+                "generation": generation,
+                "force": true,
+            })
+            .to_string(),
+            &requester_writer,
+        ));
+        let accepted = pop_json(&outbound);
+        assert_eq!(accepted["ok"], true);
+        assert!(mux.daemon_shutdown_requested());
+    }
+
+    #[test]
     fn daemon_shutdown_atomically_fences_native_browser_ownership() {
         let owned = test_mux();
         let requester_writer = test_writer();
@@ -7830,7 +12867,7 @@ mod tests {
         let error = handle_command(
             &owned,
             requester,
-            Command::ShutdownDaemon { pid: std::process::id(), generation },
+            Command::ShutdownDaemon { pid: std::process::id(), generation, force: false },
             &requester_writer,
         )
         .unwrap_err();
@@ -7847,7 +12884,7 @@ mod tests {
         handle_command(
             &fenced,
             requester,
-            Command::ShutdownDaemon { pid: std::process::id(), generation },
+            Command::ShutdownDaemon { pid: std::process::id(), generation, force: false },
             &requester_writer,
         )
         .unwrap();

@@ -34,19 +34,28 @@ public struct CmxIrohBrokerCredentials: Sendable, CustomStringConvertible,
 /// session's access token with another's refresh token) is no longer
 /// expressible. The single-token accessors are derived from the pair for
 /// callers that need one token.
+///
+/// The pair read distinguishes two failure states. Returning `nil` means the
+/// credentials are DEFINITIVELY absent (signed out, account switched) and the
+/// broker fails closed with ``CmxIrohTrustBrokerClientError/missingAuthentication``.
+/// Throwing means the source could not read a coherent pair RIGHT NOW (the
+/// token store is owned by a launch/foreground revalidation, or an expired
+/// access token's re-mint is in flight or offline); the broker classifies
+/// that as ``CmxIrohTrustBrokerClientError/connectivity`` so callers retry and
+/// cached-policy fallbacks apply instead of tearing trusted state down.
 public struct CmxIrohBrokerTokenSource: Sendable {
-    public let accessToken: @Sendable () async -> String?
-    public let refreshToken: @Sendable () async -> String?
+    public let accessToken: @Sendable () async throws -> String?
+    public let refreshToken: @Sendable () async throws -> String?
     /// Both tokens from ONE snapshot, so a request can never mix an old access
     /// token with a rotated refresh token.
-    public let credentialPair: @Sendable () async -> CmxIrohBrokerCredentials?
+    public let credentialPair: @Sendable () async throws -> CmxIrohBrokerCredentials?
 
     public init(
-        credentialPair: @escaping @Sendable () async -> CmxIrohBrokerCredentials?
+        credentialPair: @escaping @Sendable () async throws -> CmxIrohBrokerCredentials?
     ) {
         self.credentialPair = credentialPair
-        self.accessToken = { await credentialPair()?.accessToken }
-        self.refreshToken = { await credentialPair()?.refreshToken }
+        self.accessToken = { try await credentialPair()?.accessToken }
+        self.refreshToken = { try await credentialPair()?.refreshToken }
     }
 }
 
@@ -70,6 +79,30 @@ struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
 
 /// Authenticated client for endpoint registration, discovery, grants, and relay tokens.
 public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
+    private struct ConnectivitySyncRequest: Encodable {
+        let protocolVersion: Int
+        let knownRevision: UInt64?
+
+        private enum CodingKeys: String, CodingKey {
+            case protocolVersion = "protocol_version"
+            case knownRevision = "known_revision"
+        }
+
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(protocolVersion, forKey: .protocolVersion)
+            if let knownRevision {
+                try container.encode(knownRevision, forKey: .knownRevision)
+            } else {
+                // The v2 wire contract distinguishes an initial sync (`null`)
+                // from an absent field. Swift's synthesized Optional encoding
+                // omits nil values, which the bounded server parser correctly
+                // rejects as an incomplete request.
+                try container.encodeNil(forKey: .knownRevision)
+            }
+        }
+    }
+
     private struct BindingRequest: Encodable { let bindingId: String }
     private struct EndpointRequest: Encodable { let endpointId: String }
     private struct RelayAccessCredential: Decodable, Sendable {
@@ -221,6 +254,21 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         try await withBackpressure(operation: .discovery) {
             try await self.discoverAllPages()
         }
+    }
+
+    /// Reconciles one completely installed route revision with connectivity v2.
+    public func syncConnectivity(
+        knownRevision: UInt64?
+    ) async throws -> CmxConnectivitySyncResponse {
+        try await send(
+            path: "api/connectivity/v2/sync",
+            method: "POST",
+            body: ConnectivitySyncRequest(
+                protocolVersion: CmxConnectivitySyncResponse.protocolVersion,
+                knownRevision: knownRevision
+            ),
+            operation: .discovery
+        )
     }
 
     public func issuePairGrant(
@@ -379,6 +427,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             )
             if let first {
                 guard page.discovery.routeContractVersion == first.routeContractVersion,
+                      page.discovery.revision == first.revision,
                       page.discovery.relayFleet == first.relayFleet,
                       page.discovery.lanRendezvous == first.lanRendezvous,
                       page.discovery.grantVerificationKeys
@@ -407,6 +456,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
         return CmxIrohDiscoveryResponse(
             routeContractVersion: first.routeContractVersion,
+            revision: first.revision,
             bindings: bindings,
             relayFleet: first.relayFleet,
             lanRendezvous: first.lanRendezvous,
@@ -448,7 +498,24 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         // refresh through two independent calls lets a force refresh land
         // between them and pair a stale access token with a rotated refresh
         // token, which the broker rejects.
-        guard let pair = await tokenSource.credentialPair() else {
+        let capturedPair: CmxIrohBrokerCredentials?
+        do {
+            capturedPair = try await tokenSource.credentialPair()
+        } catch is CancellationError {
+            // A cancelled caller must observe cancellation, not a retryable
+            // network failure: classifying it connectivity would let retry
+            // and cached-policy fallbacks keep working on a cancelled task.
+            throw CancellationError()
+        } catch {
+            // The source could not read a coherent pair right now (token store
+            // mid-transition, re-mint in flight or offline). That is transient
+            // and indistinguishable from an unreachable broker for every
+            // caller policy (retry, cached-policy fallback, verified-policy
+            // preservation), so classify it as connectivity, not as a
+            // definitive authentication failure.
+            throw CmxIrohTrustBrokerClientError.connectivity
+        }
+        guard let pair = capturedPair else {
             throw CmxIrohTrustBrokerClientError.missingAuthentication
         }
         let accessToken = pair.accessToken

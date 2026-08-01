@@ -192,10 +192,23 @@ dependencies = [
 
 [[package]]
 name = "cmux-client"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
+ "base64",
+ "getrandom 0.3.4",
  "libc",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-sidebar"
+version = "1.0.0"
+dependencies = [
+ "base64",
+ "cmux-client",
+ "crossterm",
+ "ratatui",
  "serde_json",
 ]
 
@@ -214,6 +227,7 @@ dependencies = [
  "libc",
  "parking_lot",
  "ratatui",
+ "rusqlite",
  "serde",
  "serde_json",
  "smallvec",

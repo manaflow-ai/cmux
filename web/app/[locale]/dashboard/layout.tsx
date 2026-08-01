@@ -21,14 +21,16 @@ export default async function DashboardLayout({
   }
 
   return (
-    <StackProvider app={getStackServerApp()}>
-      <StackTheme>
-        <DashboardQueryProvider>
-          <DashboardShell>
-            <Suspense fallback={<DashboardSkeleton />}>{children}</Suspense>
-          </DashboardShell>
-        </DashboardQueryProvider>
-      </StackTheme>
-    </StackProvider>
+    <Suspense fallback={<DashboardSkeleton />}>
+      <StackProvider app={getStackServerApp()}>
+        <StackTheme>
+          <DashboardQueryProvider>
+            <DashboardShell>
+              <Suspense fallback={<DashboardSkeleton />}>{children}</Suspense>
+            </DashboardShell>
+          </DashboardQueryProvider>
+        </StackTheme>
+      </StackProvider>
+    </Suspense>
   );
 }

@@ -337,9 +337,10 @@ Options:
                             builds must pass Apple Beta App Review (~24h) before
                             external testers can install the first build of a new
                             MARKETING_VERSION. With ASC API-key auth, the script
-                            also assigns the processed build to the selected
-                            external beta group (single external group by
-                            default, or CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID / _NAME)
+                            also assigns the processed build to the Founder's
+                            Edition group (CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID /
+                            _NAME) and the Pro group
+                            (CMUX_TESTFLIGHT_PRO_GROUP_ID)
                             and auto-submits a new MARKETING_VERSION for Beta App
                             Review when Apple reports READY_FOR_BETA_SUBMISSION.
                             Also set via
@@ -446,10 +447,9 @@ EXTERNAL_TESTING=0
 if [[ "${CMUX_TESTFLIGHT_EXTERNAL:-}" == "1" ]]; then
   EXTERNAL_TESTING=1
 fi
-# Whether this invocation should assign an uploaded external build to the
-# external beta group itself. The automatic GitHub Actions lane disables this and
-# runs assignment in a separate post-upload job so a distribution failure cannot
-# cause duplicate uploads after the IPA already shipped.
+# Whether this invocation should assign an uploaded external build to its
+# subscriber groups. Internal-only automation disables this; manual external
+# cuts keep assignment inline after upload.
 ASSIGN_EXTERNAL_GROUP=1
 if [[ "${CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP:-1}" == "0" ]]; then
   ASSIGN_EXTERNAL_GROUP=0
@@ -686,6 +686,17 @@ if [[ -f "$LOCAL_ASC_CONFIG" ]]; then
   ASC_API_KEY_ID="${ASC_API_KEY_ID:-$("$PLISTBUDDY" -c 'Print :ASC_API_KEY_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
   ASC_API_ISSUER_ID="${ASC_API_ISSUER_ID:-$("$PLISTBUDDY" -c 'Print :ASC_API_ISSUER_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
   ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-$("$PLISTBUDDY" -c 'Print :ASC_API_KEY_PATH' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
+fi
+
+# An external lane is incomplete unless the uploaded build is assigned to both
+# subscriber groups and submitted for Beta App Review when required. Validate
+# the credentials before archiving so a missing key cannot leave an uploaded but
+# undistributed build behind.
+if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
+  if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
+    echo "error: external TestFlight distribution requires configured App Store Connect credentials for subscriber-group assignment and Beta App Review. Configure the external distribution credentials before rerunning the external lane." >&2
+    exit 2
+  fi
 fi
 
 # Monotonic build-number guard (defense in depth). TestFlight only offers a build
@@ -1514,24 +1525,32 @@ else
   fi
 fi
 
-# --external means "ship to founders", not merely "make this build externally
-# eligible in principle". After upload, assign the processed build to the app's
-# external beta group so external testers actually receive it, and create the
-# Beta App Review submission when Apple requires one for a new
-# beta marketing version. This is fatal: a red CI/upload is preferable to
-# claiming the external lane tracked main when the build never reached the
-# founders lane.
+# --external means "ship to subscribers", not merely "make this build externally
+# eligible in principle". After upload, assign the processed build to the
+# Founder's Edition and Pro beta groups so both audiences receive it, and create
+# the Beta App Review submission when Apple requires one for a new beta marketing
+# version. This is fatal: a red CI/upload is preferable to claiming the external
+# lane tracked main when either subscriber group missed the build.
 if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
-    echo "warning: no ASC API key (JWT) available; uploaded the external-eligible build but skipped automatic external-group assignment and Beta App Review submission. Supply ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64) to distribute the build automatically." >&2
-    exit 0
+    echo "error: App Store Connect credentials are unavailable; the external build uploaded but was not assigned to subscriber groups or submitted for Beta App Review. Configure the external distribution credentials, then rerun the external lane." >&2
+    exit 1
   fi
-  echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the founders beta group" >&2
+  EXTERNAL_GROUP_SELECTOR=()
+  if [[ -n "${CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID:-}" ]]; then
+    EXTERNAL_GROUP_SELECTOR=( --group-id "$CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID" )
+  elif [[ -n "${CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME:-}" ]]; then
+    EXTERNAL_GROUP_SELECTOR=( --group-name "$CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME" )
+  else
+    EXTERNAL_GROUP_SELECTOR=( --group-id "3ee84bfa-10ad-4f23-a45c-f9a3b037373e" )
+  fi
+  PRO_TESTFLIGHT_GROUP_ID="${CMUX_TESTFLIGHT_PRO_GROUP_ID:-34fbede5-3880-4560-b1bb-a45787249780}"
+  echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the Founder's Edition and Pro beta groups" >&2
   ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
     ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
-    CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID="${CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID:-}" \
-    CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME="${CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME:-}" \
     python3 "$SCRIPT_DIR/asc_assign_external_testflight_group.py" \
       --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
-      --build-number "$SHIPPED_BUILD_NUMBER"
+      --build-number "$SHIPPED_BUILD_NUMBER" \
+      "${EXTERNAL_GROUP_SELECTOR[@]}" \
+      --additional-group-id "$PRO_TESTFLIGHT_GROUP_ID"
 fi
