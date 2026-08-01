@@ -254,6 +254,34 @@ def test_registry_writes_reconcile_ambiguous_publish_failures() -> None:
         assert "--wait-seconds 120" in block
 
 
+def test_rust_release_uses_pinned_cargo_and_verifies_packaged_sidebar() -> None:
+    preflight = workflow("sdk-publish-crates.yml")
+    release = workflow("sdk-release-cut.yml")
+
+    for text in (preflight, release):
+        assert 'RUST_TOOLCHAIN: "1.95.0"' in text
+        assert 'rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal' in text
+        assert 'rustup default "$RUST_TOOLCHAIN"' in text
+
+    assert "cargo package -p cmux-sidebar --locked --no-verify" in preflight
+    assert "cmux-sidebar-$CMUX_SDK_VERSION.crate" in preflight
+    assert "cmux-client-$CMUX_SDK_VERSION.crate" in preflight
+    assert "patch.crates-io.cmux-client.path" in preflight
+    assert "--all-targets" in preflight
+
+    for job in ("publish-crate-client", "publish-crate-sidebar"):
+        block = workflow_job(release, job)
+        assert "Install pinned Rust toolchain" in block
+
+
+def test_python_preflight_provisions_the_declared_build_backend() -> None:
+    preflight = workflow("sdk-publish-python.yml")
+    package_tests = preflight.index("Test Python SDK package")
+    backend = preflight.index('"setuptools==80.9.0"')
+
+    assert backend < package_tests
+
+
 def test_typescript_spec_uses_the_sdk_registry_name() -> None:
     spec = (ROOT / "cmux-tui" / "spec" / "bindings.md").read_text()
     typescript = spec.split("### TypeScript", 1)[1].split("### Go", 1)[0]
