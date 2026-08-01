@@ -478,6 +478,7 @@ public final class ResourceApiTest {
         Snapshots.TerminalSnapshot terminal = Client.decodeTerminal(Map.of(
             "id", "term_" + HEX,
             "tab_id", "tab_" + HEX,
+            "tab_ids", List.of("tab_" + HEX),
             "title", "done",
             "cols", 80,
             "rows", 24,
@@ -501,6 +502,7 @@ public final class ResourceApiTest {
             () -> Client.decodeTerminal(Map.of(
                 "id", "term_" + HEX,
                 "tab_id", "tab_" + HEX,
+                "tab_ids", List.of("tab_" + HEX),
                 "title", "bad",
                 "cols", 80,
                 "rows", 24,

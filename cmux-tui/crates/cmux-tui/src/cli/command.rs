@@ -943,6 +943,14 @@ fn parse_terminal(
             let params = destination_params(flags)?;
             request(ResourceOperation::TerminalMove, selectors, flags, params)
         }
+        [selector, "project"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = destination_params(flags)?;
+            if let Some(name) = flags.take("name") {
+                params.insert("name".into(), Value::String(name));
+            }
+            request(ResourceOperation::TerminalProject, selectors, flags, params)
+        }
         [selector, "attach"] => {
             selectors.insert("terminal", "term", selector)?;
             let mut params = Map::new();

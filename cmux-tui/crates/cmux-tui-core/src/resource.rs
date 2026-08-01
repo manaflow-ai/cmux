@@ -292,6 +292,8 @@ pub enum ResourceOperation {
     TerminalViewportScroll,
     #[serde(rename = "terminal.move")]
     TerminalMove,
+    #[serde(rename = "terminal.project")]
+    TerminalProject,
     #[serde(rename = "terminal.attach")]
     TerminalAttach,
     #[serde(rename = "terminal.close")]
@@ -1366,7 +1368,9 @@ pub struct PublicSlotIndexes {
     pub screens: HashMap<ScreenPublicId, crate::ScreenId>,
     pub panes: HashMap<PanePublicId, crate::PaneId>,
     pub tabs: HashMap<TabPublicId, crate::SurfaceId>,
-    pub content: HashMap<ContentPublicId, crate::SurfaceId>,
+    /// Every view placement of a content resource. Terminal content may have
+    /// any number of placements; browser content currently has one.
+    pub content_placements: HashMap<ContentPublicId, Vec<crate::SurfaceId>>,
     pub workspace_ids: HashMap<crate::WorkspaceId, WorkspacePublicId>,
     pub screen_ids: HashMap<crate::ScreenId, ScreenPublicId>,
     pub pane_ids: HashMap<crate::PaneId, PanePublicId>,

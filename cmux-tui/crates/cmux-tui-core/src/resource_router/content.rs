@@ -47,6 +47,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::TerminalProcessGet
             | ResourceOperation::TerminalViewportScroll
             | ResourceOperation::TerminalMove
+            | ResourceOperation::TerminalProject
             | ResourceOperation::TerminalClose
             | ResourceOperation::BrowserNavigate
             | ResourceOperation::BrowserBack
@@ -74,6 +75,7 @@ pub(super) fn dispatch(
         ResourceOperation::TerminalCopy => terminal_copy(mux, &request),
         ResourceOperation::TerminalProcessGet => terminal_process_get(mux, &request),
         ResourceOperation::TerminalMove => terminal_move(mux, request),
+        ResourceOperation::TerminalProject => terminal_project(mux, request),
         ResourceOperation::TerminalInputWrite
         | ResourceOperation::TerminalInputKeys
         | ResourceOperation::TerminalInputMouse
@@ -392,7 +394,7 @@ fn execute_terminal_effect(
     }
 
     if prepared.operation == "terminal.close" {
-        let commit = mux.commit_resource_surface_close_effect(
+        let commit = mux.commit_resource_terminal_close_effect(
             surface_id,
             &prepared.idempotency_key,
             &prepared.operation,
@@ -582,9 +584,9 @@ fn targeted_browser_effect_projection(
     let content_id = ContentPublicId::Browser(browser_id.clone());
     let surface_id = state
         .resource_indexes
-        .content
+        .content_placements
         .get(&content_id)
-        .copied()
+        .and_then(|slots| slots.first().copied())
         .ok_or_else(|| anyhow::anyhow!("browser has no live surface slot"))?;
     let surface = state
         .surfaces
@@ -691,6 +693,37 @@ fn terminal_move(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value
             ResourceError::operation_failed(
                 "terminal.move",
                 "terminal move commit omitted its captured terminal snapshot",
+                json!({}),
+            )
+        })?;
+    super::mutation_result(mux, value, commit.revision, commit.replayed)
+}
+
+fn terminal_project(
+    mux: &Arc<Mux>,
+    request: ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let mutation = resource_mutation(&request)?;
+    let destination = destination_selectors(mux, &request)?;
+    let index = required_u64(&request.fields, "index")?;
+    let name = request.fields.get("name").and_then(Value::as_str).map(str::to_string);
+    let commit = mux
+        .resource_project_terminal_selected(
+            request.selectors,
+            destination,
+            usize::try_from(index).map_err(|_| {
+                validation_error("terminal projection index exceeds usize", json!({"index":index}))
+            })?,
+            name,
+            super::expected_revision(&request.fields)?,
+            &mutation,
+        )
+        .map_err(resource_operation_error)?;
+    let value =
+        commit.result.get("value").filter(|value| value.is_object()).cloned().ok_or_else(|| {
+            ResourceError::operation_failed(
+                "terminal.project",
+                "terminal projection commit omitted its tab snapshot",
                 json!({}),
             )
         })?;
@@ -1012,8 +1045,11 @@ fn browser_surface_for_id(
     browser_id: &BrowserPublicId,
 ) -> Option<(crate::SurfaceId, Arc<Surface>)> {
     mux.with_state(|state| {
-        let surface_id =
-            *state.resource_indexes.content.get(&ContentPublicId::Browser(browser_id.clone()))?;
+        let surface_id = *state
+            .resource_indexes
+            .content_placements
+            .get(&ContentPublicId::Browser(browser_id.clone()))?
+            .first()?;
         let surface = state.surfaces.get(&surface_id)?.clone();
         (surface.kind() == SurfaceKind::Browser).then_some((surface_id, surface))
     })
@@ -1594,6 +1630,7 @@ mod tests {
             ResourceOperation::TerminalProcessGet,
             ResourceOperation::TerminalViewportScroll,
             ResourceOperation::TerminalMove,
+            ResourceOperation::TerminalProject,
             ResourceOperation::TerminalClose,
             ResourceOperation::BrowserNavigate,
             ResourceOperation::BrowserBack,
@@ -1611,6 +1648,150 @@ mod tests {
         assert!(!handles(ResourceOperation::BrowserAttach));
         assert!(!handles(ResourceOperation::TerminalViewerResize));
         assert!(!handles(ResourceOperation::BrowserViewerResize));
+    }
+
+    #[test]
+    fn one_terminal_can_be_detached_reprojected_and_closed_explicitly() {
+        let (mux, original, selectors) = terminal_fixture(None);
+        let terminal_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let initial = public_session_snapshot(&mux).unwrap();
+        let terminal = initial["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .unwrap();
+        let original_tab = terminal["tab_ids"][0].as_str().unwrap().to_string();
+        let pane_id = initial["tabs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tab| tab["id"] == original_tab)
+            .unwrap()["pane_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let pane = ResourceSelectors {
+            machine: Some("current".into()),
+            session: Some("current".into()),
+            pane: Some(pane_id.clone()),
+            ..ResourceSelectors::default()
+        };
+        super::super::topology::dispatch(
+            &mux,
+            parsed_request(
+                "tab.create_terminal",
+                &pane,
+                json!({}),
+                Some("terminal-multiview-keeper"),
+            ),
+        )
+        .unwrap();
+
+        let destination = public_session_snapshot(&mux).unwrap();
+        let workspace_id = destination["workspaces"][0]["id"].as_str().unwrap();
+        let screen_id = destination["screens"][0]["id"].as_str().unwrap();
+        let projected = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.project",
+                &selectors,
+                json!({
+                    "destination_workspace":workspace_id,
+                    "destination_screen":screen_id,
+                    "destination_pane":pane_id,
+                    "index":1,
+                    "name":"mirror",
+                }),
+                Some("terminal-multiview-project"),
+            ),
+        )
+        .unwrap();
+        let projected_tab = projected["value"]["id"].as_str().unwrap().to_string();
+        let placements = mux.with_state(|state| {
+            state.placements_of_content(&ContentPublicId::Terminal(terminal_id.clone())).to_vec()
+        });
+        assert_eq!(placements.len(), 2);
+        let mirror = mux.surface(placements[1]).unwrap();
+        assert!(original.shares_terminal_runtime(&mirror));
+        let terminal = public_session_snapshot(&mux).unwrap()["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .unwrap()
+            .clone();
+        assert_eq!(terminal["tab_ids"].as_array().unwrap().len(), 2);
+
+        for (index, tab) in [original_tab, projected_tab].into_iter().enumerate() {
+            let tab_selectors = ResourceSelectors {
+                machine: Some("current".into()),
+                session: Some("current".into()),
+                tab: Some(tab),
+                ..ResourceSelectors::default()
+            };
+            super::super::topology::dispatch(
+                &mux,
+                parsed_request(
+                    "tab.close",
+                    &tab_selectors,
+                    json!({}),
+                    Some(&format!("terminal-multiview-detach-{index}")),
+                ),
+            )
+            .unwrap();
+        }
+
+        let detached = public_session_snapshot(&mux).unwrap();
+        let terminal = detached["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .unwrap();
+        assert!(terminal["tab_id"].is_null());
+        assert_eq!(terminal["tab_ids"], json!([]));
+        assert!(mux.surface(original.id).is_some());
+        assert!(
+            dispatch(&mux, parsed_request("terminal.screen.read", &selectors, json!({}), None),)
+                .is_ok()
+        );
+
+        let reprojected = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.project",
+                &selectors,
+                json!({
+                    "destination_workspace":workspace_id,
+                    "destination_screen":screen_id,
+                    "destination_pane":pane_id,
+                    "index":1,
+                }),
+                Some("terminal-multiview-reproject"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(reprojected["value"]["content_id"], terminal_id.as_str());
+
+        dispatch(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("terminal-multiview-explicit-close"),
+            ),
+        )
+        .unwrap();
+        assert!(
+            public_session_snapshot(&mux).unwrap()["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|terminal| terminal["id"] != terminal_id.as_str())
+        );
+        assert!(mux.surface(original.id).is_none());
     }
 
     #[test]

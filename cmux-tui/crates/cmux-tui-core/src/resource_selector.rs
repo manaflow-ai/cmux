@@ -310,6 +310,28 @@ pub(crate) fn resolve_resource_selectors(
         _ => None,
     };
 
+    // A terminal is a session-owned content resource, so it remains
+    // addressable after its last tab has been detached. Topology ancestors
+    // are present only when this resolution selected a concrete view.
+    if target == ResourceTarget::Terminal && target_pane.is_none() {
+        return Ok(ResolvedResourceSlots {
+            path: ResolvedResourcePath {
+                machine,
+                session: Some(session),
+                workspace: None,
+                screen: None,
+                pane: None,
+                tab: None,
+                terminal: target_terminal,
+                browser: None,
+            },
+            workspace: None,
+            screen: None,
+            pane: None,
+            tab: target_tab,
+        });
+    }
+
     let target_workspace = require_resolved_slot(target_workspace, "workspace")?;
     validate_supplied_parent(
         state,
@@ -719,11 +741,19 @@ fn resolve_terminal(
     match Selector::parse(raw)? {
         Selector::Id(id) => {
             let id = TerminalPublicId::parse(id)?;
-            let slot = state
-                .resource_indexes
-                .content
-                .get(&ContentPublicId::Terminal(id.clone()))
-                .copied()
+            let content_id = ContentPublicId::Terminal(id.clone());
+            let slot = parent
+                .filter(|parent| {
+                    state.resource_indexes.content_ids.get(parent) == Some(&content_id)
+                })
+                .or_else(|| {
+                    state
+                        .resource_indexes
+                        .content_placements
+                        .get(&content_id)
+                        .and_then(|placements| placements.first().copied())
+                })
+                .or_else(|| state.terminal_catalog.get(&id).map(|surface| surface.id))
                 .ok_or_else(|| ResourceError::not_found("terminal", raw))?;
             validate_content_parent(state, "terminal", id.as_str(), parent, slot)?;
             Ok((slot, id))
@@ -762,9 +792,9 @@ fn resolve_browser(
             let id = BrowserPublicId::parse(id)?;
             let slot = state
                 .resource_indexes
-                .content
+                .content_placements
                 .get(&ContentPublicId::Browser(id.clone()))
-                .copied()
+                .and_then(|slots| slots.first().copied())
                 .ok_or_else(|| ResourceError::not_found("browser", raw))?;
             validate_content_parent(state, "browser", id.as_str(), parent, slot)?;
             Ok((slot, id))

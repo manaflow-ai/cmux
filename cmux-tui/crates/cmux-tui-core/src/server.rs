@@ -4380,8 +4380,9 @@ fn resource_browser_surface(
         .with_state(|state| {
             state
                 .resource_indexes
-                .content
+                .content_placements
                 .get(&ContentPublicId::Browser(browser_id.clone()))
+                .and_then(|surfaces| surfaces.first())
                 .and_then(|surface| state.surfaces.get(surface))
                 .cloned()
         })
@@ -7244,10 +7245,13 @@ fn handle_command_with_cancellation(
             if exclusive && !enabled {
                 anyhow::bail!("exclusive client sizing must be enabled");
             }
-            if exclusive && target.is_none() {
-                anyhow::bail!("exclusive client sizing requires a client");
-            }
             get_surface(mux, surface)?;
+            if exclusive && target.is_none() {
+                mux.claim_terminal_geometry(surface, client).ok_or_else(|| {
+                    anyhow::anyhow!("client {client} cannot own geometry for surface {surface}")
+                })?;
+                return Ok(json!({}));
+            }
             if let Some(target) = target {
                 if exclusive {
                     mux.use_only_client_size(surface, target).ok_or_else(|| {
@@ -9044,6 +9048,41 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    fn sizing_browser(mux: &Arc<Mux>, size: (u16, u16)) -> Arc<crate::Surface> {
+        mux.new_browser_tab("about:blank#client-sizing".to_string(), None, Some(size)).unwrap()
+    }
+
+    fn settle_browser_size(surface: &Arc<crate::Surface>, expected: (u16, u16)) {
+        if surface.size() != expected {
+            let pending = surface
+                .pending_resize_completion(expected.0, expected.1)
+                .unwrap()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "browser has size {:?} with no pending resize to {expected:?}",
+                        surface.size()
+                    )
+                });
+            wait_for_initial_browser_resize(&pending.completion, surface.id, pending.reservation)
+                .unwrap();
+        }
+        assert_eq!(surface.size(), expected);
+    }
+
+    fn settle_marked_browser_resize(surface: &Arc<crate::Surface>, marked: &MarkedClientAttach) {
+        if let Some(reservation) = marked.resize_reservation {
+            wait_for_initial_browser_resize(
+                marked
+                    .resize_completion
+                    .as_ref()
+                    .expect("sized browser attach has a completion receiver"),
+                surface.id,
+                reservation,
+            )
+            .unwrap();
+        }
     }
 
     const PROVIDER_AUTHORITY: &str = "provider-workspace-authority-for-server-tests-00000001";
@@ -12646,7 +12685,7 @@ mod tests {
     }
 
     #[test]
-    fn attached_client_resizes_preserve_smallest_grid_and_independent_reports() {
+    fn attached_terminal_resizes_are_view_local_until_geometry_is_claimed() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
@@ -12669,8 +12708,8 @@ mod tests {
             &first_writer,
         )
         .unwrap();
-        assert_eq!(first_result["accepted"].as_bool(), Some(true));
-        assert_eq!(surface.size(), (100, 30));
+        assert_eq!(first_result["accepted"].as_bool(), Some(false));
+        assert_eq!(surface.size(), (80, 24));
 
         let second_result = handle_command(
             &mux,
@@ -12680,7 +12719,23 @@ mod tests {
         )
         .unwrap();
         assert_eq!(second_result["accepted"].as_bool(), Some(false));
+        assert_eq!(surface.size(), (80, 24));
+
+        handle_command(
+            &mux,
+            first,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(first),
+                enabled: true,
+                exclusive: true,
+            },
+            &first_writer,
+        )
+        .unwrap();
         assert_eq!(surface.size(), (100, 30));
+        assert!(mux.client_size_participates(surface.id, first));
+        assert!(!mux.client_size_participates(surface.id, second));
 
         let clients = mux.control_clients.list_json(first);
         let clients = clients.as_array().unwrap();
@@ -12904,34 +12959,46 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn pane_and_screen_close_publish_errors_until_registry_commit_succeeds() {
+    fn pane_and_screen_close_detach_views_without_closing_terminal_hosts() {
         const TERMINAL: &str = "00000000000040008000000000000012";
         const INCARNATION: &str = "10000000000040008000000000000012";
-        let mux = test_mux();
-        let workspace = mux
-            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001001".into()), None)
-            .unwrap();
-        let surface =
-            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
-        let (pane, screen) = mux.with_state(|state| {
-            let pane = state.pane_of(surface).unwrap();
-            let (workspace, screen) = state.screen_of(pane).unwrap();
-            (pane, state.workspaces[workspace].screens[screen].id)
-        });
-        mux.set_terminal_close_failure_for_test(true).unwrap();
+        for close_screen in [false, true] {
+            let mux = test_mux();
+            let workspace = mux
+                .create_empty_workspace(
+                    None,
+                    Some("018f6e21-7b70-7e70-8000-000000001001".into()),
+                    None,
+                )
+                .unwrap();
+            let surface =
+                mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+            let (pane, screen) = mux.with_state(|state| {
+                let pane = state.pane_of(surface).unwrap();
+                let (workspace, screen) = state.screen_of(pane).unwrap();
+                (pane, state.workspaces[workspace].screens[screen].id)
+            });
+            mux.set_terminal_close_failure_for_test(true).unwrap();
 
-        let pane_error =
-            handle_command(&mux, 0, Command::ClosePane { pane }, &test_writer()).unwrap_err();
-        assert!(format!("{pane_error:#}").contains("forced terminal close failure"));
-        let screen_error =
-            handle_command(&mux, 0, Command::CloseScreen { screen }, &test_writer()).unwrap_err();
-        assert!(format!("{screen_error:#}").contains("forced terminal close failure"));
-        assert!(mux.surface(surface).is_some());
-        assert_eq!(mux.with_state(|state| state.pane_of(surface)), Some(pane));
+            let command = if close_screen {
+                Command::CloseScreen { screen }
+            } else {
+                Command::ClosePane { pane }
+            };
+            handle_command(&mux, 0, command, &test_writer()).unwrap();
 
-        mux.set_terminal_close_failure_for_test(false).unwrap();
-        handle_command(&mux, 0, Command::CloseScreen { screen }, &test_writer()).unwrap();
-        assert!(mux.surface(surface).is_none());
+            assert!(!mux.with_state(|state| state.surfaces.contains_key(&surface)));
+            assert!(mux.surface(surface).is_some());
+            assert_eq!(
+                mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal.lifecycle,
+                crate::workspace_registry::TerminalLifecycle::Running
+            );
+            assert!(mux.close_terminal(TERMINAL, INCARNATION).is_err());
+
+            mux.set_terminal_close_failure_for_test(false).unwrap();
+            mux.close_terminal(TERMINAL, INCARNATION).unwrap();
+            assert!(mux.surface(surface).is_none());
+        }
     }
 
     #[test]
@@ -13015,6 +13082,21 @@ mod tests {
         .unwrap();
 
         let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
+        assert_eq!(listed[0]["sizes"][0]["size_participating"], false);
+
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(client),
+                enabled: true,
+                exclusive: false,
+            },
+            &writer,
+        )
+        .unwrap();
+        let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
         assert_eq!(listed[0]["sizes"][0]["size_participating"], true);
 
         handle_command(
@@ -13054,7 +13136,7 @@ mod tests {
             )
             .unwrap();
         }
-        assert_eq!(surface.size(), (80, 30));
+        assert_eq!(surface.size(), (120, 40));
 
         handle_command(
             &mux,
@@ -13084,19 +13166,19 @@ mod tests {
             &first_writer,
         )
         .unwrap();
-        assert_eq!(surface.size(), (80, 30));
-        assert!(mux.client_size_participates(surface.id, first));
-        assert!(mux.client_size_participates(surface.id, second));
+        assert_eq!(surface.size(), (120, 40));
+        assert!(!mux.client_size_participates(surface.id, first));
+        assert!(!mux.client_size_participates(surface.id, second));
     }
 
     #[test]
-    fn exclusive_client_sizing_requires_a_target_client() {
+    fn terminal_exclusive_sizing_defaults_to_the_requesting_client() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
 
-        let error = handle_command(
+        handle_command(
             &mux,
             client,
             Command::SetClientSizing {
@@ -13107,9 +13189,18 @@ mod tests {
             },
             &writer,
         )
-        .unwrap_err();
+        .unwrap();
+        assert!(mux.client_size_participates(surface.id, client));
 
-        assert!(error.to_string().contains("exclusive client sizing requires a client"));
+        let resized = handle_command(
+            &mux,
+            client,
+            Command::ResizeSurface { surface: surface.id, cols: 90, rows: 28 },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(resized["accepted"], true);
+        assert_eq!(surface.size(), (90, 28));
     }
 
     #[test]
@@ -13144,12 +13235,12 @@ mod tests {
         let first = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let second = mux.control_clients.register(ClientTransport::Unix, test_writer());
 
-        mux.resize_surface_for_client(current.id, first, 120, 40).unwrap();
+        mux.resize_surface_for_client(current.id, first, 100, 32).unwrap();
         mux.resize_surface_for_client(current.id, second, 80, 30).unwrap();
-        mux.resize_surface_for_client(other.id, first, 110, 35).unwrap();
+        mux.resize_surface_for_client(other.id, first, 90, 28).unwrap();
         mux.resize_surface_for_client(other.id, second, 70, 20).unwrap();
-        assert_eq!(current.size(), (80, 30));
-        assert_eq!(other.size(), (70, 20));
+        assert_eq!(current.size(), (120, 40));
+        assert_eq!(other.size(), (110, 35));
 
         let request = serde_json::from_value::<Request>(json!({
             "cmd": "set-client-sizing",
@@ -13161,8 +13252,8 @@ mod tests {
         .unwrap();
         handle_command(&mux, first, request.cmd, &writer).unwrap();
 
-        assert_eq!(current.size(), (120, 40));
-        assert_eq!(other.size(), (70, 20));
+        assert_eq!(current.size(), (100, 32));
+        assert_eq!(other.size(), (110, 35));
     }
 
     #[test]
@@ -13206,7 +13297,7 @@ mod tests {
     #[test]
     fn attached_unreported_client_suppresses_global_ignore_size_fallback() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
         let reporter_writer = test_writer();
         let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
         let reporter_stream = reporter_writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -13257,13 +13348,13 @@ mod tests {
             &blocker_writer,
         )
         .unwrap();
-        assert_eq!(surface.size(), (70, 20));
+        settle_browser_size(&surface, (70, 20));
     }
 
     #[test]
     fn unsized_attach_invalidates_excluded_fallback_creation_default() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
         let reporter_writer = test_writer();
         let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
         let reporter_stream = reporter_writer.start_stream(&json!({"event": "reporter"})).unwrap();
@@ -13271,6 +13362,7 @@ mod tests {
         let reporter_attach =
             mark_client_attached(&mux, reporter, surface.id, reporter_stream, Some((70, 20)))
                 .unwrap();
+        settle_marked_browser_resize(&surface, &reporter_attach);
         commit_client_attach(
             &mux,
             reporter,
@@ -13309,7 +13401,7 @@ mod tests {
     #[test]
     fn unsized_attach_preserves_newer_explicit_creation_default() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
         let reporter_writer = test_writer();
         let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
         let reporter_stream = reporter_writer.start_stream(&json!({"event": "reporter"})).unwrap();
@@ -13317,6 +13409,7 @@ mod tests {
         let reporter_attach =
             mark_client_attached(&mux, reporter, surface.id, reporter_stream, Some((80, 24)))
                 .unwrap();
+        settle_marked_browser_resize(&surface, &reporter_attach);
         commit_client_attach(
             &mux,
             reporter,
@@ -13351,7 +13444,7 @@ mod tests {
     #[test]
     fn final_stream_detach_restores_excluded_report_fallback() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
         let reporter_writer = test_writer();
         let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
         let reporter_stream = reporter_writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -13363,6 +13456,7 @@ mod tests {
             &reporter_writer,
         )
         .unwrap();
+        settle_browser_size(&surface, (70, 20));
         handle_command(
             &mux,
             reporter,
@@ -13382,20 +13476,21 @@ mod tests {
         let blocker_stream_id = blocker_stream.id;
         mux.control_clients.attach_surface(blocker, surface.id, blocker_stream).unwrap();
         mux.resize_surface(surface.id, 100, 40).unwrap();
+        settle_browser_size(&surface, (100, 40));
 
         assert!(
             mux.control_clients.detach_surface(blocker, surface.id, blocker_stream_id).final_stream
         );
         mux.remove_surface_size_client(surface.id, blocker);
 
-        assert_eq!(surface.size(), (70, 20));
+        settle_browser_size(&surface, (70, 20));
         assert!(!mux.control_clients.attached_client_ids().contains(&blocker));
     }
 
     #[test]
     fn final_stream_detach_of_excluded_unsized_client_preserves_newer_geometry() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
         let reporter_writer = test_writer();
         let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
         let reporter_stream = reporter_writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -13407,6 +13502,7 @@ mod tests {
             &reporter_writer,
         )
         .unwrap();
+        settle_browser_size(&surface, (70, 20));
         handle_command(
             &mux,
             reporter,
@@ -13438,20 +13534,21 @@ mod tests {
         )
         .unwrap();
         mux.resize_surface(surface.id, 100, 40).unwrap();
+        settle_browser_size(&surface, (100, 40));
 
         assert!(
             mux.control_clients.detach_surface(blocker, surface.id, blocker_stream_id).final_stream
         );
         mux.remove_surface_size_client(surface.id, blocker);
 
-        assert_eq!(surface.size(), (100, 40));
+        settle_browser_size(&surface, (100, 40));
     }
 
     #[test]
     fn final_stream_detach_does_not_recalculate_other_surface() {
         let mux = test_mux();
-        let blocker_surface = mux.new_workspace(None, Some((100, 40))).unwrap();
-        let reported_surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let blocker_surface = sizing_browser(&mux, (100, 40));
+        let reported_surface = sizing_browser(&mux, (100, 40));
         let reporter_writer = test_writer();
         let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
         let reporter_stream = reporter_writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -13463,6 +13560,7 @@ mod tests {
             &reporter_writer,
         )
         .unwrap();
+        settle_browser_size(&reported_surface, (70, 20));
         handle_command(
             &mux,
             reporter,
@@ -13482,6 +13580,7 @@ mod tests {
         let blocker_stream_id = blocker_stream.id;
         mux.control_clients.attach_surface(blocker, blocker_surface.id, blocker_stream).unwrap();
         mux.resize_surface(reported_surface.id, 100, 40).unwrap();
+        settle_browser_size(&reported_surface, (100, 40));
 
         assert!(
             mux.control_clients
@@ -13490,7 +13589,7 @@ mod tests {
         );
         mux.remove_surface_size_client(blocker_surface.id, blocker);
 
-        assert_eq!(reported_surface.size(), (100, 40));
+        settle_browser_size(&reported_surface, (100, 40));
     }
 
     #[test]
@@ -13542,7 +13641,7 @@ mod tests {
     #[test]
     fn rejected_attach_rollback_keeps_registry_at_actual_size() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -13550,10 +13649,11 @@ mod tests {
         mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
         mux.control_clients.commit_surface(client, surface.id, stream_id, None).unwrap();
         mux.resize_surface_for_control_client_with_reservation(surface.id, client, 80, 24).unwrap();
+        settle_browser_size(&surface, (80, 24));
         let changed = mux
             .resize_surface_for_control_client_with_reservation(surface.id, client, 70, 20)
             .unwrap();
-        assert_eq!(surface.size(), (70, 20));
+        settle_browser_size(&surface, (70, 20));
 
         let removed = mux.remove_surface_runtime_for_test(surface.id).unwrap();
         mux.rollback_surface_size_client(surface.id, client, changed.rollback);
@@ -13568,8 +13668,8 @@ mod tests {
     #[test]
     fn unrelated_attach_does_not_cancel_failed_surface_rollback_repair() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
-        let unrelated_surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
+        let unrelated_surface = sizing_browser(&mux, (100, 40));
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -13577,10 +13677,11 @@ mod tests {
         mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
         mux.control_clients.commit_surface(client, surface.id, stream_id, None).unwrap();
         mux.resize_surface_for_control_client_with_reservation(surface.id, client, 80, 24).unwrap();
+        settle_browser_size(&surface, (80, 24));
         let changed = mux
             .resize_surface_for_control_client_with_reservation(surface.id, client, 70, 20)
             .unwrap();
-        assert_eq!(surface.size(), (70, 20));
+        settle_browser_size(&surface, (70, 20));
 
         let unrelated_writer = test_writer();
         let unrelated_client =
@@ -13664,7 +13765,7 @@ mod tests {
     #[test]
     fn unattached_live_resize_still_obeys_visible_client_minimum() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
         let viewer_writer = test_writer();
         let viewer = mux.control_clients.register(ClientTransport::Unix, viewer_writer.clone());
         let stream = viewer_writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -13695,14 +13796,14 @@ mod tests {
             &control_writer,
         )
         .unwrap();
-        assert_eq!(surface.size(), (70, 20));
+        settle_browser_size(&surface, (70, 20));
 
         assert!(disconnect_client(&mux, control, false));
-        assert_eq!(surface.size(), (100, 40));
+        settle_browser_size(&surface, (100, 40));
     }
 
     #[test]
-    fn exclusive_sizing_excludes_clients_that_attach_later() {
+    fn terminal_geometry_authority_excludes_clients_that_attach_later() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
         let target_writer = test_writer();
@@ -13754,7 +13855,7 @@ mod tests {
     }
 
     #[test]
-    fn enabling_late_unsized_client_exits_exclusive_sizing() {
+    fn enabling_late_unsized_terminal_client_transfers_geometry_authority() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
         let target_writer = test_writer();
@@ -13807,11 +13908,12 @@ mod tests {
         .unwrap();
 
         assert!(mux.client_size_participates(surface.id, late));
+        assert!(!mux.client_size_participates(surface.id, target));
         assert!(!mux.client_size_participates(surface.id, other));
     }
 
     #[test]
-    fn disabling_late_unsized_client_preserves_exclusive_sizing() {
+    fn disabling_late_unsized_terminal_client_preserves_geometry_authority() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
         let target_writer = test_writer();
@@ -13865,7 +13967,7 @@ mod tests {
     #[test]
     fn ignored_report_does_not_replace_unsized_creation_default() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let surface = sizing_browser(&mux, (100, 40));
 
         let blocker_writer = test_writer();
         let blocker = mux.control_clients.register(ClientTransport::Unix, blocker_writer.clone());
@@ -13901,9 +14003,9 @@ mod tests {
     }
 
     #[test]
-    fn attach_initial_sizes_share_the_smallest_viewer_grid() {
+    fn browser_attach_initial_sizes_share_the_smallest_viewer_grid() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let surface = sizing_browser(&mux, (120, 40));
         let first_writer = test_writer();
         let second_writer = test_writer();
         let first = mux.control_clients.register(ClientTransport::Unix, first_writer.clone());
@@ -13911,18 +14013,22 @@ mod tests {
         let first_stream = first_writer.start_stream(&json!({"event": "test"})).unwrap();
         let second_stream = second_writer.start_stream(&json!({"event": "test"})).unwrap();
 
-        mark_client_attached(&mux, first, surface.id, first_stream.clone(), Some((100, 30)))
-            .unwrap();
-        mark_client_attached(&mux, second, surface.id, second_stream.clone(), Some((80, 35)))
-            .unwrap();
+        let first_attach =
+            mark_client_attached(&mux, first, surface.id, first_stream.clone(), Some((100, 30)))
+                .unwrap();
+        settle_marked_browser_resize(&surface, &first_attach);
+        let second_attach =
+            mark_client_attached(&mux, second, surface.id, second_stream.clone(), Some((80, 35)))
+                .unwrap();
+        settle_marked_browser_resize(&surface, &second_attach);
 
         assert_eq!(mux.client_surface_size(surface.id, first), Some((100, 30)));
         assert_eq!(mux.client_surface_size(surface.id, second), Some((80, 35)));
-        assert_eq!(surface.size(), (80, 30));
+        settle_browser_size(&surface, (80, 30));
 
         cleanup_failed_attach(&mux, first, surface.id, first_stream.id);
         assert_eq!(mux.client_surface_size(surface.id, first), None);
-        assert_eq!(surface.size(), (80, 35));
+        settle_browser_size(&surface, (80, 35));
 
         cleanup_failed_attach(&mux, second, surface.id, second_stream.id);
         assert_eq!(mux.client_surface_size(surface.id, second), None);
@@ -13932,7 +14038,7 @@ mod tests {
     #[test]
     fn secondary_attach_detach_restores_the_surviving_stream_size() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let surface = sizing_browser(&mux, (120, 40));
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let first_stream = writer.start_stream(&json!({"event": "first"})).unwrap();
@@ -13941,6 +14047,7 @@ mod tests {
         let first =
             mark_client_attached(&mux, client, surface.id, first_stream.clone(), Some((100, 30)))
                 .unwrap();
+        settle_marked_browser_resize(&surface, &first);
         commit_client_attach(
             &mux,
             client,
@@ -13953,6 +14060,7 @@ mod tests {
         let second =
             mark_client_attached(&mux, client, surface.id, second_stream.clone(), Some((80, 24)))
                 .unwrap();
+        settle_marked_browser_resize(&surface, &second);
         commit_client_attach(
             &mux,
             client,
@@ -13962,12 +14070,12 @@ mod tests {
             second.size_rollback,
         )
         .unwrap();
-        assert_eq!(surface.size(), (80, 24));
+        settle_browser_size(&surface, (80, 24));
 
         detach_committed_attach(&mux, client, surface.id, second_stream.id);
 
         assert_eq!(mux.client_surface_size(surface.id, client), Some((100, 30)));
-        assert_eq!(surface.size(), (100, 30));
+        settle_browser_size(&surface, (100, 30));
         let listed = mux.control_clients.list_json(client);
         assert_eq!(listed[0]["sizes"][0]["cols"].as_u64(), Some(100));
         assert_eq!(listed[0]["sizes"][0]["rows"].as_u64(), Some(30));
@@ -13994,14 +14102,15 @@ mod tests {
     #[test]
     fn failed_first_attach_restores_pre_attach_surface_geometry() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let surface = sizing_browser(&mux, (120, 40));
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
 
         let marked =
             mark_client_attached(&mux, client, surface.id, stream.clone(), Some((80, 24))).unwrap();
-        assert_eq!(surface.size(), (80, 24));
+        settle_marked_browser_resize(&surface, &marked);
+        settle_browser_size(&surface, (80, 24));
 
         rollback_failed_attach(&mux, client, surface.id, stream.id, marked.size_rollback);
 
@@ -14013,8 +14122,8 @@ mod tests {
     #[test]
     fn attach_rollback_wait_does_not_hold_global_sizing_locks() {
         let mux = test_mux();
-        let failed_surface = mux.new_workspace(None, Some((120, 40))).unwrap();
-        let unrelated_surface = mux.new_workspace(None, Some((100, 30))).unwrap();
+        let failed_surface = sizing_browser(&mux, (120, 40));
+        let unrelated_surface = sizing_browser(&mux, (100, 30));
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
@@ -14022,6 +14131,7 @@ mod tests {
         let resize = mux
             .resize_surface_for_control_client_with_reservation(failed_surface.id, client, 80, 24)
             .unwrap();
+        settle_browser_size(&failed_surface, (80, 24));
 
         let entered = Arc::new(std::sync::Barrier::new(2));
         let resume = Arc::new(std::sync::Barrier::new(2));
@@ -14058,22 +14168,24 @@ mod tests {
     #[test]
     fn failed_secondary_attach_preserves_surviving_stream_size_lease() {
         let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let surface = sizing_browser(&mux, (120, 40));
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let first = writer.start_stream(&json!({"event": "test"})).unwrap();
         let failed = writer.start_stream(&json!({"event": "test"})).unwrap();
 
-        mark_client_attached(&mux, client, surface.id, first, Some((80, 24))).unwrap();
+        let first = mark_client_attached(&mux, client, surface.id, first, Some((80, 24))).unwrap();
+        settle_marked_browser_resize(&surface, &first);
         let rollback =
             mark_client_attached(&mux, client, surface.id, failed.clone(), Some((60, 20))).unwrap();
+        settle_marked_browser_resize(&surface, &rollback);
         assert_eq!(mux.client_surface_size(surface.id, client), Some((60, 20)));
-        assert_eq!(surface.size(), (60, 20));
+        settle_browser_size(&surface, (60, 20));
         rollback_failed_attach(&mux, client, surface.id, failed.id, rollback.size_rollback);
 
         assert!(mux.control_clients.attached_client_ids().contains(&client));
         assert_eq!(mux.client_surface_size(surface.id, client), Some((80, 24)));
-        assert_eq!(surface.size(), (80, 24));
+        settle_browser_size(&surface, (80, 24));
     }
 
     #[test]
@@ -14429,7 +14541,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result["undone"].as_bool(), Some(true));
-        assert!(mux.surface(right.id).is_none());
+        assert!(!mux.with_state(|state| state.surfaces.contains_key(&right.id)));
+        assert!(mux.surface(right.id).is_some());
     }
 
     #[test]

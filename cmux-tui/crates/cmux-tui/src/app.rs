@@ -1185,6 +1185,14 @@ impl OrderedSession {
         );
     }
 
+    fn claim_terminal_geometry(&self, surface: SurfaceId) {
+        self.enqueue_client_sizing_mutation(
+            "claim terminal geometry",
+            ("claim terminal geometry", surface, 0),
+            move |session| session.claim_terminal_geometry(surface),
+        );
+    }
+
     fn use_all_client_sizing(&self, surface: SurfaceId) {
         self.enqueue_client_sizing_mutation(
             "use all client sizing",
@@ -2216,12 +2224,6 @@ impl OrderedSession {
         self.enqueue("rename screen", move |session| session.rename_screen(screen, name));
     }
 
-    pub fn select_screen(&self, index: Option<usize>, delta: Option<isize>) {
-        self.enqueue_destination_mutation("select screen", move |session| {
-            session.select_screen(index, delta)
-        });
-    }
-
     pub fn zoom_pane(&self, pane: Option<PaneId>) {
         self.enqueue_pointer_mutation("zoom pane", move |session| {
             session.zoom_pane(pane, ZoomMode::Toggle)
@@ -2459,22 +2461,6 @@ impl OrderedSession {
     ) {
         self.enqueue("rename managed workspace", move |session| {
             session.rename_provider_managed_workspace(workspace, key, name)
-        });
-    }
-
-    pub fn focus_pane(&self, pane: PaneId) {
-        self.enqueue_destination_mutation("focus pane", move |session| session.focus_pane(pane));
-    }
-
-    pub fn select_tab(&self, pane: Option<PaneId>, index: Option<usize>, delta: Option<isize>) {
-        self.enqueue_destination_mutation("select tab", move |session| {
-            session.select_tab(pane, index, delta)
-        });
-    }
-
-    pub fn select_workspace(&self, index: Option<usize>, delta: Option<isize>) {
-        self.enqueue_destination_mutation("select workspace", move |session| {
-            session.select_workspace(index, delta)
         });
     }
 
@@ -4862,6 +4848,7 @@ pub struct App {
     /// Hidden leases stay owned until the server confirms their idempotent
     /// release. Failures clear this set so a later layout pass retries them.
     pending_size_releases: HashSet<SurfaceId>,
+    geometry_authority_surface: Option<SurfaceId>,
     pub prefix_armed: bool,
     pub session_label: String,
     /// When set, render only this PTY surface without session chrome.
@@ -6030,6 +6017,7 @@ pub fn run_with_machine_updates(
         rendered_terminal_bounds: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
         pending_size_releases: HashSet::new(),
+        geometry_authority_surface: None,
         prefix_armed: false,
         session_label,
         surface_only,
@@ -8055,6 +8043,7 @@ impl App {
             pane.active_tab = tab_index;
         }
         self.pane_focus_history.record(pane_id);
+        self.claim_active_terminal_geometry(true);
     }
 
     fn apply_session_cancellation(&mut self) {
@@ -8170,9 +8159,7 @@ impl App {
             .workspaces
             .get(self.sidebar_workspace_selection)
             .map(|workspace| workspace.id);
-        if self.session.remote {
-            preserve_client_view(&self.tree, &mut tree);
-        }
+        preserve_client_view(&self.tree, &mut tree);
         if let Some(surface) = self.surface_only
             && !tree.select_surface(surface)
         {
@@ -8225,6 +8212,7 @@ impl App {
         }
         self.rebuild_tab_locations();
         self.reapply_mux_titles();
+        self.claim_active_terminal_geometry(false);
     }
 
     fn replace_authoritative_tree(&mut self, tree: TreeView, destination_generation: u64) {
@@ -10536,6 +10524,21 @@ impl App {
 
     fn active_surface(&self) -> Option<SurfaceId> {
         self.tree.active_surface()
+    }
+
+    fn claim_active_terminal_geometry(&mut self, force: bool) {
+        let terminal = self.tree.active_screen().and_then(|screen| {
+            let pane = screen.panes.iter().find(|pane| pane.id == screen.active_pane)?;
+            let tab = pane.tabs.get(pane.active_tab)?;
+            (tab.kind == SurfaceKind::Pty).then_some(tab.surface)
+        });
+        if !force && self.geometry_authority_surface == terminal {
+            return;
+        }
+        self.geometry_authority_surface = terminal;
+        if let Some(surface) = terminal {
+            self.session.claim_terminal_geometry(surface);
+        }
     }
 
     fn active_surface_handle(&self) -> Option<SurfaceHandle> {
@@ -14294,21 +14297,17 @@ impl App {
 
     fn focus_pane_after_input(&mut self, pane: PaneId) {
         if self.prepare_pty_input_before_mutation() {
-            let focused = if self.session.remote
-                && let Some(screen) = self.tree.active_workspace_mut_screen()
+            let focused = if let Some(screen) = self.tree.active_workspace_mut_screen()
                 && screen.panes.iter().any(|candidate| candidate.id == pane)
             {
                 screen.active_pane = pane;
                 true
             } else {
-                !self.session.remote
+                false
             };
             if focused {
                 self.pane_focus_history.record(pane);
-                // Remote frontends update their mirror optimistically above,
-                // but focus is still shared session state. Forward the same
-                // mutation so every frontend receives the authoritative tree.
-                self.session.focus_pane(pane);
+                self.claim_active_terminal_geometry(true);
             }
         }
     }
@@ -14320,8 +14319,7 @@ impl App {
         delta: Option<isize>,
     ) {
         let pane = pane.or_else(|| self.active_pane());
-        if self.session.remote
-            && let Some(pane_id) = pane
+        if let Some(pane_id) = pane
             && let Some(pane) = self.tree.pane_mut(pane_id)
             && !pane.tabs.is_empty()
         {
@@ -14333,17 +14331,12 @@ impl App {
                     as usize;
             }
         }
-        // Attached frontends keep the immediate optimistic update above, then
-        // publish the same selection to the owner mux. Without this command a
-        // remote TUI can visibly switch tabs while every other frontend still
-        // observes the old active surface in list-workspaces.
-        self.session.select_tab(pane, index, delta);
+        self.claim_active_terminal_geometry(true);
     }
 
     fn select_screen_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
         let mut selected = false;
-        if self.session.remote
-            && let Some(workspace) = self.tree.active_workspace_mut()
+        if let Some(workspace) = self.tree.active_workspace_mut()
             && !workspace.screens.is_empty()
         {
             if let Some(index) = index.filter(|index| *index < workspace.screens.len()) {
@@ -14359,12 +14352,12 @@ impl App {
         if selected && let Some(active) = self.active_pane() {
             self.pane_focus_history.record(active);
         }
-        self.session.select_screen(index, delta);
+        self.claim_active_terminal_geometry(true);
     }
 
     fn select_workspace_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
         let mut selected = false;
-        if self.session.remote && !self.tree.workspaces.is_empty() {
+        if !self.tree.workspaces.is_empty() {
             if let Some(index) = index.filter(|index| *index < self.tree.workspaces.len()) {
                 self.tree.active_workspace = index;
                 selected = true;
@@ -14378,7 +14371,7 @@ impl App {
         if selected && let Some(active) = self.active_pane() {
             self.pane_focus_history.record(active);
         }
-        self.session.select_workspace(index, delta);
+        self.claim_active_terminal_geometry(true);
     }
 
     fn terminal_input_rect(&self, area: &PaneArea) -> Option<Rect> {
@@ -18025,10 +18018,7 @@ mod tests {
             app.handle(event).unwrap();
         }
         assert_eq!(app.active_pane(), Some(bottom_right));
-        assert_eq!(
-            Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane,
-            bottom_right
-        );
+        assert_eq!(Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane, left);
         assert!(!app.session.has_pending_mutations());
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
@@ -18922,6 +18912,7 @@ mod tests {
         app.session.remote = true;
         app.select_screen_for_client(Some(1), None);
         app.sync_layout((80, 31));
+        assert_eq!(mux.with_state(|state| state.workspaces[0].active_screen), 0);
 
         app.move_focus(Direction::Left);
         assert_eq!(app.active_pane(), Some(left));
@@ -18952,6 +18943,7 @@ mod tests {
         app.session.remote = true;
         app.select_workspace_for_client(Some(1), None);
         app.sync_layout((80, 31));
+        assert_eq!(mux.with_state(|state| state.active_workspace), 0);
 
         app.move_focus(Direction::Left);
         assert_eq!(app.active_pane(), Some(left));
@@ -22199,7 +22191,7 @@ mod tests {
         app.handle(AppEvent::Input(Event::Mouse(click))).unwrap();
         assert_eq!(app.deferred_input.len(), 1);
 
-        mux.select_tab(Some(pane), Some(1), None);
+        app.select_tab_for_client(Some(pane), Some(1), None);
         app.replace_tree(app.session.tree());
         assert_eq!(app.active_surface(), Some(second.id));
         app.commit_rendered_pointer_frame();
@@ -22989,55 +22981,24 @@ mod tests {
     }
 
     #[test]
-    fn deferred_input_follows_a_committed_routing_mutation() {
-        let mux = Mux::new("deferred-routing-generation-test", SurfaceOptions::default());
+    fn tab_selection_is_client_local() {
+        let mux = Mux::new("client-local-tab-selection-test", SurfaceOptions::default());
         let first = mux.new_workspace(None, None).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         let second = mux.new_tab(Some(pane), None, None).unwrap();
         mux.select_tab(Some(pane), Some(0), None);
-        let (mut app, events) = test_app_with_events(Session::Local(mux));
-        app.replace_tree(app.session.tree());
+        let mut left = test_app(Session::Local(mux.clone()));
+        let mut right = test_app(Session::Local(mux.clone()));
+        left.replace_tree(left.session.tree());
+        right.replace_tree(right.session.tree());
 
-        app.session.select_tab(Some(pane), Some(1), None);
-        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
-            KeyCode::Char('x'),
-            KeyModifiers::NONE,
-        ))))
-        .unwrap();
-        assert_eq!(app.deferred_input.front().and_then(|input| input.destination), Some(first.id));
+        left.select_tab_for_client(Some(pane), Some(1), None);
+        left.replace_tree(left.session.tree());
+        right.replace_tree(right.session.tree());
 
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
-        app.handle(settled).unwrap();
-        app.pointer_route_phase = PointerRoutePhase::Fresh;
-        app.replay_deferred_input().unwrap();
-
-        assert_eq!(app.active_surface(), Some(second.id));
-        assert!(app.deferred_input.is_empty());
-        assert_ne!(
-            app.status_message.as_deref(),
-            Some(localization::catalog().terminal.deferred_input_destination_changed)
-        );
-    }
-
-    #[test]
-    fn attached_tab_selection_is_published_to_owner_mux() {
-        let mux = Mux::new("attached-tab-selection-test", SurfaceOptions::default());
-        let first = mux.new_workspace(None, None).unwrap();
-        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.new_tab(Some(pane), None, None).unwrap();
-        mux.select_tab(Some(pane), Some(0), None);
-        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
-        app.replace_tree(app.session.tree());
-
-        // Exercise the attached-client branch without a socket fixture. The
-        // OrderedSession still targets the owner mux, while `remote` enables
-        // the optimistic mirror update used by `cmux-tui attach`.
-        app.session.remote = true;
-        app.select_tab_for_client(Some(pane), Some(1), None);
-        assert_eq!(app.active_surface(), Some(second.id));
-
-        events.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert_eq!(mux.active_surface(), Some(second.id));
+        assert_eq!(left.active_surface(), Some(second.id));
+        assert_eq!(right.active_surface(), Some(first.id));
+        assert_eq!(mux.active_surface(), Some(first.id));
 
         let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
         mux.close_workspace(workspace);
@@ -23058,11 +23019,7 @@ mod tests {
         );
         mux.new_workspace(Some("Alpha".to_string()), Some((80, 24))).unwrap();
         mux.new_workspace(Some("Beta".to_string()), Some((80, 24))).unwrap();
-        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
-
-        // Exercise the attached-client branch while keeping a local owner mux
-        // available for an immediate authoritative-state assertion.
-        app.session.remote = true;
+        let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_width = 18;
         app.sidebar_view = SidebarView::Workspaces;
         app.replace_tree(app.session.tree());
@@ -23070,8 +23027,7 @@ mod tests {
 
         for row in 0..2 {
             mux.select_workspace(Some(1), None);
-            // A remote replace deliberately preserves this client's view, so
-            // install the owner's reset snapshot directly between subcases.
+            // Install the owner's reset snapshot directly between subcases.
             app.tree = app.session.tree();
             app.rebuild_tab_locations();
             terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
@@ -23105,10 +23061,8 @@ mod tests {
             app.handle(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
             assert_eq!(app.tree.active_workspace, 0);
 
-            let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
-            app.handle(settled).unwrap();
             app.pointer_route_phase = PointerRoutePhase::Fresh;
-            assert_eq!(mux.with_state(|state| state.active_workspace), 0);
+            assert_eq!(mux.with_state(|state| state.active_workspace), 1);
         }
 
         let workspaces: Vec<_> =
@@ -23134,8 +23088,7 @@ mod tests {
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
-        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
-        app.session.remote = true;
+        let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
 
         let rect = Rect { x: 0, y: 0, width: 80, height: 23 };
@@ -23180,12 +23133,8 @@ mod tests {
         app.handle(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
         assert_eq!(app.active_surface(), Some(first.id));
 
-        while app.session.has_pending_mutations() {
-            let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
-            app.handle(settled).unwrap();
-        }
         app.pointer_route_phase = PointerRoutePhase::Fresh;
-        assert_eq!(mux.active_surface(), Some(first.id));
+        assert_eq!(mux.active_surface(), Some(second.id));
 
         let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
         mux.close_workspace(workspace);
@@ -23288,7 +23237,7 @@ mod tests {
         assert_eq!(mux.client_surface_size(second.id, 0), None);
         assert!(app.session.has_surface(second.id));
 
-        mux.select_tab(Some(pane), Some(1), None);
+        app.select_tab_for_client(Some(pane), Some(1), None);
         app.sync_layout((160, 50));
         while app.session.has_pending_mutations() {
             app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
@@ -23299,41 +23248,6 @@ mod tests {
         assert!(app.session.has_surface(first.id));
         let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
         mux.close_workspace(workspace);
-    }
-
-    #[test]
-    fn deferred_input_does_not_follow_a_later_routing_mutation() {
-        let mux = Mux::new("deferred-later-routing-test", SurfaceOptions::default());
-        let first = mux.new_workspace(None, None).unwrap();
-        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.new_tab(Some(pane), None, None).unwrap();
-        let third = mux.new_tab(Some(pane), None, None).unwrap();
-        mux.select_tab(Some(pane), Some(0), None);
-        let (mut app, events) = test_app_with_events(Session::Local(mux));
-        app.replace_tree(app.session.tree());
-
-        app.session.select_tab(Some(pane), Some(1), None);
-        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
-            KeyCode::Char('x'),
-            KeyModifiers::NONE,
-        ))))
-        .unwrap();
-        assert_eq!(app.deferred_input.front().and_then(|input| input.destination_intent), Some(1));
-        app.session.select_tab(Some(pane), Some(2), None);
-
-        while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
-        }
-        app.pointer_route_phase = PointerRoutePhase::Fresh;
-        app.replay_deferred_input().unwrap();
-
-        assert_eq!(app.active_surface(), Some(third.id));
-        assert_ne!(app.active_surface(), Some(second.id));
-        assert!(app.deferred_input.is_empty());
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some(localization::catalog().terminal.deferred_input_destination_changed)
-        );
     }
 
     #[test]
@@ -31321,6 +31235,7 @@ mod tests {
             rendered_terminal_bounds: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
             pending_size_releases: HashSet::new(),
+            geometry_authority_surface: None,
             prefix_armed: false,
             session_label: "test".to_string(),
             surface_only: None,

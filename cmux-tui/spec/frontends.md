@@ -37,21 +37,35 @@ Require `protocol == 10` for the complete flow in this guide, including per-surf
 
 Open [`subscribe`](commands.md#subscribe) with `tree_events:"deltas"`, buffer events as soon as the request is sent, then fetch [`list-workspaces`](commands.md#list-workspaces). Apply the snapshot before draining the buffer. The subscribe receiver is registered before its success response, so responses and events may race. Omitting `tree_events` selects the protocol-v6-compatible coarse stream instead.
 
-Treat cmux-tui as the only authority for workspace UUID, existence, name,
-order, and canonical terminal-to-workspace placement. Workspace keys are
-lowercase canonical UUIDs; reject any snapshot, event, or caller-supplied key
-that does not satisfy that contract instead of deriving identity from a name.
-A browser window model is a disposable projection. Use a stable
-profile/window-group identity as the cmux session and as the
-`put-frontend-projection` subject; do not generate a new session on every app
-launch. Every canonical workspace, including an empty one, must appear in the
-frontend immediately.
+Treat cmux-tui as the authority for terminal identity, process lifetime,
+ordered input, output history, and canonical PTY geometry. A terminal is a
+session resource, not a child of a workspace or tab. One terminal may appear
+in any number of tabs or frontend projection nodes at once. Closing a tab,
+pane, screen, workspace, window, or frontend connection only removes that
+view. Only `terminal.close` terminates and tombstones the terminal.
 
-Browser-only columns, splits, web tabs, local focus, and the presentation of a
-terminal inside a browser pane or tab belong in the opaque frontend
-projection. The server stores and compare-and-swaps that schema-versioned
-document but does not interpret it as workspace or terminal lifecycle
-authority. Projection references use canonical workspace and terminal UUIDs.
+The server workspace/screen/pane/tab tree is one durable shared projection.
+It remains available to existing frontends and collaboration flows, but its
+active workspace, screen, pane, and tab fields are defaults for that shared
+projection, not global user focus. A frontend keeps its current workspace,
+screen, pane, tab, text selection, scroll position, crop, pan, scale, hover,
+drag state, and key-prefix state in client memory. It must not publish those
+ephemeral values through the legacy focus commands.
+
+A frontend may also persist a schema-versioned opaque projection with
+`put-frontend-projection`. Use `scope:"personal"` and a stable user/profile or
+device identity for a private durable view. Use `scope:"shared"` and a stable
+group or collaboration-view identity for a view that multiple clients edit.
+Existing application-specific scopes remain valid. A durable projection may
+contain layouts, browser-only content, terminal placements, and saved focus or
+viewport preferences. It may reference the same terminal UUID more than once,
+but it never owns that terminal's process lifetime.
+
+Use a stable profile or collaboration identity as the cmux session and
+projection subject. Do not generate a new session on every app launch.
+Workspace keys are lowercase canonical UUIDs; reject invalid keys instead of
+deriving identity from a name. Projection references use canonical workspace,
+tab, and terminal UUIDs.
 
 Generate `origin` and `mutation_id` before sending a workspace mutation and
 reuse both for retries. Apply a successful local response immediately, then
@@ -68,7 +82,11 @@ Always implement `tree-changed`: it is the delta stream's coarse resync fallback
 
 Every protocol-v8 and newer split layout node has a stable `split` id. Preserve that id as the UI key for the divider and call [`set-split-ratio`](commands.md#set-split-ratio) while dragging. Do not derive divider identity from child panes or tree position. Ratio changes, focus changes, tab changes, and leaf swaps preserve the id; collapsing that node removes it. Protocol-v9 stack nodes require at least one pane and identify an expanded pane that belongs to that list.
 
-Initial surface dimensions and smallest-client resize reporting follow the consolidated [`Sizing`](commands.md#sizing) contract.
+Initial surface dimensions and geometry ownership follow the consolidated
+[`Sizing`](commands.md#sizing) contract. Passive clients report their viewport
+without resizing the PTY. A client explicitly claims geometry for one terminal
+view, and the canonical grid stays frozen when that owner disconnects until a
+client makes another explicit claim.
 
 ## 4. Render A PTY Surface
 
@@ -110,7 +128,11 @@ Use [`send-key`](commands.md#send-key) for named keys and terminal-mode-aware en
 
 Protocol v9 render mode has no PTY mouse or focus-input command. A render frontend cannot reproduce mouse-aware applications such as vim or tmux without maintaining its own terminal modes and using byte input. `send-mouse` and `send-focus` are required vNext primitives.
 
-When the active frontend's geometry changes, convert pixels to cells and call [`resize-surface`](commands.md#resize-surface) with the final `cols` and `rows`. A smaller passive frontend should crop or pan the authoritative grid instead of fighting another client with resize loops. Render and byte clients share one surface size.
+When the active frontend's geometry changes, convert pixels to cells, report
+the view size, and explicitly claim terminal geometry for that view. A passive
+frontend crops, pans, or scales the authoritative grid. Attaching a view never
+changes canonical geometry. Render and byte clients observe the same grid,
+while their scroll, selection, and viewport state remain independent.
 
 ## 7. Notifications And Agents
 

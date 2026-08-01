@@ -1149,8 +1149,22 @@
         "tab_id": {
           "required": true,
           "type": {
-            "kind": "resource_id",
-            "resource": "tab"
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "Compatibility alias for the first view placement, or null when the terminal has no views."
+        },
+        "tab_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
           }
         },
         "title": {
@@ -1218,6 +1232,7 @@
       },
       "extra": false,
       "constraints": [
+        "tab_id is the first item in tab_ids, or null when tab_ids is empty.",
         "running is true exactly when lifecycle is running.",
         "exit is present exactly when lifecycle is exited."
       ]
@@ -10006,6 +10021,97 @@
       },
       "errors": [
         "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "terminal.project": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "terminal",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane",
+        "tab"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "required"
+        },
+        "fields": {
+          "destination_workspace": {
+            "required": true,
+            "type": {
+              "kind": "selector",
+              "resource": "workspace"
+            }
+          },
+          "destination_screen": {
+            "required": true,
+            "type": {
+              "kind": "selector",
+              "resource": "screen"
+            }
+          },
+          "destination_pane": {
+            "required": true,
+            "type": {
+              "kind": "selector",
+              "resource": "pane"
+            }
+          },
+          "index": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "Placement-local tab name. Exact bytes are preserved."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TabSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",

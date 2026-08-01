@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "f225f1a51128c6ce8d6526c5cc83bc28b3e2bd47b27f3da9fbb29262bc7e831b",
+  "catalog_sha256": "85a19820deb7bb6a8a27451c32b67e4ee614a95d7a16e8e5a117cc829ce03e37",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -285,6 +285,9 @@
     },
     "terminal.process.get": {
       "class": "read"
+    },
+    "terminal.project": {
+      "class": "mutation"
     },
     "terminal.renderer_grant.create": {
       "class": "connection_control"

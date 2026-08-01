@@ -15,7 +15,7 @@ use crate::workspace_registry::{
     RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceCreationPreparation,
     ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, TerminalLifecycle,
 };
-use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
+use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
 #[derive(Clone, Copy)]
 struct LayoutMutationContext<'a> {
@@ -42,10 +42,11 @@ struct PaneAddOptions<'a> {
 struct ResourceClosePlan {
     state: State,
     removed: Vec<Arc<Surface>>,
-    terminals: Vec<(String, Option<String>)>,
+    terminal_runtime: Option<Arc<Surface>>,
+    closed_terminal_public_id: Option<TerminalPublicId>,
+    terminal_batch: Vec<(String, Option<String>)>,
     workspace_close: Option<ResourceWorkspaceClose>,
-    closed_workspace_key: Option<String>,
-    delta: TreeDelta,
+    delta: Option<TreeDelta>,
     changed_screens: Vec<ScreenId>,
     selection_resync: bool,
 }
@@ -1225,8 +1226,6 @@ impl Mux {
                         &destination_selectors,
                     )
                     .map_err(anyhow::Error::new)?;
-                let source_workspace_id =
-                    source.path.workspace.clone().context("source tab omitted workspace id")?;
                 let target_workspace_id = destination
                     .path
                     .workspace
@@ -1357,26 +1356,6 @@ impl Mux {
                         &target_workspace_id,
                         Some(target_screen_id.clone()),
                     );
-                    if source_workspace_id != target_workspace_id
-                        && let ContentPublicId::Terminal(terminal_id) = &moved_tab.content_id
-                    {
-                        let host_id = moved_tab
-                            .terminal_id
-                            .as_deref()
-                            .context("terminal tab omitted its host id")?;
-                        let mut terminal = registry
-                            .terminal_snapshot()?
-                            .terminals
-                            .into_iter()
-                            .find(|terminal| terminal.terminal_id == host_id)
-                            .context("terminal has no durable host placement")?;
-                        terminal.workspace_key =
-                            state.workspaces[target_workspace_index].key.clone();
-                        changes.push(ResourceChange::UpsertTerminal {
-                            public_id: terminal_id.clone(),
-                            terminal,
-                        });
-                    }
                 }
                 let mut deltas = if source_pane != target_pane {
                     focus_deltas(
@@ -1976,7 +1955,7 @@ impl Mux {
             .context("topology close target has no workspace")?;
         self.commit_resource_close_with(
             operation,
-            workspace,
+            Some(workspace),
             idempotency_key,
             operation_name,
             fingerprint,
@@ -1997,7 +1976,7 @@ impl Mux {
             self.surface_workspace(surface).context("content close target has no workspace")?;
         self.commit_resource_close_with(
             ResourceOperation::TabClose,
-            workspace,
+            Some(workspace),
             idempotency_key,
             operation_name,
             fingerprint,
@@ -2016,35 +1995,57 @@ impl Mux {
         )
     }
 
+    pub(crate) fn commit_resource_terminal_close_effect(
+        &self,
+        surface: SurfaceId,
+        idempotency_key: &str,
+        operation_name: &str,
+        fingerprint: &Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        self.commit_resource_close_with(
+            ResourceOperation::TerminalClose,
+            None,
+            idempotency_key,
+            operation_name,
+            fingerprint,
+            move |state| {
+                anyhow::ensure!(
+                    state.terminal_catalog.values().any(|candidate| candidate.id == surface),
+                    "terminal disappeared"
+                );
+                Ok(EffectSlots { workspace: None, screen: None, pane: None, tab: Some(surface) })
+            },
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn commit_resource_close_with(
         &self,
         operation: ResourceOperation,
-        workspace: WorkspaceId,
+        workspace: Option<WorkspaceId>,
         idempotency_key: &str,
         operation_name: &str,
         fingerprint: &Value,
         resolve_slots: impl FnOnce(&State) -> anyhow::Result<EffectSlots>,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let lifecycle = self.workspace_lifecycle(workspace);
-        let workspace_lifecycle = lifecycle.lock().unwrap();
+        let lifecycle = workspace.map(|workspace| self.workspace_lifecycle(workspace));
+        let workspace_lifecycle = lifecycle.as_ref().map(|lifecycle| lifecycle.lock().unwrap());
         let notifications = self.surface_notifications();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.state.lock().unwrap();
         let slots = resolve_slots(&state)?;
-        anyhow::ensure!(
-            slots.workspace == Some(workspace),
-            "topology close target changed workspaces before commit"
-        );
+        if let Some(workspace) = workspace {
+            anyhow::ensure!(
+                slots.workspace == Some(workspace),
+                "topology close target changed workspaces before commit"
+            );
+        }
         let mut plan =
             self.resource_close_plan_locked(operation, slots, &registry, &state, &notifications)?;
         let projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
-        let closed_public_ids = if let Some(workspace_key) = plan.closed_workspace_key.as_deref() {
-            registry.terminal_resource_ids_in_workspace(workspace_key)?
-        } else {
-            Self::terminal_public_ids_for_hosted(&registry, &plan.terminals)?
-        };
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
@@ -2056,7 +2057,7 @@ impl Mux {
             &projection.patch,
             &projection.result,
             &projection.changes,
-            &plan.terminals,
+            &plan.terminal_batch,
             plan.workspace_close.as_ref(),
         )?;
         #[cfg(test)]
@@ -2066,7 +2067,9 @@ impl Mux {
         plan.state.resource_revision = close.resource.revision;
         if let Some(revision) = close.workspace_revision {
             plan.state.workspace_revision = revision;
-            plan.delta.workspace_revision = Some(revision);
+            if let Some(delta) = &mut plan.delta {
+                delta.workspace_revision = Some(revision);
+            }
         }
         let empty_revision =
             plan.state.workspaces.is_empty().then_some(plan.state.workspace_revision);
@@ -2078,16 +2081,29 @@ impl Mux {
         drop(registry);
         drop(workspace_lifecycle);
 
-        self.notify_terminal_exit_waiters(closed_public_ids);
+        if let Some(terminal_id) = plan.closed_terminal_public_id.clone() {
+            self.notify_terminal_exit_waiters(Some(terminal_id));
+        }
+
         self.publish_resource_event();
         for surface in plan.removed {
             self.purge_surface_side_tables(surface.id);
-            surface.kill();
+            if surface.kind() == SurfaceKind::Browser {
+                surface.kill();
+            }
         }
-        if let Some(workspace_key) = plan.closed_workspace_key {
-            self.terminate_tombstoned_workspace_hosts(&workspace_key);
+        if let Some(runtime) = plan.terminal_runtime {
+            self.purge_terminal_runtime_side_tables(&runtime);
+            runtime.kill();
         }
-        self.emit_tree_delta(plan.delta, plan.selection_resync);
+        if let Some(delta) = plan.delta {
+            self.emit_tree_delta(delta, plan.selection_resync);
+        } else {
+            self.emit(MuxEvent::TreeChanged);
+            if plan.selection_resync {
+                self.emit(MuxEvent::TreeSelectionChanged);
+            }
+        }
         for screen in plan.changed_screens {
             self.emit(MuxEvent::LayoutChanged(screen));
         }
@@ -2099,13 +2115,21 @@ impl Mux {
         &self,
         operation: ResourceOperation,
         slots: EffectSlots,
-        registry: &WorkspaceRegistry,
+        _registry: &WorkspaceRegistry,
         state: &State,
         notifications: &HashMap<SurfaceId, SurfaceNotification>,
     ) -> anyhow::Result<ResourceClosePlan> {
         let selection_before = active_tree_selection(state);
         let mut projected = state.clone();
-        let (surface_ids, mut delta, changed_screens, workspace_metadata) = match operation {
+        let (
+            surface_ids,
+            mut delta,
+            changed_screens,
+            workspace_metadata,
+            terminal_runtime,
+            terminal_batch,
+            terminal_public_id,
+        ) = match operation {
             ResourceOperation::WorkspaceClose => {
                 let workspace = slots.workspace.context("workspace disappeared")?;
                 let index = state.workspace_index(workspace).context("workspace disappeared")?;
@@ -2118,7 +2142,15 @@ impl Mux {
                 let screens = item.screens.iter().map(|screen| screen.id).collect::<Vec<_>>();
                 let delta = close_workspace_delta(state, notifications, workspace)
                     .context("workspace close target has no tree delta")?;
-                (surfaces, delta, screens, Some((workspace, index, item.key.clone())))
+                (
+                    surfaces,
+                    Some(delta),
+                    screens,
+                    Some((workspace, index, item.key.clone())),
+                    None,
+                    Vec::new(),
+                    None,
+                )
             }
             ResourceOperation::ScreenClose => {
                 let screen = slots.screen.context("screen disappeared")?;
@@ -2138,7 +2170,7 @@ impl Mux {
                     screen_tabs(state, &state.workspaces[workspace_index].screens[screen_index]);
                 let delta = close_screen_delta(state, notifications, screen)
                     .context("screen close target has no tree delta")?;
-                (surfaces, delta, vec![screen], None)
+                (surfaces, Some(delta), vec![screen], None, None, Vec::new(), None)
             }
             ResourceOperation::PaneClose => {
                 let pane = slots.pane.context("pane disappeared")?;
@@ -2148,36 +2180,57 @@ impl Mux {
                         .context("pane has no screen")?;
                 let delta = close_pane_delta(state, notifications, pane)
                     .context("pane close target has no tree delta")?;
-                (surfaces, delta, vec![screen], None)
+                (surfaces, Some(delta), vec![screen], None, None, Vec::new(), None)
             }
             ResourceOperation::TabClose => {
                 let surface = slots.tab.context("tab disappeared")?;
                 let screen = surface_screen_id(state, surface).context("tab has no screen")?;
                 let delta = close_surface_delta(state, notifications, surface)
                     .context("tab close target has no tree delta")?;
-                (vec![surface], delta, vec![screen], None)
+                (vec![surface], Some(delta), vec![screen], None, None, Vec::new(), None)
+            }
+            ResourceOperation::TerminalClose => {
+                let surface = slots.tab.context("terminal disappeared")?;
+                let runtime = state
+                    .terminal_catalog
+                    .values()
+                    .find(|candidate| candidate.id == surface)
+                    .cloned()
+                    .context("terminal disappeared")?;
+                let public_id = runtime
+                    .terminal_public_id()
+                    .cloned()
+                    .context("terminal catalog entry omitted its public identity")?;
+                let host = self
+                    .resource_terminal_host_identity(&runtime)
+                    .context("terminal omitted its durable host identity")?;
+                let placements = state
+                    .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
+                    .to_vec();
+                let screens = unique_screen_ids(
+                    placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),
+                );
+                (
+                    placements,
+                    None,
+                    screens,
+                    None,
+                    Some(runtime),
+                    vec![(host.terminal_id, Some(host.incarnation))],
+                    Some(public_id),
+                )
             }
             _ => anyhow::bail!("operation is not a topology close"),
         };
 
+        if let Some(public_id) = &terminal_public_id {
+            projected.terminal_catalog.remove(public_id);
+        }
+
         let mut removed = Vec::new();
-        let mut terminals = Vec::new();
         for surface_id in &surface_ids {
             if let Some(surface) = state.surfaces.get(surface_id).cloned() {
-                if let Some(identity) = self.resource_terminal_host_identity(&surface) {
-                    terminals.push((identity.terminal_id, Some(identity.incarnation)));
-                }
                 removed.push(surface);
-                continue;
-            }
-            if let Some(ContentPublicId::Terminal(public_id)) =
-                state.resource_indexes.content_ids.get(surface_id)
-                && let Some(terminal_id) = registry.terminal_host_id(public_id)?
-            {
-                let incarnation = registry
-                    .terminal_record(&terminal_id)?
-                    .and_then(|terminal| terminal.incarnation);
-                terminals.push((terminal_id, incarnation));
             }
         }
         let mut split_index_changed = false;
@@ -2191,7 +2244,6 @@ impl Mux {
         }
 
         let mut workspace_close = None;
-        let mut closed_workspace_key = None;
         let mut workspace_was_active = false;
         if let Some((workspace, index, workspace_key)) = workspace_metadata {
             workspace_was_active = projected.active_workspace == index;
@@ -2222,7 +2274,6 @@ impl Mux {
                     "changed":true,
                 }),
             });
-            closed_workspace_key = Some(workspace_key);
             split_index_changed = true;
         }
         if split_index_changed {
@@ -2234,13 +2285,16 @@ impl Mux {
             selection_before != active_tree_selection(&projected)
         };
         // The workspace revision is filled from the atomic registry commit.
-        delta.workspace_revision = None;
+        if let Some(delta) = &mut delta {
+            delta.workspace_revision = None;
+        }
         Ok(ResourceClosePlan {
             state: projected,
             removed,
-            terminals,
+            terminal_runtime,
+            closed_terminal_public_id: terminal_public_id,
+            terminal_batch,
             workspace_close,
-            closed_workspace_key,
             delta,
             changed_screens,
             selection_resync,

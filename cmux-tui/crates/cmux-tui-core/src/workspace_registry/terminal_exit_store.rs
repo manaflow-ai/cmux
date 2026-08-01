@@ -126,7 +126,7 @@ impl WorkspaceRegistry {
         let changes_json = canonical_json(&changes)?;
 
         tx.execute(
-            "UPDATE terminal_placements
+            "UPDATE terminal_hosts
              SET incarnation = ?1, lifecycle = 'exited', exit_json = ?2,
                  updated_revision = ?3, deleted_revision = NULL
              WHERE terminal_id = ?4",

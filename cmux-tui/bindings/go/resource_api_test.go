@@ -170,6 +170,50 @@ func TestBrowserPointerInputsEncodeRequiredDecimalToken(t *testing.T) {
 	requireParam(t, wheel, "pointer_frame_seq", "42")
 }
 
+func TestTerminalProjectEncodesDestinationAndDecodesEveryView(t *testing.T) {
+	client, requests := pipeClient(t, nil, 1)
+	defer client.Close(context.Background()) //nolint:errcheck
+	name := "mirror"
+	terminal := client.Machine(SelectID(testMachineID)).
+		Session(SelectID(testSessionID)).
+		Terminal(SelectID(testTerminalID))
+	projected, err := terminal.Project(context.Background(), TerminalProjectOptions{
+		DestinationWorkspace: SelectID(testWorkspaceID),
+		DestinationScreen:    SelectID(testScreenID),
+		DestinationPane:      SelectID(testPaneID),
+		Index:                2,
+		Name:                 &name,
+	})
+	if err != nil {
+		t.Fatalf("project terminal: %v", err)
+	}
+	snapshot, ok := projected.Value.Cached()
+	if !ok || snapshot.ID != TabID("tab_0000000000000000000000000000000a") ||
+		snapshot.ContentID != testTerminalID || snapshot.PaneID != testPaneID {
+		t.Fatalf("projected terminal snapshot = %#v, cached = %v", snapshot, ok)
+	}
+	projectedRoute := projected.Value.route.params()
+	if projectedRoute["workspace"] != string(testWorkspaceID) ||
+		projectedRoute["screen"] != string(testScreenID) ||
+		projectedRoute["pane"] != string(testPaneID) ||
+		projectedRoute["tab"] != string(snapshot.ID) {
+		t.Fatalf("projected tab route = %#v", projectedRoute)
+	}
+	if _, present := projectedRoute["terminal"]; present {
+		t.Fatalf("projected tab retained source terminal route = %#v", projectedRoute)
+	}
+
+	request := <-requests
+	if request["operation"] != "terminal.project" {
+		t.Fatalf("operation = %#v", request["operation"])
+	}
+	requireParam(t, request, "destination_workspace", string(testWorkspaceID))
+	requireParam(t, request, "destination_screen", string(testScreenID))
+	requireParam(t, request, "destination_pane", string(testPaneID))
+	requireParam(t, request, "index", float64(2))
+	requireParam(t, request, "name", name)
+}
+
 func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	for name, raw := range map[string]json.RawMessage{
 		"external origin": json.RawMessage(
@@ -207,6 +251,7 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
 				`"tab_id":"tab_00000000000000000000000000000006",`+
+				`"tab_ids":["tab_00000000000000000000000000000006"],`+
 				`"title":"job","cols":80,"rows":24,"running":false,`+
 				`"lifecycle":"exited","exit":{`+
 				`"outcome":{"kind":"exit","code":0},`+
@@ -229,6 +274,7 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
 				`"tab_id":"tab_00000000000000000000000000000006",`+
+				`"tab_ids":["tab_00000000000000000000000000000006"],`+
 				`"title":"job","cols":80,"rows":24,"running":true,`+
 				`"lifecycle":"exited","exit":{`+
 				`"outcome":{"kind":"exit","code":0},`+
@@ -4062,6 +4108,21 @@ func pipeClient(
 						"source":         AgentSourceSocket,
 						"updated_at_ms":  "14",
 						"source_session": "codex-task-42",
+					},
+				}
+			case "terminal.project":
+				result = map[string]any{
+					"generation": "g",
+					"revision":   "17",
+					"replayed":   false,
+					"value": map[string]any{
+						"id":           "tab_0000000000000000000000000000000a",
+						"pane_id":      testPaneID,
+						"name":         "mirror",
+						"index":        2,
+						"focused":      false,
+						"content_kind": "terminal",
+						"content_id":   testTerminalID,
 					},
 				}
 			}

@@ -27,9 +27,9 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_s
 
 use crate::mux::ResourceWaitWake;
 use crate::platform;
-use crate::resource::TabResourceIdentity;
+use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
 use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status};
-use crate::{Mux, MuxEvent, SurfaceId};
+use crate::{Mux, SurfaceId};
 
 pub use crate::browser::{
     BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserFrameUpdate, BrowserSource,
@@ -623,6 +623,28 @@ impl Deref for Surface {
 /// [`RenderState`].
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
+    terminal: Arc<PtyTerminalRuntime>,
+}
+
+impl Deref for PtySurface {
+    type Target = PtyTerminalRuntime;
+
+    fn deref(&self) -> &Self::Target {
+        &self.terminal
+    }
+}
+
+/// Content runtime shared by every view placement of one terminal.
+///
+/// A [`PtySurface`] is a lightweight placement carrying tab-local metadata.
+/// This object owns the process, terminal emulator, ordered input/output, and
+/// canonical geometry. Keeping the two identities distinct makes a terminal
+/// projectable into any number of panes without cloning its PTY or VT state.
+pub struct PtyTerminalRuntime {
+    event_surface_id: SurfaceId,
+    /// Stable public content identity. This belongs to the terminal runtime,
+    /// while `SurfaceMeta::resource_identity` belongs to one view placement.
+    terminal_public_id: Option<TerminalPublicId>,
     term: Mutex<Terminal>,
     stream_progress: Box<TerminalStreamProgress>,
     mouse_encoders: Mutex<MouseEncoders>,
@@ -1131,7 +1153,7 @@ fn hosted_terminal_callbacks(
         })),
         on_bell: Some(Box::new(move || {
             if let Some(mux) = mux.upgrade() {
-                mux.emit(MuxEvent::Bell(id));
+                mux.emit_terminal_bell(id);
             }
         })),
     }
@@ -1185,6 +1207,61 @@ impl Surface {
         }
     }
 
+    pub fn terminal_public_id(&self) -> Option<&TerminalPublicId> {
+        match self {
+            Self::Pty(surface) => surface.terminal_public_id.as_ref(),
+            Self::Browser(_) => None,
+        }
+    }
+
+    /// Create another view placement for this terminal without creating a
+    /// second process or terminal emulator.
+    pub(crate) fn project_terminal(
+        &self,
+        id: SurfaceId,
+        resource_identity: TabResourceIdentity,
+    ) -> anyhow::Result<Arc<Surface>> {
+        anyhow::ensure!(
+            matches!(resource_identity.content_id, ContentPublicId::Terminal(_)),
+            "terminal placement requires a terminal content identity"
+        );
+        let ContentPublicId::Terminal(projected_id) = &resource_identity.content_id else {
+            unreachable!("validated terminal content identity")
+        };
+        anyhow::ensure!(
+            self.terminal_public_id() == Some(projected_id),
+            "terminal placement cannot change content identity"
+        );
+        let Surface::Pty(surface) = self else {
+            anyhow::bail!("browser content cannot be projected as a terminal");
+        };
+        Ok(Arc::new(Surface::Pty(PtySurface {
+            meta: SurfaceMeta {
+                id,
+                resource_identity: Some(resource_identity),
+                name: Mutex::new(None),
+                selection: Mutex::new(None),
+            },
+            terminal: surface.terminal.clone(),
+        })))
+    }
+
+    pub(crate) fn shares_terminal_runtime(&self, other: &Surface) -> bool {
+        match (self, other) {
+            (Surface::Pty(left), Surface::Pty(right)) => {
+                Arc::ptr_eq(&left.terminal, &right.terminal)
+            }
+            _ => false,
+        }
+    }
+
+    pub(crate) fn terminal_runtime_id(&self) -> Option<SurfaceId> {
+        match self {
+            Surface::Pty(surface) => Some(surface.event_surface_id),
+            Surface::Browser(_) => None,
+        }
+    }
+
     pub(crate) fn spawn(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -1224,9 +1301,10 @@ impl Surface {
         mux: Weak<Mux>,
         resource_identity: Option<TabResourceIdentity>,
     ) -> anyhow::Result<Arc<Surface>> {
-        if resource_identity.as_ref().is_some_and(|identity| {
-            matches!(identity.content_id, crate::resource::ContentPublicId::Browser(_))
-        }) {
+        if resource_identity
+            .as_ref()
+            .is_some_and(|identity| matches!(identity.content_id, ContentPublicId::Browser(_)))
+        {
             anyhow::bail!("terminal surface cannot use a browser resource identity");
         }
         Self::spawn_with_terminal_id_and_resource_identity(id, opts, mux, None, resource_identity)
@@ -1239,6 +1317,11 @@ impl Surface {
         terminal_id: Option<crate::terminal_host::TerminalId>,
         resource_identity: Option<TabResourceIdentity>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let terminal_public_id =
+            resource_identity.as_ref().and_then(|identity| match &identity.content_id {
+                ContentPublicId::Terminal(terminal_id) => Some(terminal_id.clone()),
+                ContentPublicId::Browser(_) => None,
+            });
         #[cfg(unix)]
         if let Some(root) = opts.terminal_host_root.clone() {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
@@ -1257,7 +1340,15 @@ impl Surface {
                     default_colors,
                 )?,
             };
-            return Self::spawn_hosted(id, opts, mux, attachment, true, resource_identity);
+            return Self::spawn_hosted(
+                id,
+                opts,
+                mux,
+                attachment,
+                true,
+                terminal_public_id,
+                resource_identity,
+            );
         }
         let _ = terminal_id;
         let pty = native_pty_system().openpty(PtySize {
@@ -1317,7 +1408,7 @@ impl Surface {
                 let mux = mux.clone();
                 move || {
                     if let Some(mux) = mux.upgrade() {
-                        mux.emit(MuxEvent::Bell(id));
+                        mux.emit_terminal_bell(id);
                     }
                 }
             })),
@@ -1341,42 +1432,46 @@ impl Surface {
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
-            term: Mutex::new(term),
-            stream_progress: Box::new(TerminalStreamProgress::default()),
-            mouse_encoders: Mutex::new(mouse_encoders),
-            runtime: Mutex::new(PtyRuntime::Local { writer, master: pty.master, killer }),
-            supports_clear_history_key_fallback: AtomicBool::new(
-                supports_clear_history_key_fallback,
-            ),
-            host_identity: None,
-            #[cfg(unix)]
-            host_exit_record_path: None,
-            pid,
-            command: argv,
-            cwd,
-            exit: Mutex::new(None),
-            local_pty_drained: AtomicBool::new(false),
-            exit_notified: AtomicBool::new(false),
-            dead: AtomicBool::new(false),
-            owner_detaching: AtomicBool::new(false),
-            host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
-            dirty: AtomicBool::new(false),
-            title: Mutex::new(String::new()),
-            pwd: Mutex::new(None),
-            size: Mutex::new((opts.cols, opts.rows)),
-            mux: mux.clone(),
-            taps: Mutex::new(Vec::new()),
-            attach_colors_pending: AtomicBool::new(false),
-            attach_colors_force_pending: AtomicBool::new(false),
-            last_attach_colors: Mutex::new(None),
-            render: Mutex::new(RenderHub {
-                state: Box::new(render_state),
-                built_generation: 0,
-                latest: None,
-                taps: Vec::new(),
+            terminal: Arc::new(PtyTerminalRuntime {
+                event_surface_id: id,
+                terminal_public_id,
+                term: Mutex::new(term),
+                stream_progress: Box::new(TerminalStreamProgress::default()),
+                mouse_encoders: Mutex::new(mouse_encoders),
+                runtime: Mutex::new(PtyRuntime::Local { writer, master: pty.master, killer }),
+                supports_clear_history_key_fallback: AtomicBool::new(
+                    supports_clear_history_key_fallback,
+                ),
+                host_identity: None,
+                #[cfg(unix)]
+                host_exit_record_path: None,
+                pid,
+                command: argv,
+                cwd,
+                exit: Mutex::new(None),
+                local_pty_drained: AtomicBool::new(false),
+                exit_notified: AtomicBool::new(false),
+                dead: AtomicBool::new(false),
+                owner_detaching: AtomicBool::new(false),
+                host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                dirty: AtomicBool::new(false),
+                title: Mutex::new(String::new()),
+                pwd: Mutex::new(None),
+                size: Mutex::new((opts.cols, opts.rows)),
+                mux: mux.clone(),
+                taps: Mutex::new(Vec::new()),
+                attach_colors_pending: AtomicBool::new(false),
+                attach_colors_force_pending: AtomicBool::new(false),
+                last_attach_colors: Mutex::new(None),
+                render: Mutex::new(RenderHub {
+                    state: Box::new(render_state),
+                    built_generation: 0,
+                    latest: None,
+                    taps: Vec::new(),
+                }),
+                render_generation: AtomicU64::new(1),
+                frame_requests,
             }),
-            render_generation: AtomicU64::new(1),
-            frame_requests,
         }));
 
         spawn_frame_producer(&surface, frame_rx)?;
@@ -1433,10 +1528,7 @@ impl Surface {
                             let title = term.title().unwrap_or_default();
                             *pty.title.lock().unwrap() = title.clone();
                             if let Some(mux) = mux.upgrade() {
-                                mux.emit(MuxEvent::TitleChanged {
-                                    surface: surface.id,
-                                    title: title.into(),
-                                });
+                                mux.emit_terminal_title(surface.id, title.into());
                             }
                         }
                         if let Some(pwd) = term.pwd() {
@@ -1453,11 +1545,7 @@ impl Surface {
                     if let Some((offset, at_bottom)) = scroll_changed
                         && let Some(mux) = mux.upgrade()
                     {
-                        mux.emit(MuxEvent::ScrollChanged {
-                            surface: surface.id,
-                            offset,
-                            at_bottom,
-                        });
+                        mux.emit_terminal_scroll(surface.id, offset, at_bottom);
                     }
                     let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
                     if !responses.is_empty() {
@@ -1494,8 +1582,18 @@ impl Surface {
         mux: Weak<Mux>,
         mut attachment: crate::terminal_host_runtime::HostAttachment,
         terminate_on_error: bool,
+        terminal_public_id: Option<TerminalPublicId>,
         resource_identity: Option<TabResourceIdentity>,
     ) -> anyhow::Result<Arc<Surface>> {
+        if let Some(identity) = resource_identity.as_ref() {
+            let ContentPublicId::Terminal(content_id) = &identity.content_id else {
+                anyhow::bail!("hosted terminal cannot use a browser resource identity");
+            };
+            anyhow::ensure!(
+                terminal_public_id.as_ref() == Some(content_id),
+                "terminal runtime identity does not match its placement"
+            );
+        }
         let initial_defaults = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         attachment.send_default_colors(initial_defaults)?;
         let mut reader = attachment.take_reader()?;
@@ -1539,41 +1637,45 @@ impl Surface {
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
-            term: Mutex::new(term),
-            stream_progress: Box::new(TerminalStreamProgress::default()),
-            mouse_encoders: Mutex::new(mouse_encoders),
-            runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
-            supports_clear_history_key_fallback: AtomicBool::new(
-                supports_clear_history_key_fallback,
-            ),
-            host_identity: Some(host_identity),
-            host_exit_record_path: Some(host_exit_record_path),
-            pid: snapshot.pid,
-            command: snapshot.command,
-            cwd: snapshot.cwd,
-            exit: Mutex::new(None),
-            local_pty_drained: AtomicBool::new(true),
-            exit_notified: AtomicBool::new(false),
-            dead: AtomicBool::new(false),
-            owner_detaching: AtomicBool::new(false),
-            host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
-            dirty: AtomicBool::new(true),
-            title: Mutex::new(title),
-            pwd: Mutex::new(pwd),
-            size: Mutex::new((snapshot.cols, snapshot.rows)),
-            mux: mux.clone(),
-            taps: Mutex::new(Vec::new()),
-            attach_colors_pending: AtomicBool::new(false),
-            attach_colors_force_pending: AtomicBool::new(false),
-            last_attach_colors: Mutex::new(None),
-            render: Mutex::new(RenderHub {
-                state: Box::new(render_state),
-                built_generation: 0,
-                latest: None,
-                taps: Vec::new(),
+            terminal: Arc::new(PtyTerminalRuntime {
+                event_surface_id: id,
+                terminal_public_id,
+                term: Mutex::new(term),
+                stream_progress: Box::new(TerminalStreamProgress::default()),
+                mouse_encoders: Mutex::new(mouse_encoders),
+                runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
+                supports_clear_history_key_fallback: AtomicBool::new(
+                    supports_clear_history_key_fallback,
+                ),
+                host_identity: Some(host_identity),
+                host_exit_record_path: Some(host_exit_record_path),
+                pid: snapshot.pid,
+                command: snapshot.command,
+                cwd: snapshot.cwd,
+                exit: Mutex::new(None),
+                local_pty_drained: AtomicBool::new(true),
+                exit_notified: AtomicBool::new(false),
+                dead: AtomicBool::new(false),
+                owner_detaching: AtomicBool::new(false),
+                host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                dirty: AtomicBool::new(true),
+                title: Mutex::new(title),
+                pwd: Mutex::new(pwd),
+                size: Mutex::new((snapshot.cols, snapshot.rows)),
+                mux: mux.clone(),
+                taps: Mutex::new(Vec::new()),
+                attach_colors_pending: AtomicBool::new(false),
+                attach_colors_force_pending: AtomicBool::new(false),
+                last_attach_colors: Mutex::new(None),
+                render: Mutex::new(RenderHub {
+                    state: Box::new(render_state),
+                    built_generation: 0,
+                    latest: None,
+                    taps: Vec::new(),
+                }),
+                render_generation: AtomicU64::new(1),
+                frame_requests,
             }),
-            render_generation: AtomicU64::new(1),
-            frame_requests,
         }));
         spawn_frame_producer(&surface, frame_rx)?;
 
@@ -1689,19 +1791,12 @@ impl Surface {
                                 if let Some(title) = title_update
                                     && let Some(mux) = mux.upgrade()
                                 {
-                                    mux.emit(MuxEvent::TitleChanged {
-                                        surface: surface.id,
-                                        title: title.into(),
-                                    });
+                                    mux.emit_terminal_title(surface.id, title.into());
                                 }
                                 if let Some((offset, at_bottom)) = scroll_changed
                                     && let Some(mux) = mux.upgrade()
                                 {
-                                    mux.emit(MuxEvent::ScrollChanged {
-                                        surface: surface.id,
-                                        offset,
-                                        at_bottom,
-                                    });
+                                    mux.emit_terminal_scroll(surface.id, offset, at_bottom);
                                 }
                             }
                             HostedTransition::ResizedWithColors { cols, rows, replay, colors } => {
@@ -1765,22 +1860,10 @@ impl Surface {
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(mux) = mux.upgrade() {
-                                    mux.emit(MuxEvent::TitleChanged {
-                                        surface: surface.id,
-                                        title: title.into(),
-                                    });
-                                    mux.emit(MuxEvent::SurfaceResized {
-                                        surface: surface.id,
-                                        cols,
-                                        rows,
-                                        reservation_id: None,
-                                    });
+                                    mux.emit_terminal_title(surface.id, title.into());
+                                    mux.emit_terminal_resized(surface.id, cols, rows, None);
                                     if let Some((offset, at_bottom)) = scroll_changed {
-                                        mux.emit(MuxEvent::ScrollChanged {
-                                            surface: surface.id,
-                                            offset,
-                                            at_bottom,
-                                        });
+                                        mux.emit_terminal_scroll(surface.id, offset, at_bottom);
                                     }
                                 }
                             }
@@ -1994,16 +2077,13 @@ impl Surface {
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Connected as u8, Ordering::Release);
                         if let Some(mux) = mux.upgrade() {
-                            mux.emit(MuxEvent::TitleChanged {
-                                surface: surface.id,
-                                title: title.into(),
-                            });
-                            mux.emit(MuxEvent::SurfaceResized {
-                                surface: surface.id,
-                                cols: replacement_snapshot.cols,
-                                rows: replacement_snapshot.rows,
-                                reservation_id: None,
-                            });
+                            mux.emit_terminal_title(surface.id, title.into());
+                            mux.emit_terminal_resized(
+                                surface.id,
+                                replacement_snapshot.cols,
+                                replacement_snapshot.rows,
+                                None,
+                            );
                             if !mux.terminal_host_reconnected(surface.id, &identity) {
                                 return;
                             }
@@ -2050,7 +2130,34 @@ impl Surface {
         resource_identity: TabResourceIdentity,
     ) -> anyhow::Result<Arc<Surface>> {
         let attachment = crate::terminal_host_runtime::adopt_terminal_host(record, record_path)?;
-        Self::spawn_hosted(id, opts, mux, attachment, false, Some(resource_identity))
+        let terminal_public_id = match &resource_identity.content_id {
+            ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+            ContentPublicId::Browser(_) => {
+                anyhow::bail!("hosted terminal cannot use a browser resource identity")
+            }
+        };
+        Self::spawn_hosted(
+            id,
+            opts,
+            mux,
+            attachment,
+            false,
+            Some(terminal_public_id),
+            Some(resource_identity),
+        )
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn adopt_hosted_with_terminal_public_id(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        record: crate::terminal_host_runtime::TerminalHostRecord,
+        record_path: PathBuf,
+        terminal_public_id: TerminalPublicId,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let attachment = crate::terminal_host_runtime::adopt_terminal_host(record, record_path)?;
+        Self::spawn_hosted(id, opts, mux, attachment, false, Some(terminal_public_id), None)
     }
 
     /// Materialize canonical Exited registry state without inventing a live
@@ -2081,9 +2188,49 @@ impl Surface {
         identity: crate::terminal_host_runtime::TerminalHostIdentity,
         resource_identity: TabResourceIdentity,
     ) -> anyhow::Result<Arc<Surface>> {
-        if matches!(resource_identity.content_id, crate::resource::ContentPublicId::Browser(_)) {
-            anyhow::bail!("exited terminal cannot use a browser resource identity");
-        }
+        let terminal_public_id = match &resource_identity.content_id {
+            ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+            ContentPublicId::Browser(_) => {
+                anyhow::bail!("exited terminal cannot use a browser resource identity")
+            }
+        };
+        Self::exited_terminal_placeholder_with_identities(
+            id,
+            opts,
+            mux,
+            identity,
+            terminal_public_id,
+            Some(resource_identity),
+        )
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn exited_terminal_placeholder_with_terminal_public_id(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        identity: crate::terminal_host_runtime::TerminalHostIdentity,
+        terminal_public_id: TerminalPublicId,
+    ) -> anyhow::Result<Arc<Surface>> {
+        Self::exited_terminal_placeholder_with_identities(
+            id,
+            opts,
+            mux,
+            identity,
+            terminal_public_id,
+            None,
+        )
+    }
+
+    #[cfg(unix)]
+    fn exited_terminal_placeholder_with_identities(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        identity: crate::terminal_host_runtime::TerminalHostIdentity,
+        terminal_public_id: TerminalPublicId,
+        resource_identity: Option<TabResourceIdentity>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let title_changed = Arc::new(AtomicBool::new(false));
         let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
@@ -2106,43 +2253,47 @@ impl Surface {
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
                 id,
-                resource_identity: Some(resource_identity),
+                resource_identity,
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
-            term: Mutex::new(term),
-            stream_progress: Box::new(TerminalStreamProgress::default()),
-            mouse_encoders: Mutex::new(mouse_encoders),
-            runtime: Mutex::new(PtyRuntime::ExitedHosted),
-            supports_clear_history_key_fallback: AtomicBool::new(false),
-            host_identity: Some(identity),
-            host_exit_record_path: None,
-            pid: None,
-            command,
-            cwd: opts.cwd,
-            exit: Mutex::new(None),
-            local_pty_drained: AtomicBool::new(true),
-            exit_notified: AtomicBool::new(true),
-            dead: AtomicBool::new(true),
-            owner_detaching: AtomicBool::new(false),
-            host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
-            dirty: AtomicBool::new(true),
-            title: Mutex::new(String::new()),
-            pwd: Mutex::new(None),
-            size: Mutex::new((cols, rows)),
-            mux,
-            taps: Mutex::new(Vec::new()),
-            attach_colors_pending: AtomicBool::new(false),
-            attach_colors_force_pending: AtomicBool::new(false),
-            last_attach_colors: Mutex::new(None),
-            render: Mutex::new(RenderHub {
-                state: Box::new(render_state),
-                built_generation: 0,
-                latest: None,
-                taps: Vec::new(),
+            terminal: Arc::new(PtyTerminalRuntime {
+                event_surface_id: id,
+                terminal_public_id: Some(terminal_public_id),
+                term: Mutex::new(term),
+                stream_progress: Box::new(TerminalStreamProgress::default()),
+                mouse_encoders: Mutex::new(mouse_encoders),
+                runtime: Mutex::new(PtyRuntime::ExitedHosted),
+                supports_clear_history_key_fallback: AtomicBool::new(false),
+                host_identity: Some(identity),
+                host_exit_record_path: None,
+                pid: None,
+                command,
+                cwd: opts.cwd,
+                exit: Mutex::new(None),
+                local_pty_drained: AtomicBool::new(true),
+                exit_notified: AtomicBool::new(true),
+                dead: AtomicBool::new(true),
+                owner_detaching: AtomicBool::new(false),
+                host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
+                dirty: AtomicBool::new(true),
+                title: Mutex::new(String::new()),
+                pwd: Mutex::new(None),
+                size: Mutex::new((cols, rows)),
+                mux,
+                taps: Mutex::new(Vec::new()),
+                attach_colors_pending: AtomicBool::new(false),
+                attach_colors_force_pending: AtomicBool::new(false),
+                last_attach_colors: Mutex::new(None),
+                render: Mutex::new(RenderHub {
+                    state: Box::new(render_state),
+                    built_generation: 0,
+                    latest: None,
+                    taps: Vec::new(),
+                }),
+                render_generation: AtomicU64::new(1),
+                frame_requests,
             }),
-            render_generation: AtomicU64::new(1),
-            frame_requests,
         }));
         spawn_frame_producer(&surface, frame_rx)?;
         Ok(surface)
@@ -2169,12 +2320,17 @@ impl Surface {
         mux: Weak<Mux>,
         resource_identity: Option<TabResourceIdentity>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let terminal_public_id =
+            resource_identity.as_ref().and_then(|identity| match &identity.content_id {
+                ContentPublicId::Terminal(terminal_id) => Some(terminal_id.clone()),
+                ContentPublicId::Browser(_) => None,
+            });
         let callbacks = Callbacks {
             on_bell: Some(Box::new({
                 let mux = mux.clone();
                 move || {
                     if let Some(mux) = mux.upgrade() {
-                        mux.emit(MuxEvent::Bell(id));
+                        mux.emit_terminal_bell(id);
                     }
                 }
             })),
@@ -2201,51 +2357,55 @@ impl Surface {
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
-            term: Mutex::new(term),
-            stream_progress: Box::new(TerminalStreamProgress::default()),
-            mouse_encoders: Mutex::new(mouse_encoders),
-            runtime: Mutex::new(PtyRuntime::Local {
-                writer: Box::new(std::io::sink()),
-                master: Box::new(TestMasterPty {
-                    size: Mutex::new(PtySize {
-                        rows: opts.rows,
-                        cols: opts.cols,
-                        pixel_width: 0,
-                        pixel_height: 0,
+            terminal: Arc::new(PtyTerminalRuntime {
+                event_surface_id: id,
+                terminal_public_id,
+                term: Mutex::new(term),
+                stream_progress: Box::new(TerminalStreamProgress::default()),
+                mouse_encoders: Mutex::new(mouse_encoders),
+                runtime: Mutex::new(PtyRuntime::Local {
+                    writer: Box::new(std::io::sink()),
+                    master: Box::new(TestMasterPty {
+                        size: Mutex::new(PtySize {
+                            rows: opts.rows,
+                            cols: opts.cols,
+                            pixel_width: 0,
+                            pixel_height: 0,
+                        }),
                     }),
+                    killer: Box::new(TestChildKiller),
                 }),
-                killer: Box::new(TestChildKiller),
+                supports_clear_history_key_fallback: AtomicBool::new(false),
+                host_identity: None,
+                #[cfg(unix)]
+                host_exit_record_path: None,
+                pid: Some(id as u32),
+                command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
+                cwd: opts.cwd,
+                exit: Mutex::new(None),
+                local_pty_drained: AtomicBool::new(false),
+                exit_notified: AtomicBool::new(false),
+                dead: AtomicBool::new(false),
+                owner_detaching: AtomicBool::new(false),
+                host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                dirty: AtomicBool::new(false),
+                title: Mutex::new(String::new()),
+                pwd: Mutex::new(None),
+                size: Mutex::new((opts.cols, opts.rows)),
+                mux,
+                taps: Mutex::new(Vec::new()),
+                attach_colors_pending: AtomicBool::new(false),
+                attach_colors_force_pending: AtomicBool::new(false),
+                last_attach_colors: Mutex::new(None),
+                render: Mutex::new(RenderHub {
+                    state: Box::new(render_state),
+                    built_generation: 0,
+                    latest: None,
+                    taps: Vec::new(),
+                }),
+                render_generation: AtomicU64::new(1),
+                frame_requests,
             }),
-            supports_clear_history_key_fallback: AtomicBool::new(false),
-            host_identity: None,
-            #[cfg(unix)]
-            host_exit_record_path: None,
-            pid: Some(id as u32),
-            command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
-            cwd: opts.cwd,
-            exit: Mutex::new(None),
-            local_pty_drained: AtomicBool::new(false),
-            exit_notified: AtomicBool::new(false),
-            dead: AtomicBool::new(false),
-            owner_detaching: AtomicBool::new(false),
-            host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
-            dirty: AtomicBool::new(false),
-            title: Mutex::new(String::new()),
-            pwd: Mutex::new(None),
-            size: Mutex::new((opts.cols, opts.rows)),
-            mux,
-            taps: Mutex::new(Vec::new()),
-            attach_colors_pending: AtomicBool::new(false),
-            attach_colors_force_pending: AtomicBool::new(false),
-            last_attach_colors: Mutex::new(None),
-            render: Mutex::new(RenderHub {
-                state: Box::new(render_state),
-                built_generation: 0,
-                latest: None,
-                taps: Vec::new(),
-            }),
-            render_generation: AtomicU64::new(1),
-            frame_requests,
         })))
     }
 
@@ -2636,7 +2796,7 @@ impl Surface {
         if let Some((offset, at_bottom)) = changed
             && let Some(mux) = pty.mux.upgrade()
         {
-            mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
+            mux.emit_terminal_scroll(self.id, offset, at_bottom);
         }
         Ok(scrollbar)
     }
@@ -2662,7 +2822,7 @@ impl Surface {
         if let Some((offset, at_bottom)) = changed
             && let Some(mux) = pty.mux.upgrade()
         {
-            mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
+            mux.emit_terminal_scroll(self.id, offset, at_bottom);
         }
         Ok(())
     }
@@ -2785,7 +2945,7 @@ impl Surface {
             if let Some((offset, at_bottom)) = scroll_changed
                 && let Some(mux) = pty.mux.upgrade()
             {
-                mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
+                mux.emit_terminal_scroll(self.id, offset, at_bottom);
             }
             pty.mark_output_dirty();
             return Ok(());
@@ -3712,7 +3872,7 @@ impl PtySurface {
         if !self.dirty.swap(true, Ordering::AcqRel)
             && let Some(mux) = self.mux.upgrade()
         {
-            mux.emit(MuxEvent::SurfaceOutput(self.meta.id));
+            mux.emit_terminal_output(self.event_surface_id);
         }
     }
 
@@ -3946,6 +4106,46 @@ fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::MuxEvent;
+
+    #[test]
+    fn terminal_projection_has_distinct_view_identity_and_shared_runtime() {
+        let mux = Mux::new_for_test("terminal-projection", SurfaceOptions::default());
+        let source =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let source_identity = source.resource_identity().unwrap().clone();
+        let projection = source
+            .project_terminal(
+                2,
+                TabResourceIdentity::new(
+                    crate::resource::TabPublicId::random().unwrap(),
+                    source_identity.content_id,
+                ),
+            )
+            .unwrap();
+
+        assert_eq!(source.id, 1);
+        assert_eq!(projection.id, 2);
+        assert!(source.shares_terminal_runtime(&projection));
+
+        source.set_name(Some("source".into()));
+        projection.set_name(Some("projection".into()));
+        assert_eq!(source.name().as_deref(), Some("source"));
+        assert_eq!(projection.name().as_deref(), Some("projection"));
+
+        projection.resize(91, 37).unwrap();
+        assert_eq!(source.size(), (91, 37));
+        source.with_terminal(|terminal| terminal.vt_write(b"shared-output"));
+        let projected_text =
+            projection.with_terminal(|terminal| terminal.viewport_text().unwrap()).unwrap();
+        assert!(projected_text.contains("shared-output"));
+
+        let writer = CapturingWriter::default();
+        replace_local_writer(&source, Box::new(writer.clone()));
+        source.write_bytes(b"first").unwrap();
+        projection.write_bytes(b"second").unwrap();
+        assert_eq!(&*writer.0.lock().unwrap(), b"firstsecond");
+    }
 
     #[derive(Clone, Default)]
     struct CapturingWriter(Arc<Mutex<Vec<u8>>>);
@@ -3996,9 +4196,7 @@ mod tests {
     #[test]
     fn test_surface_accepts_non_uuid_public_terminal_identity() {
         let mux = Mux::new_for_test("opaque-terminal-id", SurfaceOptions::default());
-        let terminal =
-            crate::resource::TerminalPublicId::parse("term_ffffffffffffffffffffffffffffffff")
-                .unwrap();
+        let terminal = TerminalPublicId::parse("term_ffffffffffffffffffffffffffffffff").unwrap();
         let tab =
             crate::resource::TabPublicId::parse("tab_00000000000000000000000000000001").unwrap();
         let identity = TabResourceIdentity::persisted_terminal(tab, terminal);

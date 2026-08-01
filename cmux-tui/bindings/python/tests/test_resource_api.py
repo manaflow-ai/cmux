@@ -63,6 +63,7 @@ MACHINE = MachineId(f"machine_{HEX_A}")
 SCREEN = ScreenId(f"screen_{HEX_C}")
 PANE = PaneId(f"pane_{HEX_A}")
 TAB = TabId(f"tab_{HEX_B}")
+PROJECTED_TAB = TabId(f"tab_{HEX_C}")
 CONNECTED_CLIENT = ConnectedClientId(f"client_{HEX_C}")
 PAIRING_REQUEST = PairingRequestId(f"pairing_{HEX_A}")
 AGENT = AgentId(f"agent_{HEX_B}")
@@ -175,6 +176,59 @@ class ResourceApiTests(unittest.TestCase):
         self.assertEqual(
             observed[2]["params"],
             {**common, "argv": ["/bin/zsh", "-lc", "echo $(uname)"]},
+        )
+
+    def test_terminal_project_preserves_one_runtime_and_encodes_the_new_view(self) -> None:
+        observed = []
+
+        def handler(connection, _index):
+            request = next(frames(connection))
+            observed.append(request)
+            ok(
+                connection,
+                request,
+                {
+                    "value": {
+                        "id": str(PROJECTED_TAB),
+                        "pane_id": str(PANE),
+                        "name": "mirror",
+                        "index": 2,
+                        "focused": False,
+                        "content_kind": "terminal",
+                        "content_id": str(TERMINAL),
+                    },
+                    "generation": "generation-a",
+                    "revision": "7",
+                    "replayed": False,
+                },
+            )
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path) as client:
+                projected = client.session(SESSION).terminal(TERMINAL).project(
+                    destination_workspace=WORKSPACE,
+                    destination_screen=SCREEN,
+                    destination_pane=PANE,
+                    index=2,
+                    name="mirror",
+                    idempotency_key="project-terminal",
+                )
+
+        self.assertEqual(projected.value.snapshot.id, PROJECTED_TAB)
+        self.assertEqual(projected.value.snapshot.content_id, TERMINAL)
+        self.assertEqual(observed[0]["operation"], "terminal.project")
+        self.assertEqual(
+            observed[0]["params"],
+            {
+                "machine": "current",
+                "session": str(SESSION),
+                "terminal": str(TERMINAL),
+                "destination_workspace": str(WORKSPACE),
+                "destination_screen": str(SCREEN),
+                "destination_pane": str(PANE),
+                "index": 2,
+                "name": "mirror",
+            },
         )
 
     def test_every_created_path_operation_sends_a_validated_correlation_key(
@@ -1147,6 +1201,7 @@ class ResourceApiTests(unittest.TestCase):
         base = {
             "id": str(TERMINAL),
             "tab_id": str(TAB),
+            "tab_ids": [str(TAB)],
             "title": "fixture",
             "cols": 80,
             "rows": 24,
@@ -3467,6 +3522,7 @@ class ResourceApiTests(unittest.TestCase):
                                 "value": {
                                     "id": str(TERMINAL),
                                     "tab_id": str(TAB),
+                                    "tab_ids": [str(TAB)],
                                     "title": "typed",
                                     "cwd": "/tmp",
                                     "cols": 80,

@@ -4073,6 +4073,39 @@ mod tests {
         assert_eq!(mirror.scrollback_rows(), scrollback_rows);
     }
 
+    #[test]
+    fn two_views_of_one_terminal_keep_independent_scroll_offsets() {
+        let mut server = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+        for index in 0..20 {
+            server.vt_write(format!("shared-{index:02}\r\n").as_bytes());
+        }
+        let replay = server.vt_replay().unwrap();
+        let view = |id| RemoteSurface {
+            id,
+            kind: SurfaceKind::Pty,
+            term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
+            reported_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        };
+        let first = view(1);
+        let second = view(2);
+        first.apply_stream_resize(12, 4, Some(&replay));
+        second.apply_stream_resize(12, 4, Some(&replay));
+
+        first.term.lock().unwrap().scroll_delta(-5);
+        let first_offset = first.term.lock().unwrap().scrollbar().unwrap().offset;
+        let second_offset = second.term.lock().unwrap().scrollbar().unwrap().offset;
+        assert!(first_offset > 0);
+        assert_eq!(second_offset, 0);
+        assert_eq!(
+            first.term.lock().unwrap().selection_text_absolute((0, 0), (8, 0)).unwrap(),
+            second.term.lock().unwrap().selection_text_absolute((0, 0), (8, 0)).unwrap()
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn resized_event_decodes_protocol_replay_field() {

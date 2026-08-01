@@ -420,6 +420,63 @@ test("resource root, raw boundary, exact commands, and idempotency keys", async 
   client.close();
 });
 
+test("terminal project returns the new tab on its destination route", async () => {
+  const projectedTab = tabId(`tab_${HEX_C}`);
+  const transport = new FakeTransport((request, current) => {
+    const tab = {
+      id: projectedTab,
+      pane_id: PANE,
+      name: "mirror",
+      index: 2,
+      focused: false,
+      content_kind: "terminal",
+      content_id: TERMINAL,
+    };
+    current.ok(request, request.operation === "terminal.project" ? {
+      value: {
+        ...tab,
+      },
+      generation: "generation-a",
+      revision: "7",
+      replayed: false,
+    } : tab);
+  });
+  const client = new Client({ transport });
+  const projected = await client.session(SESSION).terminal(TERMINAL).project(
+    {
+      workspace: WORKSPACE,
+      screen: SCREEN,
+      pane: PANE,
+      index: 2,
+      name: "mirror",
+    },
+    { idempotencyKey: "project-terminal" },
+  );
+
+  assert.equal(projected.value.snapshot?.id, projectedTab);
+  assert.equal(projected.value.snapshot?.contentId, TERMINAL);
+  await projected.value.refresh();
+  assert.deepEqual(transport.requests[0]?.params, {
+    machine: "current",
+    session: SESSION,
+    terminal: TERMINAL,
+    destination_workspace: WORKSPACE,
+    destination_screen: SCREEN,
+    destination_pane: PANE,
+    index: 2,
+    name: "mirror",
+  });
+  assert.deepEqual(transport.requests[1]?.params, {
+    machine: "current",
+    session: SESSION,
+    workspace: WORKSPACE,
+    screen: SCREEN,
+    pane: PANE,
+    tab: projectedTab,
+  });
+  client.close();
+});
+
 test("request token bounds count UTF-8 bytes at every public boundary", async () => {
   assert.equal(Buffer.byteLength(UTF8_128, "utf8"), 128);
   assert.equal(Buffer.byteLength(UTF8_129, "utf8"), 129);
@@ -1826,6 +1883,7 @@ test("terminal snapshots expose lifecycle and durable exit details", async () =>
     const base = {
       id: TERMINAL,
       tab_id: TAB,
+      tab_ids: [TAB],
       title: "job",
       cols: 80,
       rows: 24,

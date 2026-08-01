@@ -313,6 +313,23 @@ impl Session {
         }
     }
 
+    pub fn claim_terminal_geometry(&self, surface: SurfaceId) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .claim_terminal_geometry(surface, 0)
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface}")),
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "set-client-sizing",
+                    "surface": surface,
+                    "enabled": true,
+                    "exclusive": true,
+                }))
+                .map(|_| ()),
+        }
+    }
+
     pub fn use_all_client_sizing(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
@@ -813,18 +830,6 @@ impl Session {
         }
     }
 
-    pub fn select_screen(&self, index: Option<usize>, delta: Option<isize>) -> anyhow::Result<()> {
-        match self {
-            Session::Local(mux) => {
-                mux.select_screen(index, delta);
-                Ok(())
-            }
-            Session::Remote(remote) => remote
-                .request(json!({"cmd": "select-screen", "index": index, "delta": delta}))
-                .map(|_| ()),
-        }
-    }
-
     pub fn zoom_pane(&self, pane: Option<PaneId>, mode: ZoomMode) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
@@ -1241,56 +1246,6 @@ impl Session {
     pub fn forget_surface(&self, surface: SurfaceId) {
         if let Session::Remote(remote) = self {
             remote.drop_surface(surface);
-        }
-    }
-
-    pub fn focus_pane(&self, pane: PaneId) -> anyhow::Result<()> {
-        match self {
-            Session::Local(mux) => {
-                mux.focus_pane(pane);
-                Ok(())
-            }
-            Session::Remote(remote) => {
-                remote.request(json!({"cmd": "focus-pane", "pane": pane})).map(|_| ())
-            }
-        }
-    }
-
-    pub fn select_tab(
-        &self,
-        pane: Option<PaneId>,
-        index: Option<usize>,
-        delta: Option<isize>,
-    ) -> anyhow::Result<()> {
-        match self {
-            Session::Local(mux) => {
-                mux.select_tab(pane, index, delta);
-                Ok(())
-            }
-            Session::Remote(remote) => remote
-                .request(json!({
-                    "cmd": "select-tab",
-                    "pane": pane,
-                    "index": index,
-                    "delta": delta
-                }))
-                .map(|_| ()),
-        }
-    }
-
-    pub fn select_workspace(
-        &self,
-        index: Option<usize>,
-        delta: Option<isize>,
-    ) -> anyhow::Result<()> {
-        match self {
-            Session::Local(mux) => {
-                mux.select_workspace(index, delta);
-                Ok(())
-            }
-            Session::Remote(remote) => remote
-                .request(json!({"cmd": "select-workspace", "index": index, "delta": delta}))
-                .map(|_| ()),
         }
     }
 
