@@ -65,13 +65,14 @@ extension SocketACLReloadRegressionTests {
         )
         #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.password.rawValue)
 
-        defaults.set("vim", forKey: preferredEditorKey)
-        try "{\"app\":{\"preferredEditor\":\"code\"},\"automation\":\(section)}"
+        // Keep this socket-policy test independent of live renderer observers.
+        defaults.set("code", forKey: preferredEditorKey)
+        try "{\"app\":{\"preferredEditor\":\"vim\"},\"automation\":\(section)}"
             .write(to: configURL, atomically: true, encoding: .utf8)
         store.reload()
 
         #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.password.rawValue)
-        #expect(defaults.string(forKey: preferredEditorKey) == "code")
+        #expect(defaults.string(forKey: preferredEditorKey) == "vim")
     }
 
     @Test(arguments: [SocketControlMode.cmuxOnly, .off])
