@@ -270,6 +270,20 @@ struct ApplicationSurfaceTests {
         )
     }
 
+    @Test func captureFailureOverlayPreservesLocalizedRuntimeGuidance() {
+        let fallback = String(
+            localized: "panel.application.captureFailed.detail",
+            defaultValue: "cmux could not capture this window. Try again or choose another window."
+        )
+
+        #expect(
+            ApplicationPanelView.localizedCaptureFailureDetail(
+                "Close another application pane and try again."
+            ) == "Close another application pane and try again."
+        )
+        #expect(ApplicationPanelView.localizedCaptureFailureDetail(nil) == fallback)
+    }
+
     @Test func captureLivenessAllowsStaticContentAfterFirstFrame() {
         var state = ApplicationCaptureLivenessState(startedAt: 10)
 
