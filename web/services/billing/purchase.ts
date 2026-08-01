@@ -10,10 +10,15 @@ import {
   stripeSubscriptions,
 } from "../../db/schema";
 import {
+  type AccountDeletionUserMutationLease,
   accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
   isBlockingAccountDeletionTombstone,
 } from "../account/deletionLock";
+import {
+  type AccountMetadataUserLoader,
+  withFreshAccountMetadataUser,
+} from "../account/metadataMutation";
 import {
   PRO_PLAN_ID,
   type ProMetadataJson,
@@ -23,7 +28,11 @@ import {
 } from "./pro";
 import { stripe } from "./stripe";
 import { isAscConfigured } from "../asc/client";
-import { removeTester } from "../asc/testflight";
+import {
+  removeProTesterAccess,
+  removeTester,
+  type RemoveTesterOptions,
+} from "../asc/testflight";
 import { captureAscError } from "../errors";
 
 export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
@@ -89,7 +98,10 @@ type BillingPurchaseDependencies = {
   stripeClient?: () => StripeBillingClient;
   testflight?: {
     isAscConfigured?: () => boolean;
-    removeTester?: (email: string) => Promise<void>;
+    removeTester?: (
+      email: string,
+      options?: RemoveTesterOptions,
+    ) => Promise<void>;
     captureAscError?: (
       error: unknown,
       context?: Record<string, string | number | boolean | null | undefined>,
@@ -226,17 +238,17 @@ async function syncUserCheckoutAfterCommit(
     db,
     stackUserId: input.stackUserId,
     stackApp: input.stackApp,
-    sync: async (user, tx) => {
+    sync: async (user, mutationLease) => {
       if (input.email) {
-        await attachPurchaseEmailOrRecordClaim(tx, {
+        await attachPurchaseEmailOrRecordClaim(db, {
           user,
           email: input.email,
           stripeCustomerId: input.stripeCustomerId,
           stackUserId: input.stackUserId,
           stackApp: input.stackApp,
-        });
+        }, mutationLease);
       }
-      await syncProPlanMetadata(user, true);
+      await syncProPlanMetadata(user, true, mutationLease);
     },
   });
 }
@@ -426,13 +438,23 @@ export async function applySubscriptionUpdate(
     db,
     stackUserId: lockedResult.stackUserId,
     stackApp: dependencies.stackApp ?? stackServerApp,
-    sync: async (freshUser) => {
-      await syncProPlanMetadata(freshUser, isActive);
+    sync: async (freshUser, mutationLease) => {
+      const currentMetadata = await syncProPlanMetadata(
+        freshUser,
+        isActive,
+        mutationLease,
+      );
+      if (!isActive) {
+        await removeUserFromTestflightOnLapse(
+          freshUser,
+          lockedResult.stackUserId,
+          currentMetadata,
+          dependencies,
+          mutationLease,
+        );
+      }
     },
   });
-  if (!isActive) {
-    await removeUserFromTestflightOnLapse(lockedResult.user, lockedResult.stackUserId, dependencies);
-  }
   return { scope: "user", stackUserId: lockedResult.stackUserId, isActive };
 }
 
@@ -479,14 +501,25 @@ async function syncStackUserMetadataWithAccountDeletionGuard(input: {
   readonly db: BillingDb;
   readonly stackUserId: string;
   readonly stackApp: StackBillingApp | null | undefined;
-  readonly sync: (user: StackBillingUser, tx: BillingDbClient) => Promise<void>;
+  readonly sync: (
+    user: StackBillingUser,
+    mutationLease: AccountDeletionUserMutationLease,
+  ) => Promise<void>;
 }): Promise<boolean> {
-  return await withAccountDeletionUserLock(input.db, input.stackUserId, async (tx) => {
-    if (await hasCheckoutBlockingAccountDeletionTombstone(input.stackUserId, tx)) return false;
-    const freshUser = await loadOptionalStackUser(input.stackUserId, input.stackApp);
-    if (!freshUser || isAccountDeletionInProgress(freshUser)) return false;
-    await input.sync(freshUser, tx);
-    return true;
+  const stackApp = input.stackApp ?? stackServerApp;
+  if (!stackApp) throw new Error("Stack Auth is not configured");
+  const loader: AccountMetadataUserLoader<StackBillingUser> = {
+    getUser: (requestedUserId) => stackApp.getUser(requestedUserId),
+  };
+  return await withFreshAccountMetadataUser({
+    db: input.db,
+    userId: input.stackUserId,
+    loader,
+    operation: async (freshUser, mutationLease) => {
+      if (!freshUser || isAccountDeletionInProgress(freshUser)) return false;
+      await input.sync(freshUser, mutationLease);
+      return true;
+    },
   });
 }
 
@@ -556,15 +589,6 @@ export function isCmuxCheckoutSession(
   return Boolean(session.client_reference_id && session.metadata?.plan === "pro");
 }
 
-async function loadStackUser(
-  stackUserId: string,
-  stackApp: StackBillingApp | null | undefined,
-): Promise<StackBillingUser> {
-  const user = await loadOptionalStackUser(stackUserId, stackApp);
-  if (!user) throw new Error(`Stack user not found for Stripe purchase: ${stackUserId}`);
-  return user;
-}
-
 async function loadOptionalStackUser(
   stackUserId: string,
   stackApp: StackBillingApp | null | undefined,
@@ -594,20 +618,32 @@ async function loadStackTeam(
 async function removeUserFromTestflightOnLapse(
   user: StackBillingUser,
   stackUserId: string,
+  metadataAfterPlanLapse: ProMetadataJson,
   dependencies: BillingPurchaseDependencies,
+  mutationLease: AccountDeletionUserMutationLease,
 ): Promise<void> {
   const configured = dependencies.testflight?.isAscConfigured ?? isAscConfigured;
   if (!configured()) return;
-  if (!user.primaryEmail) return;
 
   try {
-    await (dependencies.testflight?.removeTester ?? removeTester)(user.primaryEmail);
+    await removeProTesterAccess(
+      user.primaryEmail,
+      metadataAfterPlanLapse,
+      dependencies.testflight?.removeTester ?? removeTester,
+      {
+        beforeExternalMutation: mutationLease.refresh,
+        updateMetadata: (clientReadOnlyMetadata) => user.update({
+          clientReadOnlyMetadata,
+        }),
+      },
+    );
   } catch (error) {
     (dependencies.testflight?.captureAscError ?? captureAscError)(error, {
       route: "/api/stripe/webhook",
       stackUserId,
       email: user.primaryEmail,
     });
+    throw error;
   }
 }
 
@@ -954,7 +990,7 @@ async function userStripeSubscriptionExists(
 }
 
 async function attachPurchaseEmailOrRecordClaim(
-  db: BillingDbClient,
+  db: BillingDb,
   input: {
     user: StackBillingUser;
     email: string;
@@ -962,8 +998,10 @@ async function attachPurchaseEmailOrRecordClaim(
     stackUserId: string;
     stackApp: StackBillingApp | null | undefined;
   },
+  mutationLease: AccountDeletionUserMutationLease,
 ): Promise<void> {
   if (input.user.primaryEmail) return;
+  await mutationLease.refresh();
   let ownerId: string | null = null;
   try {
     ownerId = await findUserIdByEmail(input.stackApp, input.email);
@@ -971,16 +1009,19 @@ async function attachPurchaseEmailOrRecordClaim(
     ownerId = null;
   }
   if (ownerId && ownerId !== input.stackUserId) {
+    await mutationLease.refresh();
     await recordBillingEmailClaim(db, input);
     return;
   }
   try {
+    await mutationLease.refresh();
     await input.user.update({
       primaryEmail: input.email,
       primaryEmailAuthEnabled: true,
     });
   } catch (error) {
     if (!isEmailAlreadyUsedError(error)) throw error;
+    await mutationLease.refresh();
     await recordBillingEmailClaim(db, input);
   }
 }
