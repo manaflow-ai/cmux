@@ -529,6 +529,81 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func paginatedDiscoveryRestartsAfterAStaleCursorRejection() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 129,
+                    nextCursor: "cursor-1",
+                    revision: 41
+                )
+            ),
+            .json(status: 409, body: #"{"error":"discovery_cursor_stale"}"#),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 129,
+                    nextCursor: "cursor-2",
+                    revision: 42
+                )
+            ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 129 ..< 130,
+                    nextCursor: nil,
+                    revision: 42
+                )
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let discovery = try await client.discover()
+
+        #expect(discovery.revision == 42)
+        #expect(discovery.bindings.count == 129)
+        #expect(await transport.requests().map { $0.url?.query } == [
+            "page_size=128",
+            "page_size=128&cursor=cursor-1",
+            "page_size=128",
+            "page_size=128&cursor=cursor-2",
+        ])
+    }
+
+    @Test
+    func paginatedDiscoveryBoundsRepeatedSnapshotRestarts() async throws {
+        let responses = try (0 ..< 3).flatMap { attempt in
+            let revision = 41 + attempt
+            return [
+                RecordingBrokerTransport.Response.json(
+                    status: 200,
+                    body: try Self.discoveryResponse(
+                        bindingRange: 1 ..< 129,
+                        nextCursor: "cursor-\(attempt)",
+                        revision: revision
+                    )
+                ),
+                RecordingBrokerTransport.Response.json(
+                    status: 200,
+                    body: try Self.discoveryResponse(
+                        bindingRange: 129 ..< 130,
+                        nextCursor: nil,
+                        revision: revision + 1
+                    )
+                ),
+            ]
+        }
+        let transport = RecordingBrokerTransport(responses: responses)
+        let client = try makeClient(transport: transport)
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            _ = try await client.discover()
+        }
+        #expect(await transport.requests().count == 6)
+    }
+
+    @Test
     func discoveryKeepsLegacyUnpaginatedResponseBounded() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 200, body: try Self.discoveryResponse(bindingCount: 256)),

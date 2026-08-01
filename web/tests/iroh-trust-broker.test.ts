@@ -393,6 +393,26 @@ describe("Iroh discovery and grants", () => {
     expect(legacy.next_cursor).toBeUndefined();
   });
 
+  test("returns every active binding in one complete connectivity snapshot", async () => {
+    const fixture = makeFixture();
+    for (let index = 1; index <= 300; index += 1) {
+      fixture.repository.bindings.push(binding({
+        id: `123e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        userId: USER_A,
+        deviceUuid: `223e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        appInstanceId: `323e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        endpointId: index.toString(16).padStart(64, "0"),
+      }));
+    }
+
+    const complete = await Effect.runPromise(
+      fixture.broker.discoverComplete(USER_A, NOW),
+    ) as { bindings: Array<{ binding_id: string }> };
+
+    expect(complete.bindings).toHaveLength(300);
+    expect(new Set(complete.bindings.map((record) => record.binding_id)).size).toBe(300);
+  });
+
   test("makes owned binding revocation retry-safe without rotating LAN state twice", async () => {
     const fixture = makeFixture();
     const active = binding({ userId: USER_A });
@@ -935,6 +955,19 @@ class MemoryRepository implements IrohRepositoryShape {
         nextCursor: rows.length > input.pageSize && last
           ? { generation, afterBindingId: last.id }
           : null,
+      };
+    });
+  }
+
+  discoverySnapshot(input: Parameters<IrohRepositoryShape["discoverySnapshot"]>[0]) {
+    return Effect.promise(async () => {
+      await this.beforeDiscoverySnapshot?.();
+      return {
+        bindings: this.bindings
+          .filter((row) => row.userId === input.userId && !row.revokedAt)
+          .sort((left, right) => left.id.localeCompare(right.id)),
+        lanDiscoveryGeneration: this.lanGenerations.get(input.userId) ?? 1,
+        accountRevision: this.routeRevisions.get(input.userId) ?? 0,
       };
     });
   }
