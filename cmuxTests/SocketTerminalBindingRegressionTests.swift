@@ -28,12 +28,15 @@ struct SocketTerminalBindingRegressionTests {
                 workspace.focusedPanelId.flatMap { workspace.panels[$0] as? TerminalPanel }
             )
             let marker = "socket-registry-rebound-\(UUID().uuidString)"
+            let replacementCommand =
+                "printf '\(marker)\\n'; read value; " +
+                "printf 'socket-received:%s\\n' \"$value\"; /bin/sleep 30"
             let replacement = TerminalSurface(
                 id: originalPanel.id,
                 tabId: workspace.id,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                 configTemplate: nil,
-                initialCommand: "printf '\(marker)\\n'; /bin/sleep 30"
+                initialCommand: replacementCommand
             )
             defer {
                 replacement.teardownSurface()
@@ -45,6 +48,17 @@ struct SocketTerminalBindingRegressionTests {
                 GhosttyApp.terminalSurfaceRegistry.surface(id: originalPanel.id) === replacement,
                 "The live replacement must be the canonical registry owner"
             )
+
+            let sendEnvelope = try socketEnvelope(
+                method: "surface.send_text",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": originalPanel.id.uuidString,
+                    "text": "socket-input\r",
+                ]
+            )
+            try #require(sendEnvelope["ok"] as? Bool == true, "\(sendEnvelope)")
+            try await waitForText("socket-received:socket-input", in: replacement)
 
             let readEnvelope = try await socketEnvelopeOnWorker(
                 method: "surface.read_text",
