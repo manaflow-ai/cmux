@@ -35,15 +35,22 @@ struct GhosttyScrollViewTests {
             hostedView.subviews.compactMap { $0 as? GhosttyScrollView }.first
         )
         let documentView = try #require(scrollView.documentView)
-        documentView.frame.size.height = 800
+        surfaceView.cellSize = CGSize(width: 8, height: 10)
         let rendererFrame = surfaceView.frame
 
-        scrollView.contentView.scroll(to: NSPoint(x: 0, y: 200))
         NotificationCenter.default.post(
-            name: NSView.boundsDidChangeNotification,
-            object: scrollView.contentView
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [
+                GhosttyNotificationKey.scrollbar: GhosttyScrollbar(
+                    total: 80,
+                    offset: 48,
+                    len: 12
+                )
+            ]
         )
 
+        #expect(documentView.frame.height == 800)
         #expect(scrollView.contentView.documentVisibleRect.origin.y == 200)
         #expect(
             surfaceView.frame == rendererFrame,
