@@ -222,6 +222,9 @@ const protocol = cmux.raw.protocol;
 const RawClient = cmux.raw.Client;
 ```
 
+`raw.Options.timeout_ms` bounds Unix-socket establishment and each later raw
+transport read or write. `null` disables transport deadlines.
+
 Every returned owned snapshot, list, result, mutation result, stream item,
 stream, and renderer grant documents ownership through a `deinit` method.
 Request slices are borrowed only until the call returns.

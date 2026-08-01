@@ -65,6 +65,8 @@ pub const OwnedRemoteError = struct {
 pub const Options = struct {
     socket_path: ?[]const u8 = null,
     session: []const u8 = "main",
+    /// Bounds socket establishment and each later transport read or write.
+    /// `null` disables transport deadlines.
     timeout_ms: ?u32 = 10_000,
     limits: Limits = .{},
     authority_policy: AuthorityPolicy = .local,
@@ -120,7 +122,11 @@ pub const Client = struct {
             options.session,
         );
         errdefer allocator.free(path);
-        var connection = try transport.connectUnix(allocator, path);
+        var connection = try transport.connectUnixWithTimeout(
+            allocator,
+            path,
+            options.timeout_ms,
+        );
         errdefer connection.deinit();
         var result = init(allocator, connection, options);
         result.reconnect_socket_path = path;
