@@ -1045,7 +1045,7 @@ struct MobileIrohRuntimeCompositionTests {
         // The first broker the composition builds is the activation-time one.
         let source = try #require(sources.first)
         // While the activation's session is live, the pinned pair resolves.
-        #expect(await source.credentialPair() != nil)
+        #expect(try await source.credentialPair() != nil)
 
         // Auth switches to a DIFFERENT user whose tokens are equally valid: a
         // live-session source would happily vend them.
@@ -1057,7 +1057,35 @@ struct MobileIrohRuntimeCompositionTests {
         )
 
         // The activation-pinned source fails closed instead.
-        #expect(await source.credentialPair() == nil)
+        #expect(try await source.credentialPair() == nil)
+    }
+
+    /// Regression: a TRANSIENT token miss (the refresh token survives but no
+    /// access token can be resolved right now — a re-mint in flight or
+    /// offline, or the store owned by a foreground revalidation) must
+    /// propagate as a THROW, which the broker classifies as connectivity so
+    /// activation retries and falls back to the cached verified policy.
+    /// Collapsing it to nil reported "signed out" (missingAuthentication →
+    /// authorizationFailed) and failed every app-launch activation closed
+    /// until the transient window passed.
+    @Test
+    func activationBrokerCredentialsRethrowTransientTokenMiss() async throws {
+        let sources = MobileIrohTokenSourceCapture()
+        let fixture = try await MobileIrohSignOutFixture.make(brokerFactory: { tokenSource in
+            sources.append(tokenSource)
+            return MobileIrohRevocationBroker()
+        })
+        let source = try #require(sources.first)
+        #expect(try await source.credentialPair() != nil)
+
+        // The access token becomes unreadable while the refresh token
+        // survives: the same signed-in session serves a pair again once the
+        // re-mint lands, so this window is transient, not a sign-out.
+        await fixture.authClient.setAccessTokenUnavailable()
+
+        await #expect(throws: AuthError.networkError) {
+            _ = try await source.credentialPair()
+        }
     }
 }
 
@@ -1640,7 +1668,7 @@ private actor MobileIrohCredentialFetchingBroker: CmxIrohClientBrokerServing {
     }
 
     private func fetchCredentialPair() async throws {
-        guard await tokenSource.credentialPair() != nil else {
+        guard try await tokenSource.credentialPair() != nil else {
             throw MobileIrohSignOutTestError.unavailable
         }
     }
@@ -1759,6 +1787,9 @@ private actor MobileIrohTestAuthClient: AuthClient {
     init(user: CMUXAuthUser) { self.user = user }
 
     func setUser(_ user: CMUXAuthUser) { self.user = user }
+    /// Simulates the transient half-state where the refresh token survives but
+    /// no access token can be resolved (re-mint in flight or offline).
+    func setAccessTokenUnavailable() { access = nil }
     func accessToken() -> String? { access }
     func refreshToken() -> String? { refresh }
     func forceRefreshAccessToken() -> String? { access }

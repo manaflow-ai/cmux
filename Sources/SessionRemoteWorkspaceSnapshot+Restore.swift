@@ -106,13 +106,13 @@ extension SessionRemoteWorkspaceSnapshot {
         let restoreDefaultFreestyleSSHD = defaultFreestyleVMID != nil
         let selectedSSHOptions = preservePTYSession ? optionsWithRestoreControlDefaults : fallbackSSHOptions
         let restoredSSHOptions: [String]
-        if configuredRemoteCommand == nil {
-            restoredSSHOptions = selectedSSHOptions
-        } else if remoteCommandIntent.suppressesHostConfiguration {
+        if remoteCommandIntent.suppressesHostConfiguration {
             restoredSSHOptions = Self.removingRemoteCommand(from: selectedSSHOptions)
                 + [SSHHostConfiguredRemoteCommand().overrideOption]
-        } else {
+        } else if effectiveConfiguredRemoteCommand != nil {
             restoredSSHOptions = Self.removingRemoteCommand(from: selectedSSHOptions)
+        } else {
+            restoredSSHOptions = selectedSSHOptions
         }
         let foregroundAuthToken = preservePTYSession ? UUID().uuidString.lowercased() : nil
         let foregroundAuth = foregroundAuthToken.map {
