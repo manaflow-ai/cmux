@@ -736,17 +736,16 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(groupName.waitForExistence(timeout: 8))
         groupName.press(forDuration: 1)
 
-        for actionLabel in [
-            "Pin",
-            "Customize",
-            "Rename Workspace",
-            "Mark as Read",
-            "Mark as Unread",
-            "Delete",
+        for actionIdentifier in [
+            "MobileWorkspacePinButton-workspace-seed-4",
+            "MobileWorkspaceCustomizeButton-workspace-seed-4",
+            "MobileWorkspaceRenameButton-workspace-seed-4",
+            "MobileWorkspaceReadStateMenuButton-workspace-seed-4",
+            "MobileWorkspaceDeleteMenuButton-workspace-seed-4",
         ] {
             XCTAssertFalse(
-                app.buttons[actionLabel].exists,
-                "Group context menu must not inherit anchor workspace action \(actionLabel)."
+                app.descendants(matching: .any)[actionIdentifier].exists,
+                "Group context menu must not inherit anchor workspace action \(actionIdentifier)."
             )
         }
     }
