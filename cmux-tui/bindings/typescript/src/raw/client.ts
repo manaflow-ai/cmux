@@ -96,7 +96,10 @@ export interface CmuxClientOptions {
   authorities?: readonly CmuxAuthority[];
   /** Explicitly enables provider-owned workspace mutation commands. */
   enableProviderAuthority?: boolean;
-  /** Command acknowledgement timeout. It does not limit idle event streams. */
+  /**
+   * Command acknowledgement timeout from 0 through 2147483647 milliseconds.
+   * It does not limit idle event streams.
+   */
   timeoutMs?: number;
   /** Optional default timeout for an idle stream read. The default waits indefinitely. */
   streamIdleTimeoutMs?: number;
@@ -112,7 +115,10 @@ export interface CmuxClientOptions {
 }
 
 export interface SendRawOptions {
-  /** Overrides the client command acknowledgement timeout. */
+  /**
+   * Overrides the client command acknowledgement timeout with a finite value
+   * from 0 through 2147483647 milliseconds.
+   */
   timeoutMs?: number;
   /** Cancels the request and any transport frame that has not started dispatch. */
   signal?: AbortSignal;
@@ -121,6 +127,7 @@ export interface SendRawOptions {
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
 export const DEFAULT_MAX_PENDING_RESPONSES = 256;
+const MAX_TIMEOUT_MS = 0x7fff_ffff;
 const DEFAULT_CLIENT_AUTHORITIES =
   Object.freeze(["control", "frontend"] as const satisfies readonly CmuxAuthority[]);
 
@@ -233,6 +240,7 @@ class MessageRouter {
     const key = this.idKey(request.id);
     if (this.terminalError) return Promise.reject(this.terminalError);
     if (signal?.aborted) return Promise.reject(new CmuxAbortError("operation aborted"));
+    validateTimeout(timeoutMs);
     if (this.pending.has(key)) return Promise.reject(new CmuxProtocolError(`duplicate request id ${key}`));
     if (this.pending.size >= this.maxPendingResponses) {
       return Promise.reject(new CmuxProtocolError("pending response buffer is full"));
@@ -380,6 +388,16 @@ class MessageRouter {
   private connectionError(error: unknown): Error {
     if (error instanceof CmuxError) return error;
     return new CmuxConnectionError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+function validateTimeout(timeoutMs: number): void {
+  if (
+    !Number.isFinite(timeoutMs)
+    || timeoutMs < 0
+    || timeoutMs > MAX_TIMEOUT_MS
+  ) {
+    throw new TypeError("timeoutMs must be between 0 and 2147483647");
   }
 }
 
