@@ -803,6 +803,34 @@ test("resource WebSocket reports synchronous token rejection conclusively", asyn
   client.close();
 });
 
+test("resource WebSocket keeps an ordered token rejection conclusive", async () => {
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+    authToken: "expired",
+  });
+  const client = new Client({
+    transport,
+    timeoutMs: 0,
+    randomHex128: () => "2".repeat(32),
+  });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  const renaming = client
+    .session(RESOURCE_SESSION)
+    .workspace(RESOURCE_WORKSPACE)
+    .rename("rejected");
+
+  socket.open();
+  socket.rejectAuthentication();
+  const failure = await renaming.then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+
+  assert.equal(failure?.constructor.name, "CmuxAuthenticationRejectedError");
+  assert.ok(!(failure instanceof MutationTransportUncertainError));
+  client.close();
+});
+
 test("resource WebSocket flushes queued frames before a reentrant paired callback", () => {
   let transport!: ResourceWebSocketTransport;
   transport = new ResourceWebSocketTransport("ws://localhost/cmux", {

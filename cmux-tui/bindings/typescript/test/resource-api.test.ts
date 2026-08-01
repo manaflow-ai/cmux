@@ -228,6 +228,31 @@ test("resource protocol releases cancellation handles at dispatch", async () => 
   }
 });
 
+test("raw router releases the exact cancellation handle at dispatch", async () => {
+  for (const synchronous of [true, false]) {
+    const transport = new DispatchHandleTransport(synchronous);
+    const client = new CmuxClient({ transport, timeoutMs: 1_000 });
+    const pending = client.sendRaw({
+      id: synchronous ? 1 : 2,
+      cmd: "rename-workspace",
+      workspace: 7,
+      name: "dispatch-once",
+    });
+
+    if (!synchronous) {
+      assert.equal(transport.releases, 0);
+      assert.ok(transport.retained?.includes("rename-workspace"));
+      transport.dispatch();
+    }
+    assert.equal(transport.releases, 1);
+    assert.equal(transport.retained, undefined);
+
+    await client.close();
+    await assert.rejects(() => pending, /transport closed/);
+    assert.equal(transport.releases, 1);
+  }
+});
+
 test("resource root, raw boundary, exact commands, and idempotency keys", async () => {
   const randomValues = [HEX_A, HEX_B, HEX_C];
   const transport = new FakeTransport((request, current) => {

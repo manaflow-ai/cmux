@@ -34,6 +34,7 @@ const RESOURCE_TERMINAL = terminalId(`term_${"c".repeat(32)}`);
 interface DelayedUnixFixture {
   readonly transport: UnixSocketTransport;
   readonly received: string[];
+  ready(): Promise<void>;
   release(): Promise<void>;
   close(): Promise<void>;
 }
@@ -77,6 +78,9 @@ async function delayedUnixFixture(
   return {
     transport,
     received,
+    async ready() {
+      await physicallyConnected;
+    },
     async release() {
       if (released) return;
       released = true;
@@ -215,6 +219,34 @@ test("raw Unix transport cancels a mutation aborted before connect", async () =>
     assert.deepEqual(fixture.received, []);
   } finally {
     await client.close();
+    await fixture.close();
+  }
+});
+
+test("Unix resource transport vetoes a mutation whose timer was synchronously starved", async () => {
+  const fixture = await delayedUnixFixture();
+  const client = new Client({
+    transport: fixture.transport,
+    randomHex128: () => "f".repeat(32),
+  });
+  try {
+    await fixture.ready();
+    const renaming = client
+      .session(RESOURCE_SESSION)
+      .workspace(RESOURCE_WORKSPACE)
+      .rename("expired", { timeoutMs: 5 });
+
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    await fixture.release();
+    const failure = await renaming.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    assert.ok(failure instanceof CmuxTimeoutError);
+    assert.deepEqual(fixture.received, []);
+  } finally {
+    client.close();
     await fixture.close();
   }
 });
