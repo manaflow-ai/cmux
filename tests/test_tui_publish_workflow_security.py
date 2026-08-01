@@ -161,6 +161,7 @@ def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
     assert "skip-existing: true" in bootstrap
     assert "pypi-attestations==0.0.29" in bootstrap
     assert "pypi-attestations verify pypi" in bootstrap
+    assert "--owner lawrencecchen" in bootstrap
     assert sdk_ci.count('".github/workflows/sdk-bootstrap-pypi.yml"') == 2
     assert "sdk-bootstrap-pypi.yml" in releasing
     assert "0.0.0a0" in releasing
@@ -172,6 +173,7 @@ def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
     assert "pypi-attestations==0.0.29" in registry
     assert "0.0.0a0" in registry
     assert "pypi-attestations verify pypi" in registry
+    assert "--owner lawrencecchen" in registry
 
 
 def test_all_registry_names_are_owned_before_release_tags() -> None:
@@ -201,6 +203,17 @@ def test_all_registry_names_are_owned_before_release_tags() -> None:
     assert "--owner-login lawrencecchen" in registry
     assert "npm bootstrap provenance" in releasing
     assert "431397" in releasing
+    assert "sole PyPI owner `lawrencecchen`" in releasing
+
+
+def test_npm_bootstrap_recovers_an_accepted_publish() -> None:
+    bootstrap = workflow("sdk-bootstrap-npm.yml")
+
+    assert "already exists; this one-time workflow is disabled" not in bootstrap
+    assert "steps.project.outputs.status == 'missing'" in bootstrap
+    assert "continue-on-error: true" in bootstrap
+    assert bootstrap.count("verify_npm_provenance.py") >= 2
+    assert bootstrap.count("--artifact") >= 2
 
 
 def test_python_ci_installs_its_build_backend_before_consumer_tests() -> None:

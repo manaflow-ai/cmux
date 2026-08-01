@@ -83,7 +83,10 @@ class RegistryArtifactTests(unittest.TestCase):
         def response(request: object, **_kwargs: object) -> io.BytesIO:
             if str(getattr(request, "full_url", "")).endswith("/1.0.0"):
                 raise missing
-            return self.response({"crate": {"name": "cmux-client"}})
+            return self.response({
+                "crate": {"name": "cmux-client"},
+                "versions": [{"num": "0.1.2", "yanked": False}],
+            })
 
         with mock.patch.object(reconcile, "urlopen", side_effect=response):
             self.assertEqual(
@@ -91,6 +94,23 @@ class RegistryArtifactTests(unittest.TestCase):
                     "crates", "cmux-client", "1.0.0", self.artifact
                 ),
                 reconcile.MISSING,
+            )
+
+    def test_crates_rejects_a_missing_version_behind_registry_history(self) -> None:
+        missing = HTTPError("https://registry.example", 404, "missing", None, None)
+
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            if str(getattr(request, "full_url", "")).endswith("/1.0.0"):
+                raise missing
+            return self.response({
+                "crate": {"name": "cmux-client"},
+                "versions": [{"num": "1.1.0", "yanked": False}],
+            })
+
+        with mock.patch.object(reconcile, "urlopen", side_effect=response), \
+            self.assertRaises(reconcile.ReleaseStateMismatch):
+            reconcile.registry_status(
+                "crates", "cmux-client", "1.0.0", self.artifact
             )
 
     def test_crates_rejects_a_missing_project(self) -> None:
@@ -197,6 +217,45 @@ class RegistryArtifactTests(unittest.TestCase):
         with mock.patch.object(reconcile, "urlopen", side_effect=missing), \
             self.assertRaisesRegex(reconcile.RegistryError, "project"):
             reconcile.registry_status("pypi", "cmux-sdk", "1.0.0", self.artifact)
+
+    def test_pypi_allows_a_missing_version_newer_than_registry_history(self) -> None:
+        missing = HTTPError("https://registry.example", 404, "missing", None, None)
+
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            if str(getattr(request, "full_url", "")).endswith("/1.0.0/json"):
+                raise missing
+            return self.response({
+                "info": {"name": "cmux-sdk"},
+                "releases": {
+                    "0.0.0a0": [{"yanked": False}],
+                    "0.9.0": [{"yanked": False}],
+                },
+            })
+
+        with mock.patch.object(reconcile, "urlopen", side_effect=response):
+            self.assertEqual(
+                reconcile.registry_status(
+                    "pypi", "cmux-sdk", "1.0.0", self.artifact
+                ),
+                reconcile.MISSING,
+            )
+
+    def test_pypi_rejects_a_missing_version_behind_registry_history(self) -> None:
+        missing = HTTPError("https://registry.example", 404, "missing", None, None)
+
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            if str(getattr(request, "full_url", "")).endswith("/1.0.0/json"):
+                raise missing
+            return self.response({
+                "info": {"name": "cmux-sdk"},
+                "releases": {"1.1.0": [{"yanked": False}]},
+            })
+
+        with mock.patch.object(reconcile, "urlopen", side_effect=response), \
+            self.assertRaises(reconcile.ReleaseStateMismatch):
+            reconcile.registry_status(
+                "pypi", "cmux-sdk", "1.0.0", self.artifact
+            )
 
     def test_pypi_rejects_unexpected_release_files(self) -> None:
         metadata = {

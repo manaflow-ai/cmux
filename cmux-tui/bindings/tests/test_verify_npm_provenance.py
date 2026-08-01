@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import importlib.util
 import io
 import json
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -23,6 +26,16 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
     repository_url = "git+https://github.com/manaflow-ai/cmux.git"
     repository_directory = "cmux-tui/bindings/typescript"
 
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary_directory.cleanup)
+        self.artifact = Path(self.temporary_directory.name) / "cmux-sdk.tgz"
+        self.artifact.write_bytes(b"exact bootstrap artifact")
+
+    def integrity(self) -> str:
+        digest = hashlib.sha512(self.artifact.read_bytes()).digest()
+        return "sha512-" + base64.b64encode(digest).decode("ascii")
+
     def metadata(self) -> dict[str, object]:
         return {
             "name": self.package,
@@ -39,7 +52,7 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                     },
                     "_npmUser": {"name": "cmux-owner"},
                     "dist": {
-                        "integrity": "sha512-bootstrap",
+                        "integrity": self.integrity(),
                         "attestations": {
                             "url": (
                                 "https://registry.npmjs.org/-/npm/v1/attestations/"
@@ -81,6 +94,7 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                 self.version,
                 self.repository_url,
                 self.repository_directory,
+                self.artifact,
             )
 
         self.assertEqual(run.call_count, 2)
@@ -113,6 +127,7 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                 self.version,
                 self.repository_url,
                 self.repository_directory,
+                self.artifact,
             )
         run.assert_not_called()
 
@@ -130,6 +145,7 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                 self.version,
                 self.repository_url,
                 self.repository_directory,
+                self.artifact,
             )
         run.assert_not_called()
 
@@ -153,8 +169,29 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                 self.version,
                 self.repository_url,
                 self.repository_directory,
+                self.artifact,
             )
         self.assertNotIn(secret, str(failure.exception))
+
+    def test_rejects_different_bootstrap_bytes_before_running_npm(self) -> None:
+        metadata = self.metadata()
+        metadata["versions"][self.version]["dist"]["integrity"] = (
+            "sha512-different"
+        )
+        with mock.patch.object(
+            provenance,
+            "urlopen",
+            return_value=self.response(metadata),
+        ), mock.patch.object(provenance.subprocess, "run") as run, \
+            self.assertRaisesRegex(provenance.ProvenanceError, "bytes"):
+            provenance.verify(
+                self.package,
+                self.version,
+                self.repository_url,
+                self.repository_directory,
+                self.artifact,
+            )
+        run.assert_not_called()
 
 
 if __name__ == "__main__":

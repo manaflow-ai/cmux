@@ -21,6 +21,7 @@ class VerifyPyPIProvenanceTests(unittest.TestCase):
     package = "cmux-sdk"
     version = "0.0.0a0"
     repository = "https://github.com/manaflow-ai/cmux"
+    owners = ("lawrencecchen",)
     filenames = (
         "cmux_sdk-0.0.0a0-py3-none-any.whl",
         "cmux_sdk-0.0.0a0.tar.gz",
@@ -30,6 +31,13 @@ class VerifyPyPIProvenanceTests(unittest.TestCase):
         return io.BytesIO(
             json.dumps(
                 {
+                    "ownership": {
+                        "organization": None,
+                        "roles": [
+                            {"role": "Owner", "user": owner}
+                            for owner in self.owners
+                        ],
+                    },
                     "urls": [
                         {
                             "filename": filename,
@@ -55,6 +63,7 @@ class VerifyPyPIProvenanceTests(unittest.TestCase):
                 self.version,
                 self.filenames,
                 self.repository,
+                self.owners,
             )
 
         self.assertEqual(run.call_count, 2)
@@ -80,6 +89,7 @@ class VerifyPyPIProvenanceTests(unittest.TestCase):
                 self.version,
                 self.filenames,
                 self.repository,
+                self.owners,
             )
         run.assert_not_called()
 
@@ -96,7 +106,23 @@ class VerifyPyPIProvenanceTests(unittest.TestCase):
                 self.version,
                 self.filenames,
                 self.repository,
+                self.owners,
             )
+
+    def test_rejects_an_unexpected_current_owner(self) -> None:
+        self.owners = ("lawrencecchen", "attacker")
+        with mock.patch.object(
+            provenance, "urlopen", return_value=self.response(self.filenames)
+        ), mock.patch.object(provenance.subprocess, "run") as run, \
+            self.assertRaisesRegex(provenance.ProvenanceError, "owner"):
+            provenance.verify(
+                self.package,
+                self.version,
+                self.filenames,
+                self.repository,
+                ("lawrencecchen",),
+            )
+        run.assert_not_called()
 
 
 if __name__ == "__main__":
