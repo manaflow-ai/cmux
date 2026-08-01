@@ -22,6 +22,10 @@ import {
   type UnixSocketTransportOptions,
 } from "../src/node-transport.js";
 import { CmuxClient } from "../src/raw/node-client.js";
+import {
+  CmuxAbortError as RawCmuxAbortError,
+  CmuxTimeoutError as RawCmuxTimeoutError,
+} from "../src/raw/errors.js";
 
 const RESOURCE_SESSION = sessionId(`session_${"a".repeat(32)}`);
 const RESOURCE_WORKSPACE = workspaceId(`ws_${"b".repeat(32)}`);
@@ -100,6 +104,27 @@ function unixResourceOperationCount(
   ).length;
 }
 
+function rawMutation(id: number): Record<string, unknown> {
+  return {
+    id,
+    cmd: "rename-workspace",
+    workspace: 7,
+    name: "never-sent",
+  };
+}
+
+function abortableRawSend(
+  client: CmuxClient,
+  request: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const sendRaw = client.sendRaw.bind(client) as unknown as (
+    request: Record<string, unknown>,
+    options: { readonly signal: AbortSignal },
+  ) => Promise<unknown>;
+  return sendRaw(request, { signal });
+}
+
 test("Unix resource transport drops a read that expires before connect", async () => {
   const fixture = await delayedUnixFixture();
   const client = new Client({ transport: fixture.transport, timeoutMs: 10 });
@@ -160,6 +185,36 @@ test("Unix resource transport keeps a queued mutation abort determinate", async 
     assert.deepEqual(fixture.received, []);
   } finally {
     client.close();
+    await fixture.close();
+  }
+});
+
+test("raw Unix transport cancels a mutation that times out before connect", async () => {
+  const fixture = await delayedUnixFixture();
+  const client = new CmuxClient({ transport: fixture.transport, timeoutMs: 10 });
+  try {
+    const request = client.sendRaw(rawMutation(201) as never);
+    await assert.rejects(() => request, RawCmuxTimeoutError);
+    await fixture.release();
+    assert.deepEqual(fixture.received, []);
+  } finally {
+    await client.close();
+    await fixture.close();
+  }
+});
+
+test("raw Unix transport cancels a mutation aborted before connect", async () => {
+  const fixture = await delayedUnixFixture();
+  const client = new CmuxClient({ transport: fixture.transport, timeoutMs: 1_000 });
+  const controller = new AbortController();
+  try {
+    const request = abortableRawSend(client, rawMutation(202), controller.signal);
+    controller.abort();
+    await assert.rejects(() => request, RawCmuxAbortError);
+    await fixture.release();
+    assert.deepEqual(fixture.received, []);
+  } finally {
+    await client.close();
     await fixture.close();
   }
 });

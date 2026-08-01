@@ -5,6 +5,7 @@ import {
   CmuxAbortError,
   CmuxConnectionError,
   CmuxTimeoutError,
+  MutationTransportUncertainError,
   decimalString,
   sessionId,
   terminalId,
@@ -15,6 +16,11 @@ import {
   type WebSocketConstructor,
   type WebSocketLike,
 } from "../src/raw/websocket-transport.js";
+import { CmuxClient as RawClient } from "../src/raw/client.js";
+import {
+  CmuxAbortError as RawCmuxAbortError,
+  CmuxTimeoutError as RawCmuxTimeoutError,
+} from "../src/raw/errors.js";
 import {
   WebSocketTransport as ResourceWebSocketTransport,
   type WebSocketConstructor as ResourceWebSocketConstructor,
@@ -29,6 +35,7 @@ class FakeWebSocket implements WebSocketLike {
   closeCalls = 0;
   delayCloseEvent = false;
   sendFailure: ((data: string) => Error | undefined) | undefined;
+  sendHook: ((data: string) => void) | undefined;
   private pendingCloseEvent: { code?: number; reason?: string } | undefined;
   private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
 
@@ -42,6 +49,7 @@ class FakeWebSocket implements WebSocketLike {
     const failure = this.sendFailure?.(data);
     if (failure) throw failure;
     this.sent.push(data);
+    this.sendHook?.(data);
   }
   close(code?: number, reason?: string): void {
     this.closeCalls += 1;
@@ -138,6 +146,27 @@ function resourceOperationCount(socket: FakeWebSocket, operation: string): numbe
       return false;
     }
   }).length;
+}
+
+function rawMutation(id: number): Record<string, unknown> {
+  return {
+    id,
+    cmd: "rename-workspace",
+    workspace: 7,
+    name: "never-sent",
+  };
+}
+
+function abortableRawSend(
+  client: RawClient,
+  request: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const sendRaw = client.sendRaw.bind(client) as unknown as (
+    request: Record<string, unknown>,
+    options: { readonly signal: AbortSignal },
+  ) => Promise<unknown>;
+  return sendRaw(request, { signal });
 }
 
 for (const surface of WEBSOCKET_SURFACES) {
@@ -303,6 +332,7 @@ for (const surface of WEBSOCKET_SURFACES) {
         throw new Error("rejection callback failed");
       },
     });
+    transport.onError((error) => calls.push(error.constructor.name));
     transport.onClose(() => calls.push("close-one"));
     transport.onClose(() => calls.push("close-two"));
     socket.open();
@@ -311,7 +341,12 @@ for (const surface of WEBSOCKET_SURFACES) {
       () => socket.rejectAuthentication(),
       /rejection callback failed/,
     );
-    assert.deepEqual(calls, ["rejected", "close-one", "close-two"]);
+    assert.deepEqual(calls, [
+      "CmuxAuthenticationRejectedError",
+      "rejected",
+      "close-one",
+      "close-two",
+    ]);
   });
 
   test(`${surface} WebSocket non-text failure fans out and closes`, () => {
@@ -389,6 +424,40 @@ test("WebSocketTransport sends the optional auth preamble before queued requests
     '{"id":1,"cmd":"identify"}',
   ]);
   transport.close();
+});
+
+test("raw WebSocket cancels a mutation that times out before pairing", async () => {
+  const transport = new WebSocketTransport("ws://localhost/cmux", {
+    WebSocket: Constructor,
+  });
+  const client = new RawClient({ transport, timeoutMs: 10 });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  const request = client.sendRaw(rawMutation(101) as never);
+
+  socket.open();
+  await assert.rejects(() => request, RawCmuxTimeoutError);
+  socket.message('{"paired":{"credential":"resource-secret"}}');
+
+  assert.deepEqual(socket.sent, ['{"pair":{"request":true}}']);
+  await client.close();
+});
+
+test("raw WebSocket cancels a mutation aborted before pairing", async () => {
+  const transport = new WebSocketTransport("ws://localhost/cmux", {
+    WebSocket: Constructor,
+  });
+  const client = new RawClient({ transport, timeoutMs: 1_000 });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  const controller = new AbortController();
+  const request = abortableRawSend(client, rawMutation(102), controller.signal);
+
+  socket.open();
+  controller.abort();
+  await assert.rejects(() => request, RawCmuxAbortError);
+  socket.message('{"paired":{"credential":"resource-secret"}}');
+
+  assert.deepEqual(socket.sent, ['{"pair":{"request":true}}']);
+  await client.close();
 });
 
 test("WebSocketTransport reports a rejected credential", () => {
@@ -672,6 +741,65 @@ test("resource WebSocket keeps a queued mutation abort determinate", async () =>
   socket.message('{"paired":{"credential":"resource-secret"}}');
 
   assert.deepEqual(socket.sent, ['{"pair":{"request":true}}']);
+  client.close();
+});
+
+test("resource WebSocket vetoes a mutation whose timer was synchronously starved", async () => {
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+  });
+  const client = new Client({
+    transport,
+    randomHex128: () => "f".repeat(32),
+  });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  const renaming = client
+    .session(RESOURCE_SESSION)
+    .workspace(RESOURCE_WORKSPACE)
+    .rename("expired", { timeoutMs: 5 });
+
+  socket.open();
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+  socket.message('{"paired":{"credential":"resource-secret"}}');
+  const failure = await renaming.then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+
+  assert.ok(failure instanceof CmuxTimeoutError);
+  assert.ok(!(failure instanceof MutationTransportUncertainError));
+  assert.deepEqual(socket.sent, ['{"pair":{"request":true}}']);
+  client.close();
+});
+
+test("resource WebSocket reports synchronous token rejection conclusively", async () => {
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+    authToken: "expired",
+  });
+  const client = new Client({
+    transport,
+    timeoutMs: 0,
+    randomHex128: () => "1".repeat(32),
+  });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  const renaming = client
+    .session(RESOURCE_SESSION)
+    .workspace(RESOURCE_WORKSPACE)
+    .rename("rejected");
+  socket.sendHook = (data) => {
+    if (data.includes('"auth"')) socket.rejectAuthentication();
+  };
+
+  socket.open();
+  const failure = await renaming.then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+
+  assert.equal(failure?.constructor.name, "CmuxAuthenticationRejectedError");
+  assert.ok(!(failure instanceof MutationTransportUncertainError));
+  assert.deepEqual(socket.sent, ['{"auth":{"token":"expired"}}']);
   client.close();
 });
 
