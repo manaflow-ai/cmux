@@ -1,6 +1,36 @@
+[package]
+name = "cmux-tui-source-watch"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build-support/source-watch-build.rs"
+
+[lib]
+path = "build-support/source-watch.rs"
+
+[lints]
+workspace = true
+
 [workspace]
 resolver = "2"
 members = [
+    "bindings/rust",
+    "bindings/rust-sidebar",
+    "crates/ghostty-vt-sys",
+    "crates/ghostty-vt",
+    "crates/cmux-tui-cdp",
+    "crates/cmux-tui-core",
+    "crates/cmux-pty",
+    "crates/cmux-remote-protocol",
+    "crates/cmux-remote",
+    "crates/cmux-relay",
+    "crates/cmux-tui-machine-agent-protocol",
+    "crates/cmux-tui-machine-protocol",
+    "crates/cmux-tui",
+]
+default-members = [
     "bindings/rust",
     "bindings/rust-sidebar",
     "crates/ghostty-vt-sys",

@@ -584,6 +584,7 @@ dependencies = [
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
+ "cmux-tui-source-watch",
  "diffy",
  "fs4",
  "futures-util",
@@ -719,6 +720,10 @@ dependencies = [
  "subtle",
  "zeroize",
 ]
+
+[[package]]
+name = "cmux-tui-source-watch"
+version = "0.0.0"
 
 [[package]]
 name = "cobs"

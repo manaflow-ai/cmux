@@ -32,9 +32,16 @@ impl BuildFixture {
         fs::write(root.join("cmux-tui/source.txt"), "clean\n").unwrap();
         fs::write(
             manifest_dir.join("Cargo.toml"),
-            "[package]\nname = \"cmux-build-identity-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+            "[package]\nname = \"cmux-build-identity-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[build-dependencies]\ncmux-tui-source-watch = { path = \"../..\" }\n",
         )
         .unwrap();
+        fs::write(
+            root.join("cmux-tui/Cargo.toml"),
+            "[package]\nname = \"cmux-tui-source-watch\"\nversion = \"0.0.0\"\nedition = \"2024\"\nbuild = \"source-watch-build.rs\"\n\n[lib]\npath = \"source-watch.rs\"\n\n[workspace]\nmembers = [\"crates/cmux-remote\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("cmux-tui/source-watch.rs"), "pub const ACTIVE: () = ();\n").unwrap();
+        fs::write(root.join("cmux-tui/source-watch-build.rs"), "fn main() {}\n").unwrap();
         fs::create_dir_all(manifest_dir.join("src")).unwrap();
         fs::write(
             manifest_dir.join("src/main.rs"),
@@ -73,9 +80,21 @@ impl BuildFixture {
         );
 
         let executable = root.join(format!("build-script{}", env::consts::EXE_SUFFIX));
+        let source_watch = root.join("libcmux_tui_source_watch.rlib");
+        let output = Command::new(env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+            .arg("--crate-name=cmux_tui_source_watch")
+            .arg("--crate-type=rlib")
+            .arg(root.join("cmux-tui/source-watch.rs"))
+            .arg("-o")
+            .arg(&source_watch)
+            .output()
+            .unwrap();
+        assert_success("compile source watcher", &output);
         let output = Command::new(env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
             .arg("--edition=2024")
             .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("build.rs"))
+            .arg("--extern")
+            .arg(format!("cmux_tui_source_watch={}", source_watch.display()))
             .arg("-o")
             .arg(&executable)
             .output()
@@ -126,11 +145,11 @@ impl BuildFixture {
             .to_owned()
     }
 
-    fn cargo_identity(&self) -> String {
+    fn cargo_identity_with_log(&self) -> (String, String) {
         let target = self.root.join("cargo-target");
         let output = Command::new(env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
             .arg("build")
-            .arg("--quiet")
+            .arg("--verbose")
             .arg("--manifest-path")
             .arg(self.manifest_dir.join("Cargo.toml"))
             .arg("--target-dir")
@@ -138,12 +157,17 @@ impl BuildFixture {
             .output()
             .unwrap();
         assert_success("build fixture with Cargo", &output);
+        let cargo_log = String::from_utf8(output.stderr).unwrap();
         let binary = target
             .join("debug")
             .join(format!("cmux-build-identity-fixture{}", env::consts::EXE_SUFFIX));
         let output = Command::new(binary).output().unwrap();
         assert_success("run Cargo-built fixture", &output);
-        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        (String::from_utf8(output.stdout).unwrap().trim().to_owned(), cargo_log)
+    }
+
+    fn cargo_identity(&self) -> String {
+        self.cargo_identity_with_log().0
     }
 }
 
@@ -255,6 +279,13 @@ fn incremental_cargo_detects_a_new_top_level_input_with_ignored_target_present()
     let dirty = fixture.cargo_identity();
 
     assert_ne!(dirty, clean, "Cargo reused a build identity that omitted a new source input");
+
+    let (stable, cargo_log) = fixture.cargo_identity_with_log();
+    assert_eq!(stable, dirty, "an unchanged source tree changed build identity");
+    assert!(
+        !cargo_log.contains("Compiling cmux-build-identity-fixture"),
+        "an unchanged source tree rebuilt cmux-remote:\n{cargo_log}"
+    );
 }
 
 #[cfg(unix)]

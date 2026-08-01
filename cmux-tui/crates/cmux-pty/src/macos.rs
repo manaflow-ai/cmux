@@ -1,9 +1,13 @@
 use std::cell::Cell;
 use std::ffi::{CStr, CString, OsStr, OsString};
 use std::fs::File;
+#[cfg(target_os = "linux")]
+use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -13,6 +17,26 @@ use anyhow::{Context, bail};
 use super::{Child, MasterPty, PtyCommand, PtySize};
 
 pub(crate) struct Slave(File);
+
+struct DescriptorCleanup {
+    descriptor_limit: RawFd,
+    #[cfg(target_os = "linux")]
+    proc_fd_directory: Option<File>,
+}
+
+impl DescriptorCleanup {
+    fn new(descriptor_limit: RawFd) -> Self {
+        Self {
+            descriptor_limit,
+            #[cfg(target_os = "linux")]
+            proc_fd_directory: OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
+                .open("/proc/self/fd")
+                .ok(),
+        }
+    }
+}
 
 pub(crate) fn open(size: PtySize) -> anyhow::Result<(Box<dyn MasterPty + Send>, Slave)> {
     let mut master_fd = -1;
@@ -71,6 +95,7 @@ pub(crate) fn spawn(
     if descriptor_limit < 3 {
         bail!("failed to determine the process descriptor limit");
     }
+    let descriptor_cleanup = DescriptorCleanup::new(descriptor_limit);
     unsafe {
         process.pre_exec(move || {
             for signal in [
@@ -103,7 +128,7 @@ pub(crate) fn spawn(
             {
                 return Err(io::Error::last_os_error());
             }
-            mark_inherited_descriptors_close_on_exec(descriptor_limit)?;
+            mark_inherited_descriptors_close_on_exec(&descriptor_cleanup)?;
             Ok(())
         });
     }
@@ -112,7 +137,7 @@ pub(crate) fn spawn(
     Ok(Box::new(child))
 }
 
-fn mark_inherited_descriptors_close_on_exec(descriptor_limit: RawFd) -> io::Result<()> {
+fn mark_inherited_descriptors_close_on_exec(cleanup: &DescriptorCleanup) -> io::Result<()> {
     // `Command::spawn` installs a private CLOEXEC pipe so the child can
     // report pre-exec and exec failures. Closing every descriptor here would
     // close that pipe and make a failed exec look successful. Marking the
@@ -135,30 +160,129 @@ fn mark_inherited_descriptors_close_on_exec(descriptor_limit: RawFd) -> io::Resu
             return Ok(());
         }
         let error = io::Error::last_os_error();
-        if !matches!(error.raw_os_error(), Some(libc::ENOSYS) | Some(libc::EINVAL)) {
+        if !matches!(
+            error.raw_os_error(),
+            Some(libc::ENOSYS) | Some(libc::EINVAL) | Some(libc::EPERM)
+        ) {
+            return Err(error);
+        }
+        if let Some(directory) = cleanup.proc_fd_directory.as_ref() {
+            return mark_proc_descriptors_close_on_exec(directory.as_raw_fd());
+        }
+        const MAX_BOUNDED_DESCRIPTOR_SCAN: RawFd = 65_536;
+        if cleanup.descriptor_limit > MAX_BOUNDED_DESCRIPTOR_SCAN {
             return Err(error);
         }
     }
-    mark_descriptors_close_on_exec_individually(descriptor_limit)
+    mark_descriptors_close_on_exec_individually(cleanup.descriptor_limit)
 }
 
 fn mark_descriptors_close_on_exec_individually(descriptor_limit: RawFd) -> io::Result<()> {
     for descriptor in 3..descriptor_limit {
-        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
-        if flags == -1 {
-            let error = io::Error::last_os_error();
-            if error.raw_os_error() == Some(libc::EBADF) {
-                continue;
-            }
-            return Err(error);
-        }
-        if flags & libc::FD_CLOEXEC == 0
-            && unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags | libc::FD_CLOEXEC) } == -1
-        {
-            return Err(io::Error::last_os_error());
+        match mark_descriptor_close_on_exec(descriptor) {
+            Err(error) if error.raw_os_error() == Some(libc::EBADF) => {}
+            result => result?,
         }
     }
     Ok(())
+}
+
+fn mark_descriptor_close_on_exec(descriptor: RawFd) -> io::Result<()> {
+    let flags = loop {
+        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+        if flags != -1 {
+            break flags;
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EINTR) {
+            return Err(error);
+        }
+    };
+    if flags & libc::FD_CLOEXEC != 0 {
+        return Ok(());
+    }
+    loop {
+        if unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags | libc::FD_CLOEXEC) } != -1 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EINTR) {
+            return Err(error);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn mark_proc_descriptors_close_on_exec(directory_fd: RawFd) -> io::Result<()> {
+    loop {
+        if unsafe { libc::lseek(directory_fd, 0, libc::SEEK_SET) } != -1 {
+            break;
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EINTR) {
+            return Err(error);
+        }
+    }
+
+    const DIRENT_NAME_OFFSET: usize = 19;
+    let mut entries = [0_u8; 4096];
+    loop {
+        let count = loop {
+            let count = unsafe {
+                libc::syscall(
+                    libc::SYS_getdents64,
+                    directory_fd,
+                    entries.as_mut_ptr(),
+                    entries.len(),
+                )
+            };
+            if count >= 0 {
+                break count as usize;
+            }
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::EINTR) {
+                return Err(error);
+            }
+        };
+        if count == 0 {
+            return Ok(());
+        }
+
+        let mut offset = 0;
+        while offset < count {
+            let remaining = &entries[offset..count];
+            if remaining.len() <= DIRENT_NAME_OFFSET {
+                return Err(io::Error::from_raw_os_error(libc::EIO));
+            }
+            let record_length = u16::from_ne_bytes([remaining[16], remaining[17]]) as usize;
+            if record_length <= DIRENT_NAME_OFFSET || record_length > remaining.len() {
+                return Err(io::Error::from_raw_os_error(libc::EIO));
+            }
+            let name = &remaining[DIRENT_NAME_OFFSET..record_length];
+            let name = &name[..name.iter().position(|byte| *byte == 0).unwrap_or(name.len())];
+            if let Some(descriptor) = parse_decimal_descriptor(name)
+                && descriptor >= 3
+            {
+                match mark_descriptor_close_on_exec(descriptor) {
+                    Err(error) if error.raw_os_error() == Some(libc::EBADF) => {}
+                    result => result?,
+                }
+            }
+            offset += record_length;
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn parse_decimal_descriptor(name: &[u8]) -> Option<RawFd> {
+    if name.is_empty() {
+        return None;
+    }
+    name.iter().try_fold(0_i32, |value, byte| {
+        byte.is_ascii_digit()
+            .then(|| value.checked_mul(10)?.checked_add(i32::from(*byte - b'0')))
+            .flatten()
+    })
 }
 
 struct MacOsMasterPty {

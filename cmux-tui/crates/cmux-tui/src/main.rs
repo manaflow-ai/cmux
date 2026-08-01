@@ -610,10 +610,10 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 out.remote = true;
             }
             "--relay-ticket" => {
-                return Err(
-                    "inline relay tickets are not accepted; use --relay-ticket-file or --relay-ticket-command"
-                        .to_string(),
-                );
+                return Err(localization::catalog()
+                    .remote_client
+                    .inline_relay_ticket_rejected
+                    .to_string());
             }
             "--relay-ticket-file" => {
                 out.relay_credentials.push(RelayCredentialArg::File(

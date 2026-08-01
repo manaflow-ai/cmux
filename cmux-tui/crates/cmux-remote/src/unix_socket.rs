@@ -249,34 +249,6 @@ impl Drop for TestFileDescriptorExhaustion {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn accept_retry_backoff_is_bounded_and_resets_after_success() {
-        let error = io::Error::from_raw_os_error(libc::EMFILE);
-        let mut backoff = UnixAcceptBackoff::new();
-        let delays = (0..8)
-            .map(|_| backoff.retry_delay(&error).expect("EMFILE must be retryable"))
-            .collect::<Vec<_>>();
-
-        assert_eq!(delays[0], ACCEPT_RETRY_INITIAL_DELAY);
-        assert_eq!(delays[5], ACCEPT_RETRY_MAX_DELAY);
-        assert!(delays.iter().all(|delay| *delay <= ACCEPT_RETRY_MAX_DELAY));
-        backoff.reset();
-        assert_eq!(backoff.retry_delay(&error), Some(ACCEPT_RETRY_INITIAL_DELAY));
-    }
-
-    #[test]
-    fn accept_retry_backoff_rejects_fatal_listener_errors() {
-        let mut backoff = UnixAcceptBackoff::new();
-        let fatal = io::Error::from_raw_os_error(libc::EBADF);
-
-        assert_eq!(backoff.retry_delay(&fatal), None);
-    }
-}
-
 pub(crate) fn validate_socket_directory_for_uid(
     parent: &Path,
     effective_uid: u32,
@@ -369,4 +341,32 @@ fn remove_socket_if_unchanged(path: &Path, expected: &fs::Metadata) -> Result<()
 
 fn contextual_io(error: io::Error, context: String) -> UnixSocketError {
     UnixSocketError::Io(io::Error::new(error.kind(), format!("{context}: {error}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accept_retry_backoff_is_bounded_and_resets_after_success() {
+        let error = io::Error::from_raw_os_error(libc::EMFILE);
+        let mut backoff = UnixAcceptBackoff::new();
+        let delays = (0..8)
+            .map(|_| backoff.retry_delay(&error).expect("EMFILE must be retryable"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(delays[0], ACCEPT_RETRY_INITIAL_DELAY);
+        assert_eq!(delays[5], ACCEPT_RETRY_MAX_DELAY);
+        assert!(delays.iter().all(|delay| *delay <= ACCEPT_RETRY_MAX_DELAY));
+        backoff.reset();
+        assert_eq!(backoff.retry_delay(&error), Some(ACCEPT_RETRY_INITIAL_DELAY));
+    }
+
+    #[test]
+    fn accept_retry_backoff_rejects_fatal_listener_errors() {
+        let mut backoff = UnixAcceptBackoff::new();
+        let fatal = io::Error::from_raw_os_error(libc::EBADF);
+
+        assert_eq!(backoff.retry_delay(&fatal), None);
+    }
 }
