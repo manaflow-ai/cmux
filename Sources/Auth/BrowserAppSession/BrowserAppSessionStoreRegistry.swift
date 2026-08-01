@@ -12,7 +12,10 @@ final class BrowserAppSessionStoreRegistry {
         ObjectIdentifier: BrowserAppSessionWeakReference<WKWebsiteDataStore>
     ] = [:]
     private var livePanels: [
-        ObjectIdentifier: BrowserAppSessionPanelOwnership
+        ObjectIdentifier: (
+            panel: BrowserAppSessionWeakReference<BrowserPanel>,
+            storeID: ObjectIdentifier
+        )
     ] = [:]
 
     init(
@@ -50,8 +53,8 @@ final class BrowserAppSessionStoreRegistry {
         guard liveStores[storeID]?.value != nil else {
             return
         }
-        livePanels[ObjectIdentifier(panel)] = BrowserAppSessionPanelOwnership(
-            panel: panel,
+        livePanels[ObjectIdentifier(panel)] = (
+            panel: BrowserAppSessionWeakReference(panel),
             storeID: storeID
         )
     }
@@ -117,15 +120,5 @@ final class BrowserAppSessionStoreRegistry {
         defaults.dictionaryRepresentation().keys.filter {
             $0 != currentKey && $0.hasPrefix(prefix) && $0.count > prefix.count
         }
-    }
-}
-
-private struct BrowserAppSessionPanelOwnership {
-    let panel: BrowserAppSessionWeakReference<BrowserPanel>
-    let storeID: ObjectIdentifier
-
-    init(panel: BrowserPanel, storeID: ObjectIdentifier) {
-        self.panel = BrowserAppSessionWeakReference(panel)
-        self.storeID = storeID
     }
 }
