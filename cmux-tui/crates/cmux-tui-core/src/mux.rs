@@ -9002,6 +9002,7 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
+        let _creation = self.begin_surface_creation()?;
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = self
             .ordinary_workspace_selectors(workspace)
