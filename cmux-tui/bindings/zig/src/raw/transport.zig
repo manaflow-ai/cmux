@@ -109,6 +109,26 @@ const Deadline = struct {
     }
 };
 
+const PollOnceError = std.posix.PollError || error{SignalInterrupt};
+
+fn pollOnce(fds: []std.posix.pollfd, timeout: i32) PollOnceError!usize {
+    if (builtin.os.tag == .windows) {
+        return std.posix.poll(fds, timeout);
+    } else {
+        const fds_count = std.math.cast(std.posix.nfds_t, fds.len) orelse
+            return error.SystemResources;
+        const result = std.posix.system.poll(fds.ptr, fds_count, timeout);
+        return switch (std.posix.errno(result)) {
+            .SUCCESS => @intCast(result),
+            .FAULT => unreachable,
+            .INTR => error.SignalInterrupt,
+            .INVAL => unreachable,
+            .NOMEM => error.SystemResources,
+            else => |failure| std.posix.unexpectedErrno(failure),
+        };
+    }
+}
+
 const UnixWaitTestHook = struct {
     entered_poll: std.Thread.ResetEvent = .{},
     returned_from_poll: std.Thread.ResetEvent = .{},
@@ -181,7 +201,7 @@ const UnixConnection = struct {
         if (builtin.is_test) {
             if (self.test_wait_hook) |hook| hook.entered_poll.set();
         }
-        const ready = try std.posix.poll(&poll_fds, timeout);
+        const ready = try pollOnce(&poll_fds, timeout);
         if (builtin.is_test) {
             if (self.test_wait_hook) |hook| {
                 hook.returned_from_poll.set();
@@ -287,7 +307,10 @@ fn readWithTimeout(
 ) !usize {
     var deadline = try Deadline.start(timeout_ms);
     while (true) {
-        try state.waitReadable(try deadline.remainingMs());
+        state.waitReadable(try deadline.remainingMs()) catch |failure| {
+            if (failure == error.SignalInterrupt) continue;
+            return failure;
+        };
         return state.readSome(buffer) catch |failure| {
             if (failure == error.WouldBlock) continue;
             return failure;
@@ -303,7 +326,10 @@ fn writeAllWithTimeout(
     var deadline = try Deadline.start(timeout_ms);
     var remaining = bytes;
     while (remaining.len > 0) {
-        try state.waitWritable(try deadline.remainingMs());
+        state.waitWritable(try deadline.remainingMs()) catch |failure| {
+            if (failure == error.SignalInterrupt) continue;
+            return failure;
+        };
         const written = state.writeSome(remaining) catch |failure| {
             if (failure == error.WouldBlock) continue;
             return failure;
@@ -381,7 +407,10 @@ fn connectUnixStream(
         if (builtin.is_test) {
             if (unix_connect_test_hook) |hook| hook.entered_poll.set();
         }
-        const ready = try std.posix.poll(&poll_fds, poll_timeout);
+        const ready = pollOnce(&poll_fds, poll_timeout) catch |failure| {
+            if (failure == error.SignalInterrupt) continue;
+            return failure;
+        };
         if (builtin.is_test) {
             if (unix_connect_test_hook) |hook| {
                 hook.returned_from_poll.set();
