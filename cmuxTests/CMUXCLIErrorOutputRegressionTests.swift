@@ -710,37 +710,18 @@ import Testing
         #expect(restoreParams["surface_id"] as? String != staleTTYSurfaceID)
     }
 
-    @Test func testRestoreRetriesUntilFreshTTYRegistrationIsVisible() throws {
+    @Test func testRelayRestoreFailsClosedOnFirstMissingTTYTarget() throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = "pi-\(UUID().uuidString.lowercased())"
         let workspaceID = UUID().uuidString
-        let surfaceID = UUID().uuidString
         let notFoundResponse = try jsonErrorResponse(
             code: "not_found",
             message: "No live delivery target"
         )
-        let liveTargetResponse = try restoreResponse(
-            result: [:],
-            workspaceID: workspaceID,
-            surfaceID: surfaceID
-        )
-        let recordResponse = try restoreResponse(result: [
-            "restore_record": [
-                "mode": "direct",
-                "kind": "pi",
-                "checkpoint_id": checkpointID,
-                "environment": [:],
-                "launch_command": [
-                    "arguments": ["/usr/bin/true"],
-                    "executable_path": "/usr/bin/true",
-                ],
-                "prepared_arguments": ["/usr/bin/true"],
-            ],
-        ])
-        let socketPath = "/tmp/cmux-restore-registration-\(UUID().uuidString.prefix(8)).sock"
-        let responder = try UnixSocketResponder(
-            path: socketPath,
-            responses: [notFoundResponse, liveTargetResponse, recordResponse]
+        let relayID = "relay-\(UUID().uuidString.lowercased())"
+        let responder = try RelaySocketResponder(
+            relayID: relayID,
+            responses: [notFoundResponse]
         )
         defer { responder.stop() }
         var environment = ProcessInfo.processInfo.environment
@@ -748,7 +729,11 @@ import Testing
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SOCKET_PATH"] = responder.endpoint
+        environment["CMUX_RELAY_ID"] = relayID
+        environment["CMUX_RELAY_TOKEN"] = String(repeating: "11", count: 32)
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_CLI_TTY_NAME"] = "0"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -758,23 +743,24 @@ import Testing
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
-        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
+        #expect(
+            result.stdout.contains("the current cmux surface could not be identified"),
+            Comment(rawValue: result.stdout)
+        )
         let requests = try responder.receivedRequests.map { request in
             let data = try #require(request.data(using: .utf8))
             return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         }
-        #expect(requests.compactMap { $0["method"] as? String } == [
-            "agent.resolve_delivery_target",
-            "agent.resolve_delivery_target",
-            "surface.resume.get",
-        ])
-        for request in requests.prefix(2) {
-            let params = try #require(request["params"] as? [String: Any])
-            #expect((params["pid"] as? Int).map { $0 > 0 } == true)
-            #expect(params["pid_resolution"] as? String == "controlling_tty")
-        }
-        let restoreParams = try #require(requests.last?["params"] as? [String: Any])
-        #expect(restoreParams["surface_id"] as? String == surfaceID)
+        #expect(
+            requests.compactMap { $0["method"] as? String } == [
+                "agent.resolve_delivery_target"
+            ]
+        )
+        let params = try #require(requests.first?["params"] as? [String: Any])
+        #expect(params["tty_name"] as? String == "0")
+        #expect(params["tty_resolution"] as? String == "reported_tty")
+        #expect(params["workspace_id"] as? String == workspaceID)
     }
 
     @Test func testRestoreFailsClosedWhenLiveProcessTargetIsNotFound() throws {
@@ -817,9 +803,11 @@ import Testing
             let data = try #require(request.data(using: .utf8))
             return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         }
-        let methods = requests.compactMap { $0["method"] as? String }
-        #expect(methods.count > 1)
-        #expect(methods.allSatisfy { $0 == "agent.resolve_delivery_target" })
+        #expect(
+            requests.compactMap { $0["method"] as? String } == [
+                "agent.resolve_delivery_target"
+            ]
+        )
     }
 
     @Test func testRestoreUsesUniqueTTYBindingWhenLiveTargetMethodIsUnsupported() throws {

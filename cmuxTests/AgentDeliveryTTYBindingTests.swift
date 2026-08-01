@@ -173,6 +173,85 @@ extension AgentNotificationRegressionTests {
         )
     }
 
+    @Test("A workspace reconnect invalidates the previous attempt's TTY report")
+    func workspaceReconnectInvalidatesReportedTTY() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let terminal = try #require(workspace.panels[panelID] as? TerminalPanel)
+        workspace.remoteConfiguration = deliveryTargetRemoteConfiguration()
+        workspace.trackRemoteTerminalSurface(panelID)
+        #expect(
+            workspace.markRemoteTerminalSessionLaunching(
+                surfaceId: panelID,
+                terminalLifecycleID: terminal.surface.terminalLifecycleId,
+                attemptID: UUID()
+            )
+        )
+        workspace.registerReportedSurfaceTTYName("pts/0", panelId: panelID)
+        #expect(workspace.agentDeliveryTarget(forReportedTTYName: "pts/0") != nil)
+
+        #expect(
+            workspace.markRemoteTerminalSessionLaunching(
+                surfaceId: panelID,
+                terminalLifecycleID: terminal.surface.terminalLifecycleId,
+                attemptID: UUID()
+            )
+        )
+
+        #expect(
+            workspace.agentDeliveryTarget(forReportedTTYName: "pts/0") == nil,
+            "A new attach attempt must wait for its own report_tty before becoming routable"
+        )
+    }
+
+    @Test("A Dock reconnect invalidates the previous attempt's TTY report")
+    func dockReconnectInvalidatesReportedTTY() throws {
+        let fixture = try makeFixture()
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer {
+            dock.closeAllPanels()
+            fixture.restore()
+        }
+        let terminal = try #require(fixture.source.panels[fixture.panelId] as? TerminalPanel)
+        fixture.source.remoteConfiguration = deliveryTargetRemoteConfiguration()
+        fixture.source.trackRemoteTerminalSurface(fixture.panelId)
+        fixture.source.registerReportedSurfaceTTYName("pts/0", panelId: fixture.panelId)
+        try moveRemoteSurface(fixture, into: dock)
+        #expect(
+            dock.markRemoteTerminalSessionLaunching(
+                panelId: fixture.panelId,
+                terminalLifecycleID: terminal.surface.terminalLifecycleId,
+                attemptID: UUID()
+            )
+        )
+        #expect(
+            TerminalController.shared.controlSurfaceReportTTY(
+                workspaceID: fixture.source.id,
+                requestedSurfaceID: fixture.panelId,
+                ttyName: "pts/0"
+            ) == .recorded(surfaceID: fixture.panelId)
+        )
+        assertRelayTTYTarget(
+            authenticatedWorkspaceID: fixture.source.id,
+            ttyName: "pts/0",
+            expectedWorkspaceID: dock.workspaceId,
+            expectedSurfaceID: fixture.panelId
+        )
+
+        #expect(
+            dock.markRemoteTerminalSessionLaunching(
+                panelId: fixture.panelId,
+                terminalLifecycleID: terminal.surface.terminalLifecycleId,
+                attemptID: UUID()
+            )
+        )
+
+        assertNoRelayTTYTarget(
+            authenticatedWorkspaceID: fixture.source.id,
+            ttyName: "pts/0"
+        )
+    }
+
     private func moveRemoteSurface(_ fixture: Fixture, into dock: DockSplitStore) throws {
         let transfer = try #require(fixture.source.detachSurface(panelId: fixture.panelId))
         let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
