@@ -174,6 +174,44 @@ def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
     assert "pypi-attestations verify pypi" in registry
 
 
+def test_all_registry_names_are_owned_before_release_tags() -> None:
+    release = workflow("sdk-release-cut.yml")
+    registry = workflow_job(release, "registry-preflight")
+    releasing = (
+        ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
+    ).read_text()
+
+    cut_tags = release.index("  cut-tags:")
+    npm_ownership = release.index("Verify the npm ownership bootstrap")
+    crates_ownership = release.index("Verify crates.io ownership")
+    assert npm_ownership < cut_tags
+    assert crates_ownership < cut_tags
+    assert "verify_npm_provenance.py" in registry
+    assert "0.0.0-bootstrap.0" in registry
+    assert "git+https://github.com/manaflow-ai/cmux.git" in registry
+    assert "cmux-tui/bindings/typescript" in registry
+    assert "npm@11.5.1" in registry
+    assert "npm audit signatures" in (
+        ROOT / "cmux-tui" / "bindings" / "verify_npm_provenance.py"
+    ).read_text()
+    assert "verify_crates_ownership.py" in registry
+    assert "--package cmux-client" in registry
+    assert "--package cmux-sidebar" in registry
+    assert "--owner-id 431397" in registry
+    assert "--owner-login lawrencecchen" in registry
+    assert "npm bootstrap provenance" in releasing
+    assert "431397" in releasing
+
+
+def test_python_ci_installs_its_build_backend_before_consumer_tests() -> None:
+    packages = workflow_job(workflow("cmux-tui-sdks.yml"), "packages")
+    install = packages.index('"setuptools==80.9.0"')
+    tests = packages.index(
+        "python3 -m unittest discover -s cmux-tui/bindings/python/tests -v"
+    )
+    assert install < tests
+
+
 def test_python_sdk_publisher_cannot_publish_the_cli_package() -> None:
     preflight = workflow("sdk-publish-python.yml")
     release = workflow("sdk-release-cut.yml")
