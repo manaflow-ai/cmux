@@ -684,7 +684,11 @@ final class AutomationSocketUITests: XCTestCase {
             "params": params,
         ]
         return ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendJSON(request) ??
-            controlSocketJSONViaNetcat(request, socketPath: socketPath)
+            controlSocketJSONViaNetcat(
+                request,
+                socketPath: socketPath,
+                responseTimeout: responseTimeout
+            )
     }
 
     private func socketResult(

@@ -124,7 +124,7 @@ import Testing
         )
     }
 
-    @Test func completedAppKitCaptureRemainsFallbackForEveryCompositorFailure() {
+    @Test func completedAppKitCaptureRemainsFallbackForUnavailableOrTimedOutCompositor() {
         let fallback = Data([0x89, 0x50, 0x4E, 0x47])
 
         #expect(
@@ -137,7 +137,7 @@ import Testing
             windowScreenshotCaptureAction(
                 for: .busy,
                 appKitFallback: fallback
-            ) == .useCaptured(fallback)
+            ) == .fail("screenshot capture already in progress")
         )
         #expect(
             windowScreenshotCaptureAction(

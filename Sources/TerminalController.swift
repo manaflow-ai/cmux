@@ -81,9 +81,6 @@ func windowScreenshotCaptureAction(
         }
         return .captureWithAppKit
     case .busy:
-        if let appKitFallback {
-            return .useCaptured(appKitFallback)
-        }
         return .fail("screenshot capture already in progress")
     case .timedOut:
         if let appKitFallback {
@@ -13190,26 +13187,26 @@ class TerminalController {
             return "ERROR: No window available"
         }
 
-        guard let appKitCapture = captureAppKitWindowPNGData(captureTarget) else {
-            return "ERROR: Failed to create PNG data"
-        }
-
         // AppKit does not include every layer-backed child in cacheDisplay.
         // The permission-free capture above fills those gaps from cmux's own
         // Ghostty IOSurfaces and WKWebView snapshots. Only ask the system
         // compositor when one of those own-process snapshots was unavailable,
         // and retain the AppKit result as the no-permission fallback.
+        let appKitCapture = captureAppKitWindowPNGData(captureTarget)
         let pngData: Data
-        if appKitCapture.capturedAllExternalContent {
+        if let appKitCapture, appKitCapture.capturedAllExternalContent {
             pngData = appKitCapture.pngData
         } else {
             switch windowScreenshotCaptureAction(
                 for: captureScreenCaptureKitWindowPNGData(captureTarget),
-                appKitFallback: appKitCapture.pngData
+                appKitFallback: appKitCapture?.pngData
             ) {
             case .useCaptured(let data):
                 pngData = data
             case .captureWithAppKit:
+                guard let appKitCapture else {
+                    return "ERROR: Failed to create PNG data"
+                }
                 pngData = appKitCapture.pngData
             case .fail(let message):
                 return "ERROR: \(message)"
@@ -13365,7 +13362,13 @@ class TerminalController {
         contentView.cacheDisplay(in: bounds, to: bitmap)
         guard !Task.isCancelled else { return nil }
 
-        var overlays: [(image: CGImage, rect: NSRect, alpha: CGFloat)] = []
+        var overlays: [(
+            image: CGImage,
+            rect: NSRect,
+            alpha: CGFloat,
+            zOrder: [Int]
+        )] = []
+        var capturedOccludingViews = Set<ObjectIdentifier>()
         var capturedAllExternalContent = true
 
         for terminalView in visibleDescendants(of: contentView, as: GhosttySurfaceScrollView.self) {
@@ -13384,7 +13387,20 @@ class TerminalController {
             }
             let alpha = effectiveAlpha(of: terminalView.surfaceView, through: contentView)
             guard alpha > 0 else { continue }
-            overlays.append((image, rect, alpha))
+            guard let zOrder = hierarchyZOrder(of: terminalView.surfaceView, through: contentView) else {
+                capturedAllExternalContent = false
+                continue
+            }
+            overlays.append((image, rect, alpha, zOrder))
+            if !appendNativeOccluderOverlays(
+                above: terminalView.surfaceView,
+                through: contentView,
+                overlapping: rect,
+                capturedViews: &capturedOccludingViews,
+                to: &overlays
+            ) {
+                capturedAllExternalContent = false
+            }
         }
 
         for webView in visibleDescendants(of: contentView, as: WKWebView.self) {
@@ -13417,7 +13433,20 @@ class TerminalController {
                 }
                 let alpha = effectiveAlpha(of: webView, through: contentView)
                 guard alpha > 0 else { continue }
-                overlays.append((cgImage, rect, alpha))
+                guard let zOrder = hierarchyZOrder(of: webView, through: contentView) else {
+                    capturedAllExternalContent = false
+                    continue
+                }
+                overlays.append((cgImage, rect, alpha, zOrder))
+                if !appendNativeOccluderOverlays(
+                    above: webView,
+                    through: contentView,
+                    overlapping: rect,
+                    capturedViews: &capturedOccludingViews,
+                    to: &overlays
+                ) {
+                    capturedAllExternalContent = false
+                }
             } catch is CancellationError {
                 return nil
             } catch {
@@ -13440,7 +13469,7 @@ class TerminalController {
                 height: bounds.height
             )
         )
-        for overlay in overlays {
+        for overlay in overlays.sorted(by: { hierarchyZOrderPrecedes($0.zOrder, $1.zOrder) }) {
             guard overlay.rect.intersects(bounds) else { continue }
             context.saveGState()
             context.setAlpha(overlay.alpha)
@@ -13492,6 +13521,91 @@ class TerminalController {
             pending.append(contentsOf: view.subviews)
         }
         return matches
+    }
+
+    private func appendNativeOccluderOverlays(
+        above externalView: NSView,
+        through root: NSView,
+        overlapping externalRect: NSRect,
+        capturedViews: inout Set<ObjectIdentifier>,
+        to overlays: inout [(
+            image: CGImage,
+            rect: NSRect,
+            alpha: CGFloat,
+            zOrder: [Int]
+        )]
+    ) -> Bool {
+        var capturedEveryOccluder = true
+        var current = externalView
+
+        while current !== root {
+            guard let parent = current.superview,
+                  let index = parent.subviews.firstIndex(where: { $0 === current }) else {
+                return false
+            }
+
+            for sibling in parent.subviews.dropFirst(index + 1) {
+                guard !sibling.isHiddenOrHasHiddenAncestor,
+                      sibling.alphaValue > 0,
+                      !viewHierarchyContainsExternalContent(sibling) else {
+                    continue
+                }
+                let rect = sibling.convert(sibling.bounds, to: root)
+                guard !rect.isEmpty, rect.intersects(externalRect) else { continue }
+
+                let identifier = ObjectIdentifier(sibling)
+                guard capturedViews.insert(identifier).inserted else { continue }
+                guard let bitmap = sibling.bitmapImageRepForCachingDisplay(in: sibling.bounds) else {
+                    capturedEveryOccluder = false
+                    continue
+                }
+                bitmap.size = sibling.bounds.size
+                sibling.displayIfNeeded()
+                sibling.cacheDisplay(in: sibling.bounds, to: bitmap)
+                guard let image = bitmap.cgImage else {
+                    capturedEveryOccluder = false
+                    continue
+                }
+                let alpha = effectiveAlpha(of: sibling, through: root)
+                guard alpha > 0 else { continue }
+                guard let zOrder = hierarchyZOrder(of: sibling, through: root) else {
+                    capturedEveryOccluder = false
+                    continue
+                }
+                overlays.append((image, rect, alpha, zOrder))
+            }
+            current = parent
+        }
+
+        return capturedEveryOccluder
+    }
+
+    private func viewHierarchyContainsExternalContent(_ view: NSView) -> Bool {
+        if view is GhosttyNSView || view is WKWebView {
+            return true
+        }
+        return view.subviews.contains(where: viewHierarchyContainsExternalContent)
+    }
+
+    private func hierarchyZOrder(of view: NSView, through root: NSView) -> [Int]? {
+        var reversedPath: [Int] = []
+        var current = view
+        while current !== root {
+            guard let parent = current.superview,
+                  let index = parent.subviews.firstIndex(where: { $0 === current }) else {
+                return nil
+            }
+            reversedPath.append(index)
+            current = parent
+        }
+        return Array(reversedPath.reversed())
+    }
+
+    private func hierarchyZOrderPrecedes(_ lhs: [Int], _ rhs: [Int]) -> Bool {
+        for (left, right) in zip(lhs, rhs) where left != right {
+            return left < right
+        }
+        return lhs.count < rhs.count
     }
 
     private func effectiveAlpha(of view: NSView, through root: NSView) -> CGFloat {
