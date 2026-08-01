@@ -7328,6 +7328,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         suppressWelcome: Bool = false
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
+        // Restored terminals can execute their short `cmux restore` input as
+        // soon as their PTY comes up. Bind the transport before constructing
+        // those surfaces; main-actor command routing naturally waits until the
+        // restore pass has registered their windows and bindings.
+        reconcileSocketListenerConfiguration(source: "bootstrapInitialMainWindow.preRestore")
         let windowId = ensureInitialMainWindowIfNeeded(
             shouldActivate: shouldActivate,
             suppressWelcome: suppressWelcome
