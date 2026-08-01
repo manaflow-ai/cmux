@@ -8,7 +8,7 @@ use tokio::net::UnixStream;
 use crate::admin::verify_unix_peer_owner;
 #[cfg(test)]
 use crate::admin::verify_unix_peer_uid;
-use crate::link::FrameLink;
+use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LengthDelimitedLink, LinkGroup, LinkRequest,
@@ -109,7 +109,7 @@ impl LinkGroup for UnixLinkGroup {
         }
         let stream = UnixStream::connect(&self.path)
             .await
-            .map_err(|error| ProviderError::Transport(error.to_string()))?;
+            .map_err(|error| ProviderError::Link(LinkError::Transport(error.to_string())))?;
         #[cfg(test)]
         let peer_validation = match self.expected_uid {
             Some(expected_uid) => verify_unix_peer_uid(&stream, expected_uid),
@@ -216,5 +216,6 @@ mod tests {
             matches!(error, ProviderError::Transport(ref message) if message.contains("peer uid")),
             "unexpected error: {error}"
         );
+        assert!(!error.is_retryable_carrier_failure(), "wrong-owner rejection became retryable");
     }
 }
