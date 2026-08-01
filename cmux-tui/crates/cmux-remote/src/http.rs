@@ -321,12 +321,14 @@ async fn apply_patch(
 mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+    use std::time::Duration;
 
     use axum::body::Body;
     use axum::body::to_bytes;
     use axum::http::Request as HttpRequest;
     use cmux_remote_protocol::{RequestId, WorkspaceRequest};
     use tempfile::tempdir;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tower::ServiceExt;
 
     use super::*;
@@ -424,5 +426,64 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[tokio::test]
+    async fn partial_headers_expire_and_raw_connection_admission_is_bounded() {
+        let directory = tempdir().unwrap();
+        let server = serve_workspace_http(
+            WorkspaceService::new(),
+            "127.0.0.1:0".parse().unwrap(),
+            directory.path().join("token"),
+        )
+        .await
+        .unwrap();
+        let address = server.local_addr();
+
+        let mut slow_connections = Vec::new();
+        for _ in 0..64 {
+            let mut connection = tokio::net::TcpStream::connect(address).await.unwrap();
+            connection.write_all(b"POST /v1/workspace-rpc HTTP/1.1\r\nHost:").await.unwrap();
+            slow_connections.push(connection);
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let rpc = RpcRequest {
+            id: RequestId::from_u128(2),
+            timeout_ms: None,
+            request: WorkspaceRequest::Capabilities,
+        };
+        let body = serde_json::to_vec(&rpc).unwrap();
+        let token = read_workspace_http_token(server.token_file()).unwrap();
+        let request = format!(
+            "POST /v1/workspace-rpc HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            token.0.as_str(),
+            body.len()
+        );
+        let mut queued = tokio::net::TcpStream::connect(address).await.unwrap();
+        queued.write_all(request.as_bytes()).await.unwrap();
+        queued.write_all(&body).await.unwrap();
+
+        let mut first_byte = [0_u8; 1];
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), queued.read(&mut first_byte),)
+                .await
+                .is_err(),
+            "a request bypassed raw connection admission"
+        );
+
+        let slow_result =
+            tokio::time::timeout(Duration::from_secs(7), slow_connections[0].read(&mut first_byte))
+                .await
+                .expect("partial HTTP headers did not expire");
+        assert!(matches!(slow_result, Ok(0) | Err(_)), "partial HTTP connection remained open");
+
+        let mut response = Vec::new();
+        tokio::time::timeout(Duration::from_secs(2), queued.read_to_end(&mut response))
+            .await
+            .expect("queued request was not admitted after the header deadline")
+            .unwrap();
+        assert!(String::from_utf8(response).unwrap().starts_with("HTTP/1.1 200 OK"));
+        server.shutdown().await.unwrap();
     }
 }
