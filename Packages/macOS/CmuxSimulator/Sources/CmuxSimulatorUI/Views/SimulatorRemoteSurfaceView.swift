@@ -575,7 +575,8 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         pendingInputMotion = nil
         pendingPointerEntry = nil
         stageHaloPointerActive = false
-        let cleanup = chromeButtonInput.releaseAll() + input.releaseAll()
+        let cleanup = chromeButtonInput.releaseAll()
+            + input.releaseLocallyOwnedInputs()
         activeChromeButton = nil
         hoveredChromeButton = nil
         for message in cleanup {

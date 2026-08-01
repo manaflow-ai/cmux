@@ -778,6 +778,10 @@ public struct SimulatorUIAutomationExecutor {
             )
         }
 
+        let publishedMutationGeneration = coordinator.uiAutomationMutationGeneration
+        var preservedRecord = try? coordinator.currentUIAutomationSnapshot(
+            nowMilliseconds: simulatorUIWallTimeNowMilliseconds()
+        )
         var stableHash: String?
         var stableSince: Int64?
         var latestRecord: SimulatorUIAutomationSnapshotRecord?
@@ -790,9 +794,9 @@ public struct SimulatorUIAutomationExecutor {
             deadlineMilliseconds: deadline
         )
         for try await _ in events {
-            let record: SimulatorUIAutomationSnapshotRecord
+            let capturedRecord: SimulatorUIAutomationSnapshotRecord
             do {
-                record = try await captureSimulatorUIAutomationSnapshot(
+                capturedRecord = try await captureSimulatorUIAutomationSnapshot(
                     coordinator: coordinator,
                     retryingUntil: captureDeadline,
                     retryingUIStateChanges: true,
@@ -800,6 +804,24 @@ public struct SimulatorUIAutomationExecutor {
                 )
             } catch is SimulatorUIAutomationCaptureDeadlineExceeded {
                 break
+            }
+            let record: SimulatorUIAutomationSnapshotRecord
+            if let preservedRecord,
+               coordinator.uiAutomationMutationGeneration
+                   == publishedMutationGeneration,
+               preservedRecord.snapshot.simulatorID
+                   == capturedRecord.snapshot.simulatorID,
+               preservedRecord.snapshot.screenHash
+                   == capturedRecord.snapshot.screenHash {
+                record = SimulatorUIAutomationSnapshotRecord(
+                    snapshot: preservedRecord.snapshot,
+                    elementRecords: preservedRecord.elementRecords,
+                    display: capturedRecord.display
+                )
+                coordinator.restoreUIAutomationSnapshot(record)
+            } else {
+                preservedRecord = nil
+                record = capturedRecord
             }
             latestRecord = record
             let now = simulatorUIMonotonicNowMilliseconds()

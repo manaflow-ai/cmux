@@ -18,7 +18,7 @@ extension SimulatorUIAutomationSnapshotRecord {
                 && (label == nil || !node.isLabelTruncated)
                 && (identifier == nil || !node.isIdentifierTruncated)
                 && accessibilityValue(
-                    node.label,
+                    record.element.label,
                     matches: label,
                     caseInsensitive: true
                 )
