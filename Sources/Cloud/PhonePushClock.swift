@@ -22,7 +22,7 @@ struct PhonePushClock: Sendable {
     }
 
     static let live = Self(
-        now: Date.init,
+        now: { Date() },
         sleep: { duration in
             try await ContinuousClock().sleep(for: duration)
         }
