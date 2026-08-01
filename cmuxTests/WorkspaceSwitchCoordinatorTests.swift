@@ -391,7 +391,6 @@ struct WorkspaceSwitchCoordinatorTests {
         let sourceWorkspaceID = UUID()
         let targetWorkspaceID = UUID()
         let capturedSurfaceID = UUID()
-        let focusedSurfaceID = UUID()
         let coordinator = WorkspaceSwitchCoordinator(
             beginRendererProtection: { _, _, _ in },
             endRendererProtection: { _ in }
@@ -421,8 +420,7 @@ struct WorkspaceSwitchCoordinatorTests {
 
         #expect(coordinator.isMeasuringSwitch)
         coordinator.noteInteractionReady(
-            workspaceID: targetWorkspaceID,
-            surfaceID: focusedSurfaceID
+            workspaceID: targetWorkspaceID
         )
         #expect(!coordinator.isMeasuringSwitch)
     }

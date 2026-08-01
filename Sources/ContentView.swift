@@ -2942,10 +2942,8 @@ struct ContentView: View {
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
-            let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID
             tabManager.workspaceSwitchCoordinator.noteInteractionReady(
-                workspaceID: tabId,
-                surfaceID: surfaceId
+                workspaceID: tabId
             )
             let focusTransactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID
                 ?? tabManager.selectedWorkspace?.activeFocusTransactionId
