@@ -10,12 +10,6 @@ import Foundation
 /// driver cannot perform itself (retry, relaunch prep) go through ``UpdateActionDelegate``.
 @MainActor
 final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
-    /// Whether user-driver callbacks still belong to the active foreground check generation.
-    private enum CheckCallbackAcceptance {
-        case accepting
-        case discardingUntilCycleFinishes
-    }
-
     /// The state model this driver drives.
     let model: UpdateStateModel
     let log: any UpdateLogging
@@ -36,7 +30,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var pendingCheckTransitionTask: Task<Void, Never>?
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
-    private var checkCallbackAcceptance = CheckCallbackAcceptance.accepting
+    private var checkCallbackAcceptance = UpdateCheckCallbackAcceptance.accepting
 
     init(
         model: UpdateStateModel,
