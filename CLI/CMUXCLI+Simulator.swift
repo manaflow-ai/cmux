@@ -624,6 +624,10 @@ extension CMUXCLI {
             )
             printSimulatorAgentResult(payload, output: request.output, jsonOutput: jsonOutput,
                                       idFormat: idFormat)
+            if request.output == .uiAction,
+               let failure = simulatorUIActionFailure(payload) {
+                throw failure
+            }
             return
         }
 

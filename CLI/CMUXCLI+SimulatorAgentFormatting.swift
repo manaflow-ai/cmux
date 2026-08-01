@@ -74,7 +74,9 @@ extension CMUXCLI {
     }
 
     func simulatorUIActionOutput(_ payload: [String: Any]) -> String {
-        guard payload["snapshot_warning"] != nil || payload["ui_error"] != nil else {
+        guard payload["completed"] as? Bool == false
+                || payload["snapshot_warning"] != nil
+                || payload["ui_error"] != nil else {
             return String(
                 localized: "cli.simulator.output.accepted",
                 defaultValue: "Completed"
@@ -89,6 +91,21 @@ extension CMUXCLI {
         return jsonString(reportedKeys.reduce(into: [String: Any]()) { result, key in
             if let value = payload[key] { result[key] = value }
         })
+    }
+
+    func simulatorUIActionFailure(_ payload: [String: Any]) -> CLIError? {
+        guard payload["completed"] as? Bool == false else { return nil }
+        let errorPayload = payload["ui_error"] as? [String: Any]
+        let detail = (errorPayload?["message"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let message = detail.flatMap { $0.isEmpty ? nil : $0 } ?? String(
+            localized: "cli.simulator.error.operationFailed",
+            defaultValue: "The Simulator operation failed"
+        )
+        return CLIError(
+            message: message,
+            v2Code: errorPayload?["code"] as? String
+        )
     }
 
     func printSimulatorPermissions(_ payload: [String: Any]) {
