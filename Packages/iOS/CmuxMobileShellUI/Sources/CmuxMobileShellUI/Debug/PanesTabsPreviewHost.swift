@@ -193,23 +193,26 @@ struct PanesTabsPreviewHost: View {
                             )
                         )
                 }
+                .mobileSurfaceDeckInset(
+                    isVisible: paneZoomPresentation.isTerminalPresented,
+                    value: deckValue,
+                    actions: deckActions,
+                    terminalTheme: terminalTheme
+                )
             } else {
                 terminalPreviewEndpoint
+                    .mobileSurfaceDeckInset(
+                        isVisible: paneZoomPresentation.isTerminalPresented,
+                        value: deckValue,
+                        actions: deckActions,
+                        terminalTheme: terminalTheme
+                    )
             }
         }
         .background {
             terminalTheme.terminalBackgroundColor
                 .ignoresSafeArea()
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if paneZoomPresentation.isTerminalPresented {
-                SurfaceDeckBar(value: deckValue, actions: deckActions, terminalTheme: terminalTheme)
-                    .equatable()
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
-        }
-        .ignoresSafeArea(paneZoomPresentation.isTerminalPresented ? .keyboard : [], edges: .bottom)
-        .animation(.snappy(duration: 0.18), value: paneZoomPresentation.isTerminalPresented)
     }
 
     private var terminalPreviewEndpoint: some View {

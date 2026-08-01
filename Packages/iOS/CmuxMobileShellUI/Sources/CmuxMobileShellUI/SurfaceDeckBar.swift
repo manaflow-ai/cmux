@@ -310,3 +310,34 @@ struct SurfaceDeckBar: View, Equatable {
         }
     }
 }
+
+#if os(iOS)
+extension View {
+    /// Installs the deck on a concrete layout container so it remains outside
+    /// pane-map navigation transitions while still contributing a real safe-area
+    /// inset to the terminal viewport. Applying `safeAreaInset` to a conditional
+    /// `Group` drops the deck around nested navigation stacks on iOS.
+    func mobileSurfaceDeckInset(
+        isVisible: Bool,
+        value: SurfaceDeckValue,
+        actions: SurfaceDeckActions,
+        terminalTheme: TerminalTheme
+    ) -> some View {
+        safeAreaInset(edge: .bottom, spacing: 0) {
+            if isVisible {
+                SurfaceDeckBar(
+                    value: value,
+                    actions: actions,
+                    terminalTheme: terminalTheme
+                )
+                .equatable()
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        // The terminal owns keyboard geometry. Keeping the deck at the
+        // physical bottom lets the keyboard cover it instead of lifting it.
+        .ignoresSafeArea(isVisible ? .keyboard : [], edges: .bottom)
+        .animation(.snappy(duration: 0.18), value: isVisible)
+    }
+}
+#endif

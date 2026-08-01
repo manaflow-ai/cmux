@@ -141,31 +141,26 @@ struct WorkspaceDetailView: View {
                             )
                         )
                 }
+                .mobileSurfaceDeckInset(
+                    isVisible: shouldShowSurfaceDeck,
+                    value: surfaceDeckValue,
+                    actions: surfaceDeckActions,
+                    terminalTheme: store.activeTerminalTheme
+                )
             } else {
                 terminalWorkspaceEndpoint
+                    .mobileSurfaceDeckInset(
+                        isVisible: shouldShowSurfaceDeck,
+                        value: surfaceDeckValue,
+                        actions: surfaceDeckActions,
+                        terminalTheme: store.activeTerminalTheme
+                    )
             }
         }
         .background {
             store.activeTerminalTheme.terminalBackgroundColor
                 .ignoresSafeArea()
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if shouldShowSurfaceDeck {
-                SurfaceDeckBar(
-                    value: surfaceDeckValue,
-                    actions: surfaceDeckActions,
-                    terminalTheme: store.activeTerminalTheme
-                )
-                .equatable()
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
-        }
-        // The terminal owns keyboard geometry. Ignoring keyboard avoidance
-        // while the deck shows keeps the deck at the physical bottom so the
-        // keyboard covers it instead of lifting it; chat/browser modes keep
-        // normal avoidance.
-        .ignoresSafeArea(shouldShowSurfaceDeck ? .keyboard : [], edges: .bottom)
-        .animation(.snappy(duration: 0.18), value: shouldShowSurfaceDeck)
         .onChange(of: workspace.layout != nil) { _, hasLayout in
             paneZoomPresentation.layoutAvailabilityDidChange(hasLayout: hasLayout)
         }
