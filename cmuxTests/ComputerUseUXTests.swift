@@ -2006,6 +2006,7 @@ struct ComputerUseUXTests {
             ("window_unavailable", .windowUnavailable),
             ("point_outside_content", .pointOutsideContent),
             ("capture_unavailable", .captureUnavailable),
+            ("resource_limit", .resourceLimit),
             ("session_unavailable", .helperUnavailable),
         ]
         for (code, expectedError) in cases {
