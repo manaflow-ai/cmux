@@ -891,7 +891,9 @@ extension CMUXCLI {
         request(
             method,
             params,
-            timeout: simulatorOperationDeadlines.clientTimeout(for: 140),
+            timeout: simulatorOperationDeadlines.clientTimeout(
+                for: simulatorOperationDeadlines.uiAutomationAction
+            ),
             output: .uiAction
         )
     }
