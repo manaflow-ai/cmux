@@ -46,9 +46,16 @@ public protocol TerminalSurfaceRegistering: AnyObject, Sendable {
     func isRightSidebarDockSurface(id: UUID) -> Bool
 
     /// Re-records the focus placement for a live surface that moved between the
-    /// workspace area and the right-sidebar dock. No-op when the id is not
-    /// currently registered.
-    func updateFocusPlacement(id: UUID, _ placement: TerminalSurfaceFocusPlacement)
+    /// workspace area and the right-sidebar dock. No-op when that surface
+    /// registration is no longer present.
+    ///
+    /// - Parameters:
+    ///   - surface: The exact registered model whose placement changed.
+    ///   - placement: The surface's new focus-routing placement.
+    func updateFocusPlacement(
+        for surface: any TerminalSurfacing,
+        _ placement: TerminalSurfaceFocusPlacement
+    )
 
     /// All live registered surfaces, ordered by id for stable iteration.
     func allSurfaces() -> [any TerminalSurfacing]

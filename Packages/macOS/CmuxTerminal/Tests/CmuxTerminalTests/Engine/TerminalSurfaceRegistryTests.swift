@@ -93,7 +93,7 @@ struct TerminalSurfaceRegistryTests {
         let registered = registry.topologyGeneration
         #expect(registered > initial)
 
-        registry.updateFocusPlacement(id: surface.id, .rightSidebarDock)
+        registry.updateFocusPlacement(for: surface, .rightSidebarDock)
         #expect(registry.topologyGeneration == registered)
 
         registry.unregister(surface)
@@ -129,6 +129,28 @@ struct TerminalSurfaceRegistryTests {
         registry.unregister(replacement)
         #expect(registry.surface(id: sharedID) === original)
         #expect(!registry.isRightSidebarDockSurface(id: sharedID))
+    }
+
+    @Test func outgoingPlacementUpdateDoesNotMutateCanonicalReplacement() {
+        let registry = TerminalSurfaceRegistry()
+        let sharedID = UUID()
+        let original = FakeSurface(id: sharedID, focusPlacement: .workspace)
+        let replacement = FakeSurface(id: sharedID, focusPlacement: .workspace)
+        registry.register(original)
+        registry.register(replacement)
+
+        registry.updateFocusPlacement(for: original, .rightSidebarDock)
+        #expect(
+            !registry.isRightSidebarDockSurface(id: sharedID),
+            "The replacement's placement must remain canonical during overlap"
+        )
+
+        registry.unregister(replacement)
+        #expect(registry.surface(id: sharedID) === original)
+        #expect(
+            registry.isRightSidebarDockSurface(id: sharedID),
+            "Promotion must restore the outgoing registration's updated placement"
+        )
     }
 
     @Test func evictsDeallocatedSurfaces() {
@@ -267,10 +289,10 @@ struct TerminalSurfaceRegistryTests {
         // Moving a live surface into the dock re-records its placement so the
         // dock-surface predicate (portal layering, focus cycling) sees the move
         // without recreating the surface.
-        registry.updateFocusPlacement(id: surface.id, .rightSidebarDock)
+        registry.updateFocusPlacement(for: surface, .rightSidebarDock)
         #expect(registry.isRightSidebarDockSurface(id: surface.id))
 
-        registry.updateFocusPlacement(id: surface.id, .workspace)
+        registry.updateFocusPlacement(for: surface, .workspace)
         #expect(!registry.isRightSidebarDockSurface(id: surface.id))
     }
 
@@ -278,10 +300,9 @@ struct TerminalSurfaceRegistryTests {
         let registry = TerminalSurfaceRegistry()
         // A move record for an id with no live surface must not resurrect a
         // dropped placement entry.
-        registry.updateFocusPlacement(id: UUID(), .rightSidebarDock)
-        let strayId = UUID()
-        registry.updateFocusPlacement(id: strayId, .rightSidebarDock)
-        #expect(!registry.isRightSidebarDockSurface(id: strayId))
+        let stray = FakeSurface(focusPlacement: .workspace)
+        registry.updateFocusPlacement(for: stray, .rightSidebarDock)
+        #expect(!registry.isRightSidebarDockSurface(id: stray.id))
     }
 
     @Test func diagnosticSnapshotDropsUnregisteredSurfacesAndRuntimePointers() throws {

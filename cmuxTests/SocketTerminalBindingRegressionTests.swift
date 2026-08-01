@@ -18,6 +18,10 @@ import Testing
 @MainActor
 @Suite("Socket terminal binding", .serialized)
 struct SocketTerminalBindingRegressionTests {
+    private struct TextWaitTimeout: Error {
+        let expected: String
+    }
+
     private static let socketWorker = DispatchQueue(
         label: "SocketTerminalBindingRegressionTests.socketWorker"
     )
@@ -102,7 +106,7 @@ struct SocketTerminalBindingRegressionTests {
             if surface.visibleText()?.contains(expected) == true { return }
             try await Task.sleep(for: .milliseconds(20))
         }
-        Issue.record("Timed out waiting for replacement terminal output")
+        throw TextWaitTimeout(expected: expected)
     }
 
     private func socketEnvelope(

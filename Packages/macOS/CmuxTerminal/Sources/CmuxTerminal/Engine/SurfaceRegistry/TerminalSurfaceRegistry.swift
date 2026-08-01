@@ -124,8 +124,6 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
                 canonicalSurfaceNodes.removeValue(forKey: surfaceId)
                 surfaceFocusPlacements.removeValue(forKey: surfaceId)
             }
-        } else if canonicalSurfaceNodes[surfaceId] == nil {
-            surfaceFocusPlacements.removeValue(forKey: surfaceId)
         }
         generation &+= 1
         let routeRetirer = routeRetirer
@@ -195,16 +193,26 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     }
 
     /// Re-records the focus placement for a live surface that moved between the
-    /// workspace area and the right-sidebar dock. No-op when the id is not
-    /// currently registered, so a stale move cannot resurrect a dropped entry.
-    public func updateFocusPlacement(id: UUID, _ placement: TerminalSurfaceFocusPlacement) {
+    /// workspace area and the right-sidebar dock. No-op when that registration
+    /// is gone, so an outgoing model cannot mutate its replacement's placement.
+    ///
+    /// - Parameters:
+    ///   - surface: The exact registered model whose placement changed.
+    ///   - placement: The surface's new focus-routing placement.
+    public func updateFocusPlacement(
+        for surface: any TerminalSurfacing,
+        _ placement: TerminalSurfaceFocusPlacement
+    ) {
         lock.lock()
         defer { lock.unlock() }
-        guard let canonical = canonicalSurfaceNodes[id],
-              canonical.isRegistered,
-              canonical.surface != nil else { return }
-        surfaceFocusPlacementsByIdentity[canonical.identity] = placement
-        surfaceFocusPlacements[id] = placement
+        let identity = ObjectIdentifier(surface)
+        guard let node = incrementalTraversalNodes[identity],
+              node.isRegistered,
+              node.surface === surface else { return }
+        surfaceFocusPlacementsByIdentity[identity] = placement
+        if canonicalSurfaceNodes[surface.id]?.identity == identity {
+            surfaceFocusPlacements[surface.id] = placement
+        }
     }
 
     /// A bounded count snapshot for leak diagnostics and crash/app-hang telemetry.

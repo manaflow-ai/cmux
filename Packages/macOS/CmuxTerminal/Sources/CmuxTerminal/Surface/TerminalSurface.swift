@@ -602,7 +602,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         guard focusPlacement != placement else { return }
         reportedWorkingDirectory = nil
         focusPlacement = placement
-        registry.updateFocusPlacement(id: id, placement)
+        registry.updateFocusPlacement(for: self, placement)
     }
 
     deinit {
