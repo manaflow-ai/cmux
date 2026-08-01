@@ -79,6 +79,21 @@ extension Workspace {
         )
     }
 
+    /// Resolves a legacy input-style panel target, including active remote-tmux
+    /// projection, against the canonical live registry surface.
+    func controlSocketTerminalInputTarget(
+        for requestedPanelID: UUID
+    ) -> ControlTerminalSocketTarget? {
+        guard let owned = terminalInputTarget(forPanelID: requestedPanelID) else {
+            return nil
+        }
+        return ControlTerminalSocketTarget.resolve(
+            surfaceID: owned.surfaceID,
+            panel: owned.panel,
+            workspaceID: id
+        )
+    }
+
     /// Resolves the pane-selected or focused workspace terminal for socket I/O.
     func controlDefaultSocketTerminalTarget(
         paneID: UUID?
@@ -169,62 +184,17 @@ extension TerminalController {
         if includeScrollback {
             return TerminalTextRawSnapshot(
                 viewport: nil,
-                screen: readTerminalSelectionText(
-                    terminalSurface: terminalSurface,
-                    pointTag: GHOSTTY_POINT_SCREEN
-                ),
-                history: readTerminalSelectionText(
-                    terminalSurface: terminalSurface,
-                    pointTag: GHOSTTY_POINT_SURFACE
-                ),
-                active: readTerminalSelectionText(
-                    terminalSurface: terminalSurface,
-                    pointTag: GHOSTTY_POINT_ACTIVE
-                )
+                screen: terminalSurface.readText(region: .screen),
+                history: terminalSurface.readText(region: .history),
+                active: terminalSurface.readText(region: .active)
             )
         }
         return TerminalTextRawSnapshot(
-            viewport: readTerminalSelectionText(
-                terminalSurface: terminalSurface,
-                pointTag: GHOSTTY_POINT_VIEWPORT
-            ),
+            viewport: terminalSurface.readText(region: .viewport),
             screen: nil,
             history: nil,
             active: nil
         )
-    }
-
-    /// Reads one Ghostty text region from an already validated surface model.
-    private func readTerminalSelectionText(
-        terminalSurface: TerminalSurface,
-        pointTag: ghostty_point_tag_e
-    ) -> String? {
-        guard let surface = terminalSurface.surface else { return nil }
-        let topLeft = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-            x: 0,
-            y: 0
-        )
-        let bottomRight = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-            x: 0,
-            y: 0
-        )
-        let selection = ghostty_selection_s(
-            top_left: topLeft,
-            bottom_right: bottomRight,
-            rectangle: false
-        )
-
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
-        defer { ghostty_surface_free_text(surface, &text) }
-
-        guard let pointer = text.text, text.text_len > 0 else { return "" }
-        let rawData = Data(bytes: pointer, count: Int(text.text_len))
-        return String(decoding: rawData, as: UTF8.self)
     }
 
     /// Encodes a panel-owned terminal snapshot for the legacy socket protocol.

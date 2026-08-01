@@ -74,9 +74,10 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
                 incrementalTraversalNodes[identity],
            existingNode.isRegistered,
            existingNode.surface === surface {
-            canonicalSurfaceNodes[surface.id] = existingNode
             surfaceFocusPlacementsByIdentity[identity] = surface.focusPlacement
-            surfaceFocusPlacements[surface.id] = surface.focusPlacement
+            if canonicalSurfaceNode(surfaceID: surface.id) === existingNode {
+                surfaceFocusPlacements[surface.id] = surface.focusPlacement
+            }
             generation &+= 1
             return
         }
@@ -84,8 +85,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
             incrementalTraversalNodes.removeValue(
                 forKey: identity
             ) {
-            unlinkIncrementalTraversalNode(replacedNode)
-            surfaceFocusPlacementsByIdentity.removeValue(forKey: identity)
+            removeRegistrationNode(replacedNode)
         }
         let node = TerminalSurfaceRegistryWeakNode(
             surface: surface,
@@ -108,23 +108,12 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         let surfaceId = surface.id
         let identity = ObjectIdentifier(surface)
         surfaces.remove(surface)
-        if let node = incrementalTraversalNodes.removeValue(
-            forKey: identity
-        ) {
-            unlinkIncrementalTraversalNode(node)
+        if let node = incrementalTraversalNodes[identity] {
+            removeRegistrationNode(node)
+        } else {
+            surfaceFocusPlacementsByIdentity.removeValue(forKey: identity)
         }
-        surfaceFocusPlacementsByIdentity.removeValue(forKey: identity)
-        if canonicalSurfaceNodes[surfaceId]?.identity == identity
-            || canonicalSurfaceNodes[surfaceId]?.surface == nil {
-            if let promoted = newestRegisteredNode(surfaceID: surfaceId) {
-                canonicalSurfaceNodes[surfaceId] = promoted
-                surfaceFocusPlacements[surfaceId] =
-                    surfaceFocusPlacementsByIdentity[promoted.identity]
-            } else {
-                canonicalSurfaceNodes.removeValue(forKey: surfaceId)
-                surfaceFocusPlacements.removeValue(forKey: surfaceId)
-            }
-        }
+        _ = canonicalSurfaceNode(surfaceID: surfaceId)
         generation &+= 1
         let routeRetirer = routeRetirer
         lock.unlock()
@@ -292,12 +281,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         traversal.cursor = node.next
         guard node.isRegistered, let surface = node.surface else {
             if node.isRegistered {
-                if incrementalTraversalNodes[node.identity] === node {
-                    incrementalTraversalNodes.removeValue(
-                        forKey: node.identity
-                    )
-                }
-                unlinkIncrementalTraversalNode(node)
+                removeRegistrationNode(node)
             }
             return TerminalSurfaceRegistryIncrementalVisit(
                 surface: nil
@@ -330,14 +314,35 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     ) -> TerminalSurfaceRegistryWeakNode? {
         var node = incrementalTraversalHead
         while let current = node {
+            let next = current.next
+            if current.isRegistered, current.surface == nil {
+                removeRegistrationNode(current)
+                node = next
+                continue
+            }
             if current.isRegistered,
                let surface = current.surface,
                surface.id == surfaceID {
                 return current
             }
-            node = current.next
+            node = next
         }
         return nil
+    }
+
+    /// Removes one registration and every index entry that names it.
+    private func removeRegistrationNode(
+        _ node: TerminalSurfaceRegistryWeakNode
+    ) {
+        if incrementalTraversalNodes[node.identity] === node {
+            incrementalTraversalNodes.removeValue(forKey: node.identity)
+        }
+        surfaceFocusPlacementsByIdentity.removeValue(forKey: node.identity)
+        if canonicalSurfaceNodes[node.surfaceID] === node {
+            canonicalSurfaceNodes.removeValue(forKey: node.surfaceID)
+            surfaceFocusPlacements.removeValue(forKey: node.surfaceID)
+        }
+        unlinkIncrementalTraversalNode(node)
     }
 
     /// Resolves and repairs the canonical weak-node index while `lock` is held.

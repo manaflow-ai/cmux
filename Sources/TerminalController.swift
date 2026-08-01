@@ -10839,7 +10839,7 @@ class TerminalController {
             }
 
             guard let panelId,
-                  let target = tab.controlSocketTerminalTarget(for: panelId) else {
+                  let target = tab.controlSocketTerminalInputTarget(for: panelId) else {
                 result = "ERROR: Terminal surface not found"
                 return
             }
@@ -10918,7 +10918,7 @@ class TerminalController {
             }
 
             guard let panelId,
-                  let target = tab.controlSocketTerminalTarget(for: panelId) else {
+                  let target = tab.controlSocketTerminalInputTarget(for: panelId) else {
                 return .finished("ERROR: Terminal surface not found")
             }
             guard target.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {

@@ -3,6 +3,7 @@ import Foundation
 
 final class TerminalSurfaceRegistryWeakNode {
     let identity: ObjectIdentifier
+    let surfaceID: UUID
     weak var surface: (any TerminalSurfacing)?
     weak var previous: TerminalSurfaceRegistryWeakNode?
     var next: TerminalSurfaceRegistryWeakNode?
@@ -13,6 +14,7 @@ final class TerminalSurfaceRegistryWeakNode {
         next: TerminalSurfaceRegistryWeakNode?
     ) {
         identity = ObjectIdentifier(surface)
+        surfaceID = surface.id
         self.surface = surface
         self.next = next
     }

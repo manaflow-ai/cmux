@@ -73,6 +73,24 @@ struct TerminalSurfaceRegistryTests {
         )
     }
 
+    @Test func reregisteringOlderDuplicateDoesNotStealCanonicalOwnership() {
+        let registry = TerminalSurfaceRegistry()
+        let sharedID = UUID()
+        let original = FakeSurface(id: sharedID)
+        let replacement = FakeSurface(id: sharedID)
+        registry.register(original)
+        registry.register(replacement)
+
+        registry.register(original)
+        #expect(
+            registry.surface(id: sharedID) === replacement,
+            "Re-registration must preserve newest-live ownership order"
+        )
+
+        registry.unregister(replacement)
+        #expect(registry.surface(id: sharedID) === original)
+    }
+
     @Test func unregisterRemovesSurfaceAndPlacement() {
         let registry = TerminalSurfaceRegistry()
         let surface = FakeSurface(focusPlacement: .rightSidebarDock)
