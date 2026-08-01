@@ -112,6 +112,42 @@ extension AgentNotificationRegressionTests {
         )
     }
 
+    @Test("Relay TTY resolution follows a surface into a newly created ordinary workspace")
+    func relayTTYResolutionFollowsSurfaceIntoNewOrdinaryWorkspace() throws {
+        let fixture = try makeFixture()
+        var destinationWorkspaceID: UUID?
+        defer {
+            if let destinationWorkspaceID,
+               let destination = fixture.manager.tabs.first(where: { $0.id == destinationWorkspaceID }) {
+                fixture.manager.closeWorkspace(destination)
+            }
+            fixture.restore()
+        }
+        fixture.source.remoteConfiguration = deliveryTargetRemoteConfiguration(relayPort: 64_007)
+        fixture.source.trackRemoteTerminalSurface(fixture.panelId)
+        fixture.source.registerReportedSurfaceTTYName("pts/7", panelId: fixture.panelId)
+        let paneID = try #require(fixture.source.bonsplitController.allPaneIds.first)
+        _ = try #require(fixture.source.newTerminalSurface(inPane: paneID, focus: false))
+
+        let move = try #require(fixture.appDelegate.moveSurfaceToNewWorkspace(
+            panelId: fixture.panelId,
+            focus: false,
+            focusWindow: false
+        ))
+        destinationWorkspaceID = move.destinationWorkspaceId
+        let destination = try #require(
+            fixture.manager.tabs.first(where: { $0.id == move.destinationWorkspaceId })
+        )
+        #expect(!destination.isRemoteWorkspace)
+
+        assertRelayTTYTarget(
+            authenticatedWorkspaceID: fixture.source.id,
+            ttyName: "pts/7",
+            expectedWorkspaceID: destination.id,
+            expectedSurfaceID: fixture.panelId
+        )
+    }
+
     @Test("A runtime TTY report refreshes a remote surface already in a Dock")
     func runtimeTTYReportRefreshesRemoteSurfaceAlreadyInDock() throws {
         let fixture = try makeFixture()
