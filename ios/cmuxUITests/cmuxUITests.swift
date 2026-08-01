@@ -761,7 +761,9 @@ final class cmuxUITests: XCTestCase {
 
         tap(docsRow, in: app)
         let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
-        if !workspaceDetail.waitForExistence(timeout: 3) {
+        // The search-dismissal + tab-remount + push chain regularly exceeds
+        // 3s on CI runners; the nav-trail probe proved the detail presents.
+        if !workspaceDetail.waitForExistence(timeout: 10) {
             let selectFired = app.descendants(matching: .any)["FixtureWorkspaceSelectCount-1"].exists
             let keyboardUp = app.keyboards.firstMatch.exists
             let trail = app.descendants(matching: .any)["FixtureNavTrail"].value as? String ?? "<no trail>"
