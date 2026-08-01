@@ -73,7 +73,16 @@ public struct CmxIrohAccountRelayConfiguration: Codable, Equatable, Sendable {
     /// Dormant managed selections and saved custom definitions remain account
     /// state, but cannot affect transport until their corresponding mode is active.
     public func hasEquivalentActiveAuthority(to other: Self) -> Bool {
-        activePreference == other.activePreference
+        guard mode == other.mode else { return false }
+        switch mode {
+        case .automatic:
+            return true
+        case .managed:
+            return selectedManagedRelayIDs == other.selectedManagedRelayIDs
+        case .custom:
+            return customRelays.sorted(by: Self.customRelaySortsBefore)
+                == other.customRelays.sorted(by: Self.customRelaySortsBefore)
+        }
     }
 
     /// Replaces only the active mode or managed selection.
@@ -174,5 +183,12 @@ public struct CmxIrohAccountRelayConfiguration: Codable, Equatable, Sendable {
         self.mode = mode
         self.selectedManagedRelayIDs = selectedManagedRelayIDs
         self.customRelays = customRelays
+    }
+
+    private static func customRelaySortsBefore(
+        _ left: CmxIrohCustomRelayDefinition,
+        _ right: CmxIrohCustomRelayDefinition
+    ) -> Bool {
+        left.id < right.id
     }
 }

@@ -6,6 +6,7 @@ public struct CmxIrohPersistedRelayPreference: Codable, Equatable, Sendable {
         case revision
         case effectivePolicySequence
         case policyID
+        case policySequence
         case policyIssuedAt
         case staleRelayIDs
     }
@@ -25,6 +26,9 @@ public struct CmxIrohPersistedRelayPreference: Codable, Equatable, Sendable {
     /// Signed policy publication paired with this broker preference response.
     public let policyID: String?
 
+    /// Monotonic sequence of the signed policy publication.
+    public let policySequence: Int64?
+
     /// Signed policy issue time paired with this broker preference response.
     public let policyIssuedAt: Int64?
 
@@ -37,6 +41,7 @@ public struct CmxIrohPersistedRelayPreference: Codable, Equatable, Sendable {
         revision: Int64,
         effectivePolicySequence: Int64?,
         policyID: String? = nil,
+        policySequence: Int64? = nil,
         policyIssuedAt: Int64? = nil,
         staleRelayIDs: Set<String>
     ) {
@@ -45,6 +50,7 @@ public struct CmxIrohPersistedRelayPreference: Codable, Equatable, Sendable {
         self.revision = revision
         self.effectivePolicySequence = effectivePolicySequence
         self.policyID = policyID
+        self.policySequence = policySequence
         self.policyIssuedAt = policyIssuedAt
         self.staleRelayIDs = staleRelayIDs
     }
@@ -80,6 +86,7 @@ public struct CmxIrohPersistedRelayPreference: Codable, Equatable, Sendable {
             forKey: .effectivePolicySequence
         )
         policyID = try container.decodeIfPresent(String.self, forKey: .policyID)
+        policySequence = try container.decodeIfPresent(Int64.self, forKey: .policySequence)
         policyIssuedAt = try container.decodeIfPresent(Int64.self, forKey: .policyIssuedAt)
         staleRelayIDs = try container.decode(Set<String>.self, forKey: .staleRelayIDs)
     }
@@ -91,6 +98,7 @@ public struct CmxIrohPersistedRelayPreference: Codable, Equatable, Sendable {
         try container.encode(revision, forKey: .revision)
         try container.encodeIfPresent(effectivePolicySequence, forKey: .effectivePolicySequence)
         try container.encodeIfPresent(policyID, forKey: .policyID)
+        try container.encodeIfPresent(policySequence, forKey: .policySequence)
         try container.encodeIfPresent(policyIssuedAt, forKey: .policyIssuedAt)
         try container.encode(staleRelayIDs, forKey: .staleRelayIDs)
     }

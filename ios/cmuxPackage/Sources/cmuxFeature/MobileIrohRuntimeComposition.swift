@@ -598,15 +598,34 @@ public final class MobileIrohRuntimeComposition:
         }
     }
 
-    /// Waits for the authenticated endpoint, broker binding, and relay policy.
+    /// Waits for the authenticated endpoint, broker binding, and relay policy
+    /// for an identity-only connection attempt.
     ///
-    /// Tagged attach-URL launches use this barrier before starting the shell's
-    /// bounded pairing attempt. Transport creation calls the same entrypoint,
-    /// so readiness policy cannot drift between automatic and interactive use.
+    /// Transport creation and tagged attach URLs use route-aware overloads so
+    /// explicit public-direct routes do not inherit this relay barrier.
     public func prepareForConnection() async {
+        await prepareForConnection { true }
+    }
+
+    /// Prepares a tagged attach URL without making an explicit public-direct
+    /// route wait for relay bootstrap. The eventual transport call repeats the
+    /// same route-aware check before dialing.
+    public func prepareForConnection(routes: [CmxAttachRoute]) async {
+        await prepareForConnection {
+            Self.requiresInitialRelayPolicy(
+                routes: routes,
+                now: now()
+            )
+        }
+    }
+
+    private func prepareForConnection(
+        requiresInitialRelayPolicy: () -> Bool
+    ) async {
         while true {
             await prepareForEndpoint()
             let revision = lifecycleRevision
+            guard requiresInitialRelayPolicy() else { return }
             await relayPolicyReadiness.wait()
             guard revision == lifecycleRevision else { continue }
             return
@@ -626,16 +645,11 @@ public final class MobileIrohRuntimeComposition:
     private func prepareForConnection(
         request: CmxByteTransportRequest
     ) async {
-        while true {
-            await prepareForEndpoint()
-            let revision = lifecycleRevision
-            guard Self.requiresInitialRelayPolicy(
+        await prepareForConnection {
+            Self.requiresInitialRelayPolicy(
                 request: request,
                 now: now()
-            ) else { return }
-            await relayPolicyReadiness.wait()
-            guard revision == lifecycleRevision else { continue }
-            return
+            )
         }
     }
 
@@ -643,8 +657,21 @@ public final class MobileIrohRuntimeComposition:
         request: CmxByteTransportRequest,
         now: Date
     ) -> Bool {
-        guard request.route.kind == .iroh,
-              case let .peer(_, pathHints) = request.route.endpoint else {
+        requiresInitialRelayPolicy(routes: [request.route], now: now)
+    }
+
+    nonisolated static func requiresInitialRelayPolicy(
+        routes: [CmxAttachRoute],
+        now: Date
+    ) -> Bool {
+        guard let firstIrohRoute = routes
+            .filter({ $0.kind == .iroh })
+            .min(by: { left, right in
+                left.priority == right.priority
+                    ? left.id < right.id
+                    : left.priority < right.priority
+            }),
+            case let .peer(_, pathHints) = firstIrohRoute.endpoint else {
             return false
         }
         return !pathHints.contains {

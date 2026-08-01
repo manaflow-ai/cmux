@@ -7,15 +7,18 @@ struct DogfoodAttachPreparationTests {
     @MainActor
     func waitsForTransportReadinessBeforeConsumingAttachURL() async {
         let recorder = DogfoodAttachPreparationRecorder()
-        let preparation = DogfoodAttachPreparation {
-            await recorder.record("ready")
+        let preparation = DogfoodAttachPreparation { pairingURL in
+            await recorder.record("ready:\(pairingURL)")
         }
 
-        await preparation.run {
+        await preparation.run(pairingURL: "cmux-ios-dev://attach?v=3&i=peer") {
             await recorder.record("attach")
         }
 
-        #expect(await recorder.values() == ["ready", "attach"])
+        #expect(await recorder.values() == [
+            "ready:cmux-ios-dev://attach?v=3&i=peer",
+            "attach",
+        ])
     }
 
     @Test

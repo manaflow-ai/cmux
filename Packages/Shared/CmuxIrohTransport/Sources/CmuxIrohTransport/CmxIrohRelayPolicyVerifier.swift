@@ -64,6 +64,18 @@ public struct CmxIrohRelayPolicyVerifier: Sendable {
         trustRoot: CmxIrohRelayPolicyTrustRoot,
         now: Date
     ) throws -> CmxIrohManagedRelayPolicy {
+        let policy = try verifyPublication(token, trustRoot: trustRoot)
+        try Self.validateRuntime(policy, now: now)
+        return policy
+    }
+
+    /// Authenticates a signed publication without requiring it to remain live.
+    /// Historical policy identity is used only as a rollback anchor, never as
+    /// runtime relay authority.
+    func verifyPublication(
+        _ token: String,
+        trustRoot: CmxIrohRelayPolicyTrustRoot
+    ) throws -> CmxIrohManagedRelayPolicy {
         guard (5 ... 64 * 1_024).contains(token.utf8.count) else {
             throw CmxIrohRelayPolicyError.invalidToken
         }
@@ -128,11 +140,35 @@ public struct CmxIrohRelayPolicyVerifier: Sendable {
                 )
             }
         )
-        try Self.validate(policy, now: now)
+        try Self.validateClaims(policy)
         return policy
     }
 
-    private static func validate(
+    private static func validateClaims(_ policy: CmxIrohManagedRelayPolicy) throws {
+        let lifetime = policy.expiresAt.subtractingReportingOverflow(policy.issuedAt)
+        let notBeforeFloor = policy.issuedAt.subtractingReportingOverflow(30)
+        guard !lifetime.overflow,
+              !notBeforeFloor.overflow,
+              policy.version == 1,
+              UUID(uuidString: policy.policyID)?.uuidString.lowercased() == policy.policyID,
+              policy.sequence > 0,
+              policy.audience == audience,
+              policy.notBefore >= notBeforeFloor.partialValue,
+              policy.expiresAt > policy.notBefore,
+              lifetime.partialValue > 0,
+              lifetime.partialValue <= maximumLifetime,
+              (1 ... maximumRelayCount).contains(policy.relays.count),
+              Set(policy.relays.map(\.id)).count == policy.relays.count,
+              Set(policy.relays.map(\.url)).count == policy.relays.count,
+              policy.relays.allSatisfy(validRelay) else {
+            throw CmxIrohRelayPolicyError.invalidClaims
+        }
+        guard policy.relayProtocol == relayProtocol else {
+            throw CmxIrohRelayPolicyError.unsupportedRelayProtocol
+        }
+    }
+
+    private static func validateRuntime(
         _ policy: CmxIrohManagedRelayPolicy,
         now: Date
     ) throws {
@@ -144,38 +180,16 @@ public struct CmxIrohRelayPolicyVerifier: Sendable {
         }
         let nowSeconds = Int64(time.rounded(.down))
         let futureTolerance = nowSeconds.addingReportingOverflow(30)
-        let lifetime = policy.expiresAt.subtractingReportingOverflow(policy.issuedAt)
-        let notBeforeFloor = policy.issuedAt.subtractingReportingOverflow(30)
         guard !futureTolerance.overflow,
-              !lifetime.overflow,
-              !notBeforeFloor.overflow,
-              policy.version == 1,
-              UUID(uuidString: policy.policyID)?.uuidString.lowercased() == policy.policyID,
-              policy.sequence > 0,
-              policy.audience == audience,
-              policy.notBefore >= notBeforeFloor.partialValue,
-              policy.notBefore <= futureTolerance.partialValue,
-              policy.expiresAt > policy.notBefore,
-              lifetime.partialValue > 0,
-              lifetime.partialValue <= maximumLifetime,
               policy.issuedAt <= futureTolerance.partialValue,
-              (1 ... maximumRelayCount).contains(policy.relays.count),
-              Set(policy.relays.map(\.id)).count == policy.relays.count,
-              Set(policy.relays.map(\.url)).count == policy.relays.count,
-              policy.relays.allSatisfy(validRelay) else {
+              policy.notBefore <= futureTolerance.partialValue else {
             throw CmxIrohRelayPolicyError.invalidClaims
-        }
-        guard policy.relayProtocol == relayProtocol else {
-            throw CmxIrohRelayPolicyError.unsupportedRelayProtocol
         }
         // Distributed clients and the signing service do not share a clock.
         // Apply the same bounded skew allowance already required for `iat` so
         // a freshly issued policy cannot fail merely because the server is a
         // few seconds ahead, while policies beyond the 30-second window still
         // fail closed as invalid claims above.
-        guard policy.notBefore <= futureTolerance.partialValue else {
-            throw CmxIrohRelayPolicyError.notYetValid
-        }
         guard policy.expiresAt > nowSeconds else {
             throw CmxIrohRelayPolicyError.expired
         }

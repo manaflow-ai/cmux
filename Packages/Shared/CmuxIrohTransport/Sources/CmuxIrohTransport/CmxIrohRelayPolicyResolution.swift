@@ -8,35 +8,54 @@ struct CmxIrohRelayPolicyResolutionResult {
 
 struct CmxIrohRelayPolicyPublication: Equatable, Sendable {
     let policyID: String
+    let sequence: Int64
     let issuedAt: Int64
 
     init(_ policy: CmxIrohManagedRelayPolicy) {
         policyID = policy.policyID
+        sequence = policy.sequence
         issuedAt = policy.issuedAt
     }
 
-    init?(policyID: String?, issuedAt: Int64?) {
+    init?(policyID: String?, sequence: Int64?, issuedAt: Int64?) {
         guard let policyID,
+              let sequence,
               let issuedAt,
+              sequence > 0,
               issuedAt >= 0,
               UUID(uuidString: policyID)?.uuidString.lowercased() == policyID else {
             return nil
         }
         self.policyID = policyID
+        self.sequence = sequence
         self.issuedAt = issuedAt
     }
 }
 
 enum CmxIrohRelayPreferenceRevisionValidation {
+    private enum PublicationOrder {
+        case olderSequence
+        case olderPublication
+        case same
+        case newer
+        case conflicting
+    }
+
     static func validate(
         incomingRevision: Int64,
         incomingConfiguration: CmxIrohAccountRelayConfiguration,
         incomingPublication: CmxIrohRelayPolicyPublication?,
         currentRevision: Int64,
         currentConfiguration: CmxIrohAccountRelayConfiguration,
-        currentPublication: CmxIrohRelayPolicyPublication?
+        currentPublication: CmxIrohRelayPolicyPublication?,
+        currentPolicySequence: Int64?
     ) throws {
-        guard let incomingPublication, let currentPublication else {
+        guard let incomingPublication,
+              let publicationOrder = publicationOrder(
+                incoming: incomingPublication,
+                current: currentPublication,
+                currentPolicySequence: currentPolicySequence
+              ) else {
             try requireMonotonicOrIdentical(
                 incomingRevision: incomingRevision,
                 incomingConfiguration: incomingConfiguration,
@@ -45,31 +64,61 @@ enum CmxIrohRelayPreferenceRevisionValidation {
             )
             return
         }
-        guard incomingPublication.issuedAt >= currentPublication.issuedAt else {
+
+        switch publicationOrder {
+        case .olderSequence:
+            // The policy cache owns the sequence floor and reports its
+            // dedicated rollback error after preference monotonicity passes.
+            try requireMonotonicOrIdentical(
+                incomingRevision: incomingRevision,
+                incomingConfiguration: incomingConfiguration,
+                currentRevision: currentRevision,
+                currentConfiguration: currentConfiguration
+            )
+        case .olderPublication:
             throw CmxIrohRelayPolicyServiceError.preferenceRollback
-        }
-        if incomingPublication.issuedAt == currentPublication.issuedAt {
-            guard incomingPublication.policyID == currentPublication.policyID else {
-                guard incomingRevision == currentRevision,
-                      incomingConfiguration == currentConfiguration else {
-                    throw CmxIrohRelayPolicyServiceError.preferenceRollback
-                }
+        case .same:
+            try requireMonotonicOrIdentical(
+                incomingRevision: incomingRevision,
+                incomingConfiguration: incomingConfiguration,
+                currentRevision: currentRevision,
+                currentConfiguration: currentConfiguration
+            )
+        case .conflicting:
+            guard incomingRevision == currentRevision,
+                  incomingConfiguration == currentConfiguration else {
+                throw CmxIrohRelayPolicyServiceError.preferenceRollback
+            }
+        case .newer:
+            if incomingRevision > currentRevision
+                || (incomingRevision == currentRevision
+                    && incomingConfiguration == currentConfiguration) {
                 return
             }
-            try requireMonotonicOrIdentical(
-                incomingRevision: incomingRevision,
-                incomingConfiguration: incomingConfiguration,
-                currentRevision: currentRevision,
-                currentConfiguration: currentConfiguration
-            )
-            return
+            guard incomingConfiguration.hasEquivalentActiveAuthority(
+                to: currentConfiguration
+            ) else {
+                throw CmxIrohRelayPolicyServiceError.preferenceRollback
+            }
         }
-        guard incomingRevision > currentRevision
-                || incomingConfiguration.hasEquivalentActiveAuthority(
-                    to: currentConfiguration
-                ) else {
-            throw CmxIrohRelayPolicyServiceError.preferenceRollback
-        }
+    }
+
+    private static func publicationOrder(
+        incoming: CmxIrohRelayPolicyPublication,
+        current: CmxIrohRelayPolicyPublication?,
+        currentPolicySequence: Int64?
+    ) -> PublicationOrder? {
+        let sequenceFloor = max(
+            currentPolicySequence ?? 0,
+            current?.sequence ?? 0
+        )
+        guard sequenceFloor > 0 else { return nil }
+        if incoming.sequence < sequenceFloor { return .olderSequence }
+        if incoming.sequence > sequenceFloor { return .newer }
+        guard let current, current.sequence == sequenceFloor else { return .same }
+        if incoming.issuedAt < current.issuedAt { return .olderPublication }
+        if incoming.issuedAt > current.issuedAt { return .newer }
+        return incoming.policyID == current.policyID ? .same : .conflicting
     }
 
     private static func requireMonotonicOrIdentical(
@@ -320,19 +369,27 @@ enum CmxIrohRelayPolicyResolution {
         configuration: CmxIrohAccountRelayConfiguration,
         policy: CmxIrohManagedRelayPolicy?,
         legacyPolicy: CmxIrohManagedRelayPolicy?,
+        legacyPolicySequence: Int64?,
         accountID: String,
         currentEffective: CmxIrohEffectiveRelayPolicy?,
         preferenceStore: CmxIrohRelayPreferenceStore
     ) async throws {
         let currentRevision = currentEffective?.preferenceRevision
         let currentConfiguration = currentEffective?.requestedConfiguration
+        let persisted: CmxIrohPersistedRelayPreference?
+        if currentRevision != nil, currentConfiguration != nil {
+            persisted = try? await preferenceStore.load(accountID: accountID)
+        } else {
+            persisted = try await preferenceStore.load(accountID: accountID)
+        }
         if let currentRevision, let currentConfiguration {
             let currentPublication: CmxIrohRelayPolicyPublication?
             if let currentPolicy = currentEffective?.managedPolicy {
                 currentPublication = CmxIrohRelayPolicyPublication(currentPolicy)
-            } else if let persisted = try? await preferenceStore.load(accountID: accountID) {
+            } else if let persisted {
                 currentPublication = CmxIrohRelayPolicyPublication(
                     policyID: persisted.policyID,
+                    sequence: persisted.policySequence,
                     issuedAt: persisted.policyIssuedAt
                 ) ?? legacyPolicy.map(CmxIrohRelayPolicyPublication.init)
             } else {
@@ -344,11 +401,16 @@ enum CmxIrohRelayPolicyResolution {
                 incomingPublication: policy.map(CmxIrohRelayPolicyPublication.init),
                 currentRevision: currentRevision,
                 currentConfiguration: currentConfiguration,
-                currentPublication: currentPublication
+                currentPublication: currentPublication,
+                currentPolicySequence: currentEffective?.managedPolicy?.sequence
+                    ?? persisted?.policySequence
+                    ?? persisted?.effectivePolicySequence
+                    ?? legacyPolicySequence
+                    ?? legacyPolicy?.sequence
             )
             return
         }
-        guard let existing = try await preferenceStore.load(accountID: accountID) else { return }
+        guard let existing = persisted else { return }
         try CmxIrohRelayPreferenceRevisionValidation.validate(
             incomingRevision: revision,
             incomingConfiguration: configuration,
@@ -357,8 +419,13 @@ enum CmxIrohRelayPolicyResolution {
             currentConfiguration: existing.requested,
             currentPublication: CmxIrohRelayPolicyPublication(
                 policyID: existing.policyID,
+                sequence: existing.policySequence,
                 issuedAt: existing.policyIssuedAt
-            ) ?? legacyPolicy.map(CmxIrohRelayPolicyPublication.init)
+            ) ?? legacyPolicy.map(CmxIrohRelayPolicyPublication.init),
+            currentPolicySequence: existing.policySequence
+                ?? existing.effectivePolicySequence
+                ?? legacyPolicySequence
+                ?? legacyPolicy?.sequence
         )
     }
 

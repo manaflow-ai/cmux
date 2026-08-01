@@ -7,7 +7,7 @@ public actor CmxIrohRelayPreferenceStore {
         let preference: CmxIrohPersistedRelayPreference
     }
 
-    private static let recordVersion = 3
+    private static let recordVersion = 4
     private let secureStore: any CmxIrohSecureCredentialStoring
     private var busyAccounts: Set<String> = []
     private var accountWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
@@ -32,6 +32,7 @@ public actor CmxIrohRelayPreferenceStore {
         effectivePolicySequence: Int64?,
         policy: CmxIrohManagedRelayPolicy?,
         legacyPolicy: CmxIrohManagedRelayPolicy? = nil,
+        legacyPolicySequence: Int64? = nil,
         staleRelayIDs: Set<String>,
         accountID: String
     ) async throws -> CmxIrohPersistedRelayPreference {
@@ -58,13 +59,19 @@ public actor CmxIrohRelayPreferenceStore {
                 currentConfiguration: existing.requested,
                 currentPublication: CmxIrohRelayPolicyPublication(
                     policyID: existing.policyID,
+                    sequence: existing.policySequence,
                     issuedAt: existing.policyIssuedAt
-                ) ?? legacyPolicy.map(CmxIrohRelayPolicyPublication.init)
+                ) ?? legacyPolicy.map(CmxIrohRelayPolicyPublication.init),
+                currentPolicySequence: existing.policySequence
+                    ?? existing.effectivePolicySequence
+                    ?? legacyPolicySequence
+                    ?? legacyPolicy?.sequence
             )
         }
         let publication = policy.map(CmxIrohRelayPolicyPublication.init)
             ?? CmxIrohRelayPolicyPublication(
                 policyID: existing?.policyID,
+                sequence: existing?.policySequence,
                 issuedAt: existing?.policyIssuedAt
             )
         let preference = CmxIrohPersistedRelayPreference(
@@ -73,6 +80,9 @@ public actor CmxIrohRelayPreferenceStore {
             revision: revision,
             effectivePolicySequence: effectivePolicySequence,
             policyID: publication?.policyID,
+            policySequence: publication?.sequence
+                ?? existing?.policySequence
+                ?? legacyPolicySequence,
             policyIssuedAt: publication?.issuedAt,
             staleRelayIDs: staleRelayIDs
         )
@@ -137,11 +147,8 @@ public actor CmxIrohRelayPreferenceStore {
               (1 ... Self.recordVersion).contains(record.version),
               record.preference.revision >= 0,
               record.preference.effectivePolicySequence.map({ $0 > 0 }) ?? true,
-              (record.preference.policyID == nil && record.preference.policyIssuedAt == nil)
-                || CmxIrohRelayPolicyPublication(
-                    policyID: record.preference.policyID,
-                    issuedAt: record.preference.policyIssuedAt
-                ) != nil,
+              record.preference.policySequence.map({ $0 > 0 }) ?? true,
+              Self.hasValidPublicationShape(record.preference),
               record.preference.staleRelayIDs.count
                 <= CmxIrohRelayPolicyVerifier.maximumRelayCount,
               (try? JSONEncoder().encode(record.preference.requested)) != nil,
@@ -151,5 +158,24 @@ public actor CmxIrohRelayPreferenceStore {
             throw CmxIrohRelayPolicyError.invalidClaims
         }
         return record
+    }
+
+    private static func hasValidPublicationShape(
+        _ preference: CmxIrohPersistedRelayPreference
+    ) -> Bool {
+        if preference.policyID == nil,
+           preference.policyIssuedAt == nil,
+           preference.policySequence == nil {
+            return true
+        }
+        guard let policyID = preference.policyID,
+              let issuedAt = preference.policyIssuedAt,
+              issuedAt >= 0,
+              UUID(uuidString: policyID)?.uuidString.lowercased() == policyID else {
+            return false
+        }
+        // Version 3 records carried authenticated identity and issue time but
+        // predate the explicit publication sequence.
+        return preference.policySequence.map({ $0 > 0 }) ?? true
     }
 }
