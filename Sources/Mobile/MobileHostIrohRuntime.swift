@@ -313,13 +313,15 @@ final class MobileHostIrohRuntime {
         } catch is CancellationError {
             return
         } catch {
+            let failureKind = Self.diagnosticFailureKind(for: error)
+            let failureType = String(reflecting: type(of: error))
             diagnosticLog.record(DiagnosticEvent(
                 .endpointFailed,
                 a: DiagnosticTransportKind.iroh.rawValue,
-                b: Self.diagnosticFailureKind(for: error).rawValue
+                b: failureKind.rawValue
             ))
             mobileHostIrohLog.error(
-                "Iroh host activation failed: \(String(describing: error), privacy: .private)"
+                "Iroh host activation failed kind=\(failureKind.rawValue, privacy: .public) type=\(failureType, privacy: .public) detail=\(String(describing: error), privacy: .private)"
             )
             scheduleFailureRecovery()
         }
