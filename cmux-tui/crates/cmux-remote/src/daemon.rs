@@ -686,6 +686,7 @@ pub struct RemoteDaemon {
     accepted_tx: mpsc::Sender<Arc<ServerConnection>>,
     handshakes: Semaphore,
     approvals: Semaphore,
+    revocation_monitor: StdMutex<Option<tokio::task::AbortHandle>>,
 }
 
 struct DaemonState {
@@ -738,8 +739,9 @@ impl RemoteDaemon {
             accepted_tx,
             handshakes: Semaphore::new(MAX_CONCURRENT_HANDSHAKES),
             approvals: Semaphore::new(MAX_PENDING_APPROVALS),
+            revocation_monitor: StdMutex::new(None),
         });
-        daemon.clone().spawn_revocation_monitor();
+        daemon.spawn_revocation_monitor();
         Ok((daemon, accepted_rx))
     }
 
@@ -1142,13 +1144,17 @@ impl RemoteDaemon {
         Ok(true)
     }
 
-    fn spawn_revocation_monitor(self: Arc<Self>) {
+    fn spawn_revocation_monitor(self: &Arc<Self>) {
         let mut changes = self.auth.subscribe_revocations();
-        tokio::spawn(async move {
+        let daemon = Arc::downgrade(self);
+        let monitor = tokio::spawn(async move {
             while changes.changed().await.is_ok() {
-                let connections = self.connections().await;
+                let Some(daemon) = daemon.upgrade() else {
+                    return;
+                };
+                let connections = daemon.connections().await;
                 for connection in connections {
-                    if !self.auth.device_is_active(&connection.device_id).await {
+                    if !daemon.auth.device_is_active(&connection.device_id).await {
                         tokio::spawn(async move {
                             let _ = connection.close().await;
                         });
@@ -1156,6 +1162,18 @@ impl RemoteDaemon {
                 }
             }
         });
+        *self.revocation_monitor.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(monitor.abort_handle());
+    }
+}
+
+impl Drop for RemoteDaemon {
+    fn drop(&mut self) {
+        if let Some(monitor) =
+            self.revocation_monitor.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+        {
+            monitor.abort();
+        }
     }
 }
 
