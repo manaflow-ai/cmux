@@ -28,28 +28,31 @@ enum MobileIrohConnectionReadinessOutcome: Equatable, Sendable {
 
 /// Owns endpoint activation readiness, failure backoff, and all waiters for the
 /// latest lifecycle revision.
+///
+/// The retry gate is the single client-side bound on broker traffic: every
+/// dial, discovery, and preparation re-triggers a reconcile while no runtime
+/// exists, and without one armed window a wedged phone re-ran registration,
+/// discovery, and relay-policy every few seconds indefinitely. The ladder's
+/// foreground cap keeps the armed nap short while the app is visible, and
+/// ``resetRetryCooldown()`` lifts it entirely on a real state change.
 @MainActor
 final class MobileIrohConnectionReadinessOwner {
-    private let retrySchedule: CmxIrohRetrySchedule
-    private let jitterUnitInterval: @MainActor () -> Double
+    /// One armed retry window: the caller-facing failure plus the exact drawn
+    /// delay for privacy-safe diagnostics.
+    struct ScheduledRetry {
+        let failure: MobileIrohRuntimePreparationError
+        let delay: TimeInterval
+    }
+
+    private let retryBackoff: CmxIrohReconnectBackoff
     private var pendingRevision: UInt64?
     private var settledOutcome = MobileIrohConnectionReadinessOutcome.inactive
     private var retryAccountID: String?
     private var retryAt: Date?
-    private var consecutiveFailureCount = 0
     private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
-    init(
-        retrySchedule: CmxIrohRetrySchedule = CmxIrohRetrySchedule(
-            initialDelay: 30,
-            maximumDelay: 3_600
-        ),
-        jitterUnitInterval: @escaping @MainActor () -> Double = {
-            Double.random(in: 0 ... 1)
-        }
-    ) {
-        self.retrySchedule = retrySchedule
-        self.jitterUnitInterval = jitterUnitInterval
+    init(retryBackoff: CmxIrohReconnectBackoff = CmxIrohReconnectBackoff()) {
+        self.retryBackoff = retryBackoff
     }
 
     var isPending: Bool { pendingRevision != nil }
@@ -75,10 +78,21 @@ final class MobileIrohConnectionReadinessOwner {
         case .failed:
             break
         case .inactive, .ready:
+            retryBackoff.reset()
             retryAccountID = nil
             retryAt = nil
-            consecutiveFailureCount = 0
         }
+        resumeWaiters()
+        return true
+    }
+
+    @discardableResult
+    func finishPendingRevision(revision: UInt64) -> Bool {
+        guard let activeRevision = pendingRevision,
+              activeRevision <= revision else {
+            return false
+        }
+        pendingRevision = nil
         resumeWaiters()
         return true
     }
@@ -90,36 +104,50 @@ final class MobileIrohConnectionReadinessOwner {
         error: any Error,
         retryAfterSeconds: Int?,
         now: Date
-    ) -> MobileIrohRuntimePreparationError? {
+    ) -> ScheduledRetry? {
         guard pendingRevision == revision else { return nil }
         if retryAccountID != accountID {
-            consecutiveFailureCount = 0
+            // A different account never inherits another account's streak.
+            retryBackoff.reset()
         }
         let serverFloor = max(
             retryAfterSeconds ?? 0,
             (error as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0
         )
-        let delay = retrySchedule.delay(
-            failureCount: consecutiveFailureCount,
-            retryAfterSeconds: serverFloor > 0 ? serverFloor : nil,
-            jitterUnitInterval: jitterUnitInterval()
+        let delay = retryBackoff.nextDelay(
+            retryAfterSeconds: serverFloor > 0 ? serverFloor : nil
         )
-        let boundedDelay = max(1, Int(delay.rounded(.up)))
         retryAccountID = accountID
         retryAt = now.addingTimeInterval(delay)
-        consecutiveFailureCount = min(consecutiveFailureCount + 1, 20)
         pendingRevision = nil
         let failure = MobileIrohRuntimePreparationError(
             diagnosticFailureKind: DiagnosticFailureKind.classify(error),
-            retryAfterSeconds: boundedDelay
+            retryAfterSeconds: max(1, Int(delay.rounded(.up)))
         )
         settledOutcome = .failed(failure)
         resumeWaiters()
-        return failure
+        return ScheduledRetry(failure: failure, delay: delay)
+    }
+
+    /// Returns the ladder to its floor and lifts the armed retry gate. Owners
+    /// call this on scenePhase-active transitions and network-path changes:
+    /// the failure streak belonged to the previous app or network state, so
+    /// the next activation attempt must run immediately.
+    func resetRetryCooldown() {
+        retryBackoff.reset()
+        retryAccountID = nil
+        retryAt = nil
+        if !isPending, case .failed = settledOutcome {
+            settledOutcome = .inactive
+        }
     }
 
     func shouldStartActivation(accountID: String, now: Date) -> Bool {
         guard !isPending else { return false }
+        return shouldAttemptActivation(accountID: accountID, now: now)
+    }
+
+    func shouldAttemptActivation(accountID: String, now: Date) -> Bool {
         guard retryAccountID == accountID, let retryAt else { return true }
         return now >= retryAt
     }

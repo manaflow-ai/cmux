@@ -551,7 +551,6 @@ private struct MobileIrohCooldownFixture {
                 deviceID: { stableDeviceID },
                 tag: tag,
                 now: { clock.now() },
-                connectionReadinessJitterUnitInterval: { 0 },
                 startNetworkPathObservation: { onPathChange in
                     await networkPathChangeHook.set(onPathChange)
                 },

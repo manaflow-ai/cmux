@@ -206,7 +206,14 @@ struct MobileIrohRuntimeCompositionTests {
         let startedAt = Date(timeIntervalSince1970: 1_000)
         let settledAt = startedAt.addingTimeInterval(10)
         let readiness = MobileIrohConnectionReadinessOwner(
-            jitterUnitInterval: { 0 }
+            retryBackoff: CmxIrohReconnectBackoff(
+                configuration: CmxIrohReconnectBackoffConfiguration(
+                    floor: 30,
+                    cap: 30,
+                    multiplier: 1
+                ),
+                seed: 0
+            )
         )
         let clock = MobileIrohReadinessTestClock(startedAt)
         readiness.begin(revision: 1)
@@ -215,7 +222,7 @@ struct MobileIrohRuntimeCompositionTests {
         await Task.yield()
         #expect(clock.readCount == 0)
         clock.set(settledAt)
-        let failure = try #require(readiness.completeFailure(
+        let scheduled = try #require(readiness.completeFailure(
             revision: 1,
             accountID: "account-a",
             error: MobileIrohSignOutTestError.unavailable,
@@ -224,12 +231,48 @@ struct MobileIrohRuntimeCompositionTests {
         ))
         let settledOutcome = await outcome
 
-        #expect(failure.retryAfterSeconds == 30)
+        #expect(scheduled.failure.retryAfterSeconds == 30)
+        #expect(scheduled.delay == 30)
         #expect(clock.readCount == 1)
         #expect(
             settledOutcome == .failed(MobileIrohRuntimePreparationError(
                 diagnosticFailureKind: .unknown,
                 retryAfterSeconds: 30
+            ))
+        )
+    }
+
+    @Test
+    func finishingPendingReadinessRevisionPreservesRetryGate() async throws {
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        let readiness = MobileIrohConnectionReadinessOwner(
+            retryBackoff: CmxIrohReconnectBackoff(
+                configuration: CmxIrohReconnectBackoffConfiguration(
+                    floor: 30,
+                    cap: 30,
+                    multiplier: 1
+                ),
+                seed: 0
+            )
+        )
+        readiness.begin(revision: 1)
+        _ = try #require(readiness.completeFailure(
+            revision: 1,
+            accountID: "account-a",
+            error: MobileIrohSignOutTestError.unavailable,
+            retryAfterSeconds: nil,
+            now: startedAt
+        ))
+
+        readiness.begin(revision: 2)
+        #expect(readiness.finishPendingRevision(revision: 2))
+
+        #expect(
+            await readiness.wait(
+                now: { startedAt.addingTimeInterval(10) }
+            ) == .failed(MobileIrohRuntimePreparationError(
+                diagnosticFailureKind: .unknown,
+                retryAfterSeconds: 20
             ))
         )
     }
