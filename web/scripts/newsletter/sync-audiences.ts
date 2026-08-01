@@ -63,6 +63,7 @@ const sourceCounts: Record<string, number> = {
   existingResendContacts: existingContacts.length,
 };
 
+let usersDesired: ReturnType<typeof buildUsersSegmentContacts> | null = null;
 if (args.audience === "users" || args.audience === "all") {
   const stackResult = await listStackContacts({
     projectId: requiredEnv("NEXT_PUBLIC_STACK_PROJECT_ID"),
@@ -73,15 +74,16 @@ if (args.audience === "users" || args.audience === "all") {
   sourceCounts.stackSkippedMissingOrUnverifiedEmail =
     stackResult.skippedMissingOrUnverifiedEmail;
 
+  usersDesired = buildUsersSegmentContacts(
+    stackResult.contacts,
+    stripeResult.contacts,
+  );
   summaries.push(
     await syncSegment({
       client,
       segmentName: USERS_SEGMENT_NAME,
       topic: USERS_TOPIC,
-      desired: buildUsersSegmentContacts(
-        stackResult.contacts,
-        stripeResult.contacts,
-      ),
+      desired: usersDesired,
       existingContacts,
       apply: args.apply,
     }),
@@ -89,12 +91,50 @@ if (args.audience === "users" || args.audience === "all") {
 }
 
 if (args.audience === "founders" || args.audience === "all") {
-  // Re-list when the users sync just ran with --apply, so contacts it
-  // created are visible to the founders plan instead of double-created.
-  const contactsForFounders =
-    args.apply && summaries.length > 0
-      ? await client.listContacts()
-      : existingContacts;
+  // The founders plan must see the users sync's effects or a brand-new
+  // founder would be double-reported as a create in both segments. In
+  // apply mode, re-list the real state; in a dry run, project the users
+  // plan onto the listing (planned creates become existing subscribed
+  // contacts, planned name backfills are applied) so the preview matches
+  // what apply will actually do.
+  let contactsForFounders = existingContacts;
+  if (usersDesired) {
+    if (args.apply) {
+      contactsForFounders = await client.listContacts();
+    } else {
+      const projected = existingContacts.map((contact) => ({ ...contact }));
+      const byEmail = new Map(
+        projected.map((contact) => [
+          contact.email.trim().toLowerCase(),
+          contact,
+        ]),
+      );
+      let planned = 0;
+      for (const desired of usersDesired) {
+        const current = byEmail.get(desired.email);
+        if (!current) {
+          projected.push({
+            id: `planned_${planned++}`,
+            email: desired.email,
+            first_name: desired.firstName ?? null,
+            last_name: desired.lastName ?? null,
+            unsubscribed: false,
+          });
+          continue;
+        }
+        if (current.unsubscribed) {
+          continue;
+        }
+        if (!current.first_name && desired.firstName) {
+          current.first_name = desired.firstName;
+        }
+        if (!current.last_name && desired.lastName) {
+          current.last_name = desired.lastName;
+        }
+      }
+      contactsForFounders = projected;
+    }
+  }
   summaries.push(
     await syncSegment({
       client,
