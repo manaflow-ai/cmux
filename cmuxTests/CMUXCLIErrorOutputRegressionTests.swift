@@ -969,6 +969,88 @@ import Testing
         #expect(restoreParams["surface_id"] as? String != siblingSurfaceID)
     }
 
+    @Test func testRestoreScopesLegacyRelayTTYFallbackToResolvedWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let staleWorkspaceID = UUID().uuidString
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let siblingWorkspaceID = UUID().uuidString
+        let siblingSurfaceID = UUID().uuidString
+        let workspaceResponse = try jsonResponse(result: [
+            "source": "workspace",
+            "workspace_id": workspaceID,
+            "surface_id": NSNull(),
+        ])
+        let terminalsResponse = try jsonResponse(result: [
+            "terminals": [
+                [
+                    "tty": "0",
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                ],
+                [
+                    "tty": "0",
+                    "workspace_id": siblingWorkspaceID,
+                    "surface_id": siblingSurfaceID,
+                ],
+            ],
+        ])
+        let recordResponse = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let relayID = "relay-\(UUID().uuidString.lowercased())"
+        let responder = try RelaySocketResponder(
+            relayID: relayID,
+            responses: [workspaceResponse, terminalsResponse, recordResponse]
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = responder.endpoint
+        environment["CMUX_RELAY_ID"] = relayID
+        environment["CMUX_RELAY_TOKEN"] = String(repeating: "11", count: 32)
+        environment["CMUX_WORKSPACE_ID"] = staleWorkspaceID
+        environment["CMUX_CLI_TTY_NAME"] = "0"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "agent.resolve_delivery_target",
+            "debug.terminals",
+            "surface.resume.get",
+        ])
+        let targetParams = try #require(requests.first?["params"] as? [String: Any])
+        #expect(targetParams["workspace_id"] as? String == staleWorkspaceID)
+        let restoreParams = try #require(requests.last?["params"] as? [String: Any])
+        #expect(restoreParams["surface_id"] as? String == surfaceID)
+        #expect(restoreParams["surface_id"] as? String != siblingSurfaceID)
+    }
+
     @Test func testRestoreRejectsMalformedLiveProcessTargetWithoutFallingBack() throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = "pi-\(UUID().uuidString.lowercased())"
