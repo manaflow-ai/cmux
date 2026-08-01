@@ -1,4 +1,6 @@
 import Foundation
+import Observation
+import os
 import Testing
 @testable import CmuxNotifications
 
@@ -57,7 +59,12 @@ struct SidebarUnreadSnapshotTests {
         let first = await iterator.next()
         #expect(first == model.snapshot)
 
-        var nextIterator = model.snapshotChanges().makeAsyncIterator()
+        let publicationCount = OSAllocatedUnfairLock(initialState: 0)
+        withObservationTracking {
+            _ = model.snapshot
+        } onChange: {
+            publicationCount.withLock { $0 += 1 }
+        }
         model.apply(
             totalUnreadCount: 1,
             summaries: [
@@ -70,6 +77,12 @@ struct SidebarUnreadSnapshotTests {
             focusedReadIndicatorByWorkspaceId: [:],
             manualUnreadWorkspaceIds: []
         )
+        #expect(
+            publicationCount.withLock { $0 } == 0,
+            "An equivalent snapshot must not publish."
+        )
+
+        var nextIterator = model.snapshotChanges().makeAsyncIterator()
         model.apply(
             totalUnreadCount: 0,
             summaries: [:],

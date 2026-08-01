@@ -248,10 +248,11 @@ extension VerticalTabsSidebar {
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
         renderContext: WorkspaceListRenderContext,
-        unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary],
+        unreadSnapshot: SidebarUnreadSnapshot,
         notificationIndex: SidebarWorkspaceNotificationIndex,
         shouldCollectWorkspaceDropTargets: Bool
     ) -> SidebarWorkspaceGroupRowSnapshot {
+        let unreadSummariesByWorkspaceId = unreadSnapshot.summaryByWorkspaceId
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
         let isMultiSelected = selectedTabIds.contains(group.anchorWorkspaceId)
@@ -281,13 +282,12 @@ extension VerticalTabsSidebar {
             }
             return unreadSummariesByWorkspaceId[group.anchorWorkspaceId]?.unreadCount ?? 0
         }()
-        let anchorIds = [group.anchorWorkspaceId]
-        let canMarkAnchorRead = anchorIds.contains {
-            (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) > 0
-        }
-        let canMarkAnchorUnread = anchorIds.contains {
-            (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) == 0
-        }
+        let canMarkAnchorRead = unreadSnapshot.canMarkWorkspaceRead(
+            forWorkspaceIds: [group.anchorWorkspaceId]
+        )
+        let canMarkAnchorUnread = unreadSnapshot.canMarkWorkspaceUnread(
+            forWorkspaceIds: [group.anchorWorkspaceId]
+        )
         let anchorHasLatestNotification = notificationIndex.hasNotification(
             workspaceId: group.anchorWorkspaceId
         )
@@ -295,12 +295,12 @@ extension VerticalTabsSidebar {
         // never the anchor: the anchor is the group's own row, whose read status
         // is owned by the separate "Mark Group as Read/Unread" actions.
         let nonAnchorMemberIds = memberWorkspaceIds.filter { $0 != group.anchorWorkspaceId }
-        let canMarkAllRead = nonAnchorMemberIds.contains {
-            (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) > 0
-        }
-        let canMarkAllUnread = nonAnchorMemberIds.contains {
-            (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) == 0
-        }
+        let canMarkAllRead = unreadSnapshot.canMarkWorkspaceRead(
+            forWorkspaceIds: nonAnchorMemberIds
+        )
+        let canMarkAllUnread = unreadSnapshot.canMarkWorkspaceUnread(
+            forWorkspaceIds: nonAnchorMemberIds
+        )
         let rowId = SidebarWorkspaceRenderItemID.group(group.id)
         let isPointerHovering = pointerInteractionMonitor.hoveredRowId == rowId
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(

@@ -168,6 +168,10 @@ private final class CMUXSidebarSnapshotCache {
         snapshot = next
         return next
     }
+
+    func containsWorkspaces(_ workspaceIDs: [UUID]) -> Bool {
+        snapshot?.workspaces.map(\.id) == workspaceIDs
+    }
 }
 
 struct CMUXInstalledExtensionSidebarHostView: View {
@@ -175,6 +179,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     private static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
 
     var snapshotProvider: @MainActor () -> CmuxSidebarSnapshot
+    var workspaceIDsProvider: @MainActor () -> [UUID]
     var snapshotUpdateToken: UInt64 = 0
     let unreadSource: SidebarUnreadModel
     var actionHandler: @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult
@@ -305,7 +310,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         .task {
             for await unreadSnapshot in unreadSource.snapshotChanges() {
                 guard !Task.isCancelled else { return }
-                if snapshotCache.snapshot == nil {
+                // Rebuild rich metadata only when workspace membership changed.
+                // The common unread-only path stays a cheap cache patch.
+                if !snapshotCache.containsWorkspaces(workspaceIDsProvider()) {
                     _ = snapshotCache.replace(with: snapshotProvider())
                 }
                 guard let snapshot = snapshotCache.applyUnread(unreadSnapshot) else { continue }

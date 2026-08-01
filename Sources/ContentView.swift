@@ -11552,7 +11552,8 @@ struct VerticalTabsSidebar: View, Equatable {
         // whether a change class re-renders the sidebar subtree or skips it.
         cmuxDebugLog("sidebar.table.rowsBuild items=\(renderContext.workspaceRenderItems.count)")
 #endif
-        let unreadSummariesByWorkspaceId = sidebarUnread.summaryByWorkspaceId
+        let unreadSnapshot = sidebarUnread.snapshot
+        let unreadSummariesByWorkspaceId = unreadSnapshot.summaryByWorkspaceId
         let notificationIndex = SidebarWorkspaceNotificationIndex(
             notifications: notificationStore.notifications
         )
@@ -11573,7 +11574,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
                     renderContext: renderContext,
-                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
+                    unreadSnapshot: unreadSnapshot,
                     notificationIndex: notificationIndex,
                     shouldCollectWorkspaceDropTargets: false
                 )
@@ -11974,6 +11975,7 @@ struct VerticalTabsSidebar: View, Equatable {
         if effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
             CMUXInstalledExtensionSidebarHostView(
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
+                workspaceIDsProvider: { tabManager.tabs.map(\.id) },
                 snapshotUpdateToken: extensionSidebarUpdateToken,
                 unreadSource: sidebarUnread,
                 actionHandler: { handleCMUXSidebarExtensionAction($0) },
@@ -13243,7 +13245,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
                     renderContext: renderContext,
-                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
+                    unreadSnapshot: unreadSnapshot,
                     notificationIndex: notificationIndex,
                     shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
                 )

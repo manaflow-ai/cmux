@@ -34,6 +34,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorIncludesRowTargets = false
     private weak var unreadSource: SidebarUnreadModel?
     private var unreadSnapshot = SidebarUnreadSnapshot()
+    // Written only by setUnreadSource(), dismantleContainerView(), and deinit.
+    // The unsafe escape exists solely so nonisolated deinit can cancel it.
     private nonisolated(unsafe) var unreadTask: Task<Void, Never>?
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?

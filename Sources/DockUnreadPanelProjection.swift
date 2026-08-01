@@ -14,6 +14,8 @@ final class DockUnreadPanelProjection {
     @ObservationIgnored private var isActive = false
     @ObservationIgnored private var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>
     @ObservationIgnored private var focusedReadIndicatorByWorkspaceID: [UUID: UUID]
+    // Written only by init and deinit. The unsafe escape exists solely so
+    // nonisolated deinit can cancel it.
     @ObservationIgnored private nonisolated(unsafe) var unreadTask: Task<Void, Never>?
 
     init(
