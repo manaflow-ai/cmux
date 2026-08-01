@@ -1456,6 +1456,36 @@ fn server_status_and_stop_control_a_compatible_headless_session() {
     assert!(!server.socket.exists());
 }
 
+#[test]
+fn server_lifecycle_help_and_machine_rejection_are_localized() {
+    let help = Command::new(bin())
+        .env("LC_ALL", "ja_JP.UTF-8")
+        .env("LC_MESSAGES", "ja_JP.UTF-8")
+        .env("LANG", "ja_JP.UTF-8")
+        .args(["server", "--help"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&help);
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(help.contains("使用方法"), "{help}");
+    assert!(help.contains("別のリリース"), "{help}");
+    assert!(!help.contains("These local lifecycle commands"), "{help}");
+
+    let rejected = Command::new(bin())
+        .env("LC_ALL", "ja_JP.UTF-8")
+        .env("LC_MESSAGES", "ja_JP.UTF-8")
+        .env("LANG", "ja_JP.UTF-8")
+        .args(["--machine", "remote", "server", "status"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_eq!(rejected.status.code(), Some(2));
+    let rejected = String::from_utf8(rejected.stderr).unwrap();
+    assert!(rejected.contains("--machine を使用できません"), "{rejected}");
+    assert!(!rejected.contains("lifecycle commands cannot use"), "{rejected}");
+}
+
 #[cfg(unix)]
 #[test]
 fn signal_termination_completes_server_shutdown() {
