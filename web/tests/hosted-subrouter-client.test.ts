@@ -53,7 +53,6 @@ describe("hosted Subrouter client", () => {
         label: "work",
         health: {
           ok: false,
-          message: "refresh failed",
         },
       },
     ]);
