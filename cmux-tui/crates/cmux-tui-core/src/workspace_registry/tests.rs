@@ -2608,3 +2608,24 @@ fn interrupted_transaction_and_newer_schema_fail_closed() {
     assert!(error.to_string().contains("unsupported workspace registry schema"));
     fs::remove_dir_all(newer_root).unwrap();
 }
+
+#[test]
+fn newer_schema_is_reported_before_writer_lease_conflict() {
+    let root = temp_root("newer-before-lease");
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    registry
+        .connection
+        .execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+            [(SCHEMA_VERSION + 1).to_string()],
+        )
+        .unwrap();
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    let schema = error.downcast_ref::<UnsupportedWorkspaceRegistrySchema>().unwrap();
+    assert_eq!(schema.found(), SCHEMA_VERSION + 1);
+    assert!(!error.to_string().contains("already owned"));
+
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}

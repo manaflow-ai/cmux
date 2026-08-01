@@ -265,7 +265,9 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("future session.sock");
     let state = dir.join("state");
-    let session = "schema-recovery";
+    let home = dir.join("home");
+    fs::create_dir_all(&home).unwrap();
+    let session = "schema-{found}";
 
     drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
     let database = fs::read_dir(&state)
@@ -283,6 +285,9 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
         .parse()
         .unwrap();
     let newer = supported + 1;
+    let registry_id: String = connection
+        .query_row("SELECT value FROM meta WHERE key = 'registry_id'", [], |row| row.get(0))
+        .unwrap();
     connection
         .execute("UPDATE meta SET value = ?1 WHERE key = 'schema_version'", [newer.to_string()])
         .unwrap();
@@ -294,6 +299,10 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
             .arg(&socket)
             .arg("--state")
             .arg(&state)
+            .env("HOME", &home)
+            .env("CFFIXED_USER_HOME", &home)
+            .env("XDG_CONFIG_HOME", home.join(".config"))
+            .env("CMUX_TUI_CONFIG", home.join("cmux.json"))
             .env("LC_ALL", locale)
             .env("LC_MESSAGES", locale)
             .env("LANG", locale)
@@ -305,8 +314,8 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     assert!(!english.status.success());
     let english = String::from_utf8(english.stderr).unwrap();
     assert!(english.contains(&format!("session \"{session}\"")), "{english}");
-    assert!(english.contains(&format!("workspace schema {newer}")), "{english}");
-    assert!(english.contains(&format!("supports through {supported}")), "{english}");
+    assert!(!english.contains("workspace schema"), "{english}");
+    assert!(!english.contains("supports through"), "{english}");
     assert!(english.contains(&format!("session socket: {}", socket.display())), "{english}");
     assert!(!english.contains("state database:"), "{english}");
     assert!(!english.contains(&database.display().to_string()), "{english}");
@@ -316,12 +325,36 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     );
     assert!(!english.contains("session current shutdown --force"), "{english}");
     assert!(english.contains("saved state still requires a newer cmux"), "{english}");
-    assert!(english.contains(&format!("--session '{session}-schema{supported}'")), "{english}");
+    assert!(english.contains(&format!("--session '{session}-separate'")), "{english}");
 
     #[cfg(unix)]
     {
         let listener = UnixListener::bind(&socket).unwrap();
+        let expected_session = session.to_string();
+        let expected_registry_id = registry_id.clone();
+        let responder = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut request).unwrap();
+            let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            assert_eq!(request["cmd"], "identify");
+            writeln!(
+                stream,
+                "{}",
+                serde_json::json!({
+                    "id": request["id"],
+                    "ok": true,
+                    "data": {
+                        "app": "cmux-tui",
+                        "session": expected_session,
+                        "registry_id": expected_registry_id,
+                    },
+                })
+            )
+            .unwrap();
+        });
         let live_server = launch("C");
+        responder.join().unwrap();
         assert!(!live_server.status.success());
         let live_server = String::from_utf8(live_server.stderr).unwrap();
         assert!(
@@ -336,7 +369,43 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
                 .contains("no server is listening on this socket; nothing needs to be stopped"),
             "{live_server}"
         );
-        drop(listener);
+
+        fs::remove_file(&socket).unwrap();
+        let listener = UnixListener::bind(&socket).unwrap();
+        let expected_session = session.to_string();
+        let responder = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut request).unwrap();
+            let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            writeln!(
+                stream,
+                "{}",
+                serde_json::json!({
+                    "id": request["id"],
+                    "ok": true,
+                    "data": {
+                        "app": "cmux-tui",
+                        "session": expected_session,
+                        "registry_id": "another-registry",
+                    },
+                })
+            )
+            .unwrap();
+        });
+        let other_server = launch("C");
+        responder.join().unwrap();
+        assert!(!other_server.status.success());
+        let other_server = String::from_utf8(other_server.stderr).unwrap();
+        assert!(
+            other_server.contains(
+                "this socket belongs to a different cmux session; no shutdown command is shown"
+            ),
+            "{other_server}"
+        );
+        assert!(!other_server.contains("session current shutdown --force"), "{other_server}");
+
+        fs::remove_file(&socket).unwrap();
     }
 
     let japanese = launch("ja_JP.UTF-8");
