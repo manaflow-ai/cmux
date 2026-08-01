@@ -22,7 +22,7 @@ import {
   IrohQuotaExceededError,
 } from "./errors";
 import type { PairGrantPeer } from "./crypto";
-import type { IrohChallengeQuota } from "./config";
+import type { IrohDiscoveryCursor } from "./discoveryPagination";
 import {
   nextPathHintExpiry,
   parseIrohPathHint,
@@ -34,25 +34,7 @@ import {
 export const IROH_RETENTION_BATCH_SIZE = 500;
 export const IROH_RETENTION_MAX_ROWS = 10_000;
 export const IROH_RETENTION_MAX_DURATION_MS = 8_000;
-export const IROH_ACCOUNT_CHALLENGE_LIMIT = 120;
 export const IROH_RELAY_RESERVATION_LEASE_MS = 60 * 1_000;
-// A backstop on how many active (non-revoked) endpoint bindings one account may
-// accumulate. Under the unique(user, device, tag) slot key a normal user holds a
-// handful of bindings and a heavy multi-tag developer at most low hundreds, so
-// this only trips on a stuck registration loop or abuse. When a genuinely new
-// slot would push the count over the cap, that registration is REJECTED
-// (`enforceActiveBindingSanityCap` throws IrohConflictError); the row set is
-// never evicted, so a churning client can never shed the account's real hosts.
-//
-// The cap is pinned to the client's discovery-snapshot wire limit: the iOS
-// decoder (CmxIrohDiscoveryResponse.maximumBindingCount) rejects any snapshot
-// carrying MORE than 256 bindings, and discoverySnapshot returns every active
-// binding for the account uncapped. Admitting a 257th active binding would make
-// the account's own discovery response undecodable on every client, wedging all
-// of that user's devices, so the broker refuses to grow past what the client can
-// receive. It still sits far above any legitimate multi-tag developer's slot
-// count while catching a runaway registration loop, which blows past it at once.
-export const IROH_ACTIVE_BINDING_SANITY_CAP = 256;
 
 export type IrohRetentionCategory =
   | "revokedHints"
@@ -76,6 +58,11 @@ export type IrohChallengeRecord = typeof irohRegistrationChallenges.$inferSelect
 export type IrohRegistrationCommit = {
   readonly binding: IrohBindingRecord;
   readonly created: boolean;
+  readonly accountRevision: number;
+};
+export type IrohRevocationCommit = {
+  readonly revoked: boolean;
+  readonly accountRevision: number;
 };
 type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
@@ -98,7 +85,6 @@ export type IrohRepositoryShape = {
     readonly nonceHash: string;
     readonly now: Date;
     readonly expiresAt: Date;
-    readonly challengeQuota?: IrohChallengeQuota;
   }) => Effect.Effect<IrohChallengeRecord, RepositoryError>;
   readonly findChallenge: (
     userId: string,
@@ -111,12 +97,16 @@ export type IrohRepositoryShape = {
     readonly payload: IrohRegistrationPayload;
     readonly now: Date;
   }) => Effect.Effect<IrohRegistrationCommit, RepositoryError>;
-  readonly discoverySnapshot: (input: {
+  readonly discoveryPage: (input: {
     readonly userId: string;
     readonly now: Date;
+    readonly pageSize: number;
+    readonly cursor?: IrohDiscoveryCursor;
   }) => Effect.Effect<{
     readonly bindings: IrohBindingRecord[];
     readonly lanDiscoveryGeneration: number;
+    readonly accountRevision: number;
+    readonly nextCursor: IrohDiscoveryCursor | null;
   }, RepositoryError>;
   readonly findActiveBindings: (
     userId: string,
@@ -126,12 +116,12 @@ export type IrohRepositoryShape = {
     userId: string,
     endpointId: string,
   ) => Effect.Effect<IrohBindingRecord | null, RepositoryError>;
-  /** Returns true when the exact binding is owned and revoked, including retries. */
+  /** Returns the authoritative revision after revoking the owned binding. */
   readonly revokeBinding: (input: {
     readonly userId: string;
     readonly bindingId: string;
     readonly now: Date;
-  }) => Effect.Effect<boolean, RepositoryError>;
+  }) => Effect.Effect<IrohRevocationCommit, RepositoryError>;
   readonly pruneExpiredState: (input: {
     readonly userId: string;
     readonly now: Date;
@@ -198,50 +188,8 @@ function makeLiveRepository(): IrohRepositoryShape {
     issueChallenge: (input) => repositoryEffect("issue_challenge", async () => {
       const db = cloudDb();
       return await db.transaction(async (tx) => {
-        const challengeQuota = input.challengeQuota ?? {
-          account: IROH_ACCOUNT_CHALLENGE_LIMIT,
-          deviceInstance: 6,
-          outstanding: 32,
-        };
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:challenge:${input.userId}`}, 0))`);
-        const tenMinutesAgo = new Date(input.now.getTime() - 10 * 60 * 1_000);
-        const [recentForAccount] = await tx
-          .select({ total: count() })
-          .from(irohRegistrationChallenges)
-          .where(and(
-            eq(irohRegistrationChallenges.userId, input.userId),
-            gt(irohRegistrationChallenges.createdAt, tenMinutesAgo),
-          ));
-        if ((recentForAccount?.total ?? 0) >= challengeQuota.account) {
-          throw new IrohQuotaExceededError({
-            code: "challenge_account_rate_limited",
-            retryAfterSeconds: 600,
-          });
-        }
-        const [recentForDeviceInstance] = await tx
-          .select({ total: count() })
-          .from(irohRegistrationChallenges)
-          .where(and(
-            eq(irohRegistrationChallenges.userId, input.userId),
-            eq(irohRegistrationChallenges.deviceUuid, input.deviceUuid),
-            eq(irohRegistrationChallenges.appInstanceId, input.appInstanceId),
-            gt(irohRegistrationChallenges.createdAt, tenMinutesAgo),
-          ));
-        if ((recentForDeviceInstance?.total ?? 0) >= challengeQuota.deviceInstance) {
-          throw new IrohQuotaExceededError({ code: "challenge_rate_limited", retryAfterSeconds: 600 });
-        }
-        const [outstanding] = await tx
-          .select({ total: count() })
-          .from(irohRegistrationChallenges)
-          .where(and(
-            eq(irohRegistrationChallenges.userId, input.userId),
-            isNull(irohRegistrationChallenges.consumedAt),
-            gt(irohRegistrationChallenges.expiresAt, input.now),
-          ));
-        if ((outstanding?.total ?? 0) >= challengeQuota.outstanding) {
-          throw new IrohQuotaExceededError({ code: "too_many_outstanding_challenges", retryAfterSeconds: 300 });
-        }
         // The register gate rejects a challenge whose createdAt is strictly
         // below the slot's registeredAt high-water mark. Both are millisecond
         // wall clocks, so two serialized mints can carry EQUAL timestamps; a
@@ -416,7 +364,8 @@ function makeLiveRepository(): IrohRepositoryShape {
             .set({ consumedAt: input.now })
             .where(eq(irohRegistrationChallenges.id, challenge.id));
           if (!updated) throw new Error("binding update returned no row");
-          return { binding: updated, created: false };
+          const accountRevision = await advanceRouteRevision(tx, input.userId, input.now);
+          return { binding: updated, created: false, accountRevision };
         }
 
         // A NEW incarnation on an existing slot: the endpoint key rotated (a
@@ -439,13 +388,6 @@ function makeLiveRepository(): IrohRepositoryShape {
             bindingIds: [existingSlot.id],
             now: input.now,
             reason: "slot_reincarnated",
-          });
-        } else {
-          // Only a genuinely new slot grows the account's active-binding count,
-          // so the sanity cap is enforced on this path alone.
-          await enforceActiveBindingSanityCap(tx, {
-            userId: input.userId,
-            now: input.now,
           });
         }
 
@@ -489,10 +431,27 @@ function makeLiveRepository(): IrohRepositoryShape {
         // audit point at a binding it was never signed for. The retired slot's live
         // grants were already marked revoked by revokeActiveBindings above.
 
-        await tx
-          .insert(irohAccountSecurityStates)
-          .values({ userId: input.userId, lanDiscoveryGeneration: 1, createdAt: input.now, updatedAt: input.now })
-          .onConflictDoNothing({ target: irohAccountSecurityStates.userId });
+        if (!existingSlot) {
+          // A new active row changes the set traversed by discovery. Rotate the
+          // generation so a cursor cannot combine pages around the insertion.
+          // Reincarnation already rotates through revokeActiveBindings above.
+          await tx
+            .insert(irohAccountSecurityStates)
+            .values({
+              userId: input.userId,
+              lanDiscoveryGeneration: 1,
+              createdAt: input.now,
+              updatedAt: input.now,
+            })
+            .onConflictDoUpdate({
+              target: irohAccountSecurityStates.userId,
+              set: {
+                lanDiscoveryGeneration:
+                  sql`${irohAccountSecurityStates.lanDiscoveryGeneration} + 1`,
+                updatedAt: input.now,
+              },
+            });
+        }
         await tx
           .update(irohRegistrationChallenges)
           .set({ consumedAt: input.now })
@@ -500,34 +459,67 @@ function makeLiveRepository(): IrohRepositoryShape {
             eq(irohRegistrationChallenges.id, challenge.id),
             isNull(irohRegistrationChallenges.consumedAt),
           ));
-        return { binding, created: true };
+        const accountRevision = await advanceRouteRevision(tx, input.userId, input.now);
+        return { binding, created: true, accountRevision };
       });
     }),
 
-    discoverySnapshot: (input) => repositoryEffect("discovery_snapshot", async () => {
+    discoveryPage: (input) => repositoryEffect("discovery_page", async () => {
       return await cloudDb().transaction(async (tx) => {
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
-        const [state] = await tx
-          .insert(irohAccountSecurityStates)
-          .values({ userId: input.userId, lanDiscoveryGeneration: 1, createdAt: input.now, updatedAt: input.now })
-          .onConflictDoUpdate({
-            target: irohAccountSecurityStates.userId,
-            set: { updatedAt: sql`${irohAccountSecurityStates.updatedAt}` },
+        const [existingState] = await tx
+          .select({
+            generation: irohAccountSecurityStates.lanDiscoveryGeneration,
+            revision: irohAccountSecurityStates.routeRevision,
           })
-          .returning({ generation: irohAccountSecurityStates.lanDiscoveryGeneration });
+          .from(irohAccountSecurityStates)
+          .where(eq(irohAccountSecurityStates.userId, input.userId))
+          .limit(1);
+        const [insertedState] = existingState
+          ? []
+          : await tx
+            .insert(irohAccountSecurityStates)
+            .values({
+              userId: input.userId,
+              lanDiscoveryGeneration: 1,
+              routeRevision: 0,
+              createdAt: input.now,
+              updatedAt: input.now,
+            })
+            .returning({
+              generation: irohAccountSecurityStates.lanDiscoveryGeneration,
+              revision: irohAccountSecurityStates.routeRevision,
+            });
+        const state = existingState ?? insertedState;
         if (!state) throw new Error("account security state returned no row");
-        const bindings = await tx
+        if (input.cursor && input.cursor.generation !== state.generation) {
+          throw new IrohConflictError({ code: "discovery_cursor_stale" });
+        }
+        const rows = await tx
           .select()
           .from(irohEndpointBindings)
           .where(and(
             eq(irohEndpointBindings.userId, input.userId),
             isNull(irohEndpointBindings.revokedAt),
+            input.cursor
+              ? gt(irohEndpointBindings.id, input.cursor.afterBindingId)
+              : undefined,
           ))
-          .orderBy(asc(irohEndpointBindings.registeredAt));
+          .orderBy(asc(irohEndpointBindings.id))
+          .limit(input.pageSize + 1);
+        const bindings = rows.slice(0, input.pageSize);
+        const last = bindings.at(-1);
         return {
           bindings,
           lanDiscoveryGeneration: state.generation,
+          accountRevision: state.revision,
+          nextCursor: rows.length > input.pageSize && last
+            ? {
+              generation: state.generation,
+              afterBindingId: last.id,
+            }
+            : null,
         };
       });
     }),
@@ -576,8 +568,18 @@ function makeLiveRepository(): IrohRepositoryShape {
           ))
           .for("update")
           .limit(1);
-        if (!binding) return false;
-        if (binding.revokedAt) return true;
+        if (!binding) {
+          return {
+            revoked: false,
+            accountRevision: await currentRouteRevision(tx, input.userId, input.now),
+          };
+        }
+        if (binding.revokedAt) {
+          return {
+            revoked: true,
+            accountRevision: await currentRouteRevision(tx, input.userId, input.now),
+          };
+        }
 
         const revoked = await revokeActiveBindings(tx, {
           userId: input.userId,
@@ -585,8 +587,16 @@ function makeLiveRepository(): IrohRepositoryShape {
           now: input.now,
           reason: "user_requested",
         });
-        if (revoked.length === 0) return false;
-        return true;
+        if (revoked.length === 0) {
+          return {
+            revoked: false,
+            accountRevision: await currentRouteRevision(tx, input.userId, input.now),
+          };
+        }
+        return {
+          revoked: true,
+          accountRevision: await advanceRouteRevision(tx, input.userId, input.now),
+        };
       });
     }),
 
@@ -607,8 +617,10 @@ function makeLiveRepository(): IrohRepositoryShape {
           ))
           .limit(IROH_RETENTION_BATCH_SIZE)
           .for("update");
+        let routeChanged = false;
         for (const binding of bindings) {
           const retained = retainedStoredHints(binding.pathHints, input.now);
+          routeChanged ||= retained.length !== binding.pathHints.length;
           await tx
             .update(irohEndpointBindings)
             .set({
@@ -617,6 +629,9 @@ function makeLiveRepository(): IrohRepositoryShape {
               updatedAt: input.now,
             })
             .where(eq(irohEndpointBindings.id, binding.id));
+        }
+        if (routeChanged) {
+          await advanceRouteRevision(tx, input.userId, input.now);
         }
 
         const challengeRetentionCutoff = new Date(input.now.getTime() - 24 * 60 * 60 * 1_000);
@@ -765,23 +780,6 @@ function makeLiveRepository(): IrohRepositoryShape {
         if (initiator.platform !== "ios" || acceptor.platform !== "mac" || !acceptor.pairingEnabled) {
           throw new IrohForbiddenError({ code: "target_not_pairable" });
         }
-        const hourAgo = new Date(input.issuedAt.getTime() - 60 * 60 * 1_000);
-        const recent = await tx
-          .select({ issuedAt: irohPairGrantIssuances.issuedAt })
-          .from(irohPairGrantIssuances)
-          .where(and(
-            eq(irohPairGrantIssuances.userId, input.userId),
-            gt(irohPairGrantIssuances.issuedAt, hourAgo),
-          ))
-          .orderBy(asc(irohPairGrantIssuances.issuedAt));
-        if (recent.length >= 60) {
-          throw quotaFromOldest(
-            "pair_grant_hour_quota",
-            recent[recent.length - 60]!.issuedAt,
-            60 * 60,
-            input.issuedAt,
-          );
-        }
         await tx.insert(irohPairGrantIssuances).values({
           userId: input.userId,
           jti: input.jti,
@@ -834,37 +832,6 @@ function makeLiveRepository(): IrohRepositoryShape {
             eq(irohRelayTokenIssuances.status, "pending"),
             lte(irohRelayTokenIssuances.requestedAt, reservationCutoff),
           ));
-
-        const dayAgo = new Date(input.now.getTime() - 24 * 60 * 60 * 1_000);
-        const tenMinutesAgo = new Date(input.now.getTime() - 10 * 60 * 1_000);
-        const endpointRows = await tx
-          .select({ requestedAt: irohRelayTokenIssuances.requestedAt })
-          .from(irohRelayTokenIssuances)
-          .where(and(
-            eq(irohRelayTokenIssuances.bindingId, binding.id),
-            ne(irohRelayTokenIssuances.status, "expired"),
-            gt(irohRelayTokenIssuances.requestedAt, dayAgo),
-          ))
-          .orderBy(asc(irohRelayTokenIssuances.requestedAt));
-        const recentRows = endpointRows.filter((row) => row.requestedAt > tenMinutesAgo);
-        if (recentRows.length >= 3) {
-          throw quotaFromOldest("relay_endpoint_10m_quota", recentRows[recentRows.length - 3]!.requestedAt, 10 * 60, input.now);
-        }
-        if (endpointRows.length >= 12) {
-          throw quotaFromOldest("relay_endpoint_day_quota", endpointRows[endpointRows.length - 12]!.requestedAt, 24 * 60 * 60, input.now);
-        }
-        const userRows = await tx
-          .select({ requestedAt: irohRelayTokenIssuances.requestedAt })
-          .from(irohRelayTokenIssuances)
-          .where(and(
-            eq(irohRelayTokenIssuances.userId, input.userId),
-            ne(irohRelayTokenIssuances.status, "expired"),
-            gt(irohRelayTokenIssuances.requestedAt, dayAgo),
-          ))
-          .orderBy(asc(irohRelayTokenIssuances.requestedAt));
-        if (userRows.length >= 100) {
-          throw quotaFromOldest("relay_user_day_quota", userRows[userRows.length - 100]!.requestedAt, 24 * 60 * 60, input.now);
-        }
 
         const [issuance] = await tx
           .insert(irohRelayTokenIssuances)
@@ -1016,28 +983,53 @@ async function revokeActiveBindings(
   return revokedIds;
 }
 
-// Reject a genuinely-new slot once the account already holds
-// IROH_ACTIVE_BINDING_SANITY_CAP active bindings. Called only on the
-// genuinely-new-slot path, so admitting one more would exceed the cap. Rejecting
-// (rather than evicting the oldest) is deliberate: a stuck client spamming fresh
-// device/tag tuples must not be able to make its own churn the newest rows and
-// shed the account's real, older hosts and phones. No normal account approaches
-// the cap; hitting it means something is wrong, and the fix is to revoke stale
-// bindings, not to let new registrations destroy existing ones.
-async function enforceActiveBindingSanityCap(
+async function advanceRouteRevision(
   tx: CloudDbTransaction,
-  input: { readonly userId: string; readonly now: Date },
-): Promise<void> {
-  const [row] = await tx
-    .select({ total: count() })
-    .from(irohEndpointBindings)
-    .where(and(
-      eq(irohEndpointBindings.userId, input.userId),
-      isNull(irohEndpointBindings.revokedAt),
-    ));
-  const active = row?.total ?? 0;
-  if (active < IROH_ACTIVE_BINDING_SANITY_CAP) return;
-  throw new IrohConflictError({ code: "active_binding_limit" });
+  userId: string,
+  now: Date,
+): Promise<number> {
+  const [state] = await tx
+    .insert(irohAccountSecurityStates)
+    .values({
+      userId,
+      lanDiscoveryGeneration: 1,
+      routeRevision: 1,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: irohAccountSecurityStates.userId,
+      set: {
+        routeRevision: sql`${irohAccountSecurityStates.routeRevision} + 1`,
+        updatedAt: now,
+      },
+    })
+    .returning({ revision: irohAccountSecurityStates.routeRevision });
+  if (!state) throw new Error("route revision update returned no row");
+  return state.revision;
+}
+
+async function currentRouteRevision(
+  tx: CloudDbTransaction,
+  userId: string,
+  now: Date,
+): Promise<number> {
+  const [state] = await tx
+    .insert(irohAccountSecurityStates)
+    .values({
+      userId,
+      lanDiscoveryGeneration: 1,
+      routeRevision: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: irohAccountSecurityStates.userId,
+      set: { updatedAt: sql`${irohAccountSecurityStates.updatedAt}` },
+    })
+    .returning({ revision: irohAccountSecurityStates.routeRevision });
+  if (!state) throw new Error("route revision read returned no row");
+  return state.revision;
 }
 
 type RetentionBatchOperation = {

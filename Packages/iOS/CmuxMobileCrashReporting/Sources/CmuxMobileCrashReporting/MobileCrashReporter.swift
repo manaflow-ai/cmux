@@ -1,4 +1,5 @@
 public import CmuxMobileAnalytics
+import CmuxSentryReporting
 import Foundation
 public import Sentry
 
@@ -6,13 +7,16 @@ public import Sentry
 ///
 /// ``MobileCrashReporter`` intentionally reuses
 /// ``CmuxMobileAnalytics/AnalyticsConsentProviding`` so crash telemetry and
-/// analytics obey one opt-out source. No custom iOS breadcrumbs or messages are
-/// sent in this first pass: `sendDefaultPii` is disabled, and reports are
-/// limited to crash, watchdog, MetricKit, app-hang, stack, and device context
-/// until the macOS scrubber can be moved to a shared package.
+/// analytics obey one opt-out source. `sendDefaultPii` is disabled and every
+/// outgoing event, breadcrumb, and structured log is redacted by the shared
+/// `SentryEventScrubber` (CmuxSentryReporting) before it leaves the device.
+/// Structured logs are enabled so the transport diagnostics bridge can emit
+/// searchable connection telemetry; swizzling and automatic network capture
+/// stay off because URLSession traffic in this app carries auth.
 public struct MobileCrashReporter {
     private let transportSessionController: any MobileCrashTransportSessionControlling
     private let cachePurger: SentryCachePurger
+    private let scrubber = SentryEventScrubber()
 
     /// Creates a mobile crash reporter.
     public init() {
@@ -68,12 +72,17 @@ public struct MobileCrashReporter {
             // attempts that flush; a zero timeout prevents shutdown waiting.
             options.urlSession = transportSessionController.makeSession()
             options.shutdownTimeInterval = 0
-            // Consent is re-read per event, mirroring the analytics emitter's
-            // per-capture gate: flipping sendAnonymousTelemetry off mid-session
-            // drops every subsequent envelope (crash, hang, MetricKit) without
-            // requiring a relaunch.
+            // Consent is re-read per envelope, mirroring the analytics
+            // emitter's per-capture gate: flipping sendAnonymousTelemetry off
+            // mid-session drops every subsequent envelope (crash, hang,
+            // MetricKit, structured log) without requiring a relaunch. Events
+            // and logs that do ship are scrubbed last-mile.
+            let scrubber = self.scrubber
             options.beforeSend = { event in
-                consent.isTelemetryEnabled ? event : nil
+                consent.isTelemetryEnabled ? scrubber.scrub(event) : nil
+            }
+            options.beforeSendLog = { log in
+                consent.isTelemetryEnabled ? scrubber.scrub(log) : nil
             }
             start(options)
 
@@ -128,12 +137,19 @@ public struct MobileCrashReporter {
         options.enableWatchdogTerminationTracking = true
         options.enableAppHangTracking = true
         options.appHangTimeoutInterval = 8.0
-        // Crash/device-context ONLY until the macOS scrubber moves to a shared
-        // package: there is no beforeSend scrubber here, so every default that
-        // would record or mutate app traffic stays off. Swizzling injects
-        // sentry-trace/baggage headers into URLSession requests (which carry
-        // auth in this app) and network/auto breadcrumbs record request URLs
-        // into crash envelopes; sendDefaultPii does not cover those.
+        // Structured logs power the transport diagnostics bridge
+        // (TransportSentryReporter); each log line passes the consent gate and
+        // scrubber installed in `beforeSendLog`.
+        options.enableLogs = true
+        // Manual breadcrumbs (the transport bridge's) are scrubbed last-mile.
+        // Swizzling and automatic network capture stay OFF even with the
+        // scrubber in place: swizzling injects sentry-trace/baggage headers
+        // into URLSession requests, which carry auth in this app, and that
+        // egress is not something a beforeSend hook can redact.
+        let scrubber = self.scrubber
+        options.beforeBreadcrumb = { breadcrumb in
+            scrubber.scrub(breadcrumb)
+        }
         options.enableSwizzling = false
         options.enableNetworkTracking = false
         options.enableNetworkBreadcrumbs = false

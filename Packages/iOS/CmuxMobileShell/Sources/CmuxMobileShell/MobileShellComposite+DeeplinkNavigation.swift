@@ -105,21 +105,92 @@ extension CMUXMobileShellStore {
     }
 
     /// The workspace whose terminal list contains `terminalID`, if any.
+    /// Terminal lanes exist only on the foreground connection, so this
+    /// internal convenience scopes by the authoritative foreground pairing:
+    /// a sibling build's colliding surface id must neither shadow the live
+    /// terminal's row nor nil it out through the ambiguity check below. When
+    /// foreground identity is known, a miss is authoritative — falling back to
+    /// a global search could resolve a sibling's retained snapshot and route
+    /// terminal commands to the wrong build's workspace id.
     func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
-        workspaceID(forTerminalID: terminalID, macDeviceID: nil)
+        guard let foregroundMacDeviceID else {
+            return workspaceID(forTerminalID: terminalID, macDeviceID: nil)
+        }
+        if let scoped = workspaceID(
+            forTerminalID: terminalID,
+            macDeviceID: foregroundMacDeviceID,
+            instanceTag: activeMacInstanceTag
+        ) {
+            return scoped
+        }
+        // Unowned rows (anonymous seeding, pre-stamp identity transitions) are
+        // foreground-owned by construction — sibling snapshots are always
+        // stamped with their device and tag — so they stay reachable without
+        // reopening the global fallback that could resolve a sibling's row.
+        return workspaces.first { workspace in
+            workspace.macDeviceID == nil
+                && workspace.terminals.contains(where: { $0.id.rawValue == terminalID })
+        }?.id
     }
 
     /// The workspace owned by `macDeviceID` whose terminal list contains
     /// `terminalID`, if any.
     func workspaceID(forTerminalID terminalID: String, macDeviceID: String?) -> MobileWorkspacePreview.ID? {
-        for workspace in workspaces {
+        workspaceID(forTerminalID: terminalID, macDeviceID: macDeviceID, instanceTag: nil)
+    }
+
+    /// Tag-aware variant: a non-nil `instanceTag` matches only rows proven to
+    /// belong to that build, so sibling builds' colliding Mac-local terminal
+    /// ids can never resolve to the wrong workspace.
+    func workspaceID(
+        forTerminalID terminalID: String,
+        macDeviceID: String?,
+        instanceTag: String?
+    ) -> MobileWorkspacePreview.ID? {
+        func matches(_ workspace: MobileWorkspacePreview) -> Bool {
             if let macDeviceID, !macDeviceID.isEmpty, workspace.macDeviceID != macDeviceID {
+                return false
+            }
+            if let instanceTag, !instanceTag.isEmpty,
+               workspace.macInstanceTag != instanceTag {
+                return false
+            }
+            return workspace.terminals.contains(where: { $0.id.rawValue == terminalID })
+        }
+        // Exact pairing lookups are unambiguous and sit on per-frame terminal
+        // paths (viewport, replay, scroll): return at the first hit with no
+        // allocation.
+        if let instanceTag, !instanceTag.isEmpty {
+            return workspaces.first(where: matches)?.id
+        }
+        // Sibling builds can reuse Mac-local surface ids; a tag-less lookup
+        // that matches two builds of one device fails closed rather than
+        // deep-linking into the wrong instance. The single-match fast path
+        // (the overwhelmingly common case) tracks only the first owner and
+        // allocates no sets.
+        var firstMatchID: MobileWorkspacePreview.ID?
+        var firstOwner: MacPairingKey?
+        var owners: Set<MacPairingKey> = []
+        var ownerDevices: Set<String> = []
+        for workspace in workspaces where matches(workspace) {
+            let owner = workspace.macDeviceID.map {
+                MacPairingKey(macDeviceID: $0, instanceTag: workspace.macInstanceTag)
+            }
+            if firstMatchID == nil {
+                firstMatchID = workspace.id
+                firstOwner = owner
                 continue
             }
-            if workspace.terminals.contains(where: { $0.id.rawValue == terminalID }) {
-                return workspace.id
+            if owners.isEmpty, let firstOwner {
+                owners.insert(firstOwner)
+                ownerDevices.insert(firstOwner.canonicalMacDeviceID)
+            }
+            guard let owner else { continue }
+            if owners.insert(owner).inserted,
+               !ownerDevices.insert(owner.canonicalMacDeviceID).inserted {
+                return nil
             }
         }
-        return nil
+        return firstMatchID
     }
 }

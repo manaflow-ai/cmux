@@ -219,7 +219,10 @@ struct WorkspaceShellView: View {
             MobilePrimaryTabScaffold(
                 selection: $selectedPrimaryTab,
                 searchCoordinator: primarySearchCoordinator,
-                notificationUnreadCount: presentation.notificationUnreadCount
+                notificationUnreadCount: presentation.notificationUnreadCount,
+                taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
+                    ? nil
+                    : taskComposerAction
             ) {
                 workspaceTabContent(
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
@@ -659,7 +662,7 @@ struct WorkspaceShellView: View {
 
     private var workspaceShellRenderPresentation: WorkspaceShellRenderPresentation {
         let scope = macSelectionScope
-        let selectedMachineIDs = scope.selectedMachineIDs
+        let selectedMachineIDs = scope.selectedScopeEntries
         let visibleNotificationFeedItems = store.notificationFeedItems(scopedTo: selectedMachineIDs)
         let notificationUnreadCount = visibleNotificationFeedItems.lazy.filter { !$0.isRead }.count
         var names: [String: String] = [:]
@@ -978,6 +981,7 @@ struct WorkspaceShellView: View {
             displayPairedMacs: store.displayPairedMacs,
             notificationFeedItems: store.notificationFeedItems,
             foregroundMacDeviceID: store.connectedMacDeviceID ?? store.activeTicket?.macDeviceID,
+            foregroundInstanceTag: store.connectedMacInstanceTag,
             aliasesFor: { store.pairedMacAliasIDs(for: $0) }
         )
     }
@@ -1054,20 +1058,23 @@ struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
             (navigationController?.viewControllers.count ?? 0) > 1
         }
 
-        // The pushed workspace detail hosts surfaces with their own pan/scroll
-        // gesture recognizers: the terminal's full-bounds scroll-mechanics
-        // `UIScrollView` and the browser's `WKWebView` scroll view. Taking over
-        // the navigation controller's `interactivePopGestureRecognizer` delegate
-        // (above, so the custom back button can re-enable the swipe) drops
-        // UIKit's built-in rule that lets the edge swipe-back coexist with scroll
-        // views, so the swipe stopped popping back to the workspace list over a
-        // terminal or browser (issue #6634). Allow the pop gesture to recognize
-        // simultaneously with those surface gestures to restore it.
+        // The terminal and browser both cover the pushed workspace detail with
+        // scroll views. Letting their pans recognize alongside the pop gesture
+        // makes a diagonal back swipe scroll the surface while navigation moves.
+        // The dynamic failure rule below restores the system ownership order:
+        // off-edge touches fail the edge recognizer and then scroll normally,
+        // while an edge touch lets navigation win without dual recognition.
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
-            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
-            gestureRecognizer == navigationController?.interactivePopGestureRecognizer
+            guard gestureRecognizer === navigationController?.interactivePopGestureRecognizer,
+                  otherGestureRecognizer is UIPanGestureRecognizer,
+                  let navigationView = navigationController?.view,
+                  let otherView = otherGestureRecognizer.view else {
+                return false
+            }
+            return otherView.isDescendant(of: navigationView)
         }
     }
 }

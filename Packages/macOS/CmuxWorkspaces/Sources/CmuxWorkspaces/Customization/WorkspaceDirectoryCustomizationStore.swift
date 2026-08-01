@@ -1,9 +1,9 @@
 public import Foundation
 
-/// Persists bounded user-owned workspace identity independently from live workspace lifetimes.
+/// Reads and writes the legacy v1 directory-keyed customization payload.
 ///
-/// `UserDefaults` is the sole source of truth. The store deliberately keeps no
-/// in-memory mirror, so independently constructed window graphs cannot drift.
+/// Production mutation and restore paths use ``WorkspaceCustomizationStore``.
+/// This type remains only so existing defaults can be decoded and migrated.
 @MainActor
 public struct WorkspaceDirectoryCustomizationStore {
     /// The production defaults key for the versioned directory snapshot.

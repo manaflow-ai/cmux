@@ -10,6 +10,7 @@ import CmuxTerminal
 import CmuxTerminalCore
 import SwiftUI
 import AppKit
+import WebKit
 import CmuxFoundation
 import Bonsplit
 import CMUXAgentLaunch
@@ -24,6 +25,18 @@ import CryptoKit
 import Darwin
 import Network
 import CoreText
+
+private func externalBrowserFallbackURL(
+    url: URL?,
+    initialRequest: URLRequest?
+) -> URL? {
+    if let url { return url }
+    guard let initialRequest,
+          (initialRequest.httpMethod ?? "GET").uppercased() == "GET" else {
+        return nil
+    }
+    return initialRequest.url
+}
 
 #if DEBUG
 func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
@@ -149,7 +162,6 @@ extension Workspace {
             customTitleSource: effectiveCustomTitleSource,
             customDescription: customDescription,
             customColor: customColor,
-            customizationDirectory: customizationDirectory, usesWorkspaceDirectoryCustomization: customizationDirectory != nil,
             isPinned: isPinned,
             groupId: groupId,
             isManuallyUnread: isWorkspaceManuallyUnread,
@@ -680,6 +692,10 @@ extension Workspace {
             return nil
         case .cloudVMLoading:
             return nil
+        case .mobilePairing:
+            return nil
+        case .accountSignIn:
+            return nil
         }
         return SessionPanelSnapshot(
             id: panelId,
@@ -927,7 +943,6 @@ extension Workspace {
     nonisolated static func surfaceResumeStartupInput(
         _ resumeBinding: SurfaceResumeBindingSnapshot?,
         autoResumeAgentSessions: Bool,
-        allowLauncherScript: Bool = false,
         promptForApproval: Bool = true,
         approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
         approvalSigningSecret: Data? = nil
@@ -935,7 +950,6 @@ extension Workspace {
         makeSessionRestorePolicyService().surfaceResumeStartupInput(
             resumeBinding,
             autoResumeAgentSessions: autoResumeAgentSessions,
-            allowLauncherScript: allowLauncherScript,
             promptForApproval: promptForApproval,
             approvalStoreURL: approvalStoreURL,
             approvalSigningSecret: approvalSigningSecret
@@ -945,23 +959,16 @@ extension Workspace {
     nonisolated static func surfaceResumeStartupLaunch(
         _ resumeBinding: SurfaceResumeBindingSnapshot?,
         autoResumeAgentSessions: Bool,
-        allowLauncherScript: Bool = true,
         promptForApproval: Bool = true,
         approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
-        approvalSigningSecret: Data? = nil,
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        approvalSigningSecret: Data? = nil
     ) -> SurfaceResumeStartupLaunch? {
-        makeSessionRestorePolicyService(
-            temporaryDirectory: temporaryDirectory
-        ).surfaceResumeStartupLaunch(
+        makeSessionRestorePolicyService().surfaceResumeStartupLaunch(
             resumeBinding,
             autoResumeAgentSessions: autoResumeAgentSessions,
-            allowLauncherScript: allowLauncherScript,
             promptForApproval: promptForApproval,
             approvalStoreURL: approvalStoreURL,
-            approvalSigningSecret: approvalSigningSecret,
-            fileManager: fileManager
+            approvalSigningSecret: approvalSigningSecret
         )
     }
 
@@ -1347,17 +1354,17 @@ extension Workspace {
             } else {
                 nil
             }
-            let unresolvedBindingLaunch: SurfaceResumeStartupLaunch? = if effectiveResumeBindingForStartup?.launchFlavor == .local,
-                                                                          !restoresRemoteWorkspaceTerminalSnapshot {
-                effectiveResumeBindingForStartup.flatMap {
+            let canAttemptLocalBindingResume =
+                effectiveResumeBindingForStartup?.launchFlavor == .local &&
+                !restoresRemoteWorkspaceTerminalSnapshot
+            let unresolvedBindingLaunch: SurfaceResumeStartupLaunch? =
+                if canAttemptLocalBindingResume, let effectiveResumeBindingForStartup {
                     sessionRestorePolicy.surfaceResumeStartupLaunch(
-                        forApprovedBinding: $0,
-                        allowLauncherScript: true
+                        forApprovedBinding: effectiveResumeBindingForStartup
                     )
+                } else {
+                    nil
                 }
-            } else {
-                nil
-            }
             let effectiveResumeBinding = unresolvedBindingLaunch != nil || restoredPersistentSSHResumeCommand != nil
                 ? resumeBinding
                 : nil
@@ -1378,18 +1385,19 @@ extension Workspace {
                 if restorableAgent.registration?.cwd == .ignore {
                     return nil
                 }
+                if restoresRemoteWorkspaceTerminalSnapshot {
+                    return workingDirectory
+                }
                 return restorableAgent.workingDirectory
                     ?? restorableAgent.launchCommand?.workingDirectory
                     ?? workingDirectory
             }()
-            let restoredBindingLaunch = effectiveResumeBindingForStartup?.isAgentHookBinding == true
-                ? unresolvedBindingLaunch?.restoringWorkingDirectory(resumeSessionWorkingDirectory)
-                : unresolvedBindingLaunch
+            let restoredBindingLaunch = unresolvedBindingLaunch
             let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
                 ? sessionRestorePolicy.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil
             let restoredTmuxStartupScript = restorableTmuxStartCommand.flatMap {
-                SessionRestoredTerminalCommandStore.writeLauncherScript(
+                OneShotTerminalLauncherStore().writeStartupCommand(
                     command: $0,
                     workingDirectory: workingDirectory
                 )
@@ -1428,14 +1436,15 @@ extension Workspace {
                 if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil
                     && !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
-                        restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
+                        restorableAgent?.resumeStartupInput(
+                            useLocalRestoreVerb: false,
+                            restoringWorkingDirectory: resumeSessionWorkingDirectory
+                        )
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {
-                        restorableAgent?.resumeStartupInput(requireLauncherScript: true)
-                            .map {
-                                SurfaceResumeStartupLaunch.input($0)
-                                    .restoringWorkingDirectory(resumeSessionWorkingDirectory)
-                            }
+                        restorableAgent?.resumeStartupInput(
+                            restoringWorkingDirectory: resumeSessionWorkingDirectory
+                        ).map(SurfaceResumeStartupLaunch.input)
                     }
                 } else {
                     nil
@@ -1483,14 +1492,14 @@ extension Workspace {
             }
             let restoredStartupCommand =
                 restoredRemotePTYAttachCommand
-                ?? restoredTmuxStartupScript?.path
+                ?? restoredTmuxStartupScript
             let restoredStartupInput = restoredRemotePTYAttachCommand == nil
                 ? (restoredBindingLaunch?.initialInput ?? restoredAgentResumeLaunch?.initialInput)
                 : nil
             let startupHandlesWorkingDirectory =
                 restoredTmuxStartupScript != nil ||
                 restoredAgentResumeLaunch != nil ||
-                (restoredBindingLaunch != nil && resumeBinding?.isAgentHookBinding == true)
+                restoredBindingLaunch != nil
             // Guarded startup commands cd themselves and tolerate deleted saved directories.
             // Passing the same cwd to Ghostty can fail before the guarded command runs.
             let suppressWorkspaceRemoteStartupCommand =
@@ -1499,14 +1508,26 @@ extension Workspace {
                 restoredRemotePTYAttachCommand == nil &&
                 !isDefaultFreestyleSSHDRemoteWorkspace
             let effectiveRemoteStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteStartupCommand
+            let restoredDirectoryIsLocalPath =
+                !restoresRemoteWorkspaceTerminalSnapshot &&
+                restoredRemotePTYSessionID == nil &&
+                snapshot.terminal?.isRemoteTerminal != true
             let localWorkingDirectory = effectiveRemoteStartupCommand == nil &&
                 restoredRemotePTYAttachCommand == nil &&
                 !restoresRemoteWorkspaceTerminalSnapshot &&
                 !startupHandlesWorkingDirectory
                 ? (suppressWorkspaceRemoteStartupCommand ? savedWorkingDirectory : workingDirectory)
                 : nil
+            let hostShellWorkingDirectory: String? = {
+                guard startupHandlesWorkingDirectory else { return nil }
+                let candidate = restoredTmuxStartupScript != nil
+                    ? workingDirectory
+                    : resumeSessionWorkingDirectory
+                guard restoredDirectoryIsLocalPath else { return candidate }
+                return OneShotTerminalLauncherStore.enterableWorkingDirectory(candidate)
+            }()
             let requestedWorkingDirectory =
-                localWorkingDirectory ?? (startupHandlesWorkingDirectory ? workingDirectory : nil)
+                localWorkingDirectory ?? hostShellWorkingDirectory
             let restoredAgentWillRunStartupCommand = restorableAgent != nil &&
                 restoredPersistentSSHResumeCommand != nil &&
                 resumeBinding?.isAgentHookBinding == true
@@ -1641,16 +1662,14 @@ extension Workspace {
             // misclassified as deleted and its remote home report wrongly honored. Remote restores
             // keep the prior behavior (no guard), which matches the original unmounted-volume
             // guard that was inherently local (/Volumes paths only).
-            let restoredDirectoryIsLocalPath =
-                !restoresRemoteWorkspaceTerminalSnapshot &&
-                restoredRemotePTYSessionID == nil &&
-                snapshot.terminal?.isRemoteTerminal != true
             if startupHandlesWorkingDirectory,
                localWorkingDirectory == nil,
                restoredDirectoryIsLocalPath,
                let guardedWorkingDirectory = resumeSessionWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !guardedWorkingDirectory.isEmpty {
-                restoredGuardedWorkingDirectoriesByPanelId[terminalPanel.id] = guardedWorkingDirectory
+                restoredGuardedWorkingDirectoriesByPanelId[terminalPanel.id] = .init(
+                    directory: guardedWorkingDirectory
+                )
             } else {
                 restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
             }
@@ -1780,6 +1799,10 @@ extension Workspace {
         case .extensionBrowser:
             return nil
         case .cloudVMLoading:
+            return nil
+        case .mobilePairing:
+            return nil
+        case .accountSignIn:
             return nil
         }
     }
@@ -2047,6 +2070,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Durable idempotency key for task-composer workspace creation.
     var taskCreateOperationID: UUID?
     private var forkAgentConversationInFlightPanelIds: Set<UUID> = []
+    let appLinkHandoffCoordinator = BrowserAppLinkHandoffCoordinator()
+    let appLinkPlacementPolicy = BrowserAppLinkPlacementPolicy()
 
     func beginForkAgentConversationAction(panelId: UUID) -> Bool {
         guard !forkAgentConversationInFlightPanelIds.contains(panelId) else {
@@ -2085,8 +2110,6 @@ final class Workspace: Identifiable, ObservableObject {
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
-    /// Stable directory key used for sticky user-owned title and color updates.
-    var customizationDirectory: String?
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every
     /// surface recreated on session restore. Managed `CMUX_*` and terminal-identity
@@ -2556,13 +2579,10 @@ final class Workspace: Identifiable, ObservableObject {
         set { restoredAgentLifecycle.snapshotsByPanelId = newValue }
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
-    private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
+    var restoredGuardedWorkingDirectoriesByPanelId: [UUID: RestoredWorkingDirectoryGuard] = [:]
     /// The session directory each restored auto-resume launcher targets, kept
-    /// for the lifetime of the resumed run (unlike the one-shot report guard
-    /// above, which the first spurious report consumes) so split/new-tab cwd
-    /// inheritance can rescue a clobbered tracked cwd while the resumed agent
-    /// still holds the pane's foreground (#7155). Internal so
-    /// `Workspace+PanelLifecycle` can clear it on panel close.
+    /// for the resumed run so split/new-tab cwd inheritance can rescue a
+    /// clobbered tracked cwd while the agent holds the pane's foreground (#7155).
     var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable, awaitingAutoResumeCommand, autoResumeCommandRunning, observedAgentCommandRunning, completedAgentExit
@@ -2715,9 +2735,8 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    nonisolated static func makeSessionRestorePolicyService(
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot> {
+    nonisolated static func makeSessionRestorePolicyService()
+        -> WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot> {
         WorkspaceSessionRestorePolicyService(
             applyStoredApproval: { binding, fileURL, signingSecret in
                 switch SurfaceResumeApprovalStore.applyingStoredApprovalLookup(
@@ -2750,8 +2769,7 @@ final class Workspace: Identifiable, ObservableObject {
                 resolvingDefaultCodexModel: { environment in
                     HermesAgentCodexEnvironment.defaultCodexModel(environment: environment)
                 }
-            ),
-            temporaryDirectory: temporaryDirectory
+            )
         )
     }
 
@@ -2766,6 +2784,16 @@ final class Workspace: Identifiable, ObservableObject {
 
     @MainActor
     private static func shouldRunPromptedSurfaceResumeOnMain(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
+        let promptBatch = SurfaceResumeRunPromptBatch.shared
+        switch promptBatch.effectiveDecision {
+        case .runAll:
+            return true
+        case .skipAll:
+            return false
+        case nil:
+            break
+        }
+
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = String(
@@ -2781,12 +2809,41 @@ final class Workspace: Identifiable, ObservableObject {
             binding.command
         )
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.run", defaultValue: "Run"))
+        alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.runAll", defaultValue: "Run All"))
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.skip", defaultValue: "Skip"))
+        alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.skipAll", defaultValue: "Skip All"))
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = String(
+            localized: "surfaceResumeApproval.runPrompt.dontAskAgain",
+            defaultValue: "Don’t ask again for this command"
+        )
         let content = CmuxAlertContent(
             flattenedText: informativeText,
             separatingScrollableDetails: binding.command
         )
-        return alert.runCmuxModal(content: content) == .alertFirstButtonReturn
+        let response = alert.runCmuxModal(content: content)
+        let shouldRun: Bool
+        if response == .alertFirstButtonReturn {
+            shouldRun = true
+        } else if response == .alertSecondButtonReturn {
+            promptBatch.recordDecision(.runAll)
+            shouldRun = true
+        } else if response == .alertThirdButtonReturn {
+            shouldRun = false
+        } else if response.rawValue == NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + 3 {
+            promptBatch.recordDecision(.skipAll)
+            shouldRun = false
+        } else {
+            shouldRun = false
+        }
+
+        if alert.suppressionButton?.state == .on {
+            SurfaceResumeApprovalStore.approve(
+                binding: binding,
+                policy: shouldRun ? .auto : .manual
+            )
+        }
+        return shouldRun
     }
 
     // MARK: - Initialization
@@ -3608,7 +3665,7 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
     private var layoutFollowUpObservers: [NSObjectProtocol] = []
     private var layoutFollowUpPanelsCancellable: AnyCancellable?
-    private var layoutFollowUpTimeoutWorkItem: DispatchWorkItem?
+    private let layoutFollowUpTimeoutScheduler = MainActorDeferredActionScheduler()
     private var layoutFollowUpReason: String?
     private var layoutFollowUpTerminalFocusPanelId: UUID?
     private var layoutFollowUpBrowserPanelId: UUID?
@@ -3825,6 +3882,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureBrowserPanel(_ browserPanel: BrowserPanel) {
+        AppDelegate.shared?.auth?.browserAppSession.register(browserPanel)
         browserPanel.webViewDidRequestClose = { [weak self, weak browserPanel] in
             guard let self, let browserPanel else { return }
             guard self.panels[browserPanel.id] is BrowserPanel else { return }
@@ -3836,6 +3894,148 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
             _ = self.closePanel(browserPanel.id, force: true)
         }
+        browserPanel.openAppLinkInBrowserSplit = { [weak self, weak browserPanel] url in
+            guard let self, let browserPanel else { return false }
+            return self.openAppLinkInBrowserSplit(url, from: browserPanel)
+        }
+    }
+
+    private func openAppLinkInBrowserSplit(
+        _ destinationURL: URL,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(),
+              let mountedSource = panels[sourcePanel.id] as? BrowserPanel,
+              mountedSource === sourcePanel else {
+            return false
+        }
+
+        return appLinkHandoffCoordinator.start(
+            sourcePanelID: sourcePanel.id,
+            destinationURL: destinationURL,
+            isCurrent: { [weak self, weak sourcePanel] in
+                guard let self, let sourcePanel else { return false }
+                return self.currentBrowserPanel(sourcePanel)
+            },
+            openNavigation: { [weak self, weak sourcePanel] navigation in
+                guard let self, let sourcePanel else { return false }
+                return self.openAppLinkNavigation(
+                    navigation,
+                    from: sourcePanel
+                )
+            },
+            openRecovery: { [weak self, weak sourcePanel] in
+                guard let self, let sourcePanel else { return false }
+                return self.recoverAppLinkNavigation(
+                    destinationURL,
+                    from: sourcePanel
+                )
+            }
+        )
+    }
+
+    private func openAppLinkNavigation(
+        _ navigation: BrowserAppSessionNavigation,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        guard currentBrowserPanel(sourcePanel) else { return false }
+        return appLinkPlacementPolicy.openNavigation(
+            navigation,
+            openInPreferredPane: { request, websiteDataStore in
+                guard let targetPane = self.preferredRightSideTargetPane(
+                    fromPanelId: sourcePanel.id
+                ) else {
+                    return false
+                }
+                return self.newBrowserSurface(
+                    inPane: targetPane,
+                    initialRequest: request,
+                    focus: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openHorizontalSplit: { request, websiteDataStore in
+                self.newBrowserSplit(
+                    from: sourcePanel.id,
+                    orientation: .horizontal,
+                    initialRequest: request,
+                    preferredProfileID: sourcePanel.profileID,
+                    focus: true,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openInSourcePane: { request, websiteDataStore in
+                guard let sourcePane = self.paneId(
+                    forPanelId: sourcePanel.id
+                ) else {
+                    return false
+                }
+                return self.newBrowserSurface(
+                    inPane: sourcePane,
+                    initialRequest: request,
+                    focus: true,
+                    insertAtEnd: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            }
+        )
+    }
+
+    private func currentBrowserPanel(_ sourcePanel: BrowserPanel) -> Bool {
+        (panels[sourcePanel.id] as? BrowserPanel) === sourcePanel
+    }
+
+    /// Preserves a cancelled app-link click without placing credentials in a
+    /// shared browser profile. The system browser is the last-resort path when
+    /// the workspace can no longer create a browser surface.
+    private func recoverAppLinkNavigation(
+        _ destinationURL: URL,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        appLinkPlacementPolicy.recover(
+            destinationURL,
+            openInPreferredPane: { url, websiteDataStore in
+                guard let targetPane = self.preferredRightSideTargetPane(
+                    fromPanelId: sourcePanel.id
+                ) else {
+                    return false
+                }
+                return self.newBrowserSurface(
+                    inPane: targetPane,
+                    url: url,
+                    focus: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openHorizontalSplit: { url, websiteDataStore in
+                self.newBrowserSplit(
+                    from: sourcePanel.id,
+                    orientation: .horizontal,
+                    url: url,
+                    preferredProfileID: sourcePanel.profileID,
+                    focus: true,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openInSourcePane: { url, websiteDataStore in
+                guard let sourcePane = self.paneId(
+                    forPanelId: sourcePanel.id
+                ) else {
+                    return false
+                }
+                return self.newBrowserSurface(
+                    inPane: sourcePane,
+                    url: url,
+                    focus: true,
+                    insertAtEnd: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            }
+        )
     }
 
     private func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
@@ -4647,27 +4847,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     }
 
-    private static func unmountedVolumeRoot(
-        for workingDirectory: String,
-        fileManager: FileManager = .default
-    ) -> String? {
-        let trimmed = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let components = URL(fileURLWithPath: trimmed, isDirectory: true)
-            .standardizedFileURL
-            .pathComponents
-        guard components.count >= 3,
-              components[0] == "/",
-              components[1] == "Volumes",
-              !components[2].isEmpty else {
-            return nil
-        }
-
-        let volumeRoot = "/Volumes/\(components[2])"
-        return fileManager.fileExists(atPath: volumeRoot) ? nil : volumeRoot
-    }
-
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
         // Remote workspace directories are remote-host paths; no local per-directory config can apply.
         if usesRemoteDirectoryProvenance { return nil }
@@ -4713,13 +4892,19 @@ final class Workspace: Identifiable, ObservableObject {
         displayLabel: String?,
         source: PanelDirectoryUpdateSource
     ) -> Bool {
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        let previousPresentedDirectory = presentedCurrentDirectory
-        if source.isLiveReport,
-           shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
-            return false
+        let reportedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !reportedDirectory.isEmpty else { return false }
+        let trimmed: String
+        if source.isLiveReport {
+            guard let acceptedDirectory = acceptedRestoredGuardedDirectoryReport(
+                panelId: panelId,
+                reportedDirectory: reportedDirectory
+            ) else { return false }
+            trimmed = acceptedDirectory
+        } else {
+            trimmed = reportedDirectory
         }
+        let previousPresentedDirectory = presentedCurrentDirectory
         let isRemoteTerminalReport = isRemoteTerminalSurface(panelId)
         if source == .liveReport, remoteDirectoryTrustRequiredPanelIds.contains(panelId) { return false }
         let routedRemoteReport = source == .remoteReport && !allowsLocalDirectoryFallback(panelId: panelId)
@@ -4751,45 +4936,6 @@ final class Workspace: Identifiable, ObservableObject {
             notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: provenanceChanged)
         }
         return true
-    }
-
-    private func shouldIgnoreRestoredGuardedDirectoryReport(
-        panelId: UUID,
-        reportedDirectory: String
-    ) -> Bool {
-        guard let restoredDirectory = restoredGuardedWorkingDirectoriesByPanelId[panelId] else { return false }
-
-        if reportedDirectory == restoredDirectory {
-            // The resumed shell confirmed the restored directory; stop guarding.
-            restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-            return false
-        }
-
-        if Self.unmountedVolumeRoot(for: restoredDirectory) != nil {
-            // Keep guarding until the restored volume remounts and reports its cwd (#5278).
-#if DEBUG
-            cmuxDebugLog(
-                "session.restore.cwdReport.ignored panel=\(panelId.uuidString.prefix(5)) " +
-                "saved=\(restoredDirectory) reported=\(reportedDirectory)"
-            )
-#endif
-            return true
-        }
-
-        // Ignore the first fallback cwd only if the restored directory still exists (#6617).
-        restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-        var restoredDirectoryIsDirectory: ObjCBool = false
-        let restoredDirectoryStillExists = FileManager.default.fileExists(atPath: restoredDirectory, isDirectory: &restoredDirectoryIsDirectory) && restoredDirectoryIsDirectory.boolValue
-        if !restoredDirectoryStillExists {
-            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "session.restore.cwdReport.\(restoredDirectoryStillExists ? "ignoredOnce" : "accepted") " +
-            "panel=\(panelId.uuidString.prefix(5)) saved=\(restoredDirectory) reported=\(reportedDirectory)"
-        )
-#endif
-        return restoredDirectoryStillExists
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
@@ -4915,6 +5061,18 @@ final class Workspace: Identifiable, ObservableObject {
               let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false),
               !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
+        }
+        // This transient cwd belongs to the binding restored at launch. Let a
+        // same-session hook refresh keep its cwd rescue, but never let it
+        // override a replacement session's structured restore record.
+        if let previous = surfaceResumeBindingsByPanelId[panelId],
+           previous.kind != binding.kind
+            || previous.checkpointId != binding.checkpointId
+            || previous.cwd != binding.cwd
+            || previous.launchCommand?.workingDirectory != binding.launchCommand?.workingDirectory
+            || (previous.launchCommand == nil && binding.launchCommand == nil
+                && previous.command != binding.command) {
+            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
         return true
@@ -5328,7 +5486,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     var isRestorableInSessionSnapshot: Bool {
         if isRemoteTmuxMirror { return false }
-        if panels.values.contains(where: { $0.panelType == .cloudVMLoading }) {
+        if panels.values.contains(where: {
+            switch $0.panelType {
+            case .cloudVMLoading, .mobilePairing, .accountSignIn:
+                true
+            default:
+                false
+            }
+        }) {
             return false
         }
         guard let remoteConfiguration else { return true }
@@ -8172,21 +8337,26 @@ final class Workspace: Identifiable, ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool = false,
         url: URL? = nil,
+        initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
-        initialDividerPosition: CGFloat? = nil
+        initialDividerPosition: CGFloat? = nil,
+        websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
         // No local browser surfaces in a remote tmux mirror workspace (it is a
         // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let url {
-                _ = NSWorkspace.shared.open(url)
+            if let externalURL = externalBrowserFallbackURL(
+                url: url,
+                initialRequest: initialRequest
+            ) {
+                _ = NSWorkspace.shared.open(externalURL)
             }
             return nil
         }
@@ -8212,6 +8382,7 @@ final class Workspace: Identifiable, ObservableObject {
                 sourcePanelId: panelId
             ),
             initialURL: url,
+            initialRequest: initialRequest,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             omnibarVisible: omnibarVisible,
@@ -8219,7 +8390,8 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -8292,7 +8464,8 @@ final class Workspace: Identifiable, ObservableObject {
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
-        bypassRemoteProxy: Bool = false
+        bypassRemoteProxy: Bool = false,
+        websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept). A local browser tab here would be an orphan
@@ -8301,7 +8474,10 @@ final class Workspace: Identifiable, ObservableObject {
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let externalURL = url ?? initialRequest?.url {
+            if let externalURL = externalBrowserFallbackURL(
+                url: url,
+                initialRequest: initialRequest
+            ) {
                 _ = NSWorkspace.shared.open(externalURL)
             }
             return nil
@@ -8328,7 +8504,8 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -9187,6 +9364,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard let panelId = panelIdFromSurfaceId(tab.id),
               let browserPanel = browserPanel(for: panelId),
+              browserPanel.shouldPersistSessionSnapshot(),
               let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tab.id }) else {
             pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
             return
@@ -10207,7 +10385,7 @@ final class Workspace: Identifiable, ObservableObject {
         layoutFollowUpAttemptVersion &+= 1
         layoutFollowUpAttemptScheduled = false
 
-        if layoutFollowUpTimeoutWorkItem == nil {
+        if !layoutFollowUpTimeoutScheduler.isScheduled {
             installLayoutFollowUpObservers()
         }
         refreshLayoutFollowUpTimeout()
@@ -10287,7 +10465,7 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
 
     private func installLayoutFollowUpObservers() {
-        guard layoutFollowUpTimeoutWorkItem == nil else { return }
+        guard !layoutFollowUpTimeoutScheduler.isScheduled else { return }
 
         let enqueueAttempt: () -> Void = { [weak self] in
             self?.wakeLayoutFollowUpForStructuralEvent()
@@ -10348,18 +10526,14 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func refreshLayoutFollowUpTimeout() {
-        layoutFollowUpTimeoutWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
+        layoutFollowUpTimeoutScheduler.schedule(after: .seconds(2)) { [weak self] in
             self?.clearLayoutFollowUp()
         }
-        layoutFollowUpTimeoutWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: workItem)
     }
 
     private func clearLayoutFollowUp() {
         clearPendingReparentFocusSuppressions(reason: "workspace.layoutFollowUpEnd")
-        layoutFollowUpTimeoutWorkItem?.cancel()
-        layoutFollowUpTimeoutWorkItem = nil
+        layoutFollowUpTimeoutScheduler.cancel()
         layoutFollowUpObservers.forEach { NotificationCenter.default.removeObserver($0) }
         layoutFollowUpObservers.removeAll()
         layoutFollowUpPanelsCancellable?.cancel()
@@ -10380,7 +10554,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// already-scheduled guard (worst case: a retry scheduled past the 2s
     /// timeout never ran). Mirrors the reset in beginEventDrivenLayoutFollowUp.
     private func wakeLayoutFollowUpForStructuralEvent() {
-        guard layoutFollowUpTimeoutWorkItem != nil else { return }
+        guard layoutFollowUpTimeoutScheduler.isScheduled else { return }
         layoutFollowUpStalledAttemptCount = 0
         layoutFollowUpAttemptVersion &+= 1
         layoutFollowUpAttemptScheduled = false
@@ -10389,7 +10563,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func scheduleLayoutFollowUpAttempt() {
         guard portalRenderingEnabled else { return }
-        guard layoutFollowUpTimeoutWorkItem != nil else { return }
+        guard layoutFollowUpTimeoutScheduler.isScheduled else { return }
         guard !layoutFollowUpAttemptScheduled else { return }
 
         layoutFollowUpAttemptScheduled = true
@@ -10466,7 +10640,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func attemptEventDrivenLayoutFollowUp() {
-        guard layoutFollowUpTimeoutWorkItem != nil, !isAttemptingLayoutFollowUp else { return }
+        guard layoutFollowUpTimeoutScheduler.isScheduled, !isAttemptingLayoutFollowUp else { return }
         guard portalRenderingEnabled else {
             clearLayoutFollowUp()
             hideAllTerminalPortalViews()
@@ -10920,12 +11094,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func createBrowserToRight(of anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        let preferredProfileID = panelIdFromSurfaceId(anchorTabId).flatMap { browserPanel(for: $0)?.profileID }
+        let sourceBrowser = panelIdFromSurfaceId(anchorTabId).flatMap { browserPanel(for: $0) }
         guard let newPanel = newBrowserSurface(
             inPane: paneId,
             url: url,
             focus: true,
-            preferredProfileID: preferredProfileID
+            preferredProfileID: sourceBrowser?.profileID,
+            websiteDataStore: sourceBrowser?.explicitEphemeralWebsiteDataStoreForSibling
         ) else { return }
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }
@@ -10942,7 +11117,8 @@ final class Workspace: Identifiable, ObservableObject {
             focus: focus,
             preferredProfileID: browser.profileID,
             omnibarVisible: browser.isOmnibarVisible,
-            bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication
+            bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
+            websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling
         ) else { return nil }
         newPanel.setMuted(browser.isMuted)
         syncBrowserAudioMuteStateForPanel(newPanel.id, browserPanel: newPanel)
@@ -12804,7 +12980,11 @@ extension Workspace: BonsplitDelegate {
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
             case .mobileConnect:
-                MobilePairingWindowController.shared.show()
+                _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+                    tabManager: owningTabManager,
+                    preferredWindow: presentingWindow,
+                    debugSource: "surfaceTabBar.mobileConnect"
+                )
             case .newSimulator:
                 _ = newSimulatorSurface(inPane: pane, focus: true)
             case .newTerminal, .newBrowser, .splitRight, .splitDown:

@@ -189,15 +189,7 @@ struct ClaudeHookActiveSessionRecord: Codable {
     var updatedAt: TimeInterval
 }
 
-struct AgentHookLaunchCommandRecord: Codable {
-    var launcher: String?
-    var executablePath: String?
-    var arguments: [String]
-    var workingDirectory: String?
-    var environment: [String: String]?
-    var capturedAt: TimeInterval?
-    var source: String?
-}
+typealias AgentHookLaunchCommandRecord = AgentLaunchCommand
 
 private struct CodexMonitorLeaseRecord: Codable {
     var leaseId: String
@@ -3971,6 +3963,9 @@ struct CMUXCLI {
         if normalizedCommand == "surface-resume" {
             return false
         }
+        if normalizedCommand == "restore" {
+            return false
+        }
         if normalizedCommand == "surface", commandArgs.first?.lowercased() == "resume" {
             return false
         }
@@ -4045,7 +4040,14 @@ struct CMUXCLI {
         }
 
         let command = args[index]
-        let presentationOptions = try parsePresentationOptions(Array(args[(index + 1)...]))
+        let rawCommandArgs = Array(args[(index + 1)...])
+        let passesThroughProviderArguments = managedProviderArgumentsPassThrough(command: command)
+        let presentationOptions: (jsonOutput: Bool, idFormat: String?, remaining: [String])
+        if passesThroughProviderArguments {
+            presentationOptions = (false, nil, rawCommandArgs)
+        } else {
+            presentationOptions = try parsePresentationOptions(rawCommandArgs)
+        }
         if presentationOptions.jsonOutput {
             jsonOutput = true
         }
@@ -4063,6 +4065,7 @@ struct CMUXCLI {
         // so help text is available even when cmux is not running.
         let preSeparatorArgs = commandArgs.firstIndex(of: "--").map { commandArgs[..<$0] } ?? commandArgs[...]
         if command != "__tmux-compat",
+           shouldDispatchCmuxSubcommandHelp(command: command, commandArgs: commandArgs),
            preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
@@ -4399,6 +4402,16 @@ struct CMUXCLI {
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
+            if command == "restore", explicitSocketPath == nil {
+                throw loggedRestoreError(
+                    stage: "socket.startup",
+                    detail: String(reflecting: error),
+                    message: String(
+                        localized: "cli.restore.error.socketNotReady",
+                        defaultValue: "restore: cmux is still opening. Retry the visible restore command in a moment."
+                    )
+                )
+            }
             throw error
         }
         defer { client.close() }
@@ -4428,6 +4441,10 @@ struct CMUXCLI {
         let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command) // Backwards compatibility aliases stay hidden from help.
         do {
         switch command {
+        case "__sidebar_footer_icon_balance":
+            let response = try sendV1Command("__sidebar_footer_icon_balance", client: client)
+            print(response)
+
         case "__internal_flags":
             let response = try sendV1Command("__internal_flags", client: client)
             print(response)
@@ -5522,6 +5539,13 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
                 windowOverride: windowId
+            )
+
+        case "restore":
+            try runRestoreCommand(
+                commandArgs: commandArgs,
+                client: client,
+                processEnvironment: processEnv
             )
 
         case "surface-resume":
@@ -7544,6 +7568,14 @@ struct CMUXCLI {
                     throw CLIError(message: "surface resume set requires --shell <command> or -- <argv...>")
                 }
                 commandText = argv.map(cliShellQuote).joined(separator: " ")
+                params["launch_command"] = controlAgentLaunchCommandPayload(
+                    AgentLaunchCommand(
+                        executablePath: argv[0],
+                        arguments: argv,
+                        workingDirectory: params["cwd"] as? String,
+                        source: "cli"
+                    )
+                )
             }
             guard !commandText.isEmpty else {
                 throw CLIError(message: "surface resume set requires a non-empty command")
@@ -15002,11 +15034,11 @@ struct CMUXCLI {
             let (outPathOpt, _) = parseOption(subArgs, name: "--out")
             let localJSONOutput = hasFlag(subArgs, name: "--json")
             let outputAsJSON = effectiveJSONOutput || localJSONOutput
-            // Leave room beyond the app's capture deadline for its liveness probe and recovery reply.
+            let responseTimeout = BrowserScreenshotTimingBudget().clientResponseTimeout
             var payload = try client.sendV2(
                 method: "browser.screenshot",
                 params: ["surface_id": sid],
-                responseTimeout: 25
+                responseTimeout: responseTimeout
             )
 
             func fileURL(fromPath rawPath: String) -> URL {
@@ -16276,6 +16308,16 @@ struct CMUXCLI {
             If the app is already running, this restores the last saved session into the current app.
             If the app is not running, this launches cmux and lets startup restore reopen the saved session.
             """
+        case "restore":
+            return String(localized: "cli.restore.help", defaultValue: """
+            Usage: cmux restore <kind> <checkpoint-id>
+                   cmux restore --surface [id|ref]
+
+            Replace this CLI process with the persisted surface process. New
+            records preserve argv, environment, and cwd as structured values;
+            command-only records from older builds use a compatibility shell.
+            With no id or ref, --surface uses the calling cmux surface.
+            """)
         case "sessions", "session-debug": return sessionsUsage()
         case "feedback":
             return """
@@ -20365,7 +20407,7 @@ struct CMUXCLI {
         throw CLIError(message: "tmux shim requires a command")
     }
 
-    private func normalizedTmuxTarget(_ raw: String?) -> String? {
+    func normalizedTmuxTarget(_ raw: String?) -> String? {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -20383,7 +20425,7 @@ struct CMUXCLI {
         return String(value == 0 ? 1 : value)
     }
 
-    private func tmuxTrimIdSigil(_ raw: String) -> String {
+    func tmuxTrimIdSigil(_ raw: String) -> String {
         var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         while let first = trimmed.first, first == "$" || first == "@" || first == "%" {
             trimmed.removeFirst()
@@ -20506,7 +20548,7 @@ struct CMUXCLI {
         return try? resolveWorkspaceId(callerWorkspace, client: client)
     }
 
-    private func tmuxCanonicalPaneId(
+    func tmuxCanonicalPaneId(
         _ handle: String,
         workspaceId: String,
         client: SocketClient
@@ -20544,7 +20586,7 @@ struct CMUXCLI {
         throw CLIError(message: "Pane target not found")
     }
 
-    private func tmuxCanonicalSurfaceId(
+    func tmuxCanonicalSurfaceId(
         _ handle: String,
         workspaceId: String,
         client: SocketClient
@@ -20994,107 +21036,6 @@ struct CMUXCLI {
         return context
     }
 
-    private func tmuxCompatResolvedSocketPath(processEnvironment: [String: String]) throws -> String {
-        let envSocketPath = try CLISocketEnvironment.socketPath(in: processEnvironment)
-        let bundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
-
-        let requestedSocketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath(
-            bundleIdentifier: bundleIdentifier,
-            environment: processEnvironment
-        )
-        let source: CLISocketPathSource
-        if let envSocketPath {
-            source = CLISocketPathResolver.isImplicitDefaultPath(
-                envSocketPath,
-                bundleIdentifier: bundleIdentifier,
-                environment: processEnvironment
-            ) ? .implicitDefault : .environment
-        } else {
-            source = .implicitDefault
-        }
-
-        return CLISocketPathResolver.resolve(
-            requestedPath: requestedSocketPath,
-            source: source,
-            environment: processEnvironment,
-            bundleIdentifier: bundleIdentifier
-        )
-    }
-
-    private func tmuxCompatFocusedContext(
-        processEnvironment: [String: String],
-        explicitPassword: String?
-    ) throws -> TmuxCompatFocusedContext? {
-        let socketPath = try tmuxCompatResolvedSocketPath(processEnvironment: processEnvironment)
-        let client = SocketClient(path: socketPath)
-
-        do {
-            try client.connect()
-            try authenticateClientIfNeeded(
-                client,
-                explicitPassword: explicitPassword,
-                socketPath: socketPath
-            )
-            defer { client.close() }
-
-            let payload = try client.sendV2(method: "system.identify")
-            let focused = payload["focused"] as? [String: Any] ?? [:]
-
-            let workspaceId = (focused["workspace_id"] as? String)
-                ?? (focused["workspace_ref"] as? String)
-            let paneId = (focused["pane_id"] as? String)
-                ?? (focused["pane_ref"] as? String)
-
-            guard let workspaceId, let paneId else {
-                return nil
-            }
-
-            let paneHandle = paneId.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !paneHandle.isEmpty else {
-                return nil
-            }
-
-            let canonicalPaneId: String? = {
-                guard let canonicalWorkspaceId = try? resolveWorkspaceId(workspaceId, client: client) else {
-                    return nil
-                }
-                if let paneUUID = normalizedTmuxTarget(focused["pane_uuid"] as? String) {
-                    return paneUUID
-                }
-                if let paneId = normalizedTmuxTarget(focused["pane_id"] as? String),
-                   let canonical = try? tmuxCanonicalPaneId(
-                       paneId,
-                       workspaceId: canonicalWorkspaceId,
-                       client: client
-                   ) {
-                    return canonical
-                }
-                return try? tmuxCanonicalPaneId(
-                    paneHandle,
-                    workspaceId: canonicalWorkspaceId,
-                    client: client
-                )
-            }()
-
-            let windowId = (focused["window_id"] as? String)
-                ?? (focused["window_ref"] as? String)
-            let surfaceId = (focused["surface_id"] as? String)
-                ?? (focused["surface_ref"] as? String)
-
-            return TmuxCompatFocusedContext(
-                socketPath: socketPath,
-                workspaceId: workspaceId,
-                windowId: windowId,
-                paneHandle: paneHandle,
-                paneId: canonicalPaneId,
-                surfaceId: surfaceId
-            )
-        } catch {
-            client.close()
-            return nil
-        }
-    }
-
     private func exportAgentLaunchCommandEnvironment(
         launcher: String,
         executablePath: String,
@@ -21128,7 +21069,7 @@ struct CMUXCLI {
         executablePath: String,
         socketPath: String,
         explicitPassword: String?,
-        focusedContext: TmuxCompatFocusedContext?,
+        launchContext: TmuxCompatLaunchContext?,
         tmuxPathPrefix: String,
         cmuxBinEnvVar: String,
         termOverrideEnvVar: String,
@@ -21139,14 +21080,14 @@ struct CMUXCLI {
             to: processEnvironment["PATH"]
         )
         let fakeTmuxValue: String = {
-            if let focusedContext {
-                let windowToken = focusedContext.windowId ?? focusedContext.workspaceId
-                let paneToken = tmuxStableNumericId(focusedContext.paneId ?? focusedContext.paneHandle)
-                return "/tmp/\(tmuxPathPrefix)/\(focusedContext.workspaceId),\(windowToken),\(paneToken)"
+            if let launchContext {
+                let windowToken = launchContext.windowId ?? launchContext.workspaceId
+                let paneToken = tmuxStableNumericId(launchContext.paneId ?? launchContext.paneHandle)
+                return "/tmp/\(tmuxPathPrefix)/\(launchContext.workspaceId),\(windowToken),\(paneToken)"
             }
             return processEnvironment["TMUX"] ?? "/tmp/\(tmuxPathPrefix)/default,0,0"
         }()
-        let fakeTmuxPane = focusedContext.map { "%\(tmuxStableNumericId($0.paneId ?? $0.paneHandle))" }
+        let fakeTmuxPane = launchContext.map { "%\(tmuxStableNumericId($0.paneId ?? $0.paneHandle))" }
             ?? processEnvironment["TMUX_PANE"]
             ?? "%1"
         let fakeTerm = processEnvironment[termOverrideEnvVar] ?? "screen-256color"
@@ -21165,36 +21106,35 @@ struct CMUXCLI {
         for envVar in extraEnvVars {
             setenv(envVar.key, envVar.value, 1)
         }
-        if let focusedContext {
-            // The launcher's OWN surface (its inherited env, passed in as processEnvironment) is the
-            // agent's canonical identity; the focused pane is only a fallback. Stamping the focused
-            // pane here would desync CMUX_SURFACE_ID from the inherited CMUX_PANEL_ID and make agents
-            // (codex omx/teams) record + restore into the wrong surface after reload (#4920).
-            let identity = AgentSpawnIdentity().resolve(
-                ownWorkspaceId: processEnvironment["CMUX_WORKSPACE_ID"],
-                ownSurfaceId: processEnvironment["CMUX_SURFACE_ID"],
-                focusedWorkspaceId: focusedContext.workspaceId,
-                focusedSurfaceId: focusedContext.surfaceId
-            )
-            if let workspaceId = identity.workspaceId {
-                setenv("CMUX_WORKSPACE_ID", workspaceId, 1)
-            }
-            if let surfaceId = identity.surfaceId {
-                setenv("CMUX_SURFACE_ID", surfaceId, 1)
+        let canonicalEnvironment = canonicalizedTmuxCompatLaunchEnvironment(
+            processEnvironment,
+            launchContext: launchContext
+        )
+        for key in [
+            "CMUX_WORKSPACE_ID",
+            "CMUX_SURFACE_ID",
+            "CMUX_PANEL_ID",
+            "CMUX_TAB_ID",
+            "CMUX_PANE_ID",
+        ] {
+            if let value = canonicalEnvironment[key] {
+                setenv(key, value, 1)
+            } else {
+                unsetenv(key)
             }
         }
     }
 
     /// Hidden `__debug-tmux-compat-env` seam: runs the real ``configureTmuxCompatEnvironment`` against
-    /// the live socket's focused context and prints the resolved CMUX_* identity, so an integration
-    /// test can assert the launcher stamps the launch surface (its own env) rather than the focused
-    /// pane (#4920). Not user-facing. The shim/tmux params here do not affect the id resolution.
+    /// the live socket and prints the resolved CMUX_*/tmux identity, so integration tests can assert
+    /// the launcher stamps its own surface rather than the globally focused pane (#4920, #9009).
+    /// Not user-facing. The shim/tmux params here do not affect identity resolution.
     func debugDumpTmuxCompatEnvironment(socketPath: String, explicitPassword: String?) throws {
         var processEnvironment = ProcessInfo.processInfo.environment
-        // Resolve the focused context from the SAME socket this command was pointed at, not whatever
+        // Resolve launch identity from the SAME socket this command was pointed at, not whatever
         // CMUX_SOCKET_PATH the process happened to inherit.
         processEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        let focusedContext = try tmuxCompatFocusedContext(
+        let launchContext = try tmuxCompatLaunchContext(
             processEnvironment: processEnvironment,
             explicitPassword: explicitPassword
         )
@@ -21210,7 +21150,7 @@ struct CMUXCLI {
             executablePath: processEnvironment["CMUX_BUNDLED_CLI_PATH"] ?? "cmux",
             socketPath: socketPath,
             explicitPassword: explicitPassword,
-            focusedContext: focusedContext,
+            launchContext: launchContext,
             tmuxPathPrefix: "cmux-debug",
             cmuxBinEnvVar: "CMUX_BIN",
             termOverrideEnvVar: "TERM"
@@ -21220,6 +21160,9 @@ struct CMUXCLI {
         print("CMUX_SURFACE_ID=\(dump("CMUX_SURFACE_ID"))")
         print("CMUX_PANEL_ID=\(dump("CMUX_PANEL_ID"))")
         print("CMUX_TAB_ID=\(dump("CMUX_TAB_ID"))")
+        print("CMUX_PANE_ID=\(dump("CMUX_PANE_ID"))")
+        print("TMUX=\(dump("TMUX"))")
+        print("TMUX_PANE=\(dump("TMUX_PANE"))")
     }
 
     private static let claudeNodeOptionsRestoreModule = """
@@ -21239,7 +21182,7 @@ struct CMUXCLI {
         executablePath: String,
         socketPath: String,
         explicitPassword: String?,
-        focusedContext: TmuxCompatFocusedContext?, commandArgs: [String]
+        launchContext: TmuxCompatLaunchContext?, commandArgs: [String]
     ) {
         clearInheritedClaudeLaunchEnvironment()
         configureTmuxCompatEnvironment(
@@ -21248,11 +21191,13 @@ struct CMUXCLI {
             executablePath: executablePath,
             socketPath: socketPath,
             explicitPassword: explicitPassword,
-            focusedContext: focusedContext,
+            launchContext: launchContext,
             tmuxPathPrefix: "cmux-claude-teams",
             cmuxBinEnvVar: "CMUX_CLAUDE_TEAMS_CMUX_BIN",
             termOverrideEnvVar: "CMUX_CLAUDE_TEAMS_TERM",
-            extraEnvVars: claudeTeamsExtraEnvVars(commandArgs: commandArgs)
+            extraEnvVars: claudeTeamsExtraEnvVars(commandArgs: commandArgs) + [
+                (key: "CMUX_CLAUDE_TEAMS_TMUX_SHIM", value: shimDirectory.appendingPathComponent("tmux").path),
+            ]
         )
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
@@ -21276,7 +21221,7 @@ struct CMUXCLI {
         )
     }
 
-    private func createTmuxCompatShimDirectory(
+    func createTmuxCompatShimDirectory(
         directoryName: String,
         tmuxShimScript: String
     ) throws -> URL {
@@ -21288,18 +21233,6 @@ struct CMUXCLI {
         let tmuxURL = root.appendingPathComponent("tmux", isDirectory: false)
         try writeShimIfChanged(tmuxShimScript, to: tmuxURL)
         return root
-    }
-
-    private func createClaudeTeamsShimDirectory() throws -> URL {
-        let script = """
-        #!/usr/bin/env bash
-        set -euo pipefail
-        exec "${CMUX_CLAUDE_TEAMS_CMUX_BIN:-cmux}" __tmux-compat "$@"
-        """
-        return try createTmuxCompatShimDirectory(
-            directoryName: "claude-teams-bin",
-            tmuxShimScript: script
-        )
     }
 
     private func createClaudeNodeOptionsRestoreModule() throws -> URL {
@@ -21331,11 +21264,19 @@ struct CMUXCLI {
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
-        let shimDirectory = try createClaudeTeamsShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let focusedContext = try tmuxCompatFocusedContext(
+        let launchContext = try tmuxCompatLaunchContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
+        )
+        if !claudeTeamsIsNonLaunchInvocation(commandArgs: commandArgs),
+           normalizedTmuxTarget(launchContext?.surfaceId) == nil {
+            throw CLIError(message: managedTerminalRequiredMessage(displayName: "Claude Teams"))
+        }
+        let shimDirectory = try createClaudeTeamsShimDirectory(
+            processEnvironment: launcherEnvironment,
+            commandArgs: commandArgs,
+            launchContext: launchContext
         )
         // Check custom path from Settings > Automation > Claude Code first.
         // Never fall back to a cmux-bundled provider binary.
@@ -21361,7 +21302,7 @@ struct CMUXCLI {
             executablePath: executablePath,
             socketPath: socketPath,
             explicitPassword: explicitPassword,
-            focusedContext: focusedContext, commandArgs: commandArgs
+            launchContext: launchContext, commandArgs: commandArgs
         )
 
         let launchPath = claudeExecutablePath
@@ -21684,6 +21625,7 @@ struct CMUXCLI {
         private var approvalItemOrder: [String] = []
         private var suppressedApprovalKeys = Set<String>()
         private var suppressedApprovalOrder: [String] = []
+        private var reportedSubagentDiagnosticKeys = Set<String>()
 
         init(
             appServerURL: String,
@@ -21813,6 +21755,7 @@ struct CMUXCLI {
                 )
                 if let threadObject = response["thread"] as? [String: Any],
                    let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
+                    codexTeamsMarkResumedThreadAttachable(thread)
                     try observeThreadSafely(thread)
                 }
             } catch {
@@ -22027,9 +21970,34 @@ struct CMUXCLI {
             let parentDepth = depthByThreadId[spawn.parentThreadId]
             let depth = parentDepth.map { $0 + 1 } ?? max(spawn.sourceDepth ?? 1, 1)
             depthByThreadId[thread.id] = depth
-            guard depth <= maxAutoDepth else { return }
-            guard !openedThreadIds.contains(thread.id) else { return }
-            guard CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else { return }
+            guard depth <= maxAutoDepth else {
+                codexTeamsDiscardAttachableThreadId(thread.id)
+                reportSubagentDiagnosticOnce(
+                    threadId: thread.id,
+                    reason: "depth",
+                    message: String(
+                        localized: "cli.codexTeams.watcher.subagent.depthExceeded",
+                        defaultValue: "cmux codex-teams watcher skipped a Codex subagent: depth \(depth) exceeds the automatic pane limit \(maxAutoDepth)."
+                    ) + "\n"
+                )
+                return
+            }
+            guard !openedThreadIds.contains(thread.id) else {
+                codexTeamsDiscardAttachableThreadId(thread.id)
+                return
+            }
+            guard CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else {
+                codexTeamsDiscardAttachableThreadId(thread.id)
+                reportSubagentDiagnosticOnce(
+                    threadId: thread.id,
+                    reason: "status",
+                    message: String(
+                        localized: "cli.codexTeams.watcher.subagent.statusNotAttachable",
+                        defaultValue: "cmux codex-teams watcher skipped a Codex subagent: thread status \(thread.statusType ?? "missing") is not attachable."
+                    ) + "\n"
+                )
+                return
+            }
             guard codexTeamsConsumeAttachableThreadId(thread.id) else {
                 codexTeamsScheduleReadinessProbe(threadId: thread.id)
                 return
@@ -22040,9 +22008,15 @@ struct CMUXCLI {
             } catch {
                 if lastAgentSurfaceId != nil {
                     lastAgentSurfaceId = nil
-                    try openSubagent(thread, spawn: spawn, depth: depth)
+                    do {
+                        try openSubagent(thread, spawn: spawn, depth: depth)
+                    } catch {
+                        reportPaneCreationFailureOnce(threadId: thread.id, error: error)
+                        return
+                    }
                 } else {
-                    throw error
+                    reportPaneCreationFailureOnce(threadId: thread.id, error: error)
+                    return
                 }
             }
             openedThreadIds.insert(thread.id)
@@ -22072,7 +22046,19 @@ struct CMUXCLI {
                     self.attachableThreadIds.insert(threadId)
                 }
                 self.readinessLock.unlock()
-                guard isAttachable else { return }
+                guard isAttachable else {
+                    self.stateLock.lock()
+                    self.reportSubagentDiagnosticOnce(
+                        threadId: threadId,
+                        reason: "readiness",
+                        message: String(
+                            localized: "cli.codexTeams.watcher.subagent.readinessFailed",
+                            defaultValue: "cmux codex-teams watcher could not attach a Codex subagent because its resumed thread was not ready."
+                        ) + "\n"
+                    )
+                    self.stateLock.unlock()
+                    return
+                }
                 do {
                     try self.openAttachableThread(threadId: threadId)
                 } catch {
@@ -22092,6 +22078,22 @@ struct CMUXCLI {
             try openObservedSubagent(thread, spawn: spawn)
         }
 
+        private func codexTeamsMarkResumedThreadAttachable(_ thread: CodexTeamsThread) {
+            guard thread.spawn != nil,
+                  CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else {
+                return
+            }
+            readinessLock.lock()
+            attachableThreadIds.insert(thread.id)
+            readinessLock.unlock()
+        }
+
+        private func codexTeamsDiscardAttachableThreadId(_ threadId: String) {
+            readinessLock.lock()
+            attachableThreadIds.remove(threadId)
+            readinessLock.unlock()
+        }
+
         private func codexTeamsConsumeAttachableThreadId(_ threadId: String) -> Bool {
             readinessLock.lock()
             defer { readinessLock.unlock() }
@@ -22099,6 +22101,39 @@ struct CMUXCLI {
                 return false
             }
             return true
+        }
+
+        /// Called while `stateLock` is held after both supported split targets fail.
+        private func reportPaneCreationFailureOnce(threadId: String, error: Error) {
+            let message: String
+            if let code = (error as? CLIError)?.v2Code {
+                message = String(
+                    localized: "cli.codexTeams.watcher.subagent.paneCreationFailedWithCode",
+                    defaultValue: "cmux codex-teams watcher could not create a pane for a resumed Codex subagent (error code: \(code))."
+                )
+            } else {
+                message = String(
+                    localized: "cli.codexTeams.watcher.subagent.paneCreationFailed",
+                    defaultValue: "cmux codex-teams watcher could not create a pane for a resumed Codex subagent."
+                )
+            }
+            reportSubagentDiagnosticOnce(
+                threadId: threadId,
+                reason: "pane",
+                message: message + "\n"
+            )
+        }
+
+        /// Called while `stateLock` is held so each stable skip reason is logged once.
+        private func reportSubagentDiagnosticOnce(
+            threadId: String,
+            reason: String,
+            message: String
+        ) {
+            guard reportedSubagentDiagnosticKeys.insert("\(threadId):\(reason)").inserted else {
+                return
+            }
+            cliWriteStderr(message)
         }
 
         private func openSubagent(
@@ -22383,24 +22418,46 @@ struct CMUXCLI {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
 
-        guard let focusedContext = try tmuxCompatFocusedContext(
+        if codexTeamsIsInformationalInvocation(commandArgs: commandArgs) {
+            guard let codexExecutablePath = resolveCodexExecutable(searchPath: launcherEnvironment["PATH"]) else {
+                throw CLIError(message: missingProviderExecutableMessage(
+                    displayName: "Codex",
+                    executableName: "codex"
+                ))
+            }
+            launcherEnvironment["PATH"] = providerExecutableSearchPath(
+                searchPath: launcherEnvironment["PATH"],
+                includingExecutableAt: codexExecutablePath
+            )
+            let informationalProcess = try startCodexTeamsProcess(
+                executablePath: codexExecutablePath,
+                arguments: commandArgs,
+                environment: launcherEnvironment,
+                standardInput: FileHandle.standardInput,
+                standardOutput: FileHandle.standardOutput,
+                standardError: FileHandle.standardError
+            )
+            informationalProcess.waitUntilExit()
+            exit(informationalProcess.terminationStatus)
+        }
+
+        guard let launchContext = try tmuxCompatLaunchContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         ) else {
             throw CLIError(message: "cmux codex-teams must be started from a cmux terminal surface")
         }
-        // The codex-teams root identity is the LAUNCH surface (this process's own env), not the
-        // operator's focused pane, so the watcher records the surface codex actually runs in (#4920).
-        let rootIdentity = AgentSpawnIdentity().resolve(
-            ownWorkspaceId: launcherEnvironment["CMUX_WORKSPACE_ID"],
-            ownSurfaceId: launcherEnvironment["CMUX_SURFACE_ID"],
-            focusedWorkspaceId: focusedContext.workspaceId,
-            focusedSurfaceId: focusedContext.surfaceId
-        )
-        guard let rootSurfaceId = rootIdentity.surfaceId, !rootSurfaceId.isEmpty else {
+        guard let rootSurfaceId = launchContext.surfaceId, !rootSurfaceId.isEmpty else {
             throw CLIError(message: "cmux codex-teams must be started from a cmux terminal surface")
         }
-        let rootWorkspaceId = rootIdentity.workspaceId ?? focusedContext.workspaceId
+        // A surface UUID survives workspace moves, so the validated context may
+        // supersede every inherited primary and legacy routing alias. Stamp the
+        // same identity into the app server, root Codex process, and watcher.
+        launcherEnvironment = canonicalizedTmuxCompatLaunchEnvironment(
+            launcherEnvironment,
+            launchContext: launchContext
+        )
+        let rootWorkspaceId = launchContext.workspaceId
         try Self.validateCodexTeamsWorkingDirectory(
             commandArgs: commandArgs,
             baseDirectory: launcherEnvironment["PWD"] ?? FileManager.default.currentDirectoryPath
@@ -22934,7 +22991,7 @@ struct CMUXCLI {
         return root
     }
 
-    private func writeShimIfChanged(_ script: String, to url: URL) throws {
+    func writeShimIfChanged(_ script: String, to url: URL) throws {
         let normalized = script.trimmingCharacters(in: .whitespacesAndNewlines)
         let fileManager = FileManager.default
         let existing = try? String(contentsOf: url, encoding: .utf8)
@@ -23366,7 +23423,7 @@ struct CMUXCLI {
         executablePath: String,
         socketPath: String,
         explicitPassword: String?,
-        focusedContext: TmuxCompatFocusedContext?,
+        launchContext: TmuxCompatLaunchContext?,
         openCodePort: String
     ) {
         configureTmuxCompatEnvironment(
@@ -23375,7 +23432,7 @@ struct CMUXCLI {
             executablePath: executablePath,
             socketPath: socketPath,
             explicitPassword: explicitPassword,
-            focusedContext: focusedContext,
+            launchContext: launchContext,
             tmuxPathPrefix: "cmux-omo",
             cmuxBinEnvVar: "CMUX_OMO_CMUX_BIN",
             termOverrideEnvVar: "CMUX_OMO_TERM",
@@ -23410,15 +23467,21 @@ struct CMUXCLI {
             includingExecutableAt: openCodeExecutablePath
         )
 
-        // Ensure oh-my-openagent plugin is registered and installed
-        try omoEnsurePlugin(processEnvironment: launcherEnvironment)
-
-        let shimDirectory = try createOMOShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let focusedContext = try tmuxCompatFocusedContext(
+        let launchContext = try tmuxCompatLaunchContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
+        if !omoIsNonLaunchInvocation(commandArgs: commandArgs),
+           normalizedTmuxTarget(launchContext?.surfaceId) == nil {
+            throw CLIError(message: managedTerminalRequiredMessage(displayName: "cmux omo"))
+        }
+
+        // Ensure oh-my-openagent plugin is registered and installed only after a
+        // real launch's inherited surface identity has been validated.
+        try omoEnsurePlugin(processEnvironment: launcherEnvironment)
+
+        let shimDirectory = try createOMOShimDirectory()
         let openCodePort = omoResolvedPort(
             commandArgs: commandArgs,
             processEnvironment: launcherEnvironment
@@ -23430,7 +23493,7 @@ struct CMUXCLI {
             executablePath: executablePath,
             socketPath: socketPath,
             explicitPassword: explicitPassword,
-            focusedContext: focusedContext,
+            launchContext: launchContext,
             openCodePort: openCodePort
         )
 
@@ -23522,7 +23585,7 @@ struct CMUXCLI {
         executablePath: String,
         socketPath: String,
         explicitPassword: String?,
-        focusedContext: TmuxCompatFocusedContext?
+        launchContext: TmuxCompatLaunchContext?
     ) {
         configureTmuxCompatEnvironment(
             processEnvironment: processEnvironment,
@@ -23530,7 +23593,7 @@ struct CMUXCLI {
             executablePath: executablePath,
             socketPath: socketPath,
             explicitPassword: explicitPassword,
-            focusedContext: focusedContext,
+            launchContext: launchContext,
             tmuxPathPrefix: "cmux-omx",
             cmuxBinEnvVar: "CMUX_OMX_CMUX_BIN",
             termOverrideEnvVar: "CMUX_OMX_TERM"
@@ -23558,19 +23621,23 @@ struct CMUXCLI {
             includingExecutableAt: omxExecutablePath
         )
 
-        let shimDirectory = try createOMXShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let focusedContext = try tmuxCompatFocusedContext(
+        let launchContext = try tmuxCompatLaunchContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
+        if !omxIsNonLaunchInvocation(commandArgs: commandArgs),
+           normalizedTmuxTarget(launchContext?.surfaceId) == nil {
+            throw CLIError(message: managedTerminalRequiredMessage(displayName: "cmux omx"))
+        }
+        let shimDirectory = try createOMXShimDirectory()
         configureOMXEnvironment(
             processEnvironment: launcherEnvironment,
             shimDirectory: shimDirectory,
             executablePath: executablePath,
             socketPath: socketPath,
             explicitPassword: explicitPassword,
-            focusedContext: focusedContext
+            launchContext: launchContext
         )
 
         let launchPath = omxExecutablePath
@@ -23620,7 +23687,7 @@ struct CMUXCLI {
         executablePath: String,
         socketPath: String,
         explicitPassword: String?,
-        focusedContext: TmuxCompatFocusedContext?
+        launchContext: TmuxCompatLaunchContext?
     ) {
         configureTmuxCompatEnvironment(
             processEnvironment: processEnvironment,
@@ -23628,7 +23695,7 @@ struct CMUXCLI {
             executablePath: executablePath,
             socketPath: socketPath,
             explicitPassword: explicitPassword,
-            focusedContext: focusedContext,
+            launchContext: launchContext,
             tmuxPathPrefix: "cmux-omc",
             cmuxBinEnvVar: "CMUX_OMC_CMUX_BIN",
             termOverrideEnvVar: "CMUX_OMC_TERM"
@@ -23680,17 +23747,21 @@ struct CMUXCLI {
 
         let shimDirectory = try createOMCShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let focusedContext = try tmuxCompatFocusedContext(
+        let launchContext = try tmuxCompatLaunchContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
+        if !AgentLaunchInvocationClassifier().omcLaunchIsNonLaunch(args: commandArgs),
+           normalizedTmuxTarget(launchContext?.surfaceId) == nil {
+            throw CLIError(message: managedTerminalRequiredMessage(displayName: "cmux omc"))
+        }
         configureOMCEnvironment(
             processEnvironment: launcherEnvironment,
             shimDirectory: shimDirectory,
             executablePath: executablePath,
             socketPath: socketPath,
             explicitPassword: explicitPassword,
-            focusedContext: focusedContext
+            launchContext: launchContext
         )
 
         let launchPath = omcExecutablePath
@@ -26865,7 +26936,7 @@ struct CMUXCLI {
         return false
     }
 
-    private func resolveTerminalBinding(ttyName: String, client: SocketClient) -> CallerTerminalBinding? {
+    func resolveTerminalBinding(ttyName: String, client: SocketClient) -> CallerTerminalBinding? {
         guard let payload = try? client.sendV2(method: "debug.terminals") else {
             return nil
         }
@@ -29097,6 +29168,12 @@ struct CMUXCLI {
         }
         if let resumeEnvironment, !resumeEnvironment.isEmpty {
             params["environment"] = resumeEnvironment
+        }
+        if let launchCommand {
+            params["launch_command"] = controlAgentLaunchCommandPayload(launchCommand)
+        }
+        if let observedPermissionMode {
+            params["permission_mode"] = observedPermissionMode
         }
         _ = try? client.sendV2(method: "surface.resume.set", params: params)
     }
@@ -36670,6 +36747,7 @@ export default CMUXSessionRestore;
           shortcuts
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>
+          restore <kind> <checkpoint-id> | restore --surface [id|ref]
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]

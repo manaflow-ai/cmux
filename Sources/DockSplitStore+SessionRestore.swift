@@ -173,17 +173,16 @@ extension DockSplitStore {
             promptForApproval: true,
             approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
         )
-        let unresolvedBindingLaunch = approvedResumeBinding.flatMap {
-            policy.surfaceResumeStartupLaunch(
-                forApprovedBinding: $0,
-                allowLauncherScript: true
-            )
-        }
         let savedWorkingDirectory = resumeBinding?.cwd
             ?? terminalSnapshot.workingDirectory
             ?? restorableAgent?.workingDirectory
             ?? snapshot.directory
         let workingDirectory = savedWorkingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let unresolvedBindingLaunch = approvedResumeBinding.flatMap {
+            policy.surfaceResumeStartupLaunch(
+                forApprovedBinding: $0
+            )
+        }
         let resumeSessionWorkingDirectory: String? = {
             if unresolvedBindingLaunch != nil {
                 return approvedResumeBinding?.cwd ?? workingDirectory
@@ -196,14 +195,12 @@ extension DockSplitStore {
                 ?? restorableAgent.launchCommand?.workingDirectory
                 ?? workingDirectory
         }()
-        let bindingLaunch = approvedResumeBinding?.isAgentHookBinding == true
-            ? unresolvedBindingLaunch?.restoringWorkingDirectory(resumeSessionWorkingDirectory)
-            : unresolvedBindingLaunch
+        let bindingLaunch = unresolvedBindingLaunch
         let tmuxStartCommand = restorableAgent == nil && bindingLaunch == nil
             ? policy.restorableTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
             : nil
         let tmuxLauncher = tmuxStartCommand.flatMap {
-            SessionRestoredTerminalCommandStore.writeLauncherScript(
+            OneShotTerminalLauncherStore().writeStartupCommand(
                 command: $0,
                 workingDirectory: workingDirectory
             )
@@ -216,15 +213,19 @@ extension DockSplitStore {
         )
         let agentLaunch = shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil
             && !agentSessionAlreadyActive
-            ? restorableAgent?.resumeStartupInput(requireLauncherScript: true).map {
-                WorkspaceSurfaceResumeStartupLaunch.input($0)
-                    .restoringWorkingDirectory(resumeSessionWorkingDirectory)
-            }
+            ? restorableAgent?.resumeStartupInput(
+                restoringWorkingDirectory: resumeSessionWorkingDirectory
+            ).map(WorkspaceSurfaceResumeStartupLaunch.input)
             : nil
-        let initialCommand = tmuxLauncher?.path
+        let initialCommand = tmuxLauncher
         let initialInput = bindingLaunch?.initialInput ?? agentLaunch?.initialInput
-        let startupHandlesWorkingDirectory = tmuxLauncher != nil || agentLaunch != nil ||
-            (bindingLaunch != nil && resumeBinding?.isAgentHookBinding == true)
+        let startupHandlesWorkingDirectory =
+            tmuxLauncher != nil || agentLaunch != nil || bindingLaunch != nil
+        let hostShellWorkingDirectory: String? = {
+            guard startupHandlesWorkingDirectory else { return workingDirectory }
+            let candidate = tmuxLauncher != nil ? workingDirectory : resumeSessionWorkingDirectory
+            return OneShotTerminalLauncherStore.enterableWorkingDirectory(candidate)
+        }()
         let shouldReplayScrollback = policy.shouldReplaySessionScrollback(
             hasRestorableAgent: restorableAgent != nil,
             tmuxStartCommand: restoredTmuxStartCommand,
@@ -246,7 +247,11 @@ extension DockSplitStore {
                     terminalSnapshot.fontSizeChangeTokens ?? []
                 )
             ).applying(to: nil),
-            workingDirectory: startupHandlesWorkingDirectory ? nil : workingDirectory,
+            // Start the owning shell in the resume cwd when it is currently
+            // enterable so exiting the child launcher preserves #7031. The
+            // launcher still owns the authoritative guard for missing,
+            // inaccessible, or concurrently changed directories.
+            workingDirectory: hostShellWorkingDirectory,
             initialCommand: initialCommand,
             tmuxStartCommand: restoredTmuxStartCommand,
             initialInput: initialInput,

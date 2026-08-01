@@ -51,6 +51,42 @@ def test_nightly_build_is_pinned_to_its_provenance_commit() -> None:
     assert "checkout_ref: ${{ needs.version.outputs.head_sha }}" in text
 
 
+def test_sdk_publish_conformance_runs_live_against_exact_built_binary() -> None:
+    for name, language in (
+        ("sdk-publish-crates.yml", "rust"),
+        ("sdk-publish-go.yml", "go"),
+        ("sdk-publish-java.yml", "java"),
+        ("sdk-publish-npm.yml", "typescript"),
+        ("sdk-publish-python.yml", "python"),
+    ):
+        text = workflow(name)
+        assert "cargo build -p cmux-tui --bin cmux-tui --locked" in text
+        assert (
+            '--cmux-tui-bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"'
+            in text
+        )
+        assert (
+            f"grep -Eq '^PASS +{language} "
+            "+live-creation-exit-restart-unix$'"
+        ) in text
+
+    typescript = workflow("sdk-publish-npm.yml")
+    assert 'node-version: "22.14.0"' in typescript
+    assert (
+        "cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json"
+        in typescript
+    )
+    assert "npm ci --no-audit --no-fund" in typescript
+    assert (
+        "test \"$(node -p 'typeof WebSocket')\" = \"function\""
+        in typescript
+    )
+    assert (
+        "grep -Eq '^PASS +typescript "
+        "+live-creation-exit-restart-websocket$'"
+    ) in typescript
+
+
 def test_stable_release_builds_and_tests_once_before_dispatching_publishers() -> None:
     release_cut = workflow("cmux-tui-release-cut.yml")
     release = workflow("cmux-tui-release.yml")

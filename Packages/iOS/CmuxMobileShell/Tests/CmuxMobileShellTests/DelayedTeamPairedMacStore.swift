@@ -4,6 +4,14 @@ import Foundation
 @testable import CmuxMobileShell
 
 actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshing {
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {}
+
     private var recordsByTeam: [String: [MobilePairedMac]]
     private let blockedTeams: Set<String>
     private var startedTeams: Set<String> = []
