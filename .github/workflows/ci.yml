@@ -7,8 +7,8 @@ permissions:
   contents: read
 
 jobs:
-  isolate-unauthorized-refresh:
-    name: HostRuntime unauthorized refresh
+  verify-hostruntime-refresh:
+    name: HostRuntime refresh and full suite
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 10
     env:
@@ -21,10 +21,18 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: Run suspected hanging method
+      - name: Run unauthorized refresh method
         run: |
           python3 scripts/ci/run_with_timeout.py \
             --timeout-seconds 45 \
             -- swift test \
               --package-path Packages/Shared/CmuxIrohTransport \
-              --filter unauthorizedRegistrationRefreshDeactivatesActiveEndpoint
+              --filter unauthorizedRegistrationRefreshPreservesActiveEndpoint
+
+      - name: Run full HostRuntime suite
+        run: |
+          python3 scripts/ci/run_with_timeout.py \
+            --timeout-seconds 180 \
+            -- swift test \
+              --package-path Packages/Shared/CmuxIrohTransport \
+              --filter CmxIrohHostRuntimeTests
