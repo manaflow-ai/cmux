@@ -132,8 +132,8 @@ struct BrowserWebContentProcessTests {
             defaultsKey: "failed-cleanup-stores",
             environment: environment
         )
-        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
-        registry.register(websiteDataStore)
+        var websiteDataStore: WKWebsiteDataStore? = .nonPersistent()
+        registry.register(try #require(websiteDataStore))
         var cleanupAttemptCount = 0
         let controller = BrowserAppSessionController(
             coordinator: coordinator,
@@ -155,6 +155,19 @@ struct BrowserWebContentProcessTests {
         }
 
         #expect(cleanupAttemptCount == 2)
+        #expect(registry.hasOwnership)
+
+        websiteDataStore = nil
+        #expect(!registry.hasOwnership)
+        _ = await controller.request(
+            destinationURL: URL(string: "http://127.0.0.1:1/dashboard")!
+        )
+        let nextWebsiteDataStore = WKWebsiteDataStore.nonPersistent()
+        registry.register(nextWebsiteDataStore)
+
+        await controller.clearCmuxWebSession()
+
+        #expect(cleanupAttemptCount == 3)
         #expect(registry.hasOwnership)
     }
 
