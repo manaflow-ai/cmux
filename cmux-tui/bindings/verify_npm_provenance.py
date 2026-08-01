@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -20,6 +23,14 @@ from urllib.request import Request, urlopen
 
 REGISTRY = "https://registry.npmjs.org"
 PREDICATE_TYPE = "https://slsa.dev/provenance/v1"
+STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
+GITHUB_REPOSITORY = "https://github.com/manaflow-ai/cmux"
+GITHUB_REPOSITORY_ID = "1144115288"
+GITHUB_REPOSITORY_OWNER_ID = "171392238"
+GITHUB_WORKFLOW_BUILD_TYPE = (
+    "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1"
+)
+GITHUB_HOSTED_BUILDER = "https://github.com/actions/runner/github-hosted"
 USER_AGENT = "cmux-sdk-npm-provenance/1 (https://github.com/manaflow-ai/cmux)"
 
 
@@ -35,9 +46,9 @@ def _integrity(artifact: Path) -> str:
     return "sha512-" + base64.b64encode(digest.digest()).decode("ascii")
 
 
-def _metadata(package: str) -> dict[str, Any]:
+def _json(url: str, missing: str) -> dict[str, Any]:
     request = Request(
-        f"{REGISTRY}/{quote(package, safe='')}",
+        url,
         headers={"Accept": "application/json", "User-Agent": USER_AGENT},
     )
     try:
@@ -45,17 +56,24 @@ def _metadata(package: str) -> dict[str, Any]:
             payload = response.read()
     except HTTPError as error:
         if error.code == 404:
-            raise ProvenanceError("the required npm project does not exist") from error
-        raise ProvenanceError("npm metadata lookup failed") from error
-    except (URLError, OSError) as error:
-        raise ProvenanceError("npm metadata lookup failed") from error
+            raise ProvenanceError(missing) from error
+        raise ProvenanceError("npm provenance lookup failed") from error
+    except (URLError, OSError, http.client.IncompleteRead) as error:
+        raise ProvenanceError("npm provenance lookup failed") from error
     try:
         metadata = json.loads(payload)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ProvenanceError("npm returned invalid project metadata") from error
+        raise ProvenanceError("npm returned invalid provenance metadata") from error
     if not isinstance(metadata, dict):
-        raise ProvenanceError("npm returned invalid project metadata")
+        raise ProvenanceError("npm returned invalid provenance metadata")
     return metadata
+
+
+def _metadata(package: str) -> dict[str, Any]:
+    return _json(
+        f"{REGISTRY}/{quote(package, safe='')}",
+        "the required npm project does not exist",
+    )
 
 
 def _validate_metadata(
@@ -65,7 +83,8 @@ def _validate_metadata(
     repository_url: str,
     repository_directory: str,
     artifact: Optional[Path],
-) -> None:
+    owner: str,
+) -> tuple[str, str]:
     if metadata.get("name") != package:
         raise ProvenanceError("npm metadata names a different project")
     versions = metadata.get("versions")
@@ -89,8 +108,8 @@ def _validate_metadata(
 
     publisher = release.get("_npmUser")
     publisher_name = publisher.get("name") if isinstance(publisher, dict) else None
-    if not isinstance(publisher_name, str) or not publisher_name:
-        raise ProvenanceError("npm bootstrap publisher identity is missing")
+    if publisher_name != owner:
+        raise ProvenanceError("npm bootstrap publisher identity does not match")
     maintainers = metadata.get("maintainers")
     if not isinstance(maintainers, list):
         raise ProvenanceError("npm project maintainer state is malformed")
@@ -98,9 +117,9 @@ def _validate_metadata(
         item.get("name") if isinstance(item, dict) else None
         for item in maintainers
     ]
-    if maintainer_names != [publisher_name]:
+    if maintainer_names != [owner]:
         raise ProvenanceError(
-            "npm bootstrap publisher is not the sole current project maintainer"
+            "expected npm owner is not the sole current project maintainer"
         )
 
     dist = release.get("dist")
@@ -125,6 +144,109 @@ def _validate_metadata(
         PREDICATE_TYPE
     ):
         raise ProvenanceError("npm bootstrap provenance predicate is missing")
+    return integrity, expected_attestation_url
+
+
+def _sha512_hex(integrity: str) -> str:
+    algorithm, separator, encoded = integrity.partition("-")
+    if algorithm != "sha512" or separator != "-" or not encoded:
+        raise ProvenanceError("npm bootstrap integrity metadata is malformed")
+    try:
+        digest = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error) as error:
+        raise ProvenanceError("npm bootstrap integrity metadata is malformed") from error
+    if len(digest) != hashlib.sha512().digest_size:
+        raise ProvenanceError("npm bootstrap integrity metadata is malformed")
+    return digest.hex()
+
+
+def _validate_attestation(
+    metadata: dict[str, Any],
+    package: str,
+    version: str,
+    integrity: str,
+    workflow: str,
+) -> None:
+    attestations = metadata.get("attestations")
+    if not isinstance(attestations, list):
+        raise ProvenanceError("npm bootstrap attestation list is malformed")
+    matching = [
+        item
+        for item in attestations
+        if isinstance(item, dict) and item.get("predicateType") == PREDICATE_TYPE
+    ]
+    if len(matching) != 1:
+        raise ProvenanceError("npm bootstrap provenance attestation is not unique")
+    bundle = matching[0].get("bundle")
+    envelope = bundle.get("dsseEnvelope") if isinstance(bundle, dict) else None
+    payload = envelope.get("payload") if isinstance(envelope, dict) else None
+    if not isinstance(payload, str):
+        raise ProvenanceError("npm bootstrap provenance envelope is malformed")
+    try:
+        statement = json.loads(base64.b64decode(payload, validate=True))
+    except (
+        ValueError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        binascii.Error,
+    ) as error:
+        raise ProvenanceError("npm bootstrap provenance payload is malformed") from error
+    if not isinstance(statement, dict):
+        raise ProvenanceError("npm bootstrap provenance payload is malformed")
+    expected_subject = [{
+        "name": f"pkg:npm/{package}@{version}",
+        "digest": {"sha512": _sha512_hex(integrity)},
+    }]
+    if statement.get("_type") != STATEMENT_TYPE or (
+        statement.get("predicateType") != PREDICATE_TYPE
+    ) or statement.get("subject") != expected_subject:
+        raise ProvenanceError("npm bootstrap provenance subject does not match")
+
+    predicate = statement.get("predicate")
+    definition = (
+        predicate.get("buildDefinition") if isinstance(predicate, dict) else None
+    )
+    if not isinstance(definition, dict) or definition.get("buildType") != (
+        GITHUB_WORKFLOW_BUILD_TYPE
+    ):
+        raise ProvenanceError("npm bootstrap provenance build type does not match")
+    external = definition.get("externalParameters")
+    workflow_identity = (
+        external.get("workflow") if isinstance(external, dict) else None
+    )
+    if not isinstance(workflow_identity, dict) or (
+        workflow_identity.get("repository") != GITHUB_REPOSITORY
+        or workflow_identity.get("path") != workflow
+        or workflow_identity.get("ref") != "refs/heads/main"
+    ):
+        raise ProvenanceError("npm bootstrap provenance workflow does not match")
+    internal = definition.get("internalParameters")
+    github = internal.get("github") if isinstance(internal, dict) else None
+    if not isinstance(github, dict) or (
+        github.get("event_name") != "workflow_dispatch"
+        or github.get("repository_id") != GITHUB_REPOSITORY_ID
+        or github.get("repository_owner_id") != GITHUB_REPOSITORY_OWNER_ID
+    ):
+        raise ProvenanceError("npm bootstrap provenance repository does not match")
+    run_details = predicate.get("runDetails")
+    builder = run_details.get("builder") if isinstance(run_details, dict) else None
+    build_metadata = (
+        run_details.get("metadata") if isinstance(run_details, dict) else None
+    )
+    invocation = (
+        build_metadata.get("invocationId")
+        if isinstance(build_metadata, dict)
+        else None
+    )
+    invocation_pattern = re.escape(GITHUB_REPOSITORY) + (
+        r"/actions/runs/[1-9][0-9]*/attempts/[1-9][0-9]*"
+    )
+    if not isinstance(builder, dict) or builder.get("id") != GITHUB_HOSTED_BUILDER:
+        raise ProvenanceError("npm bootstrap provenance builder does not match")
+    if not isinstance(invocation, str) or re.fullmatch(
+        invocation_pattern, invocation
+    ) is None:
+        raise ProvenanceError("npm bootstrap provenance invocation does not match")
 
 
 def _public_npm_environment(cache: Path) -> dict[str, str]:
@@ -206,17 +328,33 @@ def verify(
     repository_directory: str,
     artifact: Optional[Path] = None,
     *,
+    owner: str,
+    workflow: str,
     npm: str = "npm",
 ) -> None:
-    if not all((package, version, repository_url, repository_directory, npm)):
+    if not all(
+        (package, version, repository_url, repository_directory, owner, workflow, npm)
+    ):
         raise ProvenanceError("npm provenance inputs must be non-empty")
-    _validate_metadata(
+    integrity, attestation_url = _validate_metadata(
         _metadata(package),
         package,
         version,
         repository_url,
         repository_directory,
         artifact,
+        owner,
+    )
+    attestation = _json(
+        attestation_url,
+        "npm bootstrap provenance endpoint does not exist",
+    )
+    _validate_attestation(
+        attestation,
+        package,
+        version,
+        integrity,
+        workflow,
     )
     _run_npm(package, version, npm)
 
@@ -228,6 +366,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--repository-url", required=True)
     parser.add_argument("--repository-directory", required=True)
     parser.add_argument("--artifact", type=Path)
+    parser.add_argument("--owner", required=True)
+    parser.add_argument("--workflow", required=True)
     parser.add_argument("--npm", default="npm")
     return parser
 
@@ -241,6 +381,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             args.repository_url,
             args.repository_directory,
             args.artifact,
+            owner=args.owner,
+            workflow=args.workflow,
             npm=args.npm,
         )
     except ProvenanceError as error:

@@ -158,7 +158,14 @@ jobs:
 
       - name: Build sdist and wheel
         working-directory: cmux-tui/bindings/python
-        run: python3 -m build --no-isolation --sdist --wheel
+        run: |
+          set -euo pipefail
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
+          export SOURCE_DATE_EPOCH
+          python3 -m build --no-isolation --sdist --wheel
+          python3 ../normalize_python_sdist.py \
+            --archive dist/*.tar.gz \
+            --epoch "$SOURCE_DATE_EPOCH"
 
       - name: Test the exact Python distributions
         working-directory: cmux-tui/bindings/python

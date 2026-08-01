@@ -256,7 +256,9 @@ jobs:
             --package cmux-sdk \
             --version 0.0.0-bootstrap.0 \
             --repository-url git+https://github.com/manaflow-ai/cmux.git \
-            --repository-directory cmux-tui/bindings/typescript
+            --repository-directory cmux-tui/bindings/typescript \
+            --owner lawrencechen \
+            --workflow .github/workflows/sdk-bootstrap-npm.yml
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:

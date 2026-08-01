@@ -99,6 +99,9 @@ jobs:
           python3 -m build --no-isolation --sdist --wheel \
             --outdir "$GITHUB_WORKSPACE/bootstrap-dist" \
             "$RUNNER_TEMP/cmux-python-bootstrap"
+          python3 cmux-tui/bindings/normalize_python_sdist.py \
+            --archive bootstrap-dist/*.tar.gz \
+            --epoch "$SOURCE_DATE_EPOCH"
 
       - name: Test the exact bootstrap distributions
         env:

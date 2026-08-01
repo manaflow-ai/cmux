@@ -28,9 +28,20 @@ USER_AGENT = "cmux-sdk-release-reconciler/1"
 STABLE_VERSION = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$"
 )
-REGISTRY_VERSION = re.compile(
+SEMVER_VERSION = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
-    r"(?:[A-Za-z._+-][0-9A-Za-z._+-]*)?$"
+    r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
+PYPI_VERSION = re.compile(
+    r"^v?"
+    r"(?:(?P<epoch>[0-9]+)!)?"
+    r"(?P<release>[0-9]+(?:\.[0-9]+)*)"
+    r"(?P<pre>[-_.]?(?:a|b|c|rc|alpha|beta|pre|preview)[-_.]?[0-9]*)?"
+    r"(?P<post>(?:-[0-9]+|[-_.]?(?:post|rev|r)[-_.]?[0-9]*))?"
+    r"(?P<dev>[-_.]?dev[-_.]?[0-9]*)?"
+    r"(?:\+[0-9a-z]+(?:[-_.][0-9a-z]+)*)?$",
+    re.IGNORECASE,
 )
 
 
@@ -82,11 +93,67 @@ def _stable_version(value: str) -> Optional[tuple[int, int, int]]:
     return tuple(int(part) for part in match.groups())
 
 
-def _registry_version(value: str) -> tuple[int, int, int]:
-    match = REGISTRY_VERSION.fullmatch(value)
+def _compare_release_segments(
+    existing: Sequence[int],
+    candidate: Sequence[int],
+) -> int:
+    width = max(len(existing), len(candidate))
+    left = tuple(existing) + (0,) * (width - len(existing))
+    right = tuple(candidate) + (0,) * (width - len(candidate))
+    return (left > right) - (left < right)
+
+
+def _semver_precedence(value: str, candidate: tuple[int, int, int]) -> int:
+    match = SEMVER_VERSION.fullmatch(value)
     if match is None:
-        raise RegistryError(f"registry version cannot be compared safely: {value!r}")
-    return tuple(int(part) for part in match.groups())
+        raise RegistryError(
+            f"crates.io version cannot be compared safely: {value!r}"
+        )
+    release = tuple(int(part) for part in match.groups()[:3])
+    comparison = _compare_release_segments(release, candidate)
+    if comparison != 0:
+        return comparison
+    prerelease = match.group(4)
+    if prerelease is None:
+        return 0
+    for identifier in prerelease.split("."):
+        if identifier.isdigit() and len(identifier) > 1 and identifier.startswith("0"):
+            raise RegistryError(
+                f"crates.io version cannot be compared safely: {value!r}"
+            )
+    return -1
+
+
+def _pypi_precedence(value: str, candidate: tuple[int, int, int]) -> int:
+    match = PYPI_VERSION.fullmatch(value)
+    if match is None:
+        raise RegistryError(f"PyPI version cannot be compared safely: {value!r}")
+    epoch = int(match.group("epoch") or "0")
+    if epoch != 0:
+        return 1
+    release = tuple(int(part) for part in match.group("release").split("."))
+    comparison = _compare_release_segments(release, candidate)
+    if comparison != 0:
+        return comparison
+    if match.group("pre") is not None:
+        return -1
+    if match.group("post") is not None:
+        return 1
+    if match.group("dev") is not None:
+        return -1
+    return 0
+
+
+def _registry_precedence(
+    registry: str,
+    value: str,
+    candidate: tuple[int, int, int],
+) -> int:
+    if registry == "crates.io":
+        return _semver_precedence(value, candidate)
+    if registry == "PyPI":
+        return _pypi_precedence(value, candidate)
+    raise RegistryError(f"unsupported registry version comparison: {registry}")
 
 
 def _reject_newer_registry_history(
@@ -98,15 +165,15 @@ def _reject_newer_registry_history(
     candidate = _stable_version(requested)
     if candidate is None:
         raise RegistryError(f"{registry} release version must match X.Y.Z: {requested!r}")
-    newer_or_equal = [
+    newer_or_equal = sorted(
         version
         for version in active_versions
-        if _registry_version(version) >= candidate
-    ]
+        if _registry_precedence(registry, version, candidate) >= 0
+    )
     if newer_or_equal:
-        newest = max(newer_or_equal, key=_registry_version)
+        blocker = newer_or_equal[-1]
         raise ReleaseStateMismatch(
-            f"{registry} already contains active version {newest!r}, which is not "
+            f"{registry} already contains active version {blocker!r}, which is not "
             f"older than requested {requested!r} for {package}"
         )
 

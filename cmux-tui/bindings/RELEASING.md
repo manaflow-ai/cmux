@@ -41,7 +41,8 @@ wire-behavior conformance suite.
   `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, and the `npm` environment
   as the trusted publisher, then delete the bootstrap token. Keep `1.0.0`
   unpublished for the coordinated OIDC release. Every release verifies the npm
-  bootstrap provenance and requires its publisher to remain the sole package
+  bootstrap provenance from `.github/workflows/sdk-bootstrap-npm.yml` on
+  `main` and requires npm user `lawrencechen` to remain the sole package
   maintainer. A rerun after an ambiguous bootstrap publish accepts only the
   exact tested archive with matching provenance.
 - PyPI: create the `pypi-bootstrap` GitHub environment, then add a pending

@@ -126,6 +126,8 @@ jobs:
             --version "$BOOTSTRAP_VERSION" \
             --repository-url git+https://github.com/manaflow-ai/cmux.git \
             --repository-directory cmux-tui/bindings/typescript \
+            --owner lawrencechen \
+            --workflow .github/workflows/sdk-bootstrap-npm.yml \
             --artifact "${packages[0]}"
 
       - name: Publish the exact tested prerelease artifact
@@ -185,4 +187,6 @@ jobs:
             --version "$BOOTSTRAP_VERSION" \
             --repository-url git+https://github.com/manaflow-ai/cmux.git \
             --repository-directory cmux-tui/bindings/typescript \
+            --owner lawrencechen \
+            --workflow .github/workflows/sdk-bootstrap-npm.yml \
             --artifact "${packages[0]}"
