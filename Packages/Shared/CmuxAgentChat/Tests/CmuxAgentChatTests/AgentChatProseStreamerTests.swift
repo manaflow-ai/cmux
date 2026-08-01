@@ -244,9 +244,15 @@ final class AgentChatProseStreamerTests: XCTestCase {
         let reboundFrameEmitted = expectation(description: "rebound surface preview emitted")
         let snapshotGate = SnapshotGate()
         var emittedFrames: [ChatSessionEventFrame] = []
+        var didFulfillReboundFrame = false
         let streamer = AgentChatProseStreamer(
             emit: { frame in
                 emittedFrames.append(frame)
+                guard !didFulfillReboundFrame,
+                      case .streamingProse(let message?) = frame.event,
+                      case .prose(let prose) = message.kind,
+                      prose.text == reboundText else { return }
+                didFulfillReboundFrame = true
                 reboundFrameEmitted.fulfill()
             },
             snapshot: { requestedSurfaceID in
@@ -260,6 +266,7 @@ final class AgentChatProseStreamerTests: XCTestCase {
             hasSubscribers: { true },
             now: { Date(timeIntervalSince1970: 1_711_111_111) }
         )
+        defer { streamer.stopAll() }
 
         streamer.turnStarted(sessionID: sessionID, surfaceID: originalSurfaceID, agentKind: .codex)
         streamer.surfaceDidChange(originalSurfaceID)
@@ -276,7 +283,6 @@ final class AgentChatProseStreamerTests: XCTestCase {
             return XCTFail("Expected rebound preview prose")
         }
         XCTAssertEqual(prose.text, reboundText)
-        streamer.turnEnded(sessionID: sessionID)
     }
 
     func testStaleAuthoritativeProseTokenDoesNotClearReboundTurn() async throws {
