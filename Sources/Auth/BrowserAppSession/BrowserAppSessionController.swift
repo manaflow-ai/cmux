@@ -201,9 +201,13 @@ final class BrowserAppSessionController {
     }
 
     private func awaitPendingCleanup() async -> Bool {
+        let hasOwnershipBeforeWait = storeRegistry.hasOwnership
+        if !hasOwnershipBeforeWait {
+            cleanupAttemptCount = 0
+        }
         if admission.owner == nil,
            pendingCleanup == nil,
-           storeRegistry.hasOwnership {
+           hasOwnershipBeforeWait {
             startCleanupIfNeeded()
             guard pendingCleanup != nil else { return false }
         }
