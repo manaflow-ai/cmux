@@ -21785,6 +21785,43 @@ mod tests {
         assert!(mux.surface(surface).is_none());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn server_stop_persists_a_restartable_empty_topology() {
+        const TERMINAL: &str = "00000000000040008000000000000022";
+        const INCARNATION: &str = "10000000000040008000000000000022";
+        let root = std::env::temp_dir()
+            .join(format!("cmux-server-stop-restart-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "server-stop-restart";
+        {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let workspace = mux.create_empty_workspace(Some("durable".into()), None, None).unwrap();
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+
+            assert_eq!(mux.close_all_surfaces_for_shutdown().unwrap(), 1);
+        }
+
+        let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root)
+            .expect("server stop must leave a restartable durable session");
+        reopened.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 1);
+            assert!(state.workspaces[0].screens.is_empty());
+            assert!(state.panes.is_empty());
+            assert!(state.surfaces.is_empty());
+        });
+        reopened.shutdown().unwrap();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn closing_active_pane_focuses_most_recent_remaining_pane() {
         let mux = test_mux();
