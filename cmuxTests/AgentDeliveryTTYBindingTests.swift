@@ -118,6 +118,60 @@ extension AgentNotificationRegressionTests {
         )
     }
 
+    @Test("An ended workspace remote terminal cannot resolve a reused TTY")
+    func endedWorkspaceRemoteTerminalDoesNotResolveReportedTTY() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.remoteConfiguration = deliveryTargetRemoteConfiguration(relayPort: 64_007)
+        workspace.trackRemoteTerminalSurface(panelID)
+        workspace.registerReportedSurfaceTTYName("pts/0", panelId: panelID)
+        #expect(workspace.agentDeliveryTarget(forReportedTTYName: "pts/0") != nil)
+
+        #expect(
+            workspace.markRemoteTerminalSessionEnded(
+                surfaceId: panelID,
+                relayPort: 64_007
+            )
+        )
+
+        #expect(
+            workspace.agentDeliveryTarget(forReportedTTYName: "pts/0") == nil,
+            "A TTY report from an ended lifecycle must not identify a future remote process"
+        )
+    }
+
+    @Test("An ended Dock remote terminal cannot resolve a reused TTY")
+    func endedDockRemoteTerminalDoesNotResolveReportedTTY() throws {
+        let fixture = try makeFixture()
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer {
+            dock.closeAllPanels()
+            fixture.restore()
+        }
+        fixture.source.remoteConfiguration = deliveryTargetRemoteConfiguration(relayPort: 64_007)
+        fixture.source.trackRemoteTerminalSurface(fixture.panelId)
+        fixture.source.registerReportedSurfaceTTYName("pts/0", panelId: fixture.panelId)
+        try moveRemoteSurface(fixture, into: dock)
+        assertRelayTTYTarget(
+            authenticatedWorkspaceID: fixture.source.id,
+            ttyName: "pts/0",
+            expectedWorkspaceID: dock.workspaceId,
+            expectedSurfaceID: fixture.panelId
+        )
+
+        #expect(
+            dock.markRemoteTerminalSessionEnded(
+                panelId: fixture.panelId,
+                relayPort: 64_007
+            )
+        )
+
+        assertNoRelayTTYTarget(
+            authenticatedWorkspaceID: fixture.source.id,
+            ttyName: "pts/0"
+        )
+    }
+
     private func moveRemoteSurface(_ fixture: Fixture, into dock: DockSplitStore) throws {
         let transfer = try #require(fixture.source.detachSurface(panelId: fixture.panelId))
         let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
@@ -158,14 +212,30 @@ extension AgentNotificationRegressionTests {
         #expect(target["surface_id"] as? String == expectedSurfaceID.uuidString)
     }
 
-    private func deliveryTargetRemoteConfiguration() -> WorkspaceRemoteConfiguration {
+    private func assertNoRelayTTYTarget(
+        authenticatedWorkspaceID: UUID,
+        ttyName: String
+    ) {
+        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
+            "tty_name": ttyName,
+            "tty_resolution": "reported_tty",
+            "_cmux_remote_workspace_id": authenticatedWorkspaceID.uuidString,
+        ])
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected ended relay TTY resolution to fail, got \(result)")
+            return
+        }
+        #expect(code == "not_found")
+    }
+
+    private func deliveryTargetRemoteConfiguration(relayPort: Int? = nil) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "example.invalid",
             port: nil,
             identityFile: nil,
             sshOptions: [],
             localProxyPort: nil,
-            relayPort: nil,
+            relayPort: relayPort,
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
