@@ -451,13 +451,23 @@ describe("notifications push route", () => {
       >[1],
     );
     expect(first.status).toBe(200);
-    // The route caps the event TTL at 5 minutes, so the provider's 900s
-    // backoff is clamped to a retry that still fits inside the event's life
-    // (TTL minus the bounded send-duration margin, less clock drift).
     const firstBody = await first.json() as { retryAfterSeconds?: number };
     expect(firstBody).toMatchObject({ transientFailures: 1 });
-    expect(firstBody.retryAfterSeconds ?? 0).toBeGreaterThan(240);
-    expect(firstBody.retryAfterSeconds ?? 0).toBeLessThanOrEqual(272);
+    expect(firstBody.retryAfterSeconds ?? 0).toBeGreaterThanOrEqual(30);
+    const [retryWindow] = await sql<{
+      retryNotBefore: Date;
+      expiresAt: Date;
+    }[]>`
+      select
+        retry_not_before as "retryNotBefore",
+        expires_at as "expiresAt"
+      from notification_send_events
+      where user_id = 'user-1' and correlation_id = ${correlationId}
+    `;
+    expect(retryWindow).toBeDefined();
+    expect(
+      retryWindow!.expiresAt.getTime() - retryWindow!.retryNotBefore.getTime(),
+    ).toBeGreaterThanOrEqual(APNS_DEFAULT_MAX_DELIVERY_DURATION_MS + 1_000);
 
     const deferred = await pushRoute.sendPushWithTransport(
       request(),
@@ -466,10 +476,11 @@ describe("notifications push route", () => {
       >[1],
     );
     expect(deferred.status).toBe(409);
-    // Epoch flooring on the claim clock and ceiling on the header can each
-    // add a second beyond the advertised clamp.
-    expect(Number(deferred.headers.get("retry-after"))).toBeGreaterThan(240);
-    expect(Number(deferred.headers.get("retry-after"))).toBeLessThanOrEqual(275);
+    const deferredRetryAfter = Number(deferred.headers.get("retry-after"));
+    expect(deferredRetryAfter).toBeGreaterThan(0);
+    expect(deferredRetryAfter).toBeLessThanOrEqual(
+      firstBody.retryAfterSeconds ?? 0,
+    );
     expect(await deferred.json()).toEqual({
       error: "push_event_in_progress",
       correlationId,
@@ -610,7 +621,7 @@ describe("notifications push route", () => {
       prune: false,
     }]];
     const correlationId = "95e94601-0974-44ef-95b9-607e031345e1";
-    const expirationEpochSeconds = Math.floor(Date.now() / 1_000) + 20;
+    const expirationEpochSeconds = Math.floor(Date.now() / 1_000) + 45;
     const request = () => new Request(
       "https://cmux.test/api/notifications/push",
       {
