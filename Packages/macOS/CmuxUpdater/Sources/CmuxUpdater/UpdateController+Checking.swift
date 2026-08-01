@@ -286,9 +286,12 @@ extension UpdateController: UpdateDriverEventDelegate {
         installWatchdog.disarm()
     }
 
+    /// Abandons the timed-out check and every replacement queued behind its Sparkle cycle, then
+    /// exposes a retry that preserves whether the user requested a manual check or an install.
     func updateDriverCheckDidTimeOut() {
         let intent = activeCheckIntent
         activeCheckIntent = nil
+        pendingCheckIntent = nil
         cancelReadinessRetry()
         let isInstallAttempt = intent == .installLatest || attemptCoordinator.isMonitoring
         log.append(
@@ -308,8 +311,7 @@ extension UpdateController: UpdateDriverEventDelegate {
         model.replaceActiveState(with: .error(.init(
             error: error,
             retry: retry,
-            dismiss: { [weak self] in self?.model.setState(.idle) },
-            feedURLString: driver.resolvedFeedURLString()
+            dismiss: { [weak self] in self?.model.setState(.idle) }
         )))
     }
 }
