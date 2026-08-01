@@ -427,6 +427,7 @@ mod tests {
     use super::*;
     use crate::SurfaceOptions;
     use std::sync::Arc;
+    use std::time::{Duration, Instant};
 
     const MUX_GENERATION: &str = "0123456789abcdef0123456789abcdef";
     const AUTHORITY_ONE: &str = "provider-authority-one-0000000000000001";
@@ -449,6 +450,27 @@ mod tests {
         let response = handle_request(&mux(), 501, b"this is deliberately not JSON");
         assert!(!response.ok);
         assert_eq!(response.error.unwrap().code, "access_denied");
+    }
+
+    #[test]
+    fn completed_provider_peer_threads_are_reaped_while_server_runs() {
+        let completed = std::thread::spawn(|| {});
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !completed.is_finished() {
+            assert!(Instant::now() < deadline, "peer thread did not finish");
+            std::thread::yield_now();
+        }
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let active = std::thread::spawn(move || release_rx.recv().unwrap());
+        let mut peers = vec![completed, active];
+
+        reap_finished_peer_threads(&mut peers);
+
+        assert_eq!(peers.len(), 1, "completed peer handle remained retained");
+        release_tx.send(()).unwrap();
+        for peer in peers {
+            peer.join().unwrap();
+        }
     }
 
     #[cfg(target_os = "linux")]
