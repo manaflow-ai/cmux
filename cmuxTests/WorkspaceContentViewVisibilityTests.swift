@@ -276,6 +276,10 @@ final class WorkspaceContentViewVisibilityTests {
 
         let tabManager = TabManager()
         let workspaceId = try #require(tabManager.selectedTabId)
+        let unaffectedWorkspace = tabManager.addWorkspace(
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
         let unread = SidebarUnreadModel()
         let counts = MinimalModeBodyProbeCounts()
         let root = ContentView(
@@ -320,9 +324,22 @@ final class WorkspaceContentViewVisibilityTests {
                     .first { $0.currentModelForMeasurement?.workspaceId == workspaceId }
             }
         )
+        let unaffectedWorkspaceCell = try #require(
+            window.contentView.flatMap { root in
+                Self.descendants(of: root)
+                    .compactMap { $0 as? SidebarWorkspaceRowTableCellView }
+                    .first {
+                        $0.currentModelForMeasurement?.workspaceId == unaffectedWorkspace.id
+                    }
+            }
+        )
         var appliedUnreadCount: Int?
+        var unaffectedApplyCount = 0
         workspaceCell.applyModelProbeForTesting = { model in
             appliedUnreadCount = model.unreadCount
+        }
+        unaffectedWorkspaceCell.applyModelProbeForTesting = { _ in
+            unaffectedApplyCount += 1
         }
         counts.reset()
 
@@ -357,6 +374,14 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(
             appliedUnreadCount == 1,
             "The affected visible AppKit row must still receive the unread badge."
+        )
+        #expect(
+            unaffectedApplyCount == 0,
+            "An unread change must not reconfigure an unaffected AppKit row."
+        )
+        #expect(
+            unaffectedWorkspaceCell.currentModelForMeasurement?.unreadCount == 0,
+            "An unread change must not copy its badge into a neighboring workspace row."
         )
     }
 

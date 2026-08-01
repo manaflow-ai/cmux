@@ -261,20 +261,13 @@ while (performance.now() < deadline) {
         command: [index for index, line in enumerate(completed) if command in line]
         for command in expected
     }
+    orderedIndexes = [indexes[command][0] for command in expected if indexes[command]]
+    commandPhases = [line.split(" ", 1)[0] for line in calls if line.startswith(("start ", "end "))]
     if (
         len(completed) != len(expected)
         or any(len(found) != 1 for found in indexes.values())
-        or not (
-            indexes["hooks pi session-start"][0]
-            < indexes["hooks pi prompt-submit"][0]
-            < indexes["hooks feed --source pi --event PreToolUse"][0]
-            < indexes["hooks pi notification"][0]
-            < indexes["hooks pi stop"][0]
-        )
-        or not (
-            indexes["--json surface resume set"][0]
-            < indexes["--json surface resume get"][0]
-        )
+        or orderedIndexes != sorted(orderedIndexes)
+        or commandPhases != [phase for _ in expected for phase in ("start", "end")]
     ):
         print(f"FAIL: detached Pi lifecycle work lost command ordering: {calls!r}")
         return 1

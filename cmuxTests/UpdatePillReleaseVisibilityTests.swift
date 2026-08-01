@@ -249,7 +249,7 @@ struct TitlebarControlsSizingPolicyTests {
 
     @Test
     @MainActor
-    func testLayoutModelOnlyRecomputesForTitlebarInputs() {
+    func testLayoutModelOnlyRecomputesForTitlebarInputs() async {
         let suiteName = "TitlebarControlsLayoutModel-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -268,18 +268,53 @@ struct TitlebarControlsSizingPolicyTests {
 
         defaults.set(true, forKey: "unrelatedTitlebarTestSetting")
         notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        await drainMainQueue()
         checkEqual(computationCount, 1)
 
         defaults.set(TitlebarControlsStyle.compact.rawValue, forKey: TitlebarControlsStyle.storageKey)
         notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        await drainMainQueue()
         checkEqual(computationCount, 2)
         checkEqual(model.snapshot.style, .compact)
 
-        notificationCenter.post(name: KeyboardShortcutSettings.didChangeNotification, object: nil)
+        notificationCenter.post(
+            name: KeyboardShortcutSettings.didChangeNotification,
+            object: nil,
+            userInfo: [
+                KeyboardShortcutSettings.actionUserInfoKey:
+                    KeyboardShortcutSettings.Action.closeWindow.rawValue,
+            ]
+        )
+        await drainMainQueue()
+        checkEqual(computationCount, 2)
+
+        notificationCenter.post(
+            name: KeyboardShortcutSettings.didChangeNotification,
+            object: nil,
+            userInfo: [
+                KeyboardShortcutSettings.actionUserInfoKey:
+                    KeyboardShortcutSettings.Action.toggleSidebar.rawValue,
+            ]
+        )
+        await drainMainQueue()
         checkEqual(computationCount, 3)
 
-        notificationCenter.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
+        notificationCenter.post(name: KeyboardShortcutSettings.didChangeNotification, object: nil)
+        await drainMainQueue()
         checkEqual(computationCount, 4)
+
+        notificationCenter.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
+        await drainMainQueue()
+        checkEqual(computationCount, 5)
+    }
+
+    @MainActor
+    private func drainMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
     }
 
     @Test
