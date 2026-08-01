@@ -85,28 +85,35 @@ struct MobileIrohDevelopmentFileEvidenceProbe: SameDeviceEvidenceProbing {
 }
 #endif
 
-/// Resolves connection waiters only when the latest lifecycle revision settles.
+/// Resolves readiness waiters only when their lifecycle revision settles.
 @MainActor
-final class MobileIrohConnectionReadinessSignal {
+final class MobileIrohRevisionReadinessSignal {
     private var pendingRevision: UInt64?
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
     var isPending: Bool { pendingRevision != nil }
 
     func begin(revision: UInt64) {
+        guard pendingRevision != revision else { return }
+        reset()
         pendingRevision = revision
     }
 
     @discardableResult
     func complete(revision: UInt64) -> Bool {
         guard pendingRevision == revision else { return false }
+        reset()
+        return true
+    }
+
+    /// Releases waiters from a superseded or intentionally skipped revision.
+    func reset() {
         pendingRevision = nil
         let continuations = waiters
         waiters.removeAll()
         for continuation in continuations {
             continuation.resume()
         }
-        return true
     }
 
     func wait() async {
@@ -235,7 +242,8 @@ public final class MobileIrohRuntimeComposition:
     private var connectivityInvalidationAccountID: String?
     private var authObservationTask: Task<Void, Never>?
     private var transitionTask: Task<Void, Never>?
-    private let connectionReadiness = MobileIrohConnectionReadinessSignal()
+    private let connectionReadiness = MobileIrohRevisionReadinessSignal()
+    private let relayPolicyReadiness = MobileIrohRevisionReadinessSignal()
     private var sceneTransitionTask: Task<Void, Never>?
     // Internal read access lets the dedicated DEBUG-only release-gate
     // extension inspect the exact runtime without shipping test entrypoints on
@@ -590,9 +598,52 @@ public final class MobileIrohRuntimeComposition:
     /// bounded pairing attempt. Transport creation calls the same entrypoint,
     /// so readiness policy cannot drift between automatic and interactive use.
     public func prepareForConnection() async {
+        while true {
+            await prepareForEndpoint()
+            let revision = lifecycleRevision
+            await relayPolicyReadiness.wait()
+            guard revision == lifecycleRevision else { continue }
+            return
+        }
+    }
+
+    /// Waits only for the account endpoint and scene lifecycle to settle.
+    /// Live discovery and explicit direct routes do not depend on relay policy.
+    private func prepareForEndpoint() async {
         await reconcileLiveAuthIfNeeded()
         await connectionReadiness.wait()
         await sceneTransitionTask?.value
+    }
+
+    /// Applies the relay bootstrap barrier only when the ticket has no usable
+    /// direct route of its own. Relay hints still require the verified policy.
+    private func prepareForConnection(
+        request: CmxByteTransportRequest
+    ) async {
+        while true {
+            await prepareForEndpoint()
+            let revision = lifecycleRevision
+            guard Self.requiresInitialRelayPolicy(
+                request: request,
+                now: now()
+            ) else { return }
+            await relayPolicyReadiness.wait()
+            guard revision == lifecycleRevision else { continue }
+            return
+        }
+    }
+
+    nonisolated static func requiresInitialRelayPolicy(
+        request: CmxByteTransportRequest,
+        now: Date
+    ) -> Bool {
+        guard request.route.kind == .iroh,
+              case let .peer(_, pathHints) = request.route.endpoint else {
+            return false
+        }
+        return !pathHints.contains {
+            $0.kind == .directAddress && $0.isUsable(at: now)
+        }
     }
 
     /// Refreshes the current account runtime and returns its live pairable Macs.
@@ -601,7 +652,7 @@ public final class MobileIrohRuntimeComposition:
     /// method can never turn an offline cache entry into a first pairing.
     public func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
         diagnosticLog?.record(DiagnosticEvent(.discoveryStarted, a: DiagnosticTransportKind.iroh.rawValue))
-        await prepareForConnection()
+        await prepareForEndpoint()
         guard let runtime else {
             diagnosticLog?.record(DiagnosticEvent(
                 .discoveryFailed,
@@ -676,7 +727,7 @@ public final class MobileIrohRuntimeComposition:
     public func transport(
         for request: CmxByteTransportRequest
     ) async throws -> any CmxByteTransport {
-        await prepareForConnection()
+        await prepareForConnection(request: request)
         let runtime = try await runtimeForDial()
         return try runtime.transportFactory.makeTransport(for: request)
     }
@@ -693,7 +744,7 @@ public final class MobileIrohRuntimeComposition:
         lane: CmxIrohLane,
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
-        await prepareForConnection()
+        await prepareForConnection(request: request)
         let runtime = try await runtimeForDial()
         return try await runtime.openBidirectionalLane(
             for: request,
@@ -749,7 +800,7 @@ public final class MobileIrohRuntimeComposition:
     public func serverEventByteStream(
         for request: CmxByteTransportRequest
     ) async throws -> CmxIndependentEventByteStream {
-        await prepareForConnection()
+        await prepareForConnection(request: request)
         let runtime = try await runtimeForDial()
         return try await runtime.serverEventByteStream(for: request)
     }
@@ -2511,6 +2562,11 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         refreshImmediately: Bool
     ) {
         relayPolicyRefreshTask?.cancel()
+        if refreshImmediately {
+            relayPolicyReadiness.begin(revision: revision)
+        } else {
+            relayPolicyReadiness.reset()
+        }
         guard Self.shouldScheduleRelayPolicyRefresh(
             automaticRelayCredentialRefreshEnabled:
                 automaticRelayCredentialRefreshEnabled,
@@ -2520,6 +2576,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         let service,
         let trustRoot else {
             relayPolicyRefreshTask = nil
+            relayPolicyReadiness.complete(revision: revision)
             return
         }
         let refreshBackoff = makeRelayPolicyRefreshBackoff()
@@ -2527,6 +2584,12 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             var retryAt: Date?
             var relayAuthorityExpired = false
             var shouldRefreshImmediately = refreshImmediately
+            var initialAttemptPending = refreshImmediately
+            defer {
+                if initialAttemptPending {
+                    self?.relayPolicyReadiness.complete(revision: revision)
+                }
+            }
             while !Task.isCancelled {
                 guard let self,
                       revision == self.lifecycleRevision,
@@ -2535,6 +2598,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                 let snapshot = await service.diagnosticsSnapshot()
                 let current = self.now()
                 let attemptAt: Date
+                let isInitialAttempt = shouldRefreshImmediately
                 if shouldRefreshImmediately {
                     attemptAt = current
                     shouldRefreshImmediately = false
@@ -2567,7 +2631,22 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                         trustRoot: trustRoot,
                         now: wakeDate
                     )
-                    try? await self.applyRelayPolicy(expired)
+                    guard let runtime = self.runtime else { return }
+                    do {
+                        try await self.applyScheduledRelayPolicy(
+                            expired,
+                            service: service,
+                            runtime: runtime,
+                            accountID: accountID,
+                            revision: revision
+                        )
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        // The retry loop retains its existing best-effort
+                        // expiry behavior when the active runtime rejects an
+                        // otherwise current policy replacement.
+                    }
                     relayAuthorityExpired = true
                     continue
                 }
@@ -2583,12 +2662,31 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                         trustRoot: trustRoot,
                         now: self.now()
                     )
-                    try await self.applyRelayPolicy(effective)
+                    try Task.checkCancellation()
+                    guard revision == self.lifecycleRevision,
+                          self.activeAccountID == accountID,
+                          self.relayPolicyService === service,
+                          let runtime = self.runtime else {
+                        throw CancellationError()
+                    }
+                    try await self.applyScheduledRelayPolicy(
+                        effective,
+                        service: service,
+                        runtime: runtime,
+                        accountID: accountID,
+                        revision: revision
+                    )
                     retryAt = nil
                     refreshBackoff.reset()
                     relayAuthorityExpired = false
                     self.diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
+                } catch is CancellationError {
+                    return
                 } catch {
+                    guard !Task.isCancelled,
+                          revision == self.lifecycleRevision,
+                          self.activeAccountID == accountID,
+                          self.relayPolicyService === service else { return }
                     self.diagnosticLog?.record(DiagnosticEvent(
                         .relayPolicyRefreshFailed,
                         b: Self.diagnosticFailureKind(for: error).rawValue
@@ -2603,10 +2701,30 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                             trustRoot: trustRoot,
                             now: failureDate
                         )
-                        try? await self.applyRelayPolicy(expired)
+                        if let runtime = self.runtime {
+                            do {
+                                try await self.applyScheduledRelayPolicy(
+                                    expired,
+                                    service: service,
+                                    runtime: runtime,
+                                    accountID: accountID,
+                                    revision: revision
+                                )
+                            } catch is CancellationError {
+                                return
+                            } catch {
+                                // Preserve the existing best-effort expiry
+                                // behavior for current-runtime apply failures.
+                            }
+                        }
                         relayAuthorityExpired = true
                     } else {
-                        self.relayPolicyDiagnostics = await service.diagnosticsSnapshot()
+                        let diagnostics = await service.diagnosticsSnapshot()
+                        guard !Task.isCancelled,
+                              revision == self.lifecycleRevision,
+                              self.activeAccountID == accountID,
+                              self.relayPolicyService === service else { return }
+                        self.relayPolicyDiagnostics = diagnostics
                         self.publishIrohSettingsUpdate()
                     }
                     // The shared foreground ladder replaces the host-profile
@@ -2623,8 +2741,50 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                         a: DiagnosticTransportKind.iroh.rawValue
                     ))
                 }
+                if isInitialAttempt, initialAttemptPending {
+                    initialAttemptPending = false
+                    self.relayPolicyReadiness.complete(revision: revision)
+                }
             }
         }
+    }
+
+    /// Applies one scheduled refresh only to the runtime revision that fetched
+    /// it. Main-actor reentrancy cannot redirect a stale broker response into a
+    /// newly signed-in account or replacement endpoint.
+    private func applyScheduledRelayPolicy(
+        _ effective: CmxIrohEffectiveRelayPolicy,
+        service expectedService: CmxIrohRelayPolicyService,
+        runtime expectedRuntime: CmxIrohClientRuntime,
+        accountID: String,
+        revision: UInt64
+    ) async throws {
+        try Task.checkCancellation()
+        guard revision == lifecycleRevision,
+              activeAccountID == accountID,
+              relayPolicyService === expectedService,
+              runtime === expectedRuntime else {
+            throw CancellationError()
+        }
+        let diagnostics = await expectedService.diagnosticsSnapshot()
+        try Task.checkCancellation()
+        guard revision == lifecycleRevision,
+              activeAccountID == accountID,
+              relayPolicyService === expectedService,
+              runtime === expectedRuntime else {
+            throw CancellationError()
+        }
+        try await expectedRuntime.replaceRelayPolicy(effective)
+        try Task.checkCancellation()
+        guard revision == lifecycleRevision,
+              activeAccountID == accountID,
+              relayPolicyService === expectedService,
+              runtime === expectedRuntime else {
+            throw CancellationError()
+        }
+        relayPolicyEffective = effective
+        relayPolicyDiagnostics = diagnostics
+        publishIrohSettingsUpdate()
     }
 
     /// The signed policy bootstrap includes a fresh relay credential. Tests
@@ -2720,6 +2880,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
     }
 
     private func clearRelayPolicyRuntimeState() {
+        relayPolicyReadiness.reset()
         relayPolicyObservationTask?.cancel()
         relayPolicyObservationTask = nil
         relayPolicyRefreshTask?.cancel()
