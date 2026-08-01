@@ -598,13 +598,16 @@ struct CmxIrohTrustBrokerClientTests {
             "changed": true,
             "reset": false,
             "snapshot": snapshot,
+            "snapshot_complete": true,
         ])
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 200, body: responseBody),
         ])
         let client = try makeClient(transport: transport)
 
-        _ = try await client.syncConnectivity(knownRevision: nil)
+        let response = try await client.syncConnectivity(knownRevision: nil)
+
+        #expect(response.snapshotComplete == true)
 
         let captured = try #require(await transport.requests().first)
         let body = try #require(captured.httpBody)
@@ -635,6 +638,7 @@ struct CmxIrohTrustBrokerClientTests {
         #expect(response.revision == 42)
         #expect(response.snapshot?.revision == 42)
         #expect(response.snapshot?.bindings.count == 1)
+        #expect(response.snapshotComplete == nil)
 
         let mismatchedBody = try Self.jsonString([
             "protocol_version": 2,

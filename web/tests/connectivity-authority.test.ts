@@ -32,7 +32,7 @@ const snapshot = {
 describe("Connectivity authority", () => {
   test("returns a complete snapshot on initial sync", async () => {
     const authority = makeConnectivityAuthority({
-      discover: () => Effect.succeed(snapshot),
+      discover: () => Effect.succeed({ ...snapshot, next_cursor: null }),
     });
 
     const response = await Effect.runPromise(authority.sync("user-a", {
@@ -46,6 +46,7 @@ describe("Connectivity authority", () => {
       changed: true,
       reset: false,
       snapshot,
+      snapshot_complete: true,
     });
   });
 
@@ -88,7 +89,7 @@ describe("Connectivity authority", () => {
 
   test("omits an unchanged snapshot and identifies backend revision reset", async () => {
     const authority = makeConnectivityAuthority({
-      discover: () => Effect.succeed(snapshot),
+      discover: () => Effect.succeed({ ...snapshot, next_cursor: null }),
     });
 
     expect(await Effect.runPromise(authority.sync("user-a", {
@@ -110,6 +111,7 @@ describe("Connectivity authority", () => {
       changed: true,
       reset: true,
       snapshot,
+      snapshot_complete: true,
     });
   });
 
@@ -136,7 +138,7 @@ describe("Connectivity authority", () => {
 
   test("serves an authenticated no-store sync response", async () => {
     const authority = makeConnectivityAuthority({
-      discover: () => Effect.succeed(snapshot),
+      discover: () => Effect.succeed({ ...snapshot, next_cursor: null }),
     });
     const response = await handleConnectivitySync(syncRequest(null), {
       verify: async () => USER,
