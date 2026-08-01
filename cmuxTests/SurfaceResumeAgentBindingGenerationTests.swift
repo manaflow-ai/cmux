@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -85,6 +86,95 @@ struct SurfaceResumeAgentBindingGenerationTests {
 
         #expect(snapshot.panels.first?.terminal?.wasAgentRunning == false)
         try expectNoResumeLaunch(snapshot: snapshot, defaults: defaults)
+    }
+
+    @Test("A restored Codex binding remains restorable across generations")
+    func restoredCodexBindingRemainsRestorableAcrossGenerations() throws {
+        try withFixture { source, defaults, index in
+            let sourcePanelID = try #require(source.focusedPanelId)
+            let sessionID = "a22293b7-bcef-4707-8439-2f538c8517a4"
+            let expectedRestoreInput =
+                " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex \(sessionID)\n"
+            source.updatePanelShellActivityState(panelId: sourcePanelID, state: .commandRunning)
+            source.recordAgentPID(
+                key: "codex.\(sessionID)",
+                pid: getpid(),
+                panelId: sourcePanelID,
+                refreshPorts: false
+            )
+
+            let sourceSnapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: index,
+                surfaceResumeBindingIndex: codexBindingIndex(
+                    sessionID: sessionID,
+                    workspaceID: source.id,
+                    panelID: sourcePanelID
+                )
+            )
+            let sourceTerminal = try #require(sourceSnapshot.panels.first?.terminal)
+            #expect(sourceTerminal.wasAgentRunning == true)
+            #expect(sourceTerminal.resumeBinding?.restoreStartupInput() == expectedRestoreInput)
+
+            let firstRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
+            defer { firstRestore.teardownAllPanels() }
+            firstRestore.restoreSessionSnapshot(sourceSnapshot)
+            let firstPanelID = try #require(firstRestore.focusedPanelId)
+            #expect(
+                firstRestore.restoredAgentResumeStatesByPanelId[firstPanelID]
+                    == .awaitingAutoResumeCommand
+            )
+            firstRestore.updatePanelShellActivityState(panelId: firstPanelID, state: .commandRunning)
+            #expect(
+                firstRestore.restoredAgentResumeStatesByPanelId[firstPanelID]
+                    == .autoResumeCommandRunning
+            )
+
+            // Codex does not publish a fresh hook record after this restore-verb
+            // launch. The shell callback is the only fresh evidence that the
+            // restored command is running when the next autosave reconciles.
+            let secondGenerationSnapshot = firstRestore.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: .empty,
+                surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [:])
+            )
+            let secondGenerationTerminal = try #require(
+                secondGenerationSnapshot.panels.first?.terminal
+            )
+            #expect(secondGenerationTerminal.wasAgentRunning == true)
+            #expect(
+                secondGenerationTerminal.resumeBinding?.checkpointId == sessionID
+            )
+            #expect(
+                secondGenerationTerminal.resumeBinding?.restoreStartupInput()
+                    == expectedRestoreInput
+            )
+
+            let secondRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
+            defer { secondRestore.teardownAllPanels() }
+            secondRestore.restoreSessionSnapshot(secondGenerationSnapshot)
+            let secondPanelID = try #require(secondRestore.focusedPanelId)
+            #expect(
+                secondRestore.restoredAgentResumeStatesByPanelId[secondPanelID]
+                    == .awaitingAutoResumeCommand
+            )
+            secondRestore.updatePanelShellActivityState(panelId: secondPanelID, state: .commandRunning)
+
+            let thirdGenerationSnapshot = secondRestore.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: .empty,
+                surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [:])
+            )
+            let thirdGenerationTerminal = try #require(
+                thirdGenerationSnapshot.panels.first?.terminal
+            )
+            #expect(thirdGenerationTerminal.wasAgentRunning == true)
+            #expect(thirdGenerationTerminal.resumeBinding?.checkpointId == sessionID)
+            #expect(
+                thirdGenerationTerminal.resumeBinding?.restoreStartupInput()
+                    == expectedRestoreInput
+            )
+        }
     }
 
     private func withFixture(
