@@ -2989,9 +2989,21 @@ extension MobileIrohRuntimeComposition {
     ) -> CmxIrohBrokerTokenSource {
         CmxIrohBrokerTokenSource(
             credentialPair: { [weak auth] in
-                guard let auth,
-                      let session = try? await auth.authenticatedSessionSnapshot(),
-                      session.accountID == expectedAccountID else { return nil }
+                guard let auth else { return nil }
+                let session: AuthenticatedSessionSnapshot
+                do {
+                    session = try await auth.authenticatedSessionSnapshot()
+                } catch AuthError.unauthorized {
+                    // Definitively signed out: fail closed (the broker reports
+                    // missingAuthentication and activation stops).
+                    return nil
+                }
+                // Every other failure (revalidation owns the token store, an
+                // expired access token's re-mint is in flight or offline) is
+                // transient: rethrow so the broker classifies it connectivity
+                // and activation falls back to the cached verified policy
+                // instead of failing closed on every launch.
+                guard session.accountID == expectedAccountID else { return nil }
                 return CmxIrohBrokerCredentials(
                     accessToken: session.accessToken,
                     refreshToken: session.refreshToken
