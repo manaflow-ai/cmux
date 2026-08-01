@@ -974,6 +974,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn terminal_bytes_service_uses_the_versioned_wire_name() {
+        let encoded = serde_json::to_value(Service::TerminalBytes).unwrap();
+        assert_eq!(encoded, "terminal-bytes-v1");
+        assert_eq!(serde_json::from_value::<Service>(encoded).unwrap(), Service::TerminalBytes);
+    }
+
+    #[test]
     fn arbitrary_file_bytes_round_trip_through_json() {
         let bytes = ByteString::from_bytes(&[0, 1, 2, 255]);
         let json = serde_json::to_string(&bytes).unwrap();

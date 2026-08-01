@@ -3183,6 +3183,24 @@ mod tests {
         assert!(lifecycle.overflowed());
     }
 
+    #[test]
+    fn unsafe_legacy_resize_disconnects_the_byte_attachment() {
+        let mux = Mux::new_for_test("legacy-resize-disconnect", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(73, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attachment = surface.attach_stream().unwrap();
+        let pty = surface.as_pty().unwrap();
+        pty.term.lock().unwrap().vt_write(b"partial \xce");
+        assert!(!pty.term.lock().unwrap().vt_stream_is_ground());
+
+        assert!(surface.resize(100, 30).unwrap());
+        assert!(matches!(
+            attachment.stream.recv_timeout(Duration::from_secs(1)),
+            Err(RecvTimeoutError::Disconnected)
+        ));
+        assert!(attachment.lifecycle.is_canceled());
+    }
+
     #[cfg(unix)]
     #[test]
     fn hosted_stager_exposes_coupled_state_only_after_colors() {

@@ -3687,6 +3687,107 @@ mod unix {
         }
 
         #[test]
+        fn smart_owner_negotiation_falls_back_to_a_live_legacy_host() {
+            let (record_path, record, lease) = record_fixture("legacy-fallback");
+            let endpoint = PathBuf::from(&record.endpoint);
+            prepare_private_dir(endpoint.parent().unwrap()).unwrap();
+            let _ = fs::remove_file(&endpoint);
+            let listener = UnixListener::bind(&endpoint).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let server_record = record.clone();
+            let server = thread::spawn(move || -> anyhow::Result<bool> {
+                let accept_before = |deadline: Instant| -> anyhow::Result<Option<UnixStream>> {
+                    loop {
+                        match listener.accept() {
+                            Ok((stream, _)) => return Ok(Some(stream)),
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                if Instant::now() >= deadline {
+                                    return Ok(None);
+                                }
+                                thread::sleep(Duration::from_millis(2));
+                            }
+                            Err(error) => return Err(error.into()),
+                        }
+                    }
+                };
+
+                let Some(mut smart) = accept_before(Instant::now() + Duration::from_secs(1))?
+                else {
+                    return Ok(false);
+                };
+                smart.set_read_timeout(Some(Duration::from_secs(1)))?;
+                let smart_hello = read_required_frame(&mut smart, "smart owner hello")?;
+                if smart_hello.flags & FLAG_SMART_RENDERER == 0 {
+                    return Ok(false);
+                }
+                drop(smart);
+
+                let Some(mut legacy) = accept_before(Instant::now() + Duration::from_millis(300))?
+                else {
+                    return Ok(false);
+                };
+                legacy.set_read_timeout(Some(Duration::from_secs(1)))?;
+                let hello_frame = read_required_frame(&mut legacy, "legacy owner hello")?;
+                if hello_frame.flags != 0 {
+                    return Ok(false);
+                }
+                let hello = ClientHello::decode(&hello_frame.payload)?;
+                let incarnation =
+                    HostIncarnation::from_bytes(decode_hex_array(&server_record.incarnation)?);
+                let response = HostHello {
+                    selected_version: PROTOCOL_VERSION,
+                    granted_rights: CapabilityRights::ADMIN,
+                    terminal_id: hello.terminal_id,
+                    incarnation,
+                };
+                let mut host_hello = Frame::new(MessageKind::HostHello, response.encode());
+                host_hello.request_id = hello_frame.request_id;
+                write_frame(&mut legacy, &host_hello)?;
+
+                let snapshot = HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    replay: b"legacy host survived".to_vec(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: vec!["/bin/sh".into()],
+                    cwd: None,
+                };
+                let mut snapshot_frame =
+                    Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
+                snapshot_frame.sequence = 17;
+                write_frame(&mut legacy, &snapshot_frame)?;
+                let mut colors = Frame::new(
+                    MessageKind::Colors,
+                    encode_terminal_color_overrides(&TerminalColorOverrides::default()),
+                );
+                colors.sequence = snapshot_frame.sequence;
+                write_frame(&mut legacy, &colors)?;
+
+                let release = read_required_frame(&mut legacy, "legacy viewer release")?;
+                Ok(release.kind == MessageKind::ReleaseViewer)
+            });
+
+            let result = connect_record_with_timeout(
+                record.clone(),
+                record_path.clone(),
+                Duration::from_millis(100),
+            );
+            let saw_legacy = server.join().unwrap().unwrap();
+            let attachment = result.expect("legacy fallback did not adopt the live shell");
+            assert!(saw_legacy);
+            assert!(!attachment.is_smart_renderer());
+            assert_eq!(attachment.snapshot.replay, b"legacy host survived");
+            drop(attachment);
+
+            let _ = fs::remove_file(endpoint);
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
         fn snapshot_boundary_waits_for_parser_progress_and_times_out() {
             let host = exited_host_fixture();
             let mut term = host.term.lock().unwrap();
@@ -3947,6 +4048,33 @@ mod unix {
             );
             let _ = client_stream.shutdown(std::net::Shutdown::Both);
             server.join().unwrap().unwrap();
+        }
+
+        #[test]
+        fn changing_defaults_forces_smart_renderers_to_a_fresh_snapshot() {
+            let host = exited_host_fixture();
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = sync_channel(4);
+            host.smart
+                .subscribe(
+                    7,
+                    HostTap {
+                        sender,
+                        queued_bytes: Arc::new(AtomicUsize::new(0)),
+                        shutdown: Arc::new(host_socket),
+                        max_queued_bytes: usize::MAX,
+                    },
+                )
+                .unwrap();
+
+            host.set_default_colors(DefaultColors {
+                fg: Some(Rgb { r: 1, g: 2, b: 3 }),
+                ..Default::default()
+            });
+
+            let resync = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(resync.kind, MessageKind::ResyncRequired);
+            assert_eq!(host.smart.applied_cursor.load(Ordering::Acquire), resync.sequence);
         }
 
         #[test]

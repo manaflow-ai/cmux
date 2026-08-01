@@ -955,4 +955,78 @@ mod tests {
             daemon.shutdown().await;
         });
     }
+
+    #[test]
+    fn failed_terminal_handshake_closes_its_service_stream() {
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(async {
+            let (client_endpoint, daemon_endpoint) = endpoint_pair();
+            let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+            let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+            let daemon_task = tokio::spawn({
+                let daemon = daemon.clone();
+                async move {
+                    let incoming = daemon.accept().await.unwrap().unwrap();
+                    let invalid = serde_json::to_vec(&ServiceControl::Opened {
+                        service: Service::MuxControl,
+                    })
+                    .unwrap();
+                    incoming.stream.send_on(Lane::Interactive, Bytes::from(invalid)).await.unwrap();
+                    let closed = tokio::time::timeout(
+                        std::time::Duration::from_secs(1),
+                        incoming.stream.receive(),
+                    )
+                    .await
+                    .expect("failed handshake left the service registered")
+                    .unwrap()
+                    .unwrap();
+                    assert!(closed.finished, "failed handshake reset instead of closing cleanly");
+                    assert!(!closed.reset);
+                }
+            });
+
+            assert!(open_terminal_stream(&client, 73).await.is_err());
+            daemon_task.await.unwrap();
+            client.shutdown().await;
+            daemon.shutdown().await;
+        });
+    }
+
+    #[test]
+    fn truncated_terminal_frame_is_reported_when_the_service_finishes() {
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(async {
+            let (client_endpoint, daemon_endpoint) = endpoint_pair();
+            let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+            let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+            let stream = Arc::new(
+                client
+                    .open(Service::TerminalBytes, BTreeMap::from([("surface".into(), "73".into())]))
+                    .await
+                    .unwrap(),
+            );
+            let incoming = daemon.accept().await.unwrap().unwrap();
+            let state = Arc::new(Mutex::new(
+                ClientState::new("test".into(), "memory".into(), 1, 73).unwrap(),
+            ));
+            let receiver = tokio::spawn(receive_frames(stream, state.clone()));
+
+            let encoded =
+                encode_frame(&Frame::new(MessageKind::Output, b"partial".to_vec())).unwrap();
+            incoming
+                .stream
+                .send_on(Lane::Interactive, Bytes::copy_from_slice(&encoded[..12]))
+                .await
+                .unwrap();
+            incoming.stream.close().await.unwrap();
+            receiver.await.unwrap();
+
+            assert!(
+                state.lock().unwrap().status.contains("truncated"),
+                "stream termination discarded the decoder's buffered prefix"
+            );
+            client.shutdown().await;
+            daemon.shutdown().await;
+        });
+    }
 }
