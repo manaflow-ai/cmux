@@ -73,11 +73,21 @@ holders BEFORE running `newsletter:sync --apply` for the first time, or
 source the audience from an explicit newsletter opt-in instead. The
 tooling cannot check this for you.
 
-Related known limitation: the sync is additive and account deletion does
-not propagate to Resend. A deleted account's contact stays in the segment
-until pruned by hand (the `staleMembers` count in the sync summary is the
-signal). If deletion propagation becomes a requirement, hook the account
-deletion flow into a removal helper as a follow-up.
+Related known limitations (identity is by email address, by design of the
+current data flow):
+
+- The sync is additive and account deletion does not propagate to Resend.
+  A deleted account's contact stays in the segment until pruned by hand
+  (the `staleMembers` count in the sync summary is the signal).
+- A user who unsubscribes and later changes their verified primary email
+  in Stack will be synced under the new address as a fresh subscribed
+  contact; the old address's opt-out does not follow them, because Resend
+  contacts carry no Stack identity today.
+
+If either becomes a requirement, the follow-up is to stamp the Stack user
+id onto Resend contact `properties` at create time and hook the account
+deletion / email-change flows into removal and suppression-migration
+helpers.
 
 ## (a) Sync the segments
 
