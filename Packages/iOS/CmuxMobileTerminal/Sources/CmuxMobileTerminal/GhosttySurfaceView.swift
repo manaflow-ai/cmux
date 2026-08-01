@@ -357,6 +357,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         case .willPresent: "willPresent"
         case .presented: "presented"
         }
+        let pointValue: (CGFloat) -> String = {
+            String(format: "%.3f", Double($0))
+        }
+        let toolbarFrame = dockedToolbar?.frame
+        let toolbarMinY = toolbarFrame.map { pointValue($0.minY) } ?? "none"
+        let toolbarMaxY = toolbarFrame.map { pointValue($0.maxY) } ?? "none"
+        let keyboardTransitionID = keyboardHeightAnimation?.id ?? -1
+        let keyboardTransitionTarget = keyboardHeightAnimation.map {
+            pointValue($0.targetOverlap)
+        } ?? "none"
         return [
             "chromeHidden=\(chromeHidden ? 1 : 0)",
             "composerActive=\(composerActive ? 1 : 0)",
@@ -367,6 +377,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "inputActual=\(actualInputOwner)",
             "inputScene=\(inputScene)",
             "inputModal=\(inputModal)",
+            "keyboardHeight=\(pointValue(keyboardHeight))",
+            "composerMinY=\(pointValue(composerContainer.frame.minY))",
+            "composerMaxY=\(pointValue(composerContainer.frame.maxY))",
+            "toolbarMinY=\(toolbarMinY)",
+            "toolbarMaxY=\(toolbarMaxY)",
+            "bottomSafeArea=\(pointValue(safeAreaInsetsBottom))",
+            "keyboardTransitionID=\(keyboardTransitionID)",
+            "keyboardTransitionTarget=\(keyboardTransitionTarget)",
             "bandMounted=\(composerContainer.subviews.isEmpty ? 0 : 1)",
             "toolbarVisible=\(dockedToolbar?.isHidden == false ? 1 : 0)",
             "surfaceMinXInWindow=\(surfaceMinXInWindow)",
