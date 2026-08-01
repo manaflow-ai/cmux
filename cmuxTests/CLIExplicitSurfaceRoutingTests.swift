@@ -96,6 +96,58 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect(readParams["surface_id"] as? String == Self.numericSurfaceId)
     }
 
+    @Test func refusedTerminalReadsAndWritesExitNonzero() throws {
+        let cases: [([String], String)] = [
+            (["read-screen", "--surface", Self.targetSurfaceRef], "surface.read_text"),
+            (["capture-pane", "--surface", Self.targetSurfaceRef], "surface.read_text"),
+            (["send", "--surface", Self.targetSurfaceRef, "hello"], "surface.send_text"),
+            (["send-key", "--surface", Self.targetSurfaceRef, "enter"], "surface.send_key"),
+        ]
+
+        for (arguments, expectedMethod) in cases {
+            try assertRefusedTerminalCommand(arguments: arguments, expectedMethod: expectedMethod)
+        }
+    }
+
+    private func assertRefusedTerminalCommand(
+        arguments: [String],
+        expectedMethod: String
+    ) throws {
+        let socketPath = Self.makeSocketPath("refused")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            #expect(method == expectedMethod)
+            return Self.v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "invalid_params", "message": "Surface is not a terminal"]
+            )
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: arguments,
+            environment: cliEnvironment(socketPath: socketPath),
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(result.stderr.contains("invalid_params: Surface is not a terminal"))
+    }
+
     private func assertExplicitSurfaceCommand(
         arguments: [String],
         expectedMethod: String,

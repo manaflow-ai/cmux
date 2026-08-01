@@ -53,6 +53,26 @@ struct TerminalSurfaceRegistryTests {
         #expect(registry.surface(id: UUID()) == nil)
     }
 
+    @Test func duplicateIdResolutionFollowsNewestLiveRegistration() {
+        let registry = TerminalSurfaceRegistry()
+        let sharedID = UUID()
+        let original = FakeSurface(id: sharedID)
+        let replacement = FakeSurface(id: sharedID)
+
+        registry.register(original)
+        registry.register(replacement)
+        #expect(
+            registry.surface(id: sharedID) === replacement,
+            "A replacement must become the canonical live surface immediately"
+        )
+
+        registry.unregister(replacement)
+        #expect(
+            registry.surface(id: sharedID) === original,
+            "Removing a replacement must promote the prior live registration"
+        )
+    }
+
     @Test func unregisterRemovesSurfaceAndPlacement() {
         let registry = TerminalSurfaceRegistry()
         let surface = FakeSurface(focusPlacement: .rightSidebarDock)
