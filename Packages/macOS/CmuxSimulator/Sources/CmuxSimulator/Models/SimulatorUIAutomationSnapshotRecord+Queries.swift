@@ -15,6 +15,7 @@ extension SimulatorUIAutomationSnapshotRecord {
             let node = record.node
             return node.isEnabled != false
                 && record.element.state.isVisible
+                && (label == nil || !node.isLabelTruncated)
                 && (identifier == nil || !node.isIdentifierTruncated)
                 && accessibilityValue(
                     node.label,

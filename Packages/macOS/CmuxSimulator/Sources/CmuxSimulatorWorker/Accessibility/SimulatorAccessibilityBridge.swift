@@ -289,9 +289,15 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
         let role = rawRole.map { value in
             value.hasPrefix("AX") ? String(value.dropFirst(2)) : value
         }.map(boundedSimulatorAccessibilityText)
-        let label = element?.accessibilityLabel().map(boundedSimulatorAccessibilityText)
+        let labelField = element?.accessibilityLabel().map(
+            boundedSimulatorAccessibilityField
+        )
+        let label = labelField?.value
         let rawValue = element?.accessibilityValue()
-        let value = rawValue.map { boundedSimulatorAccessibilityText(String(describing: $0)) }
+        let valueField = rawValue.map {
+            boundedSimulatorAccessibilityField(String(describing: $0))
+        }
+        let value = valueField?.value
         let identifierField = element?.accessibilityIdentifier().map(
             boundedSimulatorAccessibilityField
         )
@@ -347,7 +353,9 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
             isIdentifierTruncated: identifierIsTruncated,
             role: role,
             label: label,
+            isLabelTruncated: labelField?.isTruncated == true,
             value: value,
+            isValueTruncated: valueField?.isTruncated == true,
             roleDescription: roleDescription,
             frame: frame.map {
                 SimulatorRect(

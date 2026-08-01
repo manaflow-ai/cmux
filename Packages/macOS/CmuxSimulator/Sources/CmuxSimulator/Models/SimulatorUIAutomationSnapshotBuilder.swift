@@ -130,8 +130,12 @@ struct SimulatorUIAutomationSnapshotBuilder {
         let frame = node.frame.flatMap {
             $0.isValidUIAutomationFrame ? $0 : nil
         } ?? SimulatorRect(x: 0, y: 0, width: 0, height: 0)
-        let normalizedLabel = node.label?.normalizedUIAutomationText
-        let normalizedValue = node.value?.normalizedUIAutomationText
+        let normalizedLabel = node.isLabelTruncated
+            ? nil
+            : node.label?.normalizedUIAutomationText
+        let normalizedValue = node.isValueTruncated
+            ? nil
+            : node.value?.normalizedUIAutomationText
         let exactIdentifier: String? = if !node.isIdentifierTruncated,
                                           let identifier = node.identifier,
                                           !identifier.isEmpty {

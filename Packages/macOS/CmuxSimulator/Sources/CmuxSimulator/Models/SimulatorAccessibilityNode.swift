@@ -10,8 +10,12 @@ public struct SimulatorAccessibilityNode: Codable, Equatable, Identifiable, Send
     public let role: String?
     /// The accessibility label.
     public let label: String?
+    /// Whether the accessibility label was clipped to the worker's field-size limit.
+    public let isLabelTruncated: Bool
     /// The accessibility value.
     public let value: String?
+    /// Whether the accessibility value was clipped to the worker's field-size limit.
+    public let isValueTruncated: Bool
     /// The runtime's localized description of the element role.
     public let roleDescription: String?
     /// The element frame in device points.
@@ -32,7 +36,9 @@ public struct SimulatorAccessibilityNode: Codable, Equatable, Identifiable, Send
         isIdentifierTruncated: Bool = false,
         role: String?,
         label: String?,
+        isLabelTruncated: Bool = false,
         value: String?,
+        isValueTruncated: Bool = false,
         roleDescription: String? = nil,
         frame: SimulatorRect?,
         isEnabled: Bool?,
@@ -45,7 +51,9 @@ public struct SimulatorAccessibilityNode: Codable, Equatable, Identifiable, Send
         self.isIdentifierTruncated = isIdentifierTruncated
         self.role = role
         self.label = label
+        self.isLabelTruncated = isLabelTruncated
         self.value = value
+        self.isValueTruncated = isValueTruncated
         self.roleDescription = roleDescription
         self.frame = frame
         self.isEnabled = isEnabled
@@ -60,7 +68,9 @@ public struct SimulatorAccessibilityNode: Codable, Equatable, Identifiable, Send
         case isIdentifierTruncated
         case role
         case label
+        case isLabelTruncated
         case value
+        case isValueTruncated
         case roleDescription
         case frame
         case isEnabled
@@ -79,7 +89,15 @@ public struct SimulatorAccessibilityNode: Codable, Equatable, Identifiable, Send
         ) ?? false
         role = try container.decodeIfPresent(String.self, forKey: .role)
         label = try container.decodeIfPresent(String.self, forKey: .label)
+        isLabelTruncated = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .isLabelTruncated
+        ) ?? false
         value = try container.decodeIfPresent(String.self, forKey: .value)
+        isValueTruncated = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .isValueTruncated
+        ) ?? false
         roleDescription = try container.decodeIfPresent(
             String.self,
             forKey: .roleDescription
@@ -103,7 +121,13 @@ public struct SimulatorAccessibilityNode: Codable, Equatable, Identifiable, Send
         }
         try container.encodeIfPresent(role, forKey: .role)
         try container.encodeIfPresent(label, forKey: .label)
+        if isLabelTruncated {
+            try container.encode(true, forKey: .isLabelTruncated)
+        }
         try container.encodeIfPresent(value, forKey: .value)
+        if isValueTruncated {
+            try container.encode(true, forKey: .isValueTruncated)
+        }
         try container.encodeIfPresent(roleDescription, forKey: .roleDescription)
         try container.encodeIfPresent(frame, forKey: .frame)
         try container.encodeIfPresent(isEnabled, forKey: .isEnabled)
