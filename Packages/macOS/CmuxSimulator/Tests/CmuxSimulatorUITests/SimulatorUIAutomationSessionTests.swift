@@ -154,6 +154,24 @@ struct SimulatorUIAutomationSessionTests {
         #expect(session.mutationGeneration == generation + 1)
     }
 
+    @Test("Recording rejects a snapshot captured before the current generation")
+    func recordingRejectsEarlierMutationGeneration() async {
+        let session = SimulatorUIAutomationSession()
+        let capturedGeneration = session.mutationGeneration
+        session.clearSnapshot()
+
+        await #expect(throws:
+            SimulatorUIAutomationSnapshotRecordingError.invalidatedDuringPreparation
+        ) {
+            try await session.record(
+                snapshot(),
+                simulatorID: "SIM-1",
+                capturedAtMilliseconds: 1_000,
+                expectedMutationGeneration: capturedGeneration
+            )
+        }
+    }
+
     @Test("A held semantic touch survives snapshot replacement until release")
     func heldTouchSurvivesSnapshotReplacement() {
         let session = SimulatorUIAutomationSession()
