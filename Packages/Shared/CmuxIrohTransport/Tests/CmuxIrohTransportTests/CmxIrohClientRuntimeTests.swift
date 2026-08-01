@@ -215,6 +215,42 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
+    func startupFetchesAuthoritativeDiscoveryWhenLegacyRegistrationPageOmitsLocalBinding() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let truncatedRegistrationDiscovery = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            includeBinding: false,
+            revision: 1
+        )
+        let completeDiscovery = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 1
+        )
+        let broker = TestRevisionedClientBroker(
+            binding: fixture.binding,
+            discoveries: [completeDiscovery],
+            relay: fixture.relayResponse(),
+            embeddedRegistrationDiscovery: truncatedRegistrationDiscovery
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.registrationCount == 1)
+        #expect(await broker.discoveryCount == 1)
+        #expect(await runtime.connectivityEngine.snapshot().routeRevision == 1)
+        await runtime.stop()
+    }
+
+    @Test
     func cachedBindingSyncOverlapsBindAndRegistersAfterActivation() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let revisionOne = try ClientRuntimeTestFixture.discovery(
@@ -1122,6 +1158,7 @@ private actor TestRevisionedClientBroker:
     private let registrationRevision: UInt64?
     private let registrationError: CmxIrohTrustBrokerClientError?
     private(set) var registrationCount = 0
+    private(set) var discoveryCount = 0
     private(set) var syncCount = 0
     private var blockedSyncReleased = false
     private var blockedRegistrationReleased = false
@@ -1133,6 +1170,7 @@ private actor TestRevisionedClientBroker:
         blockedSyncCount: Int? = nil,
         blockedRegistrationCount: Int? = nil,
         embedInitialDiscovery: Bool = false,
+        embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse? = nil,
         registrationRevision: UInt64? = nil,
         registrationError: CmxIrohTrustBrokerClientError? = nil
     ) {
@@ -1141,9 +1179,8 @@ private actor TestRevisionedClientBroker:
         self.relay = relay
         self.blockedSyncCount = blockedSyncCount
         self.blockedRegistrationCount = blockedRegistrationCount
-        embeddedRegistrationDiscovery = embedInitialDiscovery
-            ? discoveries.first
-            : nil
+        self.embeddedRegistrationDiscovery = embeddedRegistrationDiscovery
+            ?? (embedInitialDiscovery ? discoveries.first : nil)
         self.registrationRevision = registrationRevision
         self.registrationError = registrationError
     }
@@ -1189,6 +1226,7 @@ private actor TestRevisionedClientBroker:
     }
 
     func discover() throws -> CmxIrohDiscoveryResponse {
+        discoveryCount += 1
         guard let discovery = discoveries.first else {
             throw TestIrohTransportError.unsupported
         }
