@@ -32,7 +32,9 @@ extension VerticalTabsSidebar {
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
-        let unreadSnapshot = sidebarUnread.snapshot
+        // The AppKit controller applies the current unread snapshot after row
+        // construction, keeping this root projection outside Observation.
+        let unreadSnapshot = SidebarUnreadSnapshot()
         let anchorUnreadCount: Int = {
             if group.isCollapsed {
                 return memberWorkspaceIds.reduce(0) { partial, workspaceId in
@@ -215,12 +217,19 @@ extension VerticalTabsSidebar {
             unreadDependencyWorkspaceIds: Set(memberWorkspaceIds)
                 .union([group.anchorWorkspaceId]),
             unreadRebuild: {
-                [model, anchorWorkspaceId = group.anchorWorkspaceId,
-                 isCollapsed = group.isCollapsed, memberWorkspaceIds,
-                 nonAnchorMemberIds] snapshot in
+                [weak tabManager, model, groupId = group.id,
+                 anchorWorkspaceId = group.anchorWorkspaceId,
+                 memberWorkspaceIds] snapshot in
+                let liveGroup = tabManager?.workspaceGroups.first { $0.id == groupId }
+                let liveMemberWorkspaceIds = tabManager?.tabs.compactMap {
+                    $0.groupId == groupId ? $0.id : nil
+                } ?? memberWorkspaceIds
+                let liveNonAnchorMemberIds = liveMemberWorkspaceIds.filter {
+                    $0 != anchorWorkspaceId
+                }
                 var fresh = model
-                fresh.anchorUnreadCount = isCollapsed
-                    ? memberWorkspaceIds.reduce(0) {
+                fresh.anchorUnreadCount = (liveGroup?.isCollapsed ?? model.isCollapsed)
+                    ? liveMemberWorkspaceIds.reduce(0) {
                         $0 + snapshot.unreadCount(forWorkspaceId: $1)
                     }
                     : snapshot.unreadCount(forWorkspaceId: anchorWorkspaceId)
@@ -234,10 +243,10 @@ extension VerticalTabsSidebar {
                     .summary(forWorkspaceId: anchorWorkspaceId)
                     .hasLatestNotification
                 fresh.canMarkAllRead = snapshot.canMarkWorkspaceRead(
-                    forWorkspaceIds: nonAnchorMemberIds
+                    forWorkspaceIds: liveNonAnchorMemberIds
                 )
                 fresh.canMarkAllUnread = snapshot.canMarkWorkspaceUnread(
-                    forWorkspaceIds: nonAnchorMemberIds
+                    forWorkspaceIds: liveNonAnchorMemberIds
                 )
                 return fresh
             }

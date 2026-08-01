@@ -144,7 +144,6 @@ struct TitlebarControlsStyleConfig {
 struct TitlebarControlsLayoutModelSnapshot: Equatable {
     let style: TitlebarControlsStyle
     let contentSize: NSSize
-    let revision: UInt64
 }
 
 /// Owns the expensive shortcut/font-derived titlebar size once for every
@@ -177,8 +176,7 @@ final class TitlebarControlsLayoutModel {
         let style = TitlebarControlsStyle.stored(in: defaults)
         snapshot = TitlebarControlsLayoutModelSnapshot(
             style: style,
-            contentSize: contentSizeProvider(style.config),
-            revision: 0
+            contentSize: contentSizeProvider(style.config)
         )
 
         observers.append(
@@ -192,22 +190,29 @@ final class TitlebarControlsLayoutModel {
                 }
             }
         )
-        for name in [
-            KeyboardShortcutSettings.didChangeNotification,
-            GlobalFontMagnification.didChangeNotification,
-        ] {
-            observers.append(
-                notificationCenter.addObserver(
-                    forName: name,
-                    object: nil,
-                    queue: .main
-                ) { [weak self] _ in
-                    MainActor.assumeIsolated {
-                        self?.recompute()
-                    }
+        observers.append(
+            notificationCenter.addObserver(
+                forName: KeyboardShortcutSettings.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                MainActor.assumeIsolated {
+                    guard let self, self.shortcutChangeAffectsLayout(notification) else { return }
+                    self.recompute()
                 }
-            )
-        }
+            }
+        )
+        observers.append(
+            notificationCenter.addObserver(
+                forName: GlobalFontMagnification.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.recompute()
+                }
+            }
+        )
     }
 
     deinit {
@@ -227,12 +232,21 @@ final class TitlebarControlsLayoutModel {
         recompute(style: style)
     }
 
+    private func shortcutChangeAffectsLayout(_ notification: Notification) -> Bool {
+        guard let rawAction = notification.userInfo?[KeyboardShortcutSettings.actionUserInfoKey]
+            as? String,
+              let action = KeyboardShortcutSettings.Action(rawValue: rawAction) else {
+            // Bulk and settings-file reloads intentionally omit one action.
+            return true
+        }
+        return TitlebarShortcutHintActionSlot.allCases.contains { $0.action == action }
+    }
+
     private func recompute(style: TitlebarControlsStyle? = nil) {
         let style = style ?? snapshot.style
         snapshot = TitlebarControlsLayoutModelSnapshot(
             style: style,
-            contentSize: contentSizeProvider(style.config),
-            revision: snapshot.revision &+ 1
+            contentSize: contentSizeProvider(style.config)
         )
     }
 }

@@ -380,8 +380,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       .then(operation)
       .then(() => undefined)
       .catch((error) => {
+        const errorMessage = error instanceof Error ? error.message : undefined;
         warn(context, "cmux lifecycle task failed", {
           error_available: error !== undefined,
+          error_message: utf8Prefix(errorMessage, 512),
         }, true);
       })
       .finally(() => {
