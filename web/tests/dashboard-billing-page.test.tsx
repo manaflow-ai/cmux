@@ -125,6 +125,8 @@ describe("dashboard billing page", () => {
     expect(html).toContain("$28");
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
+    expect(html).toContain("/mo, billed yearly");
+    expect(html).toContain("/user/mo, billed yearly");
     expect(html).not.toContain("/mo.");
     expect(html).not.toContain("Billed $288 annually · save 20%");
     expect(html).not.toContain("Billed $336 annually · save 20%");
