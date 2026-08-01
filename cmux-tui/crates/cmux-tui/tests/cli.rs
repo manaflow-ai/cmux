@@ -308,7 +308,8 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     assert!(english.contains(&format!("workspace schema {newer}")), "{english}");
     assert!(english.contains(&format!("supports through {supported}")), "{english}");
     assert!(english.contains(&format!("session socket: {}", socket.display())), "{english}");
-    assert!(english.contains(&format!("state database: {}", database.display())), "{english}");
+    assert!(!english.contains("state database:"), "{english}");
+    assert!(!english.contains(&database.display().to_string()), "{english}");
     assert!(
         english.contains("no server is listening on this socket; nothing needs to be stopped"),
         "{english}"
@@ -342,7 +343,8 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     assert!(!japanese.status.success());
     let japanese = String::from_utf8(japanese.stderr).unwrap();
     assert!(japanese.contains("セッションソケット:"), "{japanese}");
-    assert!(japanese.contains("状態データベース:"), "{japanese}");
+    assert!(!japanese.contains("状態データベース:"), "{japanese}");
+    assert!(!japanese.contains(&database.display().to_string()), "{japanese}");
     assert!(
         japanese.contains("このソケットを待ち受けているサーバーはありません。停止は不要です"),
         "{japanese}"
