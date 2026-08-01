@@ -527,13 +527,16 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             appliedItems = dataSource.items
             return .visibleChild(landingIndexPath)
         }
-        guard let headerRow = finalItems.firstIndex(of: .groupHeader(groupID)) else {
+        guard let headerIndexPath = dataSource.indexPath(for: .groupHeader(groupID)) else {
             return nil
         }
-        let landingIndexPath = IndexPath(row: headerRow, section: Self.section)
-        dataSource.removeItem(at: sourceIndexPath, in: tableView)
-        appliedItems = dataSource.items
-        return .collapsedHeader(landingIndexPath)
+        // Keep the lifted source row in the native data source until UIKit
+        // finishes animating its preview into the collapsed header. The model
+        // callback below produces the authoritative source removal, which is
+        // deferred until dragSessionDidEnd. Deleting the native row here
+        // destroys the animation's source view and leaves the drop session
+        // waiting for its completion timeout.
+        return .collapsedHeader(headerIndexPath)
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
@@ -772,33 +775,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         return (workspace.actionCapabilities.supportsReadStateActions && configuration.setUnread != nil)
             || (workspace.actionCapabilities.supportsCloseActions
                 && configuration.closeWorkspace != nil)
-    }
-
-    fileprivate func canMoveRow(at indexPath: IndexPath) -> Bool {
-        guard let item = dataSource?.itemIdentifier(for: indexPath) else { return false }
-        return configuration.enablesReorder && configuration.moveRows != nil && isMovable(item)
-    }
-
-    fileprivate func moveRow(from sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
-        guard
-            configuration.enablesReorder,
-            let moveRows = configuration.moveRows,
-            sourceIndexPath.section == destinationIndexPath.section
-        else { return }
-        let chromePrefixCount = chromePrefixCount
-        let source = sourceIndexPath.row - chromePrefixCount
-        let destination = destinationIndexPath.row - chromePrefixCount
-        let movableItemCount = configuration.items.count - chromePrefixCount
-        guard
-            source >= 0,
-            source < movableItemCount,
-            destination >= 0,
-            destination < movableItemCount
-        else { return }
-        let swiftUIDestination = destination > source
-            ? min(destination + 1, movableItemCount)
-            : destination
-        moveRows(IndexSet(integer: source), swiftUIDestination)
     }
 
     private func configure(_ cell: UITableViewCell, for item: WorkspaceListTableItem) {
@@ -1306,31 +1282,9 @@ private final class WorkspaceListTableDataSource: NSObject, UITableViewDataSourc
         }
     }
 
-    func removeItem(at indexPath: IndexPath, in tableView: UITableView) {
-        guard indexPath.section == 0, items.indices.contains(indexPath.row) else { return }
-        items.remove(at: indexPath.row)
-        tableView.performBatchUpdates {
-            tableView.deleteRows(at: [indexPath], with: .none)
-        }
-    }
-
     func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
         coordinator?.canEditRow(at: indexPath) ?? false
     }
 
-    func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
-        coordinator?.canMoveRow(at: indexPath) ?? false
-    }
-
-    func tableView(
-        _ tableView: UITableView,
-        moveRowAt sourceIndexPath: IndexPath,
-        to destinationIndexPath: IndexPath
-    ) {
-        guard items.indices.contains(sourceIndexPath.row) else { return }
-        let item = items.remove(at: sourceIndexPath.row)
-        items.insert(item, at: min(destinationIndexPath.row, items.count))
-        coordinator?.moveRow(from: sourceIndexPath, to: destinationIndexPath)
-    }
 }
 #endif
