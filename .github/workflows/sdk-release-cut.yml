@@ -275,7 +275,8 @@ jobs:
             --version 0.0.0a0 \
             --filename cmux_sdk-0.0.0a0-py3-none-any.whl \
             --filename cmux_sdk-0.0.0a0.tar.gz \
-            --repository https://github.com/manaflow-ai/cmux
+            --repository https://github.com/manaflow-ai/cmux \
+            --owner lawrencecchen
 
   cut-tags:
     needs:

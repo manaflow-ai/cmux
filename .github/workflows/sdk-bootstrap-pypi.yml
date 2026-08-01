@@ -258,6 +258,7 @@ jobs:
             --package cmux-sdk \
             --version "$BOOTSTRAP_VERSION" \
             --repository https://github.com/manaflow-ai/cmux \
+            --owner lawrencecchen \
             "${filenames[@]}"
 
   publish:
@@ -353,4 +354,5 @@ jobs:
             --version "$BOOTSTRAP_VERSION" \
             --filename "$(basename "${wheels[0]}")" \
             --filename "$(basename "${sdists[0]}")" \
-            --repository https://github.com/manaflow-ai/cmux
+            --repository https://github.com/manaflow-ai/cmux \
+            --owner lawrencecchen

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -23,6 +25,14 @@ USER_AGENT = "cmux-sdk-npm-provenance/1 (https://github.com/manaflow-ai/cmux)"
 
 class ProvenanceError(RuntimeError):
     """Raised when npm cannot prove the expected package ownership."""
+
+
+def _integrity(artifact: Path) -> str:
+    digest = hashlib.sha512()
+    with artifact.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return "sha512-" + base64.b64encode(digest.digest()).decode("ascii")
 
 
 def _metadata(package: str) -> dict[str, Any]:
@@ -54,6 +64,7 @@ def _validate_metadata(
     version: str,
     repository_url: str,
     repository_directory: str,
+    artifact: Optional[Path],
 ) -> None:
     if metadata.get("name") != package:
         raise ProvenanceError("npm metadata names a different project")
@@ -97,6 +108,11 @@ def _validate_metadata(
     attestations = dist.get("attestations") if isinstance(dist, dict) else None
     if not isinstance(integrity, str) or not integrity.startswith("sha512-"):
         raise ProvenanceError("npm bootstrap integrity metadata is malformed")
+    if artifact is not None:
+        if not artifact.is_file():
+            raise ProvenanceError("the expected npm bootstrap artifact does not exist")
+        if integrity != _integrity(artifact):
+            raise ProvenanceError("npm bootstrap bytes do not match the tested artifact")
     expected_attestation_url = (
         f"{REGISTRY}/-/npm/v1/attestations/{package}@{version}"
     )
@@ -188,6 +204,7 @@ def verify(
     version: str,
     repository_url: str,
     repository_directory: str,
+    artifact: Optional[Path] = None,
     *,
     npm: str = "npm",
 ) -> None:
@@ -199,6 +216,7 @@ def verify(
         version,
         repository_url,
         repository_directory,
+        artifact,
     )
     _run_npm(package, version, npm)
 
@@ -209,6 +227,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", required=True)
     parser.add_argument("--repository-url", required=True)
     parser.add_argument("--repository-directory", required=True)
+    parser.add_argument("--artifact", type=Path)
     parser.add_argument("--npm", default="npm")
     return parser
 
@@ -221,6 +240,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             args.version,
             args.repository_url,
             args.repository_directory,
+            args.artifact,
             npm=args.npm,
         )
     except ProvenanceError as error:

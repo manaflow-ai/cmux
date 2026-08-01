@@ -73,11 +73,38 @@ def _release_urls(metadata: dict[str, Any]) -> dict[str, str]:
     return urls
 
 
+def _verify_ownership(
+    metadata: dict[str, Any], expected_owners: Sequence[str]
+) -> None:
+    expected = set(expected_owners)
+    if not expected or len(expected) != len(expected_owners):
+        raise ProvenanceError("expected PyPI owners must be unique and non-empty")
+    ownership = metadata.get("ownership")
+    if not isinstance(ownership, dict) or ownership.get("organization") is not None:
+        raise ProvenanceError("PyPI project ownership is missing or unexpected")
+    roles = ownership.get("roles")
+    if not isinstance(roles, list):
+        raise ProvenanceError("PyPI project owner roles are malformed")
+    actual: set[tuple[str, str]] = set()
+    for item in roles:
+        if not isinstance(item, dict):
+            raise ProvenanceError("PyPI project owner roles are malformed")
+        role = item.get("role")
+        user = item.get("user")
+        if not isinstance(role, str) or not isinstance(user, str):
+            raise ProvenanceError("PyPI project owner roles are malformed")
+        actual.add((role, user))
+    expected_roles = {("Owner", owner) for owner in expected}
+    if len(actual) != len(roles) or actual != expected_roles:
+        raise ProvenanceError("PyPI project owner set does not match")
+
+
 def verify(
     package: str,
     version: str,
     filenames: Sequence[str],
     repository: str,
+    owners: Sequence[str],
 ) -> None:
     expected = set(filenames)
     if not package or not version or not repository or not expected:
@@ -86,7 +113,9 @@ def verify(
         )
     if len(expected) != len(filenames):
         raise ProvenanceError("expected PyPI filenames must be unique")
-    urls = _release_urls(_metadata(package, version))
+    metadata = _metadata(package, version)
+    _verify_ownership(metadata, owners)
+    urls = _release_urls(metadata)
     if set(urls) != expected:
         raise ProvenanceError("PyPI release files differ from the expected bootstrap set")
     for filename in sorted(expected):
@@ -121,13 +150,20 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", required=True)
     parser.add_argument("--filename", action="append", required=True)
     parser.add_argument("--repository", required=True)
+    parser.add_argument("--owner", action="append", required=True)
     return parser
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        verify(args.package, args.version, args.filename, args.repository)
+        verify(
+            args.package,
+            args.version,
+            args.filename,
+            args.repository,
+            args.owner,
+        )
     except ProvenanceError as error:
         print(f"PyPI provenance verification failed: {error}", file=sys.stderr)
         return 1

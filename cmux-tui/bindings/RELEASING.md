@@ -42,7 +42,8 @@ wire-behavior conformance suite.
   as the trusted publisher, then delete the bootstrap token. Keep `1.0.0`
   unpublished for the coordinated OIDC release. Every release verifies the npm
   bootstrap provenance and requires its publisher to remain the sole package
-  maintainer.
+  maintainer. A rerun after an ambiguous bootstrap publish accepts only the
+  exact tested archive with matching provenance.
 - PyPI: create the `pypi-bootstrap` GitHub environment, then add a pending
   trusted publisher for project `cmux-sdk`, repository `manaflow-ai/cmux`,
   workflow `sdk-bootstrap-pypi.yml`, environment `pypi-bootstrap`. Run that
@@ -50,7 +51,9 @@ wire-behavior conformance suite.
   publishes the attested prerelease `0.0.0a0`, which creates the project and
   reserves its name before release tags can exist. Then add repository
   `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, environment `pypi` as a
-  trusted publisher for stable releases.
+  trusted publisher for stable releases. The sole PyPI owner `lawrencecchen`
+  must run the bootstrap; the release gate rejects any role or organization
+  change.
 - crates.io: configure trusted publishers for existing crate `cmux-client` with
   owner `manaflow-ai`, repository `cmux`, workflow `sdk-release-cut.yml`,
   environment `crates-io`. crates.io requires a manual first release for a new
@@ -124,10 +127,10 @@ workflow checks the registry digest and skips only an artifact whose bytes
 exactly match the validated local package. PyPI reconciliation also rejects
 unexpected or yanked files while allowing the expected wheel and source
 distribution to arrive in either order. Crates.io reconciliation rejects
-yanked versions, and npm reconciliation prevents stable-version downgrades and
-requires the requested version to own the `latest` distribution tag. Registry
-transport interruptions are retried within the configured reconciliation
-deadline.
+yanked versions. npm, PyPI, and crates.io reconciliation prevent releases older
+than active registry history, and npm requires the requested version to own the
+`latest` distribution tag. Registry transport interruptions are retried within
+the configured reconciliation deadline.
 
 The cut workflow holds one cross-version concurrency lock until the Go check and
 all registry jobs finish. If one publish job fails, use GitHub's **Re-run failed

@@ -28,6 +28,10 @@ USER_AGENT = "cmux-sdk-release-reconciler/1"
 STABLE_VERSION = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$"
 )
+REGISTRY_VERSION = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:[A-Za-z._+-][0-9A-Za-z._+-]*)?$"
+)
 
 
 class RegistryError(RuntimeError):
@@ -76,6 +80,35 @@ def _stable_version(value: str) -> Optional[tuple[int, int, int]]:
     if match is None:
         return None
     return tuple(int(part) for part in match.groups())
+
+
+def _registry_version(value: str) -> tuple[int, int, int]:
+    match = REGISTRY_VERSION.fullmatch(value)
+    if match is None:
+        raise RegistryError(f"registry version cannot be compared safely: {value!r}")
+    return tuple(int(part) for part in match.groups())
+
+
+def _reject_newer_registry_history(
+    registry: str,
+    package: str,
+    requested: str,
+    active_versions: Sequence[str],
+) -> None:
+    candidate = _stable_version(requested)
+    if candidate is None:
+        raise RegistryError(f"{registry} release version must match X.Y.Z: {requested!r}")
+    newer_or_equal = [
+        version
+        for version in active_versions
+        if _registry_version(version) >= candidate
+    ]
+    if newer_or_equal:
+        newest = max(newer_or_equal, key=_registry_version)
+        raise ReleaseStateMismatch(
+            f"{registry} already contains active version {newest!r}, which is not "
+            f"older than requested {requested!r} for {package}"
+        )
 
 
 def _request(url: str, accept: str) -> Optional[bytes]:
@@ -136,6 +169,28 @@ def _crates_status(package: str, version: str, artifact: Path) -> str:
             raise RegistryError(
                 f"crates.io project metadata is malformed for {package}"
             )
+        versions = project.get("versions")
+        if not isinstance(versions, list):
+            raise RegistryError(
+                f"crates.io project version history is malformed for {package}"
+            )
+        active_versions: list[str] = []
+        for release in versions:
+            if not isinstance(release, dict):
+                raise RegistryError(
+                    f"crates.io project version history is malformed for {package}"
+                )
+            number = release.get("num")
+            yanked = release.get("yanked")
+            if not isinstance(number, str) or not isinstance(yanked, bool):
+                raise RegistryError(
+                    f"crates.io project version history is malformed for {package}"
+                )
+            if not yanked:
+                active_versions.append(number)
+        _reject_newer_registry_history(
+            "crates.io", package, version, active_versions
+        )
         return MISSING
     version_metadata = metadata.get("version")
     if not isinstance(version_metadata, dict):
@@ -287,6 +342,29 @@ def _pypi_status(
             raise RegistryError(
                 f"PyPI project metadata is malformed for {package}"
             )
+        releases = project.get("releases")
+        if not isinstance(releases, dict):
+            raise RegistryError(
+                f"PyPI project version history is malformed for {package}"
+            )
+        active_versions: list[str] = []
+        for release_version, files in releases.items():
+            if not isinstance(release_version, str) or not isinstance(files, list):
+                raise RegistryError(
+                    f"PyPI project version history is malformed for {package}"
+                )
+            active = False
+            for published in files:
+                if not isinstance(published, dict) or not isinstance(
+                    published.get("yanked"), bool
+                ):
+                    raise RegistryError(
+                        f"PyPI project version history is malformed for {package}"
+                    )
+                active = active or not published["yanked"]
+            if active:
+                active_versions.append(release_version)
+        _reject_newer_registry_history("PyPI", package, version, active_versions)
         return MISSING
     files = metadata.get("urls")
     if not isinstance(files, list):
