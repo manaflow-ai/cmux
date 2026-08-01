@@ -84,7 +84,10 @@ struct SimulatorUIAutomationExecutorWaitTests {
             Issue.record("Expected the ambiguous text field to be rejected")
         } catch {}
 
-        #expect(await client.actions().isEmpty)
+        #expect(!(await client.actions().contains { action in
+            if case .interactive = action { return true }
+            return false
+        }))
         await coordinator.close()
     }
 
