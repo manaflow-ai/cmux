@@ -215,10 +215,27 @@ import UIKit
         #expect(dropCoordinator.dropIntoRowCalls == [IndexPath(row: 0, section: 0)])
         #expect(dropCoordinator.dropIntoRowRects.first == CGRect(x: 12, y: 6, width: 366, height: 32))
         #expect(dropCoordinator.dropToTargetCalls.isEmpty)
-        #expect(tableView.numberOfRows(inSection: 0) == 1)
+        #expect(
+            tableView.numberOfRows(inSection: 0) == 2,
+            "The native source row must survive until UIKit finishes the drop animation"
+        )
         #expect(recorder.dropIntoGroupCalls.first?.0.rawValue == "mover")
         #expect(recorder.dropIntoGroupCalls.first?.1.rawValue == "group-a")
         #expect(recorder.dropLifecycleEvents == ["native", "model"])
+    }
+
+    @Test func localWorkspaceDragsStayOwnedByTheDropDelegate() {
+        let recorder = DropRecorder()
+        let (_, tableView, _) = makeFixture(recorder: recorder)
+        let sourceIndexPath = IndexPath(row: 1, section: 0)
+
+        #expect(
+            tableView.dataSource?.tableView?(
+                tableView,
+                canMoveRowAt: sourceIndexPath
+            ) != true,
+            "The legacy row-move path bypasses performDropWith for local single-item drags"
+        )
     }
 
     @Test func performDropOnExpandedHeaderLandsInTheVisibleGroupChildSlot() {
