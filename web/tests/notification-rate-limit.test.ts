@@ -4,6 +4,7 @@ import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
 import {
   PUSH_SEND_LEASE_MS,
+  completePushSend,
   recordPushSendOrThrow,
   PushRateLimitExceededError,
 } from "../services/apns/rateLimit";
@@ -112,6 +113,74 @@ describe("notification rate limit", () => {
         new Date(startedAt.getTime() + APNS_DEFAULT_MAX_DELIVERY_DURATION_MS),
       ),
     ).resolves.toMatchObject({ kind: "busy" });
+  });
+
+  dbTest("a stale worker cannot overwrite a reclaimed lease", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate notification_send_events restart identity cascade`;
+
+    const { cloudDb } = await import("../db/client");
+    const db = cloudDb();
+    const startedAt = new Date("2026-06-02T12:00:00Z");
+    const first = await recordPushSendOrThrow(
+      db,
+      "push-user-1",
+      1,
+      "lease-fencing",
+      startedAt,
+    );
+    expect(first.kind).toBe("claimed");
+    if (first.kind !== "claimed") throw new Error("expected first claim");
+
+    const second = await recordPushSendOrThrow(
+      db,
+      "push-user-1",
+      1,
+      "lease-fencing",
+      new Date(startedAt.getTime() + PUSH_SEND_LEASE_MS + 1),
+    );
+    expect(second.kind).toBe("claimed");
+    if (second.kind !== "claimed") throw new Error("expected reclaimed lease");
+
+    const success = {
+      sent: 1,
+      devices: 1,
+      pruned: 0,
+      transientFailures: 0,
+      permanentFailures: 0,
+    };
+    const transient = {
+      sent: 0,
+      devices: 1,
+      pruned: 0,
+      transientFailures: 1,
+      permanentFailures: 0,
+    };
+    await completePushSend(
+      db,
+      "push-user-1",
+      "lease-fencing",
+      second.leaseToken,
+      success,
+      [],
+    );
+    await completePushSend(
+      db,
+      "push-user-1",
+      "lease-fencing",
+      first.leaseToken,
+      transient,
+      [],
+    );
+
+    const [stored] = await sql<{ sent: number; transient: number }[]>`
+      select
+        (result_summary ->> 'sent')::int as sent,
+        (result_summary ->> 'transientFailures')::int as transient
+      from notification_send_events
+      where user_id = 'push-user-1' and correlation_id = 'lease-fencing'
+    `;
+    expect(stored).toEqual({ sent: 1, transient: 0 });
   });
 
   dbTest("keeps dismiss reconciliation available after the visible-alert budget", async () => {

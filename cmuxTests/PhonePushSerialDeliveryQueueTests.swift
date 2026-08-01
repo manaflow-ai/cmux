@@ -108,6 +108,37 @@ import Testing
     }
 
     @MainActor
+    @Test func cancellationCannotLeaveAStaleCoalescingExemption() async {
+        let probe = FirstDeliveryGate()
+        let queue = PhonePushSerialDeliveryQueue {
+            await probe.deliver($0)
+        }
+        let original = requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000001",
+            coalescingID: "notification-a"
+        )
+        let replacement = requestEnvelope(
+            correlationID: original.correlationID,
+            coalescingID: "notification-a"
+        )
+
+        #expect(queue.enqueue(original))
+        await probe.waitForCount(1)
+        queue.cancelAll()
+        #expect(queue.enqueue(replacement))
+        #expect(queue.enqueue(replacement))
+
+        await probe.releaseFirst()
+        await probe.waitForCount(2)
+        await queue.waitUntilIdle()
+
+        #expect(await probe.correlationIDs == [
+            original.correlationID,
+            replacement.correlationID,
+        ])
+    }
+
+    @MainActor
     @Test func accountSwitchDropsOldAccountWorkBeforeStartingTheQueue() async {
         let probe = RecordingDeliveryProbe()
         let queue = PhonePushSerialDeliveryQueue(

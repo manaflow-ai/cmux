@@ -79,6 +79,31 @@ import Testing
         #expect(recorded?.email == "a@b.com")
     }
 
+    @Test func emptyAccountIDNeverPublishesAnAuthenticatedIdentity() async throws {
+        let user = CMUXAuthUser(
+            id: "",
+            primaryEmail: "a@b.com",
+            displayName: "A"
+        )
+        let (coordinator, _) = makeCoordinator(
+            client: FakeAuthClient(user: user)
+        )
+
+        try await coordinator.signInWithPassword(
+            email: "a@b.com",
+            password: "pw"
+        )
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.authenticatedSessionIdentity == nil)
+        #expect(!coordinator.isAuthenticatedSessionIdentityCurrent(
+            AuthenticatedSessionIdentity(
+                generation: coordinator.authSessionGeneration,
+                accountID: ""
+            )
+        ))
+    }
+
     @Test func everyAuthSessionTransitionClosesBeforeTheNextSessionPublishes() async throws {
         let first = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let second = CMUXAuthUser(id: "u2", primaryEmail: "b@b.com", displayName: "B")

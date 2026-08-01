@@ -211,6 +211,36 @@ private actor LifecycleSyncGate {
     }
 
     @MainActor
+    @Test func optInPersistsAcrossCoordinatorRecreation() async {
+        let suiteName = "push-coordinator-persistence-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let registration = LifecyclePushRegistration(enabled: false)
+        let enabled = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .authorized },
+            requestAuthorization: { true }
+        )
+
+        #expect(await enabled.enable())
+        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+        #expect(MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .authorized }
+        ).isEnabled)
+
+        await enabled.disable()
+        #expect(!defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+        #expect(!MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .authorized }
+        ).isEnabled)
+    }
+
+    @MainActor
     @Test func disableUnregistersWithOSBeforeBackendCleanupCompletes() async {
         let gate = LifecycleSetEnabledGate()
         let registration = LifecyclePushRegistration(

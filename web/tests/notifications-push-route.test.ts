@@ -312,6 +312,92 @@ describe("notifications push route", () => {
       where user_id = 'user-1' and correlation_id = ${correlationId}
     `;
     expect(stored?.total).toBe(1);
+    const [persisted] = await sql<{
+      initialTargets: string;
+      outcomes: string;
+    }[]>`
+      select
+        coalesce(initial_targets::text, '') as "initialTargets",
+        coalesce(result_outcomes::text, '') as outcomes
+      from notification_send_events
+      where user_id = 'user-1' and correlation_id = ${correlationId}
+    `;
+    expect(persisted?.initialTargets).not.toContain("a".repeat(64));
+    expect(persisted?.initialTargets).not.toContain("b".repeat(64));
+    expect(persisted?.outcomes).not.toContain("a".repeat(64));
+    expect(persisted?.outcomes).not.toContain("b".repeat(64));
+  });
+
+  dbTest("an unconfigured provider releases the claim for an honest retry", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values (
+        'user-1',
+        ${"a".repeat(64)},
+        'ios',
+        'com.cmux.app',
+        'production'
+      )
+    `;
+    const previousKey = process.env.CMUX_APNS_KEY_P8;
+    const previousKeyID = process.env.CMUX_APNS_KEY_ID;
+    const previousTeamID = process.env.CMUX_APNS_TEAM_ID;
+    delete process.env.CMUX_APNS_KEY_P8;
+    delete process.env.CMUX_APNS_KEY_ID;
+    delete process.env.CMUX_APNS_TEAM_ID;
+    const correlationId = "provider-configuration-retry";
+    const request = () => new Request(
+      "https://cmux.test/api/notifications/push",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          correlationId,
+        }),
+      },
+    );
+
+    try {
+      const first = await pushRoute.sendPushWithTransport(
+        request(),
+        sendApnsNotificationReliably as Parameters<
+          typeof pushRoute.sendPushWithTransport
+        >[1],
+      );
+      const second = await pushRoute.sendPushWithTransport(
+        request(),
+        sendApnsNotificationReliably as Parameters<
+          typeof pushRoute.sendPushWithTransport
+        >[1],
+      );
+
+      expect(first.status).toBe(503);
+      expect(second.status).toBe(503);
+      expect(await first.json()).toMatchObject({
+        error: "push_service_not_configured",
+      });
+      expect(await second.json()).toMatchObject({
+        error: "push_service_not_configured",
+      });
+    } finally {
+      if (previousKey == null) delete process.env.CMUX_APNS_KEY_P8;
+      else process.env.CMUX_APNS_KEY_P8 = previousKey;
+      if (previousKeyID == null) delete process.env.CMUX_APNS_KEY_ID;
+      else process.env.CMUX_APNS_KEY_ID = previousKeyID;
+      if (previousTeamID == null) delete process.env.CMUX_APNS_TEAM_ID;
+      else process.env.CMUX_APNS_TEAM_ID = previousTeamID;
+    }
   });
 
   dbTest("takes over a stale retry lease without resending a recorded success", async () => {
