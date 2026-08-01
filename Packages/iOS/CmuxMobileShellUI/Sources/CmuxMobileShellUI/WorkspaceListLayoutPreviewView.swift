@@ -566,13 +566,14 @@ public struct WorkspaceListLayoutPreviewView: View {
     }
 
     @discardableResult
+    /// Only moves the selection; search dismissal is left to the system.
+    /// Manually deactivating the coordinator in the same transaction as a
+    /// programmatic tab change fights the TabView's search transition on
+    /// iOS 26: selection/path state completes but the visible tab never
+    /// switches, so the pushed detail exists off-screen only.
     private func transitionPrimaryTab(to tab: MobilePrimaryTab) -> Bool {
         let previousTab = selectedPrimaryTab
         fixtureNavTrail.append("transition(\(previousTab)->\(tab))")
-        if (selectedPrimaryTab == .search || primarySearchCoordinator.isPresented),
-           tab.searchScope != nil {
-            primarySearchCoordinator.deactivateCurrentSearch()
-        }
         selectedPrimaryTab = tab
         return previousTab != tab
     }
