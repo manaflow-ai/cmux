@@ -393,7 +393,7 @@ jobs:
             if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
               if [ -n "${TEST_FILTER:-}" ]; then
                 "$SELECTED_TEST_LOG_VALIDATOR" "$LOG_PATH" || {
-                  echo "::error title=No selected iOS tests executed::test_filter '$TEST_FILTER' did not execute a passing test. Use target/class or target/class/method."
+                  echo "::error title=No selected iOS tests executed::The selected test filter did not execute a passing test. Use target/class or target/class/method."
                   exit 1
                 }
               fi
