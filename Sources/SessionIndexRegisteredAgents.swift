@@ -29,7 +29,13 @@ private struct GrokHookObservedLaunchCommand: Decodable {
     var environment: [String: String]?
 }
 
-enum GrokSessionLocator {
+struct GrokSessionLocator {
+    let fileManager: FileManager
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
+
     static func defaultSessionsRoot(homeDirectory: String = NSHomeDirectory()) -> String {
         let standardizedHome = expandTilde(homeDirectory, homeDirectory: homeDirectory)
         return ((standardizedHome as NSString).appendingPathComponent(".grok") as NSString)
