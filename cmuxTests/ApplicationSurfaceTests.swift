@@ -774,6 +774,30 @@ struct ApplicationSurfaceTests {
         panel.close()
     }
 
+    @Test func staleRepresentableTeardownPreservesTheReplacementMount() {
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime()
+        )!
+        let staleView = panel.captureView(windowID: 42, processID: 43)
+        panel.setCaptureVisibleInUI(true, view: staleView)
+        let replacementView = panel.captureView(windowID: 42, processID: 43)
+        panel.setCaptureVisibleInUI(true, view: replacementView)
+        #expect(staleView === replacementView)
+
+        ApplicationCaptureRepresentable.dismantleNSView(
+            staleView,
+            coordinator: ()
+        )
+
+        #expect(panel.captureEligibleForCurrentVisibility)
+        panel.close()
+    }
+
     @Test func leavingCanvasRestoresSplitCaptureEligibility() {
         let runtime = FakeApplicationSurfaceRuntime()
         let panel = ApplicationPanel(
