@@ -1438,7 +1438,7 @@ private struct MobileIrohSignOutFixture {
             identity: activatesRuntime ? endpointID : nil
         )
         let endpointFactoryModes = MobileIrohEndpointFactoryModeRecorder()
-        let activationDiscovery = if activatesRuntime {
+        let activationDiscovery: CmxIrohDiscoveryResponse? = if activatesRuntime {
             try mobileIrohDiscovery(bindings: [
                 mobileIrohBinding(
                     bindingID: bindingID,
