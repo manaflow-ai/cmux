@@ -385,8 +385,8 @@ struct WorkspaceDetailView: View {
     }
 
     /// Same-client foreground recovery flips the store's recovery flags while
-    /// `workspace.macConnectionStatus` stays `.connected`; the pill reflects
-    /// the recovery. Input gating deliberately does NOT use this (see
+    /// `workspace.macConnectionStatus` stays `.connected`; the title status
+    /// line reflects the recovery. Input gating deliberately does NOT use this (see
     /// `terminalInputIsBlocked`): a probe's "Reconnecting" display coexists
     /// with a working keyboard. Hidden retained details keep their raw
     /// status: the guard only applies to the selected workspace on the
