@@ -291,6 +291,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		805600000000000000000007 /* BrowserAutomationViewportError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805600000000000000000008 /* BrowserAutomationViewportError.swift */; };
 		BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */; };
 		BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */; };
+		D93410010000000000000001 /* BrowserChromePopoverAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93410010000000000000002 /* BrowserChromePopoverAppearance.swift */; };
 		D7032A020000000000000001 /* BrowserClientCertificateAuthenticationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A020000000000000002 /* BrowserClientCertificateAuthenticationController.swift */; };
 		D7032A050000000000000001 /* BrowserClientCertificateCredentialPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */; };
 		D7032A030000000000000001 /* BrowserClientCertificateCredentialPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A030000000000000002 /* BrowserClientCertificateCredentialPickerTests.swift */; };
@@ -2992,6 +2993,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		805600000000000000000008 /* BrowserAutomationViewportError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserAutomationViewportError.swift"; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserChromeMetrics.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserChromeMetricsTests.swift; sourceTree = "<group>"; };
+		D93410010000000000000002 /* BrowserChromePopoverAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserChromePopoverAppearance.swift; sourceTree = "<group>"; };
 		D7032A020000000000000002 /* BrowserClientCertificateAuthenticationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserClientCertificateAuthenticationController.swift; sourceTree = "<group>"; };
 		D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserClientCertificateCredentialPicker.swift; sourceTree = "<group>"; };
 		D7032A030000000000000002 /* BrowserClientCertificateCredentialPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserClientCertificateCredentialPickerTests.swift; sourceTree = "<group>"; };
@@ -6639,6 +6641,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				BABA2500000000000000000E /* BrowserHTTPBasicAuthPromptRequest.swift */,
 				BABA2500000000000000000A /* BrowserNavigationDelegate.swift */,
 				C67540080000000000000002 /* BrowserNavigationDebugURL.swift */,
+				D93410010000000000000002 /* BrowserChromePopoverAppearance.swift */,
 				C67540110000000000000002 /* BrowserDownloadRecord.swift */,
 				C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */,
 				C67540100000000000000002 /* BrowserNavigationPopupPolicy.swift */,
@@ -8695,6 +8698,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8054A0070000000000000007 /* BrowserAutomationSnapshotResult.swift in Sources */,
 				805600000000000000000007 /* BrowserAutomationViewportError.swift in Sources */,
 				BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */,
+				D93410010000000000000001 /* BrowserChromePopoverAppearance.swift in Sources */,
 				D7032A020000000000000001 /* BrowserClientCertificateAuthenticationController.swift in Sources */,
 				D7032A050000000000000001 /* BrowserClientCertificateCredentialPicker.swift in Sources */,
 				D35A0000000000000000001F /* BrowserDesignModeArtifactRetention.swift in Sources */,

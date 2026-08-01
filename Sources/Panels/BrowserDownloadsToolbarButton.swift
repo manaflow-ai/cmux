@@ -98,6 +98,7 @@ struct BrowserDownloadsToolbarButton: View {
                 onReveal: onReveal,
                 onClear: onClear
             )
+            .browserChromePopoverAppearance(colorScheme)
         }
     }
 
@@ -321,7 +322,10 @@ enum BrowserDownloadsPopoverAppearanceUITestProbe {
         }
 
         writeSnapshot()
-        DispatchQueue.main.async(execute: writeSnapshot)
+        Task { @MainActor in
+            await Task.yield()
+            writeSnapshot()
+        }
     }
 
     private static func configuredPath(for key: String) -> String? {
