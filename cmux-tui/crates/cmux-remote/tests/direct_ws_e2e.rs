@@ -16,6 +16,8 @@ use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode, header::ORIG
 use url::Url;
 use zeroize::Zeroizing;
 
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[tokio::test]
 async fn browser_origin_is_rejected_by_direct_websocket_listener() {
     let state = tempdir().unwrap();
@@ -28,17 +30,24 @@ async fn browser_origin_is_rejected_by_direct_websocket_listener() {
         format!("ws://{}/v1/link", server.local_addr()).into_client_request().unwrap();
     request.headers_mut().insert(ORIGIN, HeaderValue::from_static("https://attacker.invalid"));
 
-    let error = connect_async(request).await.expect_err("browser-origin WebSocket was upgraded");
+    let error = tokio::time::timeout(CONNECT_TIMEOUT, connect_async(request))
+        .await
+        .expect("browser-origin WebSocket rejection timed out")
+        .expect_err("browser-origin WebSocket was upgraded");
     let tokio_tungstenite::tungstenite::Error::Http(response) = error else {
         panic!("browser-origin rejection was not an HTTP response");
     };
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert!(response.body().as_ref().is_none_or(Vec::is_empty));
 
-    let native = connect_async(format!("ws://{}/v1/link", server.local_addr()))
-        .await
-        .expect("rejected browser origin retained WebSocket capacity")
-        .0;
+    let native = tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        connect_async(format!("ws://{}/v1/link", server.local_addr())),
+    )
+    .await
+    .expect("native WebSocket connection timed out")
+    .expect("rejected browser origin retained WebSocket capacity")
+    .0;
     drop(native);
     server.shutdown().await.unwrap();
 }

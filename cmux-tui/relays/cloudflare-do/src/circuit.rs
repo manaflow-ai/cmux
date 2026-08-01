@@ -13,6 +13,7 @@ use worker::{
 use crate::abuse::{
     ACTIVE_CIRCUIT_LEASE_MS, ACTIVE_CIRCUIT_RENEW_MS, CIRCUIT_HANDSHAKE_TIMEOUT_MS,
     CIRCUIT_IDLE_TIMEOUT_MS, admit_circuit_socket, websocket_counts_toward_capacity,
+    websocket_is_open,
 };
 use crate::attachment::{CircuitAttachment, CircuitPhase, OutboundQueue};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, verify_ticket};
@@ -104,18 +105,17 @@ fn reserve_outbound_frame(
     Ok(())
 }
 
-fn refresh_attachments_before_forward<E>(
+fn persist_peer_before_forward<E>(
     now_ms: u64,
-    sender: &mut CircuitAttachment,
     peer: &mut CircuitAttachment,
-    persist_sender: impl FnOnce(&CircuitAttachment) -> std::result::Result<(), E>,
     persist_peer: impl FnOnce(&CircuitAttachment) -> std::result::Result<(), E>,
     forward: impl FnOnce() -> std::result::Result<(), E>,
 ) -> std::result::Result<(), E> {
-    let idle_deadline_ms = now_ms.saturating_add(CIRCUIT_IDLE_TIMEOUT_MS);
-    sender.idle_deadline_ms = idle_deadline_ms;
-    peer.idle_deadline_ms = idle_deadline_ms;
-    persist_sender(sender)?;
+    // The latest deadline across the ready pair is the shared circuit idle
+    // deadline. Persisting only the destination attachment also durably saves
+    // its outbound FIFO ledger, while avoiding a second attachment write on
+    // every interactive frame.
+    peer.idle_deadline_ms = now_ms.saturating_add(CIRCUIT_IDLE_TIMEOUT_MS);
     persist_peer(peer)?;
     forward()
 }
@@ -124,15 +124,17 @@ fn has_live_ready_pair(
     sockets: impl IntoIterator<Item = (u16, CircuitPhase, u64)>,
     now_ms: u64,
 ) -> bool {
-    sockets
-        .into_iter()
-        .filter(|(ready_state, phase, idle_deadline_ms)| {
-            *phase == CircuitPhase::Ready
-                && websocket_counts_toward_capacity(*ready_state, *idle_deadline_ms, now_ms)
-        })
-        .take(2)
-        .count()
-        == 2
+    let (open_ready, latest_deadline) = sockets.into_iter().fold(
+        (0_usize, 0_u64),
+        |(count, latest), (ready_state, phase, deadline)| {
+            if phase == CircuitPhase::Ready && websocket_is_open(ready_state) {
+                (count + 1, latest.max(deadline))
+            } else {
+                (count, latest)
+            }
+        },
+    );
+    open_ready >= 2 && latest_deadline > now_ms
 }
 
 #[durable_object]
@@ -228,21 +230,32 @@ impl RelayCircuit {
     fn matching_peer(
         &self,
         socket: &WebSocket,
+        current: &CircuitAttachment,
         relay: &RelaySocketAttachment,
         require_ready: bool,
     ) -> Option<(WebSocket, CircuitAttachment)> {
-        let current_generation = Self::attachment(socket).ok()?.generation;
+        let now_ms = self.now_ms();
         self.state
             .get_websockets_with_tag(PEER_TAG)
             .into_iter()
             .filter(|candidate| candidate != socket)
             .find_map(|candidate| {
                 let attachment = Self::attachment(&candidate).ok()?;
+                let shares_ready_deadline = current.phase == CircuitPhase::Ready
+                    && attachment.phase == CircuitPhase::Ready;
+                let effective_deadline = if shares_ready_deadline {
+                    current.idle_deadline_ms.max(attachment.idle_deadline_ms)
+                } else {
+                    attachment.idle_deadline_ms
+                };
                 if !websocket_counts_toward_capacity(
                     candidate.as_ref().ready_state(),
-                    attachment.idle_deadline_ms,
-                    self.now_ms(),
-                ) {
+                    effective_deadline,
+                    now_ms,
+                ) || (require_ready
+                    && (!websocket_is_open(socket.as_ref().ready_state())
+                        || current.phase != CircuitPhase::Ready))
+                {
                     return None;
                 }
                 let candidate_relay = attachment.relay.as_ref()?;
@@ -256,26 +269,45 @@ impl RelayCircuit {
                     && candidate_relay.slot == relay.slot
                     && candidate_relay.circuit == relay.circuit
                     && candidate_relay.lane == relay.lane
-                    && attachment.generation == current_generation)
+                    && attachment.generation == current.generation)
                     .then_some((candidate, attachment))
             })
     }
 
     fn joined_socket_for_role(&self, socket: &WebSocket, role: RelayRole) -> Option<WebSocket> {
-        self.state
+        let now_ms = self.now_ms();
+        let sockets = self
+            .state
             .get_websockets_with_tag(PEER_TAG)
             .into_iter()
             .filter(|candidate| candidate != socket)
-            .find(|candidate| {
-                Self::attachment(candidate).is_ok_and(|attachment| {
-                    websocket_counts_toward_capacity(
-                        candidate.as_ref().ready_state(),
-                        attachment.idle_deadline_ms,
-                        self.now_ms(),
-                    ) && attachment.phase != CircuitPhase::Pending
-                        && attachment.relay.as_ref().is_some_and(|relay| relay.role == role)
-                })
+            .filter_map(|candidate| {
+                Self::attachment(&candidate).ok().map(|attachment| (candidate, attachment))
             })
+            .collect::<Vec<_>>();
+        let latest_ready_deadline = sockets
+            .iter()
+            .filter(|(candidate, attachment)| {
+                attachment.phase == CircuitPhase::Ready
+                    && websocket_is_open(candidate.as_ref().ready_state())
+            })
+            .map(|(_, attachment)| attachment.idle_deadline_ms)
+            .max()
+            .unwrap_or(0);
+        sockets.into_iter().find_map(|(candidate, attachment)| {
+            let effective_deadline = if attachment.phase == CircuitPhase::Ready {
+                attachment.idle_deadline_ms.max(latest_ready_deadline)
+            } else {
+                attachment.idle_deadline_ms
+            };
+            (websocket_counts_toward_capacity(
+                candidate.as_ref().ready_state(),
+                effective_deadline,
+                now_ms,
+            ) && attachment.phase != CircuitPhase::Pending
+                && attachment.relay.as_ref().is_some_and(|relay| relay.role == role))
+                .then_some(candidate)
+        })
     }
 
     async fn notify_slot(&self, slot: &str, circuit: &CircuitId, event: &str) -> Result<()> {
@@ -427,7 +459,9 @@ impl RelayCircuit {
         socket.serialize_attachment(&attachment)?;
         self.ensure_cleanup_alarm(attachment.idle_deadline_ms).await?;
 
-        if let Some((peer, mut peer_attachment)) = self.matching_peer(socket, &relay, false) {
+        if let Some((peer, mut peer_attachment)) =
+            self.matching_peer(socket, &attachment, &relay, false)
+        {
             let active = ActiveCircuit {
                 slot: request.slot.clone(),
                 circuit: request.circuit.clone(),
@@ -510,7 +544,7 @@ impl RelayCircuit {
     fn forward_binary(
         &self,
         socket: &WebSocket,
-        mut attachment: CircuitAttachment,
+        attachment: CircuitAttachment,
         bytes: Vec<u8>,
     ) -> Result<()> {
         if bytes.len() > MAX_RELAY_BATCH_BYTES {
@@ -521,7 +555,9 @@ impl RelayCircuit {
             close(socket, 1011, "circuit attachment is incomplete");
             return Ok(());
         };
-        let Some((peer, mut peer_attachment)) = self.matching_peer(socket, &relay, true) else {
+        let Some((peer, mut peer_attachment)) =
+            self.matching_peer(socket, &attachment, &relay, true)
+        else {
             close(socket, 1011, "circuit peer disconnected");
             return Ok(());
         };
@@ -537,11 +573,9 @@ impl RelayCircuit {
             return Ok(());
         }
 
-        let result = refresh_attachments_before_forward(
+        let result = persist_peer_before_forward(
             self.now_ms(),
-            &mut attachment,
             &mut peer_attachment,
-            |attachment| socket.serialize_attachment(attachment),
             |attachment| peer.serialize_attachment(attachment),
             || peer.send_with_bytes(bytes),
         );
@@ -584,27 +618,45 @@ impl RelayCircuit {
         let Some(relay) = attachment.relay.as_ref() else {
             return;
         };
-        if let Some((peer, _)) = self.matching_peer(socket, relay, false) {
+        if let Some((peer, _)) = self.matching_peer(socket, &attachment, relay, false) {
             close(&peer, 1011, reason);
         }
     }
 
     fn live_socket_counts(&self, now_ms: u64) -> (usize, usize) {
-        self.state
+        let sockets = self
+            .state
             .get_websockets()
             .into_iter()
             .filter_map(|socket| {
-                let attachment = Self::attachment(&socket).ok()?;
-                websocket_counts_toward_capacity(
-                    socket.as_ref().ready_state(),
-                    attachment.idle_deadline_ms,
-                    now_ms,
-                )
-                .then_some(attachment)
+                Self::attachment(&socket).ok().map(|attachment| (socket, attachment))
             })
-            .fold((0, 0), |(total, pending), attachment| {
+            .collect::<Vec<_>>();
+        let latest_ready_deadline = sockets
+            .iter()
+            .filter(|(socket, attachment)| {
+                attachment.phase == CircuitPhase::Ready
+                    && websocket_is_open(socket.as_ref().ready_state())
+            })
+            .map(|(_, attachment)| attachment.idle_deadline_ms)
+            .max()
+            .unwrap_or(0);
+        sockets.into_iter().fold((0, 0), |(total, pending), (socket, attachment)| {
+            let effective_deadline = if attachment.phase == CircuitPhase::Ready {
+                attachment.idle_deadline_ms.max(latest_ready_deadline)
+            } else {
+                attachment.idle_deadline_ms
+            };
+            if websocket_counts_toward_capacity(
+                socket.as_ref().ready_state(),
+                effective_deadline,
+                now_ms,
+            ) {
                 (total + 1, pending + usize::from(attachment.phase == CircuitPhase::Pending))
-            })
+            } else {
+                (total, pending)
+            }
+        })
     }
 }
 
@@ -760,22 +812,16 @@ mod tests {
     }
 
     #[test]
-    fn forwarded_activity_persists_both_deadlines_before_payload() {
-        let mut sender = CircuitAttachment::pending(CircuitId("sender".into()), 1);
+    fn forwarded_activity_persists_one_peer_deadline_before_payload() {
         let mut peer = CircuitAttachment::pending(CircuitId("peer".into()), 2);
         let operations = RefCell::new(Vec::new());
 
-        refresh_attachments_before_forward(
+        persist_peer_before_forward(
             10_000,
-            &mut sender,
             &mut peer,
             |_| {
-                operations.borrow_mut().push("sender");
-                Ok::<_, &'static str>(())
-            },
-            |_| {
                 operations.borrow_mut().push("peer");
-                Ok(())
+                Ok::<_, &'static str>(())
             },
             || {
                 operations.borrow_mut().push("forward");
@@ -785,53 +831,18 @@ mod tests {
         .unwrap();
 
         let expected = 10_000 + CIRCUIT_IDLE_TIMEOUT_MS;
-        assert_eq!(sender.idle_deadline_ms, expected);
         assert_eq!(peer.idle_deadline_ms, expected);
-        assert_eq!(&*operations.borrow(), &["sender", "peer", "forward"]);
-    }
-
-    #[test]
-    fn sender_attachment_failure_prevents_peer_write_and_payload() {
-        let mut sender = CircuitAttachment::pending(CircuitId("sender".into()), 1);
-        let mut peer = CircuitAttachment::pending(CircuitId("peer".into()), 2);
-        let peer_written = Cell::new(false);
-        let forwarded = Cell::new(false);
-
-        let result = refresh_attachments_before_forward(
-            10_000,
-            &mut sender,
-            &mut peer,
-            |_| Err("sender serialization failed"),
-            |_| {
-                peer_written.set(true);
-                Ok(())
-            },
-            || {
-                forwarded.set(true);
-                Ok(())
-            },
-        );
-
-        assert_eq!(result, Err("sender serialization failed"));
-        assert!(!peer_written.get());
-        assert!(!forwarded.get());
+        assert_eq!(&*operations.borrow(), &["peer", "forward"]);
     }
 
     #[test]
     fn peer_attachment_failure_prevents_payload() {
-        let mut sender = CircuitAttachment::pending(CircuitId("sender".into()), 1);
         let mut peer = CircuitAttachment::pending(CircuitId("peer".into()), 2);
-        let sender_written = Cell::new(false);
         let forwarded = Cell::new(false);
 
-        let result = refresh_attachments_before_forward(
+        let result = persist_peer_before_forward(
             10_000,
-            &mut sender,
             &mut peer,
-            |_| {
-                sender_written.set(true);
-                Ok(())
-            },
             |_| Err("peer serialization failed"),
             || {
                 forwarded.set(true);
@@ -840,7 +851,6 @@ mod tests {
         );
 
         assert_eq!(result, Err("peer serialization failed"));
-        assert!(sender_written.get());
         assert!(!forwarded.get());
     }
 
@@ -923,13 +933,17 @@ mod tests {
     }
 
     #[test]
-    fn ready_pair_requires_two_open_unexpired_websockets() {
+    fn ready_pair_uses_the_latest_shared_activity_deadline() {
         let ready = |state| (state, CircuitPhase::Ready, 200);
         assert!(has_live_ready_pair([ready(1), ready(1)], 100));
         assert!(!has_live_ready_pair([ready(1)], 100));
         assert!(!has_live_ready_pair([ready(1), ready(2)], 100));
-        assert!(!has_live_ready_pair(
+        assert!(has_live_ready_pair(
             [(1, CircuitPhase::Ready, 200), (1, CircuitPhase::Ready, 100)],
+            100,
+        ));
+        assert!(!has_live_ready_pair(
+            [(1, CircuitPhase::Ready, 100), (1, CircuitPhase::Ready, 100)],
             100,
         ));
         assert!(!has_live_ready_pair(

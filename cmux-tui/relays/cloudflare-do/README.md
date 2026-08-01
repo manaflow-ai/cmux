@@ -137,6 +137,8 @@ CMUX_RELAY_HMAC_SECRET="$RELAY_KEY" \
 On the client, use the public route, slot, and delivered owner-only ticket file:
 
 ```sh
+install -m 600 /dev/null fresh-connect.ticket
+# Copy the delivered ticket content into fresh-connect.ticket.
 cmux-tui connect 'relay+do://cmux-remote-relay.<account>.workers.dev' \
   --relay-slot '<slot>' \
   --relay-ticket-file fresh-connect.ticket

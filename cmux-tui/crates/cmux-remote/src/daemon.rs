@@ -939,9 +939,9 @@ impl RemoteDaemon {
                 ));
             }
         }
-        let mut inserted = false;
+        let mut created_pending_group = false;
         let pending = state.pending.entry(pending_key.clone()).or_insert_with(|| {
-            inserted = true;
+            created_pending_group = true;
             PendingLinks {
                 created_at: now,
                 expiry_task: None,
@@ -952,12 +952,12 @@ impl RemoteDaemon {
             }
         });
         for lane in &accepted.lanes {
-            let inserted = pending.assigned.insert(*lane);
-            debug_assert!(inserted);
+            let lane_was_new = pending.assigned.insert(*lane);
+            debug_assert!(lane_was_new);
         }
         pending.routes.push(LinkRoute { lanes: accepted.lanes, link: Arc::new(accepted.link) });
         if pending.assigned.len() != Lane::ALL.len() {
-            if inserted {
+            if created_pending_group {
                 pending.expiry_task = Some(self.schedule_pending_link_expiry(pending_key, now));
             }
             drop(state);

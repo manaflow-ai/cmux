@@ -68,6 +68,7 @@ const REMOTE_COMMANDS: &[&str] = &[
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const ENROLLMENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_CLIENT_RELAY_ROUTES: usize = 4;
 const DETACHED_TERM_GRACE: Duration = Duration::from_millis(500);
 const DETACHED_KILL_GRACE: Duration = Duration::from_secs(1);
 
@@ -562,8 +563,6 @@ struct ConnectedRuntime {
 }
 
 fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
-    const MAX_CLIENT_RELAY_ROUTES: usize = 4;
-
     let startup_started = Instant::now();
     let invitation = flags
         .invitation
@@ -814,7 +813,6 @@ fn client_relay_options(
     slots: Vec<String>,
     credentials: Vec<ClientRelayCredentialArg>,
 ) -> anyhow::Result<BTreeMap<String, RelayClientOptions>> {
-    const MAX_CLIENT_RELAYS: usize = 4;
     let messages = &catalog().remote_client;
     if slots.len() != credentials.len() {
         return Err(anyhow!(messages.relay_credential_pair_required));
@@ -846,8 +844,8 @@ fn client_relay_options(
     if routes.len() != slots.len() {
         return Err(anyhow!(messages.route_scoped_relay_credential_pair_required));
     }
-    if routes.len() > MAX_CLIENT_RELAYS {
-        return Err(anyhow!(messages.relay_credential_limit(MAX_CLIENT_RELAYS)));
+    if routes.len() > MAX_CLIENT_RELAY_ROUTES {
+        return Err(anyhow!(messages.relay_credential_limit(MAX_CLIENT_RELAY_ROUTES)));
     }
     let mut by_route = BTreeMap::new();
     for ((route, slot), credential) in routes.into_iter().zip(slots).zip(credentials) {
@@ -1868,18 +1866,18 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
     };
     if parsed.acknowledge_failed_finalization {
         return tokio_runtime()?.block_on(acknowledge_failed_shutdown_outcome(
-            &state_dir,
+            &runtime.state_dir,
             &parsed.session,
-            &default_link,
-            &default_admin,
+            &runtime.link_socket,
+            &runtime.admin_socket,
         ));
     }
     if parsed.acknowledge_legacy_finalization {
         return tokio_runtime()?.block_on(acknowledge_legacy_shutdown_state(
-            &state_dir,
+            &runtime.state_dir,
             &parsed.session,
-            &default_link,
-            &default_admin,
+            &runtime.link_socket,
+            &runtime.admin_socket,
         ));
     }
     if !runtime.replaceable_sidecar {
