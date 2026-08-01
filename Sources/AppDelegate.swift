@@ -7705,14 +7705,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let title = String(localized: "mobile.pairing.window.title", defaultValue: "Pair iPhone")
-        let workspace = manager.addWorkspace(
+        guard let workspace = manager.addWorkspaceIfActive(
             title: title,
             select: focusWorkspace,
             eagerLoadTerminal: false,
             autoWelcomeIfNeeded: false,
             autoRefreshMetadata: false,
             allowTextBoxFocusDefault: false
-        )
+        ) else {
+            return nil
+        }
         guard let initialPanelID = workspace.focusedPanelId,
               let paneID = workspace.paneId(forPanelId: initialPanelID),
               workspace.newMobilePairingSurface(inPane: paneID, focus: focusWorkspace) != nil else {
