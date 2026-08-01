@@ -200,6 +200,16 @@ actor CmxConnectivityPeerSession {
                 continue redial
             }
 
+            // The dead-on-arrival probe suspends this actor. A concurrent
+            // caller that dialed in that window may have installed first;
+            // installing over it would leak its session and double-record
+            // an established lifecycle for the same peer.
+            if let installed = activeConnection {
+                if installed.id != pending.id {
+                    await connected.close()
+                }
+                return installed.session
+            }
             install(
                 connected,
                 id: pending.id,

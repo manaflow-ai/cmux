@@ -153,6 +153,140 @@ struct CmxConnectivityEngineTests {
     }
 
     @Test
+    func changedIdentityGenerationOnRevisionBumpStillInvalidatesTheSession() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z"
+            ),
+            Self.peerRouteResponse(
+                revision: 10,
+                lastSeenAt: "2026-07-30T00:00:45Z",
+                identityGeneration: 2
+            ),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+
+        try await rig.engine.reconcileRoutes()
+
+        #expect(await rig.engine.snapshot().routeRevision == 10)
+        #expect(await rig.connection.observedCloseCallCount() == 1)
+        #expect(await session.isClosed())
+        await rig.engine.stop()
+    }
+
+    @Test
+    func removedPeerBindingOnRevisionBumpStillInvalidatesTheSession() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z"
+            ),
+            Self.peerRouteResponse(
+                revision: 10,
+                lastSeenAt: "2026-07-30T00:00:45Z",
+                includesPeerBinding: false
+            ),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+
+        try await rig.engine.reconcileRoutes()
+
+        #expect(await rig.connection.observedCloseCallCount() == 1)
+        #expect(await session.isClosed())
+        await rig.engine.stop()
+    }
+
+    @Test
+    func changedRelayFleetOnRevisionBumpStillInvalidatesTheSession() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z"
+            ),
+            Self.peerRouteResponse(
+                revision: 10,
+                lastSeenAt: "2026-07-30T00:00:45Z",
+                relayFleet: ["https://replacement.relay.example/"]
+            ),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+
+        try await rig.engine.reconcileRoutes()
+
+        #expect(await rig.connection.observedCloseCallCount() == 1)
+        #expect(await session.isClosed())
+        await rig.engine.stop()
+    }
+
+    @Test
+    func revisionBumpWithoutReplacementContentFailsClosed() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z"
+            ),
+            Self.unchangedResponse(revision: 12),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+
+        try await rig.engine.reconcileRoutes()
+
+        #expect(await rig.engine.snapshot().routeRevision == 12)
+        #expect(await rig.connection.observedCloseCallCount() == 1)
+        #expect(await session.isClosed())
+        await rig.engine.stop()
+    }
+
+    @Test
+    func installedRouteRevisionUsesRouteContentEquivalence() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z"
+            ),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+        let equivalent = try #require(Self.peerRouteResponse(
+            revision: 10,
+            lastSeenAt: "2026-07-30T00:00:45Z"
+        ).snapshot)
+        let changed = try #require(Self.peerRouteResponse(
+            revision: 11,
+            lastSeenAt: "2026-07-30T00:01:30Z",
+            identityGeneration: 2
+        ).snapshot)
+
+        await rig.engine.didInstallRouteRevision(10, routes: equivalent)
+
+        #expect(await rig.engine.snapshot().routeRevision == 10)
+        #expect(await rig.connection.observedCloseCallCount() == 0)
+        #expect(await session.isClosed() == false)
+
+        await rig.engine.didInstallRouteRevision(11, routes: changed)
+
+        #expect(await rig.engine.snapshot().routeRevision == 11)
+        #expect(await rig.connection.observedCloseCallCount() == 1)
+        #expect(await session.isClosed())
+        await rig.engine.stop()
+    }
+
+    @Test
     func stopFinishesNetworkChangeObservers() async throws {
         let identity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "e", count: 64)
