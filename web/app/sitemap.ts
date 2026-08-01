@@ -101,7 +101,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/agents/aider", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/amp", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/cursor-cli", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
-    { path: "/company-information", lastModified: "2026-07-30", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/privacy-policy", lastModified: "2026-07-10", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/terms-of-service", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
@@ -110,7 +109,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
   // Legal pages are English-only, so they only get one entry.
   // The SEO landing pages are localized, so they go through the per-locale loop.
   const englishOnly = new Set([
-    "/company-information",
     "/terms-of-service",
     "/eula",
   ]);

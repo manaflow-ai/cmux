@@ -46,11 +46,13 @@ Private protocol-v10 compatibility does not imply `cmux.protocol/1`
 compatibility. High-level SDK packages expose it only through a path named
 `raw`.
 
-The machine-provider, provider-management, terminal-host, and machine-agent
-protocols each have their own version and authority boundary:
+The remote daemon, machine-provider, provider-management, terminal-host, and
+machine-agent protocols each have their own version and authority boundary:
 
 | File | Version domain |
 | --- | --- |
+| [`remote-daemon.md`](remote-daemon.md) | Authenticated remote transport and service protocol |
+| [`remote-rpc.md`](remote-rpc.md) | Workspace RPC envelopes, including patch application |
 | [`machine-provider.md`](machine-provider.md) | Dynamic provider control and stream |
 | [`provider-management.md`](provider-management.md) | Root-only provider authority |
 | [`terminal-host.md`](terminal-host.md) | Terminal host process |

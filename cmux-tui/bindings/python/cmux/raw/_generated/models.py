@@ -1531,6 +1531,7 @@ class ShutdownDaemonRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/shutdown-daemon/request'
     pid: int
     generation: str
+    force: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

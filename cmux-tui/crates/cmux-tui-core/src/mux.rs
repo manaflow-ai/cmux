@@ -64,6 +64,28 @@ use crate::{
 
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DaemonIdentity {
+    pub(crate) pid: u32,
+    pub(crate) generation: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DaemonHandoffRequest {
+    pub(crate) expected_identity: Option<DaemonIdentity>,
+    pub(crate) force: bool,
+}
+
+impl DaemonHandoffRequest {
+    pub(crate) fn unfenced(force: bool) -> Self {
+        Self { expected_identity: None, force }
+    }
+
+    pub(crate) fn fenced(pid: u32, generation: String, force: bool) -> Self {
+        Self { expected_identity: Some(DaemonIdentity { pid, generation }), force }
+    }
+}
+
 #[cfg(test)]
 type WorkspaceRenameHook = Arc<dyn Fn(&WorkspacePublicId) + Send + Sync>;
 #[cfg(test)]
@@ -6090,15 +6112,31 @@ impl Mux {
         }
     }
 
-    /// Atomically reserve a daemon handoff. Unless forced, this proves no other
-    /// native browser owns the mux. New owner announcements are rejected until
-    /// the response is queued or the reservation is cancelled.
-    pub fn begin_daemon_handoff(&self, requesting_client: u64, force: bool) -> anyhow::Result<()> {
+    /// Validate the target daemon and atomically reserve its handoff. Unless
+    /// forced, this proves no other native browser owns the mux. New owner
+    /// announcements are rejected until the response is queued or the
+    /// reservation is cancelled.
+    pub(crate) fn begin_daemon_handoff(
+        &self,
+        requesting_client: u64,
+        request: DaemonHandoffRequest,
+    ) -> anyhow::Result<DaemonIdentity> {
+        let (_, generation) = self.registry_identity();
+        let actual_identity = DaemonIdentity { pid: std::process::id(), generation };
+        if let Some(expected_identity) = &request.expected_identity {
+            if expected_identity.pid != actual_identity.pid {
+                anyhow::bail!("daemon pid changed; identify again");
+            }
+            if expected_identity.generation != actual_identity.generation {
+                anyhow::bail!("daemon generation changed; identify again");
+            }
+        }
         self.control_clients.begin_daemon_handoff(
             requesting_client,
             &self.daemon_handoff_pending,
-            force,
-        )
+            request.force,
+        )?;
+        Ok(actual_identity)
     }
 
     pub fn cancel_daemon_handoff(&self) {
@@ -7903,7 +7941,7 @@ impl Mux {
             let active = state.panes.get(&pane)?.active_surface()?;
             state.surfaces.get(&active).cloned()
         };
-        surface.and_then(|surface| surface.pwd().or_else(|| surface.spawn_cwd()))
+        surface.and_then(|surface| surface.local_cwd())
     }
 
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {
@@ -12864,7 +12902,6 @@ mod tests {
         assert_eq!(resolved_rx.recv().unwrap(), first_id);
         let concurrent = {
             let mux = mux.clone();
-            let overlap = overlap;
             let second_id = second_id.clone();
             std::thread::spawn(move || {
                 overlap.wait();
