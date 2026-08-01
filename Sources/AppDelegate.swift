@@ -20,12 +20,14 @@ import CMUXAgentLaunch
 import CoreServices
 import CoreGraphics
 import UserNotifications
+import CMUXMobileCore
 import Sentry
 import WebKit
 import Combine
 import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
+import CmuxSentryReporting
 import CmuxSidebar
 import CmuxGit
 
@@ -37,6 +39,36 @@ private struct WorkspaceGroupNewWorkspaceTarget {
     let groupId: UUID
     let referenceWorkspaceId: UUID
     let placement: WorkspaceGroupNewPlacement
+}
+
+/// Owns debug-window coordinators at the application composition root.
+@MainActor
+final class CmuxDebugWindowsCoordinator {
+    private let aboutTitlebarCoordinator: DebugWindowsCoordinator
+#if DEBUG
+    private lazy var sidebarFooterIconBalanceController =
+        SidebarFooterIconBalanceDebugWindowController(decorator: decorator)
+#endif
+    private weak var decorator: (any WindowDecorating)?
+
+    init(decorator: (any WindowDecorating)?) {
+        self.decorator = decorator
+        self.aboutTitlebarCoordinator = DebugWindowsCoordinator(decorator: decorator)
+    }
+
+    var aboutTitlebarStore: AboutTitlebarDebugStore {
+        aboutTitlebarCoordinator.aboutTitlebarStore
+    }
+
+    func showAboutTitlebarDebugWindow() {
+        aboutTitlebarCoordinator.showAboutTitlebarDebugWindow()
+    }
+
+#if DEBUG
+    func showSidebarFooterIconBalanceWindow() {
+        sidebarFooterIconBalanceController.show()
+    }
+#endif
 }
 
 /// Short-lived helper that watches for the next workspace to appear in a
@@ -508,7 +540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated let socketTransport = SocketTransport()
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
     /// owned and created lazily so the window-decoration seam can point back at `self`.
-    lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
+    lazy var debugWindowsCoordinator = CmuxDebugWindowsCoordinator(decorator: self)
     /// About Titlebar Debug options store, applied by the About/Acknowledgments windows.
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
@@ -526,7 +558,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
     }
+    /// Bridges the Mac host's transport diagnostic ring into Sentry
+    /// (breadcrumbs, structured logs, throttled failure events with the ring
+    /// export attached). Created after `SentrySDK.start`; delivery no-ops when
+    /// the SDK is off.
+    private var transportSentryReporter: TransportSentryReporter?
     private let cmuxThemePreviewReloadScheduler = MainActorDeferredActionScheduler()
+    private let connectivityInvalidationSubscriberCoordinator =
+        ConnectivityInvalidationSubscriberCoordinator()
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
         // On some macOS/Xcode setups, the app-under-test process doesn't get
@@ -781,8 +820,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var ghosttyGotoSplitRightShortcut: StoredShortcut?
     var ghosttyGotoSplitUpShortcut: StoredShortcut?
     var ghosttyGotoSplitDownShortcut: StoredShortcut?
-    private var ghosttyGotoSplitPreviousShortcut: StoredShortcut?
-    private var ghosttyGotoSplitNextShortcut: StoredShortcut?
+    var ghosttyGotoSplitPreviousShortcut: StoredShortcut?
+    var ghosttyGotoSplitNextShortcut: StoredShortcut?
     private var browserAddressBarFocusedPanelId: UUID?
     /// Owns the browser omnibar selection-repeat state machine, extracted into
     /// `CmuxBrowser`. The app delegate is the composition root: it injects
@@ -1212,10 +1251,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #if DEBUG
         AuthDebugLog().log("auth.openURLs.authCallbacks count=\(authCallbacks.count)")
         #endif
-        if let browserSignIn = auth?.browserSignIn {
+        if let accountFlow = auth?.accountFlow {
             for url in authCallbacks {
                 Task { @MainActor in
-                    let signedIn = await browserSignIn.handleCallbackURL(url)
+                    let signedIn = await accountFlow.handleCallbackURL(url)
                     if signedIn { await NativePricingPlanRefresh.refreshForProWelcomeChecklist() } else {
                         AuthDebugLog().log("auth.callback did not complete sign-in")
                     }
@@ -1409,13 +1448,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 options.attachStacktrace = true
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
+                // Structured logs power the transport diagnostics bridge
+                // (TransportSentryReporter on the host diagnostic ring below).
+                options.enableLogs = true
                 // Redact file paths, emails, and secrets from every outgoing
-                // event, breadcrumb, and (belt-and-suspenders, if tracing is ever
-                // re-enabled) child performance span before it leaves the device.
+                // event, breadcrumb, structured log, and (belt-and-suspenders,
+                // if tracing is ever re-enabled) child performance span before
+                // it leaves the device.
                 let scrubber = SentryEventScrubber()
                 options.beforeSend = { event in scrubber.scrub(event) }
                 options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
                 options.beforeSendSpan = { span in scrubber.scrub(span) }
+                options.beforeSendLog = { log in scrubber.scrub(log) }
+            }
+            // Bridge the Mac host's transport diagnostic ring into Sentry:
+            // every retained event becomes a breadcrumb + budget-limited log
+            // line, and gated failures become events carrying the ring export.
+            // The tap delivers on the ring's drain task, off the main thread.
+            let transportReporter = TransportSentryReporter(
+                role: .macHost,
+                exportRing: { await MobileHostIrohRuntime.hostDiagnosticLog.export() }
+            )
+            transportSentryReporter = transportReporter
+            MobileHostIrohRuntime.hostDiagnosticLog.setEventTap { event in
+                transportReporter.ingest(event)
             }
             StartupBreadcrumbLog.append("appDelegate.didFinish.sentry.complete")
         }
@@ -2082,7 +2138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Best-effort presence goodbye; unclean exits are covered by the
         // service's missed-heartbeat timeout.
         PresenceHeartbeatClient.shared.appWillTerminate()
-        PresenceNudgeSubscriber.shared.appWillTerminate()
+        connectivityInvalidationSubscriberCoordinator.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
@@ -2138,12 +2194,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
-        PresenceNudgeSubscriber.shared.configure(auth: auth.coordinator)
+        connectivityInvalidationSubscriberCoordinator.configure(auth: auth.coordinator)
         // DEV-only: auto-publish this Mac's attach route to the signed-in user's
         // pairedMacs backup so a fresh dev iOS build restores it (no manual host
         // entry). No-op on Release / when the flag is off.
         MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
-        TerminalController.shared.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
+        TerminalController.shared.attachAuth(coordinator: auth.coordinator, accountFlow: auth.accountFlow)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
         if !isRunningUnderXCTest(ProcessInfo.processInfo.environment) {
             TerminalController.shared.startSimulatorMutationRecovery()
@@ -3430,6 +3486,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return false }
 
         let startupSnapshot = startupSessionSnapshot
+        primaryContext.tabManager.prepareLegacyWorkspaceCustomizationMigration(
+            afterRestoring: startupSnapshot?.windows.flatMap(\.tabManager.workspaces) ?? []
+        )
         let primaryWindowSnapshot = startupSnapshot?.windows.first
         if let primaryWindowSnapshot {
             if !isApplyingSessionRestore {
@@ -3544,6 +3603,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         guard !snapshotWindows.isEmpty else { return false }
 
+        (tabManager ?? mainWindowContexts.values.first?.tabManager)?
+            .prepareLegacyWorkspaceCustomizationMigration(
+                afterRestoring: snapshotWindows.flatMap(\.tabManager.workspaces)
+            )
         if !isApplyingSessionRestore {
             SurfaceResumeRunPromptBatch.shared.beginRestorePass()
         }
@@ -7260,6 +7323,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         suppressWelcome: Bool = false
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
+        // Restored terminals can execute their short `cmux restore` input as
+        // soon as their PTY comes up. Bind the transport before constructing
+        // those surfaces; main-actor command routing naturally waits until the
+        // restore pass has registered their windows and bindings.
+        reconcileSocketListenerConfiguration(source: "bootstrapInitialMainWindow.preRestore")
         let windowId = ensureInitialMainWindowIfNeeded(
             shouldActivate: shouldActivate,
             suppressWelcome: suppressWelcome
@@ -7377,7 +7445,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialBrowserURL: url,
             initialBrowserOmnibarVisible: false,
             initialBrowserTransparentBackground: true,
-            workspaceDirectoryCustomizationMode: .disabled,
+            applyCreationTitleAsCustomTitle: false,
             focusInitialBrowserAddressBarOnCreate: false,
             createdWorkspaceHandler: { workspace in
                 createdWorkspace = workspace
@@ -7386,6 +7454,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard didCreate, let createdWorkspace else { return nil }
         focusInitialBrowserWebView(in: createdWorkspace)
         return createdWorkspace
+    }
+
+    /// Opens the iPhone pairing flow as a dedicated workspace, reusing the
+    /// existing pairing workspace in the target window when one is open.
+    ///
+    /// - Parameters:
+    ///   - preferredTabManager: The target window's workspace manager.
+    ///   - preferredWindow: The target main window, when known.
+    ///   - focusWorkspace: Whether to select and focus the pairing workspace.
+    ///   - enforceFeatureFlag: Whether the Mobile Connect button flag gates the action.
+    ///   - bringWindowForward: Whether to activate the resolved main window.
+    ///   - debugSource: The entrypoint name used in debug diagnostics.
+    /// - Returns: The reused or newly created pairing workspace, or `nil` when unavailable.
+    @discardableResult
+    func performMobileConnectWorkspaceAction(
+        tabManager preferredTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil,
+        focusWorkspace: Bool = true,
+        enforceFeatureFlag: Bool = true,
+        bringWindowForward: Bool = false,
+        debugSource: String = "mobileConnect"
+    ) -> Workspace? {
+        guard !enforceFeatureFlag || CmuxFeatureFlags.shared.isMobileConnectButtonEnabled else {
+#if DEBUG
+            cmuxDebugLog("mobileConnect.blocked_flag source=\(debugSource)")
+#endif
+            return nil
+        }
+        guard let manager = preferredTabManager
+            ?? synchronizeActiveMainWindowContext(preferredWindow: preferredWindow) else {
+            return nil
+        }
+        if bringWindowForward {
+            guard let context = mainWindowContext(for: manager),
+                  let window = resolvedWindow(for: context),
+                  focusWindowForAppActivation(window, reason: .workspaceCreation) else {
+                return nil
+            }
+        }
+
+        if let workspace = manager.tabs.first(where: { workspace in
+            workspace.panels.values.contains { $0 is MobilePairingPanel }
+        }), let panel = workspace.panels.values.first(where: { $0 is MobilePairingPanel }) {
+            if focusWorkspace {
+                manager.selectedTabId = workspace.id
+                workspace.focusPanel(panel.id)
+            }
+            return workspace
+        }
+
+        let title = String(localized: "mobile.pairing.window.title", defaultValue: "Pair iPhone")
+        let workspace = manager.addWorkspace(
+            title: title,
+            select: focusWorkspace,
+            eagerLoadTerminal: false,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false,
+            allowTextBoxFocusDefault: false
+        )
+        guard let initialPanelID = workspace.focusedPanelId,
+              let paneID = workspace.paneId(forPanelId: initialPanelID),
+              workspace.newMobilePairingSurface(inPane: paneID, focus: focusWorkspace) != nil else {
+            manager.closeWorkspace(workspace, recordHistory: false)
+            return nil
+        }
+        _ = workspace.closePanel(initialPanelID, force: true)
+        return workspace
     }
 
     func proUpgradeWorkspaceExists(workspaceId: UUID) -> Bool {
@@ -7427,7 +7562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
-        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory,
+        applyCreationTitleAsCustomTitle: Bool = true,
         focusInitialBrowserAddressBarOnCreate: Bool = true,
         createdWorkspaceHandler: ((Workspace) -> Void)? = nil
     ) -> Bool {
@@ -7471,7 +7606,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         initialBrowserURL: initialBrowserURL,
                         initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                         initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                        workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+                        applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
                     )
                     closeInitialWorkspaceIfNeeded(
                         initialWorkspaceId: initialWorkspace?.id,
@@ -7520,7 +7655,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             ) else {
                 return false
             }
@@ -7539,7 +7674,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
             createdWorkspaceHandler?(workspace)
             if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
@@ -7554,7 +7689,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-            workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode,
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
             event: event,
             debugSource: debugSource
         ) {
@@ -8338,7 +8473,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
-        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory,
+        applyCreationTitleAsCustomTitle: Bool = true,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
@@ -8394,7 +8529,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 select: true,
-                workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else if workingDirectory != nil || initialTerminalInput != nil {
             workspace = context.tabManager.addWorkspace(
@@ -8403,13 +8538,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialTerminalInput: initialTerminalInput,
                 select: true,
                 autoWelcomeIfNeeded: initialTerminalInput == nil,
-                workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else if title != nil {
             workspace = context.tabManager.addWorkspace(
                 title: title,
                 select: true,
-                workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else {
             workspace = context.tabManager.addTab(select: true)
@@ -8758,9 +8893,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
             pullRequestProbeService: pullRequestProbeService,
-            workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore(
-                defaults: .standard
-            ),
+            workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
+                ?? WorkspaceCustomizationStore(defaults: .standard),
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )
         tabManager.windowId = windowId
@@ -13980,7 +14114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusLeft,
             arrowGlyph: "←",
             arrowKeyCode: 123
-        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .left) {
+        ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.left)) {
             if performFocusedDockShortcut(.focusPane(.left), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
@@ -13995,7 +14129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusRight,
             arrowGlyph: "→",
             arrowKeyCode: 124
-        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .right) {
+        ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.right)) {
             if performFocusedDockShortcut(.focusPane(.right), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
@@ -14010,7 +14144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusUp,
             arrowGlyph: "↑",
             arrowKeyCode: 126
-        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .up) {
+        ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.up)) {
             if performFocusedDockShortcut(.focusPane(.up), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
@@ -14025,7 +14159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusDown,
             arrowGlyph: "↓",
             arrowKeyCode: 125
-        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .down) {
+        ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.down)) {
             if performFocusedDockShortcut(.focusPane(.down), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
@@ -14036,7 +14170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchesGhosttyGotoSplitPreviousShortcut(event) {
+        if matchesGhosttyGotoSplitFallback(event: event, route: .previous) {
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             let moved = routedTabs?.cyclePaneFocus(forward: false) ?? false
@@ -14052,7 +14186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchesGhosttyGotoSplitNextShortcut(event) {
+        if matchesGhosttyGotoSplitFallback(event: event, route: .next) {
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             let moved = routedTabs?.cyclePaneFocus(forward: true) ?? false
@@ -15738,9 +15872,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if didStart { onExecuted?() }
                 return didStart
             case .mobileConnect:
-                MobilePairingWindowController.shared.show()
-                onExecuted?()
-                return true
+                let workspace = performMobileConnectWorkspaceAction(
+                    tabManager: context.tabManager,
+                    preferredWindow: resolvedWindow(for: context),
+                    debugSource: "configured.cmux.mobileConnect"
+                )
+                if workspace != nil { onExecuted?() }
+                return workspace != nil
             case .newSimulator: return performConfiguredNewSimulatorAction(context: context, onExecuted: onExecuted)
             case .newTerminal:
                 context.tabManager.newSurface()
@@ -15814,19 +15952,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     fileprivate func shouldRouteGhosttyGotoSplitCycleShortcutToTerminal(_ event: NSEvent) -> Bool {
-        guard event.type == .keyDown else { return false }
-        return matchesGhosttyGotoSplitPreviousShortcut(event)
-            || matchesGhosttyGotoSplitNextShortcut(event)
-    }
-
-    private func matchesGhosttyGotoSplitPreviousShortcut(_ event: NSEvent) -> Bool {
-        guard let ghosttyGotoSplitPreviousShortcut else { return false }
-        return matchShortcut(event: event, shortcut: ghosttyGotoSplitPreviousShortcut)
-    }
-
-    private func matchesGhosttyGotoSplitNextShortcut(_ event: NSEvent) -> Bool {
-        guard let ghosttyGotoSplitNextShortcut else { return false }
-        return matchShortcut(event: event, shortcut: ghosttyGotoSplitNextShortcut)
+        matchesGhosttyGotoSplitFallback(event: event, route: .previous)
+            || matchesGhosttyGotoSplitFallback(event: event, route: .next)
     }
 
     private func matchesKeyboardShortcutEvent(

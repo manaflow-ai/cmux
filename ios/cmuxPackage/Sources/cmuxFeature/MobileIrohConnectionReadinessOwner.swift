@@ -37,7 +37,7 @@ final class MobileIrohConnectionReadinessOwner {
     private var retryAccountID: String?
     private var retryAt: Date?
     private var consecutiveFailureCount = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     init(
         retrySchedule: CmxIrohRetrySchedule = CmxIrohRetrySchedule(
@@ -53,6 +53,7 @@ final class MobileIrohConnectionReadinessOwner {
     }
 
     var isPending: Bool { pendingRevision != nil }
+    var pendingWaiterCount: Int { waiters.count }
 
     func begin(revision: UInt64) {
         if let pendingRevision, revision < pendingRevision { return }
@@ -127,14 +128,22 @@ final class MobileIrohConnectionReadinessOwner {
         now: @MainActor () -> Date
     ) async -> MobileIrohConnectionReadinessOutcome {
         if isPending {
-            await withCheckedContinuation { continuation in
-                guard isPending else {
-                    continuation.resume()
-                    return
+            let waiterID = UUID()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    guard isPending, !Task.isCancelled else {
+                        continuation.resume()
+                        return
+                    }
+                    waiters[waiterID] = continuation
                 }
-                waiters.append(continuation)
+            } onCancel: { [weak self] in
+                Task { @MainActor in
+                    self?.cancelWaiter(id: waiterID)
+                }
             }
         }
+        if Task.isCancelled { return .inactive }
         guard case let .failed(failure) = settledOutcome,
               let retryAt else {
             return settledOutcome
@@ -150,8 +159,13 @@ final class MobileIrohConnectionReadinessOwner {
         ))
     }
 
+    private func cancelWaiter(id: UUID) {
+        guard let continuation = waiters.removeValue(forKey: id) else { return }
+        continuation.resume()
+    }
+
     private func resumeWaiters() {
-        let continuations = waiters
+        let continuations = Array(waiters.values)
         waiters.removeAll()
         for continuation in continuations {
             continuation.resume()
