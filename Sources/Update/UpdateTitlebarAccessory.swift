@@ -158,7 +158,7 @@ final class TitlebarControlsLayoutModel {
 
     private let defaults: UserDefaults
     @ObservationIgnored
-    private nonisolated(unsafe) let notificationCenter: NotificationCenter
+    private let notificationCenter: NotificationCenter
     private let contentSizeProvider: ContentSizeProvider
     @ObservationIgnored
     private nonisolated(unsafe) var observers: [NSObjectProtocol] = []
