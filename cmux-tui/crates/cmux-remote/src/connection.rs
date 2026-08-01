@@ -1456,7 +1456,9 @@ mod tests {
 
         async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
             if self.opens.fetch_add(1, Ordering::AcqRel) != 0 {
-                return Err(ProviderError::Transport("replacement carrier unavailable".into()));
+                return Err(ProviderError::Link(LinkError::Transport(
+                    "replacement carrier unavailable".into(),
+                )));
             }
             let (client, daemon, epoch) = fault_pair();
             *self.epoch.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(epoch);
