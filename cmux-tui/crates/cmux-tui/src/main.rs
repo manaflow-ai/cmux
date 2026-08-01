@@ -499,7 +499,7 @@ fn shell_prompt() -> &'static str {
 #[derive(Debug, PartialEq, Eq)]
 enum SchemaSocketOwner {
     Absent,
-    Matching,
+    Matching { pid: u32, generation: String },
     Different,
     Unverified,
 }
@@ -547,11 +547,17 @@ fn schema_socket_owner(
     let Some(expected_registry_id) = expected_registry_id else {
         return SchemaSocketOwner::Unverified;
     };
-    if data["session"] == expected_session && data["registry_id"] == expected_registry_id {
-        SchemaSocketOwner::Matching
-    } else {
-        SchemaSocketOwner::Different
+    if data["session"] != expected_session || data["registry_id"] != expected_registry_id {
+        return SchemaSocketOwner::Different;
     }
+    let Some(pid) = data["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok()) else {
+        return SchemaSocketOwner::Unverified;
+    };
+    let Some(generation) = data["generation"].as_str().filter(|generation| !generation.is_empty())
+    else {
+        return SchemaSocketOwner::Unverified;
+    };
+    SchemaSocketOwner::Matching { pid, generation: generation.to_string() }
 }
 
 fn workspace_schema_startup_error(
@@ -565,13 +571,21 @@ fn workspace_schema_startup_error(
     };
     let messages = &localization::catalog().startup;
     let socket = socket_path.display().to_string();
-    let stop_command = format!(
-        "{}cmux --socket {} session current shutdown --force",
-        shell_prompt(),
-        shell_quote(&socket)
-    );
     let socket_recovery = match schema_socket_owner(socket_path, session, schema.registry_id()) {
-        SchemaSocketOwner::Matching => {
+        SchemaSocketOwner::Matching { pid, generation } => {
+            let request = serde_json::to_string(&serde_json::json!({
+                "cmd": "shutdown-daemon",
+                "generation": generation,
+                "id": 1,
+                "pid": pid,
+            }))
+            .expect("daemon shutdown request is serializable");
+            let stop_command = format!(
+                "{}cmux --socket {} raw command --request-json {}",
+                shell_prompt(),
+                shell_quote(&socket),
+                shell_quote(&request),
+            );
             format!("{}\n  {stop_command}", messages.stop_newer_server)
         }
         SchemaSocketOwner::Absent => messages.no_server_listening.to_string(),

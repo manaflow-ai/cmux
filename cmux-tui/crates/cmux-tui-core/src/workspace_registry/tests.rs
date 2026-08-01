@@ -2638,7 +2638,7 @@ fn schema_preflight_failures_defer_to_authoritative_open() {
     let database = root.join(WORKSPACE_REGISTRY_FILE);
     fs::write(&database, b"not a sqlite database").unwrap();
 
-    assert!(preflight_unsupported_schema(&database).unwrap().is_none());
+    assert!(preflight_unsupported_schema(&database).is_none());
 
     fs::remove_dir_all(root).unwrap();
 }

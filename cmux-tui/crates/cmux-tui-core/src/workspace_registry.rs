@@ -391,7 +391,7 @@ impl WorkspaceRegistry {
         platform::restrict_directory(&session_dir)?;
         let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
         if db_path.is_file()
-            && let Some(error) = preflight_unsupported_schema(&db_path)?
+            && let Some(error) = preflight_unsupported_schema(&db_path)
         {
             return Err(error.into());
         }
@@ -2575,6 +2575,14 @@ fn canonical_json(value: &Value) -> anyhow::Result<String> {
 }
 
 fn preflight_unsupported_schema(
+    database_path: &Path,
+) -> Option<UnsupportedWorkspaceRegistrySchema> {
+    // This probe only improves a writer-conflict error. Initialization remains
+    // authoritative, so read-only I/O and SQL failures must not block startup.
+    try_preflight_unsupported_schema(database_path).ok().flatten()
+}
+
+fn try_preflight_unsupported_schema(
     database_path: &Path,
 ) -> anyhow::Result<Option<UnsupportedWorkspaceRegistrySchema>> {
     let connection = Connection::open_with_flags(database_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
