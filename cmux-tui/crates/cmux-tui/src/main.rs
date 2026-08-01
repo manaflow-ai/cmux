@@ -1898,13 +1898,6 @@ fn run_server(
         eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
     }
 
-    #[cfg(debug_assertions)]
-    if !args.headless && std::env::var_os("CMUX_TUI_TEST_BLOCK_INTERACTIVE_DRIVER").is_some() {
-        loop {
-            std::thread::park();
-        }
-    }
-
     #[cfg(unix)]
     let remote_runtime = if args.remote {
         let runtime = match remote_runtime::start_daemon_runtime(
@@ -1941,10 +1934,21 @@ fn run_server(
         for route in &runtime.info().routes {
             eprintln!("cmux-tui: remote route {route}");
         }
+        #[cfg(debug_assertions)]
+        if let Some(marker) = std::env::var_os("CMUX_TUI_TEST_REMOTE_RUNTIME_STARTED_MARKER") {
+            std::fs::write(marker, b"started")?;
+        }
         Some(runtime)
     } else {
         None
     };
+
+    #[cfg(debug_assertions)]
+    if !args.headless && std::env::var_os("CMUX_TUI_TEST_BLOCK_INTERACTIVE_DRIVER").is_some() {
+        loop {
+            std::thread::park();
+        }
+    }
 
     let machine_runtime = (config.machine_sidebar.enabled || !config.machines.is_empty())
         .then(|| MachineRuntime::new(socket_path.clone(), config.machines.clone()));

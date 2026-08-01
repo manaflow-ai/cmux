@@ -172,11 +172,29 @@ impl DaemonRuntimeHandle {
     }
 
     pub fn shutdown(mut self) -> anyhow::Result<()> {
+        #[cfg(debug_assertions)]
+        let shutdown_marker = std::env::var_os("CMUX_TUI_TEST_REMOTE_SHUTDOWN_MARKER");
+        #[cfg(debug_assertions)]
+        if let Some(marker) = shutdown_marker.as_ref() {
+            fs::write(marker, b"started")?;
+        }
+        #[cfg(debug_assertions)]
+        if let Some(milliseconds) = std::env::var("CMUX_TUI_TEST_REMOTE_SHUTDOWN_DELAY_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+        {
+            thread::sleep(Duration::from_millis(milliseconds));
+        }
         let _ = self.shutdown.send(true);
-        match self.thread.take().expect("daemon runtime thread is present").join() {
+        let result = match self.thread.take().expect("daemon runtime thread is present").join() {
             Ok(result) => result,
             Err(_) => Err(anyhow!("remote daemon runtime thread panicked")),
+        };
+        #[cfg(debug_assertions)]
+        if let Some(marker) = shutdown_marker {
+            fs::write(marker, b"complete")?;
         }
+        result
     }
 }
 

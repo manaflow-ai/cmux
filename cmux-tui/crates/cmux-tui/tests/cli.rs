@@ -1873,6 +1873,72 @@ fn server_shutdown_exits_when_the_interactive_driver_cannot_progress() {
 
 #[cfg(unix)]
 #[test]
+fn forced_exit_waits_for_remote_runtime_cleanup() {
+    let dir = unique_temp_dir("remote-cleanup-fence");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let state = dir.join("state");
+    let remote_state = dir.join("remote-state");
+    let remote_started = dir.join("remote-started");
+    let remote_shutdown = dir.join("remote-shutdown");
+    let mut server = PtyChild::start_with_env(
+        &[
+            "--socket",
+            socket.to_str().unwrap(),
+            "--state",
+            state.to_str().unwrap(),
+            "--remote",
+            "--remote-state-dir",
+            remote_state.to_str().unwrap(),
+        ],
+        &[
+            ("CMUX_TUI_TEST_BLOCK_INTERACTIVE_DRIVER", std::ffi::OsStr::new("1")),
+            ("CMUX_TUI_TEST_SHUTDOWN_EXIT_GRACE_MS", std::ffi::OsStr::new("100")),
+            ("CMUX_TUI_TEST_REMOTE_RUNTIME_STARTED_MARKER", remote_started.as_os_str()),
+            ("CMUX_TUI_TEST_REMOTE_SHUTDOWN_MARKER", remote_shutdown.as_os_str()),
+            ("CMUX_TUI_TEST_REMOTE_SHUTDOWN_DELAY_MS", std::ffi::OsStr::new("500")),
+        ],
+    );
+    wait_for_socket_path(&socket);
+    let startup_deadline = Instant::now() + Duration::from_secs(10);
+    while !remote_started.exists() {
+        assert!(
+            server.child.try_wait().unwrap().is_none(),
+            "server exited before starting its remote runtime"
+        );
+        assert!(Instant::now() < startup_deadline, "remote runtime did not start");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    let response = json_socket_request(&socket, serde_json::json!({"id": 1, "cmd": "shutdown"}));
+    assert_eq!(response, serde_json::json!({}));
+    std::thread::sleep(Duration::from_millis(250));
+    assert_eq!(
+        fs::read(&remote_shutdown).ok().as_deref(),
+        Some(b"started".as_slice()),
+        "remote runtime cleanup did not enter the process completion fence"
+    );
+    assert!(
+        server.child.try_wait().unwrap().is_none(),
+        "server forced exit before remote runtime cleanup completed"
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = server.child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "server remained alive after remote cleanup");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(fs::read(&remote_shutdown).unwrap(), b"complete");
+    assert!(status.success(), "server exited with {status}");
+    drop(server);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn daemon_handoff_cleans_local_ptys_before_forcing_a_blocked_interactive_driver_to_exit() {
     let dir = unique_temp_dir("daemon-handoff-blocked-interactive-driver");
     fs::create_dir_all(&dir).unwrap();

@@ -17436,10 +17436,64 @@ mod tests {
         mux.surface_options.lock().unwrap().terminal_host_root = Some(root.clone());
 
         let result = mux.close_workspace_at_revision(workspace, None);
+        let workspace_remained =
+            mux.with_state(|state| state.workspaces.iter().any(|entry| entry.id == workspace));
+        let terminal_lifecycle = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_record(&identity.terminal_id)
+            .unwrap()
+            .unwrap()
+            .lifecycle;
         let _ = std::fs::remove_dir_all(root);
 
         let error = result.expect_err("workspace close acknowledged an unreadable host record");
         assert!(format!("{error:#}").contains("terminal-host"));
+        assert!(workspace_remained, "failed host validation committed the workspace close");
+        assert_ne!(
+            terminal_lifecycle,
+            TerminalLifecycle::Tombstoned,
+            "failed host validation tombstoned the target terminal"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_close_ignores_unrelated_malformed_host_record() {
+        let mux = test_mux();
+        let target = mux.new_workspace(Some("target-workspace".into()), Some((80, 24))).unwrap();
+        let unrelated =
+            mux.new_workspace(Some("unrelated-workspace".into()), Some((80, 24))).unwrap();
+        let target_workspace = mux.with_state(|state| {
+            let pane = state.pane_of(target.id).unwrap();
+            let (workspace, _) = state.screen_of(pane).unwrap();
+            state.workspaces[workspace].id
+        });
+        let unrelated_identity = mux.resource_terminal_host_identity(&unrelated).unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "cmux-workspace-close-unrelated-record-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let unrelated_path = root.join(format!("{}.json", unrelated_identity.terminal_id));
+        std::fs::write(&unrelated_path, b"{invalid-json").unwrap();
+        mux.surface_options.lock().unwrap().terminal_host_root = Some(root.clone());
+
+        let result = mux.close_workspace_at_revision(target_workspace, None);
+        let target_remained = mux
+            .with_state(|state| state.workspaces.iter().any(|entry| entry.id == target_workspace));
+        let unrelated_remained = mux.with_state(|state| state.surfaces.contains_key(&unrelated.id));
+        let unrelated_record_remained = unrelated_path.exists();
+        let _ = std::fs::remove_dir_all(root);
+
+        result.expect("an unrelated malformed host record blocked workspace close");
+        assert!(!target_remained, "successful close retained its target workspace");
+        assert!(unrelated_remained, "targeted close removed an unrelated terminal");
+        assert!(
+            unrelated_record_remained,
+            "targeted close removed an unrelated malformed host record"
+        );
     }
 
     #[cfg(unix)]
