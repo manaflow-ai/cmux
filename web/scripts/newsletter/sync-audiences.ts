@@ -39,13 +39,7 @@ import {
   syncSegment,
 } from "../../services/newsletter/sync";
 
-function requiredEnv(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`Missing required env var ${name}`);
-  }
-  return value;
-}
+import { requiredEnv } from "./script-env";
 
 const args = parseSyncArgs(process.argv.slice(2));
 

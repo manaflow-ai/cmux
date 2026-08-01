@@ -24,15 +24,7 @@ import {
   USERS_TOPIC,
 } from "../../services/newsletter/sync";
 
-const DEFAULT_FROM = "Austin Wang <austin@manaflow.ai>";
-
-function requiredEnv(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`Missing required env var ${name}`);
-  }
-  return value;
-}
+import { newsletterFrom, requiredEnv } from "./script-env";
 
 const args = parseDraftArgs(process.argv.slice(2));
 const segmentName =
@@ -59,7 +51,7 @@ if (!topic) {
 const rendered = await renderTemplate(args.template, {
   subject: args.subject,
 });
-const from = process.env.CMUX_NEWSLETTER_FROM_EMAIL?.trim() || DEFAULT_FROM;
+const from = newsletterFrom();
 
 const draft = await client.createBroadcastDraft({
   segmentId: segment.id,

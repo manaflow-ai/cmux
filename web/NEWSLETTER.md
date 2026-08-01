@@ -84,8 +84,11 @@ are equally complete), which powers greeting personalization.
 Ongoing freshness: every paid Founder's Edition purchase is also upserted
 into both segments at webhook time by `/api/stripe/founders-welcome`
 (best-effort and deadline-bounded; the manual sync is the reconciliation
-catch-up). New Stack signups only land in the segment when the sync script
-runs, so run it before drafting a broadcast.
+catch-up). Delayed payment methods are handled on
+`checkout.session.async_payment_succeeded`, which requires the Stripe
+webhook endpoint to be subscribed to that event type. New Stack signups
+only land in the segment when the sync script runs, so run it before
+drafting a broadcast.
 
 ## (b) Write a product-update email
 

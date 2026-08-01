@@ -110,4 +110,30 @@ describe("parseTestSendArgs", () => {
       ]).to,
     ).toBe("someone@example.com");
   });
+
+  test("a value-taking flag never swallows a following flag", () => {
+    // Without this guard, --to would consume the override flag as its
+    // value and the argument stream would shift silently.
+    expect(() =>
+      parseTestSendArgs([
+        "--template",
+        "product-update",
+        "--to",
+        TEST_RECIPIENT_OVERRIDE_FLAG,
+      ]),
+    ).toThrow(/--to requires a value/);
+    expect(() =>
+      parseTestSendArgs(["--template", "product-update", "--to"]),
+    ).toThrow(/--to requires a value/);
+    expect(() =>
+      parseDraftArgs([
+        "--template",
+        "product-update",
+        "--audience",
+        "users",
+        "--subject",
+        "--send",
+      ]),
+    ).toThrow(/--subject requires a value/);
+  });
 });

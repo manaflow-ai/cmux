@@ -87,10 +87,14 @@ export function planSegmentSync(options: {
   };
 
   for (const contact of options.desired) {
-    const current = existingByEmail.get(contact.email);
+    // Desired emails come pre-normalized from the sources, but enforce the
+    // invariant at the keying site too so a future source cannot silently
+    // break case-insensitive matching.
+    const desiredEmail = contact.email.trim().toLowerCase();
+    const current = existingByEmail.get(desiredEmail);
     if (!current) {
       plan.toCreate.push({
-        email: contact.email,
+        email: desiredEmail,
         ...(contact.firstName ? { firstName: contact.firstName } : {}),
         ...(contact.lastName ? { lastName: contact.lastName } : {}),
       });
@@ -100,16 +104,16 @@ export function planSegmentSync(options: {
       plan.skippedUnsubscribed += 1;
       continue;
     }
-    const inSegment = memberEmails.has(contact.email);
+    const inSegment = memberEmails.has(desiredEmail);
     if (!inSegment) {
       plan.toAddToSegment.push({
         contactId: current.id,
-        email: contact.email,
+        email: desiredEmail,
       });
     }
     const backfill: ContactNameBackfill = {
       contactId: current.id,
-      email: contact.email,
+      email: desiredEmail,
     };
     let needsBackfill = false;
     if (!current.firstName && contact.firstName) {

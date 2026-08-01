@@ -112,15 +112,19 @@ function fakeResend(options?: { pageSize?: number }): FakeResend {
       return respond(200, topic);
     }
 
+    const segmentContacts = pathname.match(/^\/segments\/([^/]+)\/contacts$/);
+    if (segmentContacts && method === "GET") {
+      const segmentId = decodeURIComponent(segmentContacts[1]);
+      if (!state.segments.some((s) => s.id === segmentId)) {
+        return respond(404, { name: "not_found", message: "Segment not found" });
+      }
+      const pool = state.contacts.filter((c) => c.segmentIds.has(segmentId));
+      const page = paginate(pool, searchParams);
+      return respond(200, { ...page, data: page.data.map(serializeContact) });
+    }
     if (method === "GET" && pathname === "/contacts") {
-      const segmentId = searchParams.get("segment_id");
-      const pool = segmentId
-        ? state.contacts.filter((c) => c.segmentIds.has(segmentId))
-        : state.contacts;
-      return respond(200, {
-        ...paginate(pool, searchParams),
-        data: paginate(pool, searchParams).data.map(serializeContact),
-      });
+      const page = paginate(state.contacts, searchParams);
+      return respond(200, { ...page, data: page.data.map(serializeContact) });
     }
     if (method === "POST" && pathname === "/contacts") {
       const body = JSON.parse(init?.body ?? "{}") as {
@@ -129,23 +133,27 @@ function fakeResend(options?: { pageSize?: number }): FakeResend {
         last_name?: string;
         unsubscribed?: boolean;
         topics?: unknown;
-        segments?: string[];
+        segments?: { id: string }[];
       };
       // The sync must never send subscription state on create.
       expect("unsubscribed" in body).toBe(false);
       expect("topics" in body).toBe(false);
+      // Segment assignments must be objects carrying the id, per the API.
+      for (const segment of body.segments ?? []) {
+        expect(typeof segment).toBe("object");
+        expect(typeof segment.id).toBe("string");
+      }
+      const segmentIds = (body.segments ?? []).map((segment) => segment.id);
       const created: FakeContact = {
         id: `con_${nextId++}`,
         email: body.email,
         first_name: body.first_name ?? null,
         last_name: body.last_name ?? null,
         unsubscribed: false,
-        segmentIds: new Set(body.segments ?? []),
+        segmentIds: new Set(segmentIds),
       };
       state.contacts.push(created);
-      state.writes.push(
-        `create-contact:${body.email}:[${(body.segments ?? []).join(",")}]`,
-      );
+      state.writes.push(`create-contact:${body.email}:[${segmentIds.join(",")}]`);
       return respond(200, { id: created.id });
     }
 
@@ -222,7 +230,11 @@ describe("syncSegment", () => {
   test("dry run performs zero writes and reports the diff", async () => {
     const fake = fakeResend();
     fake.segments.push({ id: "seg_users", name: USERS_SEGMENT_NAME });
-    fake.topics.push({ id: "top_updates", name: USERS_TOPIC.name });
+    fake.topics.push({
+      id: "top_updates",
+      name: USERS_TOPIC.name,
+      default_subscription: "opt_in",
+    });
     fake.contacts.push(
       {
         id: "con_1",
@@ -282,7 +294,11 @@ describe("syncSegment", () => {
   test("apply creates contacts into the segment and never touches unsubscribed", async () => {
     const fake = fakeResend();
     fake.segments.push({ id: "seg_users", name: USERS_SEGMENT_NAME });
-    fake.topics.push({ id: "top_updates", name: USERS_TOPIC.name });
+    fake.topics.push({
+      id: "top_updates",
+      name: USERS_TOPIC.name,
+      default_subscription: "opt_in",
+    });
     fake.contacts.push(
       {
         id: "con_2",
@@ -356,13 +372,39 @@ describe("syncSegment", () => {
     expect(fake.writes[2]).toStartWith("create-contact:founder@example.com");
   });
 
+  test("fails closed on a same-name topic whose immutable default is opt_out", async () => {
+    const fake = fakeResend();
+    fake.segments.push({ id: "seg_users", name: USERS_SEGMENT_NAME });
+    fake.topics.push({
+      id: "top_updates",
+      name: USERS_TOPIC.name,
+      default_subscription: "opt_out",
+    });
+    await expect(
+      syncSegment({
+        client: client(fake),
+        segmentName: USERS_SEGMENT_NAME,
+        topic: USERS_TOPIC,
+        desired: [contact("a@example.com")],
+        existingContacts: [],
+        apply: true,
+      }),
+    ).rejects.toThrow(/opt_in/);
+    // Fail-closed means no writes happened either.
+    expect(fake.writes).toEqual([]);
+  });
+
   test("ambiguous segment names fail loudly", async () => {
     const fake = fakeResend();
     fake.segments.push(
       { id: "seg_1", name: USERS_SEGMENT_NAME },
       { id: "seg_2", name: USERS_SEGMENT_NAME },
     );
-    fake.topics.push({ id: "top_updates", name: USERS_TOPIC.name });
+    fake.topics.push({
+      id: "top_updates",
+      name: USERS_TOPIC.name,
+      default_subscription: "opt_in",
+    });
     await expect(
       syncSegment({
         client: client(fake),
@@ -378,7 +420,11 @@ describe("syncSegment", () => {
   test("reads the full membership across pages before planning", async () => {
     const fake = fakeResend({ pageSize: 2 });
     fake.segments.push({ id: "seg_users", name: USERS_SEGMENT_NAME });
-    fake.topics.push({ id: "top_updates", name: USERS_TOPIC.name });
+    fake.topics.push({
+      id: "top_updates",
+      name: USERS_TOPIC.name,
+      default_subscription: "opt_in",
+    });
     for (let i = 0; i < 5; i += 1) {
       fake.contacts.push({
         id: `con_${i}`,

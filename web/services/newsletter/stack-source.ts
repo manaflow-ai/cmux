@@ -43,6 +43,7 @@ export async function listStackContacts(options: {
   let totalUsers = 0;
   let skipped = 0;
   let cursor: string | null = null;
+  const seenCursors = new Set<string>();
 
   for (;;) {
     const query = new URLSearchParams({ limit: String(PAGE_LIMIT) });
@@ -88,12 +89,15 @@ export async function listStackContacts(options: {
     if (!nextCursor) {
       break;
     }
-    if (nextCursor === cursor || items.length === 0) {
+    // Guard against cursor cycles of any length, not just an immediately
+    // repeated cursor, so a misbehaving API cannot loop the sync forever.
+    if (seenCursors.has(nextCursor) || items.length === 0) {
       throw new Error(
         "Stack Auth pagination made no progress; refusing to continue with " +
           "a truncated user listing.",
       );
     }
+    seenCursors.add(nextCursor);
     cursor = nextCursor;
   }
 

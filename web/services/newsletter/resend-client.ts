@@ -24,6 +24,11 @@ export type ResendSegment = {
 export type ResendTopic = {
   id: string;
   name: string;
+  // "opt_in" or "opt_out"; immutable after creation. Callers must fail
+  // closed on anything but "opt_in" (see sync.ts): this tooling never
+  // subscribes contacts to topics, so an opt-out-by-default topic would
+  // silently suppress a broadcast for nearly the whole segment.
+  defaultSubscription: string;
 };
 
 export type ResendContact = {
@@ -48,6 +53,9 @@ export type FetchLike = (
   text(): Promise<string>;
 }>;
 
+// status carries the HTTP status for API-response errors and 0 for
+// client-side failures (timeout, pagination guard, ambiguous name), so
+// branches like the 404 check in getContactByEmail stay unambiguous.
 export class ResendApiError extends Error {
   readonly status: number;
   readonly apiName: string | undefined;
@@ -232,7 +240,7 @@ export class ResendClient {
         throw new ResendApiError(
           `Resend reported more results for ${path} but pagination made no ` +
             "progress; refusing to continue with a truncated listing.",
-          200,
+          0,
         );
       }
       after = nextAfter;
@@ -254,7 +262,7 @@ export class ResendClient {
       throw new ResendApiError(
         `Segment name "${name}" is ambiguous: ${matches.length} segments ` +
           "share it. Rename or delete the duplicates in the Resend dashboard.",
-        200,
+        0,
       );
     }
     return matches[0] ?? null;
@@ -270,7 +278,16 @@ export class ResendClient {
   }
 
   async listTopics(): Promise<ResendTopic[]> {
-    return this.listAll<ResendTopic>("/topics");
+    const topics = await this.listAll<{
+      id: string;
+      name: string;
+      default_subscription?: string;
+    }>("/topics");
+    return topics.map((topic) => ({
+      id: topic.id,
+      name: topic.name,
+      defaultSubscription: topic.default_subscription ?? "unknown",
+    }));
   }
 
   async findTopicByName(name: string): Promise<ResendTopic | null> {
@@ -280,7 +297,7 @@ export class ResendClient {
       throw new ResendApiError(
         `Topic name "${name}" is ambiguous: ${matches.length} topics share ` +
           "it. Rename or delete the duplicates in the Resend dashboard.",
-        200,
+        0,
       );
     }
     return matches[0] ?? null;
@@ -304,17 +321,24 @@ export class ResendClient {
         },
       },
     );
-    return { id: created.id, name: created.name ?? topic.name };
+    return {
+      id: created.id,
+      name: created.name ?? topic.name,
+      defaultSubscription: "opt_in",
+    };
   }
 
-  // Global contact listing; pass segmentId to list one segment's membership.
-  async listContacts(options: { segmentId?: string } = {}): Promise<
-    ResendContact[]
-  > {
-    const path = options.segmentId
-      ? `/contacts?segment_id=${encodeURIComponent(options.segmentId)}`
-      : "/contacts";
-    return this.listAll<ResendContact>(path);
+  // Account-wide contact listing.
+  async listContacts(): Promise<ResendContact[]> {
+    return this.listAll<ResendContact>("/contacts");
+  }
+
+  // One segment's membership, via the segment-scoped endpoint so a bad
+  // segment id fails loudly instead of silently returning every contact.
+  async listSegmentContacts(segmentId: string): Promise<ResendContact[]> {
+    return this.listAll<ResendContact>(
+      `/segments/${encodeURIComponent(segmentId)}/contacts`,
+    );
   }
 
   // Point read used by the purchase-time webhook hook, where listing every
@@ -352,8 +376,9 @@ export class ResendClient {
         email: contact.email,
         ...(contact.firstName ? { first_name: contact.firstName } : {}),
         ...(contact.lastName ? { last_name: contact.lastName } : {}),
+        // The API expects segment assignments as objects carrying the id.
         ...(contact.segmentIds && contact.segmentIds.length > 0
-          ? { segments: contact.segmentIds }
+          ? { segments: contact.segmentIds.map((id) => ({ id })) }
           : {}),
       },
     });

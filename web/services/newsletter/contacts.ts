@@ -18,6 +18,12 @@ export type NewsletterContact = {
 
 export type NewsletterSource = "stack" | "stripe";
 
+// Deliberately loose shape check: one local part, one @, a dot-bearing
+// domain. The sources (Stack, Stripe) have already validated deliverability;
+// this gate only rejects values malformed enough to make Resend's create
+// endpoint error mid-sync.
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 // Email addresses are compared case-insensitively across every source and
 // against Resend. Lowercasing the whole address is safe for deduplication:
 // RFC 5321 technically allows case-sensitive local parts, but no mainstream
@@ -25,7 +31,7 @@ export type NewsletterSource = "stack" | "stripe";
 // case-insensitively.
 export function normalizeEmail(raw: string | null | undefined): string | null {
   const trimmed = (raw ?? "").trim().toLowerCase();
-  if (!trimmed || !trimmed.includes("@")) {
+  if (!EMAIL_SHAPE.test(trimmed)) {
     return null;
   }
   return trimmed;

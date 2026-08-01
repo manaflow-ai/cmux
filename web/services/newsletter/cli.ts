@@ -20,6 +20,16 @@ export const DEFAULT_TEST_RECIPIENT = "austin@manaflow.ai";
 export const TEST_RECIPIENT_OVERRIDE_FLAG =
   "--dangerously-email-someone-other-than-austin";
 
+// Value-taking flags must not swallow a following flag as their value; a
+// missing value fails loudly instead of silently shifting the argument
+// stream (which could, for example, eat a safety flag).
+function flagValue(flag: string, value: string | undefined): string {
+  if (value === undefined || value.startsWith("-")) {
+    throw new Error(`${flag} requires a value`);
+  }
+  return value;
+}
+
 export type SyncArgs = {
   apply: boolean;
   audience: AudienceChoice;
@@ -35,7 +45,7 @@ export function parseSyncArgs(argv: string[]): SyncArgs {
     } else if (arg === "--json") {
       args.json = true;
     } else if (arg === "--audience") {
-      const value = argv[++i];
+      const value = flagValue("--audience", argv[++i]);
       if (!AUDIENCE_CHOICES.includes(value as AudienceChoice)) {
         throw new Error(
           `--audience must be one of: ${AUDIENCE_CHOICES.join(", ")}`,
@@ -62,7 +72,7 @@ export function parseDraftArgs(argv: string[]): DraftArgs {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--template") {
-      const value = argv[++i];
+      const value = flagValue("--template", argv[++i]);
       if (!TEMPLATE_CHOICES.includes(value as TemplateChoice)) {
         throw new Error(
           `--template must be one of: ${TEMPLATE_CHOICES.join(", ")}`,
@@ -70,17 +80,13 @@ export function parseDraftArgs(argv: string[]): DraftArgs {
       }
       template = value as TemplateChoice;
     } else if (arg === "--audience") {
-      const value = argv[++i];
+      const value = flagValue("--audience", argv[++i]);
       if (value !== "users" && value !== "founders") {
         throw new Error('--audience must be "users" or "founders"');
       }
       audience = value;
     } else if (arg === "--subject") {
-      const value = argv[++i];
-      if (!value) {
-        throw new Error("--subject requires a value");
-      }
-      subject = value;
+      subject = flagValue("--subject", argv[++i]);
     } else {
       // No pass-through: anything unrecognized (including any send-shaped
       // flag) aborts before a single API call is made.
@@ -110,7 +116,7 @@ export function parseTestSendArgs(argv: string[]): TestSendArgs {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--template") {
-      const value = argv[++i];
+      const value = flagValue("--template", argv[++i]);
       if (!TEMPLATE_CHOICES.includes(value as TemplateChoice)) {
         throw new Error(
           `--template must be one of: ${TEMPLATE_CHOICES.join(", ")}`,
@@ -118,19 +124,11 @@ export function parseTestSendArgs(argv: string[]): TestSendArgs {
       }
       template = value as TemplateChoice;
     } else if (arg === "--to") {
-      const value = argv[++i];
-      if (!value) {
-        throw new Error("--to requires a value");
-      }
-      to = value.trim();
+      to = flagValue("--to", argv[++i]).trim();
     } else if (arg === TEST_RECIPIENT_OVERRIDE_FLAG) {
       overrideAcknowledged = true;
     } else if (arg === "--greeting-name") {
-      const value = argv[++i];
-      if (!value) {
-        throw new Error("--greeting-name requires a value");
-      }
-      greetingName = value;
+      greetingName = flagValue("--greeting-name", argv[++i]);
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }

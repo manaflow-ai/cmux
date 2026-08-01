@@ -42,12 +42,16 @@ export type ProductUpdateEmailProps = {
 export default function ProductUpdateEmail({
   previewText,
   headline,
-  greetingName = FIRST_NAME_GREETING_TOKEN,
+  greetingName,
   intro,
   sections,
   ctaText,
   ctaUrl,
 }: ProductUpdateEmailProps) {
+  // Normalize at the rendering boundary: a missing, empty, or
+  // whitespace-only override still yields a natural greeting instead of
+  // "Hi ,".
+  const greeting = greetingName?.trim() || FIRST_NAME_GREETING_TOKEN;
   return (
     <MarketingEmailLayout previewText={previewText}>
       <Heading
@@ -62,7 +66,7 @@ export default function ProductUpdateEmail({
       >
         {headline}
       </Heading>
-      <Text style={bodyText}>{`Hi ${greetingName},`}</Text>
+      <Text style={bodyText}>{`Hi ${greeting},`}</Text>
       {intro ? <Text style={bodyText}>{intro}</Text> : null}
       {sections.map((section) => (
         <Section key={section.title} style={{ paddingTop: "8px" }}>

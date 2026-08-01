@@ -135,6 +135,37 @@ export async function POST(request: Request) {
 
       setSpanAttributes(span, { "cmux.stripe.event_type": event.type ?? "" });
 
+      // Delayed payment methods complete their checkout session with
+      // payment_status "unpaid" and report the real outcome later via
+      // checkout.session.async_payment_succeeded. The welcome email already
+      // went out at completion; this later event only needs the newsletter
+      // segment upsert that the completion handler skipped while the
+      // payment was unsettled. (The Stripe endpoint must be subscribed to
+      // this event type for it to arrive here.)
+      if (event.type === "checkout.session.async_payment_succeeded") {
+        const asyncSession = event.data?.object;
+        const asyncEmail = asyncSession?.customer_details?.email ?? null;
+        const settled =
+          asyncSession?.payment_status === "paid" ||
+          asyncSession?.payment_status === "no_payment_required";
+        if (
+          welcomeTriggerForMetadata(asyncSession?.metadata) !==
+            "founders_edition" ||
+          !asyncEmail ||
+          !settled
+        ) {
+          return NextResponse.json({ ok: true, skipped: "async_payment" });
+        }
+        await upsertFounderBestEffort(span, config, {
+          email: asyncEmail,
+          customerName: asyncSession?.customer_details?.name,
+        });
+        return NextResponse.json(
+          { ok: true, upserted: true },
+          { headers: { "Cache-Control": "no-store" } },
+        );
+      }
+
       // Pro purchases have their own transactional welcome and TestFlight
       // fulfillment in /api/stripe/webhook. Acknowledge them here without
       // sending the personal Founder's Edition email as well. Explicit
@@ -211,27 +242,10 @@ export async function POST(request: Request) {
         session?.payment_status === "paid" ||
         session?.payment_status === "no_payment_required";
       if (trigger === "founders_edition" && paymentSettled) {
-        try {
-          const results = await withDeadline(
-            upsertFounderIntoSegments({
-              client: new ResendClient({ apiKey: config.resendApiKey }),
-              email: customerEmail,
-              customerName: session?.customer_details?.name,
-            }),
-            NEWSLETTER_UPSERT_DEADLINE_MS,
-          );
-          setSpanAttributes(span, {
-            "cmux.newsletter.segment_outcomes": results
-              .map((result) => result.outcome)
-              .join(","),
-          });
-        } catch (segmentError) {
-          recordSpanError(span, segmentError);
-          console.error(
-            "stripe.founders_welcome.segment_upsert_failed",
-            segmentError,
-          );
-        }
+        await upsertFounderBestEffort(span, config, {
+          email: customerEmail,
+          customerName: session?.customer_details?.name,
+        });
       }
 
       return NextResponse.json(
@@ -240,6 +254,38 @@ export async function POST(request: Request) {
       );
     },
   );
+}
+
+// Best-effort, deadline-bounded newsletter segment upsert. Never throws: a
+// Resend failure is logged and recorded on the span, but must not turn an
+// already-acknowledged purchase event into a webhook error and a Stripe
+// retry storm. The manual reconciliation sync is the catch-up.
+async function upsertFounderBestEffort(
+  span: Parameters<typeof setSpanAttributes>[0],
+  config: FoundersConfig,
+  buyer: { email: string; customerName?: string | null },
+): Promise<void> {
+  try {
+    const results = await withDeadline(
+      upsertFounderIntoSegments({
+        client: new ResendClient({ apiKey: config.resendApiKey }),
+        email: buyer.email,
+        customerName: buyer.customerName,
+      }),
+      NEWSLETTER_UPSERT_DEADLINE_MS,
+    );
+    setSpanAttributes(span, {
+      "cmux.newsletter.segment_outcomes": results
+        .map((result) => `${result.segmentName}:${result.outcome}`)
+        .join(","),
+    });
+  } catch (segmentError) {
+    recordSpanError(span, segmentError);
+    console.error(
+      "stripe.founders_welcome.segment_upsert_failed",
+      segmentError,
+    );
+  }
 }
 
 function jsonError(message: string, status: number): Response {

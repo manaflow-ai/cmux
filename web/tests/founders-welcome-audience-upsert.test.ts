@@ -168,6 +168,55 @@ describe("founders welcome segment upsert", () => {
     expect(upsertFounderIntoSegments).toHaveBeenCalledTimes(1);
   });
 
+  test("async_payment_succeeded triggers the deferred founder upsert", async () => {
+    const body = JSON.stringify({
+      id: "evt_async",
+      type: "checkout.session.async_payment_succeeded",
+      data: {
+        object: {
+          id: "cs_test_async",
+          metadata: { founders_edition: "true" },
+          payment_status: "paid",
+          customer_details: {
+            email: "customer@example.com",
+            name: "Ada Lovelace",
+          },
+        },
+      },
+    });
+
+    const response = await POST(signedRequest(body));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, upserted: true });
+    // No second welcome email: only the segment upsert runs on this event.
+    expect(resendSend).not.toHaveBeenCalled();
+    expect(upsertCalls).toEqual([
+      { email: "customer@example.com", customerName: "Ada Lovelace" },
+    ]);
+  });
+
+  test("async_payment_succeeded for a non-founder session does nothing", async () => {
+    const body = JSON.stringify({
+      id: "evt_async",
+      type: "checkout.session.async_payment_succeeded",
+      data: {
+        object: {
+          id: "cs_test_async",
+          metadata: { app: "cmux", plan: "pro" },
+          payment_status: "paid",
+          customer_details: { email: "customer@example.com" },
+        },
+      },
+    });
+
+    const response = await POST(signedRequest(body));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, skipped: "async_payment" });
+    expect(upsertFounderIntoSegments).not.toHaveBeenCalled();
+  });
+
   test("no upsert happens when the welcome email itself failed", async () => {
     resendError = { name: "application_error", message: "boom" };
 

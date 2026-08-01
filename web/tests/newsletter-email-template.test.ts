@@ -43,6 +43,14 @@ describe("product-update template", () => {
     expect(html).not.toContain("Hi ,");
   });
 
+  test("a whitespace-only greeting override falls back instead of 'Hi ,'", async () => {
+    const { html } = await renderTemplate("product-update", {
+      greetingName: "   ",
+    });
+    expect(html).toContain(FIRST_NAME_GREETING_TOKEN);
+    expect(html).not.toContain("Hi ,");
+  });
+
   test("subject defaults to the headline and accepts an override", async () => {
     const defaulted = await renderTemplate("product-update");
     expect(defaulted.subject.length).toBeGreaterThan(0);

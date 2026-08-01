@@ -21,15 +21,7 @@ import { renderTemplate } from "../../emails/render";
 import { parseTestSendArgs } from "../../services/newsletter/cli";
 import { ResendClient } from "../../services/newsletter/resend-client";
 
-const DEFAULT_FROM = "Austin Wang <austin@manaflow.ai>";
-
-function requiredEnv(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`Missing required env var ${name}`);
-  }
-  return value;
-}
+import { newsletterFrom, requiredEnv } from "./script-env";
 
 const args = parseTestSendArgs(process.argv.slice(2));
 
@@ -40,7 +32,7 @@ const rendered = await renderTemplate(args.template, {
 });
 
 const client = new ResendClient({ apiKey: requiredEnv("RESEND_API_KEY") });
-const from = process.env.CMUX_NEWSLETTER_FROM_EMAIL?.trim() || DEFAULT_FROM;
+const from = newsletterFrom();
 const sent = await client.sendEmail({
   from,
   to: args.to,

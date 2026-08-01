@@ -83,6 +83,18 @@ export async function syncSegment(options: {
     topicRecord = await client.createTopic(topic);
     topicCreated = true;
   }
+  // default_subscription is immutable after creation and this tooling never
+  // subscribes contacts explicitly, so a same-name topic that defaults to
+  // opt_out would silently suppress broadcasts for nearly the whole
+  // segment. Fail closed instead of adopting it.
+  if (topicRecord && topicRecord.defaultSubscription !== "opt_in") {
+    throw new Error(
+      `Topic "${topic.name}" exists with default_subscription ` +
+        `"${topicRecord.defaultSubscription}" but this tooling requires ` +
+        '"opt_in" (the setting is immutable). Rename or recreate the topic ' +
+        "in the Resend dashboard.",
+    );
+  }
 
   let segment = await client.findSegmentByName(segmentName);
   let segmentCreated = false;
@@ -104,7 +116,7 @@ export async function syncSegment(options: {
   // empty membership.
   const memberEmails = new Set<string>(
     segment
-      ? (await client.listContacts({ segmentId: segment.id })).map((contact) =>
+      ? (await client.listSegmentContacts(segment.id)).map((contact) =>
           contact.email.trim().toLowerCase(),
         )
       : [],

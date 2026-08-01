@@ -56,9 +56,16 @@ export async function listFounderContacts(options: {
   let founderSessions = 0;
   let skippedMissingEmail = 0;
   let startingAfter: string | null = null;
+  const seenCursors = new Set<string>();
 
   for (;;) {
-    const query = new URLSearchParams({ limit: String(PAGE_LIMIT) });
+    // status=complete filters server-side so the run does not page through
+    // every abandoned checkout the account has ever created; the in-loop
+    // status check stays as a defensive invariant.
+    const query = new URLSearchParams({
+      limit: String(PAGE_LIMIT),
+      status: "complete",
+    });
     if (startingAfter) {
       query.set("starting_after", startingAfter);
     }
@@ -112,12 +119,15 @@ export async function listFounderContacts(options: {
       break;
     }
     const nextAfter = sessions.length > 0 ? sessions[sessions.length - 1].id : null;
-    if (!nextAfter || nextAfter === startingAfter) {
+    // Guard against cursor cycles of any length, not just an immediately
+    // repeated cursor.
+    if (!nextAfter || seenCursors.has(nextAfter)) {
       throw new Error(
         "Stripe pagination made no progress; refusing to continue with a " +
           "truncated checkout session listing.",
       );
     }
+    seenCursors.add(nextAfter);
     startingAfter = nextAfter;
   }
 
