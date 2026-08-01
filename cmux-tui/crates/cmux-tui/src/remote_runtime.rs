@@ -24,6 +24,7 @@ use cmux_remote::connection::{
 };
 use cmux_remote::crypto::{AuthKind, ClientAuthMode, CryptoError, StaticIdentity};
 use cmux_remote::daemon::{DaemonSessionPolicy, serve_direct_websocket, serve_unix};
+use cmux_remote::http::serve_workspace_http;
 use cmux_remote::identity::{
     AuthDatabase, IdentityError, PersistedAuthStateSchema, credential_free_route_hint,
     default_state_dir, persisted_auth_state_schema,
@@ -242,6 +243,7 @@ pub struct DaemonRuntimeOptions {
     pub admin_socket: Option<PathBuf>,
     pub direct_websocket: Option<SocketAddr>,
     pub allow_insecure_non_loopback: bool,
+    pub workspace_http: Option<SocketAddr>,
     pub relays: Vec<RelayDaemonOptions>,
     pub iroh: bool,
     pub advertised_routes: Vec<String>,
@@ -264,6 +266,7 @@ impl fmt::Debug for DaemonRuntimeOptions {
             .field("admin_socket", &self.admin_socket)
             .field("direct_websocket", &self.direct_websocket)
             .field("allow_insecure_non_loopback", &self.allow_insecure_non_loopback)
+            .field("workspace_http", &self.workspace_http)
             .field("relays", &self.relays)
             .field("iroh", &self.iroh)
             .field("advertised_routes", &advertised_routes)
@@ -1830,6 +1833,7 @@ async fn run_daemon(
             SessionLimits::default(),
             DaemonSessionPolicy { resume_lease: options.resume_lease },
         )?;
+        let workspace = WorkspaceService::new();
 
         let lifecycle_id = uuid::Uuid::new_v4().to_string();
         let preliminary_runtime = persist_runtime_info(
@@ -1868,6 +1872,23 @@ async fn run_daemon(
                     )
                     .await?,
                 ),
+                None => None,
+            };
+            let workspace_http = match options.workspace_http {
+                Some(address) => {
+                    let server = serve_workspace_http(
+                        workspace.clone(),
+                        address,
+                        state_dir.join("workspace-http.token"),
+                    )
+                    .await?;
+                    eprintln!(
+                        "cmux-tui: authenticated workspace HTTP at http://{}; bearer token file {}",
+                        server.local_addr(),
+                        server.token_file().display()
+                    );
+                    Some(server)
+                }
                 None => None,
             };
 
@@ -1989,10 +2010,10 @@ async fn run_daemon(
                 replaceable_sidecar: options.replaceable_sidecar,
             };
             persist_runtime_info(&state_dir, &info)?;
-            Ok((unix, websocket, relays, iroh, admin, info))
+            Ok((unix, websocket, workspace_http, relays, iroh, admin, info))
         }
         .await;
-        let (unix, websocket, relays, iroh, admin, info) = match transport_setup {
+        let (unix, websocket, workspace_http, relays, iroh, admin, info) = match transport_setup {
             Ok(transports) => transports,
             Err(error) => {
                 return finalize_daemon_authorization(auth, state_dir, lifecycle_id, vec![error])
@@ -2003,13 +2024,19 @@ async fn run_daemon(
         pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeReadySend);
         let mut shutdown_failures = Vec::new();
         if ready.send(Ok(info)).is_ok() {
-            let services = DaemonServices::new(WorkspaceService::new(), Some(mux_socket));
+            let services = DaemonServices::new(workspace, Some(mux_socket));
             services.run_with_shutdown(clients, shutdown).await;
         } else {
             shutdown_failures.push(anyhow!("daemon owner stopped during startup"));
         }
 
         admin.shutdown().await;
+        if let Some(server) = workspace_http
+            && let Err(error) = server.shutdown().await
+        {
+            shutdown_failures
+                .push(anyhow::Error::new(error).context("workspace HTTP shutdown failed"));
+        }
         if let Some(listener) = iroh
             && let Err(error) = listener.shutdown().await
         {
@@ -3153,6 +3180,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -3211,6 +3239,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -3247,6 +3276,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -3297,6 +3327,7 @@ mod tests {
                     admin_socket: None,
                     direct_websocket: None,
                     allow_insecure_non_loopback: false,
+                    workspace_http: None,
                     relays: Vec::new(),
                     iroh: false,
                     advertised_routes: Vec::new(),
@@ -3347,6 +3378,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -3388,6 +3420,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -3439,6 +3472,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -3485,6 +3519,7 @@ mod tests {
                     admin_socket: None,
                     direct_websocket: None,
                     allow_insecure_non_loopback: false,
+                    workspace_http: None,
                     relays: Vec::new(),
                     iroh: false,
                     advertised_routes: Vec::new(),
@@ -3530,6 +3565,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -3574,6 +3610,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -3636,6 +3673,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -3696,6 +3734,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -3738,6 +3777,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -3814,6 +3854,7 @@ mod tests {
                     admin_socket: None,
                     direct_websocket: None,
                     allow_insecure_non_loopback: false,
+                    workspace_http: None,
                     relays: Vec::new(),
                     iroh: false,
                     advertised_routes: Vec::new(),
@@ -3854,6 +3895,7 @@ mod tests {
                     admin_socket: None,
                     direct_websocket: None,
                     allow_insecure_non_loopback: false,
+                    workspace_http: None,
                     relays: Vec::new(),
                     iroh: false,
                     advertised_routes: Vec::new(),
@@ -3890,6 +3932,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -3934,6 +3977,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -3958,6 +4002,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -4005,6 +4050,7 @@ mod tests {
                 admin_socket: Some(directory.path().join("sockets/admin.sock")),
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -4037,6 +4083,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -4147,6 +4194,7 @@ mod tests {
                     admin_socket: None,
                     direct_websocket: None,
                     allow_insecure_non_loopback: false,
+                    workspace_http: None,
                     relays: Vec::new(),
                     iroh: false,
                     advertised_routes: Vec::new(),
@@ -4201,6 +4249,7 @@ mod tests {
                     admin_socket: None,
                     direct_websocket: None,
                     allow_insecure_non_loopback: false,
+                    workspace_http: None,
                     relays: Vec::new(),
                     iroh: false,
                     advertised_routes: Vec::new(),
@@ -4283,6 +4332,7 @@ mod tests {
                     admin_socket: None,
                     direct_websocket: None,
                     allow_insecure_non_loopback: false,
+                    workspace_http: None,
                     relays: Vec::new(),
                     iroh: false,
                     advertised_routes: Vec::new(),
@@ -4485,6 +4535,7 @@ mod tests {
             admin_socket: None,
             direct_websocket: None,
             allow_insecure_non_loopback: false,
+            workspace_http: None,
             relays: vec![relay_options],
             iroh: false,
             advertised_routes: vec!["%%% malformed-route-marker %%%".into()],
@@ -4771,6 +4822,7 @@ mod tests {
                 admin_socket: Some(daemon_root.join("admin.sock")),
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -5798,6 +5850,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),
@@ -5829,6 +5882,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
                 advertised_routes: Vec::new(),

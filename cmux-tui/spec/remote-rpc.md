@@ -75,6 +75,8 @@ An error is:
 
 `cmux-tui rpc` is a convenience adapter. Its stdin and `--request` value are bare request objects, and it prints the bare successful `WorkspaceResponse` or exits with an error. Do not wrap CLI input in the direct service envelope.
 
+An optional loopback HTTP listener exposes the same envelope at `POST /v1/workspace-rpc`. It requires an `Authorization: Bearer <token>` header using the owner-only token file printed at daemon startup. The listener also accepts a raw UTF-8 patch body at `POST /v1/workspaces/{workspace}/apply-patch`; `dry_run` is an optional boolean query parameter. That response is `{"result":{"Ok":<WorkspaceResponse>}}` or `{"result":{"Err":<RpcError>}}`. All HTTP requests have a 16 MiB body limit. Plain HTTP cannot bind off loopback; remote deployments use SSH forwarding or terminate TLS before the loopback listener.
+
 ## Scalar and shared types
 
 `ByteString` is a standard padded base64 JSON string. File data, process input and output, and legacy diff data use this type.
@@ -161,7 +163,7 @@ Common response objects have these fields:
 | `route-created` | `route:u64`, `host`, `port` |
 | `closed` | no fields |
 
-Protocol 5 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-catalog-v1`, `process-pty-v1` and `process-terminal-snapshot-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, and `request-control-v1`.
+Protocol 5 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-catalog-v1`, `process-pty-v1` and `process-terminal-snapshot-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `workspace-patch-v3`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, and `request-control-v1`. `workspace-patch-v3` indicates that `apply-patch.patch` accepts both unified diff and Codex native patch syntax.
 
 ## Files, search, patch, and diff
 
@@ -182,7 +184,7 @@ Read and write binary data as base64. This writes `hello\n` only when the target
 
 `directory` returns `entries`, `truncated`, and optional `next_cursor`. Each entry contains `name`, `path`, `kind`, and `size`. `search` returns `matches`, `truncated`, and optional `next_cursor`. Each match contains `path`, one-based `line` and `column`, `text`, `before`, and `after`. A cursor is opaque and bound to the original request parameters.
 
-`apply-patch.patch` is a unified text patch. A `patch` response contains `changed_paths`, `applied`, and `files`. Each file result has `path`, optional `previous_path`, `action`, optional `old_content_hash`, and optional `new_content_hash`. `action` is `created`, `modified`, `deleted`, or `renamed`.
+`apply-patch.patch` accepts a unified text patch or Codex native syntax beginning with `*** Begin Patch` and ending with `*** End Patch`. Codex `Add File`, `Delete File`, `Update File`, `Move to`, `End of File`, and optional `Environment ID` markers are supported. Both syntaxes enter the same transactional snapshot, precondition, commit, and rollback path. A `patch` response contains `changed_paths`, `applied`, and `files`. Each file result has `path`, optional `previous_path`, `action`, optional `old_content_hash`, and optional `new_content_hash`. `action` is `created`, `modified`, `deleted`, or `renamed`.
 
 Request a typed diff with:
 

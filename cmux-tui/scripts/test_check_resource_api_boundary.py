@@ -389,6 +389,24 @@ fn internal() { let surface_id: u64 = 4; }
             self.assertEqual(diagnostics[0].code, "boundary.surface")
             self.assertEqual(diagnostics[0].line, 1)
 
+    def test_cli_allows_relay_transport_slot_but_rejects_resource_slot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            path = tui / "crates/cmux-tui/src/main.rs"
+            write(
+                path,
+                """\
+const REMOTE_HELP: &str = "--relay-slot <routing-key>";
+const RESOURCE_HELP: &str = "--slot <value>";
+""",
+            )
+
+            diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual(len(diagnostics), 1)
+            self.assertEqual(diagnostics[0].code, "boundary.private-identity")
+            self.assertEqual(diagnostics[0].line, 2)
+
     def test_docs_scan_only_public_entrypoints(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
