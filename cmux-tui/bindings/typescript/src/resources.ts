@@ -2207,11 +2207,19 @@ export class Client {
     operation: Operation,
     params: Readonly<Record<string, unknown>>,
     options: RequestOptions = {},
+    validateAbandonedResult?: (value: unknown) => unknown,
   ): Promise<unknown> {
     if (operation.class !== "read" && operation.class !== "connection_control") {
       throw new TypeError(`${operation.name} is not a read/control operation`);
     }
-    return (await this.protocol.request(operation, params, options)).value;
+    return (
+      await this.protocol.request(
+        operation,
+        params,
+        options,
+        validateAbandonedResult,
+      )
+    ).value;
   }
 
   async [controlOperation]<Value>(
@@ -3428,6 +3436,7 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
             ? { signal: wait.signal }
             : {}),
         },
+        terminalWaitResult,
       ),
     );
   }
@@ -3436,7 +3445,17 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
     timeoutMs?: DecimalString,
     options: RequestOptions = {},
   ): Promise<TerminalWaitExitResult> {
-    const result = terminalWaitExitResult(
+    const expectedId = this.cached?.id ?? this.id;
+    const decodeResult = (value: unknown): TerminalWaitExitResult => {
+      const result = terminalWaitExitResult(value);
+      if (expectedId !== undefined && result.terminalId !== expectedId) {
+        throw new CmuxProtocolError(
+          `terminal wait_exit returned ${result.terminalId} for ${expectedId}`,
+        );
+      }
+      return result;
+    };
+    return decodeResult(
       await this.client[readOperation](
         operations.terminalWaitExit,
         {
@@ -3444,15 +3463,9 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
           ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
         },
         options,
+        decodeResult,
       ),
     );
-    const expectedId = this.cached?.id ?? this.id;
-    if (expectedId !== undefined && result.terminalId !== expectedId) {
-      throw new CmuxProtocolError(
-        `terminal wait_exit returned ${result.terminalId} for ${expectedId}`,
-      );
-    }
-    return result;
   }
 
   async copy(
