@@ -31,7 +31,7 @@ extension SimulatorAccessibilitySnapshot {
             pending.append(contentsOf: node.children.reversed())
             guard node.isEnabled != false,
                   matches(node.label, expected: label, caseInsensitive: true),
-                  matches(node.id, expected: identifier, caseInsensitive: false),
+                  matches(node.identifier, expected: identifier, caseInsensitive: false),
                   matches(node.role, expected: role, caseInsensitive: true),
                   let frame = node.frame,
                   validFrame(frame) else {

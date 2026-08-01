@@ -49864,6 +49864,23 @@
         }
       }
     },
+    "cli.simulator.error.uiTouchAlreadyHeld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A Simulator touch is already being held"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorのタッチがすでに保持されています"
+          }
+        }
+      }
+    },
     "cli.simulator.error.uiDirectionInvalid": {
       "extractionState": "manual",
       "localizations": {
@@ -53171,6 +53188,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用方法:\n  cmux simulator permissions list [bundle-id] [--surface <id|ref|index>]\n  cmux simulator permissions grant <permission> <bundle-id> [--value <value>] [--surface <id|ref|index>]\n  cmux simulator permissions revoke <permission> <bundle-id> [--surface <id|ref|index>]\n  cmux simulator permissions reset <permission|all> <bundle-id> [--surface <id|ref|index>]\n\n値: photos は limited、notifications は critical、location は always、inuse、never。"
+          }
+        }
+      }
+    },
+    "cli.simulator.recovery.releaseHeldTouch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release the held Simulator touch before starting another"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタッチを開始する前に保持中のSimulatorタッチを解放してください"
           }
         }
       }

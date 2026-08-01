@@ -208,6 +208,19 @@ public struct SimulatorUIAutomationExecutor {
             ]
         case let .touch(elementRef, down, up, delayMilliseconds):
             try requireSimulatorCapability(.touch, coordinator: coordinator)
+            if down, coordinator.hasHeldUIAutomationTouch {
+                throw SimulatorUIAutomationFailure(
+                    code: "touch_already_held",
+                    message: String(
+                        localized: "cli.simulator.error.uiTouchAlreadyHeld",
+                        defaultValue: "A Simulator touch is already being held"
+                    ),
+                    recoveryHint: String(
+                        localized: "cli.simulator.recovery.releaseHeldTouch",
+                        defaultValue: "Release the held Simulator touch before starting another"
+                    )
+                )
+            }
             let point: SimulatorPoint
             let snapshotDisplay: SimulatorDisplayMetadata?
             if !down, up,

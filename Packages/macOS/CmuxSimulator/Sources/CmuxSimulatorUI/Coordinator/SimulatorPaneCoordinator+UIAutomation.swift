@@ -130,6 +130,11 @@ extension SimulatorPaneCoordinator {
         uiAutomationSession.heldTouch(elementRef: elementRef)
     }
 
+    /// Whether this pane currently owns a retained semantic touch contact.
+    public var hasHeldUIAutomationTouch: Bool {
+        uiAutomationSession.hasHeldTouch
+    }
+
     /// Clears a held semantic touch after its release reaches the worker.
     public func releaseHeldUIAutomationTouch(elementRef: String) {
         uiAutomationSession.releaseHeldTouch(elementRef: elementRef)

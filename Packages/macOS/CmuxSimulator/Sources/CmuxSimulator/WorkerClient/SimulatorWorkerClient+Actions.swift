@@ -31,15 +31,34 @@ extension SimulatorWorkerClient {
         if let result = try await performApplicationLifecycleAction(action) { return result }
         if case let .interactive(interactiveAction) = action {
             let requestID = UUID()
-            let succeeded: Bool = try await requestWorkerValue(
-                sending: .interactiveAction(requestID: requestID, action: interactiveAction),
-                timeout: interactiveAction.responseTimeout
-            ) { message in
-                guard case let .interactiveAction(responseID, succeeded) = message,
-                      responseID == requestID else { return nil }
-                return succeeded
+            let succeeded: Bool
+            do {
+                succeeded = try await requestWorkerValue(
+                    sending: .interactiveAction(
+                        requestID: requestID,
+                        action: interactiveAction
+                    ),
+                    timeout: interactiveAction.responseTimeout
+                ) { message in
+                    guard case let .interactiveAction(responseID, succeeded) = message,
+                          responseID == requestID else { return nil }
+                    return succeeded
+                }
+            } catch {
+                await recoverFailedInteractiveAction(
+                    interactiveAction,
+                    requestID: requestID
+                )
+                throw error
             }
-            try? await sendInteractiveRecovery(for: interactiveAction)
+            if succeeded {
+                try? await sendInteractiveRecovery(for: interactiveAction)
+            } else {
+                await recoverFailedInteractiveAction(
+                    interactiveAction,
+                    requestID: requestID
+                )
+            }
             guard succeeded else {
                 throw SimulatorControlError(
                     code: "interactive_action_failed",
@@ -431,6 +450,20 @@ extension SimulatorWorkerClient {
         case .rotate, .coreAnimation, .memoryWarning:
             break
         }
+    }
+
+    private func recoverFailedInteractiveAction(
+        _ action: SimulatorInteractiveAction,
+        requestID: UUID
+    ) async {
+        if case .touch = action {
+            try? await sendRequired(.releaseInputs)
+        }
+        pendingInteractiveRequestIdentifiers.remove(requestID)
+        await flushDeferredMessageIfReady()
+        await finishBlockingInputProbeIfReady()
+        if case .touch = action { return }
+        try? await sendInteractiveRecovery(for: action)
     }
 
     func performPrivatePrivacyMutation(

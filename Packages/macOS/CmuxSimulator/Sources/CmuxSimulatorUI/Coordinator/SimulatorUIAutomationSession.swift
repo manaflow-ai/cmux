@@ -125,6 +125,10 @@ final class SimulatorUIAutomationSession {
         return retainedTouch
     }
 
+    var hasHeldTouch: Bool {
+        retainedTouch != nil
+    }
+
     func releaseHeldTouch(elementRef: String) {
         guard retainedTouch?.elementRef == elementRef else { return }
         retainedTouch = nil
