@@ -239,6 +239,7 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
 
         #expect(configuration.terminalTransport == .mosh)
         #expect(configuration.configuredRemoteCommand == configuredRemoteCommand)
+        #expect(!configuration.sshOptions.contains("RemoteCommand=\(configuredRemoteCommand)"))
         #expect(
             startupCommand.contains(expectedBootstrapBase64),
             "The Mosh relay bootstrap must retain the legacy RemoteCommand intent"
