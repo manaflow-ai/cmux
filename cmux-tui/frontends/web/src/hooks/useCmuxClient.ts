@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import {
   CmuxClient,
   CmuxTimeoutError,
+  RENDER_ATTACH_MAX_ENCODED_CHARS,
   WebSocketTransport,
   type ClientDetachedEvent,
   type ClientInfo,
@@ -128,6 +129,7 @@ export function useCmuxClient() {
       let canReconnect = false;
       const transport = new WebSocketTransport(config.url, {
         authToken: config.token ?? pairingCredential.current,
+        maxInboundMessageBytes: RENDER_ATTACH_MAX_ENCODED_CHARS,
         onPairingChallenge: (pairing) => {
           if (!cancelled) {
             setState((current) => ({ ...current, status: "pairing", pairing, error: null }));
