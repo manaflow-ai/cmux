@@ -652,15 +652,15 @@ import Testing
     }
 
     @Test func retryWaitUsesInjectedClockInsteadOfRuntimeSleeping() async throws {
-        let recorder = PhonePushClockRecorder()
         let clock = PhonePushClock(
             now: { Date(timeIntervalSince1970: 1_750_000_000) },
-            sleep: { duration in await recorder.record(duration) }
+            sleep: { duration in
+                #expect(duration == .seconds(7))
+            }
         )
 
         #expect(clock.nowEpochSeconds == 1_750_000_000)
         try await clock.sleep(for: .seconds(7))
-        #expect(await recorder.durations == [.seconds(7)])
     }
 
     @Test func successfulHTTPStatusWithNoRegisteredDevicesIsNotDeliverySuccess() throws {
@@ -739,13 +739,5 @@ import Testing
             statusCode: 200,
             data: Data("not-json".utf8)
         ) == .invalidResponse)
-    }
-}
-
-private actor PhonePushClockRecorder {
-    private(set) var durations: [Duration] = []
-
-    func record(_ duration: Duration) {
-        durations.append(duration)
     }
 }
