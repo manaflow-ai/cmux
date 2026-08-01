@@ -43,11 +43,11 @@ static bool cmux_test_surface_free_started = false;
 static bool cmux_test_surface_free_released = false;
 static void* cmux_test_surface_free_target = NULL;
 
-static struct timespec cmux_test_surface_free_deadline(void) {
-    struct timespec deadline;
-    clock_gettime(CLOCK_REALTIME, &deadline);
-    deadline.tv_sec += 5;
-    return deadline;
+static struct timespec cmux_test_surface_free_timeout(void) {
+    return (struct timespec) {
+        .tv_sec = 5,
+        .tv_nsec = 0,
+    };
 }
 
 void cmux_test_ghostty_runtime_stubs_reset(void) {
@@ -66,19 +66,37 @@ void cmux_test_ghostty_surface_free_blocking_begin(void *surface) {
 }
 
 bool cmux_test_ghostty_surface_free_wait_until_started(void) {
-    const struct timespec deadline = cmux_test_surface_free_deadline();
+    const struct timespec timeout = cmux_test_surface_free_timeout();
     pthread_mutex_lock(&cmux_test_surface_free_mutex);
     while (!cmux_test_surface_free_started) {
-        const int result = pthread_cond_timedwait(
+        const int result = pthread_cond_timedwait_relative_np(
             &cmux_test_surface_free_condition,
             &cmux_test_surface_free_mutex,
-            &deadline
+            &timeout
         );
         if (result != 0) break;
     }
     const bool started = cmux_test_surface_free_started;
     pthread_mutex_unlock(&cmux_test_surface_free_mutex);
     return started;
+}
+
+bool cmux_test_ghostty_surface_free_blocking_did_start(void) {
+    pthread_mutex_lock(&cmux_test_surface_free_mutex);
+    const bool started = cmux_test_surface_free_started;
+    pthread_mutex_unlock(&cmux_test_surface_free_mutex);
+    return started;
+}
+
+bool cmux_test_ghostty_surface_free_blocking_is_active(void) {
+    pthread_mutex_lock(&cmux_test_surface_free_mutex);
+    const bool active =
+        cmux_test_surface_free_should_block
+        && cmux_test_surface_free_started
+        && !cmux_test_surface_free_released
+        && cmux_test_surface_free_target != NULL;
+    pthread_mutex_unlock(&cmux_test_surface_free_mutex);
+    return active;
 }
 
 void cmux_test_ghostty_surface_free_release(void) {
@@ -286,17 +304,17 @@ bool ghostty_surface_set_font_size_action_callback(
 
 void ghostty_surface_config_new(void) {}
 void ghostty_surface_free(void *surface) {
-    const struct timespec deadline = cmux_test_surface_free_deadline();
+    const struct timespec timeout = cmux_test_surface_free_timeout();
     pthread_mutex_lock(&cmux_test_surface_free_mutex);
     if (cmux_test_surface_free_should_block
         && surface == cmux_test_surface_free_target) {
         cmux_test_surface_free_started = true;
         pthread_cond_broadcast(&cmux_test_surface_free_condition);
         while (!cmux_test_surface_free_released) {
-            const int result = pthread_cond_timedwait(
+            const int result = pthread_cond_timedwait_relative_np(
                 &cmux_test_surface_free_condition,
                 &cmux_test_surface_free_mutex,
-                &deadline
+                &timeout
             );
             if (result != 0) break;
         }
