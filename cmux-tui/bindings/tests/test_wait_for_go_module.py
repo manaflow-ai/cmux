@@ -215,6 +215,31 @@ class WaitForGoModuleTests(unittest.TestCase):
             )
         process.terminate.assert_called_once()
 
+    def test_running_download_polls_exit_without_reusing_communicate(self) -> None:
+        process = mock.Mock()
+        process.args = ["go", "mod", "download"]
+        process.returncode = 0
+        process.wait.side_effect = (
+            subprocess.TimeoutExpired(process.args, 0.25),
+            0,
+        )
+        process.communicate.side_effect = (
+            subprocess.TimeoutExpired(process.args, 0.25),
+            ("", ""),
+        )
+        cancellation = mock.Mock()
+        cancellation.is_set.return_value = False
+        with mock.patch.object(waiter.subprocess, "Popen", return_value=process):
+            waiter._run_command(
+                process.args,
+                env={},
+                deadline=30.0,
+                clock=lambda: 0.0,
+                cancel_event=cancellation,
+            )
+        self.assertEqual(process.wait.call_count, 2)
+        process.communicate.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
