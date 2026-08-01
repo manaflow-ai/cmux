@@ -22,9 +22,9 @@ public actor CmxIrohRelayPreferenceStore {
     }
 
     /// Installs one preference revision with rollback and equivocation protection.
-    /// An equivalent configuration may rebase to a lower revision after the
-    /// broker restores its database because that changes no relay authority;
-    /// the service verifies the accompanying signed policy before this write.
+    /// A configuration with equivalent active authority may rebase to a lower
+    /// revision after the broker restores its database. Dormant fields cannot
+    /// affect transport, and the service verifies the signed policy before this write.
     @discardableResult
     public func install(
         requested: CmxIrohAccountRelayConfiguration,
@@ -50,7 +50,7 @@ public actor CmxIrohRelayPreferenceStore {
         let existing = try await storedRecord(account: account)?.preference
         if let existing {
             guard revision > existing.revision
-                    || requested == existing.requested else {
+                    || requested.hasEquivalentActiveAuthority(to: existing.requested) else {
                 throw CmxIrohRelayPolicyServiceError.preferenceRollback
             }
         }
