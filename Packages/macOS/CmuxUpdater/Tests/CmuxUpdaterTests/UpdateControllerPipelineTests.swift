@@ -423,12 +423,38 @@ import Testing
         let error = failure.error as NSError
         #expect(error.domain == NSURLErrorDomain)
         #expect(error.code == NSURLErrorTimedOut)
+        #expect(failure.feedURLString == nil)
         #expect(!harness.controller.attemptCoordinator.isMonitoring)
         #expect(!harness.controller.installWatchdog.isArmed)
 
         failure.retry()
         #expect(harness.controller.attemptCoordinator.isMonitoring)
         #expect(harness.controller.installWatchdog.isArmed)
+    }
+
+    /// A timed-out active check is an abandoned cycle, including any replacement install that
+    /// was queued behind it. Its late cycle-finished callback must leave the timeout authoritative
+    /// instead of starting an install check after the attempt coordinator and watchdog were ended.
+    @Test func timedOutCheckDropsQueuedReplacementInstall() async {
+        let harness = Harness()
+
+        harness.controller.checkForUpdates()
+        #expect(harness.updater.checkForUpdatesCallCount == 1)
+
+        harness.controller.attemptUpdate()
+        #expect(harness.updater.checkForUpdatesCallCount == 1)
+        #expect(harness.controller.attemptCoordinator.isMonitoring)
+        #expect(harness.controller.installWatchdog.isArmed)
+
+        harness.controller.updateDriverCheckDidTimeOut()
+        #expect(errorCode(for: harness.model.state) == NSURLErrorTimedOut)
+        #expect(!harness.controller.attemptCoordinator.isMonitoring)
+        #expect(!harness.controller.installWatchdog.isArmed)
+
+        harness.finishSparkleCycle()
+
+        #expect(harness.updater.checkForUpdatesCallCount == 1)
+        #expect(errorCode(for: harness.model.state) == NSURLErrorTimedOut)
     }
 
     /// If the live prompt is still visible but already answered before the queued confirm
