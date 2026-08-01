@@ -97,7 +97,7 @@ private struct SidebarAgentGraphiteRow: View {
         } label: {
             HStack(spacing: 6) {
                 SidebarAgentBrandIcon(row: row, fontScale: fontScale)
-                Text(row.paneLabel ?? SidebarAgentRowStateStyle.agentDisplayName(statusKey: row.statusKey))
+                Text(row.presentation.primaryText)
                     .cmuxFont(size: 10.5 * fontScale, weight: .medium)
                     .foregroundColor(nameColor)
                     .lineLimit(1)
@@ -177,7 +177,7 @@ private struct SidebarAgentGraphiteRow: View {
 
     private var tooltip: String {
         [
-            row.paneLabel ?? SidebarAgentRowStateStyle.agentDisplayName(statusKey: row.statusKey),
+            row.presentation.fullPrimaryText,
             SidebarAgentRowStateStyle.statusText(for: row),
         ].compactMap { $0 }.joined(separator: " · ")
     }

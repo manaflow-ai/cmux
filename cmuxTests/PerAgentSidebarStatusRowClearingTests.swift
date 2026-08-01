@@ -162,6 +162,7 @@ struct PerAgentSidebarStatusRowClearingTests {
                 format: .plain,
                 lifecycle: lifecycle,
                 paneLabel: nil,
+                surfaceName: nil,
                 priority: 0,
                 timestamp: Date(timeIntervalSince1970: 0)
             )

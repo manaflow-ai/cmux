@@ -180,6 +180,7 @@ import Testing
             format: .plain,
             lifecycle: nil,
             paneLabel: nil,
+            surfaceName: nil,
             priority: 0,
             timestamp: Date(timeIntervalSince1970: 0)
         )

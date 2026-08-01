@@ -168,7 +168,9 @@ struct SidebarAgentStatusInCardRows: View {
     }
 
     private func rowTooltip(_ row: SidebarAgentStatusRow) -> String {
-        [row.paneLabel, row.value].compactMap { $0 }.joined(separator: " · ")
+        [row.presentation.fullPrimaryText, SidebarAgentRowStateStyle.statusText(for: row)]
+            .compactMap { $0 }
+            .joined(separator: " · ")
     }
 }
 
@@ -191,7 +193,7 @@ struct SidebarAgentChipsFlow: View {
                 } label: {
                     HStack(spacing: 3) {
                         SidebarAgentBrandIcon(row: row, fontScale: fontScale)
-                        Text(row.paneLabel ?? SidebarAgentRowStateStyle.agentDisplayName(statusKey: row.statusKey))
+                        Text(row.presentation.primaryText)
                             .cmuxFont(size: 9.5 * fontScale, weight: .medium)
                             .foregroundColor(.primary.opacity(0.85))
                             .lineLimit(1)
@@ -209,7 +211,11 @@ struct SidebarAgentChipsFlow: View {
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .safeHelp([row.paneLabel, row.value].compactMap { $0 }.joined(separator: " · "))
+                .safeHelp(
+                    [row.presentation.fullPrimaryText, SidebarAgentRowStateStyle.statusText(for: row)]
+                        .compactMap { $0 }
+                        .joined(separator: " · ")
+                )
             }
         }
     }
@@ -236,13 +242,6 @@ enum SidebarAgentRowStateStyle {
         "pi": "AgentIcons/Pi",
         "rovodev": "AgentIcons/RovoDev",
     ]
-
-    static func agentDisplayName(statusKey: String) -> String {
-        statusKey
-            .split(separator: "_")
-            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-            .joined(separator: " ")
-    }
 
     static func effectiveColorHex(for row: SidebarAgentStatusRow) -> String? {
         if let color = row.color {
@@ -335,8 +334,8 @@ struct SidebarAgentBrandIcon: View {
     }
 }
 
-/// One agent row. Primary text is the session/tab name (rename wins, then the
-/// live surface title); the status rides second. Each row is its own
+/// One agent row. Primary text keeps the automatic pane label and appends an
+/// explicit surface rename; the status rides second. Each row is its own
 /// hover-highlighted button so clicks never fight workspace selection.
 struct SidebarAgentStatusEntryRowView: View {
     let row: SidebarAgentStatusRow
@@ -401,9 +400,9 @@ struct SidebarAgentStatusEntryRowView: View {
         .contentShape(Rectangle())
     }
 
-    /// Session/tab name first; agent-type name when the pane has no title yet.
+    /// Automatic pane identity plus an explicit surface name when one exists.
     private var primaryText: String {
-        row.paneLabel ?? SidebarAgentRowStateStyle.agentDisplayName(statusKey: row.statusKey)
+        row.presentation.primaryText
     }
 
     private var statusLineText: String? {
@@ -442,7 +441,7 @@ struct SidebarAgentStatusEntryRowView: View {
     }
 
     private var helpText: String {
-        [primaryText, statusLineText].compactMap { $0 }.joined(separator: " · ")
+        [row.presentation.fullPrimaryText, statusLineText].compactMap { $0 }.joined(separator: " · ")
     }
 }
 
