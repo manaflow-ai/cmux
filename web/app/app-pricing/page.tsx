@@ -5,11 +5,14 @@ import { getStackServerApp, isStackConfigured } from "../lib/stack";
 import { validatedNativeCallbackScheme } from "../lib/native-callback";
 import { FREE_PLAN_ID, resolveProPlanStatus } from "../../services/billing/pro";
 import enMessages from "../../messages/en.json";
-import { appPricingCheckoutURL, isAppStoreDistributionMode } from "../lib/billing";
+import {
+  appPricingCheckoutURL,
+  isAppStoreDistributionMode,
+  withExternalBrowserIntent,
+} from "../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../lib/download";
 import {
-  appPricingAppearance,
-  appPricingPageBackground,
+  appPricingTheme,
   appPricingStyle,
 } from "./appearance";
 import {
@@ -28,9 +31,19 @@ import {
   type FaqItem,
   type SizeRow,
 } from "../components/pricing-shared";
-import { CheckoutButton } from "../components/checkout-navigation";
+import {
+  PricingCheckoutButton,
+  PricingIntervalProvider,
+  PricingIntervalSelector,
+  PricingIntervalValue,
+} from "../components/pricing-interval-selector";
+import {
+  PRO_PRICING_USD,
+  TEAM_PRICING_USD,
+  proBillingInterval,
+} from "../../services/billing/plans";
 
-const ENTERPRISE_CTA_URL = "/enterprise";
+const ENTERPRISE_CTA_URL = withExternalBrowserIntent("/enterprise");
 const pricing = enMessages.pricing;
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
@@ -52,11 +65,17 @@ export default async function AppPricingPage({
     appPricingRequest(headersList),
   );
   const appStorePaymentGated = isAppStoreDistributionMode(params);
-  const proCheckoutURL = appPricingCheckoutURL("pro", requestOrigin, cmuxScheme);
-  const teamCheckoutURL = appPricingCheckoutURL("team", requestOrigin, cmuxScheme);
+  const interval = proBillingInterval(firstParam(params.interval));
+  const proCheckoutHrefs = {
+    month: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "month"),
+    year: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "year"),
+  };
+  const teamCheckoutHrefs = {
+    month: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "month"),
+    year: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "year"),
+  };
   const banner = appPricingBanner(params);
-  const appearance = appPricingAppearance(params);
-  const pageBackground = appPricingPageBackground(params, appearance);
+  const theme = appPricingTheme(params);
   const proFeatures = visibleProFeatures({
     base: pricing.pro.features,
     vault: pricing.pro.vaultFeatures,
@@ -65,113 +84,200 @@ export default async function AppPricingPage({
   const compareRows = visibleCompareRows(pricing.compare.rows as CompareRow[]);
   const sizeRows = pricing.sizes.rows as SizeRow[];
   const faqItems = visibleFaqItems(pricing.faq.items as FaqItem[]);
+  const annualComparePrice = pricingMessage(pricing.annualComparePrice, {
+    monthly: PRO_PRICING_USD.year.monthlyEquivalent,
+    annual: PRO_PRICING_USD.year.billedAmount,
+  });
+  const teamMonthlyComparePrice = pricingMessage(
+    pricing.teamMonthlyComparePrice,
+    { monthly: TEAM_PRICING_USD.month.monthlyEquivalent },
+  );
+  const teamAnnualComparePrice = pricingMessage(
+    pricing.teamAnnualComparePrice,
+    {
+      monthly: TEAM_PRICING_USD.year.monthlyEquivalent,
+      annual: TEAM_PRICING_USD.year.billedAmount,
+    },
+  );
 
   return (
     <>
       <style>{`
         html, body {
-          background: ${pageBackground} !important;
+          background: ${theme.background} !important;
         }
       `}</style>
       <main
         className="min-h-screen w-full px-6 py-10 text-foreground sm:py-12"
-        data-app-pricing-appearance={appearance}
-        style={appPricingStyle(appearance, pageBackground)}
+        data-cmux-app-theme="true"
+        data-cmux-app-theme-appearance={theme.appearance}
+        data-app-pricing-appearance={theme.appearance}
+        style={appPricingStyle(theme)}
       >
         <div className="mx-auto w-full max-w-6xl">
           {banner ? <BillingBanner banner={banner} /> : null}
 
-          <h1 className="text-2xl font-medium tracking-tight">{pricing.title}</h1>
+          <PricingIntervalProvider initialInterval={interval}>
+            <h1 className="text-2xl font-medium tracking-tight">{pricing.title}</h1>
+            <PricingIntervalSelector
+              billingPeriodLabel={pricing.billingPeriod}
+              monthlyLabel={pricing.monthly}
+              annualLabel={pricing.annual}
+              savingsLabel={pricingMessage(pricing.saveAnnual, {
+                discount: PRO_PRICING_USD.year.discountPercent,
+              })}
+              surface="app_pricing"
+            />
 
-          <div className="mt-10 grid items-stretch gap-5 md:grid-cols-2 lg:grid-cols-4">
-            <PlanCard
-              name={pricing.free.name}
-              price={pricing.free.price}
-              period={pricing.perMonth}
-              badge={
-                snapshot.planId === FREE_PLAN_ID ? (
-                  <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
-                ) : null
-              }
-            >
-              {snapshot.planId === FREE_PLAN_ID ? (
-                <DisabledButton>{pricing.currentPlan}</DisabledButton>
-              ) : (
-                <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>
-                  {pricing.free.cta}
-                </PrimaryLink>
-              )}
-              <p className="mt-5 text-sm font-medium text-muted">
-                {pricing.free.featuresLead}
-              </p>
-              <FeatureList items={pricing.free.features} />
-            </PlanCard>
-
-            <PlanCard
-              name={pricing.pro.name}
-              price={pricing.pro.price}
-              period={pricing.perMonth}
-              badge={
-                snapshot.isPro ? (
-                  <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
-                ) : null
-              }
-            >
-              {snapshot.isPro ? (
-                <div className="space-y-2">
+            <div className="mt-6 grid items-stretch gap-5 sm:grid-cols-2 min-[1800px]:grid-cols-4">
+              <PlanCard
+                name={pricing.free.name}
+                price={pricing.free.price}
+                period={pricing.perMonth}
+                badge={
+                  snapshot.planId === FREE_PLAN_ID ? (
+                    <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
+                  ) : null
+                }
+              >
+                {snapshot.planId === FREE_PLAN_ID ? (
                   <DisabledButton>{pricing.currentPlan}</DisabledButton>
-                  {appStorePaymentGated ? null : (
-                    <SecondaryLink href="/api/billing/portal">
-                      {pricing.manageBilling}
-                    </SecondaryLink>
-                  )}
-                </div>
-              ) : appStorePaymentGated ? (
-                <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
-              ) : (
-                <CheckoutButton href={proCheckoutURL}>{pricing.pro.cta}</CheckoutButton>
-              )}
-              <p className="mt-5 text-sm font-medium">
-                {pricing.pro.featuresLead}
-              </p>
-              <FeatureList items={proFeatures} />
-            </PlanCard>
+                ) : (
+                  <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>
+                    {pricing.free.cta}
+                  </PrimaryLink>
+                )}
+                <p className="mt-5 text-sm font-medium">
+                  {pricing.free.featuresLead}
+                </p>
+                <FeatureList items={pricing.free.features} />
+              </PlanCard>
 
-            <PlanCard
-              name={pricing.team.name}
-              price={pricing.team.price}
-              period={pricing.perUserMonth}
-            >
-              {appStorePaymentGated ? (
-                <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
-              ) : (
-                <CheckoutButton href={teamCheckoutURL}>{pricing.team.cta}</CheckoutButton>
-              )}
-              <p className="mt-5 text-sm font-medium">
-                {pricing.team.featuresLead}
-              </p>
-              <FeatureList items={pricing.team.features} />
-            </PlanCard>
+              <PlanCard
+                name={pricing.pro.name}
+                price={
+                  <PricingIntervalValue
+                    monthly={pricing.pro.price}
+                    annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
+                  />
+                }
+                period={
+                  <PricingIntervalValue
+                    monthly={pricing.perMonth}
+                    annual={pricing.perMonthBilledYearly}
+                  />
+                }
+                priceDetail={
+                  <PricingIntervalValue
+                    monthly={null}
+                    annual={
+                      <p className="mt-2 text-sm text-muted">
+                        {pricingMessage(pricing.annualPriceDetail, {
+                          amount: PRO_PRICING_USD.year.billedAmount,
+                          discount: PRO_PRICING_USD.year.discountPercent,
+                        })}
+                      </p>
+                    }
+                  />
+                }
+                badge={
+                  snapshot.isPro ? (
+                    <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
+                  ) : null
+                }
+              >
+                {snapshot.isPro ? (
+                  <div className="space-y-2">
+                    <DisabledButton>{pricing.currentPlan}</DisabledButton>
+                    {appStorePaymentGated ? null : (
+                      <SecondaryLink href="/api/billing/portal">
+                        {pricing.manageBilling}
+                      </SecondaryLink>
+                    )}
+                  </div>
+                ) : appStorePaymentGated ? (
+                  <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
+                ) : (
+                  <PricingCheckoutButton
+                    hrefs={proCheckoutHrefs}
+                    location="app_pricing"
+                  >
+                    {pricing.pro.cta}
+                  </PricingCheckoutButton>
+                )}
+                <p className="mt-5 text-sm font-medium">
+                  {pricing.pro.featuresLead}
+                </p>
+                <FeatureList items={proFeatures} />
+              </PlanCard>
 
-            <PlanCard
-              name={pricing.enterprise.name}
-              price={pricing.enterprise.price}
-            >
-              {appStorePaymentGated ? (
-                <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
-              ) : (
-                <SecondaryLink href={ENTERPRISE_CTA_URL}>
-                  {pricing.enterprise.cta}
-                </SecondaryLink>
-              )}
-              <p className="mt-5 text-sm font-medium">
-                {pricing.enterprise.featuresLead}
-              </p>
-              <FeatureList items={pricing.enterprise.features} />
-            </PlanCard>
-          </div>
+              <PlanCard
+                name={pricing.team.name}
+                price={
+                  <PricingIntervalValue
+                    monthly={pricing.team.price}
+                    annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
+                  />
+                }
+                period={
+                  <PricingIntervalValue
+                    monthly={pricing.perUserMonth}
+                    annual={pricing.perUserMonthBilledYearly}
+                  />
+                }
+                priceDetail={
+                  <PricingIntervalValue
+                    monthly={null}
+                    annual={
+                      <p className="mt-2 text-sm text-muted">
+                        {pricingMessage(pricing.annualPriceDetail, {
+                          amount: TEAM_PRICING_USD.year.billedAmount,
+                          discount: TEAM_PRICING_USD.year.discountPercent,
+                        })}
+                      </p>
+                    }
+                  />
+                }
+              >
+                {appStorePaymentGated ? (
+                  <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
+                ) : (
+                  <PricingCheckoutButton
+                    hrefs={teamCheckoutHrefs}
+                    location="app_pricing"
+                    plan="team"
+                  >
+                    {pricing.team.cta}
+                  </PricingCheckoutButton>
+                )}
+                <p className="mt-5 text-sm font-medium">
+                  {pricing.team.featuresLead}
+                </p>
+                <FeatureList items={pricing.team.features} />
+              </PlanCard>
+
+              <PlanCard
+                name={pricing.enterprise.name}
+                price={pricing.enterprise.price}
+              >
+                {appStorePaymentGated ? (
+                  <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
+                ) : (
+                  <SecondaryLink href={ENTERPRISE_CTA_URL}>
+                    {pricing.enterprise.cta}
+                  </SecondaryLink>
+                )}
+                <p className="mt-5 text-sm font-medium">
+                  {pricing.enterprise.featuresLead}
+                </p>
+                <FeatureList items={pricing.enterprise.features} />
+              </PlanCard>
+            </div>
 
           <section className="mt-16">
+            <h2 className="mb-5 text-lg font-medium tracking-tight">
+              {pricing.compare.title}
+            </h2>
             <PricingCompareTable
               rows={compareRows}
               stickyTopClassName="top-0"
@@ -183,45 +289,23 @@ export default async function AppPricingPage({
               }}
               prices={{
                 free: pricing.free.price,
-                pro: `${pricing.pro.price}${pricing.perMonth}`,
-                team: `${pricing.team.price}${pricing.perUserMonth}`,
+                pro: (
+                  <PricingIntervalValue
+                    monthly={`${pricing.pro.price} ${pricing.perMonth}`}
+                    annual={annualComparePrice}
+                  />
+                ),
+                team: (
+                  <PricingIntervalValue
+                    monthly={teamMonthlyComparePrice}
+                    annual={teamAnnualComparePrice}
+                  />
+                ),
                 enterprise: pricing.enterprise.price,
-              }}
-              actions={{
-                free:
-                  snapshot.planId === FREE_PLAN_ID ? (
-                    <DisabledButton size="compact">{pricing.currentPlan}</DisabledButton>
-                  ) : (
-                    <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF} size="compact">
-                      {pricing.free.cta}
-                    </PrimaryLink>
-                  ),
-                pro: snapshot.isPro ? (
-                  <DisabledButton size="compact">{pricing.currentPlan}</DisabledButton>
-                ) : appStorePaymentGated ? (
-                  <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
-                ) : (
-                  <CheckoutButton href={proCheckoutURL} size="compact">
-                    {pricing.pro.cta}
-                  </CheckoutButton>
-                ),
-                team: appStorePaymentGated ? (
-                  <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
-                ) : (
-                  <CheckoutButton href={teamCheckoutURL} size="compact">
-                    {pricing.team.cta}
-                  </CheckoutButton>
-                ),
-                enterprise: appStorePaymentGated ? (
-                  <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
-                ) : (
-                  <SecondaryLink href={ENTERPRISE_CTA_URL} size="compact">
-                    {pricing.enterprise.cta}
-                  </SecondaryLink>
-                ),
               }}
             />
           </section>
+          </PricingIntervalProvider>
 
           <PricingSizeTable
             rows={sizeRows}
@@ -323,12 +407,25 @@ function appPricingBanner(
   if (billing === "invalid_plan") {
     return { message: pricing.billingInvalidPlan };
   }
+  if (billing === "invalid_relay") {
+    return { message: pricing.billingInvalidRelay };
+  }
   return null;
 }
 
 function firstParam(value: string | string[] | undefined): string | null {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
+}
+
+function pricingMessage(
+  message: string,
+  values: Record<string, string | number>,
+): string {
+  return message.replace(/\{(\w+)\}/g, (match, key: string) => {
+    const value = values[key];
+    return value === undefined ? match : String(value);
+  });
 }
 
 function BillingBanner({ banner }: { banner: BillingBannerModel }) {
