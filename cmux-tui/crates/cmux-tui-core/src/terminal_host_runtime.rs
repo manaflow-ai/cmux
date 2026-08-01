@@ -2436,6 +2436,20 @@ mod unix {
         }
     }
 
+    /// Strictly load the bounded active discovery set for a targeted cleanup.
+    /// Historical registry rows never expand this work set; malformed or
+    /// unsafe live records remain errors so cleanup cannot omit an owner.
+    pub(crate) fn load_terminal_host_records_for_cleanup(
+        root: &Path,
+    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
+        load_terminal_host_records_until(
+            root,
+            MAX_TERMINAL_HOST_RECORDS,
+            Instant::now() + TERMINAL_HOST_RECORD_SCAN_TIMEOUT,
+            TerminalHostRecordLoadMode::Strict,
+        )
+    }
+
     /// Load every discovery record without omission. Adoption tolerates
     /// transient or stale files, but an atomic server shutdown must account
     /// for every record before it discards topology.
@@ -8499,7 +8513,7 @@ mod unix {
 pub(crate) use unix::{
     ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
     adopt_terminal_host_with_kitty_limits, decode_host_resize_payload_for_version,
-    load_terminal_host_record,
+    load_terminal_host_record, load_terminal_host_records_for_cleanup,
 };
 #[cfg(unix)]
 pub use unix::{

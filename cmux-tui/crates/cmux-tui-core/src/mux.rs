@@ -7683,12 +7683,53 @@ impl Mux {
     fn terminate_tombstoned_workspace_hosts(&self, workspace_key: &str) -> anyhow::Result<()> {
         #[cfg(unix)]
         {
-            let terminals = self
-                .workspace_registry
-                .lock()
-                .unwrap()
-                .tombstoned_terminal_host_identities_in_workspace(workspace_key)?;
-            self.terminate_discovered_terminal_hosts(&terminals)
+            let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
+            let Some(root) = root else { return Ok(()) };
+            let records =
+                crate::terminal_host_runtime::load_terminal_host_records_for_cleanup(&root)
+                    .context("load bounded terminal-host records for workspace close")?;
+            let records = {
+                let registry = self.workspace_registry.lock().unwrap();
+                let mut matching = Vec::new();
+                for (path, record) in records {
+                    let Some(terminal) =
+                        registry.terminal_record(&record.terminal_id).with_context(|| {
+                            format!("load terminal lifecycle for {}", record.terminal_id)
+                        })?
+                    else {
+                        continue;
+                    };
+                    if terminal.workspace_key != workspace_key
+                        || terminal.lifecycle != TerminalLifecycle::Tombstoned
+                    {
+                        continue;
+                    }
+                    anyhow::ensure!(
+                        terminal
+                            .incarnation
+                            .as_deref()
+                            .is_some_and(|expected| expected == record.incarnation),
+                        "terminal-host incarnation changed while closing {}",
+                        record.terminal_id
+                    );
+                    matching.push((path, record));
+                }
+                matching
+            };
+            #[cfg(test)]
+            self.discovered_terminal_termination_requests.lock().unwrap().extend(
+                records.iter().map(|(_, record)| {
+                    (record.terminal_id.clone(), Some(record.incarnation.clone()))
+                }),
+            );
+            for (path, record) in records {
+                anyhow::ensure!(
+                    cleanup_terminal_host_record(&record, &path),
+                    "could not clean up terminal host {}",
+                    record.terminal_id
+                );
+            }
+            Ok(())
         }
         #[cfg(not(unix))]
         {

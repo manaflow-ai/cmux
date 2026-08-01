@@ -864,24 +864,6 @@ impl WorkspaceRegistry {
         read_terminal(&self.connection, terminal_id)
     }
 
-    #[cfg(unix)]
-    pub(crate) fn tombstoned_terminal_host_identities_in_workspace(
-        &self,
-        workspace_key: &str,
-    ) -> anyhow::Result<Vec<(String, Option<String>)>> {
-        validate_workspace_key(workspace_key)?;
-        let mut statement = self.connection.prepare(
-            "SELECT terminal_id, incarnation
-             FROM terminal_placements
-             WHERE workspace_key = ?1 AND lifecycle = 'tombstoned'
-             ORDER BY created_revision ASC, terminal_id ASC",
-        )?;
-        statement
-            .query_map([workspace_key], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(Into::into)
-    }
-
     #[cfg(test)]
     pub(crate) fn set_terminal_record_read_failure_for_test(&self, enabled: bool) {
         self.fail_terminal_record_reads.store(enabled, Ordering::Relaxed);
