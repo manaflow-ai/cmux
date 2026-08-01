@@ -14,6 +14,7 @@ struct SidebarAgentStatusRow: Equatable, Identifiable {
     let format: SidebarMetadataFormat
     let lifecycle: AgentHibernationLifecycleState?
     let paneLabel: String?
+    let surfaceName: String?
     let priority: Int
     let timestamp: Date
 
@@ -254,6 +255,7 @@ extension Workspace {
                 format: entry?.format ?? .plain,
                 lifecycle: agentLifecycleStatesByPanelId[item.panelId]?[item.statusKey],
                 paneLabel: agentStatusRowPaneLabel(panelId: item.panelId),
+                surfaceName: agentStatusRowSurfaceName(panelId: item.panelId),
                 // No workspace fallback here: when the pane is not the sole
                 // owner, the last-write-wins workspace entry's freshness must
                 // not influence this row's sort position either.
@@ -268,13 +270,10 @@ extension Workspace {
         }
     }
 
-    /// The row's identity label: an explicit rename wins, then the live
-    /// surface title (agents set it to their session name/topic), then the
-    /// directory label. This is what makes a row say the session's name
-    /// instead of a generic "Claude Code".
+    /// The row's automatic identity fallback, kept separate from an explicit
+    /// surface rename so presentation can append only user-authored names.
     func agentStatusRowPaneLabel(panelId: UUID) -> String? {
         let candidates = [
-            panelCustomTitles[panelId],
             panelTitles[panelId],
             panelDirectoryDisplayLabels[panelId],
         ]
@@ -284,6 +283,17 @@ extension Workspace {
             }
         }
         return nil
+    }
+
+    /// The canonical user-authored surface name. Legacy custom titles without
+    /// provenance predate auto-naming and are therefore treated as user-set.
+    func agentStatusRowSurfaceName(panelId: UUID) -> String? {
+        guard (panelCustomTitleSources[panelId] ?? .user) == .user,
+              let trimmed = panelCustomTitles[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 
     private func isSidebarStatusEntryLessCurrent(
