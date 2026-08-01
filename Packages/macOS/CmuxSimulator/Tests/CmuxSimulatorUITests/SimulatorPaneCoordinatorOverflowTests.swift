@@ -193,6 +193,12 @@ struct SimulatorPaneCoordinatorOverflowTests {
         let client = SimulatorPaneClientSpy(devices: [])
         let coordinator = SimulatorPaneCoordinator(client: client)
         await coordinator.start()
+        _ = try await coordinator.recordUIAutomationSnapshot(
+            Self.snapshot(),
+            simulatorID: "DEVICE",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
 
         try await coordinator.withUIAutomationTransaction {
             await Task.detached {
@@ -203,6 +209,11 @@ struct SimulatorPaneCoordinatorOverflowTests {
                 await Task.yield()
             }
             #expect(await client.messages().contains(.releaseInputs))
+            #expect(throws: SimulatorUIAutomationReferenceError.snapshotMissing) {
+                _ = try coordinator.currentUIAutomationSnapshot(
+                    nowMilliseconds: 1_001
+                )
+            }
         }
     }
 

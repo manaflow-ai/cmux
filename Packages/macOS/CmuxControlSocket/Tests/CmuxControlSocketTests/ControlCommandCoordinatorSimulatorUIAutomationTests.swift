@@ -186,6 +186,15 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
     func invalidParameters() {
         for (method, params) in [
             ("simulator.tap", ["element_ref": JSONValue.string("old-ref")]),
+            ("simulator.tap", [
+                "element_ref": .string("e1_1"),
+                "x": .double(0.5),
+                "y": .double(0.5),
+            ]),
+            ("simulator.tap", [
+                "element_ref": .string("e1_1"),
+                "label": .string("Continue"),
+            ]),
             ("simulator.type_text", [
                 "element_ref": .string("e1_1"),
                 "text": .string(""),
@@ -195,6 +204,14 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
                 "within_element_ref": .string("e1_1"),
                 "direction": .string("up"),
                 "duration_milliseconds": .int(0),
+            ]),
+            ("simulator.swipe", [
+                "within_element_ref": .string("e1_1"),
+                "direction": .string("up"),
+                "from_x": .double(0.1),
+                "from_y": .double(0.5),
+                "to_x": .double(0.9),
+                "to_y": .double(0.5),
             ]),
             ("simulator.wait_for_ui", [
                 "predicate": .string("focused"),
