@@ -38,9 +38,15 @@ class RegistryArtifactTests(unittest.TestCase):
     def test_crates_requires_the_exact_downloaded_bytes(self) -> None:
         def crates_response(archive: bytes):
             def response(request: object, **_kwargs: object) -> io.BytesIO:
-                if str(getattr(request, "full_url", "")).endswith("/download"):
+                url = str(getattr(request, "full_url", ""))
+                if url.endswith("/download"):
                     return self.response(archive)
-                return self.response({"version": {"yanked": False}})
+                if url.endswith("/1.0.0"):
+                    return self.response({"version": {"yanked": False}})
+                return self.response({
+                    "crate": {"name": "cmux-client"},
+                    "versions": [{"num": "1.0.0", "yanked": False}],
+                })
 
             return response
 
@@ -254,18 +260,24 @@ class RegistryArtifactTests(unittest.TestCase):
                 }
             ]
         }
-        with mock.patch.object(
-            reconcile, "urlopen", return_value=self.response(metadata)
-        ):
+        project = {
+            "info": {"name": "cmux-sdk"},
+            "releases": {"1.0.0": [{"yanked": False}]},
+        }
+
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            url = str(getattr(request, "full_url", ""))
+            return self.response(metadata if url.endswith("/1.0.0/json") else project)
+
+        with mock.patch.object(reconcile, "urlopen", side_effect=response):
             self.assertEqual(
                 reconcile.registry_status("pypi", "cmux-sdk", "1.0.0", self.artifact),
                 reconcile.MATCH,
             )
 
         metadata["urls"][0]["filename"] = "other.whl"
-        with mock.patch.object(
-            reconcile, "urlopen", return_value=self.response(metadata)
-        ), self.assertRaises(reconcile.ArtifactMismatch):
+        with mock.patch.object(reconcile, "urlopen", side_effect=response), \
+            self.assertRaises(reconcile.ArtifactMismatch):
             reconcile.registry_status("pypi", "cmux-sdk", "1.0.0", self.artifact)
 
     def test_pypi_rejects_exact_old_bytes_behind_registry_history(self) -> None:
@@ -428,9 +440,16 @@ class RegistryArtifactTests(unittest.TestCase):
                 }
             ]
         }
-        with mock.patch.object(
-            reconcile, "urlopen", return_value=self.response(metadata)
-        ):
+        project = {
+            "info": {"name": "cmux-sdk"},
+            "releases": {"1.0.0": [{"yanked": False}]},
+        }
+
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            url = str(getattr(request, "full_url", ""))
+            return self.response(metadata if url.endswith("/1.0.0/json") else project)
+
+        with mock.patch.object(reconcile, "urlopen", side_effect=response):
             self.assertEqual(
                 reconcile.registry_status(
                     "pypi",

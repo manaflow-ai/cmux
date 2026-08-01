@@ -262,6 +262,8 @@ jobs:
             --version "$BOOTSTRAP_VERSION" \
             --repository https://github.com/manaflow-ai/cmux \
             --owner lawrencecchen \
+            --workflow sdk-bootstrap-pypi.yml \
+            --environment pypi-bootstrap \
             "${filenames[@]}"
 
   publish:
@@ -358,4 +360,6 @@ jobs:
             --filename "$(basename "${wheels[0]}")" \
             --filename "$(basename "${sdists[0]}")" \
             --repository https://github.com/manaflow-ai/cmux \
-            --owner lawrencecchen
+            --owner lawrencecchen \
+            --workflow sdk-bootstrap-pypi.yml \
+            --environment pypi-bootstrap

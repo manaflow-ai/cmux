@@ -182,6 +182,7 @@ jobs:
           path: validated-python
 
       - name: Reject conflicting or unusable registry state
+        id: registry_state
         env:
           CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
         run: |
@@ -217,21 +218,27 @@ jobs:
             --registry npm \
             --package cmux-sdk \
             --version "$CMUX_SDK_VERSION" \
-            --artifact "${npm_packages[0]}"
+            --artifact "${npm_packages[0]}" \
+            --write-github-output \
+            --github-output-name npm
           python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
             --registry pypi \
             --package cmux-sdk \
             --version "$CMUX_SDK_VERSION" \
             --artifact "${python_wheels[0]}" \
             --allowed-artifact "${python_wheels[0]}" \
-            --allowed-artifact "${python_sdists[0]}"
+            --allowed-artifact "${python_sdists[0]}" \
+            --write-github-output \
+            --github-output-name python_wheel
           python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
             --registry pypi \
             --package cmux-sdk \
             --version "$CMUX_SDK_VERSION" \
             --artifact "${python_sdists[0]}" \
             --allowed-artifact "${python_wheels[0]}" \
-            --allowed-artifact "${python_sdists[0]}"
+            --allowed-artifact "${python_sdists[0]}" \
+            --write-github-output \
+            --github-output-name python_sdist
 
       - name: Verify crates.io ownership
         run: |
@@ -258,7 +265,10 @@ jobs:
             --repository-url git+https://github.com/manaflow-ai/cmux.git \
             --repository-directory cmux-tui/bindings/typescript \
             --owner lawrencechen \
-            --workflow .github/workflows/sdk-bootstrap-npm.yml
+            --workflow .github/workflows/sdk-bootstrap-npm.yml \
+            --workflow-ref refs/heads/main \
+            --dist-tag bootstrap \
+            --publisher owner
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
@@ -278,7 +288,53 @@ jobs:
             --filename cmux_sdk-0.0.0a0-py3-none-any.whl \
             --filename cmux_sdk-0.0.0a0.tar.gz \
             --repository https://github.com/manaflow-ai/cmux \
-            --owner lawrencecchen
+            --owner lawrencecchen \
+            --workflow sdk-bootstrap-pypi.yml \
+            --environment pypi-bootstrap
+
+      - name: Verify any existing stable provenance before creating tags
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+          NPM_STATUS: ${{ steps.registry_state.outputs.npm }}
+          PYTHON_WHEEL_STATUS: ${{ steps.registry_state.outputs.python_wheel }}
+          PYTHON_SDIST_STATUS: ${{ steps.registry_state.outputs.python_sdist }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          if [[ "$NPM_STATUS" == "match" ]]; then
+            npm_packages=(validated-npm/*.tgz)
+            python3 cmux-tui/bindings/verify_npm_provenance.py \
+              --package cmux-sdk \
+              --version "$CMUX_SDK_VERSION" \
+              --repository-url git+https://github.com/manaflow-ai/cmux.git \
+              --repository-directory cmux-tui/bindings/typescript \
+              --artifact "${npm_packages[0]}" \
+              --owner lawrencechen \
+              --workflow .github/workflows/sdk-release-cut.yml \
+              --workflow-ref refs/heads/main \
+              --dist-tag latest \
+              --publisher github-actions
+          fi
+
+          filenames=()
+          if [[ "$PYTHON_WHEEL_STATUS" == "match" ]]; then
+            python_wheels=(validated-python/*.whl)
+            filenames+=(--filename "$(basename "${python_wheels[0]}")")
+          fi
+          if [[ "$PYTHON_SDIST_STATUS" == "match" ]]; then
+            python_sdists=(validated-python/*.tar.gz)
+            filenames+=(--filename "$(basename "${python_sdists[0]}")")
+          fi
+          if (( ${#filenames[@]} > 0 )); then
+            python3 cmux-tui/bindings/verify_pypi_provenance.py \
+              --package cmux-sdk \
+              --version "$CMUX_SDK_VERSION" \
+              --repository https://github.com/manaflow-ai/cmux \
+              --owner lawrencecchen \
+              --workflow sdk-release-cut.yml \
+              --environment pypi \
+              "${filenames[@]}"
+          fi
 
   cut-tags:
     needs:
@@ -855,6 +911,95 @@ jobs:
             --wait-seconds 120 \
             --require-match
 
+  verify-stable-provenance:
+    needs:
+      - validate-release
+      - publish-npm
+      - publish-python-wheel
+      - publish-python-sdist
+    runs-on: ubuntu-latest # github-hosted-required: npm provenance verification
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Download the validated npm artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-npm-dist
+          path: validated-npm
+
+      - name: Download the validated Python distributions
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-python-dist
+          path: validated-python
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          package-manager-cache: false
+
+      - name: Install pinned npm for provenance verification
+        run: npm install --global npm@11.5.1
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12.8"
+
+      - name: Install the pinned PyPI provenance verifier
+        run: |
+          python3 -m pip install \
+            --disable-pip-version-check \
+            "pypi-attestations==0.0.29"
+
+      - name: Verify published stable provenance
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          npm_packages=(validated-npm/*.tgz)
+          python_wheels=(validated-python/*.whl)
+          python_sdists=(validated-python/*.tar.gz)
+          [[ "${#npm_packages[@]}" == 1 ]] || {
+            echo "expected one validated npm artifact, found ${#npm_packages[@]}" >&2
+            exit 1
+          }
+          [[ "${#python_wheels[@]}" == 1 ]] || {
+            echo "expected one validated Python wheel, found ${#python_wheels[@]}" >&2
+            exit 1
+          }
+          [[ "${#python_sdists[@]}" == 1 ]] || {
+            echo "expected one validated Python source distribution, found ${#python_sdists[@]}" >&2
+            exit 1
+          }
+
+          python3 cmux-tui/bindings/verify_npm_provenance.py \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --repository-url git+https://github.com/manaflow-ai/cmux.git \
+            --repository-directory cmux-tui/bindings/typescript \
+            --artifact "${npm_packages[0]}" \
+            --owner lawrencechen \
+            --workflow .github/workflows/sdk-release-cut.yml \
+            --workflow-ref refs/heads/main \
+            --dist-tag latest \
+            --publisher github-actions
+          python3 cmux-tui/bindings/verify_pypi_provenance.py \
+            --package cmux-sdk \
+            --version "$CMUX_SDK_VERSION" \
+            --filename "$(basename "${python_wheels[0]}")" \
+            --filename "$(basename "${python_sdists[0]}")" \
+            --repository https://github.com/manaflow-ai/cmux \
+            --owner lawrencecchen \
+            --workflow sdk-release-cut.yml \
+            --environment pypi
+
   summarize:
     if: always()
     needs:
@@ -871,6 +1016,7 @@ jobs:
       - publish-npm
       - publish-python-wheel
       - publish-python-sdist
+      - verify-stable-provenance
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions: {}
     steps:
@@ -892,6 +1038,7 @@ jobs:
           NPM_RESULT: ${{ needs.publish-npm.result }}
           PYTHON_WHEEL_RESULT: ${{ needs.publish-python-wheel.result }}
           PYTHON_SDIST_RESULT: ${{ needs.publish-python-sdist.result }}
+          STABLE_PROVENANCE_RESULT: ${{ needs.verify-stable-provenance.result }}
         run: |
           {
             echo "### cmux SDK $VERSION"
@@ -911,4 +1058,5 @@ jobs:
             echo "- npm publish: \`$NPM_RESULT\`"
             echo "- PyPI wheel publish: \`$PYTHON_WHEEL_RESULT\`"
             echo "- PyPI source publish: \`$PYTHON_SDIST_RESULT\`"
+            echo "- Stable provenance verification: \`$STABLE_PROVENANCE_RESULT\`"
           } >> "$GITHUB_STEP_SUMMARY"

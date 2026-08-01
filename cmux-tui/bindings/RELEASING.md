@@ -131,7 +131,11 @@ distribution to arrive in either order. Crates.io reconciliation rejects
 yanked versions. npm, PyPI, and crates.io reconciliation prevent releases older
 than active registry history, and npm requires the requested version to own the
 `latest` distribution tag. Registry transport interruptions are retried within
-the configured reconciliation deadline.
+the configured reconciliation deadline. If stable npm or PyPI artifacts already
+exist, the pretag gate also requires their trusted-publisher provenance to name
+`sdk-release-cut.yml` on `main` and the expected registry environment. A final
+job repeats those provenance checks for the exact npm archive, wheel, and source
+distribution after every publisher finishes.
 
 The cut workflow holds one cross-version concurrency lock until the Go check and
 all registry jobs finish. If one publish job fails, use GitHub's **Re-run failed

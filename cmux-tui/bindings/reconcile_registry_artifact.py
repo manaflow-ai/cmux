@@ -103,11 +103,15 @@ def _compare_release_segments(
     return (left > right) - (left < right)
 
 
-def _semver_precedence(value: str, candidate: tuple[int, int, int]) -> int:
+def _semver_precedence(
+    registry: str,
+    value: str,
+    candidate: tuple[int, int, int],
+) -> int:
     match = SEMVER_VERSION.fullmatch(value)
     if match is None:
         raise RegistryError(
-            f"crates.io version cannot be compared safely: {value!r}"
+            f"{registry} version cannot be compared safely: {value!r}"
         )
     release = tuple(int(part) for part in match.groups()[:3])
     comparison = _compare_release_segments(release, candidate)
@@ -119,7 +123,7 @@ def _semver_precedence(value: str, candidate: tuple[int, int, int]) -> int:
     for identifier in prerelease.split("."):
         if identifier.isdigit() and len(identifier) > 1 and identifier.startswith("0"):
             raise RegistryError(
-                f"crates.io version cannot be compared safely: {value!r}"
+                f"{registry} version cannot be compared safely: {value!r}"
             )
     return -1
 
@@ -149,8 +153,8 @@ def _registry_precedence(
     value: str,
     candidate: tuple[int, int, int],
 ) -> int:
-    if registry == "crates.io":
-        return _semver_precedence(value, candidate)
+    if registry in ("crates.io", "npm"):
+        return _semver_precedence(registry, value, candidate)
     if registry == "PyPI":
         return _pypi_precedence(value, candidate)
     raise RegistryError(f"unsupported registry version comparison: {registry}")
@@ -161,6 +165,8 @@ def _reject_newer_registry_history(
     package: str,
     requested: str,
     active_versions: Sequence[str],
+    *,
+    allow_version: Optional[str] = None,
 ) -> None:
     candidate = _stable_version(requested)
     if candidate is None:
@@ -168,6 +174,7 @@ def _reject_newer_registry_history(
     newer_or_equal = sorted(
         version
         for version in active_versions
+        if version != allow_version
         if _registry_precedence(registry, version, candidate) >= 0
     )
     if newer_or_equal:
@@ -215,6 +222,45 @@ def _json(url: str) -> Optional[dict[str, Any]]:
     return value
 
 
+def _crates_active_versions(package: str) -> list[str]:
+    project_url = (
+        "https://crates.io/api/v1/crates/"
+        f"{quote(package, safe='')}"
+    )
+    project = _json(project_url)
+    if project is None:
+        raise RegistryProjectMissing(
+            f"crates.io project {package!r} does not exist; "
+            "bootstrap it before cutting release tags"
+        )
+    if not isinstance(project.get("crate"), dict):
+        raise RegistryError(f"crates.io project metadata is malformed for {package}")
+    versions = project.get("versions")
+    if not isinstance(versions, list):
+        raise RegistryError(
+            f"crates.io project version history is malformed for {package}"
+        )
+    active_versions: list[str] = []
+    for release in versions:
+        if not isinstance(release, dict):
+            raise RegistryError(
+                f"crates.io project version history is malformed for {package}"
+            )
+        number = release.get("num")
+        yanked = release.get("yanked")
+        if not isinstance(number, str) or not isinstance(yanked, bool):
+            raise RegistryError(
+                f"crates.io project version history is malformed for {package}"
+            )
+        if not yanked:
+            active_versions.append(number)
+    if len(active_versions) != len(set(active_versions)):
+        raise RegistryError(
+            f"crates.io project version history is malformed for {package}"
+        )
+    return active_versions
+
+
 def _crates_status(package: str, version: str, artifact: Path) -> str:
     metadata_url = (
         "https://crates.io/api/v1/crates/"
@@ -222,39 +268,7 @@ def _crates_status(package: str, version: str, artifact: Path) -> str:
     )
     metadata = _json(metadata_url)
     if metadata is None:
-        project_url = (
-            "https://crates.io/api/v1/crates/"
-            f"{quote(package, safe='')}"
-        )
-        project = _json(project_url)
-        if project is None:
-            raise RegistryProjectMissing(
-                f"crates.io project {package!r} does not exist; "
-                "bootstrap it before cutting release tags"
-            )
-        if not isinstance(project.get("crate"), dict):
-            raise RegistryError(
-                f"crates.io project metadata is malformed for {package}"
-            )
-        versions = project.get("versions")
-        if not isinstance(versions, list):
-            raise RegistryError(
-                f"crates.io project version history is malformed for {package}"
-            )
-        active_versions: list[str] = []
-        for release in versions:
-            if not isinstance(release, dict):
-                raise RegistryError(
-                    f"crates.io project version history is malformed for {package}"
-                )
-            number = release.get("num")
-            yanked = release.get("yanked")
-            if not isinstance(number, str) or not isinstance(yanked, bool):
-                raise RegistryError(
-                    f"crates.io project version history is malformed for {package}"
-                )
-            if not yanked:
-                active_versions.append(number)
+        active_versions = _crates_active_versions(package)
         _reject_newer_registry_history(
             "crates.io", package, version, active_versions
         )
@@ -273,6 +287,18 @@ def _crates_status(package: str, version: str, artifact: Path) -> str:
         raise ReleaseStateMismatch(
             f"crates.io release {package}@{version} is yanked"
         )
+    active_versions = _crates_active_versions(package)
+    if version not in active_versions:
+        raise RegistryLookupError(
+            f"crates.io project history has not converged for {package}@{version}"
+        )
+    _reject_newer_registry_history(
+        "crates.io",
+        package,
+        version,
+        active_versions,
+        allow_version=version,
+    )
 
     url = (
         "https://crates.io/api/v1/crates/"
@@ -312,19 +338,12 @@ def _npm_status(package: str, version: str, artifact: Path) -> str:
         raise RegistryError(f"npm metadata has no dist-tags object for {package}")
     release = versions.get(version)
     if release is None:
-        newer_or_equal: list[tuple[tuple[int, int, int], str]] = []
-        for existing in versions:
-            if not isinstance(existing, str):
-                continue
-            parsed = _stable_version(existing)
-            if parsed is not None and parsed >= candidate:
-                newer_or_equal.append((parsed, existing))
-        if newer_or_equal:
-            newest = max(newer_or_equal)[1]
-            raise ReleaseStateMismatch(
-                f"npm already contains stable version {newest!r}, "
-                f"which is not older than requested {version!r}"
-            )
+        _reject_newer_registry_history(
+            "npm",
+            package,
+            version,
+            list(versions),
+        )
         latest = dist_tags.get("latest")
         if latest is not None:
             if not isinstance(latest, str):
@@ -380,7 +399,52 @@ def _npm_status(package: str, version: str, artifact: Path) -> str:
         raise ReleaseStateMismatch(
             f"npm dist-tag latest points to {latest!r}, expected {version!r}"
         )
+    _reject_newer_registry_history(
+        "npm",
+        package,
+        version,
+        list(versions),
+        allow_version=version,
+    )
     return MATCH
+
+
+def _pypi_active_versions(package: str) -> list[str]:
+    project_url = (
+        "https://pypi.org/pypi/"
+        f"{quote(package, safe='')}/json"
+    )
+    project = _json(project_url)
+    if project is None:
+        raise RegistryProjectMissing(
+            f"PyPI project {package!r} does not exist; "
+            "run the bootstrap workflow before cutting release tags"
+        )
+    if not isinstance(project.get("info"), dict):
+        raise RegistryError(f"PyPI project metadata is malformed for {package}")
+    releases = project.get("releases")
+    if not isinstance(releases, dict):
+        raise RegistryError(
+            f"PyPI project version history is malformed for {package}"
+        )
+    active_versions: list[str] = []
+    for release_version, files in releases.items():
+        if not isinstance(release_version, str) or not isinstance(files, list):
+            raise RegistryError(
+                f"PyPI project version history is malformed for {package}"
+            )
+        active = False
+        for published in files:
+            if not isinstance(published, dict) or not isinstance(
+                published.get("yanked"), bool
+            ):
+                raise RegistryError(
+                    f"PyPI project version history is malformed for {package}"
+                )
+            active = active or not published["yanked"]
+        if active:
+            active_versions.append(release_version)
+    return active_versions
 
 
 def _pypi_status(
@@ -395,42 +459,7 @@ def _pypi_status(
     )
     metadata = _json(url)
     if metadata is None:
-        project_url = (
-            "https://pypi.org/pypi/"
-            f"{quote(package, safe='')}/json"
-        )
-        project = _json(project_url)
-        if project is None:
-            raise RegistryProjectMissing(
-                f"PyPI project {package!r} does not exist; "
-                "run the bootstrap workflow before cutting release tags"
-            )
-        if not isinstance(project.get("info"), dict):
-            raise RegistryError(
-                f"PyPI project metadata is malformed for {package}"
-            )
-        releases = project.get("releases")
-        if not isinstance(releases, dict):
-            raise RegistryError(
-                f"PyPI project version history is malformed for {package}"
-            )
-        active_versions: list[str] = []
-        for release_version, files in releases.items():
-            if not isinstance(release_version, str) or not isinstance(files, list):
-                raise RegistryError(
-                    f"PyPI project version history is malformed for {package}"
-                )
-            active = False
-            for published in files:
-                if not isinstance(published, dict) or not isinstance(
-                    published.get("yanked"), bool
-                ):
-                    raise RegistryError(
-                        f"PyPI project version history is malformed for {package}"
-                    )
-                active = active or not published["yanked"]
-            if active:
-                active_versions.append(release_version)
+        active_versions = _pypi_active_versions(package)
         _reject_newer_registry_history("PyPI", package, version, active_versions)
         return MISSING
     files = metadata.get("urls")
@@ -487,7 +516,20 @@ def _pypi_status(
                 f"PyPI already has different bytes for {package}=={version} file "
                 f"{filename}: local sha256={local}, remote sha256={remote}"
             )
-    return MATCH if artifact.name in published_names else MISSING
+    status = MATCH if artifact.name in published_names else MISSING
+    active_versions = _pypi_active_versions(package)
+    if version not in active_versions:
+        raise RegistryLookupError(
+            f"PyPI project history has not converged for {package}=={version}"
+        )
+    _reject_newer_registry_history(
+        "PyPI",
+        package,
+        version,
+        active_versions,
+        allow_version=version,
+    )
+    return status
 
 
 def registry_status(
@@ -557,12 +599,14 @@ def wait_for_status(
             raise RegistryCancellation("registry reconciliation was cancelled")
 
 
-def _write_github_output(status: str) -> None:
+def _write_github_output(name: str, status: str) -> None:
     output = os.environ.get("GITHUB_OUTPUT")
     if not output:
         raise RegistryError("GITHUB_OUTPUT is required with --write-github-output")
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None:
+        raise RegistryError("GitHub output name is invalid")
     with Path(output).open("a", encoding="utf-8") as handle:
-        handle.write(f"status={status}\n")
+        handle.write(f"{name}={status}\n")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -576,6 +620,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--wait-seconds", type=int, default=0)
     parser.add_argument("--require-match", action="store_true")
     parser.add_argument("--write-github-output", action="store_true")
+    parser.add_argument("--github-output-name", default="status")
     return parser
 
 
@@ -611,7 +656,7 @@ def main(
             wait_for_match=args.mode == "check" and args.require_match,
         )
         if args.write_github_output:
-            _write_github_output(status)
+            _write_github_output(args.github_output_name, status)
         if args.mode == "check":
             print(f"registry artifact status: {status}")
             return 0 if status == MATCH or not args.require_match else 1

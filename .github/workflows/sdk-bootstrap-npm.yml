@@ -128,6 +128,9 @@ jobs:
             --repository-directory cmux-tui/bindings/typescript \
             --owner lawrencechen \
             --workflow .github/workflows/sdk-bootstrap-npm.yml \
+            --workflow-ref refs/heads/main \
+            --dist-tag bootstrap \
+            --publisher owner \
             --artifact "${packages[0]}"
 
       - name: Publish the exact tested prerelease artifact
@@ -189,4 +192,7 @@ jobs:
             --repository-directory cmux-tui/bindings/typescript \
             --owner lawrencechen \
             --workflow .github/workflows/sdk-bootstrap-npm.yml \
+            --workflow-ref refs/heads/main \
+            --dist-tag bootstrap \
+            --publisher owner \
             --artifact "${packages[0]}"

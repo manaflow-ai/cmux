@@ -31,6 +31,8 @@ GITHUB_WORKFLOW_BUILD_TYPE = (
     "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1"
 )
 GITHUB_HOSTED_BUILDER = "https://github.com/actions/runner/github-hosted"
+GITHUB_ACTIONS_PUBLISHER = "GitHub Actions"
+GITHUB_ACTIONS_PUBLISHER_EMAIL = "npm-oidc-no-reply@github.com"
 USER_AGENT = "cmux-sdk-npm-provenance/1 (https://github.com/manaflow-ai/cmux)"
 
 
@@ -84,6 +86,8 @@ def _validate_metadata(
     repository_directory: str,
     artifact: Optional[Path],
     owner: str,
+    dist_tag: str,
+    publisher_type: str,
 ) -> tuple[str, str]:
     if metadata.get("name") != package:
         raise ProvenanceError("npm metadata names a different project")
@@ -95,8 +99,8 @@ def _validate_metadata(
         raise ProvenanceError("npm bootstrap release identity is malformed")
 
     tags = metadata.get("dist-tags")
-    if not isinstance(tags, dict) or tags.get("bootstrap") != version:
-        raise ProvenanceError("npm bootstrap tag does not name the ownership release")
+    if not isinstance(tags, dict) or tags.get(dist_tag) != version:
+        raise ProvenanceError("npm dist-tag does not name the expected release")
 
     repository = release.get("repository")
     if not isinstance(repository, dict) or repository != {
@@ -108,8 +112,27 @@ def _validate_metadata(
 
     publisher = release.get("_npmUser")
     publisher_name = publisher.get("name") if isinstance(publisher, dict) else None
-    if publisher_name != owner:
-        raise ProvenanceError("npm bootstrap publisher identity does not match")
+    if publisher_type == "owner":
+        if publisher_name != owner:
+            raise ProvenanceError("npm release publisher identity does not match")
+    elif publisher_type == "github-actions":
+        trusted = (
+            publisher.get("trustedPublisher")
+            if isinstance(publisher, dict)
+            else None
+        )
+        oidc_config = trusted.get("oidcConfigId") if isinstance(trusted, dict) else None
+        if (
+            publisher_name != GITHUB_ACTIONS_PUBLISHER
+            or publisher.get("email") != GITHUB_ACTIONS_PUBLISHER_EMAIL
+            or not isinstance(trusted, dict)
+            or trusted.get("id") != "github"
+            or not isinstance(oidc_config, str)
+            or not oidc_config.startswith("oidc:")
+        ):
+            raise ProvenanceError("npm release publisher identity does not match")
+    else:
+        raise ProvenanceError("npm publisher type is unsupported")
     maintainers = metadata.get("maintainers")
     if not isinstance(maintainers, list):
         raise ProvenanceError("npm project maintainer state is malformed")
@@ -166,6 +189,7 @@ def _validate_attestation(
     version: str,
     integrity: str,
     workflow: str,
+    workflow_ref: str,
 ) -> None:
     attestations = metadata.get("attestations")
     if not isinstance(attestations, list):
@@ -217,7 +241,7 @@ def _validate_attestation(
     if not isinstance(workflow_identity, dict) or (
         workflow_identity.get("repository") != GITHUB_REPOSITORY
         or workflow_identity.get("path") != workflow
-        or workflow_identity.get("ref") != "refs/heads/main"
+        or workflow_identity.get("ref") != workflow_ref
     ):
         raise ProvenanceError("npm bootstrap provenance workflow does not match")
     internal = definition.get("internalParameters")
@@ -330,10 +354,24 @@ def verify(
     *,
     owner: str,
     workflow: str,
+    workflow_ref: str,
+    dist_tag: str,
+    publisher: str,
     npm: str = "npm",
 ) -> None:
     if not all(
-        (package, version, repository_url, repository_directory, owner, workflow, npm)
+        (
+            package,
+            version,
+            repository_url,
+            repository_directory,
+            owner,
+            workflow,
+            workflow_ref,
+            dist_tag,
+            publisher,
+            npm,
+        )
     ):
         raise ProvenanceError("npm provenance inputs must be non-empty")
     integrity, attestation_url = _validate_metadata(
@@ -344,6 +382,8 @@ def verify(
         repository_directory,
         artifact,
         owner,
+        dist_tag,
+        publisher,
     )
     attestation = _json(
         attestation_url,
@@ -355,6 +395,7 @@ def verify(
         version,
         integrity,
         workflow,
+        workflow_ref,
     )
     _run_npm(package, version, npm)
 
@@ -368,6 +409,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--owner", required=True)
     parser.add_argument("--workflow", required=True)
+    parser.add_argument("--workflow-ref", required=True)
+    parser.add_argument("--dist-tag", required=True)
+    parser.add_argument(
+        "--publisher",
+        choices=("owner", "github-actions"),
+        required=True,
+    )
     parser.add_argument("--npm", default="npm")
     return parser
 
@@ -383,6 +431,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             args.artifact,
             owner=args.owner,
             workflow=args.workflow,
+            workflow_ref=args.workflow_ref,
+            dist_tag=args.dist_tag,
+            publisher=args.publisher,
             npm=args.npm,
         )
     except ProvenanceError as error:
