@@ -3753,6 +3753,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancelled_authorization_releases_its_pending_invitation() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        let invitation =
+            database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+        let client = StaticIdentity::generate().unwrap();
+        let request = AuthRequest {
+            mode: AuthKind::Invitation,
+            invitation_id: Some(invitation.id.clone()),
+            device_public_key: client.public_key(),
+            device_name: "cancelled-client".into(),
+            session: SessionId([32; 16]),
+            lane: Lane::Control,
+            lanes: vec![Lane::Control],
+            generation: 0,
+            inbound: InboundAuthEvidence::Network(NetworkPeer::Tls),
+        };
+
+        let first = tokio::spawn({
+            let database = Arc::clone(&database);
+            let request = request.clone();
+            async move { database.authorize(request).await }
+        });
+        database.wait_for_pending(Duration::from_secs(2)).await.unwrap();
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+
+        let retry = tokio::spawn({
+            let database = Arc::clone(&database);
+            async move { database.authorize(request).await }
+        });
+        database.wait_for_pending(Duration::from_secs(2)).await.unwrap();
+        database.deny(&invitation.id).await.unwrap();
+
+        assert_eq!(retry.await.unwrap().unwrap_err(), "enrollment denied");
+    }
+
+    #[tokio::test]
     async fn invitation_requires_owner_approval_then_persists_device() {
         let temp = tempfile::tempdir().unwrap();
         let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();

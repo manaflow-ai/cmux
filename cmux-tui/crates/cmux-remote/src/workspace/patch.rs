@@ -646,6 +646,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unified_patch_keeps_header_shaped_hunk_lines_in_the_same_file() {
+        let (_directory, root) = root().await;
+        tokio::fs::write(root.canonical_root().join("syntax.txt"), b"-- old\n").await.unwrap();
+        let patch = "--- a/syntax.txt\n+++ b/syntax.txt\n@@ -1 +1 @@\n--- old\n+++ new\n";
+
+        apply_patch(&root, patch, false, &BTreeMap::new()).await.unwrap();
+
+        assert_eq!(
+            tokio::fs::read(root.canonical_root().join("syntax.txt")).await.unwrap(),
+            b"++ new\n"
+        );
+    }
+
+    #[tokio::test]
     async fn conflicting_hunk_changes_nothing() {
         let (_directory, root) = root().await;
         tokio::fs::write(root.canonical_root().join("hello.txt"), b"current\n").await.unwrap();
