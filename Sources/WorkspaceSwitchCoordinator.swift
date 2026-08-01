@@ -215,10 +215,13 @@ final class WorkspaceSwitchCoordinator {
         finishIfPossible(&transaction)
     }
 
-    func noteInteractionReady(workspaceID: UUID, surfaceID: UUID? = nil) {
+    /// Ends interaction measurement when any control in the destination
+    /// workspace becomes ready. The focused pane can legitimately change while
+    /// SwiftUI reconciles, so a surface captured before selection is not an
+    /// authoritative interaction boundary.
+    func noteInteractionReady(workspaceID: UUID) {
         guard var transaction = active,
               transaction.targetWorkspaceID == workspaceID,
-              surfaceID == nil || transaction.targetSurfaceID == surfaceID,
               var readiness = transaction.readiness else {
             return
         }
