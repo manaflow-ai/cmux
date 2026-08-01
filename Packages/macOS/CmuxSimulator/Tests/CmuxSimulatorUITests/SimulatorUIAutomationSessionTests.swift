@@ -201,6 +201,41 @@ struct SimulatorUIAutomationSessionTests {
         #expect(try await session.withTransaction { true })
     }
 
+    @Test("An active transaction admits at most eight queued operations")
+    func transactionQueueIsBounded() async throws {
+        let session = SimulatorUIAutomationSession()
+        try await session.beginTransaction()
+        var queuedTasks: [Task<Void, any Error>] = []
+        for _ in 0..<8 {
+            queuedTasks.append(Task { @MainActor in
+                try await session.beginTransaction()
+                session.endTransaction()
+            })
+            await Task.yield()
+        }
+
+        let overflow = Task { @MainActor in
+            do {
+                try await session.beginTransaction()
+                session.endTransaction()
+                return false
+            } catch is CancellationError {
+                return false
+            } catch {
+                return true
+            }
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        overflow.cancel()
+        let wasRejected = await overflow.value
+
+        for task in queuedTasks { task.cancel() }
+        session.endTransaction()
+        for task in queuedTasks { _ = try? await task.value }
+
+        #expect(wasRejected)
+    }
+
     private func snapshot() -> SimulatorAccessibilitySnapshot {
         SimulatorAccessibilitySnapshot(
             roots: [

@@ -306,6 +306,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(shell.contains("cmux_ssh_auth_process_has_identity"))
         #expect(shell.contains("cmux_ssh_auth_tree_first_frozen_processes"))
         #expect(shell.contains("cmux_ssh_auth_tree_second_frozen_processes"))
+        #expect(shell.contains("cmux_ssh_auth_tree_current_processes"))
+        #expect(!shell.contains("lstart"))
     }
 
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
