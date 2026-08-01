@@ -6951,11 +6951,21 @@ impl Mux {
     }
 
     fn terminate_discovered_terminal_host(&self, terminal_id: &str, incarnation: Option<&str>) {
+        self.terminate_discovered_terminal_hosts(&[(
+            terminal_id.to_string(),
+            incarnation.map(str::to_string),
+        )]);
+    }
+
+    fn terminate_discovered_terminal_hosts(&self, terminals: &[(String, Option<String>)]) {
+        if terminals.is_empty() {
+            return;
+        }
         #[cfg(test)]
         self.discovered_terminal_termination_requests
             .lock()
             .unwrap()
-            .push((terminal_id.to_string(), incarnation.map(str::to_string)));
+            .extend(terminals.iter().cloned());
         #[cfg(unix)]
         {
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
@@ -6964,16 +6974,24 @@ impl Mux {
             else {
                 return;
             };
+            let targets = terminals
+                .iter()
+                .map(|(terminal_id, incarnation)| (terminal_id.as_str(), incarnation.as_deref()))
+                .collect::<HashMap<_, _>>();
             for (path, record) in records {
-                if record.terminal_id == terminal_id
-                    && incarnation.is_none_or(|expected| record.incarnation == expected)
-                {
+                let Some(expected_incarnation) = targets.get(record.terminal_id.as_str()) else {
+                    continue;
+                };
+                if match *expected_incarnation {
+                    Some(expected) => record.incarnation == expected,
+                    None => true,
+                } {
                     terminate_host_record(record, path);
                 }
             }
         }
         #[cfg(not(unix))]
-        let _ = (terminal_id, incarnation);
+        let _ = terminals;
     }
 
     #[cfg(test)]

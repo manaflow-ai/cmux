@@ -43,6 +43,7 @@ struct ResourceClosePlan {
     state: State,
     removed: Vec<Arc<Surface>>,
     terminals: Vec<(String, Option<String>)>,
+    unmaterialized_terminals: Vec<(String, Option<String>)>,
     workspace_close: Option<ResourceWorkspaceClose>,
     closed_workspace_key: Option<String>,
     delta: TreeDelta,
@@ -2086,6 +2087,7 @@ impl Mux {
         drop(registry);
         drop(workspace_lifecycle);
 
+        self.terminate_discovered_terminal_hosts(&plan.unmaterialized_terminals);
         self.notify_terminal_exit_waiters(closed_public_ids);
         self.publish_resource_event();
         for surface in plan.removed {
@@ -2170,6 +2172,7 @@ impl Mux {
 
         let mut removed = Vec::new();
         let mut terminals = Vec::new();
+        let mut unmaterialized_terminals = Vec::new();
         for surface_id in &surface_ids {
             if let Some(surface) = state.surfaces.get(surface_id).cloned() {
                 if let Some(identity) = self.resource_terminal_host_identity(&surface) {
@@ -2185,7 +2188,9 @@ impl Mux {
                 let incarnation = registry
                     .terminal_record(&terminal_id)?
                     .and_then(|terminal| terminal.incarnation);
-                terminals.push((terminal_id, incarnation));
+                let identity = (terminal_id, incarnation);
+                terminals.push(identity.clone());
+                unmaterialized_terminals.push(identity);
             }
         }
         let mut split_index_changed = false;
@@ -2247,6 +2252,7 @@ impl Mux {
             state: projected,
             removed,
             terminals,
+            unmaterialized_terminals,
             workspace_close,
             closed_workspace_key,
             delta,
