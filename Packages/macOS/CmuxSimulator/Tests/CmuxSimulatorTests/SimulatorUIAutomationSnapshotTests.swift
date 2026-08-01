@@ -189,6 +189,40 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect(scrollView.actions.contains(.swipeWithin))
     }
 
+    @Test("Keyboard key descriptions override generic button roles")
+    func keyboardKeyDescriptionOverridesButtonRole() throws {
+        let source = SimulatorAccessibilitySnapshot(
+            roots: [
+                SimulatorAccessibilityNode(
+                    id: "0",
+                    identifier: "keyboard.delete",
+                    role: "AXButton",
+                    label: "delete",
+                    value: nil,
+                    roleDescription: "Keyboard key",
+                    frame: SimulatorRect(x: 300, y: 700, width: 50, height: 50),
+                    isEnabled: true,
+                    children: []
+                ),
+            ],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+        let record = try source.uiAutomationRecord(
+            simulatorID: "SIM-1",
+            sequence: 1,
+            capturedAtMilliseconds: 1_000
+        )
+
+        let key = try #require(record.element(ref: "e1_1")?.element)
+        #expect(key.role == .keyboardKey)
+        #expect(record.matching(SimulatorUIAutomationSelector(role: .keyboardKey)).map(\.ref) == ["e1_1"])
+    }
+
     @Test("Nested content extending past a container infers one swipe target")
     func nestedOverflowInfersScrollableContainer() throws {
         let source = SimulatorAccessibilitySnapshot(
