@@ -192,6 +192,18 @@ def test_registry_state_is_validated_before_irreversible_tags() -> None:
     assert release.index("registry-preflight:") < release.index("cut-tags:")
 
 
+def test_tag_cut_revalidates_release_order_after_its_final_fetch() -> None:
+    release = workflow("sdk-release-cut.yml")
+    cut_tags = workflow_job(release, "cut-tags")
+
+    fetch = cut_tags.rindex("git fetch --force origin main --tags")
+    tag_list = cut_tags.index("git tag --list 'cmux-sdk-v*'", fetch)
+    revalidate = cut_tags.index("--require-latest-tag", tag_list)
+    create = cut_tags.index('ensure_tag "$sdk_tag"', revalidate)
+    push = cut_tags.index("git push --atomic origin", create)
+    assert fetch < tag_list < revalidate < create < push
+
+
 def test_go_publisher_uses_the_nested_module_semver_tag() -> None:
     go = workflow("sdk-publish-go.yml")
     java = workflow("sdk-publish-java.yml")

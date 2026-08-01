@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import importlib.util
 import io
 import json
@@ -250,6 +251,47 @@ class RegistryArtifactTests(unittest.TestCase):
                     cancel_event=cancelled,
                 )
         status.assert_not_called()
+
+    def test_registry_wait_retries_response_body_transport_failures(self) -> None:
+        metadata = {
+            "dist-tags": {"latest": "1.0.0"},
+            "versions": {
+                "1.0.0": {
+                    "dist": {
+                        "integrity": reconcile._integrity(self.artifact, "sha512")
+                    }
+                }
+            },
+        }
+        failures = (
+            TimeoutError("timed out"),
+            ConnectionResetError("connection reset"),
+            http.client.IncompleteRead(b"partial", 100),
+        )
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__):
+                broken_response = mock.MagicMock()
+                broken_response.__enter__.return_value.read.side_effect = failure
+                cancellation = mock.Mock()
+                cancellation.is_set.return_value = False
+                cancellation.wait.return_value = False
+                with mock.patch.object(
+                    reconcile,
+                    "urlopen",
+                    side_effect=(broken_response, self.response(metadata)),
+                ):
+                    self.assertEqual(
+                        reconcile.wait_for_status(
+                            "npm",
+                            "cmux-sdk",
+                            "1.0.0",
+                            self.artifact,
+                            1,
+                            cancel_event=cancellation,
+                        ),
+                        reconcile.MATCH,
+                    )
+                cancellation.wait.assert_called_once()
 
     def test_registry_wait_honors_its_deadline_without_wall_clock_sleep(self) -> None:
         clock = [10.0]
