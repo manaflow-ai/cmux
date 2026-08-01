@@ -167,19 +167,6 @@ export default async function AppPricingPage({
                     annual={pricing.perMonthBilledYearly}
                   />
                 }
-                priceDetail={
-                  <PricingIntervalValue
-                    monthly={null}
-                    annual={
-                      <p className="mt-2 text-sm text-muted">
-                        {pricingMessage(pricing.annualPriceDetail, {
-                          amount: PRO_PRICING_USD.year.billedAmount,
-                          discount: PRO_PRICING_USD.year.discountPercent,
-                        })}
-                      </p>
-                    }
-                  />
-                }
                 badge={
                   snapshot.isPro ? (
                     <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
@@ -223,19 +210,6 @@ export default async function AppPricingPage({
                   <PricingIntervalValue
                     monthly={pricing.perUserMonth}
                     annual={pricing.perUserMonthBilledYearly}
-                  />
-                }
-                priceDetail={
-                  <PricingIntervalValue
-                    monthly={null}
-                    annual={
-                      <p className="mt-2 text-sm text-muted">
-                        {pricingMessage(pricing.annualPriceDetail, {
-                          amount: TEAM_PRICING_USD.year.billedAmount,
-                          discount: TEAM_PRICING_USD.year.discountPercent,
-                        })}
-                      </p>
-                    }
                   />
                 }
               >

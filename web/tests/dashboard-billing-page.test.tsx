@@ -118,10 +118,10 @@ describe("dashboard billing page", () => {
 
     expect(html).toContain("$24");
     expect(html).toContain("$28");
-    expect(html).toContain("per month billed yearly");
-    expect(html).toContain("per user per month billed yearly");
-    expect(html).toContain("Billed $288 annually · save 20%");
-    expect(html).toContain("Billed $336 annually · save 20%");
+    expect(html).toContain("/mo.");
+    expect(html).toContain("/user/mo.");
+    expect(html).not.toContain("Billed $288 annually · save 20%");
+    expect(html).not.toContain("Billed $336 annually · save 20%");
     expect(html).toContain(
       'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year"',
     );
