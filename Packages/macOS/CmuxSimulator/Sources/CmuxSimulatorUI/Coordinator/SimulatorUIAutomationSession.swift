@@ -20,6 +20,7 @@ final class SimulatorUIAutomationSession {
     private var waiters: [SimulatorUIAutomationTransactionWaiter] = []
 
     func withTransaction<T>(
+        beforeOperation: @MainActor () async throws -> Void = {},
         _ operation: @MainActor () async throws -> T
     ) async throws -> T {
         let token = UUID()
@@ -30,7 +31,8 @@ final class SimulatorUIAutomationSession {
         defer { releaseTransaction() }
         try Task.checkCancellation()
         return try await SimulatorUIAutomationTransactionContext.$token.withValue(token) {
-            try await operation()
+            try await beforeOperation()
+            return try await operation()
         }
     }
 

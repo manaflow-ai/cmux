@@ -143,7 +143,7 @@ extension SimulatorPaneCoordinator {
     private func retireWebInspectorRequestID(_ requestID: SimulatorWebInspectorJSONRequestID) {
         guard retiredWebInspectorRequestIDs.count < Self.maximumRetiredWebInspectorRequestIDCount else {
             clearWebInspectorState()
-            releaseAllHeldUIAutomationTouches()
+            releaseAllHeldSimulatorInputOwnership()
             Task { [client] in await client.invalidateWorker() }
             return
         }

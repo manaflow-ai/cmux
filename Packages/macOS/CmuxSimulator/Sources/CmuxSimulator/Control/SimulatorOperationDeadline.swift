@@ -61,6 +61,11 @@ public struct SimulatorOperationDeadlines: Sendable {
     public func clientTimeout(for receiptTimeout: TimeInterval) -> TimeInterval {
         receiptTimeout + clientReceiptMargin
     }
+
+    /// Covers device readiness plus one bounded semantic UI observation wait.
+    public func uiWaitReceiptTimeout(timeoutMilliseconds: Int) -> TimeInterval {
+        selectDevice + min(160, Double(timeoutMilliseconds) / 1_000 + 35)
+    }
 }
 
 /// Default operation deadlines used by cmux Simulator commands.

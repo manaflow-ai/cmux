@@ -100,12 +100,18 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored let preferredDeviceTypeIdentifier: String?
     /// Whether the user must choose a device before the coordinator starts.
     @ObservationIgnored public internal(set) var requiresExplicitDeviceSelection: Bool
-    @ObservationIgnored var outgoingStream: AsyncStream<SimulatorWorkerInbound>
-    @ObservationIgnored var outgoingContinuation: AsyncStream<SimulatorWorkerInbound>.Continuation
+    @ObservationIgnored var outgoingStream: AsyncStream<SimulatorPaneOutgoingItem>
+    @ObservationIgnored var outgoingContinuation: AsyncStream<SimulatorPaneOutgoingItem>.Continuation
     @ObservationIgnored var outgoingTask: Task<Void, Never>?
     @ObservationIgnored var outgoingRecoveryTask: Task<Void, Never>?
     @ObservationIgnored var outgoingRecoveryGeneration: UInt64 = 0
     @ObservationIgnored var outgoingOverflowed = false
+    @ObservationIgnored var admittedInput = SimulatorAdmittedInputStateMachine()
+    @ObservationIgnored var pendingLiveInputDeliveryCount = 0
+    @ObservationIgnored var outgoingDeliveryGeneration: UInt64 = 0
+    @ObservationIgnored var outgoingDeliveryReceipts: [
+        ObjectIdentifier: SimulatorOutgoingDeliveryReceipt
+    ] = [:]
     @ObservationIgnored var eventsTask: Task<Void, Never>?
     @ObservationIgnored var activationTask: Task<Void, Never>?
     @ObservationIgnored var startupTask: Task<Void, Never>?
@@ -215,7 +221,7 @@ public final class SimulatorPaneCoordinator {
         self.preferredDeviceTypeIdentifier = preferredDeviceTypeIdentifier
         self.requiresExplicitDeviceSelection = requiresExplicitDeviceSelection
         let (stream, continuation) = AsyncStream.makeStream(
-            of: SimulatorWorkerInbound.self,
+            of: SimulatorPaneOutgoingItem.self,
             bufferingPolicy: .bufferingOldest(Self.maximumOutgoingMessageCount)
         )
         self.outgoingStream = stream
@@ -242,6 +248,32 @@ public final class SimulatorPaneCoordinator {
         }
     }
 
+}
+
+enum SimulatorPaneOutgoingItem: Sendable {
+    case message(SimulatorWorkerInbound, tracksLiveInput: Bool)
+    case deliveryBarrier(SimulatorOutgoingDeliveryReceipt)
+}
+
+/// Completes after every message queued before it has reached the pane client.
+final class SimulatorOutgoingDeliveryReceipt: Sendable {
+    private let stream: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+
+    init() {
+        let pair = AsyncStream.makeStream(of: Void.self)
+        stream = pair.stream
+        continuation = pair.continuation
+    }
+
+    func wait() async throws {
+        for await _ in stream {}
+        try Task.checkCancellation()
+    }
+
+    func finish() {
+        continuation.finish()
+    }
 }
 
 func simulatorPaneFailure(from error: any Error, code: String) -> SimulatorFailure {

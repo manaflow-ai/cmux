@@ -122,7 +122,7 @@ extension SimulatorPaneCoordinator {
             }
             let result = try await client.perform(action)
             if action.releasesRetainedSimulatorPointerOnly {
-                releaseAllHeldUIAutomationTouches()
+                releaseAllHeldSimulatorInputOwnership()
             }
             if generation == selectionGeneration, !closed,
                let cursorPlan, let cursorToken {
@@ -139,7 +139,7 @@ extension SimulatorPaneCoordinator {
         } catch {
             if case let .interactive(interactiveAction) = action,
                case .touch = interactiveAction {
-                releaseAllHeldUIAutomationTouches()
+                releaseAllHeldSimulatorInputOwnership()
             }
             if generation == selectionGeneration, !closed,
                let cursorPlan, let cursorToken {

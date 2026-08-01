@@ -199,6 +199,7 @@ public struct SimulatorUIAutomationExecutor {
         let actionPayload: [String: JSONValue]
         var postActionSettleDelayMilliseconds = 0
         var actionCommitWarning: JSONValue?
+        var actionCompleted = true
         switch action {
         case let .tap(elementRef, _, postDelayMilliseconds):
             try requireSimulatorCapability(.touch, coordinator: coordinator)
@@ -454,6 +455,7 @@ public struct SimulatorUIAutomationExecutor {
                 textCommitted = true
             } catch {
                 actionCommitWarning = simulatorUICommittedActionError(error)
+                actionCompleted = false
             }
             postActionSettleDelayMilliseconds =
                 Self.postMutationAccessibilityQuiescenceMilliseconds
@@ -584,6 +586,7 @@ public struct SimulatorUIAutomationExecutor {
                 } catch {
                     guard completedStepCount > 0 else { throw error }
                     actionCommitWarning = simulatorUICommittedActionError(error)
+                    actionCompleted = false
                     break
                 }
             }
@@ -596,7 +599,7 @@ public struct SimulatorUIAutomationExecutor {
 
         coordinator.clearUIAutomationSnapshot()
         var result: [String: JSONValue] = [
-            "completed": .bool(true),
+            "completed": .bool(actionCompleted),
             "action": .object(actionPayload),
         ]
         if let actionCommitWarning {

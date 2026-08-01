@@ -433,8 +433,9 @@ extension TerminalController {
         if case .recover = operation { return simulatorOperationDeadlines.recover }
         if case .uiSnapshot = operation { return simulatorOperationDeadlines.inspectionRead }
         if case let .uiWait(wait) = operation {
-            return simulatorOperationDeadlines.selectDevice
-                + min(160, Double(wait.timeoutMilliseconds) / 1_000 + 35)
+            return simulatorOperationDeadlines.uiWaitReceiptTimeout(
+                timeoutMilliseconds: wait.timeoutMilliseconds
+            )
         }
         if case .uiAction = operation { return simulatorOperationDeadlines.uiAutomationAction }
         if case .accessibilityTap = operation {

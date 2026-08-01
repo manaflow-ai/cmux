@@ -26,7 +26,6 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     let chromeImageCache = SimulatorDeviceChromeImageCache()
     var input = SimulatorInputStateMachine()
     var chromeButtonInput = SimulatorChromeButtonStateMachine()
-    private var admittedInput = SimulatorAdmittedInputStateMachine()
     var activeChromeButton: SimulatorDeviceChromeProfile.Button?
     private var hoveredChromeButton: SimulatorDeviceChromeProfile.Button?
     private var mouseTrackingArea: NSTrackingArea?
@@ -578,12 +577,8 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         stageHaloPointerActive = false
         chromeButtonInput.discardAll()
         input.discardAll()
-        let cleanup = admittedInput.releaseAll()
         activeChromeButton = nil
         hoveredChromeButton = nil
-        for message in cleanup {
-            _ = onMessage?(message)
-        }
         needsDisplay = true
     }
 
@@ -592,9 +587,6 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         guard admission != false else {
             discardRejectedInputs()
             return false
-        }
-        if admission == true {
-            admittedInput.record(message)
         }
         return true
     }

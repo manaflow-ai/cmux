@@ -8,7 +8,7 @@ extension SimulatorPaneCoordinator {
     ) {
         guard frameTransport == failedTransport else { return }
         self.failure = failure
-        releaseAllHeldUIAutomationTouches()
+        releaseAllHeldSimulatorInputOwnership()
         frameTransport = nil
         display = nil
         status = .failed(failure)
@@ -33,26 +33,52 @@ extension SimulatorPaneCoordinator {
     func enqueue(_ message: SimulatorWorkerInbound) -> Bool {
         if message.usesUnownedSimulatorPointerInput,
            !admitsSimulatorPointerInput() {
+            discardRejectedAdmittedInput()
             return false
         }
         if message.invalidatesUIAutomationSnapshot,
            uiAutomationSession.isTransactionActive,
-           !message.isLiveInputRelease,
            !uiAutomationSession.currentTaskOwnsTransaction(
                controlActionToken: currentControlActionTaskToken
            ) {
             // Live input is time-sensitive. Replaying it after a long semantic
             // wait can mutate a different screen or leave worker input held.
+            discardRejectedAdmittedInput()
             return false
         }
+        let tracksLiveInput = message.invalidatesUIAutomationSnapshot
+        let accepted = enqueueImmediately(
+            message,
+            tracksLiveInput: tracksLiveInput
+        )
+        if accepted {
+            admittedInput.record(message)
+        } else {
+            admittedInput.discardAll()
+        }
+        return accepted
+    }
+
+    @discardableResult
+    func enqueueInputCleanup(_ message: SimulatorWorkerInbound) -> Bool {
+        admittedInput.discardAll()
         return enqueueImmediately(message)
     }
 
-    private func enqueueImmediately(_ message: SimulatorWorkerInbound) -> Bool {
-        switch outgoingContinuation.yield(message) {
+    private func enqueueImmediately(
+        _ message: SimulatorWorkerInbound,
+        tracksLiveInput: Bool = false
+    ) -> Bool {
+        switch outgoingContinuation.yield(.message(
+            message,
+            tracksLiveInput: tracksLiveInput
+        )) {
         case .enqueued:
+            if tracksLiveInput {
+                pendingLiveInputDeliveryCount += 1
+            }
             if case .releaseInputs = message {
-                releaseAllHeldUIAutomationTouches()
+                releaseAllHeldSimulatorInputOwnership()
             }
             if message.invalidatesUIAutomationSnapshot {
                 clearUIAutomationSnapshot()
@@ -69,10 +95,80 @@ extension SimulatorPaneCoordinator {
         }
     }
 
+    private func enqueueDeliveryBarrier(
+        _ receipt: SimulatorOutgoingDeliveryReceipt
+    ) -> Bool {
+        switch outgoingContinuation.yield(.deliveryBarrier(receipt)) {
+        case .enqueued:
+            outgoingDeliveryReceipts[ObjectIdentifier(receipt)] = receipt
+            return true
+        case .dropped:
+            receipt.finish()
+            handleOutgoingQueueOverflow()
+            return false
+        case .terminated:
+            receipt.finish()
+            return false
+        @unknown default:
+            receipt.finish()
+            handleOutgoingQueueOverflow()
+            return false
+        }
+    }
+
+    func quiesceAdmittedInputDelivery() async throws {
+        let cleanup = admittedInput.releaseAll()
+        guard pendingLiveInputDeliveryCount > 0 || !cleanup.isEmpty else { return }
+        guard outgoingTask != nil, !closed, !outgoingOverflowed else {
+            throw simulatorInputDeliveryUnavailable()
+        }
+        for message in cleanup {
+            guard enqueueImmediately(message) else {
+                throw simulatorInputDeliveryUnavailable()
+            }
+        }
+        let receipt = SimulatorOutgoingDeliveryReceipt()
+        let deliveryGeneration = outgoingDeliveryGeneration
+        guard enqueueDeliveryBarrier(receipt) else {
+            throw simulatorInputDeliveryUnavailable()
+        }
+        try await receipt.wait()
+        guard !closed, !outgoingOverflowed,
+              outgoingDeliveryGeneration == deliveryGeneration else {
+            throw simulatorInputDeliveryUnavailable()
+        }
+    }
+
+    func finishOutgoingDeliveryReceipts() {
+        let receipts = Array(outgoingDeliveryReceipts.values)
+        outgoingDeliveryReceipts.removeAll()
+        for receipt in receipts { receipt.finish() }
+    }
+
+    private func discardRejectedAdmittedInput() {
+        for message in admittedInput.releaseAll() {
+            _ = enqueueImmediately(message)
+        }
+    }
+
+    private func simulatorInputDeliveryUnavailable() -> SimulatorFailure {
+        SimulatorFailure(
+            code: "worker_unavailable",
+            message: String(
+                localized: "simulator.failure.rendererStopped",
+                defaultValue: "The Simulator renderer stopped"
+            ),
+            isRecoverable: true
+        )
+    }
+
     private func handleOutgoingQueueOverflow() {
         guard !outgoingOverflowed else { return }
         outgoingOverflowed = true
-        releaseAllHeldUIAutomationTouches()
+        outgoingDeliveryGeneration &+= 1
+        finishOutgoingDeliveryReceipts()
+        releaseAllHeldSimulatorInputOwnership()
+        pendingLiveInputDeliveryCount = 0
         outgoingContinuation.finish()
         let deliveryTask = outgoingTask
         deliveryTask?.cancel()
@@ -104,7 +200,7 @@ extension SimulatorPaneCoordinator {
         case let .message(message):
             receive(message)
         case .workerStopped:
-            releaseAllHeldUIAutomationTouches()
+            releaseAllHeldSimulatorInputOwnership()
             resetCapabilityHydration()
             failPendingTextInputCompletions()
             frameTransport = nil
@@ -133,7 +229,7 @@ extension SimulatorPaneCoordinator {
             case .idle, .connecting, .streaming, .workerCrashed: false
             }
             if sessionEnded {
-                releaseAllHeldUIAutomationTouches()
+                releaseAllHeldSimulatorInputOwnership()
                 resetCapabilityHydration()
                 frameTransport = nil
                 display = nil
@@ -292,21 +388,6 @@ extension SimulatorPaneCoordinator {
 }
 
 private extension SimulatorWorkerInbound {
-    var isLiveInputRelease: Bool {
-        switch self {
-        case let .pointer(event):
-            event.phase == .ended || event.phase == .cancelled
-        case let .key(event):
-            event.phase == .up
-        case let .hidButton(event):
-            event.phase == .up
-        case .releaseInputs:
-            true
-        default:
-            false
-        }
-    }
-
     var invalidatesUIAutomationSnapshot: Bool {
         switch self {
         case .pointer, .key, .keySequence, .scrollWheel, .typeText,

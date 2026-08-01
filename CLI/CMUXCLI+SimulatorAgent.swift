@@ -433,6 +433,9 @@ extension CMUXCLI {
             return request(
                 "simulator.accessibility",
                 [:],
+                timeout: simulatorOperationDeadlines.clientTimeout(
+                    for: simulatorOperationDeadlines.inspectionRead
+                ),
                 output: .accessibility
             )
         case "foreground":
@@ -553,7 +556,9 @@ extension CMUXCLI {
             "simulator.wait_for_ui",
             params,
             timeout: simulatorOperationDeadlines.clientTimeout(
-                for: Double(timeout) / 1_000 + 35
+                for: simulatorOperationDeadlines.uiWaitReceiptTimeout(
+                    timeoutMilliseconds: timeout
+                )
             ),
             output: .uiWait
         )

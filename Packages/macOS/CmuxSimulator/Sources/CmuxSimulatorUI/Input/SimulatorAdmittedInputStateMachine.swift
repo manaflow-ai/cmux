@@ -58,6 +58,10 @@ struct SimulatorAdmittedInputStateMachine {
         return messages
     }
 
+    mutating func discardAll() {
+        reset()
+    }
+
     private mutating func reset() {
         activePointer = nil
         heldKeys.removeAll(keepingCapacity: true)

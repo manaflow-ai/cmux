@@ -275,9 +275,9 @@ struct SimulatorPaneCoordinatorOverflowTests {
         await coordinator.close()
     }
 
-    @Test("Live input releases bypass an active semantic transaction")
+    @Test("Live input releases are rejected during a semantic transaction")
     @MainActor
-    func liveInputReleasesBypassSemanticTransaction() async throws {
+    func liveInputReleasesAreRejectedDuringSemanticTransaction() async throws {
         let client = SimulatorPaneClientSpy(devices: [])
         let coordinator = SimulatorPaneCoordinator(client: client)
         await coordinator.start()
@@ -301,21 +301,15 @@ struct SimulatorPaneCoordinatorOverflowTests {
                 let accepted = await Task.detached {
                     await MainActor.run { coordinator.enqueue(release) }
                 }.value
-                #expect(accepted)
-            }
-            for _ in 0..<1_000 {
-                let delivered = await client.messages()
-                if releases.allSatisfy(delivered.contains) { break }
-                await Task.yield()
+                #expect(!accepted)
             }
 
             let delivered = await client.messages()
-            #expect(releases.allSatisfy(delivered.contains))
-            #expect(throws: SimulatorUIAutomationReferenceError.snapshotMissing) {
-                _ = try coordinator.currentUIAutomationSnapshot(
-                    nowMilliseconds: 1_001
-                )
-            }
+            #expect(releases.allSatisfy { !delivered.contains($0) })
+            let current = try coordinator.currentUIAutomationSnapshot(
+                nowMilliseconds: 1_001
+            )
+            #expect(current.snapshot.sequence == 1)
         }
     }
 

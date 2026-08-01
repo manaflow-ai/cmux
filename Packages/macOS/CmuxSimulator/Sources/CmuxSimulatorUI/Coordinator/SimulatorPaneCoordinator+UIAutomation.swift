@@ -9,7 +9,12 @@ extension SimulatorPaneCoordinator {
     public func withUIAutomationTransaction<T>(
         _ operation: @MainActor () async throws -> T
     ) async throws -> T {
-        return try await uiAutomationSession.withTransaction(operation)
+        return try await uiAutomationSession.withTransaction(
+            beforeOperation: { [self] in
+                try await quiesceAdmittedInputDelivery()
+            },
+            operation
+        )
     }
 
     /// Acquires the pane UI transaction for a legacy operation that can move the screen.
@@ -19,6 +24,12 @@ extension SimulatorPaneCoordinator {
         try await uiAutomationSession.beginTransaction(
             controlActionToken: currentControlActionTaskToken
         )
+        do {
+            try await quiesceAdmittedInputDelivery()
+        } catch {
+            uiAutomationSession.endTransaction()
+            throw error
+        }
     }
 
     /// Releases a transaction acquired by ``beginUIAutomationTransaction()``.
@@ -155,14 +166,16 @@ extension SimulatorPaneCoordinator {
         uiAutomationSession.releaseHeldTouch(elementRef: elementRef)
     }
 
-    /// Clears retained semantic contact when worker input state is released.
-    func releaseAllHeldUIAutomationTouches() {
+    /// Clears pane ownership after the worker releases semantic and live input.
+    func releaseAllHeldSimulatorInputOwnership() {
         uiAutomationSession.releaseAllHeldTouches()
+        admittedInput.discardAll()
     }
 
     /// Resets refs and sequence when this pane changes devices.
     public func resetUIAutomationSession() {
         uiAutomationSession.reset()
+        admittedInput.discardAll()
     }
 }
 

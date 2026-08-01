@@ -114,7 +114,7 @@ extension SimulatorPaneCoordinator {
     public func close() async {
         guard !closed else { return }
         closed = true
-        releaseAllHeldUIAutomationTouches()
+        releaseAllHeldSimulatorInputOwnership()
         resetAgentCursorPresentation()
         let controlActionTasks = cancelControlActions()
         for task in controlActionTasks { await task.value }
@@ -145,6 +145,8 @@ extension SimulatorPaneCoordinator {
         isStreamingLogs = false
         eventsTask?.cancel()
         eventsTask = nil
+        outgoingDeliveryGeneration &+= 1
+        finishOutgoingDeliveryReceipts()
         outgoingTask?.cancel()
         outgoingTask = nil
         outgoingContinuation.finish()
@@ -545,8 +547,17 @@ extension SimulatorPaneCoordinator {
         guard outgoingTask == nil else { return }
         let stream = outgoingStream
         outgoingTask = Task { @MainActor [weak self, client] in
-            for await message in stream {
+            for await item in stream {
                 guard !Task.isCancelled, let self else { return }
+                guard case let .message(message, tracksLiveInput) = item else {
+                    if case let .deliveryBarrier(receipt) = item {
+                        self.outgoingDeliveryReceipts.removeValue(
+                            forKey: ObjectIdentifier(receipt)
+                        )
+                        receipt.finish()
+                    }
+                    continue
+                }
                 while true {
                     let recoveryGeneration = self.outgoingRecoveryGeneration
                     let recoveryTask = self.outgoingRecoveryTask
@@ -556,19 +567,29 @@ extension SimulatorPaneCoordinator {
                 }
                 if case let .typeText(requestID, _) = message,
                    self.cancelledTextInputRequestIDs.remove(requestID) != nil {
+                    self.finishLiveInputDelivery(tracksLiveInput)
                     continue
                 }
                 if case let .typeText(requestID, _) = message,
                    self.status != .streaming {
                     self.textInputCompletions.removeValue(forKey: requestID)?(false)
+                    self.finishLiveInputDelivery(tracksLiveInput)
                     continue
                 }
                 await client.send(message)
+                self.finishLiveInputDelivery(tracksLiveInput)
             }
         }
     }
 
+    private func finishLiveInputDelivery(_ tracked: Bool) {
+        guard tracked else { return }
+        pendingLiveInputDeliveryCount = max(0, pendingLiveInputDeliveryCount - 1)
+    }
+
     private func restartOutgoingDelivery() {
+        outgoingDeliveryGeneration &+= 1
+        finishOutgoingDeliveryReceipts()
         outgoingContinuation.finish()
         let previousDeliveryTask = outgoingTask
         outgoingTask = nil
@@ -582,12 +603,14 @@ extension SimulatorPaneCoordinator {
             }
         }
         let (stream, continuation) = AsyncStream.makeStream(
-            of: SimulatorWorkerInbound.self,
+            of: SimulatorPaneOutgoingItem.self,
             bufferingPolicy: .bufferingOldest(Self.maximumOutgoingMessageCount)
         )
         outgoingStream = stream
         outgoingContinuation = continuation
         outgoingOverflowed = false
+        admittedInput.discardAll()
+        pendingLiveInputDeliveryCount = 0
         cancelledTextInputRequestIDs.removeAll()
         startOutgoingDelivery()
     }
@@ -657,7 +680,7 @@ extension SimulatorPaneCoordinator {
             }
             guard !Task.isCancelled, self.selectionGeneration == generation else { return }
             do {
-                self.enqueue(.releaseInputs)
+                self.enqueueInputCleanup(.releaseInputs)
                 try await client.shutdownDevice(id: selectedDeviceID)
                 self.status = .idle
                 self.frameTransport = nil

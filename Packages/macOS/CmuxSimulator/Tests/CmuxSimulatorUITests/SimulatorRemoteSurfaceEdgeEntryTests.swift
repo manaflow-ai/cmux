@@ -123,8 +123,8 @@ struct SimulatorRemoteSurfaceEdgeEntryTests {
         #expect(harness.pointerEvents.map(\.phase) == [.began, .moved, .ended])
     }
 
-    @Test("Rejected input forwards cleanup and stops the pending batch")
-    func rejectedInputForwardsCleanupAndStopsPendingBatch() throws {
+    @Test("Rejected input stops the pending batch without unowned cleanup")
+    func rejectedInputStopsPendingBatchWithoutUnownedCleanup() throws {
         let harness = try SimulatorRemoteSurfaceEdgeEntryHarness()
         defer { harness.close() }
         let point = SimulatorPoint(x: 0.5, y: 0.5)
@@ -152,7 +152,7 @@ struct SimulatorRemoteSurfaceEdgeEntryTests {
             }
             return false
         })
-        #expect(delivered.contains { message in
+        #expect(!delivered.contains { message in
             if case let .pointer(event) = message {
                 return event.phase == .cancelled
             }
