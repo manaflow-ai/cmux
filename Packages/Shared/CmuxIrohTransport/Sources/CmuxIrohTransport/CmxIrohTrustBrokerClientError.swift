@@ -81,6 +81,30 @@ public enum CmxIrohTrustBrokerClientError:
         }
     }
 
+    /// Returns whether the broker could not answer, rather than denying an
+    /// authenticated request. Cached grants may only recover this failure set.
+    static func isAvailabilityFailure(_ error: any Error) -> Bool {
+        if (error as? any CmxRetryAfterProviding)?.retryAfterSeconds != nil {
+            return true
+        }
+        guard let brokerError = error as? Self else { return false }
+        switch brokerError {
+        case .connectivity, .rateLimited:
+            return true
+        case let .rejected(statusCode, _):
+            return statusCode == 408
+                || statusCode == 425
+                || statusCode == 429
+                || (500...599).contains(statusCode)
+        case .invalidBaseURL,
+             .missingAuthentication,
+             .invalidAuthentication,
+             .nonHTTPResponse,
+             .invalidResponse:
+            return false
+        }
+    }
+
     /// The validated server retry floor, when present.
     public var retryAfterSeconds: Int? {
         guard case let .rateLimited(_, retryAfterSeconds) = self else { return nil }

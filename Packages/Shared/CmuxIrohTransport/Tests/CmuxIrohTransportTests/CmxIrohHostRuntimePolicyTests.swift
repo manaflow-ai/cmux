@@ -318,7 +318,7 @@ extension CmxIrohHostRuntimeTests {
             pendingRevocations: fixture.pendingRevocations(),
             now: { now },
             handleTransport: { session, _ in await session.close() },
-            handleResolvedBinding: { binding in
+            handleRoute: { binding, _ in
                 await resolvedBindings.record(binding)
             }
         )

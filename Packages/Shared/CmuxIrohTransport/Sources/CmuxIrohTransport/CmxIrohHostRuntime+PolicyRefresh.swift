@@ -210,8 +210,7 @@ extension CmxIrohHostRuntime {
             throw CmxIrohHostRuntimeError.invalidLocalBinding
         }
         guard allowFallback,
-              CmxIrohTrustBrokerClientError
-                .preservesVerifiedPolicyDuringRefresh(error),
+              CmxIrohTrustBrokerClientError.isAvailabilityFailure(error),
               let cached = configuration.cachedHostPolicy else {
             throw error
         }
