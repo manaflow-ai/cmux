@@ -131,6 +131,49 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
     assert "first `cmux-sdk` release interactively" not in releasing
 
 
+def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
+    bootstrap = workflow("sdk-bootstrap-pypi.yml")
+    sdk_ci = workflow("cmux-tui-sdks.yml")
+    release = workflow("sdk-release-cut.yml")
+    releasing = (
+        ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
+    ).read_text()
+
+    assert workflow_triggers(bootstrap) == {"workflow_dispatch": {"inputs": {
+        "confirm_bootstrap": {
+            "description": "Reserve cmux-sdk with an attested prerelease",
+            "required": "true",
+            "default": "false",
+            "type": "boolean",
+        }
+    }}}
+    assert "runs-on: ubuntu-24.04" in bootstrap
+    assert "id-token: write" in bootstrap
+    assert "name: pypi-bootstrap" in bootstrap
+    assert "PYPI_BOOTSTRAP_TOKEN" not in bootstrap
+    assert 'BOOTSTRAP_VERSION: "0.0.0a0"' in bootstrap
+    assert "build==1.3.0" in bootstrap
+    assert "setuptools==80.9.0" in bootstrap
+    assert "wheel==0.45.1" in bootstrap
+    assert "python3 -m build --no-isolation --sdist --wheel" in bootstrap
+    assert "CMUX_PYTHON_DIST_DIR" in bootstrap
+    assert "gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b" in bootstrap
+    assert "skip-existing: true" in bootstrap
+    assert "pypi-attestations==0.0.29" in bootstrap
+    assert "pypi-attestations verify pypi" in bootstrap
+    assert sdk_ci.count('".github/workflows/sdk-bootstrap-pypi.yml"') == 2
+    assert "sdk-bootstrap-pypi.yml" in releasing
+    assert "0.0.0a0" in releasing
+
+    registry = workflow_job(release, "registry-preflight")
+    cut_tags = release.index("  cut-tags:")
+    ownership = release.index("Verify the PyPI ownership bootstrap")
+    assert ownership < cut_tags
+    assert "pypi-attestations==0.0.29" in registry
+    assert "0.0.0a0" in registry
+    assert "pypi-attestations verify pypi" in registry
+
+
 def test_python_sdk_publisher_cannot_publish_the_cli_package() -> None:
     preflight = workflow("sdk-publish-python.yml")
     release = workflow("sdk-release-cut.yml")

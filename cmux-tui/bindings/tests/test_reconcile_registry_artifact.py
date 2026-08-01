@@ -192,6 +192,12 @@ class RegistryArtifactTests(unittest.TestCase):
         ), self.assertRaises(reconcile.ArtifactMismatch):
             reconcile.registry_status("pypi", "cmux-sdk", "1.0.0", self.artifact)
 
+    def test_pypi_rejects_a_missing_project(self) -> None:
+        missing = HTTPError("https://registry.example", 404, "missing", None, None)
+        with mock.patch.object(reconcile, "urlopen", side_effect=missing), \
+            self.assertRaisesRegex(reconcile.RegistryError, "project"):
+            reconcile.registry_status("pypi", "cmux-sdk", "1.0.0", self.artifact)
+
     def test_pypi_rejects_unexpected_release_files(self) -> None:
         metadata = {
             "urls": [
