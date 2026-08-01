@@ -66,7 +66,8 @@ and crates.io require the interactive bootstrap above.
 The cut workflow verifies current protected `main`, runs the complete Go
 publisher as a reusable preflight against that exact commit, then creates
 `cmux-sdk-vX.Y.Z` and `cmux-tui/bindings/go/vX.Y.Z` atomically on the same
-commit. It dispatches exactly four workflows in independent jobs:
+commit. Publisher workflows do not publish from tag-push events. The cut
+workflow explicitly dispatches exactly four workflows in independent jobs:
 
 - `sdk-publish-crates.yml`
 - `sdk-publish-go.yml`
@@ -87,6 +88,8 @@ Use clean temporary projects with no repository-relative dependencies:
 
 ```bash
 cargo add cmux-client@X.Y.Z
+cargo add cmux-sidebar@X.Y.Z
+cargo tree -p cmux-sidebar@X.Y.Z --depth 1 | grep -F 'cmux-client vX.Y.Z'
 go get github.com/manaflow-ai/cmux/cmux-tui/bindings/go@vX.Y.Z
 npm install cmux-sdk@X.Y.Z
 python -m pip install cmux-sdk==X.Y.Z

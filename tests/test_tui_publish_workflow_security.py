@@ -68,6 +68,16 @@ def test_sdk_release_cut_dispatches_only_the_selected_four_languages() -> None:
     assert 'existing_sha="$(git rev-parse' in release
     assert '"$existing_sha" != "$GITHUB_SHA"' in release
     assert release.count("gh workflow run sdk-publish-") == 4
+    assert "if: always()" in release
+    for result in (
+        "VALIDATE_RESULT",
+        "CUT_TAGS_RESULT",
+        "CRATES_RESULT",
+        "GO_RESULT",
+        "NPM_RESULT",
+        "PYTHON_RESULT",
+    ):
+        assert result in release
     for publisher in ("crates", "go", "npm", "python"):
         assert f"dispatch-{publisher}:" in release
         assert f"gh workflow run sdk-publish-{publisher}.yml" in release
@@ -85,12 +95,31 @@ def test_go_publisher_uses_the_nested_module_semver_tag() -> None:
     go = workflow("sdk-publish-go.yml")
     java = workflow("sdk-publish-java.yml")
 
-    assert '"cmux-tui/bindings/go/v*"' in go
     assert "cmux-tui/bindings/go/vX.Y.Z" in go
     assert 'version="${GITHUB_REF_NAME#cmux-tui/bindings/go/v}"' in go
     assert "workflow_call:" in go
     assert '"cmux-sdk-v*"' not in go
     assert '"cmux-sdk-v*"' not in java
+
+
+def test_sdk_publishers_only_publish_after_confirmed_dispatch() -> None:
+    for name in (
+        "sdk-publish-crates.yml",
+        "sdk-publish-npm.yml",
+        "sdk-publish-python.yml",
+    ):
+        text = workflow(name)
+        assert "push:\n    tags:" not in text
+        assert "if: inputs.confirm_publish == true" in text
+        assert "github.event_name == 'push'" not in text
+
+    go = workflow("sdk-publish-go.yml")
+    assert "push:\n    tags:" not in go
+    assert "workflow_call:" in go
+    assert "workflow_dispatch:" in go
+    public_probe = go.split("verify-versioned-go-module:", 1)[1]
+    setup = public_probe.split("Resolve the public module tag", 1)[0]
+    assert "cache: false" in setup
 
 
 def test_required_sdk_ci_checks_only_the_publish_set_version() -> None:

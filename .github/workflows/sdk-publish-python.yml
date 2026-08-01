@@ -1,9 +1,6 @@
 name: sdk publish python
 
 on:
-  push:
-    tags:
-      - "cmux-sdk-v*"
   workflow_dispatch:
     inputs:
       version:
@@ -151,7 +148,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: github.event_name == 'push' || inputs.confirm_publish == true
+    if: inputs.confirm_publish == true
     needs: build
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:

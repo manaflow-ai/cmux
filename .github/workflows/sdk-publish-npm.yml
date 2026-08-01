@@ -1,9 +1,6 @@
 name: sdk publish npm
 
 on:
-  push:
-    tags:
-      - "cmux-sdk-v*"
   workflow_dispatch:
     inputs:
       version:
@@ -139,7 +136,7 @@ jobs:
           grep -Eq '^PASS +typescript +live-creation-exit-restart-websocket$' "$report"
 
   publish:
-    if: github.event_name == 'push' || inputs.confirm_publish == true
+    if: inputs.confirm_publish == true
     needs: bindings-e2e-typescript
     # npm --provenance rejects self-hosted runners; the attestation is only
     # verifiable from a GitHub-hosted runner. This one publish job must stay on

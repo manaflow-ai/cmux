@@ -216,8 +216,10 @@ jobs:
         run: gh workflow run sdk-publish-python.yml --repo "$GITHUB_REPOSITORY" --ref "$SDK_TAG" -f version="$VERSION" -f confirm_publish=true
 
   summarize:
+    if: always()
     needs:
       - validate-release
+      - cut-tags
       - dispatch-crates
       - dispatch-go
       - dispatch-npm
@@ -230,11 +232,22 @@ jobs:
           VERSION: ${{ needs.validate-release.outputs.version }}
           SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
           GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
+          VALIDATE_RESULT: ${{ needs.validate-release.result }}
+          CUT_TAGS_RESULT: ${{ needs.cut-tags.result }}
+          CRATES_RESULT: ${{ needs.dispatch-crates.result }}
+          GO_RESULT: ${{ needs.dispatch-go.result }}
+          NPM_RESULT: ${{ needs.dispatch-npm.result }}
+          PYTHON_RESULT: ${{ needs.dispatch-python.result }}
         run: |
           {
             echo "### cmux SDK $VERSION"
             echo
             echo "- Rust, TypeScript, and Python ref: \`$SDK_TAG\`"
             echo "- Go module ref: \`$GO_TAG\`"
-            echo "- Dispatched: crates.io, Go module verification, npm, PyPI"
+            echo "- Validation: \`$VALIDATE_RESULT\`"
+            echo "- Tag creation: \`$CUT_TAGS_RESULT\`"
+            echo "- crates.io dispatch: \`$CRATES_RESULT\`"
+            echo "- Go verification dispatch: \`$GO_RESULT\`"
+            echo "- npm dispatch: \`$NPM_RESULT\`"
+            echo "- PyPI dispatch: \`$PYTHON_RESULT\`"
           } >> "$GITHUB_STEP_SUMMARY"

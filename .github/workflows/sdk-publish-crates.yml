@@ -1,9 +1,6 @@
 name: sdk publish crates
 
 on:
-  push:
-    tags:
-      - "cmux-sdk-v*"
   workflow_dispatch:
     inputs:
       version:
@@ -128,7 +125,7 @@ jobs:
           grep -Eq '^PASS +rust +live-creation-exit-restart-unix$' "$report"
 
   publish:
-    if: github.event_name == 'push' || inputs.confirm_publish == true
+    if: inputs.confirm_publish == true
     needs:
       - version
       - bindings-e2e-rust
