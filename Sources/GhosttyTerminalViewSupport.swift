@@ -13,7 +13,9 @@ final class GhosttyPassthroughVisualEffectView: NSVisualEffectView {
 final class TerminalLinkHoverIndicatorView: NSView {
     private enum Metrics {
         static let edgeInset: CGFloat = 12
-        static let pointerGap: CGFloat = 16
+        static let pointerGap: CGFloat = 8
+        static let pointerInsetFromTopEdge: CGFloat = 24
+        static let hoverHitSlop: CGFloat = 16
         static let preferredWidth: CGFloat = 420
         static let preferredHeight: CGFloat = 286
         static let minimumWidth: CGFloat = 280
@@ -136,6 +138,12 @@ final class TerminalLinkHoverIndicatorView: NSView {
         super.mouseExited(with: event)
         guard event.trackingArea === previewTrackingArea else { return }
         onPreviewPointerChange?(false)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        guard event.trackingArea === previewTrackingArea else { return }
+        onPreviewPointerChange?(true)
     }
 
     override func layout() {
@@ -284,20 +292,6 @@ final class TerminalLinkHoverIndicatorView: NSView {
         previewBackdrop.addSubview(footerLabel)
         previewBackdrop.addSubview(loadingBackdrop)
         loadingBackdrop.addSubview(loadingSpinner)
-
-        let trackingArea = NSTrackingArea(
-            rect: .zero,
-            options: [
-                .mouseEnteredAndExited,
-                .activeInKeyWindow,
-                .inVisibleRect,
-                .enabledDuringMouseDrag,
-            ],
-            owner: self,
-            userInfo: nil
-        )
-        previewShadowView.addTrackingArea(trackingArea)
-        previewTrackingArea = trackingArea
     }
 
     private func installPointerDownMonitor() {
@@ -326,6 +320,7 @@ final class TerminalLinkHoverIndicatorView: NSView {
         previewShadowView.layer?.removeAllAnimations()
         previewShadowView.alphaValue = 0
         previewShadowView.isHidden = true
+        removePreviewTrackingArea()
         statusBackdrop.isHidden = statusLabel.stringValue.isEmpty
         isHidden = statusLabel.stringValue.isEmpty
         completion?()
@@ -351,10 +346,7 @@ final class TerminalLinkHoverIndicatorView: NSView {
         }
         x = min(max(x, usableBounds.minX), usableBounds.maxX - size.width)
 
-        var y = anchor.y + Metrics.pointerGap
-        if y + size.height > usableBounds.maxY {
-            y = anchor.y - Metrics.pointerGap - size.height
-        }
+        var y = anchor.y - size.height + Metrics.pointerInsetFromTopEdge
         y = min(max(y, usableBounds.minY), usableBounds.maxY - size.height)
 
         previewShadowView.frame = NSRect(origin: NSPoint(x: x, y: y), size: size)
@@ -384,6 +376,44 @@ final class TerminalLinkHoverIndicatorView: NSView {
             width: max(0, size.width - 42),
             height: 17
         )
+        updatePreviewTrackingArea()
+    }
+
+    private func updatePreviewTrackingArea() {
+        // The card is closer to the pointer than this halo is wide, and its
+        // vertical edge straddles the pointer. The expanded rect therefore
+        // forms one continuous, menu-like hover bridge into the live webview.
+        // hitTest still accepts only the visible card, so the bridge does not
+        // consume terminal selection or clicks.
+        let trackingRect = previewShadowView.frame
+            .insetBy(dx: -Metrics.hoverHitSlop, dy: -Metrics.hoverHitSlop)
+            .intersection(bounds)
+        guard !trackingRect.isNull, !trackingRect.isEmpty else {
+            removePreviewTrackingArea()
+            return
+        }
+        guard previewTrackingArea?.rect != trackingRect else { return }
+
+        removePreviewTrackingArea()
+        let trackingArea = NSTrackingArea(
+            rect: trackingRect,
+            options: [
+                .mouseEnteredAndExited,
+                .mouseMoved,
+                .activeInKeyWindow,
+                .enabledDuringMouseDrag,
+            ],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        previewTrackingArea = trackingArea
+    }
+
+    private func removePreviewTrackingArea() {
+        guard let previewTrackingArea else { return }
+        removeTrackingArea(previewTrackingArea)
+        self.previewTrackingArea = nil
     }
 }
 
