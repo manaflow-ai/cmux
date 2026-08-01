@@ -307,6 +307,35 @@ struct MobileIrohRuntimeCompositionCooldownTests {
     }
 
     @Test
+    func initialRelayRefreshGatesIdentityOnlyConnectionWithoutBlockingDirectPath() async throws {
+        let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap(
+            suspendRelayBootstrap: true
+        )
+        await fixture.broker.waitForBootstrapRequest()
+
+        // A route with an explicit public direct address remains available
+        // while relay bootstrap is suspended.
+        _ = try await fixture.composition.transport(
+            for: try fixture.requestWithPublicDirectPath()
+        )
+
+        // The identity-only attach barrier must stay pending until the first
+        // relay-policy attempt settles. Otherwise a cold launch consumes its
+        // one-shot pairing URL against an empty relay allowlist.
+        let completion = MobileIrohCooldownCompletionProbe()
+        let preparation = Task { @MainActor in
+            await fixture.composition.prepareForConnection()
+            await completion.markComplete()
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(!(await completion.isComplete()))
+
+        await fixture.broker.resumeRelayBootstrap()
+        await preparation.value
+        #expect(await completion.isComplete())
+    }
+
+    @Test
     func activeRuntimeRateLimitFloorsRelayRefreshWithoutBlockingDiscovery() async throws {
         let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap()
         await settleActivation(fixture) {
@@ -364,6 +393,18 @@ struct MobileIrohRuntimeCompositionCooldownTests {
 
         await recreated.composition.refreshIrohSettings()
         #expect(await recreated.broker.bootstrapRequestCount() == bootstrapCountAtFloor)
+    }
+}
+
+private actor MobileIrohCooldownCompletionProbe {
+    private var complete = false
+
+    func markComplete() {
+        complete = true
+    }
+
+    func isComplete() -> Bool {
+        complete
     }
 }
 
@@ -622,6 +663,33 @@ private struct MobileIrohCooldownFixture {
             auth: auth,
             networkPathChangeHook: networkPathChangeHook,
             compositionFactory: compositionFactory
+        )
+    }
+
+    func requestWithPublicDirectPath() throws -> CmxByteTransportRequest {
+        guard case let .peer(identity, _) = request.route.endpoint else {
+            throw MobileIrohCooldownTestError.unavailable
+        }
+        return CmxByteTransportRequest(
+            route: try CmxAttachRoute(
+                id: request.route.id,
+                kind: request.route.kind,
+                endpoint: .peer(
+                    identity: identity,
+                    pathHints: [
+                        try CmxIrohPathHint(
+                            kind: .directAddress,
+                            value: "203.0.113.10:443",
+                            source: .native,
+                            privacyScope: .publicInternet
+                        ),
+                    ]
+                ),
+                priority: request.route.priority
+            ),
+            expectedPeerDeviceID: request.expectedPeerDeviceID,
+            authorizationMode: request.authorizationMode,
+            sessionPurpose: request.sessionPurpose
         )
     }
 
