@@ -2098,6 +2098,36 @@ mod tests {
         assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, before_terminal + 1);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn terminal_close_terminates_a_restored_host_before_acknowledgement() {
+        let (mux, surface, selectors) = terminal_fixture(None);
+        let host = mux.resource_terminal_host_identity(&surface).unwrap();
+        let detached = mux
+            .remove_surface_runtime_for_test(surface.id)
+            .expect("fixture surface is live before simulating delayed adoption");
+        assert!(mux.take_discovered_terminal_termination_requests_for_test().is_empty());
+
+        let closed = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("close-restored-terminal-host"),
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(closed["replayed"], false);
+        assert_eq!(
+            mux.take_discovered_terminal_termination_requests_for_test(),
+            vec![(host.terminal_id, Some(host.incarnation))],
+            "terminal.close acknowledged before terminating the exact restored host"
+        );
+        detached.kill();
+    }
+
     #[test]
     fn terminal_viewport_scroll_uses_one_bounded_receipt_without_session_journal_churn() {
         let (mux, surface, selectors) = terminal_fixture(None);

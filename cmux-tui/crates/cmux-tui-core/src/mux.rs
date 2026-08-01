@@ -1932,6 +1932,8 @@ pub struct Mux {
     resource_projection_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    discovered_terminal_termination_requests: Mutex<Vec<(String, Option<String>)>>,
     browser_runtime: BrowserRuntimeSlot,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -2263,6 +2265,8 @@ impl Mux {
             resource_projection_before_commit: Mutex::new(None),
             #[cfg(test)]
             resource_close_after_commit: Mutex::new(None),
+            #[cfg(test)]
+            discovered_terminal_termination_requests: Mutex::new(Vec::new()),
             browser_runtime: BrowserRuntimeSlot::default(),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(default_colors),
@@ -6947,6 +6951,11 @@ impl Mux {
     }
 
     fn terminate_discovered_terminal_host(&self, terminal_id: &str, incarnation: Option<&str>) {
+        #[cfg(test)]
+        self.discovered_terminal_termination_requests
+            .lock()
+            .unwrap()
+            .push((terminal_id.to_string(), incarnation.map(str::to_string)));
         #[cfg(unix)]
         {
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
@@ -6965,6 +6974,13 @@ impl Mux {
         }
         #[cfg(not(unix))]
         let _ = (terminal_id, incarnation);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_discovered_terminal_termination_requests_for_test(
+        &self,
+    ) -> Vec<(String, Option<String>)> {
+        std::mem::take(&mut *self.discovered_terminal_termination_requests.lock().unwrap())
     }
 
     fn terminate_tombstoned_workspace_hosts(&self, workspace_key: &str) {
