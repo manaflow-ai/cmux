@@ -294,11 +294,19 @@ class RegistryArtifactTests(unittest.TestCase):
                 broken_response.__enter__.return_value.read.side_effect = failure
                 cancellation = mock.Mock()
                 cancellation.is_set.return_value = False
-                cancellation.wait.return_value = False
+                clock = [10.0]
+
+                def advance(timeout: float) -> bool:
+                    clock[0] += timeout
+                    return False
+
+                cancellation.wait.side_effect = advance
                 with mock.patch.object(
                     reconcile,
                     "urlopen",
                     side_effect=(broken_response, self.response(metadata)),
+                ), mock.patch.object(
+                    reconcile.time, "monotonic", side_effect=lambda: clock[0]
                 ):
                     self.assertEqual(
                         reconcile.wait_for_status(

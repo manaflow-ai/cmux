@@ -38,6 +38,10 @@ class RegistryLookupError(RegistryError):
     """Raised when a registry cannot temporarily be queried."""
 
 
+class RegistryProjectMissing(RegistryError):
+    """Raised when a registry project must be bootstrapped before publishing."""
+
+
 class ArtifactMismatch(RegistryError):
     """Raised when an immutable registry version contains different bytes."""
 
@@ -118,6 +122,20 @@ def _crates_status(package: str, version: str, artifact: Path) -> str:
     )
     metadata = _json(metadata_url)
     if metadata is None:
+        project_url = (
+            "https://crates.io/api/v1/crates/"
+            f"{quote(package, safe='')}"
+        )
+        project = _json(project_url)
+        if project is None:
+            raise RegistryProjectMissing(
+                f"crates.io project {package!r} does not exist; "
+                "bootstrap it before cutting release tags"
+            )
+        if not isinstance(project.get("crate"), dict):
+            raise RegistryError(
+                f"crates.io project metadata is malformed for {package}"
+            )
         return MISSING
     version_metadata = metadata.get("version")
     if not isinstance(version_metadata, dict):
@@ -157,7 +175,10 @@ def _npm_status(package: str, version: str, artifact: Path) -> str:
     url = "https://registry.npmjs.org/" f"{quote(package, safe='')}"
     metadata = _json(url)
     if metadata is None:
-        return MISSING
+        raise RegistryProjectMissing(
+            f"npm project {package!r} does not exist; "
+            "run the bootstrap workflow before cutting release tags"
+        )
     versions = metadata.get("versions")
     if not isinstance(versions, dict):
         raise RegistryError(f"npm metadata has no versions object for {package}")

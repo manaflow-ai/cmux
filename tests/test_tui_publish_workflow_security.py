@@ -289,7 +289,7 @@ def test_sdk_preflight_workflows_cannot_write_to_registries() -> None:
     assert "GOPROXY=https://proxy.golang.org" in public_probe
     assert "GOSUMDB=sum.golang.org" in public_probe
     assert "GOPROXY=direct" not in public_probe
-    assert "GONOSUMDB" not in public_probe
+    assert "GONOSUMDB=none" in public_probe
     assert '"$module/raw"' in public_probe
     assert "go mod download" in public_probe
     assert "go mod verify" in public_probe

@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Sequence
@@ -25,27 +27,127 @@ class GoModuleCancellation(GoModuleError):
     """Raised when public module verification is cancelled."""
 
 
-Runner = Callable[..., subprocess.CompletedProcess[str]]
+class GoModuleAttemptTimeout(GoModuleError):
+    """Raised when one download attempt reaches the overall deadline."""
+
+
+Executor = Callable[..., subprocess.CompletedProcess[str]]
+POLL_SECONDS = 0.25
+STOP_SECONDS = 5
+UNAVAILABLE_DETAIL = (
+    "the public proxy or checksum database has not made the module available"
+)
+TIMEOUT_DETAIL = "the public verification attempt reached its deadline"
+
+
+def _stop_process(process: subprocess.Popen[str]) -> None:
+    try:
+        process.terminate()
+    except OSError:
+        pass
+    try:
+        process.communicate(timeout=STOP_SECONDS)
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except OSError:
+            pass
+        process.communicate()
+
+
+def _run_command(
+    command: Sequence[str],
+    *,
+    env: dict[str, str],
+    deadline: float,
+    clock: Callable[[], float],
+    cancel_event: threading.Event,
+) -> subprocess.CompletedProcess[str]:
+    if cancel_event.is_set():
+        raise GoModuleCancellation("Go module verification was cancelled")
+    if deadline - clock() <= 0:
+        raise GoModuleAttemptTimeout(TIMEOUT_DETAIL)
+    try:
+        process = subprocess.Popen(
+            list(command),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+    except OSError as error:
+        raise GoModuleError(
+            "could not start public Go module verification"
+        ) from error
+
+    while True:
+        if cancel_event.is_set():
+            _stop_process(process)
+            raise GoModuleCancellation("Go module verification was cancelled")
+        remaining = deadline - clock()
+        if remaining <= 0:
+            _stop_process(process)
+            raise GoModuleAttemptTimeout(TIMEOUT_DETAIL)
+        try:
+            stdout, stderr = process.communicate(
+                timeout=min(POLL_SECONDS, remaining)
+            )
+        except subprocess.TimeoutExpired:
+            continue
+        return subprocess.CompletedProcess(
+            list(command),
+            process.returncode if process.returncode is not None else 1,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+
+def _public_environment(module_cache: str) -> dict[str, str]:
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "GOENV": "off",
+            "GOFLAGS": "",
+            "GOINSECURE": "",
+            "GOMODCACHE": module_cache,
+            "GONOPROXY": "none",
+            "GONOSUMDB": "none",
+            "GOPRIVATE": "",
+            "GOPROXY": "https://proxy.golang.org",
+            "GOSUMDB": "sum.golang.org",
+            "GOWORK": "off",
+        }
+    )
+    return environment
 
 
 def _download(
     module: str,
     version: str,
-    runner: Runner,
+    executor: Executor,
+    *,
+    env: dict[str, str],
+    deadline: float,
+    clock: Callable[[], float],
+    cancel_event: threading.Event,
 ) -> tuple[Optional[dict[str, Any]], str]:
     try:
-        result = runner(
+        result = executor(
             ["go", "mod", "download", "-json", f"{module}@{version}"],
-            check=False,
-            capture_output=True,
-            text=True,
+            env=env,
+            deadline=deadline,
+            clock=clock,
+            cancel_event=cancel_event,
         )
+    except GoModuleAttemptTimeout:
+        return None, TIMEOUT_DETAIL
     except OSError as error:
-        raise GoModuleError(f"could not run go mod download: {error}") from error
+        raise GoModuleError(
+            "could not start public Go module verification"
+        ) from error
 
     if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip()
-        return None, detail or f"go mod download exited {result.returncode}"
+        return None, UNAVAILABLE_DETAIL
     try:
         metadata = json.loads(result.stdout)
     except json.JSONDecodeError as error:
@@ -54,12 +156,9 @@ def _download(
         raise GoModuleError("go mod download returned non-object JSON")
     download_error = metadata.get("Error")
     if download_error is not None:
-        return None, str(download_error)
+        return None, UNAVAILABLE_DETAIL
     if metadata.get("Path") != module or metadata.get("Version") != version:
-        raise GoModuleError(
-            "go mod download returned an unexpected module: "
-            f"{metadata.get('Path')}@{metadata.get('Version')}"
-        )
+        raise GoModuleError("go mod download returned an unexpected module identity")
     return metadata, ""
 
 
@@ -69,7 +168,7 @@ def wait_for_module(
     *,
     wait_seconds: int,
     retry_seconds: int,
-    runner: Runner = subprocess.run,
+    executor: Executor = _run_command,
     clock: Callable[[], float] = time.monotonic,
     cancel_event: Optional[threading.Event] = None,
 ) -> dict[str, Any]:
@@ -82,22 +181,32 @@ def wait_for_module(
 
     cancellation = cancel_event or threading.Event()
     deadline = clock() + wait_seconds
-    last_error = "module is unavailable"
-    while True:
-        if cancellation.is_set():
-            raise GoModuleCancellation("Go module verification was cancelled")
-        metadata, error = _download(module, version, runner)
-        if metadata is not None:
-            return metadata
-        last_error = error
-        remaining = deadline - clock()
-        if remaining <= 0:
-            raise GoModuleUnavailable(
-                f"{module}@{version} did not reach the public Go module path: "
-                f"{last_error}"
+    last_error = UNAVAILABLE_DETAIL
+    with tempfile.TemporaryDirectory(prefix="cmux-go-module-") as module_cache:
+        environment = _public_environment(module_cache)
+        while True:
+            if cancellation.is_set():
+                raise GoModuleCancellation("Go module verification was cancelled")
+            metadata, error = _download(
+                module,
+                version,
+                executor,
+                env=environment,
+                deadline=deadline,
+                clock=clock,
+                cancel_event=cancellation,
             )
-        if cancellation.wait(min(retry_seconds, remaining)):
-            raise GoModuleCancellation("Go module verification was cancelled")
+            if metadata is not None:
+                return metadata
+            last_error = error
+            remaining = deadline - clock()
+            if remaining <= 0:
+                raise GoModuleUnavailable(
+                    f"{module}@{version} is unavailable through the public Go "
+                    f"module path: {last_error}; retry after proxy propagation"
+                )
+            if cancellation.wait(min(retry_seconds, remaining)):
+                raise GoModuleCancellation("Go module verification was cancelled")
 
 
 def _parser() -> argparse.ArgumentParser:

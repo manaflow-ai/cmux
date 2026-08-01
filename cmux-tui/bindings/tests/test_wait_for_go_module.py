@@ -70,7 +70,10 @@ class WaitForGoModuleTests(unittest.TestCase):
             return False
 
         cancellation.wait.side_effect = advance
-        with self.assertRaisesRegex(waiter.GoModuleUnavailable, "proxy unavailable"):
+        with self.assertRaisesRegex(
+            waiter.GoModuleUnavailable,
+            "public proxy or checksum database",
+        ):
             waiter.wait_for_module(
                 self.module,
                 self.version,

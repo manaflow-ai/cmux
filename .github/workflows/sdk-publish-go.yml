@@ -227,10 +227,17 @@ jobs:
           expected="v$CMUX_SDK_VERSION"
           scratch="$(mktemp -d)"
           trap 'rm -rf "$scratch"' EXIT
+          export GOENV=off
+          export GOFLAGS=""
+          export GOINSECURE=""
           export GOPROXY=https://proxy.golang.org
           export GOSUMDB=sum.golang.org
+          export GOPRIVATE=""
+          export GONOPROXY=none
+          export GONOSUMDB=none
           export GOMODCACHE="$scratch/modcache"
           export GOCACHE="$scratch/buildcache"
+          export GOWORK=off
           mkdir "$scratch/consumer"
           cd "$scratch/consumer"
           go mod init cmux-release-consumer

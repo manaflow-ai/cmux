@@ -25,8 +25,10 @@ python -m pip install cmux-sdk
 Do not publish SDK contents through `tui-publish-npm.yml` or
 `tui-publish-pypi.yml`.
 
-All packages target mux protocol 10 and expose the same 92 commands and 45
-events. The shared conformance suite verifies their common wire behavior.
+All packages target mux protocol 10 and expose the same generated command and
+event catalogs. The release preflight rejects runtime inventory drift and stale
+generated layers for all four publish targets before it runs their shared
+wire-behavior conformance suite.
 
 ## One-time registry setup
 

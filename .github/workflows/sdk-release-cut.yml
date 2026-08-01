@@ -44,6 +44,15 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
+      - name: Gate published SDK protocol surfaces
+        run: |
+          python3 cmux-tui/scripts/check-spec-inventory.py
+          python3 cmux-tui/bindings/codegen/generate.py --check \
+            --language rust \
+            --language go \
+            --language typescript \
+            --language python
+
       - name: Validate protected main and release metadata
         id: release
         env:
