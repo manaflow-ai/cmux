@@ -387,6 +387,47 @@ struct WorkspaceSwitchCoordinatorTests {
     }
 
     @Test
+    func interactionOnDifferentDestinationSurfaceFinishesMeasurement() {
+        let sourceWorkspaceID = UUID()
+        let targetWorkspaceID = UUID()
+        let capturedSurfaceID = UUID()
+        let focusedSurfaceID = UUID()
+        let coordinator = WorkspaceSwitchCoordinator(
+            beginRendererProtection: { _, _, _ in },
+            endRendererProtection: { _ in }
+        )
+
+        coordinator.selectionWillCommit(
+            from: sourceWorkspaceID,
+            to: targetWorkspaceID,
+            targetSurfaceID: capturedSurfaceID,
+            targetTerminalView: nil,
+            targetRendererPresented: true,
+            targetRenderedFrameSequence: 1
+        )
+        coordinator.beginPresentation(
+            terminalTarget(
+                workspaceID: targetWorkspaceID,
+                surfaceID: capturedSurfaceID,
+                renderedFrameSequence: 1,
+                portalPresented: true,
+                interactionReady: false,
+                requiresInteraction: true
+            ),
+            retiringWorkspaceID: sourceWorkspaceID
+        )
+        coordinator.sourceWillRetire(workspaceID: sourceWorkspaceID)
+        coordinator.sourceDidRetire(workspaceID: sourceWorkspaceID)
+
+        #expect(coordinator.isMeasuringSwitch)
+        coordinator.noteInteractionReady(
+            workspaceID: targetWorkspaceID,
+            surfaceID: focusedSurfaceID
+        )
+        #expect(!coordinator.isMeasuringSwitch)
+    }
+
+    @Test
     func rendererProtectionOwnerExpiresWithCoordinator() {
         var ownerIsAlive: (() -> Bool)?
         var coordinator: WorkspaceSwitchCoordinator? = WorkspaceSwitchCoordinator(
