@@ -30,6 +30,8 @@ extension SimulatorAccessibilitySnapshot {
         while let node = pending.popLast() {
             pending.append(contentsOf: node.children.reversed())
             guard node.isEnabled != false,
+                  label == nil || !node.isLabelTruncated,
+                  identifier == nil || !node.isIdentifierTruncated,
                   matches(node.label, expected: label, caseInsensitive: true),
                   matches(node.identifier, expected: identifier, caseInsensitive: false),
                   matches(node.role, expected: role, caseInsensitive: true),
