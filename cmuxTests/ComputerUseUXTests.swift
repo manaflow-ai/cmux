@@ -500,8 +500,13 @@ struct ComputerUseUXTests {
             updatedAt: Date().timeIntervalSince1970,
             processLiveness: .running,
             processIDs: [processID],
+            processIdentities: [:],
             agentProcessIDs: [processID],
-            agentProcessIdentities: [:]
+            agentProcessIdentities: [:],
+            hibernationPanelProcessIDs: [processID],
+            terminationProcessIDs: [processID],
+            terminationProcessIdentities: [:],
+            containsUnrelatedProcess: false
         )
 
         let session = try #require(ComputerUseLiveDriverSession(
@@ -524,8 +529,13 @@ struct ComputerUseUXTests {
             updatedAt: Date().timeIntervalSince1970,
             processLiveness: .running,
             processIDs: [exitedProcessID],
+            processIdentities: [:],
             agentProcessIDs: [exitedProcessID],
-            agentProcessIdentities: [:]
+            agentProcessIdentities: [:],
+            hibernationPanelProcessIDs: [exitedProcessID],
+            terminationProcessIDs: [exitedProcessID],
+            terminationProcessIdentities: [:],
+            containsUnrelatedProcess: false
         )
 
         #expect(ComputerUseLiveDriverSession(
@@ -554,8 +564,13 @@ struct ComputerUseUXTests {
             updatedAt: Date().timeIntervalSince1970,
             processLiveness: .running,
             processIDs: [Int(processID)],
+            processIdentities: [Int(processID): currentIdentity],
             agentProcessIDs: [Int(processID)],
-            agentProcessIdentities: [Int(processID): currentIdentity]
+            agentProcessIdentities: [Int(processID): currentIdentity],
+            hibernationPanelProcessIDs: [Int(processID)],
+            terminationProcessIDs: [Int(processID)],
+            terminationProcessIdentities: [Int(processID): currentIdentity],
+            containsUnrelatedProcess: false
         )
         var liveEntries = [(
             panelKey: RestorableAgentSessionIndex.PanelKey(
@@ -605,8 +620,13 @@ struct ComputerUseUXTests {
             updatedAt: Date().timeIntervalSince1970,
             processLiveness: .running,
             processIDs: [Int(processID)],
+            processIdentities: [Int(processID): currentIdentity],
             agentProcessIDs: [Int(processID)],
-            agentProcessIdentities: [Int(processID): currentIdentity]
+            agentProcessIdentities: [Int(processID): currentIdentity],
+            hibernationPanelProcessIDs: [Int(processID)],
+            terminationProcessIDs: [Int(processID)],
+            terminationProcessIdentities: [Int(processID): currentIdentity],
+            containsUnrelatedProcess: false
         )
         let projection = ComputerUseLiveSessionProjection(
             liveEntries: {
