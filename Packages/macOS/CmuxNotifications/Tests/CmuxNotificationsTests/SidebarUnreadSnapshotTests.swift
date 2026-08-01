@@ -39,10 +39,16 @@ struct SidebarUnreadSnapshotTests {
 
     @Test
     @MainActor
-    func modelStreamsOnlyChangedAtomicSnapshots() async {
+    func modelPublishesOnlyChangedAtomicSnapshots() {
         let workspaceID = UUID()
         let model = SidebarUnreadModel()
-        var iterator = model.snapshotChanges().makeAsyncIterator()
+        final class Recorder {
+            var snapshots: [SidebarUnreadSnapshot] = []
+        }
+        let recorder = Recorder()
+        let observation = model.observeChanges(owner: recorder) { recorder, snapshot in
+            recorder.snapshots.append(snapshot)
+        }
 
         model.apply(
             totalUnreadCount: 1,
@@ -56,8 +62,7 @@ struct SidebarUnreadSnapshotTests {
             focusedReadIndicatorByWorkspaceId: [:],
             manualUnreadWorkspaceIds: []
         )
-        let first = await iterator.next()
-        #expect(first == model.snapshot)
+        #expect(recorder.snapshots == [model.snapshot])
 
         let publicationCount = OSAllocatedUnfairLock(initialState: 0)
         withObservationTracking {
@@ -82,7 +87,6 @@ struct SidebarUnreadSnapshotTests {
             "An equivalent snapshot must not publish."
         )
 
-        var nextIterator = model.snapshotChanges().makeAsyncIterator()
         model.apply(
             totalUnreadCount: 0,
             summaries: [:],
@@ -90,8 +94,18 @@ struct SidebarUnreadSnapshotTests {
             focusedReadIndicatorByWorkspaceId: [:],
             manualUnreadWorkspaceIds: []
         )
-        let second = await nextIterator.next()
-        #expect(second?.totalUnreadCount == 0)
-        #expect(second?.summaryByWorkspaceId.isEmpty == true)
+        #expect(recorder.snapshots.count == 2)
+        #expect(recorder.snapshots.last?.totalUnreadCount == 0)
+        #expect(recorder.snapshots.last?.summaryByWorkspaceId.isEmpty == true)
+
+        observation.cancel()
+        model.apply(
+            totalUnreadCount: 1,
+            summaries: [:],
+            unreadSurfaceKeys: [],
+            focusedReadIndicatorByWorkspaceId: [:],
+            manualUnreadWorkspaceIds: []
+        )
+        #expect(recorder.snapshots.count == 2)
     }
 }

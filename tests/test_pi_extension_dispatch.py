@@ -167,6 +167,7 @@ def check_ui_lifecycle_handlers_return_immediately(
     extension_path: Path,
 ) -> int:
     lifecycle_log = root / "ui-lifecycle-latency.log"
+    lifecycle_release = root / "ui-lifecycle-release"
     lifecycle_cmux = root / "ui-lifecycle-latency-cmux"
     make_executable(
         lifecycle_cmux,
@@ -174,12 +175,20 @@ def check_ui_lifecycle_handlers_return_immediately(
 set -euo pipefail
 payload="$(cat)"
 printf 'start %s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_UI_LATENCY_LOG"
-sleep 0.15
+for _ in {1..250}; do
+  if [ -f "$CMUX_TEST_PI_UI_RELEASE" ]; then break; fi
+  sleep 0.02
+done
+if [ ! -f "$CMUX_TEST_PI_UI_RELEASE" ]; then
+  printf 'blocked %s\n' "$*" >> "$CMUX_TEST_PI_UI_LATENCY_LOG"
+  exit 88
+fi
 printf 'end %s\n' "$*" >> "$CMUX_TEST_PI_UI_LATENCY_LOG"
 printf '{"workspace_id":"00000000-0000-0000-0000-000000008673","surface_id":"00000000-0000-0000-0000-000000008672","resume_binding":{"kind":"pi","checkpoint_id":"pi-ui-latency-session"}}\n'
 """,
     )
     lifecycle_source = """
+import { writeFileSync } from "node:fs";
 const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
 const mod = await import(extensionPath);
 const handlers = new Map();
@@ -189,19 +198,19 @@ const ctx = {
   isIdle() { return true; },
   sessionManager: { getSessionId() { return "pi-ui-latency-session"; } }
 };
-async function measure(label, action) {
-  const startedAt = performance.now();
-  await Promise.resolve(action());
-  const elapsed = performance.now() - startedAt;
-  console.log(`${label}_ms=${elapsed}`);
-  if (elapsed >= 75) throw new Error(`${label} blocked Pi for ${elapsed}ms`);
-}
-await measure("session_start", () => handlers.get("session_start")({}, ctx));
-await measure("prompt_submit", () => handlers.get("before_agent_start")({ prompt: "hello" }, ctx));
-await measure("completion", () => handlers.get("agent_end")({
+await Promise.resolve(handlers.get("session_start")({}, ctx));
+await Promise.resolve(handlers.get("before_agent_start")({ prompt: "hello" }, ctx));
+await Promise.resolve(handlers.get("tool_execution_start")({
+  toolCallId: "ui-lifecycle-tool",
+  toolName: "bash",
+  args: { command: "true" }
+}, ctx));
+await Promise.resolve(handlers.get("agent_end")({
   messages: [{ role: "assistant", content: "done" }],
   stopReason: "completed"
 }, ctx));
+console.log("lifecycle_handlers_returned");
+writeFileSync(process.env.CMUX_TEST_PI_UI_RELEASE, "ready");
 
 const logPath = process.env.CMUX_TEST_PI_UI_LATENCY_LOG;
 const deadline = performance.now() + 5000;
@@ -211,7 +220,7 @@ while (performance.now() < deadline) {
     text = await Bun.file(logPath).text();
   } catch (_) {}
   const completed = text.split("\\n").filter((line) => line.startsWith("end ")).length;
-  if (completed >= 6) break;
+  if (completed >= 7) break;
   await new Promise((resolve) => setTimeout(resolve, 10));
 }
 """
@@ -221,7 +230,10 @@ while (performance.now() < deadline) {
         extension_path=extension_path,
         fake_cmux=lifecycle_cmux,
         source=lifecycle_source,
-        extra_env={"CMUX_TEST_PI_UI_LATENCY_LOG": str(lifecycle_log)},
+        extra_env={
+            "CMUX_TEST_PI_UI_LATENCY_LOG": str(lifecycle_log),
+            "CMUX_TEST_PI_UI_RELEASE": str(lifecycle_release),
+        },
     )
     if result.returncode != 0:
         print("FAIL: Pi UI lifecycle handler awaited cmux subprocess work")
@@ -230,17 +242,8 @@ while (performance.now() < deadline) {
         print(f"stderr={result.stderr.strip()}")
         return 1
 
-    timings = {}
-    for line in result.stdout.splitlines():
-        if "_ms=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        timings[key] = float(value)
-    if set(timings) != {"session_start_ms", "prompt_submit_ms", "completion_ms"}:
-        print(f"FAIL: Pi UI lifecycle timing output was incomplete: {result.stdout!r}")
-        return 1
-    if any(value >= 75 for value in timings.values()):
-        print(f"FAIL: Pi UI lifecycle handlers were observably blocking: {timings!r}")
+    if "lifecycle_handlers_returned" not in result.stdout:
+        print(f"FAIL: Pi UI lifecycle handlers did not return before release: {result.stdout!r}")
         return 1
 
     calls = lifecycle_log.read_text(encoding="utf-8").splitlines()
@@ -250,6 +253,7 @@ while (performance.now() < deadline) {
         "--json surface resume set",
         "--json surface resume get",
         "hooks pi prompt-submit",
+        "hooks feed --source pi --event PreToolUse",
         "hooks pi notification",
         "hooks pi stop",
     )
@@ -263,6 +267,7 @@ while (performance.now() < deadline) {
         or not (
             indexes["hooks pi session-start"][0]
             < indexes["hooks pi prompt-submit"][0]
+            < indexes["hooks feed --source pi --event PreToolUse"][0]
             < indexes["hooks pi notification"][0]
             < indexes["hooks pi stop"][0]
         )
@@ -272,6 +277,169 @@ while (performance.now() < deadline) {
         )
     ):
         print(f"FAIL: detached Pi lifecycle work lost command ordering: {calls!r}")
+        return 1
+    return 0
+
+
+def check_completion_precedes_next_prompt(bun: str, root: Path, extension_path: Path) -> int:
+    transition_log = root / "turn-transition.log"
+    transition_cmux = root / "turn-transition-cmux"
+    make_executable(
+        transition_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_TRANSITION_LOG"
+printf '{}\n'
+""",
+    )
+    transition_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-turn-transition",
+  sessionManager: { getSessionId() { return "pi-turn-transition-session"; } }
+};
+handlers.get("before_agent_start")({ prompt: "first" }, ctx);
+handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "first done" }],
+  stopReason: "completed"
+}, ctx);
+handlers.get("before_agent_start")({ prompt: "second" }, ctx);
+await handlers.get("session_shutdown")({ reason: "test complete" }, ctx);
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=transition_cmux,
+        source=transition_source,
+        extra_env={"CMUX_TEST_PI_TRANSITION_LOG": str(transition_log)},
+    )
+    if result.returncode != 0:
+        print(f"FAIL: Pi turn-transition harness failed: {result.stderr!r}")
+        return 1
+    calls = transition_log.read_text(encoding="utf-8").splitlines()
+    first_stop = next(
+        (
+            index
+            for index, line in enumerate(calls)
+            if "hooks pi stop" in line
+            and '"turn_id":"pi-turn-transition-session:turn-1"' in line
+        ),
+        None,
+    )
+    second_prompt = next(
+        (
+            index
+            for index, line in enumerate(calls)
+            if "hooks pi prompt-submit" in line
+            and '"turn_id":"pi-turn-transition-session:turn-2"' in line
+        ),
+        None,
+    )
+    if first_stop is None or second_prompt is None or first_stop > second_prompt:
+        print(f"FAIL: previous Pi completion raced the next prompt: {calls!r}")
+        return 1
+    return 0
+
+
+def check_cross_session_lifecycle_isolation(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    lifecycle_log = root / "cross-session-lifecycle.log"
+    lifecycle_release = root / "cross-session-lifecycle-release"
+    lifecycle_cmux = root / "cross-session-lifecycle-cmux"
+    make_executable(
+        lifecycle_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf 'start %s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_CROSS_LIFECYCLE_LOG"
+if [[ "$payload" == *'"session_id":"pi-slow-session"'* ]] && [[ "$*" == *"prompt-submit"* ]]; then
+  for _ in {1..250}; do
+    if [ -f "$CMUX_TEST_PI_CROSS_LIFECYCLE_RELEASE" ]; then break; fi
+    sleep 0.02
+  done
+  if [ ! -f "$CMUX_TEST_PI_CROSS_LIFECYCLE_RELEASE" ]; then
+    printf 'blocked %s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_CROSS_LIFECYCLE_LOG"
+    exit 88
+  fi
+fi
+printf 'end %s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_CROSS_LIFECYCLE_LOG"
+printf '{}\n'
+""",
+    )
+    lifecycle_source = """
+import { writeFileSync } from "node:fs";
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const context = (sessionId) => ({
+  cwd: "/tmp/pi-cross-session-lifecycle",
+  sessionManager: { getSessionId() { return sessionId; } }
+});
+const slow = context("pi-slow-session");
+const healthy = context("pi-healthy-session");
+handlers.get("before_agent_start")({ prompt: "block session A" }, slow);
+const logPath = process.env.CMUX_TEST_PI_CROSS_LIFECYCLE_LOG;
+while (true) {
+  try {
+    if ((await Bun.file(logPath).text()).includes("pi-slow-session")) break;
+  } catch (_) {}
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+await handlers.get("session_shutdown")({ reason: "session B complete" }, healthy);
+writeFileSync(process.env.CMUX_TEST_PI_CROSS_LIFECYCLE_RELEASE, "ready");
+await handlers.get("session_shutdown")({ reason: "session A complete" }, slow);
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=lifecycle_cmux,
+        source=lifecycle_source,
+        extra_env={
+            "CMUX_TEST_PI_CROSS_LIFECYCLE_LOG": str(lifecycle_log),
+            "CMUX_TEST_PI_CROSS_LIFECYCLE_RELEASE": str(lifecycle_release),
+        },
+    )
+    if result.returncode != 0:
+        print(f"FAIL: cross-session lifecycle harness failed: {result.stderr!r}")
+        return 1
+    calls = lifecycle_log.read_text(encoding="utf-8").splitlines()
+    slow_prompt_end = next(
+        (
+            index
+            for index, line in enumerate(calls)
+            if line.startswith("end ")
+            and "prompt-submit" in line
+            and '"session_id":"pi-slow-session"' in line
+        ),
+        None,
+    )
+    healthy_stop = next(
+        (
+            index
+            for index, line in enumerate(calls)
+            if line.startswith("end ")
+            and "hooks pi stop" in line
+            and '"session_id":"pi-healthy-session"' in line
+        ),
+        None,
+    )
+    if (
+        any(line.startswith("blocked ") for line in calls)
+        or healthy_stop is None
+        or slow_prompt_end is None
+        or healthy_stop > slow_prompt_end
+    ):
+        print(f"FAIL: slow Pi session delayed another session's shutdown: {calls!r}")
         return 1
     return 0
 
@@ -1786,12 +1954,25 @@ const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
 const mod = await import(extensionPath);
 const handlers = new Map();
 mod.default({ on(name, handler) { handlers.set(name, handler); } });
+let notificationCount = 0;
 const ctx = {
   cwd: "/tmp/pi-ambiguous-error-project",
+  ui: { notify() { notificationCount += 1; } },
   sessionManager: { getSessionId() { return "pi-ambiguous-error-session"; } }
 };
 await handlers.get("before_agent_start")({ prompt: "first" }, ctx);
 await handlers.get("before_agent_start")({ prompt: "second" }, ctx);
+const logPath = process.env.CMUX_TEST_PI_AMBIGUOUS_LOG;
+const deadline = performance.now() + 5000;
+while (performance.now() < deadline) {
+  try {
+    if ((await Bun.file(logPath).text()).trim().split("\\n").length >= 2) break;
+  } catch (_) {}
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+if (notificationCount !== 0) {
+  throw new Error(`routine cmux failure showed ${notificationCount} Pi warning toast(s)`);
+}
 """
     ambiguous = run_extension(
         bun=bun,
@@ -2265,6 +2446,8 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
     checks = (
         check_responsiveness,
         check_ui_lifecycle_handlers_return_immediately,
+        check_completion_precedes_next_prompt,
+        check_cross_session_lifecycle_isolation,
         check_panel_only_target_fails_closed,
         check_feed_backlog,
         check_terminal_feed_compaction,

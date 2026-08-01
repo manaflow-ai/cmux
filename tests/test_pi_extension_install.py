@@ -6,6 +6,7 @@ Regression test: the generated Pi extension is importable and emits cmux hook ca
 from __future__ import annotations
 
 import base64
+import fcntl
 import json
 import os
 import shutil
@@ -98,39 +99,109 @@ def main() -> int:
             encoding="utf-8",
         )
         refresh_env = os.environ.copy()
+        isolated_home = root / "home"
+        isolated_home.mkdir()
+        refresh_env["HOME"] = str(isolated_home)
+        refresh_env["CFFIXED_USER_HOME"] = str(isolated_home)
         refresh_env["PI_CODING_AGENT_DIR"] = str(config_dir)
         refresh_env["CMUX_WORKSPACE_ID"] = FOCUSED_WORKSPACE_ID
         refresh_env["CMUX_SURFACE_ID"] = FOCUSED_SURFACE_ID
-        subprocess.run(
-            [
-                cli_path,
-                "--socket",
-                str(root / "missing-pi-refresh.sock"),
-                "hooks",
-                "pi",
-                "session-start",
-                "--workspace",
-                FOCUSED_WORKSPACE_ID,
-                "--surface",
-                FOCUSED_SURFACE_ID,
-            ],
-            input=json.dumps(
-                {
-                    "session_id": "pi-managed-extension-refresh",
-                    "cwd": str(root),
-                    "hook_event_name": "SessionStart",
-                    "event": "SessionStart",
-                }
-            ),
+        refresh_command = [
+            cli_path,
+            "--socket",
+            str(root / "missing-pi-refresh.sock"),
+            "hooks",
+            "pi",
+            "session-start",
+            "--workspace",
+            FOCUSED_WORKSPACE_ID,
+            "--surface",
+            FOCUSED_SURFACE_ID,
+        ]
+        refresh_payload = json.dumps(
+            {
+                "session_id": "pi-managed-extension-refresh",
+                "cwd": str(root),
+                "hook_event_name": "SessionStart",
+                "event": "SessionStart",
+            }
+        )
+        refresh_result = subprocess.run(
+            refresh_command,
+            input=refresh_payload,
             capture_output=True,
             text=True,
             check=False,
             env=refresh_env,
             timeout=20,
         )
+        if refresh_result.returncode == 0:
+            print("FAIL: Pi refresh fixture unexpectedly connected to its missing socket")
+            return 1
         if extension_path.read_text(encoding="utf-8") != extension_text:
             print("FAIL: Pi session-start did not refresh the stale cmux-managed extension")
             return 1
+
+        extension_path.write_text(
+            "// cmux-pi-session-extension-marker v2\n// stale managed race fixture\n",
+            encoding="utf-8",
+        )
+        lock_path = extension_path.parent / ".cmux-session.lock"
+        replacement = "// user replacement without the cmux ownership marker\n"
+        with lock_path.open("a", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            blocked_refresh = subprocess.Popen(
+                refresh_command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=refresh_env,
+            )
+            extension_path.write_text(replacement, encoding="utf-8")
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        blocked_refresh.communicate(input=refresh_payload, timeout=20)
+        if extension_path.read_text(encoding="utf-8") != replacement:
+            print("FAIL: in-flight Pi refresh overwrote a replacement extension")
+            return 1
+
+        extension_path = install_pi_extension(config_dir, cli_path)
+        extension_text = extension_path.read_text(encoding="utf-8")
+        extension_path.write_text(
+            "// cmux-pi-session-extension-marker v2\n// stale uninstall race fixture\n",
+            encoding="utf-8",
+        )
+        with lock_path.open("a", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            blocked_refresh = subprocess.Popen(
+                refresh_command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=refresh_env,
+            )
+            blocked_uninstall = subprocess.Popen(
+                [cli_path, "hooks", "pi", "uninstall"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=refresh_env,
+            )
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        blocked_refresh.communicate(input=refresh_payload, timeout=20)
+        uninstall_stdout, uninstall_stderr = blocked_uninstall.communicate(timeout=20)
+        if blocked_uninstall.returncode != 0:
+            print(
+                "FAIL: concurrent Pi uninstall failed: "
+                f"stdout={uninstall_stdout!r} stderr={uninstall_stderr!r}"
+            )
+            return 1
+        if extension_path.exists():
+            print("FAIL: in-flight Pi refresh recreated an uninstalled extension")
+            return 1
+        extension_path = install_pi_extension(config_dir, cli_path)
+        extension_text = extension_path.read_text(encoding="utf-8")
 
         bin_dir = root / "bin"
         bin_dir.mkdir()
