@@ -536,6 +536,15 @@ def test_python_preflight_tests_the_exact_pinned_distributions() -> None:
     assert "*.tar.gz" in consumer
 
 
+def test_python_release_artifacts_use_the_commit_timestamp() -> None:
+    preflight = workflow("sdk-publish-python.yml")
+    build = workflow_job(preflight, "build")
+
+    timestamp = 'SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"'
+    assert timestamp in build
+    assert build.index(timestamp) < build.index("python3 -m build")
+
+
 def test_python_preflight_provisions_the_declared_build_backend() -> None:
     preflight = workflow("sdk-publish-python.yml")
     package_tests = preflight.index("Test Python SDK package")
