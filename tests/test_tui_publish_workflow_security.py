@@ -99,6 +99,37 @@ def test_typescript_sdk_publisher_cannot_publish_the_cli_package() -> None:
     assert "https://www.npmjs.com/package/cmux" in tui
 
 
+def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
+    bootstrap = workflow("sdk-bootstrap-npm.yml")
+    sdk_ci = workflow("cmux-tui-sdks.yml")
+    releasing = (
+        ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
+    ).read_text()
+
+    assert workflow_triggers(bootstrap) == {"workflow_dispatch": {"inputs": {
+        "confirm_bootstrap": {
+            "description": "Claim cmux-sdk with a tested prerelease artifact",
+            "required": "true",
+            "default": "false",
+            "type": "boolean",
+        }
+    }}}
+    assert "runs-on: ubuntu-24.04" in bootstrap
+    assert "id-token: write" in bootstrap
+    assert "NPM_BOOTSTRAP_TOKEN" in bootstrap
+    assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
+    assert "npm test" in bootstrap
+    assert "npm pack --pack-destination" in bootstrap
+    assert 'npm publish "${packages[0]}"' in bootstrap
+    assert "--tag bootstrap" in bootstrap
+    assert "--provenance" in bootstrap
+    assert "--access public" in bootstrap
+    assert "name: sdk-bootstrap-npm.yml" in sdk_ci
+    assert "sdk-bootstrap-npm.yml" in releasing
+    assert "0.0.0-bootstrap.0" in releasing
+    assert "first `cmux-sdk` release interactively" not in releasing
+
+
 def test_python_sdk_publisher_cannot_publish_the_cli_package() -> None:
     preflight = workflow("sdk-publish-python.yml")
     release = workflow("sdk-release-cut.yml")
@@ -257,6 +288,17 @@ def test_sdk_preflight_workflows_cannot_write_to_registries() -> None:
     assert "go mod download" in public_probe
     assert "go mod verify" in public_probe
     assert "go test" in public_probe
+
+
+def test_go_public_tag_probe_retries_proxy_propagation() -> None:
+    go = workflow("sdk-publish-go.yml")
+    public_probe = workflow_job(go, "verify-versioned-go-module")
+
+    assert "timeout-minutes: 35" in public_probe
+    wait = public_probe.index("wait_for_go_module.py")
+    assert "--wait-seconds 1800" in public_probe[wait:]
+    assert "--retry-seconds 30" in public_probe[wait:]
+    assert wait < public_probe.index('go get "$module@$expected"')
 
 
 def test_workflow_trigger_guard_parses_flow_style_yaml() -> None:
