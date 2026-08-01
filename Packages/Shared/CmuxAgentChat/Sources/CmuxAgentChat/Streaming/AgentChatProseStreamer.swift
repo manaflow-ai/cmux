@@ -55,6 +55,7 @@ public final class AgentChatProseStreamer {
 
     private let extractionWorker = AgentChatProseExtractionWorker()
     private var turns: [String: ActiveTurn] = [:]
+    private var nextGenerationBySessionID: [String: Int] = [:]
     private var activeUnsettledTurnCount = 0
     private var unsettledSessionIDsBySurfaceID: [UUID: Set<String>] = [:]
     private var pendingSurfaceIDs = Set<UUID>()
@@ -105,7 +106,8 @@ public final class AgentChatProseStreamer {
     @discardableResult
     public func turnStarted(sessionID: String, surfaceID: UUID, agentKind: ChatAgentKind) -> TurnToken {
         let previous = turns[sessionID]
-        let generation = (previous?.generation ?? -1) + 1
+        let generation = nextGenerationBySessionID[sessionID] ?? 0
+        nextGenerationBySessionID[sessionID] = generation + 1
         if let previous, !previous.settled {
             unregisterUnsettledTurn(sessionID: sessionID, surfaceID: previous.surfaceID)
         }

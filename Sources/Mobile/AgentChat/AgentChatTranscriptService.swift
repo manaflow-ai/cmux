@@ -119,15 +119,24 @@ final class AgentChatTranscriptService {
     private var proseStreamer: AgentChatProseStreamer!
     /// Bridges terminal output/render wakeups into the prose streamer.
     private var proseWakeDriver: AgentChatProseStreamWakeDriver!
-    /// Current live prose-stream generation per session, consumed when the
-    /// matching authoritative transcript prose lands.
-    private var proseTurnTokens: [String: AgentChatProseStreamer.TurnToken] = [:]
+    /// Current live prose-stream generation per session, consumed only when a
+    /// matching authoritative transcript prose line lands for that turn.
+    private var proseTurnStates: [String: ProseTurnState] = [:]
+    /// Highest transcript seq observed per session, used to bind live preview
+    /// settlement to transcript lines that landed after the prompt started.
+    private var latestTranscriptSeqBySessionID: [String: Int] = [:]
     /// Sessions whose transcript could not be resolved cheaply; skipped until
     /// authoritative bindings arrive or an explicit history request retries.
     /// Hook delivery never runs Codex's recursive fallback scan.
     private var failedResolutions: Set<String> = []
     private let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
+
+    private struct ProseTurnState {
+        let token: AgentChatProseStreamer.TurnToken
+        let startedAt: Date
+        let transcriptFloorSeq: Int
+    }
 
     /// Creates the service with a hook-store-backed registry.
     ///
@@ -312,10 +321,14 @@ final class AgentChatTranscriptService {
         case .userPromptSubmit:
             if record.state != .ended,
                let surfaceID = record.surfaceID.flatMap(UUID.init(uuidString:)) {
-                proseTurnTokens[record.sessionID] = proseStreamer.turnStarted(
-                    sessionID: record.sessionID,
-                    surfaceID: surfaceID,
-                    agentKind: record.agentKind
+                proseTurnStates[record.sessionID] = ProseTurnState(
+                    token: proseStreamer.turnStarted(
+                        sessionID: record.sessionID,
+                        surfaceID: surfaceID,
+                        agentKind: record.agentKind
+                    ),
+                    startedAt: event.receivedAt,
+                    transcriptFloorSeq: latestTranscriptSeqBySessionID[record.sessionID] ?? -1
                 )
                 proseWakeDriver.refreshDemand(kickIfRetained: true)
             }
@@ -405,7 +418,8 @@ final class AgentChatTranscriptService {
         workspaceID: String?,
         workingDirectory: String?
     ) {
-        endProseTurn(sessionID: sessionID)
+        let normalizedSessionID = AgentChatSessionRegistry.normalizedSessionID(sessionID, source: source)
+        endProseTurn(sessionID: normalizedSessionID)
         registry.noteResumeInitiated(
             sessionID: sessionID,
             source: source,
@@ -549,6 +563,7 @@ final class AgentChatTranscriptService {
         )
         #endif
         if batch.didReset {
+            latestTranscriptSeqBySessionID[sessionID] = nil
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .reset))
         }
         if let title = batch.discoveredTitle {
@@ -557,27 +572,36 @@ final class AgentChatTranscriptService {
         if !batch.appended.isEmpty {
             // The authoritative prose for the turn just landed: settle the live
             // preview so the committed message takes over with no duplicate.
-            if Self.batchContainsAgentProse(batch.appended) {
-                settleProseTurn(sessionID: sessionID)
+            if let turnState = proseTurnStates[sessionID],
+               Self.batchContainsAgentProse(batch.appended, matching: turnState) {
+                settleProseTurn(sessionID: sessionID, turnState: turnState)
             }
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .appended(batch.appended)))
         }
         if !batch.updated.isEmpty {
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .updated(batch.updated)))
         }
+        updateLatestTranscriptSeq(sessionID: sessionID, messages: batch.appended + batch.updated)
         if let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended) {
             registry.noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
         }
     }
 
-    /// Whether a batch carries any committed agent prose, the signal that the
-    /// streaming preview for the turn should settle.
-    private static func batchContainsAgentProse(_ messages: [ChatMessage]) -> Bool {
+    private static func batchContainsAgentProse(_ messages: [ChatMessage], matching turnState: ProseTurnState) -> Bool {
         messages.contains { message in
             guard message.role == .agent else { return false }
-            if case .prose = message.kind { return true }
-            return false
+            guard case .prose = message.kind else { return false }
+            let hasTranscriptTimestamp = message.timestamp > Date(timeIntervalSince1970: 1)
+            if hasTranscriptTimestamp {
+                return message.timestamp >= turnState.startedAt
+            }
+            return message.seq > turnState.transcriptFloorSeq
         }
+    }
+
+    private func updateLatestTranscriptSeq(sessionID: String, messages: [ChatMessage]) {
+        guard let maxSeq = messages.map(\.seq).max() else { return }
+        latestTranscriptSeqBySessionID[sessionID] = max(latestTranscriptSeqBySessionID[sessionID] ?? -1, maxSeq)
     }
 
     private static func completedAssistantTurnTimestamp(in messages: [ChatMessage]) -> Date? {
@@ -650,6 +674,7 @@ final class AgentChatTranscriptService {
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
         fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
         endProseTurn(sessionID: record.sessionID)
+        latestTranscriptSeqBySessionID[record.sessionID] = nil
         if let tailer = tailers.removeValue(forKey: record.sessionID) {
             Task { await tailer.stop() }
         }
@@ -665,13 +690,19 @@ final class AgentChatTranscriptService {
     }
 
     private func settleProseTurn(sessionID: String) {
-        guard let token = proseTurnTokens.removeValue(forKey: sessionID) else { return }
-        proseStreamer.authoritativeProseArrived(token)
+        guard let turnState = proseTurnStates[sessionID] else { return }
+        settleProseTurn(sessionID: sessionID, turnState: turnState)
+    }
+
+    private func settleProseTurn(sessionID: String, turnState: ProseTurnState) {
+        guard proseTurnStates[sessionID]?.token == turnState.token else { return }
+        proseTurnStates[sessionID] = nil
+        proseStreamer.authoritativeProseArrived(turnState.token)
         proseWakeDriver.refreshDemand()
     }
 
     private func endProseTurn(sessionID: String) {
-        proseTurnTokens[sessionID] = nil
+        proseTurnStates[sessionID] = nil
         proseStreamer.turnEnded(sessionID: sessionID)
         proseWakeDriver.refreshDemand()
     }

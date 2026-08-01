@@ -318,6 +318,49 @@ final class AgentChatProseStreamerTests: XCTestCase {
         streamer.turnEnded(sessionID: sessionID)
     }
 
+    func testStaleAuthoritativeProseTokenAfterEndDoesNotClearNewTurn() async throws {
+        let originalSurfaceID = UUID()
+        let reboundSurfaceID = UUID()
+        let sessionID = "session-new-turn-after-ended-token"
+        let expectedText = "The new turn owns this preview."
+        var emittedFrames: [ChatSessionEventFrame] = []
+        let streamer = AgentChatProseStreamer(
+            emit: { frame in emittedFrames.append(frame) },
+            snapshot: { requestedSurfaceID in
+                requestedSurfaceID == reboundSurfaceID ? Self.codexRows(answer: expectedText) : nil
+            },
+            hasSubscribers: { true },
+            now: { Date(timeIntervalSince1970: 1_711_111_111) }
+        )
+
+        let staleToken = streamer.turnStarted(
+            sessionID: sessionID,
+            surfaceID: originalSurfaceID,
+            agentKind: .codex
+        )
+        streamer.turnEnded(sessionID: sessionID)
+        let currentToken = streamer.turnStarted(
+            sessionID: sessionID,
+            surfaceID: reboundSurfaceID,
+            agentKind: .codex
+        )
+
+        streamer.surfaceDidChange(reboundSurfaceID)
+        await Task.yield()
+        streamer.authoritativeProseArrived(staleToken)
+        await Task.yield()
+
+        XCTAssertTrue(streamer.hasActiveUnsettledTurns)
+        XCTAssertFalse(emittedFrames.contains { frame in
+            if case .streamingProse(nil) = frame.event { return true }
+            return false
+        })
+
+        streamer.authoritativeProseArrived(currentToken)
+        XCTAssertFalse(streamer.hasActiveUnsettledTurns)
+        streamer.turnEnded(sessionID: sessionID)
+    }
+
     private static func codexRows(answer: String) -> [String] {
         [
             "> Reply with one short sentence about blue.",
