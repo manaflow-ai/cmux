@@ -415,4 +415,14 @@ mod tests {
 
         assert_eq!(fs::metadata(private).unwrap().permissions().mode() & 0o777, 0o700);
     }
+
+    #[test]
+    fn managed_owner_only_policy_tightens_an_existing_managed_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o755)).unwrap();
+
+        ensure_secure_directory(directory.path(), DirectoryAccess::ManagedOwnerOnly).unwrap();
+
+        assert_eq!(fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777, 0o700);
+    }
 }
