@@ -316,6 +316,69 @@ import Testing
         #expect(factory.attemptedPorts() == [51000, 51001, 51001])
     }
 
+    @Test func staleConnectCannotReplaceAnEstablishedClientBeforeDialing() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = RouteRecordingTransportFactory(
+            router: router,
+            box: box,
+            failingPorts: [51000]
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.debugLoopback]
+        )
+        let liveRoute = try loopbackRoute(id: "live", port: 51001)
+        let staleRoute = try loopbackRoute(id: "stale", port: 51000)
+        let liveTicket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "live-mac",
+            macDisplayName: "Live Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [liveRoute],
+            expiresAt: clock.now.addingTimeInterval(3_600)
+        )
+        let staleTicket = try CmxAttachTicket(
+            workspaceID: "stale-workspace",
+            terminalID: "stale-terminal",
+            macDeviceID: "stale-mac",
+            macDisplayName: "Stale Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [staleRoute],
+            expiresAt: clock.now.addingTimeInterval(3_600)
+        )
+        let liveClient = MobileCoreRPCClient(
+            runtime: runtime,
+            route: liveRoute,
+            ticket: liveTicket,
+            allowsStackAuthFallback: true
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected,
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "stale-connect-authority-\(UUID().uuidString)"
+            )!
+        )
+        store.activeTicket = liveTicket
+        store.activeRoute = liveRoute
+        store.replaceRemoteClient(with: liveClient)
+
+        _ = try await store.connect(
+            ticket: staleTicket,
+            ifStillCurrent: { false }
+        )
+
+        #expect(store.remoteClient === liveClient)
+        #expect(store.connectionState == .connected)
+        #expect(factory.attemptedPorts().isEmpty)
+    }
+
     @Test func supersededSuccessfulRouteClosesItsUnadoptedTransport() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -471,10 +534,58 @@ import Testing
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
-            pairingHintDefaults: UserDefaults(suiteName: "reconnect-routes-\(UUID().uuidString)")!
+            pairingHintDefaults: UserDefaults(suiteName: "reconnect-routes-\(UUID().uuidString)")!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
         )
         await store.loadPairedMacs()
         return store
     }
 
+    @Test func tailscalePreferencePromotesGrantedRouteAheadOfIrohPin() throws {
+        let tailscale = try tailscale()
+        let routes = MobileShellComposite.storedReconnectRoutes(
+            [tailscale, try iroh()],
+            supportedKinds: [.iroh, .tailscale],
+            preferNonLoopback: true,
+            tailscalePreference: MobileShellComposite.TailscaleRoutePreference(
+                macDeviceID: "test-mac",
+                grantRoutes: [tailscale]
+            )
+        )
+
+        // The granted Tailscale destination dials first; Iroh stays as the
+        // fallback instead of being exclusive.
+        #expect(routes.map(\.kind) == [.tailscale, .iroh])
+    }
+
+    @Test func tailscalePreferenceWithoutGrantKeepsIrohExclusivePin() throws {
+        // A preference flip alone grants nothing: without a device-local grant
+        // the Iroh pin still drops every raw host/port fallback.
+        let routes = MobileShellComposite.storedReconnectRoutes(
+            [try tailscale(), try iroh()],
+            supportedKinds: [.iroh, .tailscale],
+            preferNonLoopback: true,
+            tailscalePreference: MobileShellComposite.TailscaleRoutePreference(
+                macDeviceID: "test-mac",
+                grantRoutes: []
+            )
+        )
+
+        #expect(routes.map(\.kind) == [.iroh])
+    }
+
+    @Test func tailscalePreferenceIgnoresGrantForDifferentDestination() throws {
+        let otherDestination = try tailscale(50907)
+        let routes = MobileShellComposite.storedReconnectRoutes(
+            [try tailscale(), try iroh()],
+            supportedKinds: [.iroh, .tailscale],
+            preferNonLoopback: true,
+            tailscalePreference: MobileShellComposite.TailscaleRoutePreference(
+                macDeviceID: "test-mac",
+                grantRoutes: [otherDestination]
+            )
+        )
+
+        #expect(routes.map(\.kind) == [.iroh])
+    }
 }

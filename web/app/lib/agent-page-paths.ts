@@ -2,6 +2,11 @@ import { locales } from "../../i18n/routing";
 import { comparePages, comparePath } from "./compare-pages";
 import type { ComparePageKey } from "./compare-pages";
 import {
+  DOWNLOAD_PLATFORMS,
+  PLATFORM_DOWNLOADS,
+  type DownloadPlatform,
+} from "./download";
+import {
   englishFallbackContentLocales,
   fallbackContentLocales,
   featureWorkflowContentLocales,
@@ -108,15 +113,32 @@ const agentReadableComparePages = comparePages.map((page) => ({
   title: comparePageTitles[page.key],
 }));
 
+const agentReadableDownloadTitles = {
+  windows: "cmux for Windows",
+  linux: "cmux for Linux",
+} satisfies Record<DownloadPlatform, string>;
+
+const agentReadableDownloadPages = DOWNLOAD_PLATFORMS.map((platform) => ({
+  path: PLATFORM_DOWNLOADS[platform].page,
+  title: agentReadableDownloadTitles[platform],
+}));
+
 export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/ios", title: "cmux iOS" },
+  ...agentReadableDownloadPages,
   { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
   { path: "/enterprise", title: "Enterprise" },
   { path: "/blog", title: "Blog" },
   {
+    path: "/blog/367-billion-tokens",
+    title: "How I used 367 billion tokens in 30 days",
+    locales: fallbackContentLocales,
+  },
+  {
     path: "/blog/claude-code-best-worktree-manager",
-    title: "Claude Code Is The Best Worktree Manager",
+    title: "Superrepos and Why Claude Code Is the Best Worktree Manager",
+    locales: fallbackContentLocales,
   },
   { path: "/blog/cmux-fork", title: "Introducing cmux Fork" },
   { path: "/blog/cmux-home", title: "cmux home" },

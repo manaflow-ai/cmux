@@ -27,7 +27,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         let task: Task<InstalledCredential, any Error>
     }
 
-    private let supervisor: CmxIrohEndpointSupervisor
+    private let supervisor: any CmxIrohRelayEndpointControlling
     private let broker: any CmxIrohRelayTokenServing
     private let managedRelayURLs: Set<String>
     private let selectedRelayURLs: Set<String>
@@ -47,7 +47,7 @@ public actor CmxIrohRelayCredentialCoordinator {
 
     /// Creates an inactive relay credential coordinator.
     public init(
-        supervisor: CmxIrohEndpointSupervisor,
+        supervisor: any CmxIrohRelayEndpointControlling,
         broker: any CmxIrohRelayTokenServing,
         managedRelayURLs: Set<String>,
         selectedRelayURLs: Set<String>? = nil,
@@ -147,7 +147,7 @@ public actor CmxIrohRelayCredentialCoordinator {
             let firstRetry = retryDeadline(
                 now: clock.now(),
                 backoff: delay,
-                honorsServerFloor: (error as? CmxIrohTrustBrokerClientError)?
+                honorsServerFloor: (error as? any CmxRetryAfterProviding)?
                     .retryAfterSeconds != nil
             )
             if waitForInitialCredential {
@@ -202,7 +202,7 @@ public actor CmxIrohRelayCredentialCoordinator {
                 deadline = retryDeadline(
                     now: clock.now(),
                     backoff: delay,
-                    honorsServerFloor: (error as? CmxIrohTrustBrokerClientError)?
+                    honorsServerFloor: (error as? any CmxRetryAfterProviding)?
                         .retryAfterSeconds != nil
                 )
                 failureCount = min(failureCount + 1, 20)
@@ -268,7 +268,7 @@ public actor CmxIrohRelayCredentialCoordinator {
                 firstRefresh: retryDeadline(
                     now: clock.now(),
                     backoff: delay,
-                    honorsServerFloor: (error as? CmxIrohTrustBrokerClientError)?
+                    honorsServerFloor: (error as? any CmxRetryAfterProviding)?
                         .retryAfterSeconds != nil
                 ),
                 initialFailureCount: 1
@@ -324,7 +324,7 @@ public actor CmxIrohRelayCredentialCoordinator {
                 deadline = retryDeadline(
                     now: now,
                     backoff: delay,
-                    honorsServerFloor: (error as? CmxIrohTrustBrokerClientError)?
+                    honorsServerFloor: (error as? any CmxRetryAfterProviding)?
                         .retryAfterSeconds != nil
                 )
                 failureCount = min(failureCount + 1, 20)
@@ -400,7 +400,7 @@ public actor CmxIrohRelayCredentialCoordinator {
     private func retryDelay(failureCount: Int, error: any Error) -> TimeInterval {
         retrySchedule.delay(
             failureCount: failureCount,
-            retryAfterSeconds: (error as? CmxIrohTrustBrokerClientError)?
+            retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                 .retryAfterSeconds,
             jitterUnitInterval: retryJitter()
         )

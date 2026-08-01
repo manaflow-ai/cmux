@@ -69,6 +69,7 @@ export interface RelayTokenDeps {
   readonly checkRateLimit: RelayRateLimitCheck;
   readonly rateLimitRuleId: () => string | undefined;
   readonly isVercel: () => boolean;
+  readonly credentialSigningRequired: () => boolean;
 }
 
 const productionDeps: RelayTokenDeps = {
@@ -108,6 +109,8 @@ const productionDeps: RelayTokenDeps = {
   checkRateLimit,
   rateLimitRuleId: () => process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID,
   isVercel: () => process.env.VERCEL === "1",
+  credentialSigningRequired: () =>
+    process.env.VERCEL === "1" && process.env.VERCEL_ENV !== "preview",
 };
 
 export async function handleRelayTokenRequest(
@@ -118,18 +121,7 @@ export async function handleRelayTokenRequest(
   if (!user) return unauthorized();
 
   try {
-    await runRelayEffect(enforceRelayRateLimit({
-      request,
-      accountId: user.id,
-      ruleId: deps.rateLimitRuleId(),
-      check: deps.checkRateLimit,
-      isVercel: deps.isVercel(),
-      retryAfterSeconds: RELAY_TOKEN_RATE_LIMIT_RETRY_AFTER_SECONDS,
-    }));
-
     const key = deps.signingKey();
-    if (!key) return jsonResponse({ error: "relay_token_not_configured" }, 503);
-
     const body = await readBoundedJsonObject(request, MAX_BODY_BYTES);
     if (!body.ok) {
       return jsonResponse(
@@ -142,8 +134,24 @@ export async function handleRelayTokenRequest(
       return jsonResponse({ error: "invalid_endpoint_id" }, 400);
     }
 
+    // Rate limited per account+endpoint so one storming device only starves
+    // itself; runs after validation so malformed requests never consume the
+    // per-device budget.
+    await runRelayEffect(enforceRelayRateLimit({
+      request,
+      accountId: user.id,
+      devicePartition: rawEndpointId.toLowerCase(),
+      ruleId: deps.rateLimitRuleId(),
+      check: deps.checkRateLimit,
+      isVercel: deps.isVercel(),
+      retryAfterSeconds: RELAY_TOKEN_RATE_LIMIT_RETRY_AFTER_SECONDS,
+    }));
+
     const nowSeconds = deps.nowSeconds();
     const policy = await deps.signedPolicy(user.id, nowSeconds);
+    if (!key && deps.credentialSigningRequired()) {
+      return jsonResponse({ error: "relay_token_not_configured" }, 503);
+    }
     const relayUrls = policy.payload.relays.map((relay) => relay.url);
     const endpointId = rawEndpointId.toLowerCase();
     const isEndpointBound = await deps.isEndpointBound({
@@ -151,7 +159,11 @@ export async function handleRelayTokenRequest(
       endpointId,
       nowSeconds,
     });
-    const relayCredentials = isEndpointBound
+    // Local and preview runtimes intentionally operate without the private
+    // relay JWT signer. They still return the signed fleet policy so clients
+    // install one coherent account preference and continue with direct/LAN
+    // paths. Deployed non-preview runtimes fail closed above.
+    const relayCredentials = isEndpointBound && key
       ? deps.issueCredentials({
         accountId: user.id,
         endpointId,

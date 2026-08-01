@@ -35,6 +35,56 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func combinedRegistrationUsesOneGateForBothHTTPLegs() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 201,
+                body: #"{"challenge_id":"123e4567-e89b-42d3-a456-426614174000","nonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","expires_at":"2026-07-10T01:00:00.000Z"}"#
+            ),
+            .json(status: 201, body: Self.registrationResponse),
+        ])
+        let client = try makeClient(transport: transport)
+        let signer = try registrationSigner()
+        let prepared = try signer.prepare(payload: registrationPayload())
+
+        let response = try await client.register(prepared: prepared, signer: signer)
+
+        #expect(response.binding.tag == "stable")
+        #expect(await transport.requests().compactMap { $0.url?.path } == [
+            "/api/devices/iroh/challenge",
+            "/api/devices/iroh/register",
+        ])
+    }
+
+    @Test
+    func registrationDecodesEmbeddedAuthoritativeDiscovery() async throws {
+        var responseObject = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(Self.registrationResponse.utf8)
+            ) as? [String: Any]
+        )
+        responseObject["revision"] = 7
+        responseObject["discovery"] = try Self.discoveryObject(revision: 7)
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 201, body: try Self.jsonString(responseObject)),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let response = try await client.register(
+            CmxIrohRegisterRequest(
+                challengeID: "123e4567-e89b-42d3-a456-426614174000",
+                nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                payload: "e30",
+                signature: String(repeating: "A", count: 86)
+            )
+        )
+
+        #expect(response.revision == 7)
+        #expect(response.discovery?.revision == 7)
+        #expect(response.discovery?.bindings.count == 1)
+    }
+
+    @Test
     func issuedRegistrationBuildsTheExactManagedRelayFleet() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 201, body: Self.registrationResponse),
@@ -359,14 +409,243 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
-    func discoveryRejectsBindingsAboveDevelopmentQuota() async throws {
+    func discoveryTraversesMoreThanLegacyBindingLimitAcrossBoundedPages() async throws {
         let transport = RecordingBrokerTransport(responses: [
-            .json(status: 200, body: try Self.discoveryResponse(bindingCount: 257)),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 129,
+                    nextCursor: "cursor-1"
+                )
+            ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 129 ..< 257,
+                    nextCursor: "cursor-2"
+                )
+            ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 257 ..< 301,
+                    nextCursor: nil
+                )
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let discovery = try await client.discover()
+
+        #expect(discovery.bindings.count == 300)
+        #expect(Set(discovery.bindings.map(\.bindingID)).count == 300)
+        let requests = await transport.requests()
+        #expect(requests.count == 3)
+        #expect(requests.map { $0.url?.query } == [
+            "page_size=128",
+            "page_size=128&cursor=cursor-1",
+            "page_size=128&cursor=cursor-2",
+        ])
+    }
+
+    @Test
+    func paginatedDiscoveryPreservesOneAccountRevision() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 129,
+                    nextCursor: "cursor-1",
+                    revision: 41
+                )
+            ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 129 ..< 130,
+                    nextCursor: nil,
+                    revision: 41
+                )
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let discovery = try await client.discover()
+
+        #expect(discovery.revision == 41)
+    }
+
+    @Test
+    func paginatedDiscoveryRejectsAnAccountRevisionChange() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 129,
+                    nextCursor: "cursor-1",
+                    revision: 41
+                )
+            ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 129 ..< 130,
+                    nextCursor: nil,
+                    revision: 42
+                )
+            ),
         ])
         let client = try makeClient(transport: transport)
 
         await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
             _ = try await client.discover()
+        }
+    }
+
+    @Test
+    func discoveryKeepsLegacyUnpaginatedResponseBounded() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: try Self.discoveryResponse(bindingCount: 256)),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let discovery = try await client.discover()
+
+        #expect(discovery.bindings.count == 256)
+        #expect(await transport.requests().count == 1)
+    }
+
+    @Test
+    func discoveryRejectsOversizedPaginatedResponse() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 130,
+                    nextCursor: "cursor-1"
+                )
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            _ = try await client.discover()
+        }
+    }
+
+    @Test
+    func discoveryRejectsRepeatedCursorWithoutTotalPageCap() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 129,
+                    nextCursor: "cursor-1"
+                )
+            ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 129 ..< 257,
+                    nextCursor: "cursor-1"
+                )
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            _ = try await client.discover()
+        }
+    }
+
+    @Test
+    func connectivitySyncSendsKnownRevisionAndAcceptsUnchangedResponse() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: """
+                {"protocol_version":2,"revision":41,"changed":false,"reset":false}
+                """
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let response = try await client.syncConnectivity(knownRevision: 41)
+
+        #expect(response.revision == 41)
+        #expect(!response.changed)
+        #expect(response.snapshot == nil)
+        let captured = try #require(await transport.requests().first)
+        #expect(captured.url?.path == "/api/connectivity/v2/sync")
+        #expect(captured.httpMethod == "POST")
+        let body = try #require(captured.httpBody)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        #expect(object["protocol_version"] as? Int == 2)
+        #expect(object["known_revision"] as? Int == 41)
+    }
+
+    @Test
+    func connectivityInitialSyncEncodesExplicitNullRevision() async throws {
+        let snapshot = try Self.discoveryObject(revision: 1)
+        let responseBody = try Self.jsonString([
+            "protocol_version": 2,
+            "revision": 1,
+            "changed": true,
+            "reset": false,
+            "snapshot": snapshot,
+        ])
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: responseBody),
+        ])
+        let client = try makeClient(transport: transport)
+
+        _ = try await client.syncConnectivity(knownRevision: nil)
+
+        let captured = try #require(await transport.requests().first)
+        let body = try #require(captured.httpBody)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        #expect(object.keys.contains("known_revision"))
+        #expect(object["known_revision"] is NSNull)
+    }
+
+    @Test
+    func connectivitySyncRequiresAnAtomicSnapshotAtTheEnvelopeRevision() async throws {
+        let snapshot = try Self.discoveryObject(revision: 42)
+        let body = try Self.jsonString([
+            "protocol_version": 2,
+            "revision": 42,
+            "changed": true,
+            "reset": false,
+            "snapshot": snapshot,
+        ])
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: body),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let response = try await client.syncConnectivity(knownRevision: 41)
+
+        #expect(response.revision == 42)
+        #expect(response.snapshot?.revision == 42)
+        #expect(response.snapshot?.bindings.count == 1)
+
+        let mismatchedBody = try Self.jsonString([
+            "protocol_version": 2,
+            "revision": 43,
+            "changed": true,
+            "reset": false,
+            "snapshot": snapshot,
+        ])
+        let mismatchedTransport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: mismatchedBody),
+        ])
+        let mismatchedClient = try makeClient(transport: mismatchedTransport)
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            _ = try await mismatchedClient.syncConnectivity(knownRevision: 42)
         }
     }
 
@@ -422,8 +701,9 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     private static let tokenSource = CmxIrohBrokerTokenSource(
-        accessToken: { "access" },
-        refreshToken: { "refresh" }
+        credentialPair: {
+            CmxIrohBrokerCredentials(accessToken: "access", refreshToken: "refresh")
+        }
     )
     private static let endpointID =
         "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
@@ -452,13 +732,24 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     private static func discoveryResponse(bindingCount: Int) throws -> String {
+        try discoveryResponse(
+            bindingRange: 1 ..< (bindingCount + 1),
+            nextCursor: nil
+        )
+    }
+
+    private static func discoveryResponse(
+        bindingRange: Range<Int>,
+        nextCursor: String?,
+        revision: Int? = nil
+    ) throws -> String {
         var object = try #require(
             JSONSerialization.jsonObject(
                 with: Data(discoveryResponse.utf8)
             ) as? [String: Any]
         )
         let template = try #require((object["bindings"] as? [[String: Any]])?.first)
-        object["bindings"] = (1 ... bindingCount).map { index in
+        object["bindings"] = bindingRange.map { index in
             var binding = template
             binding["binding_id"] = String(
                 format: "123e4567-e89b-42d3-a456-%012d",
@@ -471,6 +762,29 @@ struct CmxIrohTrustBrokerClientTests {
             binding["endpoint_id"] = String(format: "%064llx", UInt64(index))
             return binding
         }
+        if let nextCursor {
+            object["next_cursor"] = nextCursor
+        } else {
+            object["next_cursor"] = NSNull()
+        }
+        if let revision {
+            object["revision"] = revision
+        }
+        let data = try JSONSerialization.data(withJSONObject: object)
+        return try #require(String(data: data, encoding: .utf8))
+    }
+
+    private static func discoveryObject(revision: Int) throws -> [String: Any] {
+        var object = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(discoveryResponse.utf8)
+            ) as? [String: Any]
+        )
+        object["revision"] = revision
+        return object
+    }
+
+    private static func jsonString(_ object: [String: Any]) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: object)
         return try #require(String(data: data, encoding: .utf8))
     }

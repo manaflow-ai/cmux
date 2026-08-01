@@ -1,6 +1,6 @@
 [package]
 name = "cmux-client"
-version = "0.3.0"
+version = "1.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -9,10 +9,15 @@ repository = "https://github.com/manaflow-ai/cmux"
 homepage = "https://github.com/manaflow-ai/cmux/tree/main/cmux-tui/bindings/rust"
 publish = true
 
+[lib]
+name = "cmux"
+
 [lints]
 workspace = true
 
 [dependencies]
+base64 = { workspace = true }
 libc = { workspace = true }
+getrandom = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

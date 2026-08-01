@@ -19,8 +19,6 @@ import {
   type PairGrantPeer,
 } from "./crypto";
 import {
-  bindingQuotaForUser,
-  challengeQuotaForUser,
   IrohTrustBrokerConfig,
   IrohTrustBrokerConfigLive,
   type IrohTrustBrokerConfigShape,
@@ -61,6 +59,11 @@ import {
   type IrohRepositoryShape,
 } from "./repository";
 import {
+  encodeIrohDiscoveryCursor,
+  legacyIrohDiscoveryRequest,
+  parseIrohDiscoveryRequest,
+} from "./discoveryPagination";
+import {
   IrohRelayMinter,
   IrohRelayMinterLive,
   type IrohRelayMinterShape,
@@ -93,6 +96,7 @@ export type IrohTrustBrokerShape = {
   readonly discover: (
     userId: string,
     now?: Date,
+    request?: unknown,
   ) => Effect.Effect<unknown, IrohExpectedError>;
   readonly revoke: (
     userId: string,
@@ -188,6 +192,55 @@ export function makeIrohTrustBroker(
     };
   });
 
+  const discover = (
+    userId: string,
+    now = new Date(),
+    rawRequest?: unknown,
+    knownCustomRelayURLs?: ReadonlySet<string>,
+  ): Effect.Effect<unknown, IrohExpectedError> => Effect.gen(function* () {
+    const request = rawRequest === undefined
+      ? legacyIrohDiscoveryRequest()
+      : yield* parseEffect(() => parseIrohDiscoveryRequest(rawRequest));
+    yield* repository.pruneExpiredState({ userId, now });
+    const snapshot = yield* repository.discoveryPage({
+      userId,
+      now,
+      pageSize: request.pageSize,
+      ...(request.cursor ? { cursor: request.cursor } : {}),
+    });
+    const savedCustomRelayURLs = knownCustomRelayURLs
+      ?? customRelayURLs(yield* accountRelayPreference(userId));
+    const rendezvousKey = yield* parseEffect(() => deriveLanRendezvousKey(
+      config.lanDiscoverySecretBase64,
+      userId,
+      snapshot.lanDiscoveryGeneration,
+    ));
+    const verificationKeys = yield* parseEffect(() => signingVerificationKeys(config));
+    const response = {
+      route_contract_version: 1 as const,
+      revision: snapshot.accountRevision,
+      bindings: snapshot.bindings.map((binding) => publicBinding(
+        binding,
+        now,
+        savedCustomRelayURLs,
+      )),
+      relay_fleet: MANAGED_RELAY_URLS,
+      lan_rendezvous: {
+        generation: snapshot.lanDiscoveryGeneration,
+        key: rendezvousKey,
+      },
+      grant_verification_keys: verificationKeys.keySet,
+    };
+    return request.paginated
+      ? {
+        ...response,
+        next_cursor: snapshot.nextCursor
+          ? encodeIrohDiscoveryCursor(snapshot.nextCursor)
+          : null,
+      }
+      : response;
+  });
+
   return {
     issueChallenge: (userId, raw, now = new Date()) => Effect.gen(function* () {
       const request = yield* parseEffect(() => parseChallengeRequest(raw));
@@ -203,7 +256,6 @@ export function makeIrohTrustBroker(
         nonceHash: nonceHash(nonce),
         now,
         expiresAt: new Date(now.getTime() + IROH_CHALLENGE_LIFETIME_MS),
-        challengeQuota: challengeQuotaForUser(config, userId),
       });
       return {
         challenge_id: challenge.id,
@@ -247,7 +299,6 @@ export function makeIrohTrustBroker(
           ),
         },
         now,
-        bindingQuota: bindingQuotaForUser(config, userId),
       });
 
       // New registration is already committed before relay minting starts.
@@ -259,44 +310,31 @@ export function makeIrohTrustBroker(
           Effect.catchAll(() => Effect.succeed({ status: "unavailable" as const })),
         )
         : { status: "not_requested" as const };
+      const discovery = yield* discover(
+        userId,
+        now,
+        undefined,
+        savedCustomRelayURLs,
+      );
       return {
+        revision: registration.accountRevision,
         binding: publicBinding(registration.binding, now, savedCustomRelayURLs),
         relay,
+        discovery,
       };
     }),
 
-    discover: (userId, now = new Date()) => Effect.gen(function* () {
-      yield* repository.pruneExpiredState({ userId, now });
-      const snapshot = yield* repository.discoverySnapshot({ userId, now });
-      const relayPreference = yield* accountRelayPreference(userId);
-      const savedCustomRelayURLs = customRelayURLs(relayPreference);
-      const rendezvousKey = yield* parseEffect(() => deriveLanRendezvousKey(
-        config.lanDiscoverySecretBase64,
-        userId,
-        snapshot.lanDiscoveryGeneration,
-      ));
-      const verificationKeys = yield* parseEffect(() => signingVerificationKeys(config));
-      return {
-        route_contract_version: 1,
-        bindings: snapshot.bindings.map((binding) => publicBinding(
-          binding,
-          now,
-          savedCustomRelayURLs,
-        )),
-        relay_fleet: MANAGED_RELAY_URLS,
-        lan_rendezvous: {
-          generation: snapshot.lanDiscoveryGeneration,
-          key: rendezvousKey,
-        },
-        grant_verification_keys: verificationKeys.keySet,
-      };
-    }),
+    discover,
 
     revoke: (userId, raw, now = new Date()) => Effect.gen(function* () {
       const { bindingId } = yield* parseEffect(() => parseBindingIdBody(raw));
-      const revoked = yield* repository.revokeBinding({ userId, bindingId, now });
-      if (!revoked) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
-      return { revoked: true, lan_rendezvous_rotated: true };
+      const result = yield* repository.revokeBinding({ userId, bindingId, now });
+      if (!result.revoked) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+      return {
+        revoked: true,
+        revision: result.accountRevision,
+        lan_rendezvous_rotated: true,
+      };
     }),
 
     issuePairGrant: (userId, raw, now = new Date()) => Effect.gen(function* () {

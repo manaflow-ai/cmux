@@ -224,16 +224,12 @@ public struct IrohNetworkingSection: View {
                 Image(systemName: policySymbol)
                     .foregroundStyle(model.snapshot.policySource == .unavailable ? .orange : .secondary)
             }
-            #if DEBUG
-            if let debugRelayOnlyEnabled = model.snapshot.debugRelayOnlyEnabled {
-                SettingsCardDivider()
-                IrohDebugRelayOnlyRow(
-                    isEnabled: debugRelayOnlyEnabled,
-                    isMutating: model.isMutating,
-                    setEnabled: { model.setDebugRelayOnly($0) }
-                )
-            }
-            #endif
+            SettingsCardDivider()
+            IrohRelayOnlyRow(
+                isEnabled: model.snapshot.pathPreference == .relayOnly,
+                isMutating: model.isMutating,
+                setEnabled: { model.setPathPreference($0 ? .relayOnly : .automatic) }
+            )
             IrohDiagnosticsReportRows(
                 report: model.diagnosticReport,
                 exportText: model.diagnosticExportText,
@@ -497,6 +493,11 @@ private struct IrohDiagnosticsReportRows: View {
             String(localized: "settings.networking.diagnostics.failure.offline", defaultValue: "Offline")
         case .some(.timedOut):
             String(localized: "settings.networking.diagnostics.failure.timedOut", defaultValue: "Timed Out")
+        case .some(.transportIdleTimedOut):
+            String(
+                localized: "settings.networking.diagnostics.failure.transportIdleTimedOut",
+                defaultValue: "Transport Idle Timeout"
+            )
         case .some(.connectionRefused):
             String(
                 localized: "settings.networking.diagnostics.failure.connectionRefused",
@@ -557,6 +558,16 @@ private struct IrohDiagnosticsReportRows: View {
                 localized: "settings.networking.diagnostics.failure.admissionDenied",
                 defaultValue: "Connection Admission Denied"
             )
+        case .some(.admissionLeaseExpired):
+            String(
+                localized: "settings.networking.diagnostics.failure.admissionLeaseExpired",
+                defaultValue: "Admission Lease Expired"
+            )
+        case .some(.admissionRevalidationFailed):
+            String(
+                localized: "settings.networking.diagnostics.failure.admissionRevalidationFailed",
+                defaultValue: "Admission Revalidation Failed"
+            )
         case .some(.authorizationFailed):
             String(
                 localized: "settings.networking.diagnostics.failure.authorizationFailed",
@@ -577,6 +588,11 @@ private struct IrohDiagnosticsReportRows: View {
                 localized: "settings.networking.diagnostics.failure.connectionClosed",
                 defaultValue: "Connection Closed"
             )
+        case .some(.sendQueueOverflow):
+            String(
+                localized: "settings.networking.diagnostics.failure.sendQueueOverflow",
+                defaultValue: "Send Queue Overflow"
+            )
         case .some(.superseded):
             String(
                 localized: "settings.networking.diagnostics.failure.superseded",
@@ -590,8 +606,7 @@ private struct IrohDiagnosticsReportRows: View {
     }
 }
 
-#if DEBUG
-private struct IrohDebugRelayOnlyRow: View {
+private struct IrohRelayOnlyRow: View {
     let isEnabled: Bool
     let isMutating: Bool
     let setEnabled: @MainActor @Sendable (Bool) -> Void
@@ -599,14 +614,14 @@ private struct IrohDebugRelayOnlyRow: View {
     var body: some View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
-            searchAnchorID: "setting:networking:debugRelayOnly",
+            searchAnchorID: "setting:networking:relayOnly",
             String(
-                localized: "settings.networking.debug.relayOnly",
-                defaultValue: "Relay-Only Verification"
+                localized: "settings.networking.relayOnly",
+                defaultValue: "Relay Only"
             ),
             subtitle: String(
-                localized: "settings.networking.debug.relayOnly.subtitle",
-                defaultValue: "Debug builds only. Keeps authenticated Iroh sessions on relays so the relay path can be verified."
+                localized: "settings.networking.relayOnly.subtitle",
+                defaultValue: "Keeps Iroh connections to this Mac on cmux relays instead of direct or local-network paths. Applies on the next reconnect."
             )
         ) {
             Toggle(
@@ -618,8 +633,7 @@ private struct IrohDebugRelayOnlyRow: View {
             )
             .labelsHidden()
             .disabled(isMutating)
-            .accessibilityIdentifier("SettingsIrohDebugRelayOnly")
+            .accessibilityIdentifier("SettingsIrohRelayOnly")
         }
     }
 }
-#endif

@@ -51,6 +51,13 @@ extension TerminalController {
         let visibleOnly = v2Bool(params, "visible_only") ?? false
         let countOnly = v2Bool(params, "count_only") ?? false
         let includeDirectories = v2Bool(params, "include_directories") ?? false
+        let includeMissing = v2Bool(params, "include_missing") ?? true
+        let requestsGalleryRowTotal = params.keys.contains("include_missing")
+        // Count-only refreshes recur on every settled output change, so they
+        // must not capture terminal text up front: `readTerminalTextForSnapshot`
+        // takes the Ghostty surface lock inside `v2MainSync`, and a session
+        // workspace never uses the text for a count. Only the no-session
+        // fallback re-resolves with viewport text below.
         let resolution = await mobileTerminalArtifactContext(
             params: params,
             requiresPath: false,
@@ -62,8 +69,28 @@ extension TerminalController {
         }
         if countOnly {
             guard let sessionID = context.sessionID else {
+                guard visibleOnly, requestsGalleryRowTotal else {
+                    return TerminalArtifactWire.result(
+                        TerminalArtifactScanResponse(artifacts: [])
+                    )
+                }
+                let textResolution = await mobileTerminalArtifactContext(
+                    params: params,
+                    requiresPath: false,
+                    includeScrollback: false,
+                    includeTerminalText: true
+                )
+                guard case .success(let textContext) = textResolution else {
+                    return textResolution.failureResult
+                }
+                let scanned = await Task.detached(priority: .utility) {
+                    textContext.scan(includeDirectories: includeDirectories)
+                }.value
                 return TerminalArtifactWire.result(
-                    TerminalArtifactScanResponse(artifacts: [])
+                    TerminalArtifactScanResponse(
+                        artifacts: [],
+                        galleryRowTotal: scanned.artifacts.count
+                    )
                 )
             }
             do {
@@ -72,9 +99,22 @@ extension TerminalController {
                         TerminalArtifactScanResponse(artifacts: [], sessionID: sessionID)
                     )
                 }
+                let galleryRowTotal: Int?
+                if requestsGalleryRowTotal {
+                    galleryRowTotal = await mobileChatArtifactGalleryRowTotal(
+                        sessionID: indexedSession.sessionID,
+                        generation: indexedSession.snapshot.generation,
+                        artifacts: indexedSession.snapshot.artifacts,
+                        includeDirectories: includeDirectories,
+                        includeMissing: includeMissing
+                    )
+                } else {
+                    galleryRowTotal = nil
+                }
                 let response = TerminalArtifactScanResponse.sessionCount(
                     sessionID: indexedSession.sessionID,
-                    sessionArtifacts: indexedSession.snapshot.artifacts
+                    sessionArtifacts: indexedSession.snapshot.artifacts,
+                    galleryRowTotal: galleryRowTotal
                 )
                 return TerminalArtifactWire.result(response)
             } catch {
@@ -100,15 +140,33 @@ extension TerminalController {
             return resolution.failureResult
         }
         do {
-            let stat = try await Task.detached(priority: .utility) {
-                try context.authorizedRead { reader, canonicalPath in
-                    try reader.stat(path: canonicalPath)
+            let outcome = try await Task.detached(priority: .utility) {
+                do {
+                    return TerminalArtifactStatOutcome.success(
+                        try context.authorizedStat { reader, canonicalPath in
+                            try reader.stat(path: canonicalPath)
+                        }
+                    )
+                } catch TerminalArtifactReadContext.Error.forbidden {
+                    #if DEBUG
+                    return TerminalArtifactStatOutcome.forbidden(
+                        diagnostics: context.authorizationDiagnostics()
+                    )
+                    #else
+                    return TerminalArtifactStatOutcome.forbidden(diagnostics: "")
+                    #endif
                 }
             }.value
-            return TerminalArtifactWire.result(stat)
-        } catch TerminalArtifactReadContext.Error.forbidden {
-            debugLogMobileTerminalArtifactDenial(op: "stat", path: context.requestedPath)
-            return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
+            switch outcome {
+            case .success(let stat):
+                return TerminalArtifactWire.result(stat)
+            case .forbidden(let diagnostics):
+                debugLogMobileTerminalArtifactDenial(op: "stat", path: context.requestedPath)
+                #if DEBUG
+                cmuxDebugLog("mobile.terminal.artifact.stat.deny \(diagnostics)")
+                #endif
+                return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
+            }
         } catch ArtifactByteReader.Error.fileNotFound {
             return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
         } catch ArtifactByteReader.Error.unsupportedMedia {
@@ -248,7 +306,7 @@ extension TerminalController {
         return v2MainSync { () -> TerminalArtifactContextResolution in
             guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
                   let resolvedSurfaceID = resolved.surfaceId,
-                  let terminalPanel = resolved.workspace.terminalPanel(for: resolvedSurfaceID) else {
+                  let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: resolvedSurfaceID)?.panel else {
                 return .failure(mobileTerminalArtifactError(.notFound, path: v2RawString(params, "path")))
             }
             let workingDirectory = resolved.workspace.effectivePanelDirectory(
@@ -347,6 +405,11 @@ extension TerminalController {
     }
 }
 
+private enum TerminalArtifactStatOutcome: Sendable {
+    case success(ChatArtifactStat)
+    case forbidden(diagnostics: String)
+}
+
 private enum TerminalArtifactContextResolution {
     case success(TerminalArtifactReadContext)
     case failure(TerminalController.V2CallResult)
@@ -440,6 +503,68 @@ private struct TerminalArtifactReadContext: Sendable {
             throw Error.forbidden
         }
         return try operation(ArtifactByteReader(), canonicalPath)
+    }
+
+    /// Stat may be answered for any path the scope would let the client list,
+    /// because listing already reveals more than the directory's own metadata.
+    func authorizedStat<T>(
+        _ operation: (ArtifactByteReader, String) throws -> T
+    ) throws -> T {
+        guard let requestedPath else { throw Error.forbidden }
+        let resolver = ChatArtifactScope.FoundationResolver()
+        let snapshotScope = ChatArtifactScope(
+            referencedPaths: scanAuthorizedPaths,
+            directoryAccessMode: directoryAccessMode,
+            resolver: resolver
+        )
+        if let canonicalPath = snapshotScope.canonicalFilePath(for: requestedPath) {
+            return try operation(ArtifactByteReader(), canonicalPath)
+        }
+        if let canonicalPath = snapshotScope.canonicalDirectoryListPath(for: requestedPath) {
+            return try operation(ArtifactByteReader(), canonicalPath)
+        }
+        let scope = TerminalArtifactScope(
+            terminalText: terminalText,
+            workingDirectory: workingDirectory,
+            resolver: resolver,
+            directoryAccessMode: directoryAccessMode
+        )
+        if let canonicalPath = scope.canonicalPath(for: requestedPath) {
+            return try operation(ArtifactByteReader(), canonicalPath)
+        }
+        guard let canonicalPath = scope.canonicalDirectoryListPath(for: requestedPath) else {
+            throw Error.forbidden
+        }
+        return try operation(ArtifactByteReader(), canonicalPath)
+    }
+
+    /// Explains why a stat authorization denied, for the DEBUG denial log.
+    /// Reports input shape (text size, scan-path count) and which
+    /// canonicalization branches matched, never path contents.
+    func authorizationDiagnostics() -> String {
+        guard let requestedPath else { return "path=nil" }
+        let resolver = ChatArtifactScope.FoundationResolver()
+        let snapshotScope = ChatArtifactScope(
+            referencedPaths: scanAuthorizedPaths,
+            directoryAccessMode: directoryAccessMode,
+            resolver: resolver
+        )
+        let scope = TerminalArtifactScope(
+            terminalText: terminalText,
+            workingDirectory: workingDirectory,
+            resolver: resolver,
+            directoryAccessMode: directoryAccessMode
+        )
+        let detected = TerminalArtifactPathDetector().paths(in: terminalText)
+        return "textChars=\(terminalText.count)"
+            + " detected=\(detected.count)"
+            + " scanPaths=\(scanAuthorizedPaths.count)"
+            + " cwdSet=\(workingDirectory != nil)"
+            + " mode=\(directoryAccessMode.rawValue)"
+            + " snapFile=\(snapshotScope.canonicalFilePath(for: requestedPath) != nil)"
+            + " snapDir=\(snapshotScope.canonicalDirectoryListPath(for: requestedPath) != nil)"
+            + " liveFile=\(scope.canonicalPath(for: requestedPath) != nil)"
+            + " liveDir=\(scope.canonicalDirectoryListPath(for: requestedPath) != nil)"
     }
 
     func authorizedDirectoryList<T>(

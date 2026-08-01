@@ -39,6 +39,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.commandPaletteSearchesAllSurfaces",
         "app.confirmQuit",
         "app.focusPaneOnFirstClick",
+        "app.focusHistoryIncludesPanesAndTabs",
         "app.globalFontMagnification",
         "app.hideTabCloseButton",
         "app.iMessageMode",

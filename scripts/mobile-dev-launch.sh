@@ -206,12 +206,16 @@ if [[ "$TARGET" == "simulator" ]]; then
     exit 1
   fi
   xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+  SIMULATOR_DEVICE_ID="$(
+    cmux_attach_seed_simulator_device_id "$SIM_UDID" "$BUNDLE_ID"
+  )"
   launch_args=(launch)
   if [[ "$DETACH" -ne 1 ]]; then
     launch_args+=(--console-pty)
   fi
   SIMCTL_CHILD_CMUX_UITEST_STACK_EMAIL="$CMUX_UITEST_STACK_EMAIL" \
   SIMCTL_CHILD_CMUX_UITEST_STACK_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" \
+  SIMCTL_CHILD_CMUX_SIMULATOR_DEVICE_ID="$SIMULATOR_DEVICE_ID" \
   SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
   SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
   SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_MODE="$IROH_RELEASE_GATE_MODE" \

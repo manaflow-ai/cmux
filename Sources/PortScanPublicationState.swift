@@ -4,23 +4,48 @@ import Foundation
 @MainActor
 final class PortScanPublicationState {
     private var lastIssuedPanelRevision: UInt64 = 0
-    private var activePanelLifecycleByKey: [PortScanner.PanelKey: (ttyName: String, revision: UInt64)] = [:]
+    private var activePanelLifecycleByKey:
+        [PortScanner.PanelKey: (ttyName: String, sessionIdentity: TerminalTTYSessionIdentity?, revision: UInt64)] = [:]
     private var lastIssuedAgentRevision: UInt64 = 0
     private var activeAgentLifecycleByWorkspace:
         [UUID: (roots: Set<AgentPortRootIdentity>, revision: UInt64)] = [:]
 
     nonisolated init() {}
 
-    func replacePanelLifecycle(key: PortScanner.PanelKey, ttyName: String) -> UInt64? {
-        guard activePanelLifecycleByKey[key]?.ttyName != ttyName else { return nil }
+    func replacePanelLifecycle(
+        key: PortScanner.PanelKey,
+        ttyName: String,
+        sessionIdentity: TerminalTTYSessionIdentity? = nil
+    ) -> UInt64? {
+        if let current = activePanelLifecycleByKey[key],
+           current.ttyName == ttyName,
+           current.sessionIdentity == sessionIdentity {
+            return nil
+        }
         lastIssuedPanelRevision &+= 1
-        activePanelLifecycleByKey[key] = (ttyName, lastIssuedPanelRevision)
+        activePanelLifecycleByKey[key] = (ttyName, sessionIdentity, lastIssuedPanelRevision)
         return lastIssuedPanelRevision
     }
 
     func invalidatePanelLifecycle(for key: PortScanner.PanelKey) {
         lastIssuedPanelRevision &+= 1
         activePanelLifecycleByKey.removeValue(forKey: key)
+    }
+
+    func registeredPanelTTYName(for key: PortScanner.PanelKey) -> String? {
+        activePanelLifecycleByKey[key]?.ttyName
+    }
+
+    func currentPanelTTYName(
+        for key: PortScanner.PanelKey,
+        sessionIdentity: TerminalTTYSessionIdentity?
+    ) -> String? {
+        guard let sessionIdentity,
+              let current = activePanelLifecycleByKey[key],
+              current.sessionIdentity == sessionIdentity else {
+            return nil
+        }
+        return current.ttyName
     }
 
     func isCurrentPanelRevision(_ revision: UInt64, key: PortScanner.PanelKey) -> Bool {

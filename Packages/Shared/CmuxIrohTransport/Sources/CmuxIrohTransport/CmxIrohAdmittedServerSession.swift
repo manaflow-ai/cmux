@@ -44,4 +44,31 @@ public struct CmxIrohAdmittedServerSession: Sendable {
     public func close() async {
         await session.close()
     }
+
+    /// Resolves an observed supervisor exit against a named host-side close cause.
+    ///
+    /// - Parameter observedExit: The first control or application-lane exit.
+    /// - Returns: The host invalidation exit when one initiated the close;
+    ///   otherwise, `observedExit`.
+    public func connectionExit(
+        resolving observedExit: CmxIrohAdmittedConnectionExit
+    ) async -> CmxIrohAdmittedConnectionExit {
+        guard let failure = await session.explicitCloseFailureKind() else {
+            return observedExit
+        }
+        return CmxIrohAdmittedConnectionExit(
+            lifecycle: .explicitlyInvalidated,
+            failure: failure
+        )
+    }
+
+    /// Returns the classified terminal cause for the shared QUIC connection.
+    public func closeAttribution() async -> CmxIrohConnectionCloseAttribution {
+        await session.closeAttribution()
+    }
+
+    /// Observes redacted lifecycle events for paths on the shared connection.
+    public func observedPathEvents() async -> AsyncStream<CmxIrohConnectionPathEvent> {
+        await session.observedPathEvents()
+    }
 }
