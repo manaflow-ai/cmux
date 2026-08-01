@@ -20,11 +20,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  cut-and-dispatch:
+  validate-release:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
-      actions: write
-      contents: write
+      contents: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      sdk_tag: ${{ steps.release.outputs.sdk_tag }}
+      go_tag: ${{ steps.release.outputs.go_tag }}
     steps:
       - name: Require explicit publish confirmation
         if: inputs.confirm_publish != true
@@ -34,11 +37,11 @@ jobs:
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          persist-credentials: true
+          persist-credentials: false
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Validate protected main and create release tags
+      - name: Validate protected main and release metadata
         id: release
         env:
           VERSION: ${{ inputs.version }}
@@ -53,7 +56,7 @@ jobs:
             exit 1
           }
 
-          git fetch --force origin main --tags
+          git fetch --force origin main
           main_sha="$(git rev-parse origin/main)"
           [[ "$GITHUB_SHA" == "$main_sha" ]] || {
             echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
@@ -83,43 +86,150 @@ jobs:
 
           sdk_tag="cmux-sdk-v$VERSION"
           go_tag="cmux-tui/bindings/go/v$VERSION"
-          for tag in "$sdk_tag" "$go_tag"; do
-            if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-              echo "release tag already exists: $tag" >&2
-              exit 1
-            fi
-          done
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$sdk_tag" -m "cmux SDK $VERSION"
-          git tag -a "$go_tag" -m "cmux Go SDK $VERSION"
-          git push --atomic origin "refs/tags/$sdk_tag" "refs/tags/$go_tag"
-
           {
             echo "version=$VERSION"
             echo "sdk_tag=$sdk_tag"
             echo "go_tag=$go_tag"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Dispatch verified publishers
+  go-preflight:
+    needs: validate-release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/sdk-publish-go.yml
+    with:
+      version: ${{ needs.validate-release.outputs.version }}
+
+  cut-tags:
+    needs:
+      - validate-release
+      - go-preflight
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: true
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Create or verify release tags
         env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.release.outputs.version }}
-          SDK_TAG: ${{ steps.release.outputs.sdk_tag }}
-          GO_TAG: ${{ steps.release.outputs.go_tag }}
+          VERSION: ${{ needs.validate-release.outputs.version }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+          GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
         run: |
           set -euo pipefail
-          gh workflow run sdk-publish-crates.yml --repo "$GITHUB_REPOSITORY" --ref "$SDK_TAG" -f version="$VERSION" -f confirm_publish=true
-          gh workflow run sdk-publish-go.yml --repo "$GITHUB_REPOSITORY" --ref "$GO_TAG" -f version="$VERSION"
-          gh workflow run sdk-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$SDK_TAG" -f version="$VERSION" -f confirm_publish=true
-          gh workflow run sdk-publish-python.yml --repo "$GITHUB_REPOSITORY" --ref "$SDK_TAG" -f version="$VERSION" -f confirm_publish=true
+          git fetch --force origin main --tags
+          main_sha="$(git rev-parse origin/main)"
+          [[ "$GITHUB_SHA" == "$main_sha" ]] || {
+            echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
+            exit 1
+          }
 
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          ensure_tag() {
+            local tag="$1"
+            local message="$2"
+            local existing_sha
+            existing_sha="$(git rev-parse -q --verify "refs/tags/$tag^{commit}" || true)"
+            if [[ -n "$existing_sha" ]]; then
+              if [[ "$existing_sha" != "$GITHUB_SHA" ]]; then
+                echo "release tag $tag points to $existing_sha, expected $GITHUB_SHA" >&2
+                exit 1
+              fi
+              echo "release tag already points to this commit: $tag"
+              return
+            fi
+            git tag -a "$tag" -m "$message"
+          }
+          sdk_tag="$SDK_TAG"
+          go_tag="$GO_TAG"
+          ensure_tag "$sdk_tag" "cmux SDK $VERSION"
+          ensure_tag "$go_tag" "cmux Go SDK $VERSION"
+          git push --atomic origin "refs/tags/$sdk_tag" "refs/tags/$go_tag"
+
+  dispatch-crates:
+    needs:
+      - validate-release
+      - cut-tags
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch crates.io publisher
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate-release.outputs.version }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+        run: gh workflow run sdk-publish-crates.yml --repo "$GITHUB_REPOSITORY" --ref "$SDK_TAG" -f version="$VERSION" -f confirm_publish=true
+
+  dispatch-go:
+    needs:
+      - validate-release
+      - cut-tags
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch Go module verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate-release.outputs.version }}
+          GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
+        run: gh workflow run sdk-publish-go.yml --repo "$GITHUB_REPOSITORY" --ref "$GO_TAG" -f version="$VERSION"
+
+  dispatch-npm:
+    needs:
+      - validate-release
+      - cut-tags
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch npm publisher
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate-release.outputs.version }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+        run: gh workflow run sdk-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$SDK_TAG" -f version="$VERSION" -f confirm_publish=true
+
+  dispatch-python:
+    needs:
+      - validate-release
+      - cut-tags
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch PyPI publisher
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate-release.outputs.version }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+        run: gh workflow run sdk-publish-python.yml --repo "$GITHUB_REPOSITORY" --ref "$SDK_TAG" -f version="$VERSION" -f confirm_publish=true
+
+  summarize:
+    needs:
+      - validate-release
+      - dispatch-crates
+      - dispatch-go
+      - dispatch-npm
+      - dispatch-python
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions: {}
+    steps:
       - name: Summarize release
         env:
-          VERSION: ${{ steps.release.outputs.version }}
-          SDK_TAG: ${{ steps.release.outputs.sdk_tag }}
-          GO_TAG: ${{ steps.release.outputs.go_tag }}
+          VERSION: ${{ needs.validate-release.outputs.version }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+          GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
         run: |
           {
             echo "### cmux SDK $VERSION"

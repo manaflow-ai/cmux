@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -10,6 +11,14 @@ import unittest
 
 
 PROJECT = Path(__file__).resolve().parents[1]
+VERSION_MATCH = re.search(
+    r'^version = "([^"]+)"$',
+    (PROJECT / "pyproject.toml").read_text(encoding="utf-8"),
+    re.MULTILINE,
+)
+if VERSION_MATCH is None:
+    raise RuntimeError("pyproject.toml has no project version")
+PROJECT_VERSION = VERSION_MATCH.group(1)
 
 
 class PackagedConsumerTests(unittest.TestCase):
@@ -78,14 +87,16 @@ class PackagedConsumerTests(unittest.TestCase):
             )
             environment = dict(os.environ)
             environment["PYTHONPATH"] = str(installed)
+            environment["CMUX_EXPECTED_SDK_VERSION"] = PROJECT_VERSION
             subprocess.run(
                 [
                     builder,
                     "-c",
                     (
-                        "import cmux, cmux.raw, cmux.raw._generated;"
+                        "import cmux, cmux.raw, cmux.raw._generated, os;"
                         "from importlib.metadata import version;"
-                        "assert version('cmux-sdk') == '1.0.0';"
+                        "assert version('cmux-sdk') == "
+                        "os.environ['CMUX_EXPECTED_SDK_VERSION'];"
                         "assert hasattr(cmux, 'Client');"
                         "assert hasattr(cmux, 'ConfirmationRequiredDetails');"
                         "assert hasattr(cmux, 'ConfirmationRequiredError');"

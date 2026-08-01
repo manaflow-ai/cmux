@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "cmux-tui/bindings/go/v*"
+  workflow_call:
+    inputs:
+      version:
+        description: "SDK version to validate before a release tag is created"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       version:

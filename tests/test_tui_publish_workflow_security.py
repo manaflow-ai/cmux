@@ -27,6 +27,7 @@ def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
 
     assert typescript["name"] == "cmux-sdk"
     assert python["project"]["name"] == "cmux-sdk"
+    assert python["build-system"]["requires"] == ["setuptools>=77"]
     assert tui_npm["name"] == "cmux"
     assert 'DIST_NAME = "cmux"' in tui_pypi
     assert 'PACKAGE_NAME = "cmux_tui"' in tui_pypi
@@ -61,8 +62,14 @@ def test_sdk_release_cut_dispatches_only_the_selected_four_languages() -> None:
     assert 'sdk_tag="cmux-sdk-v$VERSION"' in release
     assert 'go_tag="cmux-tui/bindings/go/v$VERSION"' in release
     assert 'git push --atomic origin "refs/tags/$sdk_tag" "refs/tags/$go_tag"' in release
+    assert "go-preflight:" in release
+    assert "uses: ./.github/workflows/sdk-publish-go.yml" in release
+    assert release.index("go-preflight:") < release.index("git push --atomic origin")
+    assert 'existing_sha="$(git rev-parse' in release
+    assert '"$existing_sha" != "$GITHUB_SHA"' in release
     assert release.count("gh workflow run sdk-publish-") == 4
     for publisher in ("crates", "go", "npm", "python"):
+        assert f"dispatch-{publisher}:" in release
         assert f"gh workflow run sdk-publish-{publisher}.yml" in release
     assert "sdk-publish-java.yml" not in release
     for publisher in ("crates", "npm", "python"):
@@ -81,8 +88,29 @@ def test_go_publisher_uses_the_nested_module_semver_tag() -> None:
     assert '"cmux-tui/bindings/go/v*"' in go
     assert "cmux-tui/bindings/go/vX.Y.Z" in go
     assert 'version="${GITHUB_REF_NAME#cmux-tui/bindings/go/v}"' in go
+    assert "workflow_call:" in go
     assert '"cmux-sdk-v*"' not in go
     assert '"cmux-sdk-v*"' not in java
+
+
+def test_required_sdk_ci_checks_only_the_publish_set_version() -> None:
+    sdk_ci = workflow("cmux-tui-sdks.yml")
+
+    assert "check-versions.py --published-only" in sdk_ci
+
+
+def test_python_wheel_consumer_derives_the_manifest_version() -> None:
+    test = (
+        ROOT
+        / "cmux-tui"
+        / "bindings"
+        / "python"
+        / "tests"
+        / "test_package_consumer.py"
+    ).read_text()
+
+    assert "CMUX_EXPECTED_SDK_VERSION" in test
+    assert "version('cmux-sdk') == '1.0.0'" not in test
 
 
 def test_stable_registry_publishers_are_exact_tag_and_artifact_bound() -> None:

@@ -63,9 +63,10 @@ and crates.io require the interactive bootstrap above.
 4. Run `.github/workflows/sdk-release-cut.yml` from `main` with `version=X.Y.Z`
    and `confirm_publish=true`.
 
-The cut workflow verifies current protected `main`, creates
+The cut workflow verifies current protected `main`, runs the complete Go
+publisher as a reusable preflight against that exact commit, then creates
 `cmux-sdk-vX.Y.Z` and `cmux-tui/bindings/go/vX.Y.Z` atomically on the same
-commit, then dispatches exactly four workflows:
+commit. It dispatches exactly four workflows in independent jobs:
 
 - `sdk-publish-crates.yml`
 - `sdk-publish-go.yml`
@@ -75,6 +76,10 @@ commit, then dispatches exactly four workflows:
 Each publisher runs its package tests and live conformance case before any
 registry write. The Go workflow additionally resolves the tagged module from a
 clean external consumer.
+
+If one dispatch job fails, use GitHub's **Re-run failed jobs** action. Successful
+dispatch jobs are not repeated, and the tag step safely accepts tags that
+already point to the same release commit.
 
 ## Verification after publishing
 
@@ -93,8 +98,8 @@ launcher release rather than an SDK artifact.
 ## Safety checks
 
 The cut workflow refuses non-`main` dispatches, mismatched manifest versions,
-existing tags, or package names other than `cmux-sdk`. It pushes both release
-tags atomically. Publisher jobs use least-privilege permissions. npm, PyPI, and
-crates.io authenticate with short-lived OIDC credentials. PyPI emits PEP 740
-attestations and npm publishes provenance. GitHub Actions are pinned to full
-commit SHAs.
+release tags that point to another commit, or package names other than
+`cmux-sdk`. It pushes both release tags atomically after Go validation.
+Publisher jobs use least-privilege permissions. npm, PyPI, and crates.io
+authenticate with short-lived OIDC credentials. PyPI emits PEP 740 attestations
+and npm publishes provenance. GitHub Actions are pinned to full commit SHAs.

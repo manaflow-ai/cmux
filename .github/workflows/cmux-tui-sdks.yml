@@ -71,7 +71,7 @@ jobs:
             -v
 
       - name: Check package versions
-        run: python3 cmux-tui/bindings/check-versions.py
+        run: python3 cmux-tui/bindings/check-versions.py --published-only
 
       - name: Test shared conformance runner
         run: |
