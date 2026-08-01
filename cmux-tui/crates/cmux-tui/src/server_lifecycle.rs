@@ -15,8 +15,8 @@ use std::time::{Duration, Instant};
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::release::{LAUNCHER_COMMAND_ENV, ReleaseIdentity};
 use cmux_tui_core::server::{
-    PROTOCOL_VERSION, SERVER_SHUTDOWN_CAPABILITY, SERVER_SHUTDOWN_INCOMPLETE_ERROR,
-    SERVER_SHUTDOWN_TIMEOUT,
+    LOCAL_SOCKET_CONNECT_TIMEOUT, PROTOCOL_VERSION, SERVER_SHUTDOWN_CAPABILITY,
+    SERVER_SHUTDOWN_INCOMPLETE_ERROR, SERVER_SHUTDOWN_TIMEOUT, SocketPublicationGuard,
 };
 use serde_json::{Value, json};
 
@@ -118,6 +118,7 @@ struct LegacySocketQuarantine {
     device: u64,
     inode: u64,
     armed: bool,
+    publication_guard: SocketPublicationGuard,
 }
 
 #[cfg(unix)]
@@ -132,6 +133,10 @@ impl LegacySocketQuarantine {
     ) -> std::io::Result<Self> {
         use std::os::unix::fs::{FileTypeExt as _, MetadataExt as _};
 
+        let publication_guard = SocketPublicationGuard::acquire(
+            original,
+            Instant::now() + LOCAL_SOCKET_CONNECT_TIMEOUT + LOCAL_SOCKET_CONNECT_TIMEOUT,
+        )?;
         let metadata = std::fs::symlink_metadata(original)?;
         if !metadata.file_type().is_socket() {
             return Err(std::io::Error::new(
@@ -196,6 +201,7 @@ impl LegacySocketQuarantine {
             device: metadata.dev(),
             inode: metadata.ino(),
             armed: true,
+            publication_guard,
         })
     }
 
@@ -204,8 +210,10 @@ impl LegacySocketQuarantine {
         quarantined: PathBuf,
         device: u64,
         inode: u64,
+        publication_guard: SocketPublicationGuard,
     ) -> std::io::Result<Self> {
-        let quarantine = Self { original, quarantined, device, inode, armed: true };
+        let quarantine =
+            Self { original, quarantined, device, inode, armed: true, publication_guard };
         if quarantine.matches(&quarantine.quarantined)? != Some(true) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -1061,6 +1069,7 @@ fn run_detached_legacy_stop(
         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
     })?;
     let mut command = Command::new(executable);
+    let publication_descriptor = quarantine.publication_guard.inherit_into(&mut command);
     command
         .arg("__legacy-stop-helper")
         .arg(&quarantine.original)
@@ -1069,6 +1078,7 @@ fn run_detached_legacy_stop(
         .arg(expected.started_at().to_string())
         .arg(quarantine.device.to_string())
         .arg(quarantine.inode.to_string())
+        .arg(publication_descriptor.to_string())
         .arg(LEGACY_SHUTDOWN_TIMEOUT.as_millis().to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -1175,6 +1185,7 @@ pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
         expected_started_at,
         device,
         inode,
+        publication_descriptor,
         timeout_ms,
     ] = args
     else {
@@ -1193,6 +1204,13 @@ pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
     let inode = inode
         .parse::<u64>()
         .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.shutdown_unsupported))?;
+    let publication_descriptor = publication_descriptor
+        .parse::<std::os::fd::RawFd>()
+        .ok()
+        .filter(|descriptor| *descriptor > libc::STDERR_FILENO)
+        .ok_or_else(|| {
+            anyhow::anyhow!(crate::localization::catalog().server.shutdown_unsupported)
+        })?;
     let timeout = timeout_ms
         .parse::<u64>()
         .ok()
@@ -1203,11 +1221,22 @@ pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
         })?;
     let deadline = Instant::now() + timeout;
     ensure_legacy_helper_active()?;
+    // SAFETY: this private exec mode receives the unique child copy created by
+    // `SocketPublicationGuard::inherit_into` and never aliases that raw fd.
+    let publication_guard = unsafe {
+        SocketPublicationGuard::adopt_inherited(
+            Path::new(original_path),
+            publication_descriptor,
+            deadline,
+        )
+    }
+    .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed))?;
     let mut quarantine = LegacySocketQuarantine::adopt(
         PathBuf::from(original_path),
         PathBuf::from(quarantined_path),
         device,
         inode,
+        publication_guard,
     )
     .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed))?;
     let expected = ProcessIdentity::from_parts(expected_pid, expected_started_at);
@@ -1753,6 +1782,15 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn remove_quarantined_test_path(path: &Path) {
+        let _ = std::fs::remove_file(path);
+        let mut lock_name = std::ffi::OsString::from(".");
+        lock_name.push(path.file_name().unwrap());
+        lock_name.push(".publish.lock");
+        let _ = std::fs::remove_file(path.with_file_name(lock_name));
+    }
+
+    #[cfg(unix)]
     #[test]
     fn legacy_quarantine_blocks_replacement_publication() {
         let directory = std::env::temp_dir().join(format!(
@@ -2056,7 +2094,7 @@ mod tests {
         assert_eq!(reaped, -1, "timed-out helper lost its reaping owner");
         assert_eq!(reaped_error.and_then(|error| error.raw_os_error()), Some(libc::ECHILD));
         drop(listener);
-        let _ = std::fs::remove_file(path);
+        remove_quarantined_test_path(&path);
     }
 
     #[cfg(unix)]
@@ -2082,7 +2120,7 @@ mod tests {
         drop(quarantine);
         drop(replacement);
         drop(original);
-        let _ = std::fs::remove_file(&path);
+        remove_quarantined_test_path(&path);
 
         assert!(rejected_replacement, "quarantine accepted a replacement socket");
         assert!(
@@ -2131,7 +2169,7 @@ mod tests {
         let restored_after_helper_exit = UnixStream::connect(&path).is_ok();
 
         drop(listener);
-        let _ = std::fs::remove_file(&path);
+        remove_quarantined_test_path(&path);
 
         assert_eq!(error.to_string(), crate::localization::catalog().server.legacy_cleanup_failed);
         assert!(
@@ -2180,7 +2218,7 @@ mod tests {
             "lost wait ownership did not release the admission fence after helper exit"
         );
         drop(listener);
-        let _ = std::fs::remove_file(path);
+        remove_quarantined_test_path(&path);
     }
 
     #[cfg(unix)]
