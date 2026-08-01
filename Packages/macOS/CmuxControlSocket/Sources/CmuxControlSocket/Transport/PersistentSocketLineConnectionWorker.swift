@@ -40,6 +40,9 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
         timeout: TimeInterval,
         validatingPeer: @escaping @Sendable (pid_t?) -> Bool
     ) async -> (response: String, peerProcessID: pid_t?)? {
+        guard timeout.isFinite, timeout > 0 else { return nil }
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        guard deadline.isFinite else { return nil }
         let commandEpoch = submissionEpoch.loadRelaxed()
         let cancellation = PersistentSocketInterruptionSignal()
         let cancellationGeneration = cancellation.begin()
@@ -54,6 +57,7 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
                             command,
                             at: socketPath,
                             timeout: timeout,
+                            deadline: deadline,
                             commandEpoch: commandEpoch,
                             cancellation: cancellation,
                             cancellationGeneration: cancellationGeneration,
@@ -84,6 +88,7 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
         _ command: String,
         at socketPath: String,
         timeout: TimeInterval,
+        deadline: TimeInterval,
         commandEpoch: UInt64,
         cancellation: PersistentSocketInterruptionSignal,
         cancellationGeneration: UInt32,
@@ -107,12 +112,12 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
             ),
             timeout.isFinite,
             timeout > 0,
+            ProcessInfo.processInfo.systemUptime < deadline,
             !command.contains("\n"),
             !command.contains("\r")
         else {
             return nil
         }
-        let deadline = ProcessInfo.processInfo.systemUptime + timeout
         guard ensureConnection(
             at: socketPath,
             timeout: timeout,
