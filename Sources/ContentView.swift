@@ -3725,7 +3725,8 @@ struct ContentView: View {
     }
 
     private func noteSelectedTerminalPortalPresentedIfReady() {
-        guard let workspace = tabManager.selectedWorkspace,
+        guard tabManager.workspaceSwitchCoordinator.isMeasuringSwitch,
+              let workspace = tabManager.selectedWorkspace,
               let target = workspace.focusedTerminalInputTarget() else {
             return
         }
