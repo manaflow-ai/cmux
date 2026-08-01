@@ -505,11 +505,15 @@ mod tests {
     use super::*;
 
     fn request(authorization: Option<&str>) -> HttpRequest<Body> {
-        let rpc = RpcRequest {
-            id: RequestId::from_u128(1),
-            timeout_ms: None,
-            request: WorkspaceRequest::Capabilities,
-        };
+        workspace_request(authorization, 1, WorkspaceRequest::Capabilities)
+    }
+
+    fn workspace_request(
+        authorization: Option<&str>,
+        request_id: u128,
+        request: WorkspaceRequest,
+    ) -> HttpRequest<Body> {
+        let rpc = RpcRequest { id: RequestId::from_u128(request_id), timeout_ms: None, request };
         let mut builder = HttpRequest::builder()
             .method("POST")
             .uri("/v1/workspace-rpc")
@@ -518,6 +522,12 @@ mod tests {
             builder = builder.header(AUTHORIZATION, authorization);
         }
         builder.body(Body::from(serde_json::to_vec(&rpc).unwrap())).unwrap()
+    }
+
+    async fn decode_rpc_response(response: Response) -> RpcResponse {
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), MAX_HTTP_RPC_BODY_BYTES).await.unwrap();
+        serde_json::from_slice(&body).unwrap()
     }
 
     fn raw_capabilities_request(
@@ -591,6 +601,96 @@ mod tests {
         let body = to_bytes(response.into_body(), MAX_HTTP_RPC_BODY_BYTES).await.unwrap();
         let response: RpcResponse = serde_json::from_slice(&body).unwrap();
         assert!(response.result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn dropped_http_page_keeps_its_parent_cursor_retryable() {
+        let directory = tempdir().unwrap();
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            tokio::fs::write(directory.path().join(name), name).await.unwrap();
+        }
+        let workspace = WorkspaceService::new();
+        let opened = workspace
+            .handle_request(WorkspaceRequest::OpenWorkspace {
+                root: directory.path().to_string_lossy().into_owned(),
+            })
+            .await
+            .unwrap();
+        let WorkspaceResponse::Workspace { id, .. } = opened else { panic!() };
+        let token = WorkspaceHttpBearerToken::test_value();
+        let authorization = format!("Bearer {}", token.0.as_str());
+        let router = workspace_http_router(workspace, token);
+
+        let first = decode_rpc_response(
+            router
+                .clone()
+                .oneshot(workspace_request(
+                    Some(&authorization),
+                    1,
+                    WorkspaceRequest::ListDirectory {
+                        workspace: id.clone(),
+                        path: String::new(),
+                        include_hidden: false,
+                        limit: 1,
+                        cursor: None,
+                    },
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        let WorkspaceResponse::Directory { next_cursor: Some(parent), .. } = first.result.unwrap()
+        else {
+            panic!()
+        };
+
+        let dropped = router
+            .clone()
+            .oneshot(workspace_request(
+                Some(&authorization),
+                2,
+                WorkspaceRequest::ListDirectory {
+                    workspace: id.clone(),
+                    path: String::new(),
+                    include_hidden: false,
+                    limit: 1,
+                    cursor: Some(parent.clone()),
+                },
+            ))
+            .await
+            .unwrap();
+        drop(dropped);
+
+        let mut retries = Vec::new();
+        for request_id in [3, 4] {
+            let response = decode_rpc_response(
+                router
+                    .clone()
+                    .oneshot(workspace_request(
+                        Some(&authorization),
+                        request_id,
+                        WorkspaceRequest::ListDirectory {
+                            workspace: id.clone(),
+                            path: String::new(),
+                            include_hidden: false,
+                            limit: 1,
+                            cursor: Some(parent.clone()),
+                        },
+                    ))
+                    .await
+                    .unwrap(),
+            )
+            .await;
+            let WorkspaceResponse::Directory { entries, next_cursor: Some(successor), .. } =
+                response.result.unwrap()
+            else {
+                panic!()
+            };
+            retries.push((entries, successor));
+        }
+        assert_eq!(retries[0].0, retries[1].0);
+        assert_eq!(retries[0].0[0].name, "b.txt");
+        assert_eq!(retries[0].1, retries[1].1);
     }
 
     #[tokio::test]

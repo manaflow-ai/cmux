@@ -62,6 +62,8 @@ struct StoredContinuation {
     last_used: Instant,
     charge: usize,
     leased: bool,
+    predecessor: Option<String>,
+    successor: Option<String>,
     value: Arc<QueryContinuation>,
 }
 
@@ -77,6 +79,7 @@ pub(super) struct ContinuationDelivery {
     parent: Option<String>,
     clone_charge: usize,
     successor: Option<String>,
+    successor_created: bool,
     finished: bool,
 }
 
@@ -100,20 +103,17 @@ impl ContinuationDelivery {
         }
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.continuation_bytes = state.continuation_bytes.saturating_sub(self.clone_charge);
-        if delivered {
-            if let Some(parent) = &self.parent {
-                state.remove_continuation(parent);
-            }
-            if let Some(successor) = &self.successor {
+        if let Some(successor) = &self.successor {
+            if delivered || !self.successor_created {
                 state.release_continuation(successor);
-            }
-        } else {
-            if let Some(successor) = &self.successor {
+            } else {
                 state.remove_continuation(successor);
             }
-            if let Some(parent) = &self.parent {
-                state.release_continuation(parent);
-            }
+        }
+        // A delivered parent remains replayable until the client proves it
+        // received this page by presenting the successor cursor.
+        if let Some(parent) = &self.parent {
+            state.release_continuation(parent);
         }
         self.finished = true;
     }
@@ -254,6 +254,39 @@ impl WorkspaceQueryService {
             }
         }
         let clone_charge = delivery.as_ref().map_or(0, |delivery| delivery.clone_charge);
+        if let Some(parent) = delivery.as_ref().and_then(|delivery| delivery.parent.as_ref()) {
+            let existing =
+                state.continuations.get(parent).and_then(|stored| stored.successor.clone());
+            if let Some(existing) = existing {
+                if !state.continuations.contains_key(&existing) {
+                    state
+                        .continuations
+                        .get_mut(parent)
+                        .expect("validated parent continuation remains present")
+                        .successor = None;
+                } else {
+                    let successor = state
+                        .continuations
+                        .get_mut(&existing)
+                        .expect("checked successor continuation exists");
+                    if successor.leased {
+                        drop(state);
+                        return Err(cursor_in_use(kind));
+                    }
+                    successor.leased = true;
+                    successor.last_used = now;
+                    state.continuation_order.retain(|token| token != &existing);
+                    state.continuation_order.push_back(existing.clone());
+                    state.continuation_bytes =
+                        state.continuation_bytes.saturating_sub(clone_charge);
+                    let mut delivery = delivery.take().expect("replay has a parent delivery");
+                    delivery.clone_charge = 0;
+                    delivery.successor = Some(existing.clone());
+                    delivery.successor_created = false;
+                    return Ok((PageCursor(existing), delivery));
+                }
+            }
+        }
         while state.continuations.len() >= MAX_QUERY_CONTINUATIONS
             || state.continuation_bytes.saturating_sub(clone_charge).saturating_add(charge)
                 > MAX_QUERY_CONTINUATION_BYTES
@@ -268,6 +301,7 @@ impl WorkspaceQueryService {
         }
         state.continuation_bytes =
             state.continuation_bytes.saturating_sub(clone_charge).saturating_add(charge);
+        let predecessor = delivery.as_ref().and_then(|delivery| delivery.parent.clone());
         state.continuation_order.push_back(token.clone());
         state.continuations.insert(
             token.clone(),
@@ -278,12 +312,22 @@ impl WorkspaceQueryService {
                 last_used: now,
                 charge,
                 leased: true,
+                predecessor: predecessor.clone(),
+                successor: None,
                 value: Arc::new(value),
             },
         );
+        if let Some(parent) = &predecessor {
+            state
+                .continuations
+                .get_mut(parent)
+                .expect("validated parent continuation remains present")
+                .successor = Some(token.clone());
+        }
         let delivery = if let Some(mut delivery) = delivery.take() {
             delivery.clone_charge = 0;
             delivery.successor = Some(token.clone());
+            delivery.successor_created = true;
             delivery
         } else {
             ContinuationDelivery {
@@ -291,6 +335,7 @@ impl WorkspaceQueryService {
                 parent: None,
                 clone_charge: 0,
                 successor: Some(token.clone()),
+                successor_created: true,
                 finished: false,
             }
         };
@@ -325,22 +370,20 @@ impl WorkspaceQueryService {
             return Err(invalid_cursor(kind));
         }
         if stored.leased {
-            let mut error = RpcError::new(
-                "cursor-in-use",
-                format!("{kind} cursor is already serving another request"),
-            );
-            error.retryable = true;
-            return Err(error);
+            return Err(cursor_in_use(kind));
         }
-        let (value, charge) = {
+        let (value, charge, predecessor) = {
             let stored = state
                 .continuations
                 .get_mut(&cursor.0)
                 .expect("validated continuation remains present");
             stored.leased = true;
             stored.last_used = now;
-            (Arc::clone(&stored.value), stored.charge)
+            (Arc::clone(&stored.value), stored.charge, stored.predecessor.take())
         };
+        if let Some(predecessor) = predecessor {
+            state.remove_continuation(&predecessor);
+        }
         while state.continuation_bytes.saturating_add(charge) > MAX_QUERY_CONTINUATION_BYTES {
             if !state.evict_oldest_continuation() {
                 state
@@ -364,6 +407,7 @@ impl WorkspaceQueryService {
             parent: Some(cursor.0.clone()),
             clone_charge: charge,
             successor: None,
+            successor_created: false,
             finished: false,
         };
         Ok((value.as_ref().clone(), delivery))
@@ -478,9 +522,10 @@ impl QueryState {
                 self.continuation_order.push_back(token);
                 continue;
             }
-            let Some(stored) = self.continuations.remove(&token) else { continue };
-            self.continuation_bytes = self.continuation_bytes.saturating_sub(stored.charge);
-            return true;
+            if self.continuations.contains_key(&token) {
+                self.remove_continuation(&token);
+                return true;
+            }
         }
         false
     }
@@ -488,6 +533,18 @@ impl QueryState {
     fn remove_continuation(&mut self, token: &str) {
         if let Some(stored) = self.continuations.remove(token) {
             self.continuation_bytes = self.continuation_bytes.saturating_sub(stored.charge);
+            if let Some(predecessor) = stored.predecessor
+                && let Some(parent) = self.continuations.get_mut(&predecessor)
+                && parent.successor.as_deref() == Some(token)
+            {
+                parent.successor = None;
+            }
+            if let Some(successor) = stored.successor
+                && let Some(child) = self.continuations.get_mut(&successor)
+                && child.predecessor.as_deref() == Some(token)
+            {
+                child.predecessor = None;
+            }
         }
         self.continuation_order.retain(|candidate| candidate != token);
     }
@@ -541,6 +598,13 @@ fn cursor_lifecycle_error() -> RpcError {
         "invalid-cursor",
         "query cursor lifecycle ended before its successor was retained",
     );
+    error.retryable = true;
+    error
+}
+
+fn cursor_in_use(kind: &str) -> RpcError {
+    let mut error =
+        RpcError::new("cursor-in-use", format!("{kind} cursor is already serving another request"));
     error.retryable = true;
     error
 }
@@ -660,17 +724,34 @@ mod tests {
     }
 
     #[test]
-    fn continuation_store_binds_owner_scope_and_consumes_tokens_once() {
+    fn continuation_store_binds_scope_replays_pages_and_acknowledges_predecessors() {
         let service = WorkspaceQueryService::default();
         let owner = ClientScope::new("device", cmux_remote_protocol::SessionId([1; 16]));
         let other_owner = ClientScope::new("other", cmux_remote_protocol::SessionId([2; 16]));
         let workspace = WorkspaceId("workspace".into());
-        let cursor = delivered_directory_cursor(&service, &owner, &workspace, "scope");
-        assert!(service.lease_directory(&owner, &workspace, "other", &cursor).is_err());
-        assert!(service.lease_directory(&other_owner, &workspace, "scope", &cursor).is_err());
-        let (_, delivery) = service.lease_directory(&owner, &workspace, "scope", &cursor).unwrap();
+        let parent = delivered_directory_cursor(&service, &owner, &workspace, "scope");
+        assert!(service.lease_directory(&owner, &workspace, "other", &parent).is_err());
+        assert!(service.lease_directory(&other_owner, &workspace, "scope", &parent).is_err());
+
+        let (continuation, parent_delivery) =
+            service.lease_directory(&owner, &workspace, "scope", &parent).unwrap();
+        let (successor, delivery) = service
+            .put_directory(&owner, &workspace, "scope", continuation, Some(parent_delivery))
+            .unwrap();
         delivery.commit();
-        assert!(service.lease_directory(&owner, &workspace, "scope", &cursor).is_err());
+
+        let (continuation, replay_delivery) =
+            service.lease_directory(&owner, &workspace, "scope", &parent).unwrap();
+        let (replayed_successor, delivery) = service
+            .put_directory(&owner, &workspace, "scope", continuation, Some(replay_delivery))
+            .unwrap();
+        assert_eq!(replayed_successor, successor);
+        delivery.commit();
+
+        let (_, successor_delivery) =
+            service.lease_directory(&owner, &workspace, "scope", &successor).unwrap();
+        successor_delivery.commit();
+        assert!(service.lease_directory(&owner, &workspace, "scope", &parent).is_err());
     }
 
     #[test]
