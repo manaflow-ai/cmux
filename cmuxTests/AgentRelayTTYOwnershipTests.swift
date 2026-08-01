@@ -71,6 +71,66 @@ extension AgentNotificationRegressionTests {
         )
     }
 
+    @Test("A disconnected remote terminal cannot resolve or register another TTY")
+    func disconnectedRemoteTerminalCannotResolveOrRegisterTTY() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        fixture.source.remoteConfiguration = relayConfiguration(
+            destination: "source.example.invalid",
+            relayPort: 64_007
+        )
+        fixture.source.trackRemoteTerminalSurface(fixture.panelId)
+        fixture.source.registerReportedSurfaceTTYName("pts/23", panelId: fixture.panelId)
+
+        fixture.source.disconnectRemoteConnection()
+
+        assertNoRelayTTYTarget(
+            authenticatedWorkspaceID: fixture.source.id,
+            ttyName: "pts/23"
+        )
+        #expect(
+            TerminalController.shared.controlSurfaceReportTTY(
+                workspaceID: fixture.source.id,
+                requestedSurfaceID: fixture.panelId,
+                ttyName: "pts/24"
+            ) == .surfaceNotFound
+        )
+        assertNoRelayTTYTarget(
+            authenticatedWorkspaceID: fixture.source.id,
+            ttyName: "pts/24"
+        )
+    }
+
+    @Test("A delayed TTY report cannot revive an ended remote terminal")
+    func delayedTTYReportCannotReviveEndedRemoteTerminal() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        fixture.source.remoteConfiguration = relayConfiguration(
+            destination: "source.example.invalid",
+            relayPort: 64_007
+        )
+        fixture.source.trackRemoteTerminalSurface(fixture.panelId)
+        fixture.source.registerReportedSurfaceTTYName("pts/25", panelId: fixture.panelId)
+        #expect(
+            fixture.source.markRemoteTerminalSessionEnded(
+                surfaceId: fixture.panelId,
+                relayPort: 64_007
+            )
+        )
+
+        #expect(
+            TerminalController.shared.controlSurfaceReportTTY(
+                workspaceID: fixture.source.id,
+                requestedSurfaceID: fixture.panelId,
+                ttyName: "pts/26"
+            ) == .surfaceNotFound
+        )
+        assertNoRelayTTYTarget(
+            authenticatedWorkspaceID: fixture.source.id,
+            ttyName: "pts/26"
+        )
+    }
+
     private func relayConfiguration(
         destination: String,
         relayPort: Int
