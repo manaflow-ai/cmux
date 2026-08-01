@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxSimulator
 import Darwin
 import Foundation
 import Testing
@@ -14,6 +15,35 @@ import Testing
         let status: Int32
         let stdout: String
         let timedOut: Bool
+    }
+
+    @Test func testSimulatorInspectionClientDeadlineIncludesDeviceReadiness() throws {
+        let cli = CMUXCLI(args: [])
+        let request = try #require(try cli.simulatorAgentRequest(
+            subcommand: "accessibility",
+            arguments: CMUXCLI.SimulatorArguments()
+        ))
+
+        #expect(request.timeout == simulatorOperationDeadlines.clientTimeout(
+            for: simulatorOperationDeadlines.inspectionRead
+        ))
+    }
+
+    @Test func testSimulatorUIWaitClientDeadlineMatchesServerReceipt() throws {
+        let cli = CMUXCLI(args: [])
+        var arguments = CMUXCLI.SimulatorArguments()
+        arguments.positionals = ["settled"]
+        arguments.options["timeout-ms"] = "120000"
+        let request = try #require(try cli.simulatorAgentRequest(
+            subcommand: "wait",
+            arguments: arguments
+        ))
+        let serverReceiptTimeout = simulatorOperationDeadlines.selectDevice
+            + min(160, 120 + 35)
+
+        #expect(request.timeout == simulatorOperationDeadlines.clientTimeout(
+            for: serverReceiptTimeout
+        ))
     }
 
     @Test func testCLIErrorPathDoesNotCrashWhenStderrIsClosed() throws {

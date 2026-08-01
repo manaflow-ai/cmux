@@ -8,6 +8,49 @@ import Testing
 @MainActor
 @Suite("Simulator UI automation executor waits")
 struct SimulatorUIAutomationExecutorWaitTests {
+    @Test("A partially executed batch is not reported as completed")
+    func partialBatchIsNotCompleted() async throws {
+        let snapshot = Self.twoButtonSnapshot()
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            failingInteractiveActionNumber: 2,
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let record = try await coordinator.recordUIAutomationSnapshot(
+            snapshot,
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+        let refs = record.snapshot.elements.filter {
+            $0.identifier == "first" || $0.identifier == "second"
+        }.map { $0.ref }
+        let firstRef = try #require(refs.first)
+        let secondRef = try #require(refs.dropFirst().first)
+
+        let result = try await SimulatorUIAutomationExecutor(
+            scheduler: AdvancingActionScheduler(nowMilliseconds: 1_000)
+        ).perform(
+            .uiAction(.batch(steps: [
+                ControlSimulatorUITapStep(elementRef: firstRef),
+                ControlSimulatorUITapStep(elementRef: secondRef),
+            ])),
+            coordinator: coordinator
+        )
+
+        guard case let .object(payload) = result,
+              let actionValue = payload["action"],
+              case let .object(action) = actionValue else {
+            Issue.record("Expected a partial batch result, got \(result)")
+            return
+        }
+        #expect(payload["completed"] == JSONValue.bool(false))
+        #expect(action["completed_step_count"] == JSONValue.int(1))
+        #expect(payload["ui_error"] != nil)
+        await coordinator.close()
+    }
+
     @Test("Cancellation after a committed tap returns success with a warning")
     func cancellationAfterCommittedTapReturnsSuccess() async throws {
         let snapshot = Self.actionSnapshot()

@@ -249,6 +249,32 @@ struct SimulatorPaneCoordinatorOverflowTests {
         #expect(current.snapshot.sequence == record.snapshot.sequence)
     }
 
+    @Test("A semantic transaction drains admitted live input before entry")
+    @MainActor
+    func semanticTransactionQuiescesAdmittedLiveInput() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        let keyDown = SimulatorWorkerInbound.key(
+            SimulatorKeyEvent(usage: 4, phase: .down)
+        )
+        let keyUp = SimulatorWorkerInbound.key(
+            SimulatorKeyEvent(usage: 4, phase: .up)
+        )
+        #expect(coordinator.enqueue(keyDown))
+
+        try await coordinator.withUIAutomationTransaction {
+            let delivered = await client.messages()
+            #expect(delivered.contains(keyDown))
+            #expect(delivered.contains(keyUp))
+            let downIndex = try #require(delivered.firstIndex(of: keyDown))
+            let upIndex = try #require(delivered.firstIndex(of: keyUp))
+            #expect(downIndex < upIndex)
+        }
+
+        await coordinator.close()
+    }
+
     @Test("Live input releases bypass an active semantic transaction")
     @MainActor
     func liveInputReleasesBypassSemanticTransaction() async throws {

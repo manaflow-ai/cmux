@@ -16,6 +16,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private let failsWebInspectorHighlight: Bool
     private let failsWebInspectorRelease: Bool
     private let failsInteractiveAction: Bool
+    private let failingInteractiveActionNumber: Int?
     private let failsAccessibilityRead: Bool
     private let cancelsControlActionBeforeReturning: Bool
     private let accessibilityResult: SimulatorControlResult
@@ -26,6 +27,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private var stopValue = 0
     private var invalidationValue = 0
     private var actionValues: [SimulatorControlAction] = []
+    private var interactiveActionCount = 0
     private var delayedApplicationList: CheckedContinuation<SimulatorControlResult, Never>?
     private var delayedAccessibilityRead: CheckedContinuation<SimulatorControlResult, Error>?
     private var delayedInvalidation: CheckedContinuation<Void, Never>?
@@ -47,6 +49,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         failsWebInspectorHighlight: Bool = false,
         failsWebInspectorRelease: Bool = false,
         failsInteractiveAction: Bool = false,
+        failingInteractiveActionNumber: Int? = nil,
         failsAccessibilityRead: Bool = false,
         accessibilityResult: SimulatorControlResult = .none,
         cancelsControlActionBeforeReturning: Bool = false
@@ -63,6 +66,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         self.failsWebInspectorHighlight = failsWebInspectorHighlight
         self.failsWebInspectorRelease = failsWebInspectorRelease
         self.failsInteractiveAction = failsInteractiveAction
+        self.failingInteractiveActionNumber = failingInteractiveActionNumber
         self.failsAccessibilityRead = failsAccessibilityRead
         self.accessibilityResult = accessibilityResult
         self.cancelsControlActionBeforeReturning = cancelsControlActionBeforeReturning
@@ -176,12 +180,16 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
                 isRecoverable: true
             )
         }
-        if case .interactive = action, failsInteractiveAction {
-            throw SimulatorFailure(
-                code: "fixture_interactive_failed",
-                message: "The fixture input failed.",
-                isRecoverable: true
-            )
+        if case .interactive = action {
+            interactiveActionCount += 1
+            if failsInteractiveAction
+                || interactiveActionCount == failingInteractiveActionNumber {
+                throw SimulatorFailure(
+                    code: "fixture_interactive_failed",
+                    message: "The fixture input failed.",
+                    isRecoverable: true
+                )
+            }
         }
         if case .releaseWebInspector = action {
             return .webInspectorSession(.detached)
