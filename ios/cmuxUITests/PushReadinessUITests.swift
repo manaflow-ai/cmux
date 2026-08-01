@@ -69,10 +69,10 @@ final class PushReadinessUITests: XCTestCase {
         ]
         waitForLabel(status, containing: "Ready, Always")
         waitForEnabled(hideContent)
-        hideContent.tap()
+        tapSwitch(hideContent)
         waitForValue(hideContent, "1")
         waitForEnabled(forwarding)
-        forwarding.tap()
+        tapSwitch(forwarding)
         waitForValue(forwarding, "0")
     }
 
@@ -88,7 +88,7 @@ final class PushReadinessUITests: XCTestCase {
         XCTAssertTrue(forwarding.waitForExistence(timeout: 8))
         XCTAssertEqual(forwarding.value as? String, "1")
         waitForEnabled(forwarding)
-        forwarding.tap()
+        tapSwitch(forwarding)
 
         XCTAssertTrue(
             app.descendants(matching: .any)["MobileSettingsPushMutationError"]
@@ -179,6 +179,13 @@ final class PushReadinessUITests: XCTestCase {
             .completed,
             "Expected '\(element.identifier)' to become enabled"
         )
+    }
+
+    @MainActor
+    private func tapSwitch(_ element: XCUIElement) {
+        element.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)
+        ).tap()
     }
 
     @MainActor
