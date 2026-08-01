@@ -67,13 +67,11 @@ final class PushReadinessUITests: XCTestCase {
         let status = app.descendants(matching: .any)[
             "MobileSettingsPushReadinessStatus"
         ]
-        XCTAssertTrue(status.waitForExistence(timeout: 4))
-        XCTAssertTrue(
-            status.label.contains("Ready, Always"),
-            "Expected a healthy persistence status after mode mutation, got '\(status.label)'"
-        )
+        waitForLabel(status, containing: "Ready, Always")
+        waitForEnabled(hideContent)
         hideContent.tap()
         waitForValue(hideContent, "1")
+        waitForEnabled(forwarding)
         forwarding.tap()
         waitForValue(forwarding, "0")
     }
@@ -89,10 +87,11 @@ final class PushReadinessUITests: XCTestCase {
         let forwarding = app.switches["MobileSettingsPushMacForwardingToggle"]
         XCTAssertTrue(forwarding.waitForExistence(timeout: 8))
         XCTAssertEqual(forwarding.value as? String, "1")
+        waitForEnabled(forwarding)
         forwarding.tap()
 
         XCTAssertTrue(
-            app.staticTexts["MobileSettingsPushMutationError"]
+            app.descendants(matching: .any)["MobileSettingsPushMutationError"]
                 .waitForExistence(timeout: 4)
         )
         XCTAssertEqual(forwarding.value as? String, "1")
@@ -163,6 +162,39 @@ final class PushReadinessUITests: XCTestCase {
             XCTWaiter.wait(for: [expectation], timeout: timeout),
             .completed,
             "Expected '\(expected)', got '\(String(describing: element.value))'"
+        )
+    }
+
+    @MainActor
+    private func waitForEnabled(
+        _ element: XCUIElement,
+        timeout: TimeInterval = 4
+    ) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "enabled == true"),
+            object: element
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [expectation], timeout: timeout),
+            .completed,
+            "Expected '\(element.identifier)' to become enabled"
+        )
+    }
+
+    @MainActor
+    private func waitForLabel(
+        _ element: XCUIElement,
+        containing expected: String,
+        timeout: TimeInterval = 4
+    ) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", expected),
+            object: element
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [expectation], timeout: timeout),
+            .completed,
+            "Expected '\(expected)' in '\(element.label)'"
         )
     }
 
