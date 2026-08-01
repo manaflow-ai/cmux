@@ -217,19 +217,15 @@ extension VerticalTabsSidebar {
             unreadDependencyWorkspaceIds: Set(memberWorkspaceIds)
                 .union([group.anchorWorkspaceId]),
             unreadRebuild: {
-                [weak tabManager, model, groupId = group.id,
-                 anchorWorkspaceId = group.anchorWorkspaceId,
-                 memberWorkspaceIds] snapshot in
-                let liveGroup = tabManager?.workspaceGroups.first { $0.id == groupId }
-                let liveMemberWorkspaceIds = tabManager?.tabs.compactMap {
-                    $0.groupId == groupId ? $0.id : nil
-                } ?? memberWorkspaceIds
-                let liveNonAnchorMemberIds = liveMemberWorkspaceIds.filter {
-                    $0 != anchorWorkspaceId
-                }
+                [model, anchorWorkspaceId = group.anchorWorkspaceId,
+                 isCollapsed = group.isCollapsed, memberWorkspaceIds,
+                 nonAnchorMemberIds] snapshot in
+                // Membership and collapse are structural row inputs, so their
+                // changes rebuild this configuration. Reuse the render context's
+                // indexed members instead of rescanning every tab per unread row.
                 var fresh = model
-                fresh.anchorUnreadCount = (liveGroup?.isCollapsed ?? model.isCollapsed)
-                    ? liveMemberWorkspaceIds.reduce(0) {
+                fresh.anchorUnreadCount = isCollapsed
+                    ? memberWorkspaceIds.reduce(0) {
                         $0 + snapshot.unreadCount(forWorkspaceId: $1)
                     }
                     : snapshot.unreadCount(forWorkspaceId: anchorWorkspaceId)
@@ -243,10 +239,10 @@ extension VerticalTabsSidebar {
                     .summary(forWorkspaceId: anchorWorkspaceId)
                     .hasLatestNotification
                 fresh.canMarkAllRead = snapshot.canMarkWorkspaceRead(
-                    forWorkspaceIds: liveNonAnchorMemberIds
+                    forWorkspaceIds: nonAnchorMemberIds
                 )
                 fresh.canMarkAllUnread = snapshot.canMarkWorkspaceUnread(
-                    forWorkspaceIds: liveNonAnchorMemberIds
+                    forWorkspaceIds: nonAnchorMemberIds
                 )
                 return fresh
             }

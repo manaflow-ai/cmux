@@ -39,15 +39,15 @@ public struct SidebarSurfaceUnreadKey: Hashable, Sendable {
 /// One atomic unread-state publication shared by all presentation surfaces.
 public struct SidebarUnreadSnapshot: Equatable, Sendable {
     /// Total unread count rendered by global badges.
-    public var totalUnreadCount: Int
+    public let totalUnreadCount: Int
     /// Per-workspace row summaries, omitting default empty summaries.
-    public var summaryByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary]
+    public let summaryByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary]
     /// Workspace and surface pairs with unread notifications.
-    public var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>
+    public let unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>
     /// Focused surfaces whose read indicator remains visible.
-    public var focusedReadIndicatorByWorkspaceId: [UUID: UUID]
+    public let focusedReadIndicatorByWorkspaceId: [UUID: UUID]
     /// Workspaces explicitly marked unread by the user.
-    public var manualUnreadWorkspaceIds: Set<UUID>
+    public let manualUnreadWorkspaceIds: Set<UUID>
 
     /// Creates one complete unread snapshot.
     public init(
@@ -84,7 +84,7 @@ public struct SidebarUnreadSnapshot: Equatable, Sendable {
 
     /// Returns whether the workspace has any displayed unread state.
     public func workspaceIsUnread(forWorkspaceId id: UUID) -> Bool {
-        unreadCount(forWorkspaceId: id) > 0
+        unreadCount(forWorkspaceId: id) > 0 || hasManualUnread(forWorkspaceId: id)
     }
 
     /// Returns whether the workspace was explicitly marked unread.
