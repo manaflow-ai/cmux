@@ -107,7 +107,10 @@ describe("device token route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true });
+    expect(await response.json()).toEqual({
+      ok: true,
+      pushServiceConfigured: false,
+    });
     const [stored] = await sql<{ total: number }[]>`
       select count(*)::int as total from device_tokens where user_id = 'push-user-1'
     `;
@@ -192,7 +195,10 @@ describe("device token route", () => {
 
     const refresh = await register(oldestToken);
     expect(refresh.status).toBe(200);
-    expect(await refresh.json()).toEqual({ ok: true });
+    expect(await refresh.json()).toEqual({
+      ok: true,
+      pushServiceConfigured: false,
+    });
 
     const newToken = "f".repeat(64);
     const overLimit = await register(newToken);

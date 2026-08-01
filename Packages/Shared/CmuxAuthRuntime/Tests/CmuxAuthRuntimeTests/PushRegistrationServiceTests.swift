@@ -438,6 +438,24 @@ actor RetryDelayRecorder {
         #expect(await service.snapshot.backendState == .registered)
     }
 
+    @Test func unconfiguredProviderCannotReportBackendReady() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .response(
+                200,
+                json: #"{"ok":true,"pushServiceConfigured":false}"#
+            ),
+        ])
+        let (service, _) = makeScriptedService(retryDelays: [])
+
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+
+        #expect(
+            await service.snapshot.backendState
+                == .failed(.serviceUnavailable)
+        )
+    }
+
     @Test func authenticationFailureRemainsVisibleAndDoesNotRetry() async {
         await PushRegistrationURLProtocol.script.reset([
             .response(401, json: #"{"error":"unauthorized"}"#),
