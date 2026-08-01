@@ -6,10 +6,8 @@ import {
 
 /** Never reschedule a deferred retry sooner than this after a failure. */
 export const MINIMUM_DEFERRED_RETRY_SECONDS = 30;
-/** Time a rescheduled attempt needs to finish before the event TTL. */
-const DEFERRED_RETRY_DELIVERY_MARGIN_SECONDS = Math.ceil(
-  APNS_DEFAULT_MAX_DELIVERY_DURATION_MS / 1_000,
-);
+/** Scheduling headroom beyond the bounded APNs delivery duration. */
+const DEFERRED_RETRY_SCHEDULING_MARGIN_MS = 1_000;
 
 /**
  * Bounds each transient outcome's provider backoff by the event's remaining
@@ -24,20 +22,19 @@ const DEFERRED_RETRY_DELIVERY_MARGIN_SECONDS = Math.ceil(
  */
 export function clampRetryToEventLife(
   outcomes: readonly ApnsSendResult[],
-  nowEpochSeconds: number,
+  completedAt: Date,
   expirationEpochSeconds: number,
 ): ApnsSendResult[] {
-  const viableRetrySeconds =
-    expirationEpochSeconds
-    - nowEpochSeconds
-    - DEFERRED_RETRY_DELIVERY_MARGIN_SECONDS;
+  const viableRetrySeconds = Math.floor(
+    (
+      expirationEpochSeconds * 1_000
+      - completedAt.getTime()
+      - APNS_DEFAULT_MAX_DELIVERY_DURATION_MS
+      - DEFERRED_RETRY_SCHEDULING_MARGIN_MS
+    ) / 1_000,
+  );
   return outcomes.map((outcome) => {
-    if (
-      !isTransientApnsResult(outcome)
-      || outcome.retryAfterSeconds == null
-    ) {
-      return outcome;
-    }
+    if (!isTransientApnsResult(outcome)) return outcome;
     if (viableRetrySeconds < MINIMUM_DEFERRED_RETRY_SECONDS) {
       return {
         ...(outcome.targetId == null ? {} : { targetId: outcome.targetId }),
@@ -53,7 +50,7 @@ export function clampRetryToEventLife(
         viableRetrySeconds,
         Math.max(
           MINIMUM_DEFERRED_RETRY_SECONDS,
-          outcome.retryAfterSeconds,
+          outcome.retryAfterSeconds ?? 0,
         ),
       ),
     };

@@ -35,76 +35,73 @@ actor PhonePushQueueStore {
     }
 
     func load(nowEpochSeconds: Int) throws -> [PhonePushRequestEnvelope] {
-        removeAbandonedTemporaryFiles()
-        guard fileManager.fileExists(atPath: fileURL.path) else { return [] }
-        let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
-        let fileSize = (attributes[.size] as? NSNumber)?.intValue
-            ?? (Self.maximumFileBytes + 1)
-        guard fileSize <= Self.maximumFileBytes else {
-            try? clear()
-            throw StoreError.fileTooLarge
-        }
-        let data = try Data(contentsOf: fileURL)
-        let decoded: [PhonePushRequestEnvelope]
-        do {
-            decoded = try JSONDecoder().decode(
-                [PhonePushRequestEnvelope].self,
-                from: data
+        try withExclusiveStoreLock {
+            removeAbandonedTemporaryFiles()
+            guard fileManager.fileExists(atPath: fileURL.path) else { return [] }
+            let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
+            let fileSize = (attributes[.size] as? NSNumber)?.intValue
+                ?? (Self.maximumFileBytes + 1)
+            guard fileSize <= Self.maximumFileBytes else {
+                try? clearUnlocked()
+                throw StoreError.fileTooLarge
+            }
+            let data = try Data(contentsOf: fileURL)
+            let decoded: [PhonePushRequestEnvelope]
+            do {
+                decoded = try JSONDecoder().decode(
+                    [PhonePushRequestEnvelope].self,
+                    from: data
+                )
+            } catch {
+                // A bad snapshot cannot heal while it remains at the live path.
+                // The client still receives the original error and records the
+                // load failure while recovering with an empty in-memory queue.
+                try? clearUnlocked()
+                throw error
+            }
+            let current = decoded.filter { !$0.isExpired(at: nowEpochSeconds) }
+            return Array(
+                PhonePushSerialDeliveryQueue.normalized(current).suffix(capacity)
             )
-        } catch {
-            // A bad snapshot cannot heal while it remains at the live path.
-            // The client still receives the original error and records the
-            // load failure while recovering with an empty in-memory queue.
-            try? clear()
-            throw error
         }
-        let current = decoded.filter { !$0.isExpired(at: nowEpochSeconds) }
-        return Array(
-            PhonePushSerialDeliveryQueue.normalized(current).suffix(capacity)
-        )
     }
 
     func save(_ envelopes: [PhonePushRequestEnvelope]) throws {
-        let bounded = Array(
-            PhonePushSerialDeliveryQueue.normalized(envelopes).suffix(capacity)
-        )
-        guard !bounded.isEmpty else {
-            try clear()
-            return
-        }
-        let directoryURL = fileURL.deletingLastPathComponent()
-        let directoryExisted = fileManager.fileExists(atPath: directoryURL.path)
-        try fileManager.createDirectory(
-            at: directoryURL,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        try fileManager.setAttributes(
-            [.posixPermissions: 0o700],
-            ofItemAtPath: directoryURL.path
-        )
-        if !directoryExisted {
-            try Self.synchronizeDirectory(at: directoryURL.deletingLastPathComponent())
-        }
-        let data = try JSONEncoder().encode(bounded)
-        guard data.count <= Self.maximumFileBytes else {
-            throw StoreError.fileTooLarge
-        }
-        removeAbandonedTemporaryFiles()
-        let temporaryURL = directoryURL.appendingPathComponent(
-            ".\(fileURL.lastPathComponent).\(UUID().uuidString).tmp"
-        )
-        do {
-            try Self.writeAndFullSync(data, to: temporaryURL)
-            try Self.rename(temporaryURL, to: fileURL)
-            try Self.synchronizeDirectory(at: directoryURL)
-        } catch {
-            try? fileManager.removeItem(at: temporaryURL)
-            throw error
+        try withExclusiveStoreLock {
+            let bounded = Array(
+                PhonePushSerialDeliveryQueue.normalized(envelopes).suffix(capacity)
+            )
+            guard !bounded.isEmpty else {
+                try clearUnlocked()
+                return
+            }
+            let directoryURL = fileURL.deletingLastPathComponent()
+            let data = try JSONEncoder().encode(bounded)
+            guard data.count <= Self.maximumFileBytes else {
+                throw StoreError.fileTooLarge
+            }
+            removeAbandonedTemporaryFiles()
+            let temporaryURL = directoryURL.appendingPathComponent(
+                ".\(fileURL.lastPathComponent).\(UUID().uuidString).tmp"
+            )
+            do {
+                try Self.writeAndFullSync(data, to: temporaryURL)
+                try Self.rename(temporaryURL, to: fileURL)
+                try Self.synchronizeDirectory(at: directoryURL)
+            } catch {
+                try? fileManager.removeItem(at: temporaryURL)
+                throw error
+            }
         }
     }
 
     func clear() throws {
+        try withExclusiveStoreLock {
+            try clearUnlocked()
+        }
+    }
+
+    private func clearUnlocked() throws {
         guard fileManager.fileExists(atPath: fileURL.path) else { return }
         try fileManager.removeItem(at: fileURL)
         try Self.synchronizeDirectory(at: fileURL.deletingLastPathComponent())
@@ -113,8 +110,9 @@ actor PhonePushQueueStore {
     /// A crash between the temp write and the rename leaves a UUID-named
     /// `.tmp` behind that no later save can target again, so without this
     /// sweep repeated crashes grow the directory without bound. Another app
-    /// instance can still be writing its own UUID-named snapshot, so only a
-    /// file old enough to be abandoned is eligible for removal.
+    /// instance can still be writing its own UUID-named snapshot, so this runs
+    /// only while holding the same cross-process lock as every writer. Age then
+    /// distinguishes abandoned snapshots left by a prior crashed process.
     private func removeAbandonedTemporaryFiles() {
         let directoryURL = fileURL.deletingLastPathComponent()
         let prefix = ".\(fileURL.lastPathComponent)."
@@ -137,6 +135,46 @@ actor PhonePushQueueStore {
             else { continue }
             try? fileManager.removeItem(at: entry)
         }
+    }
+
+    /// Serializes every read, write, clear, and sweep across app processes.
+    /// The persistent lock file is never removed; the kernel releases its
+    /// advisory lock automatically if a process crashes.
+    private func withExclusiveStoreLock<T>(
+        _ operation: () throws -> T
+    ) throws -> T {
+        let directoryURL = fileURL.deletingLastPathComponent()
+        let directoryExisted = fileManager.fileExists(atPath: directoryURL.path)
+        try fileManager.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: directoryURL.path
+        )
+        if !directoryExisted {
+            try Self.synchronizeDirectory(at: directoryURL.deletingLastPathComponent())
+        }
+
+        let lockURL = directoryURL.appendingPathComponent(
+            ".\(fileURL.lastPathComponent).lock"
+        )
+        let descriptor = try Self.openDescriptor(
+            lockURL,
+            flags: O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
+            permissions: S_IRUSR | S_IWUSR
+        )
+        defer { _ = Darwin.close(descriptor) }
+        try Self.retryingInterruptedCall(path: lockURL.path) {
+            Darwin.fchmod(descriptor, S_IRUSR | S_IWUSR)
+        }
+        try Self.retryingInterruptedCall(path: lockURL.path) {
+            Darwin.flock(descriptor, LOCK_EX)
+        }
+        defer { _ = Darwin.flock(descriptor, LOCK_UN) }
+        return try operation()
     }
 
     private static func writeAndFullSync(_ data: Data, to url: URL) throws {

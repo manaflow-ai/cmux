@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import type { cloudDb } from "../../db/client";
 import { deviceTokens } from "../../db/schema";
+import { assertAccountDeletionUserMutationAllowed } from "../account/deletionLock";
 import type { ApnsTarget } from "./sender";
 import { MAX_DEVICE_TOKENS_PER_USER } from "./routePolicy";
 
@@ -37,6 +38,10 @@ export async function claimDeviceDeliveryTargets(
   now = new Date(),
 ): Promise<DeviceDeliveryClaim> {
   return db.transaction(async (tx) => {
+    // This uses the same account advisory lock as deletion startup. Once the
+    // tombstone wins that linearization point, no later push can renew a device
+    // delivery lease and starve deletion.
+    await assertAccountDeletionUserMutationAllowed(tx, userId);
     const rows = await tx
       .select({
         targetId: deviceTokens.id,
@@ -99,10 +104,14 @@ export async function claimDeviceDeliveryTargets(
 export async function releaseDeviceDeliveryTargets(
   db: PushDatabase,
   leaseToken: string | null,
+  targetIds: readonly string[],
 ): Promise<void> {
-  if (!leaseToken) return;
+  if (!leaseToken || targetIds.length === 0) return;
   await db
     .update(deviceTokens)
     .set({ deliveryLeaseUntil: null, deliveryLeaseToken: null })
-    .where(eq(deviceTokens.deliveryLeaseToken, leaseToken));
+    .where(and(
+      eq(deviceTokens.deliveryLeaseToken, leaseToken),
+      inArray(deviceTokens.id, targetIds),
+    ));
 }

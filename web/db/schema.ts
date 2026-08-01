@@ -379,9 +379,6 @@ export const deviceTokens = pgTable(
   (table) => [
     index("device_tokens_user_idx").on(table.userId),
     uniqueIndex("device_tokens_device_token_unique").on(table.deviceToken),
-    index("device_tokens_delivery_lease_token_idx")
-      .on(table.deliveryLeaseToken)
-      .where(sql`${table.deliveryLeaseToken} is not null`),
   ],
 );
 

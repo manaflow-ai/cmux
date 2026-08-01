@@ -4,6 +4,7 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import type { cloudDb } from "../../db/client";
 import { deviceTokens } from "../../db/schema";
+import { AccountDeletionMutationBlockedError } from "../account/deletionLock";
 import {
   completePushSend,
   recordPushSendOrThrow,
@@ -30,6 +31,7 @@ import {
 } from "./response";
 import {
   claimDeviceDeliveryTargets,
+  type DeviceDeliveryClaim,
   DeviceDeliveryBusyError,
   releaseDeviceDeliveryTargets,
 } from "./deviceDeliveryLease";
@@ -45,7 +47,7 @@ export interface PushDeliveryInput {
   readonly userId: string;
   readonly correlationId: string;
   readonly payloadFingerprint: string;
-  readonly nowEpochSeconds: number;
+  readonly startedAt: Date;
   readonly expirationEpochSeconds: number;
   readonly payload: PushDeliveryPayload;
 }
@@ -80,11 +82,16 @@ export class PushDeliveryConfigurationError extends Data.TaggedError(
   readonly code: "push_service_not_configured";
 }> {}
 
+export class PushDeliveryAccountDeletionInProgressError extends Data.TaggedError(
+  "PushDeliveryAccountDeletionInProgressError",
+)<Record<string, never>> {}
+
 export type PushDeliveryError =
   | PushDeliveryInProgressError
   | PushDeliveryCorrelationConflictError
   | PushDeliveryRateLimitedError
-  | PushDeliveryConfigurationError;
+  | PushDeliveryConfigurationError
+  | PushDeliveryAccountDeletionInProgressError;
 
 export interface PushDeliveryServiceShape {
   readonly deliver: (
@@ -136,12 +143,12 @@ async function executePushDelivery(
   dependencies: PushDeliveryDependencies,
 ): Promise<DeliveryExecution> {
   const { db } = dependencies;
-  let deviceClaim;
+  let deviceClaim: DeviceDeliveryClaim;
   try {
     deviceClaim = await claimDeviceDeliveryTargets(
       db,
       input.userId,
-      new Date(),
+      input.startedAt,
     );
   } catch (error) {
     if (error instanceof DeviceDeliveryBusyError) {
@@ -151,6 +158,12 @@ async function executePushDelivery(
           correlationId: input.correlationId,
           retryAfterSeconds: error.retryAfterSeconds,
         }),
+      };
+    }
+    if (error instanceof AccountDeletionMutationBlockedError) {
+      return {
+        ok: false,
+        error: new PushDeliveryAccountDeletionInProgressError({}),
       };
     }
     throw error;
@@ -163,7 +176,13 @@ async function executePushDelivery(
       [...deviceClaim.targets],
     );
   } finally {
-    await releaseDeviceDeliveryTargets(db, deviceClaim.leaseToken);
+    await releaseDeviceDeliveryTargets(
+      db,
+      deviceClaim.leaseToken,
+      deviceClaim.targets.flatMap((target) =>
+        target.targetId == null ? [] : [target.targetId]
+      ),
+    );
   }
 }
 
@@ -184,7 +203,7 @@ async function executePushDeliveryWithTargets(
       input.userId,
       tokens.length,
       input.correlationId,
-      new Date(input.nowEpochSeconds * 1_000),
+      input.startedAt,
       new Date(input.expirationEpochSeconds * 1_000),
       input.payload.kind,
       tokens,
@@ -215,7 +234,7 @@ async function executePushDeliveryWithTargets(
       const isExpired =
         existing.expiresAt != null
         && existing.expiresAt.getTime()
-          <= input.nowEpochSeconds * 1_000;
+          <= input.startedAt.getTime();
       if (existing.summary.transientFailures === 0 || isExpired) {
         const replayOutcomes =
           isExpired && existing.summary.transientFailures > 0
@@ -461,9 +480,10 @@ async function completeDelivery(
       }),
     };
   }
+  const completedAt = new Date();
   const finalOutcomes = clampRetryToEventLife(
     outcomes,
-    Math.floor(Date.now() / 1_000),
+    completedAt,
     expirationEpochSeconds,
   );
   const summary = summarizeApnsSendResults(finalOutcomes);
@@ -474,7 +494,7 @@ async function completeDelivery(
     leaseToken,
     summary,
     finalOutcomes,
-    undefined,
+    completedAt,
     new Date(expirationEpochSeconds * 1_000),
   );
   if (!completed) {

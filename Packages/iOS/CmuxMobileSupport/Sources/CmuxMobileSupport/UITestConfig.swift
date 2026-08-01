@@ -114,9 +114,20 @@ public struct UITestConfig {
     /// `CMUX_UITEST_PUSH_READINESS_PREVIEW`. A set value routes the root view
     /// to the readiness preview and names its fixture state. DEBUG-only.
     public static var pushReadinessPreviewState: String? {
+        pushReadinessPreviewState(
+            from: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
+    }
+
+    /// Resolves the push-readiness preview fixture from explicit process inputs.
+    public static func pushReadinessPreviewState(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> String? {
         #if DEBUG
-        return ProcessInfo.processInfo.environment["CMUX_UITEST_PUSH_READINESS_PREVIEW"]
-            ?? ProcessInfo.processInfo.arguments.first(where: {
+        return env["CMUX_UITEST_PUSH_READINESS_PREVIEW"]
+            ?? arguments.first(where: {
                 $0.hasPrefix("CMUX_UITEST_PUSH_READINESS_PREVIEW=")
             })?.split(separator: "=", maxSplits: 1).last.map(String.init)
         #else

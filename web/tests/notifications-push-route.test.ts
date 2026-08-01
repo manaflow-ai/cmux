@@ -116,7 +116,7 @@ afterAll(async () => {
   }
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   // Re-assert the env each test rather than relying only on the module-top-level
   // assignment. bun runs every test file in one process, and other suites
   // (e.g. vm-route-auth) capture+restore process.env.VERCEL, so depending on
@@ -136,6 +136,12 @@ beforeEach(() => {
   beforeNextSend = null;
   failIfSendReceivesAbortedSignal = false;
   useStubDb = true;
+  if (sql) {
+    await sql`
+      delete from account_deletion_tombstones
+      where user_id = 'user-1'
+    `;
+  }
 });
 
 describe("notifications push route", () => {
@@ -271,6 +277,11 @@ describe("notifications push route", () => {
       transientFailures: 1,
       correlationId,
     });
+    await sql`
+      update notification_send_events
+      set retry_not_before = now() - interval '1 second'
+      where user_id = 'user-1' and correlation_id = ${correlationId}
+    `;
 
     let releaseRetry!: () => void;
     let markRetryStarted!: () => void;
@@ -464,9 +475,9 @@ describe("notifications push route", () => {
       from notification_send_events
       where user_id = 'user-1' and correlation_id = ${correlationId}
     `;
-    expect(retryWindow).toBeDefined();
+    if (!retryWindow) throw new Error("retry window was not persisted");
     expect(
-      retryWindow!.expiresAt.getTime() - retryWindow!.retryNotBefore.getTime(),
+      retryWindow.expiresAt.getTime() - retryWindow.retryNotBefore.getTime(),
     ).toBeGreaterThanOrEqual(APNS_DEFAULT_MAX_DELIVERY_DURATION_MS + 1_000);
 
     const deferred = await pushRoute.sendPushWithTransport(
@@ -787,7 +798,9 @@ describe("notifications push route", () => {
     );
     await sql`
       update notification_send_events
-      set lease_until = now() - interval '1 second'
+      set
+        lease_until = now() - interval '1 second',
+        retry_not_before = now() - interval '1 second'
       where user_id = 'user-1' and correlation_id = ${correlationId}
     `;
 
@@ -868,7 +881,8 @@ describe("notifications push route", () => {
       update notification_send_events
       set
         expires_at = date_trunc('second', now()) + interval '30 seconds',
-        lease_until = now() - interval '1 second'
+        lease_until = now() - interval '1 second',
+        retry_not_before = now() - interval '1 second'
       where user_id = 'user-1' and correlation_id = ${correlationId}
     `;
     const [stored] = await sql<{ expiration: number }[]>`
@@ -1097,6 +1111,11 @@ describe("notifications push route", () => {
       set bundle_id = 'dev.cmux.ios.push1', environment = 'sandbox'
       where user_id = 'user-1' and device_token = ${"a".repeat(64)}
     `;
+    await sql`
+      update notification_send_events
+      set retry_not_before = now() - interval '1 second'
+      where user_id = 'user-1' and correlation_id = ${correlationId}
+    `;
 
     const reconciled = await pushRoute.sendPushWithTransport(
       request(),
@@ -1167,6 +1186,11 @@ describe("notifications push route", () => {
         user_id, device_token, platform, bundle_id, environment
       ) values
         ('user-1', ${"c".repeat(64)}, 'ios', 'com.cmux.app', 'production')
+    `;
+    await sql`
+      update notification_send_events
+      set retry_not_before = now() - interval '1 second'
+      where user_id = 'user-1' and correlation_id = ${correlationId}
     `;
 
     const reconciled = await pushRoute.sendPushWithTransport(

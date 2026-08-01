@@ -131,7 +131,8 @@ async function sendPush(
   const correlationId =
     payload.value.correlationId ?? crypto.randomUUID();
   const payloadFingerprint = pushPayloadFingerprint(payload.value);
-  const nowEpochSeconds = Math.floor(Date.now() / 1000);
+  const startedAt = new Date();
+  const nowEpochSeconds = Math.floor(startedAt.getTime() / 1_000);
   if (
     payload.value.expirationEpochSeconds != null
     && payload.value.expirationEpochSeconds <= nowEpochSeconds
@@ -166,7 +167,7 @@ async function sendPush(
         userId: user.id,
         correlationId,
         payloadFingerprint,
-        nowEpochSeconds,
+        startedAt,
         expirationEpochSeconds,
         payload: deliveryPayload,
       });
@@ -236,6 +237,12 @@ function deliveryErrorResponse(
       return correlatedErrorResponse(
         { error: error.code, correlationId },
         503,
+        correlationId,
+      );
+    case "PushDeliveryAccountDeletionInProgressError":
+      return correlatedErrorResponse(
+        { error: "account_deletion_in_progress", correlationId },
+        409,
         correlationId,
       );
   }

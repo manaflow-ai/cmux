@@ -113,7 +113,7 @@ export async function recordPushSendOrThrow(
       const recordExpired =
         record.expiresAt != null && record.expiresAt.getTime() <= now.getTime();
       const blockedUntilMs = Math.max(
-        recordExpired ? 0 : existing.leaseUntil?.getTime() ?? 0,
+        existing.leaseUntil?.getTime() ?? 0,
         recordExpired ? 0 : existing.retryNotBefore?.getTime() ?? 0,
       );
       if (blockedUntilMs > now.getTime()) {
