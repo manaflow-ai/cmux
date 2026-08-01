@@ -3058,6 +3058,7 @@
 		10E2CA6DC2994B2FAB8857EB /* WorkspaceSwitchFrameObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEC55ACEA21C45FDB942115F /* WorkspaceSwitchFrameObservationTests.swift */; };
 		62C2F3714DF3497FB4248263 /* WorkspaceSwitchPresentationTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA9DC44D98F24BB5AAFB434F /* WorkspaceSwitchPresentationTarget.swift */; };
 		99EC4708100644B7A8A5FD64 /* WorkspaceSwitchReadiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EC4E80DA41D4B20B9C3FDC1 /* WorkspaceSwitchReadiness.swift */; };
+		D92310010000000000000001 /* WorkspaceSwitchSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92310010000000000000002 /* WorkspaceSwitchSignposts.swift */; };
 		E3B7A4000000000000000003 /* WorkspaceTabColorEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000004 /* WorkspaceTabColorEntry.swift */; };
 		E30750000000000000000002 /* WorkspaceTabColorResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000001 /* WorkspaceTabColorResolution.swift */; };
 		E3B7A4000000000000000001 /* WorkspaceTabColorSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000002 /* WorkspaceTabColorSettings.swift */; };
@@ -6140,6 +6141,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		FEC55ACEA21C45FDB942115F /* WorkspaceSwitchFrameObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchFrameObservationTests.swift; sourceTree = "<group>"; };
 		FA9DC44D98F24BB5AAFB434F /* WorkspaceSwitchPresentationTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchPresentationTarget.swift; sourceTree = "<group>"; };
 		2EC4E80DA41D4B20B9C3FDC1 /* WorkspaceSwitchReadiness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchReadiness.swift; sourceTree = "<group>"; };
+		D92310010000000000000002 /* WorkspaceSwitchSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSwitchSignposts.swift; sourceTree = "<group>"; };
 		E3B7A4000000000000000004 /* WorkspaceTabColorEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTabColorEntry.swift; sourceTree = "<group>"; };
 		E30750000000000000000001 /* WorkspaceTabColorResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTabColorResolution.swift; sourceTree = "<group>"; };
 		E3B7A4000000000000000002 /* WorkspaceTabColorSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTabColorSettings.swift; sourceTree = "<group>"; };
@@ -6803,6 +6805,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					044CDD67AEF44642882E1C9C /* WorkspaceSwitchFrameObservation.swift */,
 					FA9DC44D98F24BB5AAFB434F /* WorkspaceSwitchPresentationTarget.swift */,
 					2EC4E80DA41D4B20B9C3FDC1 /* WorkspaceSwitchReadiness.swift */,
+					D92310010000000000000002 /* WorkspaceSwitchSignposts.swift */,
 					5732B0015732B0015732B001 /* MinimalModeInvalidationProbe.swift */,
 					5732B0085732B0085732B008 /* MinimalModeInvalidationProbeKey.swift */,
 					5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */,
@@ -11909,6 +11912,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				727539C888E74E879558F38C /* WorkspaceSwitchFrameObservation.swift in Sources */,
 				62C2F3714DF3497FB4248263 /* WorkspaceSwitchPresentationTarget.swift in Sources */,
 				99EC4708100644B7A8A5FD64 /* WorkspaceSwitchReadiness.swift in Sources */,
+				D92310010000000000000001 /* WorkspaceSwitchSignposts.swift in Sources */,
 				E3B7A4000000000000000003 /* WorkspaceTabColorEntry.swift in Sources */,
 				E30750000000000000000002 /* WorkspaceTabColorResolution.swift in Sources */,
 				E3B7A4000000000000000001 /* WorkspaceTabColorSettings.swift in Sources */,
