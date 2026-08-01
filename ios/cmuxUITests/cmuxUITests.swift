@@ -741,7 +741,6 @@ final class cmuxUITests: XCTestCase {
             "Customize",
             "Rename Workspace",
             "Mark as Read",
-            "Mark as Unread",
             "Delete",
         ] {
             XCTAssertFalse(

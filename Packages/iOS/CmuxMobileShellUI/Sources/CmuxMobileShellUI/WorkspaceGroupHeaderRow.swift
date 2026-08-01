@@ -291,8 +291,10 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
 
 private extension View {
     /// The iOS workspace list is backed by `UITableView`, whose delegate owns
-    /// the group-scoped context menu. The non-iOS list has no UIKit delegate,
-    /// so it keeps this row-local menu.
+    /// the complete group-plus-anchor context menu. Attaching a second SwiftUI
+    /// menu to the hosted row intercepts the long press and hides the anchor's
+    /// workspace actions. The non-iOS list has no UIKit delegate, so it keeps
+    /// this row-local menu.
     @ViewBuilder
     func workspaceGroupRowContextMenu<MenuContent: View>(
         @ViewBuilder content: () -> MenuContent
