@@ -165,8 +165,8 @@ final class MobileIrohConnectionReadinessOwner {
                     }
                     waiters[waiterID] = continuation
                 }
-            } onCancel: { [weak self] in
-                Task { @MainActor in
+            } onCancel: {
+                Task { @MainActor [weak self] in
                     self?.cancelWaiter(id: waiterID)
                 }
             }
