@@ -961,6 +961,10 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(restoreRecord["checkpoint_id"] as? String, currentSessionID)
         XCTAssertEqual(restoreRecord["source"] as? String, "agent-hook")
         XCTAssertEqual(restoreRecord["working_directory"] as? String, "/tmp/current")
+        XCTAssertEqual(
+            restoreRecord["prepared_arguments_working_directory"] as? String,
+            "/tmp/current"
+        )
         let launch = try XCTUnwrap(restoreRecord["launch_command"] as? [String: Any])
         XCTAssertEqual(launch["arguments"] as? [String], currentLaunch.arguments)
         let launchEnvironment = try XCTUnwrap(launch["environment"] as? [String: Any])
@@ -969,13 +973,23 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             "/tmp/current-codex-home"
         )
         XCTAssertNil(launchEnvironment["OPENAI_API_KEY"])
+        let resumeBinding = try XCTUnwrap(getResult["resume_binding"] as? [String: Any])
+        let resumeLaunch = try XCTUnwrap(resumeBinding["launch_command"] as? [String: Any])
+        let resumeLaunchEnvironment = try XCTUnwrap(
+            resumeLaunch["environment"] as? [String: Any]
+        )
+        XCTAssertEqual(
+            resumeLaunchEnvironment["CODEX_HOME"] as? String,
+            "/tmp/current-codex-home"
+        )
+        XCTAssertNil(resumeLaunchEnvironment["OPENAI_API_KEY"])
         let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
         XCTAssertTrue(legacyCommand.contains("codex resume \(currentSessionID)"))
 
         let ompSessionID = UUID().uuidString.lowercased()
         XCTAssertTrue(workspace.setSurfaceResumeBinding(
             SurfaceResumeBindingSnapshot(
-                kind: "omp",
+                kind: "OMP",
                 command: "omp --session \(ompSessionID)",
                 checkpointId: ompSessionID,
                 source: "agent-hook",

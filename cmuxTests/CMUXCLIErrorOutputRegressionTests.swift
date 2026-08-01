@@ -240,7 +240,8 @@ import Testing
         try """
         #!/bin/sh
         if [ "$1" = "config" ]; then
-          printf 'preflight chatter\\n'
+          printf 'preflight stdout chatter\\n'
+          printf 'preflight stderr chatter\\n' >&2
           exec /bin/sleep 60
         fi
         printf 'unexpected agent launch\\n'
@@ -295,12 +296,14 @@ import Testing
         XCTAssertEqual(result.status, 1, result.stdout)
         XCTAssertTrue(
             result.stdout.contains(
-                "provider preflight timed out after 10 seconds "
-                    + "(fake hermes config set model.provider)"
+                "provider setup timed out after 10 seconds"
             ),
             result.stdout
         )
-        XCTAssertFalse(result.stdout.contains("preflight chatter"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("fake hermes"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("model.provider"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("preflight stdout chatter"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("preflight stderr chatter"), result.stdout)
         XCTAssertFalse(result.stdout.contains("unexpected agent launch"), result.stdout)
     }
 
@@ -329,7 +332,7 @@ import Testing
         let preparedArguments = [
             executable.path,
             "--cwd",
-            missingDirectory.path,
+            capturedDirectory.path,
             "--session",
             checkpointID,
         ]
@@ -346,6 +349,7 @@ import Testing
                     "working_directory": capturedDirectory.path,
                 ],
                 "prepared_arguments": preparedArguments,
+                "prepared_arguments_working_directory": capturedDirectory.path,
             ],
         ])
         let socketPath = "/tmp/cmux-missing-cwd-\(UUID().uuidString.prefix(8)).sock"
@@ -538,7 +542,7 @@ import Testing
         }
     }
 
-    @Test func testRestoreSocketFailureExplainsHowToRetry() throws {
+    @Test func testRestoreExplicitSocketFailureReportsTheSocketError() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-restore-offline-\(UUID().uuidString.prefix(8)).sock"
         unlink(socketPath)
@@ -564,9 +568,11 @@ import Testing
         XCTAssertFalse(result.timedOut, result.stdout)
         XCTAssertEqual(result.status, 1, result.stdout)
         XCTAssertTrue(
-            result.stdout.contains(
-                "Retry the visible restore command after cmux finishes opening."
-            ),
+            result.stdout.contains("Socket not found at \(socketPath)"),
+            result.stdout
+        )
+        XCTAssertFalse(
+            result.stdout.contains("Retry the visible restore command after cmux finishes opening."),
             result.stdout
         )
     }
@@ -2202,9 +2208,6 @@ final class UnixSocketResponder {
                 if byte == 0x0A {
                     break
                 }
-            }
-            guard !request.isEmpty else {
-                return
             }
             if let line = String(data: request, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) {
