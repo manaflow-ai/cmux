@@ -246,6 +246,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     var dropIndicatorPaintForTesting: (top: Bool, bottom: Bool) {
         (!topDropIndicator.isHidden, !bottomDropIndicator.isHidden)
     }
+
+    var titlePaintForTesting: (text: String, color: NSColor?, alpha: CGFloat) {
+        (nameField.stringValue, nameField.textColor, nameField.alphaValue)
+    }
+
+    var headerBackgroundLayerColorForTesting: CGColor? {
+        backgroundView.layer?.backgroundColor
+    }
 #endif
 
     private func updatePlusVisibility() {
