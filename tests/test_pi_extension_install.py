@@ -23,6 +23,8 @@ from claude_teams_test_utils import (
     resolve_cmux_cli,
 )
 
+NONBLOCKING_LOCK_TIMEOUT_SECONDS = 5.0
+
 
 def make_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
@@ -215,7 +217,7 @@ def main() -> int:
                 communicate_or_terminate(
                     blocked_refresh,
                     input_text=refresh_payload,
-                    timeout=1,
+                    timeout=NONBLOCKING_LOCK_TIMEOUT_SECONDS,
                 )
             except subprocess.TimeoutExpired:
                 print("FAIL: Pi session-start refresh blocked on its advisory lock")
@@ -255,7 +257,7 @@ def main() -> int:
                 communicate_or_terminate(
                     blocked_refresh,
                     input_text=refresh_payload,
-                    timeout=1,
+                    timeout=NONBLOCKING_LOCK_TIMEOUT_SECONDS,
                 )
             except subprocess.TimeoutExpired:
                 refresh_timed_out = True
@@ -277,6 +279,36 @@ def main() -> int:
         if extension_path.exists():
             print("FAIL: in-flight Pi refresh recreated an uninstalled extension")
             return 1
+        extension_path = install_pi_extension(config_dir, cli_path)
+        extension_text = extension_path.read_text(encoding="utf-8")
+
+        stale_symlink_fixture = (
+            "// cmux-pi-session-extension-marker v2\n"
+            "// stale lock symlink fixture\n"
+        )
+        extension_path.write_text(stale_symlink_fixture, encoding="utf-8")
+        lock_path.unlink(missing_ok=True)
+        lock_target = root / "redirected-lock-target"
+        lock_target.write_text("sentinel\n", encoding="utf-8")
+        lock_path.symlink_to(lock_target)
+        symlink_result = subprocess.run(
+            [cli_path, "hooks", "pi", "install", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=refresh_env,
+            timeout=20,
+        )
+        if symlink_result.returncode == 0:
+            print("FAIL: Pi install followed a symlinked mutation lock")
+            return 1
+        if extension_path.read_text(encoding="utf-8") != stale_symlink_fixture:
+            print("FAIL: Pi install mutated the extension through a symlinked lock")
+            return 1
+        if lock_target.read_text(encoding="utf-8") != "sentinel\n":
+            print("FAIL: Pi install mutated the symlinked lock target")
+            return 1
+        lock_path.unlink()
         extension_path = install_pi_extension(config_dir, cli_path)
         extension_text = extension_path.read_text(encoding="utf-8")
 
