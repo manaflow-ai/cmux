@@ -21,6 +21,7 @@ SPEC.loader.exec_module(provenance)
 
 
 class VerifyNpmProvenanceTests(unittest.TestCase):
+    commit = "a" * 40
     package = "cmux-sdk"
     version = "0.0.0-bootstrap.0"
     owner = "lawrencechen"
@@ -89,6 +90,7 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
     def attestation(
         self,
         *,
+        commit: str | None = None,
         event_name: str = "repository_dispatch",
         workflow: str | None = None,
     ) -> dict[str, object]:
@@ -120,6 +122,13 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                             "repository_owner_id": "171392238",
                         }
                     },
+                    "resolvedDependencies": [{
+                        "uri": (
+                            "git+https://github.com/manaflow-ai/cmux"
+                            "@refs/heads/main"
+                        ),
+                        "digest": {"gitCommit": commit or self.commit},
+                    }],
                 },
                 "runDetails": {
                     "builder": {"id": provenance.GITHUB_HOSTED_BUILDER},
@@ -168,13 +177,16 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
         dist_tag: str = "bootstrap",
         publisher: str = "owner",
     ) -> dict[str, str]:
-        return {
+        options = {
             "owner": self.owner,
             "workflow": self.workflow,
             "workflow_ref": "refs/heads/main",
             "dist_tag": dist_tag,
             "publisher": publisher,
         }
+        if publisher == "github-actions":
+            options["expected_commit"] = self.commit
+        return options
 
     def test_verifies_exact_repository_provenance_with_pinned_npm(self) -> None:
         completed = (
@@ -376,6 +388,35 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                 self.repository_directory,
                 self.artifact,
                 **self.verification_options(),
+            )
+        run.assert_not_called()
+
+    def test_rejects_stable_provenance_from_a_different_commit(self) -> None:
+        self.version = "1.0.0"
+        self.workflow = ".github/workflows/sdk-release-cut.yml"
+        metadata = self.metadata(
+            dist_tag="latest",
+            publisher="github-actions",
+        )
+        with mock.patch.object(
+            provenance,
+            "urlopen",
+            side_effect=self.registry_response(
+                metadata=metadata,
+                attestation=self.attestation(commit="b" * 40),
+            ),
+        ), mock.patch.object(provenance.subprocess, "run") as run, \
+            self.assertRaisesRegex(provenance.ProvenanceError, "source commit"):
+            provenance.verify(
+                self.package,
+                self.version,
+                self.repository_url,
+                self.repository_directory,
+                self.artifact,
+                **self.verification_options(
+                    dist_tag="latest",
+                    publisher="github-actions",
+                ),
             )
         run.assert_not_called()
 

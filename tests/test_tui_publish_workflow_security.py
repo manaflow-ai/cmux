@@ -369,6 +369,35 @@ def test_registry_state_is_validated_before_irreversible_tags() -> None:
     assert release.index("registry-preflight:") < release.index("cut-tags:")
 
 
+def test_registry_state_is_revalidated_after_release_approval() -> None:
+    release = workflow("sdk-release-cut.yml")
+    cut_tags = workflow_job(release, "cut-tags")
+    verifier = (
+        ROOT
+        / "cmux-tui"
+        / "bindings"
+        / "verify_release_registry_state.sh"
+    ).read_text()
+
+    assert "actions: read" in cut_tags
+    for artifact in (
+        "cmux-rust-client-crate",
+        "cmux-rust-sidebar-crate",
+        "cmux-npm-dist",
+        "cmux-python-dist",
+    ):
+        assert f"name: {artifact}" in cut_tags
+    revalidate = cut_tags.rindex("verify_release_registry_state.sh")
+    tag_push = cut_tags.rindex("git push --atomic origin")
+    assert revalidate < tag_push
+    assert cut_tags.count("verify_release_registry_state.sh") == 1
+    assert verifier.count("reconcile_registry_artifact.py check") == 5
+    assert "verify_crates_ownership.py" in verifier
+    assert "verify_npm_provenance.py" in verifier
+    assert "verify_pypi_provenance.py" in verifier
+    assert '--expected-commit "$expected_commit"' in verifier
+
+
 def test_stable_registry_provenance_gates_recovery_and_completion() -> None:
     release = workflow("sdk-release-cut.yml")
     registry = workflow_job(release, "registry-preflight")
