@@ -72,6 +72,44 @@ const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsupportedWorkspaceRegistrySchema {
+    found: i64,
+    newest_supported: i64,
+    database_path: Option<PathBuf>,
+    registry_id: Option<String>,
+}
+
+impl UnsupportedWorkspaceRegistrySchema {
+    pub fn found(&self) -> i64 {
+        self.found
+    }
+
+    pub fn newest_supported(&self) -> i64 {
+        self.newest_supported
+    }
+
+    pub fn database_path(&self) -> Option<&Path> {
+        self.database_path.as_deref()
+    }
+
+    pub fn registry_id(&self) -> Option<&str> {
+        self.registry_id.as_deref()
+    }
+}
+
+impl std::fmt::Display for UnsupportedWorkspaceRegistrySchema {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "unsupported workspace registry schema {}; newest supported is {}",
+            self.found, self.newest_supported
+        )
+    }
+}
+
+impl std::error::Error for UnsupportedWorkspaceRegistrySchema {}
+
 struct ResourceEffectPepper(Zeroizing<[u8; RESOURCE_EFFECT_PEPPER_BYTES]>);
 
 impl ResourceEffectPepper {
@@ -339,6 +377,7 @@ impl WorkspaceRegistry {
             MachinePublicId::random()?,
             ResourceEffectPepper::random()?,
             None,
+            None,
         )
     }
 
@@ -350,8 +389,13 @@ impl WorkspaceRegistry {
             format!("create workspace state directory {}", session_dir.display())
         })?;
         platform::restrict_directory(&session_dir)?;
-        let lease = SessionLease::acquire(&session_dir.join("writer.lock"))?;
         let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
+        if db_path.is_file()
+            && let Some(error) = preflight_unsupported_schema(&db_path)
+        {
+            return Err(error.into());
+        }
+        let lease = SessionLease::acquire(&session_dir.join("writer.lock"))?;
         let connection = Connection::open(&db_path)
             .with_context(|| format!("open workspace registry {}", db_path.display()))?;
         platform::restrict_file(&db_path)?;
@@ -361,6 +405,7 @@ impl WorkspaceRegistry {
             machine_id,
             resource_effect_pepper,
             Some(lease),
+            Some(db_path),
         )
     }
 
@@ -370,6 +415,7 @@ impl WorkspaceRegistry {
         machine_id: MachinePublicId,
         resource_effect_pepper: ResourceEffectPepper,
         lease: Option<SessionLease>,
+        database_path: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
@@ -404,9 +450,13 @@ impl WorkspaceRegistry {
         let resource_effect_pepper_id = resource_effect_pepper.identifier();
         match stored_schema {
             Some(value) if value > SCHEMA_VERSION => {
-                anyhow::bail!(
-                    "unsupported workspace registry schema {value}; newest supported is {SCHEMA_VERSION}"
-                );
+                return Err(UnsupportedWorkspaceRegistrySchema {
+                    found: value,
+                    newest_supported: SCHEMA_VERSION,
+                    registry_id: meta_value(&connection, "registry_id")?,
+                    database_path,
+                }
+                .into());
             }
             Some(value) if value == SCHEMA_VERSION => {
                 let tx = connection.unchecked_transaction()?;
@@ -2522,6 +2572,42 @@ fn canonical_json(value: &Value) -> anyhow::Result<String> {
     let mut output = String::new();
     write(value, &mut output)?;
     Ok(output)
+}
+
+fn preflight_unsupported_schema(
+    database_path: &Path,
+) -> Option<UnsupportedWorkspaceRegistrySchema> {
+    // This probe only improves a writer-conflict error. Initialization remains
+    // authoritative, so read-only I/O and SQL failures must not block startup.
+    try_preflight_unsupported_schema(database_path).ok().flatten()
+}
+
+fn try_preflight_unsupported_schema(
+    database_path: &Path,
+) -> anyhow::Result<Option<UnsupportedWorkspaceRegistrySchema>> {
+    let connection = Connection::open_with_flags(database_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    connection.busy_timeout(std::time::Duration::from_millis(500))?;
+    let has_meta: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_meta {
+        return Ok(None);
+    }
+    let Some(found) = meta_value(&connection, "schema_version")? else {
+        return Ok(None);
+    };
+    let found = found.parse::<i64>().context("workspace registry schema is invalid")?;
+    if found <= SCHEMA_VERSION {
+        return Ok(None);
+    }
+    Ok(Some(UnsupportedWorkspaceRegistrySchema {
+        found,
+        newest_supported: SCHEMA_VERSION,
+        database_path: Some(database_path.to_path_buf()),
+        registry_id: meta_value(&connection, "registry_id")?,
+    }))
 }
 
 fn meta_value(connection: &Connection, key: &str) -> anyhow::Result<Option<String>> {

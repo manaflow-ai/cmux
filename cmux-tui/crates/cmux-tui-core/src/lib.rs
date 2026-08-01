@@ -67,7 +67,7 @@ pub use surface::{
 };
 pub use workspace_registry::{
     FrontendProjection, ProjectionCommit, RegistryCommit, RegistryEvent, RegistrySnapshot,
-    RegistryWorkspace, WorkspaceMutation, WorkspaceRegistry,
+    RegistryWorkspace, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
 };
 
 pub use cmux_tui_cdp::BrowserMode;
