@@ -372,7 +372,7 @@ extension ControlCommandCoordinator {
         return value
     }
 
-    private nonisolated func simulatorUIOptionalString(
+    nonisolated func simulatorUIOptionalString(
         _ params: [String: JSONValue],
         _ key: String,
         maximumBytes: Int

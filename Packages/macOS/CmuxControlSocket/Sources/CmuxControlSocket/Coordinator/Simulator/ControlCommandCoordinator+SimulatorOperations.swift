@@ -53,8 +53,20 @@ extension ControlCommandCoordinator {
             let hasCoordinates = ["x", "y", "x1", "y1", "x2", "y2"].contains {
                 request.params[$0] != nil
             }
+            let identifier = simulatorUIOptionalString(
+                request.params, "identifier", maximumBytes: 512
+            )
+            let label = simulatorUIOptionalString(
+                request.params, "label", maximumBytes: 512
+            )
+            let role = simulatorUIOptionalString(
+                request.params, "role", maximumBytes: 64
+            )
             let hasSelector = request.params["label"] != nil
                 || request.params["identifier"] != nil || request.params["role"] != nil
+            guard identifier.isValid, label.isValid, role.isValid else {
+                return invalidSimulatorOperation("semantic tap parameters are invalid")
+            }
             guard [hasElementRef, hasCoordinates, hasSelector]
                 .filter({ $0 }).count <= 1 else {
                 return invalidSimulatorOperation(String(
@@ -72,18 +84,16 @@ extension ControlCommandCoordinator {
                 break
             }
             if hasSelector {
-                let label = string(request.params, "label")
-                let identifier = string(request.params, "identifier")
-                guard label != nil || identifier != nil else {
+                guard label.value != nil || identifier.value != nil else {
                     return invalidSimulatorOperation(String(
                         localized: "cli.simulator.error.tapSelectorRequired",
                         defaultValue: "An accessibility tap requires a label or identifier"
                     ))
                 }
                 operation = .accessibilityTap(
-                    label: label,
-                    identifier: identifier,
-                    role: string(request.params, "role")
+                    label: label.value,
+                    identifier: identifier.value,
+                    role: role.value
                 )
             } else {
                 guard let point = simulatorTouch(request.params, phase: "began") else {
