@@ -3,7 +3,8 @@ import Foundation
 extension SimulatorWorkerClient {
     func performAccessibilityAction(
         _ action: SimulatorControlAction,
-        accessibilityTimeout: Duration = .seconds(30)
+        accessibilityTimeout: Duration = .seconds(30),
+        accessibilityTimeoutRecovery: SimulatorWorkerRequestTimeoutRecovery = .restartWorker
     ) async throws -> SimulatorControlResult? {
         switch action {
         case .readAccessibility:
@@ -21,7 +22,7 @@ extension SimulatorWorkerClient {
             let response: Result<SimulatorAccessibilitySnapshot, SimulatorFailure> = try await requestWorkerValue(
                 sending: .requestAccessibility(requestID),
                 timeout: accessibilityTimeout,
-                timeoutRecovery: .restartWorker
+                timeoutRecovery: accessibilityTimeoutRecovery
             ) { message in
                 switch message {
                 case let .accessibility(responseID, snapshot) where responseID == requestID:
@@ -72,7 +73,8 @@ extension SimulatorWorkerClient {
     ) async throws -> SimulatorControlResult {
         guard let result = try await performAccessibilityAction(
             .readAccessibility,
-            accessibilityTimeout: timeout
+            accessibilityTimeout: timeout,
+            accessibilityTimeoutRecovery: .preserveWorker
         ) else {
             throw SimulatorControlError(
                 code: "accessibility_unavailable",

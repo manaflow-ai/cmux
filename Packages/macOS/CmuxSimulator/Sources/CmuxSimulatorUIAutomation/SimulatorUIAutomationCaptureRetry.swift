@@ -29,7 +29,6 @@ struct SimulatorUIAutomationCaptureRetry {
             guard failureCodes.contains(failure.code) else {
                 throw failure
             }
-            var lastFailure = failure
             let events = SimulatorUIAutomationTickSequence(
                 scheduler: scheduler,
                 intervalMilliseconds: intervalMilliseconds,
@@ -45,10 +44,9 @@ struct SimulatorUIAutomationCaptureRetry {
                     guard failureCodes.contains(retryFailure.code) else {
                         throw retryFailure
                     }
-                    lastFailure = retryFailure
                 }
             }
-            throw lastFailure
+            throw SimulatorUIAutomationCaptureDeadlineExceeded()
         }
     }
 }

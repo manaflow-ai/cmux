@@ -748,11 +748,17 @@ public struct SimulatorUIAutomationExecutor {
             deadlineMilliseconds: deadline
         )
         for try await _ in events {
-            let record = try await captureSimulatorUIAutomationSnapshot(
-                coordinator: coordinator,
-                retryingUntil: captureDeadline,
-                retryingUIStateChanges: true
-            )
+            let record: SimulatorUIAutomationSnapshotRecord
+            do {
+                record = try await captureSimulatorUIAutomationSnapshot(
+                    coordinator: coordinator,
+                    retryingUntil: captureDeadline,
+                    retryingUIStateChanges: true,
+                    propagatingDeadlineExceeded: true
+                )
+            } catch is SimulatorUIAutomationCaptureDeadlineExceeded {
+                break
+            }
             latestRecord = record
             let now = simulatorUIMonotonicNowMilliseconds()
             let matches = try simulatorUIWaitMatches(
@@ -970,7 +976,8 @@ public struct SimulatorUIAutomationExecutor {
     private func captureSimulatorUIAutomationSnapshot(
         coordinator: SimulatorPaneCoordinator,
         retryingUntil deadlineMilliseconds: Int64? = nil,
-        retryingUIStateChanges: Bool = false
+        retryingUIStateChanges: Bool = false,
+        propagatingDeadlineExceeded: Bool = false
     ) async throws -> SimulatorUIAutomationSnapshotRecord {
         guard let deadlineMilliseconds else {
             return try await captureSimulatorUIAutomationSnapshotOnce(
@@ -992,7 +999,10 @@ public struct SimulatorUIAutomationExecutor {
                     timeout: remaining
                 )
             }
-        } catch is SimulatorUIAutomationCaptureDeadlineExceeded {
+        } catch let error as SimulatorUIAutomationCaptureDeadlineExceeded {
+            if propagatingDeadlineExceeded {
+                throw error
+            }
             throw simulatorUISnapshotCaptureFailure(String(
                 localized: "cli.simulator.error.uiSnapshotDidNotSettle",
                 defaultValue: "The refreshed Simulator UI snapshot did not settle"
