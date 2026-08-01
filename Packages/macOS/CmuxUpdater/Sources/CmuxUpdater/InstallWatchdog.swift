@@ -9,11 +9,9 @@ import Foundation
 /// the controller surfaces a visible "Update Didn't Start" error rather than leaving the user
 /// staring at a pill that never advances.
 ///
-/// The watchdog owns only its timer; the *decision* of what counts as stalled vs. resolved lives
-/// in the two pure, exhaustively-tested static predicates below, and the error-surfacing side
-/// effect stays in the controller (which owns the model). This mirrors ``AttemptUpdateCoordinator``:
-/// a small, single-purpose collaborator kept out of the controller so its policy is testable in
-/// isolation and the controller file stays focused.
+/// The watchdog owns only its timer; its stalled/resolved decisions consume the same exhaustive
+/// ``UpdateState/attemptDisposition`` classification as ``AttemptUpdateCoordinator``, while the
+/// error-surfacing side effect stays in the controller (which owns the model).
 @MainActor
 final class InstallWatchdog {
     private let clock: any UpdateClock
@@ -64,10 +62,10 @@ final class InstallWatchdog {
     /// `.permissionRequest` stays not-stalled (a state cmux never surfaces; erroring over it
     /// would be wrong if Sparkle ever did).
     func installAttemptStalled(_ state: UpdateState) -> Bool {
-        switch state {
+        switch state.attemptDisposition {
         case .preparingCheck, .checking, .updateAvailable, .startingDownload, .idle:
             return true
-        case .permissionRequest, .downloading, .extracting, .installing, .notFound, .error:
+        case .permissionRequest, .installProgress, .noUpdate, .error:
             return false
         }
     }
@@ -75,8 +73,8 @@ final class InstallWatchdog {
     /// Whether `state` resolves the attempt — either it is actively progressing the install or it
     /// is a clearly-communicated terminal outcome — so the watchdog can be disarmed.
     func installAttemptResolved(_ state: UpdateState) -> Bool {
-        switch state {
-        case .downloading, .extracting, .installing, .notFound, .error:
+        switch state.attemptDisposition {
+        case .installProgress, .noUpdate, .error:
             return true
         case .idle, .permissionRequest, .preparingCheck, .checking, .updateAvailable, .startingDownload:
             return false

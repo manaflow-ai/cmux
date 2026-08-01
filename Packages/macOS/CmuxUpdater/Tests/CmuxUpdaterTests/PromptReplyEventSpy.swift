@@ -10,4 +10,5 @@ final class PromptReplyEventSpy: UpdateDriverEventDelegate {
     func updateDriverDidFinishCycle(_ updateCheck: SPUUpdateCheck, error: NSError?) {}
     func updateDriverUserDidCancelCheck() {}
     func updateDriverUserDidDismissPrompt() { promptDismissalCount += 1 }
+    func updateDriverCheckDidTimeOut() {}
 }

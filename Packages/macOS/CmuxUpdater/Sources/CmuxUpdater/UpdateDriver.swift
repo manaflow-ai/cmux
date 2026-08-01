@@ -30,6 +30,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var pendingCheckTransitionTask: Task<Void, Never>?
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
+    private var checkCallbackAcceptance = UpdateCheckCallbackAcceptance.accepting
 
     init(
         model: UpdateStateModel,
@@ -70,6 +71,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
+        guard checkCallbackAcceptance == .accepting else {
+            log.append("ignoring checking callback after foreground check timeout")
+            return
+        }
         log.append("show user-initiated update check")
         beginChecking(cancel: cancellation)
     }
@@ -77,6 +82,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     func showUpdateFound(with appcastItem: SUAppcastItem,
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        guard checkCallbackAcceptance == .accepting else {
+            log.append("dismissing update found after foreground check timeout")
+            reply(.dismiss)
+            return
+        }
         log.append("show update found: \(appcastItem.displayVersionString)")
         let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { choice in reply(choice) }
         available.reply.onConsumed = { [weak self] reply, choice, source in
@@ -95,12 +105,22 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showUpdateNotFoundWithError(_ error: any Error,
                                      acknowledgement: @escaping () -> Void) {
+        guard checkCallbackAcceptance == .accepting else {
+            log.append("acknowledging no-update result after foreground check timeout")
+            acknowledgement()
+            return
+        }
         log.append("show update not found: \(formatErrorForLog(error))")
         setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: acknowledgement)))
     }
 
     func showUpdaterError(_ error: any Error,
                           acknowledgement: @escaping () -> Void) {
+        guard checkCallbackAcceptance == .accepting else {
+            log.append("acknowledging updater error after foreground check timeout")
+            acknowledgement()
+            return
+        }
         let details = formatErrorForLog(error)
         log.append("show updater error: \(details)")
         setState(.error(.init(
@@ -287,8 +307,20 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             try? await self.clock.sleep(for: .seconds(self.checkTimeoutDuration))
             guard !Task.isCancelled else { return }
             guard case .checking = self.model.state else { return }
-            self.setState(.notFound(.init(acknowledgement: {})))
+            guard self.checkCallbackAcceptance == .accepting else { return }
+            self.checkCallbackAcceptance = .discardingUntilCycleFinishes
+            self.pendingCheckTransitionTask?.cancel()
+            self.pendingCheckTransitionTask = nil
+            self.lastCheckStart = nil
+            // A local deadline is not an authoritative Sparkle no-update result. Forward it to
+            // the controller, which owns whether this check was manual or an accepted install.
+            self.eventDelegate?.updateDriverCheckDidTimeOut()
         }
+    }
+
+    /// Reopens result delivery only after Sparkle authoritatively ends the timed-out cycle.
+    func resetCheckCallbackAcceptanceAfterCycle() {
+        checkCallbackAcceptance = .accepting
     }
 
     private func applyState(_ newState: UpdateState) {

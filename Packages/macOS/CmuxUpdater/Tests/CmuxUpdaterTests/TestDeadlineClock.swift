@@ -5,7 +5,7 @@ import Testing
 /// Immediate for the sub-second plumbing delays; parks second-or-longer deadlines until the test
 /// releases them with ``fireDeadlines()`` so watchdog time is explicit.
 actor TestDeadlineClock: UpdateClock {
-    private var parked: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var parked: [UUID: (duration: Duration, continuation: CheckedContinuation<Void, any Error>)] = [:]
 
     func sleep(for duration: Duration) async throws {
         try Task.checkCancellation()
@@ -13,7 +13,7 @@ actor TestDeadlineClock: UpdateClock {
         let id = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                parked[id] = continuation
+                parked[id] = (duration, continuation)
             }
         } onCancel: {
             Task { await self.cancelParked(id) }
@@ -23,9 +23,29 @@ actor TestDeadlineClock: UpdateClock {
     func fireDeadlines() {
         let waiters = parked
         parked = [:]
-        for continuation in waiters.values {
-            continuation.resume()
+        for deadline in waiters.values {
+            deadline.continuation.resume()
         }
+    }
+
+    /// Releases the shortest pending deadline after `expectedCount` deadlines have registered.
+    /// This lets pipeline tests distinguish the 10-second check deadline from the 25-second
+    /// install watchdog without depending on wall-clock timing or task-registration order.
+    func fireEarliestDeadlineWhenReady(expectedCount: Int) async {
+        let clock = ContinuousClock()
+        let timeout = clock.now.advanced(by: .seconds(2))
+        while parked.count < expectedCount, clock.now < timeout {
+            await Task.yield()
+        }
+        guard parked.count >= expectedCount else {
+            Issue.record("timed out waiting for \(expectedCount) test deadlines to be armed")
+            return
+        }
+        guard let earliest = parked.min(by: { $0.value.duration < $1.value.duration }) else {
+            Issue.record("no test deadline was armed")
+            return
+        }
+        parked.removeValue(forKey: earliest.key)?.continuation.resume()
     }
 
     func fireDeadlineWhenReady() async {
@@ -45,6 +65,6 @@ actor TestDeadlineClock: UpdateClock {
     }
 
     private func cancelParked(_ id: UUID) {
-        parked.removeValue(forKey: id)?.resume(throwing: CancellationError())
+        parked.removeValue(forKey: id)?.continuation.resume(throwing: CancellationError())
     }
 }

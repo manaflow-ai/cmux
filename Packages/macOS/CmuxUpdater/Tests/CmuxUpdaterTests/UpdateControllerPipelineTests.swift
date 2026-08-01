@@ -371,10 +371,10 @@ import Testing
         #expect(freshPrompt.choice == nil)
     }
 
-    /// A retryable accepted-install failure must also resolve the Sparkle terminal it replaces.
-    /// Otherwise Sparkle still owns an unanswered session and the Retry action can no-op behind
-    /// the visible error.
-    @Test func acceptedInstallFailureAcknowledgesReplacedSparkleTerminal() async {
+    /// Regression for #9262: an ungated attempt update performs a fresh check, so finding no update
+    /// is its normal successful outcome. The pipeline must preserve that result for the ordinary
+    /// no-update UI instead of replacing it with a misleading install/network error.
+    @Test func freshCheckFindingNothingPreservesNoUpdateResult() async {
         let harness = Harness()
         let stalePrompt = ChoiceBox()
         var didAcknowledgeNotFound = false
@@ -389,10 +389,105 @@ import Testing
             didAcknowledgeNotFound = true
         })))
 
-        await waitUntil("accepted-install error") {
-            errorCode(for: harness.model.state) == UpdateStateModel.installDidNotStartCode
+        await waitUntil("no-update attempt to resolve") {
+            !harness.controller.attemptCoordinator.isMonitoring
+                && !harness.controller.installWatchdog.isArmed
         }
-        #expect(didAcknowledgeNotFound)
+        guard case .notFound = harness.model.state else {
+            Issue.record("fresh no-update result was replaced by \(harness.model.state)")
+            return
+        }
+        #expect(!didAcknowledgeNotFound)
+    }
+
+    /// A local display deadline is not an authoritative Sparkle no-update result. If the fresh
+    /// install check produces no callback, the shorter check deadline must surface a truthful,
+    /// retryable timeout rather than masquerading as “No Updates Available.”
+    @Test func freshInstallCheckTimeoutCannotMasqueradeAsNoUpdate() async {
+        let harness = Harness()
+
+        harness.controller.attemptUpdate()
+        #expect(harness.updater.checkForUpdatesCallCount == 1)
+        harness.controller.driver.showUserInitiatedUpdateCheck(cancellation: {})
+
+        await harness.clock.fireEarliestDeadlineWhenReady(expectedCount: 2)
+
+        await waitUntil("fresh install check timeout error") {
+            guard case .error = harness.model.state else { return false }
+            return true
+        }
+        guard case .error(let failure) = harness.model.state else {
+            Issue.record("check timeout produced \(harness.model.state)")
+            return
+        }
+        let error = failure.error as NSError
+        #expect(error.domain == NSURLErrorDomain)
+        #expect(error.code == NSURLErrorTimedOut)
+        #expect(failure.feedURLString == nil)
+        #expect(!harness.controller.attemptCoordinator.isMonitoring)
+        #expect(!harness.controller.installWatchdog.isArmed)
+
+        failure.retry()
+        #expect(harness.controller.attemptCoordinator.isMonitoring)
+        #expect(harness.controller.installWatchdog.isArmed)
+    }
+
+    /// A timed-out active check is an abandoned cycle, including any replacement install that
+    /// was queued behind it. Its late cycle-finished callback must leave the timeout authoritative
+    /// instead of starting an install check after the attempt coordinator and watchdog were ended.
+    @Test func timedOutCheckDropsQueuedReplacementInstall() async {
+        let harness = Harness()
+
+        harness.controller.checkForUpdates()
+        #expect(harness.updater.checkForUpdatesCallCount == 1)
+
+        harness.controller.attemptUpdate()
+        #expect(harness.updater.checkForUpdatesCallCount == 1)
+        #expect(harness.controller.attemptCoordinator.isMonitoring)
+        #expect(harness.controller.installWatchdog.isArmed)
+
+        harness.controller.updateDriverCheckDidTimeOut()
+        #expect(errorCode(for: harness.model.state) == NSURLErrorTimedOut)
+        #expect(!harness.controller.attemptCoordinator.isMonitoring)
+        #expect(!harness.controller.installWatchdog.isArmed)
+
+        harness.finishSparkleCycle()
+
+        #expect(harness.updater.checkForUpdatesCallCount == 1)
+        #expect(errorCode(for: harness.model.state) == NSURLErrorTimedOut)
+    }
+
+    /// Once a foreground check times out, its remaining Sparkle callbacks still need replies so
+    /// Sparkle can close the cycle, but none may replace the timeout with a result from the
+    /// abandoned generation. The cycle-finished signal remains authoritative cleanup only.
+    @Test func lateSparkleTerminalsCannotReplaceCheckTimeout() async {
+        let harness = Harness()
+        var didAcknowledgeNoUpdate = false
+        var didAcknowledgeError = false
+
+        harness.controller.attemptUpdate()
+        harness.controller.driver.showUserInitiatedUpdateCheck(cancellation: {})
+        await harness.clock.fireEarliestDeadlineWhenReady(expectedCount: 2)
+        await waitUntil("check timeout error") {
+            errorCode(for: harness.model.state) == NSURLErrorTimedOut
+        }
+
+        harness.controller.driver.showUpdateNotFoundWithError(
+            NSError(domain: "test.late-no-update", code: 81),
+            acknowledgement: { didAcknowledgeNoUpdate = true }
+        )
+        harness.controller.driver.showUpdaterError(
+            NSError(domain: "test.late-error", code: 82),
+            acknowledgement: { didAcknowledgeError = true }
+        )
+
+        await waitUntil("late Sparkle terminals to be dismissed") {
+            didAcknowledgeNoUpdate && didAcknowledgeError
+        }
+        #expect(errorCode(for: harness.model.state) == NSURLErrorTimedOut)
+
+        harness.finishSparkleCycle()
+        #expect(errorCode(for: harness.model.state) == NSURLErrorTimedOut)
     }
 
     /// If the live prompt is still visible but already answered before the queued confirm
