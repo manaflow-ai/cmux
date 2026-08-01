@@ -52,7 +52,10 @@ extension CMUXCLI {
                 windowHandle: nil
             )
             guard let surfaceID else {
-                throw CLIError(message: "restore: surface '\(surface)' was not found")
+                throw CLIError(message: String(
+                    localized: "cli.restore.error.surfaceNotFound",
+                    defaultValue: "restore: surface '\(surface)' was not found"
+                ))
             }
             params["surface_id"] = surfaceID
         } else if selector.usesCurrentSurface,
@@ -68,27 +71,36 @@ extension CMUXCLI {
             params["surface_id"] = caller.surfaceId
         } else {
             throw CLIError(
-                message: "restore: the current cmux surface could not be identified. "
-                    + "Retry from this terminal or pass --surface <id|ref>."
+                message: String(
+                    localized: "cli.restore.error.currentSurfaceUnknown",
+                    defaultValue: "restore: the current cmux surface could not be identified. Retry from this terminal or pass --surface <id|ref>."
+                )
             )
         }
 
         let payload = try client.sendV2(method: "surface.resume.get", params: params)
         guard let rawRecord = payload["restore_record"] as? [String: Any] else {
-            throw CLIError(message: "restore: this surface has no restorable process record")
+            throw CLIError(message: String(
+                localized: "cli.restore.error.noRecord",
+                defaultValue: "restore: this surface has no restorable process record"
+            ))
         }
         let record = try restoreRecord(from: rawRecord)
         if let expectedKind = selector.kind, expectedKind != record.kind {
             throw CLIError(
-                message: "restore: expected kind '\(expectedKind)', but the surface records "
-                    + "'\(record.kind)'. Run 'cmux restore --surface' to use the current record."
+                message: String(
+                    localized: "cli.restore.error.kindMismatch",
+                    defaultValue: "restore: expected kind '\(expectedKind)', but the surface records '\(record.kind)'. Run 'cmux restore --surface' to use the current record."
+                )
             )
         }
         if let expectedCheckpointID = selector.checkpointID,
            expectedCheckpointID != record.checkpointID {
             throw CLIError(
-                message: "restore: checkpoint does not match this surface's persisted record. "
-                    + "Run 'cmux restore --surface' to use the current record."
+                message: String(
+                    localized: "cli.restore.error.checkpointMismatch",
+                    defaultValue: "restore: checkpoint does not match this surface's persisted record. Run 'cmux restore --surface' to use the current record."
+                )
             )
         }
 
@@ -98,23 +110,21 @@ extension CMUXCLI {
         if record.launchCommand == nil,
            record.preparedArguments == nil,
            let legacyCommand = record.legacyCommand {
-            let appliedWorkingDirectory = try applyRestoreWorkingDirectory(record.workingDirectory)
-            var legacyEnvironment = environment
-            if let appliedWorkingDirectory {
-                legacyEnvironment["PWD"] = appliedWorkingDirectory
-            }
-            client.close()
-            try execLegacyRestoreCommand(legacyCommand, environment: legacyEnvironment)
+            try execLegacyRestoreRecord(
+                legacyCommand,
+                record: record,
+                environment: environment,
+                client: client
+            )
         }
 
         guard let mode = AgentRestoreRequestMode(rawValue: record.mode) else {
-            throw CLIError(message: "restore: unsupported persisted restore mode '\(record.mode)'")
+            throw CLIError(message: String(
+                localized: "cli.restore.error.unsupportedMode",
+                defaultValue: "restore: unsupported persisted restore mode '\(record.mode)'"
+            ))
         }
-        let requestedWorkingDirectory = normalizedRestoreWorkingDirectory(
-            record.workingDirectory
-        ) ?? normalizedRestoreWorkingDirectory(
-            record.launchCommand?.workingDirectory
-        )
+        let requestedWorkingDirectory = requestedRestoreWorkingDirectory(for: record)
         let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
             requestedWorkingDirectory
         )
@@ -134,7 +144,7 @@ extension CMUXCLI {
             launchCommand: record.launchCommand,
             preparedArguments: record.preparedArguments,
             preparedArgumentsWorkingDirectory: normalizedRestoreWorkingDirectory(
-                record.workingDirectory
+                record.preparedArgumentsWorkingDirectory
             ),
             observedPermissionMode: record.permissionMode
         )
@@ -143,17 +153,17 @@ extension CMUXCLI {
             ambientEnvironment: processEnvironment
         ) else {
             if let legacyCommand = record.legacyCommand {
-                var legacyEnvironment = environment
-                if let effectiveWorkingDirectory {
-                    legacyEnvironment["PWD"] = effectiveWorkingDirectory
-                }
-                client.close()
-                try execLegacyRestoreCommand(
+                try execLegacyRestoreRecord(
                     legacyCommand,
-                    environment: legacyEnvironment
+                    record: record,
+                    environment: environment,
+                    client: client
                 )
             }
-            throw CLIError(message: "restore: persisted structured launch data is incomplete")
+            throw CLIError(message: String(
+                localized: "cli.restore.error.incompleteData",
+                defaultValue: "restore: persisted structured launch data is incomplete"
+            ))
         }
 
         for preflight in invocation.preflightInvocations {
@@ -185,6 +195,7 @@ extension CMUXCLI {
         let environment: [String: String]
         let launchCommand: AgentLaunchCommand?
         let preparedArguments: [String]?
+        let preparedArgumentsWorkingDirectory: String?
         let permissionMode: String?
         let legacyCommand: String?
     }
@@ -200,7 +211,10 @@ extension CMUXCLI {
                 )
             }
             guard arguments.count == 2, !arguments[1].isEmpty else {
-                throw CLIError(message: "Usage: cmux restore --surface [id|ref]")
+                throw CLIError(message: String(
+                    localized: "cli.restore.usage.surface",
+                    defaultValue: "Usage: cmux restore --surface [id|ref]"
+                ))
             }
             return RestoreSelector(
                 surface: arguments[1],
@@ -212,7 +226,10 @@ extension CMUXCLI {
         guard arguments.count == 2,
               !arguments[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !arguments[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw CLIError(message: "Usage: cmux restore <kind> <checkpoint-id>")
+            throw CLIError(message: String(
+                localized: "cli.restore.usage.positional",
+                defaultValue: "Usage: cmux restore <kind> <checkpoint-id>"
+            ))
         }
         return RestoreSelector(
             surface: nil,
@@ -225,7 +242,20 @@ extension CMUXCLI {
     private func restoreRecord(from object: [String: Any]) throws -> RestoreRecord {
         guard let mode = object["mode"] as? String,
               let kind = object["kind"] as? String else {
-            throw CLIError(message: "restore: malformed restore record")
+            throw CLIError(message: String(
+                localized: "cli.restore.error.malformedRecord",
+                defaultValue: "restore: malformed restore record"
+            ))
+        }
+        let legacyCommand = object["legacy_command"] as? String
+        let launchCommand: AgentLaunchCommand?
+        do {
+            launchCommand = try restoreLaunchCommand(from: object["launch_command"])
+        } catch {
+            guard legacyCommand != nil else {
+                throw error
+            }
+            launchCommand = nil
         }
         return RestoreRecord(
             mode: mode,
@@ -234,17 +264,22 @@ extension CMUXCLI {
             source: object["source"] as? String,
             workingDirectory: object["working_directory"] as? String,
             environment: object["environment"] as? [String: String] ?? [:],
-            launchCommand: try restoreLaunchCommand(from: object["launch_command"]),
+            launchCommand: launchCommand,
             preparedArguments: object["prepared_arguments"] as? [String],
+            preparedArgumentsWorkingDirectory:
+                object["prepared_arguments_working_directory"] as? String,
             permissionMode: object["permission_mode"] as? String,
-            legacyCommand: object["legacy_command"] as? String
+            legacyCommand: legacyCommand
         )
     }
 
     private func restoreLaunchCommand(from value: Any?) throws -> AgentLaunchCommand? {
         guard let object = value as? [String: Any] else { return nil }
         guard let arguments = object["arguments"] as? [String], !arguments.isEmpty else {
-            throw CLIError(message: "restore: malformed structured launch arguments")
+            throw CLIError(message: String(
+                localized: "cli.restore.error.malformedArguments",
+                defaultValue: "restore: malformed structured launch arguments"
+            ))
         }
         return AgentLaunchCommand(
             launcher: object["launcher"] as? String,
@@ -274,9 +309,16 @@ extension CMUXCLI {
             return nil
         }
         throw CLIError(
-            message: "restore: cannot enter working directory '\(path)': "
-                + String(cString: strerror(changeDirectoryError))
+            message: String(
+                localized: "cli.restore.error.workingDirectoryFailed",
+                defaultValue: "restore: cannot enter working directory '\(path)': \(String(cString: strerror(changeDirectoryError)))"
+            )
         )
+    }
+
+    private func requestedRestoreWorkingDirectory(for record: RestoreRecord) -> String? {
+        normalizedRestoreWorkingDirectory(record.workingDirectory)
+            ?? normalizedRestoreWorkingDirectory(record.launchCommand?.workingDirectory)
     }
 
     private func normalizedRestoreWorkingDirectory(_ path: String?) -> String? {
@@ -298,7 +340,10 @@ extension CMUXCLI {
                   environment: invocationEnvironment
               ) else {
             throw CLIError(
-                message: "restore: executable '\(invocation.arguments.first ?? "")' was not found"
+                message: String(
+                    localized: "cli.restore.error.executableNotFound",
+                    defaultValue: "restore: executable '\(invocation.arguments.first ?? "")' was not found"
+                )
             )
         }
         let failure = withCStringArray(invocation.arguments) { argv in
@@ -310,9 +355,28 @@ extension CMUXCLI {
             }
         }
         throw CLIError(
-            message: "restore: execve failed (\(failure.0)): "
-                + String(cString: strerror(failure.1))
+            message: String(
+                localized: "cli.restore.error.execveFailed",
+                defaultValue: "restore: execve failed (\(failure.0)): \(String(cString: strerror(failure.1)))"
+            )
         )
+    }
+
+    private func execLegacyRestoreRecord(
+        _ command: String,
+        record: RestoreRecord,
+        environment: [String: String],
+        client: SocketClient
+    ) throws {
+        let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
+            requestedRestoreWorkingDirectory(for: record)
+        )
+        var legacyEnvironment = environment
+        if let appliedWorkingDirectory {
+            legacyEnvironment["PWD"] = appliedWorkingDirectory
+        }
+        client.close()
+        try execLegacyRestoreCommand(command, environment: legacyEnvironment)
     }
 
     private func execLegacyRestoreCommand(
@@ -330,8 +394,10 @@ extension CMUXCLI {
             }
         }
         throw CLIError(
-            message: "restore: compatibility shell failed (\(failure.0)): "
-                + String(cString: strerror(failure.1))
+            message: String(
+                localized: "cli.restore.error.compatibilityShellFailed",
+                defaultValue: "restore: compatibility shell failed (\(failure.0)): \(String(cString: strerror(failure.1)))"
+            )
         )
     }
 

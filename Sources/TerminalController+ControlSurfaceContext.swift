@@ -96,7 +96,10 @@ extension TerminalController: ControlSurfaceContext {
             source: effective.source,
             environment: effective.environment,
             launchCommand: effective.launchCommand.map {
-                controlAgentLaunchCommand($0)
+                controlAgentLaunchCommand(
+                    $0,
+                    replaySafeEnvironmentFor: effective.kind
+                )
             },
             permissionMode: effective.permissionMode,
             autoResume: effective.allowsAutomaticResume,

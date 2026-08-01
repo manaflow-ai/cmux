@@ -58,12 +58,9 @@ struct ResumeLauncherCwdConsistencyTests {
         )
 
         let preparedArguments = try #require(
-            AgentResumeCommandBuilder.resumeArguments(
-                kind: snapshot.kind,
-                sessionId: snapshot.sessionId,
+            snapshot.preparedResumeArguments(
                 launchCommand: snapshot.launchCommand,
                 workingDirectory: restoredDirectory.path,
-                customRegistration: registration,
                 observedPermissionMode: nil
             )
         )

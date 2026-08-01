@@ -324,6 +324,7 @@ struct ControlCommandCoordinatorSurfaceTests {
                 environment: ["RESTORE_VALUE": "space value"],
                 launchCommand: command,
                 preparedArguments: command.arguments,
+                preparedArgumentsWorkingDirectory: "/tmp/日本語",
                 permissionMode: nil,
                 legacyCommand: nil
             )
@@ -345,6 +346,7 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(record["mode"] == .string("direct"))
         #expect(record["working_directory"] == .string("/tmp/日本語"))
         #expect(record["environment"] == .object(["RESTORE_VALUE": .string("space value")]))
+        #expect(record["prepared_arguments_working_directory"] == .string("/tmp/日本語"))
         #expect(launch["arguments"] == .array(command.arguments.map(JSONValue.string)))
         #expect(record["legacy_command"] == .null)
     }

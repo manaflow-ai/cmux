@@ -46884,6 +46884,174 @@
         }
       }
     },
+    "cli.restore.error.checkpointMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: checkpoint does not match this surface's persisted record. Run 'cmux restore --surface' to use the current record." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: チェックポイントがこのサーフェスの保存済みレコードと一致しません。現在のレコードを使用するには 'cmux restore --surface' を実行してください。" } }
+      }
+    },
+    "cli.restore.error.compatibilityShellFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: compatibility shell failed (%lld): %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 互換シェルの実行に失敗しました (%lld): %@" } }
+      }
+    },
+    "cli.restore.error.currentSurfaceUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the current cmux surface could not be identified. Retry from this terminal or pass --surface <id|ref>." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 現在の cmux サーフェスを特定できませんでした。このターミナルから再試行するか、--surface <id|ref> を指定してください。" } }
+      }
+    },
+    "cli.restore.error.executableNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: executable '%@' was not found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 実行ファイル '%@' が見つかりません" } }
+      }
+    },
+    "cli.restore.error.execveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: execve failed (%lld): %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: execve に失敗しました (%lld): %@" } }
+      }
+    },
+    "cli.restore.error.incompleteData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: persisted structured launch data is incomplete" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存された構造化起動データが不完全です" } }
+      }
+    },
+    "cli.restore.error.kindMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: expected kind '%@', but the surface records '%@'. Run 'cmux restore --surface' to use the current record." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 種類 '%@' を期待しましたが、サーフェスには '%@' が記録されています。現在のレコードを使用するには 'cmux restore --surface' を実行してください。" } }
+      }
+    },
+    "cli.restore.error.malformedArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: malformed structured launch arguments" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 構造化された起動引数が不正です" } }
+      }
+    },
+    "cli.restore.error.malformedRecord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: malformed restore record" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 復元レコードが不正です" } }
+      }
+    },
+    "cli.restore.error.noRecord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this surface has no restorable process record" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このサーフェスには復元可能なプロセスレコードがありません" } }
+      }
+    },
+    "cli.restore.error.providerSetupConfigurationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: could not configure provider setup" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を構成できませんでした" } }
+      }
+    },
+    "cli.restore.error.providerSetupExited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup failed with status %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定がステータス %lld で失敗しました" } }
+      }
+    },
+    "cli.restore.error.providerSetupSignaled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup terminated by signal %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定がシグナル %lld で終了しました" } }
+      }
+    },
+    "cli.restore.error.providerSetupStartFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: could not start provider setup" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を開始できませんでした" } }
+      }
+    },
+    "cli.restore.error.providerSetupTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup timed out after 10 seconds" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定が10秒後にタイムアウトしました" } }
+      }
+    },
+    "cli.restore.error.providerSetupUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup is unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を利用できません" } }
+      }
+    },
+    "cli.restore.error.providerSetupWaitFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: could not wait for provider setup" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定の完了を待機できませんでした" } }
+      }
+    },
+    "cli.restore.error.socketNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: cmux is not ready to provide this surface's persisted record. Retry the visible restore command after cmux finishes opening. %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: cmux はこのサーフェスの保存済みレコードをまだ提供できません。cmux の起動完了後、表示されている復元コマンドを再試行してください。%@" } }
+      }
+    },
+    "cli.restore.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: surface '%@' was not found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: サーフェス '%@' が見つかりません" } }
+      }
+    },
+    "cli.restore.error.unsupportedMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: unsupported persisted restore mode '%@'" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存された復元モード '%@' はサポートされていません" } }
+      }
+    },
+    "cli.restore.error.workingDirectoryFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: cannot enter working directory '%@': %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 作業ディレクトリ '%@' に移動できません: %@" } }
+      }
+    },
+    "cli.restore.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore <kind> <checkpoint-id>\n       cmux restore --surface [id|ref]\n\nReplace this CLI process with the persisted surface process. New\nrecords preserve argv, environment, and cwd as structured values;\ncommand-only records from older builds use a compatibility shell.\nWith no id or ref, --surface uses the calling cmux surface." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore <kind> <checkpoint-id>\n        cmux restore --surface [id|ref]\n\nこの CLI プロセスを保存されたサーフェスプロセスで置き換えます。新しい\nレコードでは argv、環境、cwd が構造化された値として保持されます。\n旧ビルドのコマンドのみのレコードでは互換シェルを使用します。\nid または ref を省略すると、--surface は呼び出し元の cmux サーフェスを使用します。" } }
+      }
+    },
+    "cli.restore.usage.positional": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore <kind> <checkpoint-id>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore <kind> <checkpoint-id>" } }
+      }
+    },
+    "cli.restore.usage.surface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore --surface [id|ref]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore --surface [id|ref]" } }
+      }
+    },
     "cli.rightSidebar.error.invalidWindow": {
       "extractionState": "manual",
       "localizations": {
@@ -227423,13 +227591,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "launch_command must contain a non-empty string arguments array"
+            "value": "launch_command.arguments must be a non-empty array of strings"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "launch_command には空でない文字列の arguments 配列が必要です"
+            "value": "launch_command.arguments は空でない文字列の配列である必要があります"
           }
         }
       }

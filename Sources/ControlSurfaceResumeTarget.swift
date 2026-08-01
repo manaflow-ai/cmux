@@ -300,12 +300,9 @@ extension TerminalController {
                 ? .relaunchAgent
                 : .resumeAgent
             let preparedArguments = agent.kind.restoreMode == .resumeSession
-                ? AgentResumeCommandBuilder.resumeArguments(
-                    kind: agent.kind,
-                    sessionId: agent.sessionId,
+                ? agent.preparedResumeArguments(
                     launchCommand: launchCommand,
                     workingDirectory: workingDirectory,
-                    customRegistration: agent.registration,
                     observedPermissionMode: permissionMode
                 )
                 : nil
@@ -323,6 +320,9 @@ extension TerminalController {
                     )
                 },
                 preparedArguments: preparedArguments,
+                preparedArgumentsWorkingDirectory: preparedArguments == nil
+                    ? nil
+                    : workingDirectory,
                 permissionMode: permissionMode,
                 legacyCommand: compatibilityBinding?.inlineStartupInput
             )
@@ -349,6 +349,7 @@ extension TerminalController {
                 )
             },
             preparedArguments: mode == .direct ? binding.launchCommand?.arguments : nil,
+            preparedArgumentsWorkingDirectory: nil,
             permissionMode: binding.permissionMode,
             legacyCommand: compatibilityBinding?.inlineStartupInput
         )

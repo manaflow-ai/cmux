@@ -309,6 +309,9 @@ extension ControlCommandCoordinator {
             "prepared_arguments": record.preparedArguments.map {
                 .array($0.map(JSONValue.string))
             } ?? .null,
+            "prepared_arguments_working_directory": orNull(
+                record.preparedArgumentsWorkingDirectory
+            ),
             "permission_mode": orNull(record.permissionMode),
             "legacy_command": orNull(record.legacyCommand),
         ])

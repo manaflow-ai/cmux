@@ -41,6 +41,8 @@ public struct ControlSurfaceRestoreRecord: Sendable, Equatable {
     public let environment: [String: String]
     public let launchCommand: ControlAgentLaunchCommand?
     public let preparedArguments: [String]?
+    /// The cwd against which `preparedArguments` was captured and may be retargeted.
+    public let preparedArgumentsWorkingDirectory: String?
     public let permissionMode: String?
     public let legacyCommand: String?
 
@@ -53,6 +55,7 @@ public struct ControlSurfaceRestoreRecord: Sendable, Equatable {
         environment: [String: String],
         launchCommand: ControlAgentLaunchCommand?,
         preparedArguments: [String]?,
+        preparedArgumentsWorkingDirectory: String?,
         permissionMode: String?,
         legacyCommand: String?
     ) {
@@ -64,6 +67,7 @@ public struct ControlSurfaceRestoreRecord: Sendable, Equatable {
         self.environment = environment
         self.launchCommand = launchCommand
         self.preparedArguments = preparedArguments
+        self.preparedArgumentsWorkingDirectory = preparedArgumentsWorkingDirectory
         self.permissionMode = permissionMode
         self.legacyCommand = legacyCommand
     }

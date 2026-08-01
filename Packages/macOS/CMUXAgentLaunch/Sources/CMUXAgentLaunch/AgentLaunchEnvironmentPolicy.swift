@@ -122,6 +122,9 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
     /// The optional `kind` applies agent-specific exclusions for values that are safe for one
     /// agent but managed or incorrect for another.
     public func selectedEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
+        let normalizedKind = kind?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
         var result: [String: String] = [:]
         for key in Self.sortedSafeEnvironmentKeys where key != "NODE_OPTIONS" {
             guard let value = sanitizedValue(key: key, value: env[key]) else { continue }
@@ -130,12 +133,12 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         if let nodeOptions = selectedNodeOptions(from: env) {
             result["NODE_OPTIONS"] = nodeOptions
         }
-        if kind != "hermes-agent" {
+        if normalizedKind != "hermes-agent" {
             for key in Self.hermesAgentEnvironmentKeys {
                 result.removeValue(forKey: key)
             }
         }
-        if kind == "campfire" {
+        if normalizedKind == "campfire" {
             for key in Self.campfireManagedEnvironmentKeys {
                 result.removeValue(forKey: key)
             }
@@ -156,8 +159,11 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         from env: [String: String],
         kind: String?
     ) -> [String: String] {
+        let normalizedKind = kind?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
         var selected = selectedEnvironment(from: env, kind: kind)
-        if kind == "pi" || kind == "omp",
+        if normalizedKind == "pi" || normalizedKind == "omp",
            let path = normalizedValue(env["PATH"]) {
             selected["PATH"] = path
         }

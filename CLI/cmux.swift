@@ -3796,11 +3796,12 @@ struct CMUXCLI {
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
-            if command == "restore" {
+            if command == "restore", explicitSocketPath == nil {
                 throw CLIError(
-                    message: "restore: cmux is not ready to provide this surface's persisted "
-                        + "record. Retry the visible restore command after cmux finishes opening. "
-                        + "\(error)"
+                    message: String(
+                        localized: "cli.restore.error.socketNotReady",
+                        defaultValue: "restore: cmux is not ready to provide this surface's persisted record. Retry the visible restore command after cmux finishes opening. \(error)"
+                    )
                 )
             }
             throw error
@@ -15696,7 +15697,7 @@ struct CMUXCLI {
             If the app is not running, this launches cmux and lets startup restore reopen the saved session.
             """
         case "restore":
-            return """
+            return String(localized: "cli.restore.help", defaultValue: """
             Usage: cmux restore <kind> <checkpoint-id>
                    cmux restore --surface [id|ref]
 
@@ -15704,7 +15705,7 @@ struct CMUXCLI {
             records preserve argv, environment, and cwd as structured values;
             command-only records from older builds use a compatibility shell.
             With no id or ref, --surface uses the calling cmux surface.
-            """
+            """)
         case "sessions", "session-debug": return sessionsUsage()
         case "feedback":
             return """

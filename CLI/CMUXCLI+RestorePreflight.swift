@@ -16,16 +16,20 @@ extension CMUXCLI {
             environment: invocationEnvironment
         ) else {
             throw CLIError(
-                message: "restore: preflight executable "
-                    + "'\(invocation.executable)' was not found"
+                message: String(
+                    localized: "cli.restore.error.providerSetupUnavailable",
+                    defaultValue: "restore: provider setup is unavailable"
+                )
             )
         }
         var fileActions: posix_spawn_file_actions_t?
         let actionsStatus = posix_spawn_file_actions_init(&fileActions)
         guard actionsStatus == 0 else {
             throw CLIError(
-                message: "restore: could not configure provider preflight: "
-                    + String(cString: strerror(actionsStatus))
+                message: String(
+                    localized: "cli.restore.error.providerSetupConfigurationFailed",
+                    defaultValue: "restore: could not configure provider setup"
+                )
             )
         }
         defer { posix_spawn_file_actions_destroy(&fileActions) }
@@ -50,10 +54,23 @@ extension CMUXCLI {
                 )
             }
         }
+        if redirectStatus == 0 {
+            redirectStatus = "/dev/null".withCString {
+                posix_spawn_file_actions_addopen(
+                    &fileActions,
+                    STDERR_FILENO,
+                    $0,
+                    O_WRONLY,
+                    0
+                )
+            }
+        }
         guard redirectStatus == 0 else {
             throw CLIError(
-                message: "restore: could not configure provider preflight: "
-                    + String(cString: strerror(redirectStatus))
+                message: String(
+                    localized: "cli.restore.error.providerSetupConfigurationFailed",
+                    defaultValue: "restore: could not configure provider setup"
+                )
             )
         }
 
@@ -74,96 +91,162 @@ extension CMUXCLI {
         }
         guard status == 0 else {
             throw CLIError(
-                message: "restore: could not start preflight: "
-                    + String(cString: strerror(status))
+                message: String(
+                    localized: "cli.restore.error.providerSetupStartFailed",
+                    defaultValue: "restore: could not start provider setup"
+                )
             )
         }
-        try waitForRestorePreflight(processID, invocation: invocation)
+        try waitForRestorePreflight(processID)
     }
 
-    private func waitForRestorePreflight(
-        _ processID: pid_t,
-        invocation: AgentRestorePreflightInvocation
-    ) throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        var waitStatus: Int32 = 0
-        while true {
-            let waitResult = waitpid(processID, &waitStatus, WNOHANG)
-            if waitResult == processID {
-                break
-            }
-            if waitResult == -1 {
-                if errno == EINTR {
-                    continue
-                }
-                throw CLIError(
-                    message: "restore: could not wait for provider preflight: "
-                        + String(cString: strerror(errno))
+    private func waitForRestorePreflight(_ processID: pid_t) throws {
+        // This synchronous CLI is about to call `execve`; EVFILT_PROC provides
+        // signal-driven completion with a kernel-enforced deadline and no poll.
+        let exitQueue = try restorePreflightExitQueue(processID)
+        defer { close(exitQueue) }
+
+        guard try waitForRestorePreflightExit(
+            exitQueue,
+            timeout: 10
+        ) else {
+            terminateRestorePreflight(processID, exitQueue: exitQueue)
+            throw CLIError(
+                message: String(
+                    localized: "cli.restore.error.providerSetupTimedOut",
+                    defaultValue: "restore: provider setup timed out after 10 seconds"
                 )
-            }
-            if ContinuousClock.now >= deadline {
-                terminateRestorePreflight(processID)
-                throw CLIError(
-                    message: "restore: provider preflight timed out after 10 seconds ("
-                        + restorePreflightLabel(invocation)
-                        + ")"
-                )
-            }
-            usleep(10_000)
+            )
         }
+
+        let waitStatus = try reapRestorePreflight(processID)
         let exitedNormally = waitStatus & 0x7f == 0
         let exitStatus = (waitStatus >> 8) & 0xff
         if exitedNormally {
             guard exitStatus == 0 else {
                 throw CLIError(
-                    message: "restore: provider preflight "
-                        + "'\(restorePreflightLabel(invocation))' exited with status "
-                        + "\(exitStatus)"
+                    message: String.localizedStringWithFormat(
+                        String(
+                            localized: "cli.restore.error.providerSetupExited",
+                            defaultValue: "restore: provider setup failed with status %lld"
+                        ),
+                        Int64(exitStatus)
+                    )
                 )
             }
             return
         }
         let terminationSignal = waitStatus & 0x7f
         throw CLIError(
-            message: "restore: provider preflight "
-                + "'\(restorePreflightLabel(invocation))' terminated by signal "
-                + "\(terminationSignal)"
+            message: String.localizedStringWithFormat(
+                String(
+                    localized: "cli.restore.error.providerSetupSignaled",
+                    defaultValue: "restore: provider setup terminated by signal %lld"
+                ),
+                Int64(terminationSignal)
+            )
         )
     }
 
-    private func terminateRestorePreflight(_ processID: pid_t) {
-        _ = kill(processID, SIGTERM)
-        let graceDeadline = ContinuousClock.now.advanced(by: .milliseconds(250))
-        var waitStatus: Int32 = 0
-        while ContinuousClock.now < graceDeadline {
-            let waitResult = waitpid(processID, &waitStatus, WNOHANG)
-            if waitResult == processID || (waitResult == -1 && errno == ECHILD) {
-                return
-            }
-            if waitResult == -1 && errno != EINTR {
-                break
-            }
-            usleep(10_000)
+    private func restorePreflightExitQueue(_ processID: pid_t) throws -> Int32 {
+        let queue = kqueue()
+        guard queue >= 0 else {
+            throw restorePreflightWaitError()
         }
 
-        _ = kill(processID, SIGKILL)
+        var event = kevent(
+            ident: UInt(processID),
+            filter: Int16(EVFILT_PROC),
+            flags: UInt16(EV_ADD | EV_ENABLE | EV_ONESHOT),
+            fflags: UInt32(NOTE_EXIT),
+            data: 0,
+            udata: nil
+        )
+        while kevent(queue, &event, 1, nil, 0, nil) != 0 {
+            if errno == EINTR {
+                continue
+            }
+            close(queue)
+            throw restorePreflightWaitError()
+        }
+        return queue
+    }
+
+    private func waitForRestorePreflightExit(
+        _ queue: Int32,
+        timeout: TimeInterval
+    ) throws -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
         while true {
-            let waitResult = waitpid(processID, &waitStatus, 0)
-            if waitResult == processID || (waitResult == -1 && errno == ECHILD) {
-                return
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { return false }
+            var timeoutSpec = timespec(
+                tv_sec: Int(remaining),
+                tv_nsec: Int((remaining - floor(remaining)) * 1_000_000_000)
+            )
+            var triggeredEvent = kevent()
+            let result = kevent(queue, nil, 0, &triggeredEvent, 1, &timeoutSpec)
+            if result > 0 {
+                return true
+            }
+            if result == 0 {
+                return false
+            }
+            if errno != EINTR {
+                throw restorePreflightWaitError()
+            }
+        }
+    }
+
+    private func terminateRestorePreflight(
+        _ processID: pid_t,
+        exitQueue: Int32
+    ) {
+        _ = kill(processID, SIGTERM)
+        var observedExit = (try? waitForRestorePreflightExit(
+            exitQueue,
+            timeout: 0.25
+        )) == true
+        if !observedExit {
+            _ = kill(processID, SIGKILL)
+            observedExit = (try? waitForRestorePreflightExit(
+                exitQueue,
+                timeout: 1
+            )) == true
+        }
+        if observedExit {
+            _ = try? reapRestorePreflight(processID)
+        } else {
+            _ = try? reapRestorePreflight(processID, options: WNOHANG)
+        }
+    }
+
+    private func reapRestorePreflight(
+        _ processID: pid_t,
+        options: Int32 = 0
+    ) throws -> Int32 {
+        var waitStatus: Int32 = 0
+        while true {
+            let waitResult = waitpid(processID, &waitStatus, options)
+            if waitResult == processID {
+                return waitStatus
+            }
+            if waitResult == 0, options & WNOHANG != 0 {
+                return waitStatus
             }
             if waitResult == -1 && errno == EINTR {
                 continue
             }
-            return
+            throw restorePreflightWaitError()
         }
     }
 
-    private func restorePreflightLabel(
-        _ invocation: AgentRestorePreflightInvocation
-    ) -> String {
-        let command = URL(fileURLWithPath: invocation.executable).lastPathComponent
-        return ([command] + Array(invocation.arguments.dropFirst().dropLast()))
-            .joined(separator: " ")
+    private func restorePreflightWaitError() -> CLIError {
+        CLIError(
+            message: String(
+                localized: "cli.restore.error.providerSetupWaitFailed",
+                defaultValue: "restore: could not wait for provider setup"
+            )
+        )
     }
 }

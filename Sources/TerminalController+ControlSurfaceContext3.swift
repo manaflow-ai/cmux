@@ -16,7 +16,7 @@ extension TerminalController {
             ),
             launchCommandMustBeValid: String(
                 localized: "socket.surface.resume.launchCommandMustBeValid",
-                defaultValue: "launch_command must contain a non-empty string arguments array"
+                defaultValue: "launch_command.arguments must be a non-empty array of strings"
             )
         )
     }
