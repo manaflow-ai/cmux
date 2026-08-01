@@ -109,6 +109,12 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case splitRight
     case splitDown
     case toggleSplitZoom
+    /// Increases every terminal font size in the selected workspace.
+    case increaseWorkspaceTerminalFontSize
+    /// Decreases every terminal font size in the selected workspace.
+    case decreaseWorkspaceTerminalFontSize
+    /// Resets every terminal font size in the selected workspace.
+    case resetWorkspaceTerminalFontSize
     case equalizeSplits
     case splitBrowserRight
     case splitBrowserDown
@@ -273,6 +279,8 @@ extension ShortcutAction {
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
+        case .focusHistoryBack, .focusHistoryForward:
+            return .not(.atom(.browserFocus))
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
              .toggleBrowserDesignMode, .diffViewerOpenFileSearch, .diffViewerNextFile,

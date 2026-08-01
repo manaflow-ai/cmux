@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CmuxFoundation
 import WebKit
 
 enum BrowserScreenshotCaptureBounds {
@@ -182,13 +183,15 @@ enum BrowserScreenshotWebViewSnapshotter {
 
     static func captureVisibleViewport(
         from webView: WKWebView,
-        afterScreenUpdates: Bool = true
+        afterScreenUpdates: Bool = true,
+        timeout: TimeInterval? = nil
     ) async throws -> NSImage {
         let renderer = viewportSnapshotRenderer(for: webView)
         return try await captureVisibleViewport(
             from: webView,
             afterScreenUpdates: afterScreenUpdates,
-            renderer: renderer
+            renderer: renderer,
+            timeout: timeout
         )
     }
 
@@ -531,79 +534,20 @@ enum BrowserScreenshotWebViewSnapshotter {
         _ webView: WKWebView,
         viewportSize: NSSize,
         expectedURL: URL?,
+        timingBudget: BrowserScreenshotTimingBudget = .init(),
         operation: () async throws -> T
     ) async throws -> T {
-        let presentationView = webView.cmuxBrowserViewportPresentationView
-        let previousSuperview = presentationView.superview
-        let previousSubviews = previousSuperview?.subviews ?? []
-        let previousIndex = previousSubviews.firstIndex(of: presentationView)
-        let previousFrame = presentationView.frame
-        let previousBounds = presentationView.bounds
-        let previousAutoresizingMask = presentationView.autoresizingMask
-        let previousTranslatesAutoresizingMaskIntoConstraints = presentationView.translatesAutoresizingMaskIntoConstraints
-        let restoreAnchor: NSView?
-        let restorePosition: NSWindow.OrderingMode
-        if let previousIndex, previousIndex > 0 {
-            restoreAnchor = previousSubviews[previousIndex - 1]
-            restorePosition = .above
-        } else if let previousIndex, previousIndex == 0, previousSubviews.count > 1 {
-            restoreAnchor = previousSubviews[1]
-            restorePosition = .below
-        } else {
-            restoreAnchor = nil
-            restorePosition = .above
-        }
-
-        let normalizedSize = normalizedViewportSize(viewportSize)
-        let frame = NSRect(
-            x: -100_000 - normalizedSize.width,
-            y: -100_000 - normalizedSize.height,
-            width: normalizedSize.width,
-            height: normalizedSize.height
+        let renderHost = BrowserOffscreenRenderHost(
+            webView: webView,
+            viewportSize: viewportSize
         )
-        let window = BrowserScreenshotOffscreenRenderPanel(
-            contentRect: frame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
+        defer { renderHost.restore() }
+
+        try await prepareForVisualCapture(
+            webView,
+            expectedURL: expectedURL,
+            timingBudget: timingBudget
         )
-        window.isReleasedWhenClosed = false
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.browserVisualAutomationRender")
-        window.hasShadow = false
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.alphaValue = 0.01
-        window.ignoresMouseEvents = true
-        window.hidesOnDeactivate = false
-        window.collectionBehavior = [.transient, .ignoresCycle, .stationary, .canJoinAllSpaces]
-        window.isExcludedFromWindowsMenu = true
-        let contentView = NSView(frame: NSRect(origin: .zero, size: normalizedSize))
-        contentView.wantsLayer = true
-        presentationView.removeFromSuperview()
-        contentView.addSubview(presentationView)
-        webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
-        window.contentView = contentView
-        window.orderFrontRegardless()
-
-        defer {
-            restorePresentationView(
-                presentationView,
-                webView: webView,
-                from: contentView,
-                to: previousSuperview,
-                frame: previousFrame,
-                bounds: previousBounds,
-                autoresizingMask: previousAutoresizingMask,
-                translatesAutoresizingMaskIntoConstraints: previousTranslatesAutoresizingMaskIntoConstraints,
-                anchor: restoreAnchor,
-                position: restorePosition
-            )
-            window.orderOut(nil)
-            window.contentView = nil
-            window.close()
-        }
-
-        try await prepareForVisualCapture(webView, expectedURL: expectedURL)
         return try await operation()
     }
 
@@ -612,107 +556,69 @@ enum BrowserScreenshotWebViewSnapshotter {
         viewportSize: NSSize,
         expectedURL: URL?,
         timeout: TimeInterval,
-        operation: @escaping (@escaping (Result<T, Error>) -> Void) -> Void,
+        timingBudget: BrowserScreenshotTimingBudget = .init(),
+        operation: @escaping @MainActor () async throws -> T,
         completion: @escaping (Result<T, Error>) -> Void
     ) {
-        let presentationView = webView.cmuxBrowserViewportPresentationView
-        let previousSuperview = presentationView.superview
-        let previousSubviews = previousSuperview?.subviews ?? []
-        let previousIndex = previousSubviews.firstIndex(of: presentationView)
-        let previousFrame = presentationView.frame
-        let previousBounds = presentationView.bounds
-        let previousAutoresizingMask = presentationView.autoresizingMask
-        let previousTranslatesAutoresizingMaskIntoConstraints = presentationView.translatesAutoresizingMaskIntoConstraints
-        let restoreAnchor: NSView?
-        let restorePosition: NSWindow.OrderingMode
-        if let previousIndex, previousIndex > 0 {
-            restoreAnchor = previousSubviews[previousIndex - 1]
-            restorePosition = .above
-        } else if let previousIndex, previousIndex == 0, previousSubviews.count > 1 {
-            restoreAnchor = previousSubviews[1]
-            restorePosition = .below
-        } else {
-            restoreAnchor = nil
-            restorePosition = .above
-        }
-
-        let normalizedSize = normalizedViewportSize(viewportSize)
-        let frame = NSRect(
-            x: -100_000 - normalizedSize.width,
-            y: -100_000 - normalizedSize.height,
-            width: normalizedSize.width,
-            height: normalizedSize.height
+        let renderHost = BrowserOffscreenRenderHost(
+            webView: webView,
+            viewportSize: viewportSize
         )
-        let window = BrowserScreenshotOffscreenRenderPanel(
-            contentRect: frame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.browserVisualAutomationRender")
-        window.hasShadow = false
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.alphaValue = 0.01
-        window.ignoresMouseEvents = true
-        window.hidesOnDeactivate = false
-        window.collectionBehavior = [.transient, .ignoresCycle, .stationary, .canJoinAllSpaces]
-        window.isExcludedFromWindowsMenu = true
-        let contentView = NSView(frame: NSRect(origin: .zero, size: normalizedSize))
-        contentView.wantsLayer = true
-        presentationView.removeFromSuperview()
-        contentView.addSubview(presentationView)
-        webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
-        window.contentView = contentView
-        window.orderFrontRegardless()
 
-        var didFinish = false
         var timeoutTimer: Timer?
-        let finish: (Result<T, Error>) -> Void = { result in
-            guard !didFinish else { return }
-            didFinish = true
+        let lease = BrowserScreenshotRenderLease<T>(
+            teardown: {
+                renderHost.restore()
+            },
+            completion: completion
+        )
+        let finish: @MainActor (Result<T, Error>) -> Void = { result in
+            guard lease.finish(result) else { return }
             timeoutTimer?.invalidate()
             timeoutTimer = nil
-            restorePresentationView(
-                presentationView,
-                webView: webView,
-                from: contentView,
-                to: previousSuperview,
-                frame: previousFrame,
-                bounds: previousBounds,
-                autoresizingMask: previousAutoresizingMask,
-                translatesAutoresizingMaskIntoConstraints: previousTranslatesAutoresizingMaskIntoConstraints,
-                anchor: restoreAnchor,
-                position: restorePosition
-            )
-            window.orderOut(nil)
-            window.contentView = nil
-            window.close()
-            completion(result)
         }
 
-        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
-            finish(.failure(BrowserScreenshotError.automationTimedOut))
+        let timer = Timer(timeInterval: timeout, repeats: false) { _ in
+            MainActor.assumeIsolated {
+                finish(.failure(BrowserScreenshotError.automationTimedOut))
+            }
         }
-        prepareForVisualCapture(webView, expectedURL: expectedURL) { result in
-            switch result {
-            case .success:
-                guard !didFinish else { return }
-                operation(finish)
-            case .failure(let error):
+        timeoutTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        let operationTask = Task { @MainActor in
+            do {
+                try await prepareForVisualCapture(
+                    webView,
+                    expectedURL: expectedURL,
+                    timingBudget: timingBudget
+                )
+                try Task.checkCancellation()
+                finish(.success(try await operation()))
+            } catch {
                 finish(.failure(error))
             }
         }
+        lease.installOperationTask(operationTask)
     }
 
-    static func prepareForVisualCapture(_ webView: WKWebView, expectedURL: URL?) async throws {
-        try await waitForExpectedURLIfNeeded(webView, expectedURL: expectedURL)
+    static func prepareForVisualCapture(
+        _ webView: WKWebView,
+        expectedURL: URL?,
+        timingBudget: BrowserScreenshotTimingBudget = .init()
+    ) async throws {
+        try await waitForExpectedURLIfNeeded(
+            webView,
+            expectedURL: expectedURL,
+            timeout: timingBudget.expectedURLAllowance
+        )
 
         forceAppKitLayout(for: webView)
 
         do {
-            _ = try await webView.evaluateJavaScript(visualCaptureLayoutFlushScript, contentWorld: .page)
+            _ = try await BrowserScreenshotJavaScriptRequest(
+                webView: webView,
+                timeout: timingBudget.preparationJavaScriptAllowance
+            ).evaluate(script: visualCaptureLayoutFlushScript)
         } catch {
             #if DEBUG
             cmuxDebugLog("browser.screenshot.prepare.failed error=\(error.localizedDescription)")
@@ -720,30 +626,6 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
 
         forceAppKitLayout(for: webView)
-    }
-
-    static func prepareForVisualCapture(
-        _ webView: WKWebView,
-        expectedURL: URL?,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
-        waitForExpectedURLIfNeeded(webView, expectedURL: expectedURL) { result in
-            switch result {
-            case .success:
-                forceAppKitLayout(for: webView)
-                webView.evaluateJavaScript(visualCaptureLayoutFlushScript) { _, error in
-                    if let error {
-                        #if DEBUG
-                        cmuxDebugLog("browser.screenshot.prepare.failed error=\(error.localizedDescription)")
-                        #endif
-                    }
-                    forceAppKitLayout(for: webView)
-                    completion(.success(()))
-                }
-            case .failure(let error):
-                completion(.failure(error))
-            }
-        }
     }
 
     private static func isAcceptableFullContentSnapshot(
@@ -924,32 +806,22 @@ enum BrowserScreenshotWebViewSnapshotter {
     private static func takeSnapshot(
         from webView: WKWebView,
         configuration: WKSnapshotConfiguration,
-        renderer: BrowserViewportSnapshotRenderer? = nil
+        renderer: BrowserViewportSnapshotRenderer? = nil,
+        timeout: TimeInterval? = nil
     ) async throws -> NSImage {
-        try await withCheckedThrowingContinuation { continuation in
-            webView.takeSnapshot(with: configuration) { image, error in
-                if let image {
-                    guard let renderer else {
-                        continuation.resume(returning: image)
-                        return
-                    }
-                    guard let normalized = renderer.normalizedImage(image) else {
-                        continuation.resume(throwing: BrowserScreenshotError.invalidImageRepresentation)
-                        return
-                    }
-                    continuation.resume(returning: normalized)
-                    return
-                }
-
-                continuation.resume(throwing: error ?? BrowserScreenshotError.emptySnapshot)
-            }
-        }
+        try await BrowserScreenshotSnapshotRequest(
+            webView: webView,
+            configuration: configuration,
+            renderer: renderer,
+            timeout: timeout
+        ).capture()
     }
 
     private static func captureVisibleViewport(
         from webView: WKWebView,
         afterScreenUpdates: Bool,
-        renderer: BrowserViewportSnapshotRenderer?
+        renderer: BrowserViewportSnapshotRenderer?,
+        timeout: TimeInterval? = nil
     ) async throws -> NSImage {
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = afterScreenUpdates
@@ -957,7 +829,8 @@ enum BrowserScreenshotWebViewSnapshotter {
         return try await takeSnapshot(
             from: webView,
             configuration: configuration,
-            renderer: renderer
+            renderer: renderer,
+            timeout: timeout
         )
     }
 
@@ -985,12 +858,16 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
     }
 
-    private static func waitForExpectedURLIfNeeded(_ webView: WKWebView, expectedURL: URL?) async throws {
+    private static func waitForExpectedURLIfNeeded(
+        _ webView: WKWebView,
+        expectedURL: URL?,
+        timeout: TimeInterval
+    ) async throws {
         guard let expectedURL else { return }
         let waiter = BrowserScreenshotExpectedURLWaiter(
             webView: webView,
             expectedAbsoluteString: expectedURL.absoluteString,
-            timeout: 5.0
+            timeout: timeout
         )
 
         try await withTaskCancellationHandler {
@@ -999,26 +876,6 @@ enum BrowserScreenshotWebViewSnapshotter {
             Task { @MainActor in
                 waiter.cancel()
             }
-        }
-    }
-
-    private static func waitForExpectedURLIfNeeded(
-        _ webView: WKWebView,
-        expectedURL: URL?,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
-        guard let expectedURL else {
-            completion(.success(()))
-            return
-        }
-        let waiter = BrowserScreenshotExpectedURLWaiter(
-            webView: webView,
-            expectedAbsoluteString: expectedURL.absoluteString,
-            timeout: 5.0
-        )
-        waiter.wait { [waiter] result in
-            _ = waiter
-            completion(result)
         }
     }
 
@@ -1080,16 +937,6 @@ enum BrowserScreenshotWebViewSnapshotter {
         default:
             return nil
         }
-    }
-
-    private static func normalizedViewportSize(_ viewportSize: NSSize) -> NSSize {
-        let fallback = NSSize(width: 1280, height: 720)
-        let width = viewportSize.width.isFinite && viewportSize.width > 1 ? viewportSize.width : fallback.width
-        let height = viewportSize.height.isFinite && viewportSize.height > 1 ? viewportSize.height : fallback.height
-        return NSSize(
-            width: min(max(width, 1), 4096),
-            height: min(max(height, 1), 4096)
-        )
     }
 
     private static func viewportSnapshotRenderer(for webView: WKWebView) -> BrowserViewportSnapshotRenderer? {
@@ -1157,46 +1004,6 @@ enum BrowserScreenshotWebViewSnapshotter {
         webView.displayIfNeeded()
     }
 
-    private static func restorePresentationView(
-        _ presentationView: NSView,
-        webView: WKWebView,
-        from temporarySuperview: NSView,
-        to previousSuperview: NSView?,
-        frame previousFrame: NSRect,
-        bounds previousBounds: NSRect,
-        autoresizingMask previousAutoresizingMask: NSView.AutoresizingMask,
-        translatesAutoresizingMaskIntoConstraints previousTranslatesAutoresizingMaskIntoConstraints: Bool,
-        anchor: NSView?,
-        position: NSWindow.OrderingMode
-    ) {
-        let policy = BrowserViewportRestorationPolicy(
-            temporaryHostIsCurrent: presentationView.superview === temporarySuperview,
-            hasPreviousHost: previousSuperview != nil,
-            hasVisibleWebKitCompanion: previousSuperview?
-                .browserPortalHasVisibleWebKitCompanionSubview(for: webView) ?? false
-        )
-        guard policy.shouldRestorePreviousHost else { return }
-
-        presentationView.removeFromSuperview()
-        if let previousSuperview {
-            if let anchor, anchor.superview === previousSuperview {
-                previousSuperview.addSubview(presentationView, positioned: position, relativeTo: anchor)
-            } else {
-                previousSuperview.addSubview(presentationView)
-            }
-        }
-
-        if policy.shouldPreservePreviousGeometry {
-            presentationView.frame = previousFrame
-            presentationView.bounds = previousBounds
-            presentationView.autoresizingMask = previousAutoresizingMask
-            presentationView.translatesAutoresizingMaskIntoConstraints =
-                previousTranslatesAutoresizingMaskIntoConstraints
-        } else if let previousSuperview {
-            webView.cmuxApplyBrowserViewportLayout(in: previousSuperview.bounds)
-        }
-    }
-
     private static func numberValue(_ value: Any?) -> CGFloat {
         switch value {
         case let number as NSNumber:
@@ -1211,12 +1018,6 @@ enum BrowserScreenshotWebViewSnapshotter {
     }
 }
 
-@MainActor
-private final class BrowserScreenshotOffscreenRenderPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
-}
-
 // Safety: BrowserScreenshotExpectedURLWaiter keeps WKWebView, KVO tokens, Timer, and CheckedContinuation main-actor-only and never sends them across threads.
 @MainActor
 private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
@@ -1224,7 +1025,6 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
     private let expectedAbsoluteString: String
     private let timeout: TimeInterval
     private var continuation: CheckedContinuation<Void, Error>?
-    private var completion: ((Result<Void, Error>) -> Void)?
     private var urlObservation: NSKeyValueObservation?
     private var loadingObservation: NSKeyValueObservation?
     private var timeoutTimer: Timer?
@@ -1252,23 +1052,6 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
             if isReady {
                 finish(.success(()))
             }
-        }
-    }
-
-    func wait(completion: @escaping (Result<Void, Error>) -> Void) {
-        if isReady {
-            completion(.success(()))
-            return
-        }
-
-        self.completion = completion
-        installObservers()
-        if isCancelled {
-            finish(.failure(CancellationError()))
-            return
-        }
-        if isReady {
-            finish(.success(()))
         }
     }
 
@@ -1312,7 +1095,7 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
                 }
             }
         }
-        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
+        let timer = Timer(timeInterval: timeout, repeats: false) { [weak self] _ in
             guard let self else { return }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -1320,6 +1103,8 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
                 }
             }
         }
+        timeoutTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func finishIfReady() {
@@ -1329,24 +1114,18 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
     }
 
     private func finish(_ result: Result<Void, Error>) {
-        guard continuation != nil || completion != nil else { return }
-        let continuation = self.continuation
-        let completion = self.completion
+        guard let continuation else { return }
         self.continuation = nil
-        self.completion = nil
         urlObservation = nil
         loadingObservation = nil
         timeoutTimer?.invalidate()
         timeoutTimer = nil
 
-        if let continuation {
-            switch result {
-            case .success:
-                continuation.resume()
-            case .failure(let error):
-                continuation.resume(throwing: error)
-            }
+        switch result {
+        case .success:
+            continuation.resume()
+        case .failure(let error):
+            continuation.resume(throwing: error)
         }
-        completion?(result)
     }
 }

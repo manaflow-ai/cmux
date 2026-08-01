@@ -2,10 +2,6 @@ import Foundation
 import CmuxRemoteSession
 
 extension RemoteTmuxSessionMirror {
-    nonisolated static func shouldSeedSinglePaneDisplay(for window: RemoteTmuxWindow) -> Bool {
-        window.paneIDsInOrder.count == 1
-    }
-
     /// The tab title for a mirrored window: the tmux window name, or a localized
     /// placeholder when tmux hasn't reported one. tmux window names are
     /// content-derived (like every other cmux tab title) so the name itself is

@@ -126,6 +126,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
+        // Persistent readiness authenticates against broker-owned lifecycle
+        // state. The broker serializes that state on its own queue, so this
+        // command must never make the main actor wait behind tunnel work.
+        // Parsing and authentication run here; the final workspace/Dock
+        // mutation takes one synchronous controlResolveOnMain hop.
+        "workspace.remote.terminal_session_launching",
+        "workspace.remote.terminal_session_connected",
         "remote.tmux.sessions",
         "remote.tmux.attach",
         "remote.tmux.detach",
@@ -428,12 +435,19 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "send_workspace",
     ]
 
+    /// Configuration commands that block their socket worker until the main
+    /// actor commits the requested runtime update.
+    static let configurationMutationV1Commands: Set<String> = [
+        "reload_config",
+    ]
+
     /// v1 commands that run on the socket-worker thread instead of the main
     /// actor: `ping` (the dispatcher's former hard-coded fast path),
     /// `screenshot` (which waits for ScreenCaptureKit's async compositor),
-    /// plus the sidebar telemetry, notification, terminal-read,
-    /// resolution-read, and terminal-send families. Internal (not private) so
-    /// the package tests can pin the exact set.
+    /// plus the blocking configuration mutations and the sidebar telemetry,
+    /// notification, terminal-read, resolution-read, and terminal-send
+    /// families. Internal (not private) so the package tests can pin the exact
+    /// set.
     static let socketWorkerV1Commands: Set<String> =
         sidebarTelemetryV1Commands
             .union(notificationV1Commands)
@@ -441,6 +455,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
             .union(diagnosticReadV1Commands)
             .union(resolutionReadV1Commands)
             .union(terminalSendV1Commands)
+            .union(configurationMutationV1Commands)
             .union(["ping", "screenshot"])
 
     /// Worker-lane v1 commands that are also safe to invoke from the main

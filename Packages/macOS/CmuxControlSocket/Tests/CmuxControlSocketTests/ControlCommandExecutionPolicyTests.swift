@@ -165,6 +165,19 @@ struct ControlCommandExecutionPolicyTests {
         )
     }
 
+    @Test func remoteTerminalReadinessRunsOffMainAndIsNotMainThreadCallable() {
+        #expect(
+            ControlCommandExecutionPolicy(
+                forMethod: "workspace.remote.terminal_session_launching"
+            ) == .socketWorker(mainThreadCallable: false)
+        )
+        #expect(
+            ControlCommandExecutionPolicy(
+                forMethod: "workspace.remote.terminal_session_connected"
+            ) == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
     @Test func diagnosticReadsRunOnTheWorkerAndAreNotMainThreadCallable() {
         #expect(ControlCommandExecutionPolicy(forV1Command: "iroh_diag") == .socketWorker(mainThreadCallable: false))
     }
@@ -318,17 +331,27 @@ struct ControlCommandExecutionPolicyTests {
         ]
         #expect(ControlCommandExecutionPolicy.terminalSendV1Commands == sends)
         let windowCapture: Set<String> = ["screenshot"]
+        let configurationMutations: Set<String> = [
+            "reload_config",
+        ]
+        #expect(
+            ControlCommandExecutionPolicy.configurationMutationV1Commands
+                == configurationMutations
+        )
         let expectedWorker = telemetry.union(notification).union(terminalRead)
-            .union(diagnosticRead)
-            .union(resolutionReads).union(sends).union(windowCapture).union(["ping"])
+            .union(diagnosticRead).union(resolutionReads).union(sends)
+            .union(configurationMutations).union(windowCapture).union(["ping"])
         #expect(ControlCommandExecutionPolicy.socketWorkerV1Commands == expectedWorker)
-        // Every member except terminal reads, diagnostic reads, and the async
-        // window capture is deliberately main-thread callable (deadlock-free
-        // inline: bus enqueues plus inline-collapsing hops).
+        // Every member except terminal and diagnostic reads, blocking
+        // configuration mutations, and async window capture is deliberately
+        // main-thread callable (deadlock-free inline: bus enqueues plus
+        // inline-collapsing hops).
         #expect(
             ControlCommandExecutionPolicy.mainThreadCallableSocketWorkerV1Commands
-                == expectedWorker.subtracting(terminalRead)
+                == expectedWorker
+                    .subtracting(terminalRead)
                     .subtracting(diagnosticRead)
+                    .subtracting(configurationMutations)
                     .subtracting(windowCapture)
         )
     }
