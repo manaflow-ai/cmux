@@ -942,6 +942,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     @discardableResult
     func updateReorderDrag(windowPoint: NSPoint) -> Bool {
         guard let actions, let table = containerView?.tableView else {
+            isReorderDropSessionActive = false
             reorderDragWindowPoint = nil
             retireReorderIndicator()
             return false
@@ -956,6 +957,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         else {
             reorderDragWindowPoint = nil
             retireReorderIndicator()
+            if isReorderDropSessionActive {
+                actions.updateDragAutoscroll()
+            }
             return false
         }
         reorderIndicatorPainter = SidebarWorkspaceTableReorderIndicatorPainter(
@@ -975,9 +979,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func retireReorderIndicator() {
         lastAcceptedReorderDropPlan = nil
-        guard reorderIndicatorPainter != nil else { return }
-        reorderIndicatorPainter = nil
-        clearReorderIndicatorPaintOnVisibleCells()
+        if reorderIndicatorPainter != nil {
+            reorderIndicatorPainter = nil
+            clearReorderIndicatorPaintOnVisibleCells()
+        }
         actions?.clearWorkspaceDropIndicator()
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
     }

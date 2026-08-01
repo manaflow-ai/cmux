@@ -94,6 +94,9 @@ public final class SidebarDragAutoScrollController: ObservableObject {
             x: mousePoint.x - clipView.bounds.origin.x,
             y: mousePoint.y - clipView.bounds.origin.y
         )
+        guard viewportPoint.x >= 0, viewportPoint.x <= clipView.bounds.width else {
+            return nil
+        }
         let distances = distancesToEdges(
             mousePoint: viewportPoint,
             viewportHeight: viewportHeight,
@@ -121,10 +124,7 @@ public final class SidebarDragAutoScrollController: ObservableObject {
         guard let documentView = scrollView.documentView else { return false }
         let clipView = scrollView.contentView
 
-        let delta = SidebarDragAutoScrollMotion.verticalDelta(
-            for: plan,
-            documentViewIsFlipped: documentView.isFlipped
-        )
+        let delta = plan.verticalDelta(documentViewIsFlipped: documentView.isFlipped)
         let currentY = clipView.bounds.origin.y
         // constrainBoundsRect is the boundary authority: unlike a manual
         // [0, contentHeight] clamp it honors the scroll view's content

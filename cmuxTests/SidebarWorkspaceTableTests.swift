@@ -308,9 +308,11 @@ struct SidebarWorkspaceTableTests {
         var plannedTargetCounts: [Int] = []
         var indicatorClears = 0
         var autoscrollUpdates = 0
+        var acceptsReorderUpdate = true
         let draggedId = ids[2]
         let actions = makeTableActions(
             updateWorkspaceDrag: { point, targets, _ in
+                guard acceptsReorderUpdate else { return nil }
                 plannedPoints.append(point)
                 plannedTargetCounts.append(targets.count)
                 return SidebarWorkspaceTableReorderDropUpdate(
@@ -366,8 +368,22 @@ struct SidebarWorkspaceTableTests {
         controller.viewportDidChange()
         await flushStagedTableMutations()
         #expect(plannedPoints.count == 2)
+
+        // A rejected hover still belongs to this drag session. Retiring its
+        // indicator stops autoscroll, so the native controller must restart
+        // the custom driver instead of leaving both drivers disabled.
+        let rejectedPoint = NSPoint(x: 50, y: 110)
+        let acceptedPointCount = plannedPoints.count
+        acceptsReorderUpdate = false
+        #expect(!controller.updateReorderDrag(windowPoint: rejectedPoint))
+        #expect(controller.isReorderDropSessionActive)
+        #expect(plannedPoints.count == acceptedPointCount)
+        #expect(indicatorClears == 2)
+        #expect(autoscrollUpdates == 4)
+
         controller.reorderDropSessionEnded()
         #expect(!controller.isReorderDropSessionActive)
+        #expect(indicatorClears == 3)
     }
 
     @Test

@@ -48,9 +48,25 @@ struct SidebarDragAutoScrollControllerTests {
 
         let nearTop = CGPoint(x: 100, y: clipView.bounds.origin.y + 10)
         #expect(controller.planForMousePoint(nearTop, in: clipView)?.direction == .up)
+        let aboveTop = CGPoint(x: 100, y: clipView.bounds.origin.y - 10)
+        #expect(controller.planForMousePoint(aboveTop, in: clipView)?.direction == .up)
 
         let nearBottom = CGPoint(x: 100, y: clipView.bounds.origin.y + clipView.bounds.height - 10)
         #expect(controller.planForMousePoint(nearBottom, in: clipView)?.direction == .down)
+    }
+
+    @Test
+    func edgePointersOutsideTheViewportWidthPlanNothing() {
+        let controller = SidebarDragAutoScrollController()
+        let scrollView = makeScrolledScrollView(offsetY: 2000)
+        let clipView = scrollView.contentView
+        let nearTopY = clipView.bounds.origin.y + 10
+
+        let leftOfViewport = CGPoint(x: clipView.bounds.minX - 1, y: nearTopY)
+        #expect(controller.planForMousePoint(leftOfViewport, in: clipView) == nil)
+
+        let rightOfViewport = CGPoint(x: clipView.bounds.maxX + 1, y: nearTopY)
+        #expect(controller.planForMousePoint(rightOfViewport, in: clipView) == nil)
     }
 
     @Test
@@ -62,14 +78,12 @@ struct SidebarDragAutoScrollControllerTests {
         #expect(clipView.isFlipped)
         #expect(tableView?.isFlipped == true)
         #expect(
-            SidebarDragAutoScrollMotion.verticalDelta(
-                for: SidebarAutoScrollPlan(direction: .up, pointsPerTick: 12),
+            SidebarAutoScrollPlan(direction: .up, pointsPerTick: 12).verticalDelta(
                 documentViewIsFlipped: tableView?.isFlipped == true
             ) == -12
         )
         #expect(
-            SidebarDragAutoScrollMotion.verticalDelta(
-                for: SidebarAutoScrollPlan(direction: .down, pointsPerTick: 12),
+            SidebarAutoScrollPlan(direction: .down, pointsPerTick: 12).verticalDelta(
                 documentViewIsFlipped: tableView?.isFlipped == true
             ) == 12
         )
