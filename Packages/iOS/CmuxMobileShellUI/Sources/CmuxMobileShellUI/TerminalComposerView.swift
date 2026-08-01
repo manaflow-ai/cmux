@@ -343,6 +343,7 @@ struct TerminalComposerView: View {
                     .focused($isFieldFocused)
                     .simultaneousGesture(
                         TapGesture().onEnded {
+                            guard !dictation.locksComposerField else { return }
                             requestInputFocus()
                         }
                     )

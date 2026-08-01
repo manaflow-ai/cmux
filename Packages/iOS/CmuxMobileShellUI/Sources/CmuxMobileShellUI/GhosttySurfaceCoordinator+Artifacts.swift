@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileShell
 import CmuxMobileTerminal
+import CmuxMobileTerminalKit
 import SwiftUI
 import UIKit
 
@@ -374,19 +375,25 @@ extension GhosttySurfaceRepresentable.Coordinator {
             _ surfaceView: GhosttySurfaceView,
             inputPolicyForTapAtCol col: Int,
             row: Int
-        ) -> GhosttySurfaceTapInputPolicy {
-            guard self.surfaceView === surfaceView,
-                  artifactFilesEnabled,
-                  let snapshot = surfaceView.cachedVisibleTextForArtifactHitTesting(),
-                  TerminalArtifactTapHitTester().path(
-                    in: snapshot.text,
+        ) -> TerminalInputTapIntent {
+            guard self.surfaceView === surfaceView else {
+                return .deferForArtifactDecision
+            }
+            let snapshot = surfaceView.cachedVisibleTextForArtifactHitTesting()
+            let containsCandidate = snapshot.map {
+                TerminalArtifactTapHitTester().path(
+                    in: $0.text,
                     col: col,
                     row: row,
-                    columns: snapshot.columns
-                  ) != nil else {
-                return .focusImmediately
-            }
-            return .deferForArtifactDecision
+                    columns: $0.columns
+                ) != nil
+            } ?? false
+            return TerminalInputTapIntent.artifactAware(
+                artifactDetectionEnabled: artifactFilesEnabled,
+                currentSnapshotGeneration: surfaceView.visibleArtifactCountGeneration,
+                cachedSnapshotGeneration: snapshot?.generation,
+                cachedSnapshotContainsCandidate: containsCandidate
+            )
         }
 
         func ghosttySurfaceView(

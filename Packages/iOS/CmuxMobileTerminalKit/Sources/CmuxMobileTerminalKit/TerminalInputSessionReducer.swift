@@ -22,11 +22,31 @@ public enum TerminalInputModalPhase: Equatable, Sendable {
 
 /// Synchronous focus policy for a terminal tap.
 public enum TerminalInputTapIntent: Equatable, Sendable {
-    /// No cached artifact path covers the cell, so focus immediately.
+    /// A fresh artifact snapshot proves no path covers the cell, so focus immediately.
     case immediateInput
-    /// A cached path covers the cell. Wait for its asynchronous classification
-    /// so opening a file does not flash the keyboard first.
+    /// The artifact snapshot is missing, stale, or covers the cell. Wait for its
+    /// asynchronous classification so opening a file does not flash the keyboard first.
     case deferForArtifactDecision
+
+    /// Resolves artifact interception from one generation-stamped cache read.
+    ///
+    /// A stale cache cannot prove the current cell is ordinary terminal content:
+    /// a path may have appeared after that snapshot. Only a fresh cache without a
+    /// candidate grants synchronous terminal focus.
+    public static func artifactAware(
+        artifactDetectionEnabled: Bool,
+        currentSnapshotGeneration: UInt64,
+        cachedSnapshotGeneration: UInt64?,
+        cachedSnapshotContainsCandidate: Bool
+    ) -> Self {
+        guard artifactDetectionEnabled else { return .immediateInput }
+        guard cachedSnapshotGeneration == currentSnapshotGeneration else {
+            return .deferForArtifactDecision
+        }
+        return cachedSnapshotContainsCandidate
+            ? .deferForArtifactDecision
+            : .immediateInput
+    }
 }
 
 /// Result of asynchronously classifying a cached artifact-path candidate.
@@ -56,6 +76,8 @@ public enum TerminalInputSessionEvent: Equatable, Sendable {
     case modalDidDismiss
     case sceneWillResignActive
     case sceneDidBecomeActive
+    /// The view left its window while the application scene stayed active.
+    case surfaceDetached
     /// A responder became available or UIKit completed a lifecycle transition.
     /// Retries a retained request without introducing a timer or runloop hop.
     case lifecycleBoundary
@@ -202,6 +224,13 @@ public struct TerminalInputSessionState: Equatable, Sendable {
         case .sceneDidBecomeActive:
             scenePhase = .active
             reconcileFocus(commands: &transition.commands)
+
+        case .surfaceDetached:
+            requestedOwner = nil
+            deferredTapID = nil
+            if let actualOwner {
+                transition.commands.append(.resign(actualOwner))
+            }
 
         case .lifecycleBoundary:
             reconcileFocus(commands: &transition.commands)

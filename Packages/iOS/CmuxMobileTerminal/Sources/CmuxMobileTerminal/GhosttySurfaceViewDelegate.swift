@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxMobileTerminalKit
 import Foundation
 import UIKit
 
@@ -30,14 +31,13 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// (sign = direction), `col`/`row` is the grid cell under the finger (so
     /// alt-screen mouse-wheel reports at the right cell). Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int)
-    /// Resolves immediate input ownership without waiting for snapshot or RPC work.
-    /// Hosts defer only when a settled cached snapshot contains a path candidate
-    /// under this cell; absence of a cached candidate defaults to immediate focus.
+    /// Resolves immediate input ownership from a generation-stamped artifact cache.
+    /// Hosts defer when the cache is missing, stale, or contains a candidate.
     func ghosttySurfaceView(
         _ surfaceView: GhosttySurfaceView,
         inputPolicyForTapAtCol col: Int,
         row: Int
-    ) -> GhosttySurfaceTapInputPolicy
+    ) -> TerminalInputTapIntent
     /// Forward a tap to the Mac's real surface as a left click at the given grid
     /// cell, so TUIs with mouse reporting (lazygit/htop/fzf) receive the click.
     /// The Mac's libghostty self-gates: a normal screen treats it as a harmless
@@ -102,8 +102,8 @@ public extension GhosttySurfaceViewDelegate {
         _ surfaceView: GhosttySurfaceView,
         inputPolicyForTapAtCol col: Int,
         row: Int
-    ) -> GhosttySurfaceTapInputPolicy {
-        .focusImmediately
+    ) -> TerminalInputTapIntent {
+        .immediateInput
     }
     /// Default terminal disposition so hosts without remote click forwarding retain input focus.
     func ghosttySurfaceView(

@@ -1,10 +1,4 @@
 #if canImport(UIKit)
-/// Synchronous keyboard policy decided from the host's last settled artifact snapshot.
-public enum GhosttySurfaceTapInputPolicy: Sendable {
-    case focusImmediately
-    case deferForArtifactDecision
-}
-
 /// Tells the terminal surface whether a completed tap should claim keyboard focus.
 public enum GhosttySurfaceTapDisposition: Sendable {
     /// The host opened an artifact for the tapped path; terminal focus must remain unchanged.

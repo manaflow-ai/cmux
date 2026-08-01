@@ -208,6 +208,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var visibleArtifactCountTask: Task<Void, Never>?
     var lastVisibleArtifactSnapshotText: String?
     var lastVisibleArtifactSnapshotColumns: Int?
+    var lastVisibleArtifactSnapshotGeneration: UInt64?
     var lastReportedVisibleArtifactCount = 0
 
     /// Current visible-snapshot generation used to reject stale artifact totals.
@@ -2003,17 +2004,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             setChromeHidden(false)
         }
         let cell = scrollCell(at: gesture.location(in: self))
-        let inputPolicy = delegate?.ghosttySurfaceView(
+        let tapIntent = delegate?.ghosttySurfaceView(
             self,
             inputPolicyForTapAtCol: cell.col,
             row: cell.row
-        ) ?? .focusImmediately
+        ) ?? .immediateInput
         var deferredTapID: UInt64?
-        switch inputPolicy {
-        case .focusImmediately:
-            // Input ownership is synchronous and independent of the async Mac
-            // click. A normal terminal tap can no longer wait for a visible-text
-            // snapshot or be invalidated by another tap's click generation.
+        switch tapIntent {
+        case .immediateInput:
+            // A fresh cache proved this is ordinary terminal content, so input
+            // ownership is synchronous and independent of the async Mac click.
+            // Click-generation invalidation cannot starve this focus request.
             if wasHidden, composerActive {
                 requestComposerInputFocus()
             } else {
@@ -2816,9 +2817,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public func resignCurrentInput() {
         synchronizeActualInputOwner()
         inputSession.send(.releaseFocus)
-        if inputSession.state.actualOwner == nil {
-            inputActualOwnerDidChange(nil)
-        }
     }
 
     /// Resigns this surface's hidden text input and clears keyboard geometry.
@@ -2856,6 +2854,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         visibleArtifactSnapshotGeneration &+= 1
         lastVisibleArtifactSnapshotText = nil
         lastVisibleArtifactSnapshotColumns = nil
+        lastVisibleArtifactSnapshotGeneration = nil
         lastReportedVisibleArtifactCount = 0
         delegate?.ghosttySurfaceViewDidResetArtifactCount(self)
         artifactChipHost.setContent(nil)
@@ -2868,7 +2867,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlight = false
         renderInFlightSince = nil
         needsAnotherRender = false
-        inputSession.send(.sceneWillResignActive)
+        inputSession.send(.surfaceDetached)
         stopKeyboardHeightAnimation()
         stopDisplayLink()
         setFocus(false)
