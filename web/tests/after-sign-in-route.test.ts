@@ -25,6 +25,7 @@ const signOut = mock((options?: unknown) => {
 });
 
 const { makeAfterSignInHandler } = await import("../app/handler/after-sign-in/handler");
+const { appPricingNativeReturnURL } = await import("../app/lib/billing");
 const { GET: startNativeSignIn } = await import("../app/handler/native-sign-in/route");
 const { makeSignOutAndSignInHandler } = await import("../app/handler/sign-out-and-sign-in/route");
 
@@ -221,6 +222,54 @@ describe("after sign-in native handoff", () => {
     expect(callbackURL.searchParams.get("stack_access")).toBe(
       JSON.stringify(["anon-refresh", "anon-access"]),
     );
+  });
+
+  test("accepts only signed tagged purchase callbacks on the deployed host", async () => {
+    const previousSecret = process.env.CMUX_APP_PRICING_RELAY_SECRET;
+    process.env.CMUX_APP_PRICING_RELAY_SECRET =
+      "pricing-relay-test-secret-with-at-least-32-bytes";
+    try {
+      const afterSignIn = appPricingNativeReturnURL(
+        new URL("/handler/after-sign-in", "https://cmux.test"),
+        "cmux-dev-test://auth-callback",
+        "cs_123",
+      );
+      const response = await GET(new NextRequest(afterSignIn));
+
+      expect(response.status).toBe(200);
+      const html = await response.text();
+      expect(returnHref(html)).toContain(
+        "cmux-dev-test://auth-callback",
+      );
+      const switchURL = new URL(switchAccountHref(html), "https://cmux.test");
+      const nativeSignInTarget = new URL(
+        switchURL.searchParams.get("after_auth_return_to")!,
+        "https://cmux.test",
+      );
+      const preservedAfterSignIn = new URL(
+        nativeSignInTarget.searchParams.get("after_auth_return_to")!,
+        "https://cmux.test",
+      );
+      expect(preservedAfterSignIn.searchParams.get("cmux_checkout_session")).toBe(
+        "cs_123",
+      );
+      expect(preservedAfterSignIn.searchParams.get("cmux_native_return_signature"))
+        .toMatch(/^[a-f0-9]{64}$/);
+
+      afterSignIn.searchParams.set(
+        "native_app_return_to",
+        "cmux-dev-other://auth-callback",
+      );
+      const tamperedResponse = await GET(new NextRequest(afterSignIn));
+      expect(tamperedResponse.status).toBe(307);
+      expect(tamperedResponse.headers.get("location")).toBe("https://cmux.test/");
+    } finally {
+      if (previousSecret === undefined) {
+        delete process.env.CMUX_APP_PRICING_RELAY_SECRET;
+      } else {
+        process.env.CMUX_APP_PRICING_RELAY_SECRET = previousSecret;
+      }
+    }
   });
 });
 

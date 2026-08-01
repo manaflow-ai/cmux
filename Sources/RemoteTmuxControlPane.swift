@@ -1,8 +1,7 @@
 import Bonsplit
 import Foundation
 
-/// A read-only control-plane projection of one pane rendered inside a
-/// multi-pane remote-tmux window mirror.
+/// A read-only control-plane projection of one pane in a mirrored tmux session.
 @MainActor
 struct RemoteTmuxControlPane {
     let tmuxPaneID: Int

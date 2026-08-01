@@ -5,6 +5,9 @@ import CmuxSwiftRender
 
 extension ContentView {
     static func commandPaletteShortcutAction(forCommandID commandId: String) -> KeyboardShortcutSettings.Action? {
+        if let movement = SurfacePaneMovement(commandID: commandId) {
+            return movement.shortcutAction
+        }
         if let rightSidebarModeAction = commandPaletteRightSidebarModeShortcutAction(forCommandID: commandId) {
             return rightSidebarModeAction
         }
@@ -20,6 +23,8 @@ extension ContentView {
             return .openFolder
         case "palette.reopenPreviousSession":
             return .reopenPreviousSession
+        case "palette.reopenClosedWorkspace":
+            return .reopenClosedWorkspace
         case "palette.reopenClosedBrowserTab":
             return .reopenClosedBrowserPanel
         case "palette.newTerminalTab":
@@ -44,10 +49,16 @@ extension ContentView {
             return .renameWorkspace
         case "palette.editWorkspaceDescription":
             return .editWorkspaceDescription
+        case "palette.markWorkspaceDone":
+            return .markWorkspaceDone
         case "palette.nextWorkspace":
             return .nextSidebarTab
         case "palette.previousWorkspace":
             return .prevSidebarTab
+        case "palette.moveWorkspaceUp":
+            return .moveWorkspaceUp
+        case "palette.moveWorkspaceDown":
+            return .moveWorkspaceDown
         case "palette.nextTabInPane":
             return .nextSurface
         case "palette.previousTabInPane":

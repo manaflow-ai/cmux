@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 import Testing
 
@@ -303,24 +304,6 @@ import Testing
         #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [c, b]) == nil)
     }
 
-    @Test func singlePaneDisplaySeedsOnlySinglePaneWindows() throws {
-        let singlePane = RemoteTmuxWindow(
-            id: 1,
-            width: 80,
-            height: 24,
-            layout: try #require(RemoteTmuxRawLayoutParser.parse("80x24,0,0,1"))
-        )
-        let multiPane = RemoteTmuxWindow(
-            id: 2,
-            width: 120,
-            height: 40,
-            layout: try #require(RemoteTmuxRawLayoutParser.parse("abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}"))
-        )
-
-        #expect(RemoteTmuxSessionMirror.shouldSeedSinglePaneDisplay(for: singlePane))
-        #expect(!RemoteTmuxSessionMirror.shouldSeedSinglePaneDisplay(for: multiPane))
-    }
-
     // MARK: - Reconnect: session-gone classification
 
     @Test func stderrSessionGoneIsDetected() {
@@ -411,6 +394,10 @@ import Testing
     @Test func rejectsSingleChildSplit() {
         // A split must have at least two children; one child is malformed.
         #expect(RemoteTmuxRawLayoutParser.parse("abcd,60x40,0,0{60x40,0,0,4}") == nil)
+    }
+
+    @Test func rejectsDuplicatePaneIDs() {
+        #expect(RemoteTmuxRawLayoutParser.parse("abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,4}") == nil)
     }
 
     @Test func rejectsGarbageLayout() {

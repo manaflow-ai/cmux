@@ -202,6 +202,47 @@ struct CrashDiagnosticSessionPolicyTests {
         ])
     }
 
+    @Test(arguments: [Float(13), Float(510)])
+    func sessionSnapshotKeepsCrashWorkspaceWithValidExplicitFontSize(fontSize: Float) {
+        let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
+            .path
+        let projectDirectory = "/tmp/cmux-project"
+        let snapshot = crashAndProjectSnapshot(
+            crashDirectory: crashDirectory,
+            projectDirectory: projectDirectory,
+            fontSize: fontSize
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+
+        #expect(!pruned.removedAny)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) == [
+            crashDirectory,
+            projectDirectory,
+        ])
+    }
+
+    @Test(arguments: [Float.zero, -1, .nan, .infinity, 511, .greatestFiniteMagnitude])
+    func sessionSnapshotPrunesCrashWorkspaceWithInvalidFontSize(fontSize: Float) {
+        let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
+            .path
+        let projectDirectory = "/tmp/cmux-project"
+        let snapshot = crashAndProjectSnapshot(
+            crashDirectory: crashDirectory,
+            projectDirectory: projectDirectory,
+            fontSize: fontSize
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+
+        #expect(pruned.removedAny)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) == [
+            projectDirectory,
+        ])
+    }
+
     @Test
     func sessionSnapshotPruningDoesNotResolveSymlinkedCrashDirectories() throws {
         let root = FileManager.default.temporaryDirectory
@@ -357,6 +398,37 @@ struct CrashDiagnosticSessionPolicyTests {
             logEntries: [],
             progress: nil,
             gitBranch: nil
+        )
+    }
+
+    private func crashAndProjectSnapshot(
+        crashDirectory: String,
+        projectDirectory: String,
+        fontSize: Float
+    ) -> AppSessionSnapshot {
+        AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: SessionTabManagerSnapshot(
+                        selectedWorkspaceIndex: 0,
+                        workspaces: [
+                            terminalWorkspaceSnapshot(
+                                currentDirectory: crashDirectory,
+                                terminal: SessionTerminalPanelSnapshot(
+                                    workingDirectory: crashDirectory,
+                                    fontSize: fontSize
+                                )
+                            ),
+                            emptyWorkspaceSnapshot(currentDirectory: projectDirectory),
+                        ]
+                    ),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
         )
     }
 

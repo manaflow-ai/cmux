@@ -1,7 +1,12 @@
 import { useLocale, useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
-import { buildAlternates } from "@/i18n/seo";
+import {
+  buildAlternates,
+  openGraphDefaults,
+  twitterSummary,
+} from "@/i18n/seo";
+import { comparePageSeoCopy } from "@/i18n/audited-seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import {
   comparePageForSlug,
@@ -35,27 +40,32 @@ export async function generateMetadata({
 
   const namespace = `landing.compare.pages.${page.key}`;
   const t = await getTranslations({ locale, namespace });
+  const landingLinks = await getTranslations({
+    locale,
+    namespace: "landing.links",
+  });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
   const path = comparePath(page.slug);
   const alternates = buildAlternates(locale, path);
-  const title = t("metaTitle");
-  const description = t("metaDescription");
+  const { title, description } = comparePageSeoCopy(
+    locale,
+    page.key,
+    t,
+    landingLinks,
+    siteMeta,
+  );
 
   return {
     title,
     description,
     alternates,
     openGraph: {
+      ...openGraphDefaults(locale, "article"),
       title,
       description,
       url: alternates.canonical,
-      siteName: "cmux",
-      type: "article",
     },
-    twitter: {
-      card: "summary_large_image",
-      title,
-      description,
-    },
+    twitter: twitterSummary(locale, title, description),
   };
 }
 
@@ -96,8 +106,10 @@ function ComparePageContent({
   const t = useTranslations(namespace);
   const tl = useTranslations("landing.links");
   const tc = useTranslations("landing.compare");
+  const siteMeta = useTranslations("meta");
   const locale = useLocale();
   const path = comparePath(slug);
+  const seoCopy = comparePageSeoCopy(locale, pageKey, t, tl, siteMeta);
   const sections = t.raw("sections") as Section[];
   const table = t.raw("table") as Table;
   const qas = [1, 2, 3].map((n) => ({
@@ -112,8 +124,8 @@ function ComparePageContent({
         data={articleSchema({
           locale,
           path,
-          headline: t("title"),
-          description: t("metaDescription"),
+          headline: seoCopy.title,
+          description: seoCopy.description,
           datePublished: lastModified,
           dateModified: lastModified,
         })}

@@ -119,8 +119,7 @@ extension BrowserPanel {
         source: String
     ) -> Bool {
         guard detachedDeveloperToolsWindowBelongsToPanel(window) else { return false }
-        developerToolsTransitionSettleWorkItem?.cancel()
-        developerToolsTransitionSettleWorkItem = nil
+        cancelDeveloperToolsTransitionSettle()
         pendingDeveloperToolsTransitionTargetVisible = nil
         developerToolsTransitionTargetVisible = nil
         cancelDetachedDeveloperToolsWindowCloseResolution()
@@ -219,6 +218,7 @@ extension BrowserPanel {
         developerToolsPreservedVisibleIntentForNextAttach = false
         developerToolsLastKnownVisibleAt = Date()
         developerToolsLastAttachedHostAt = Date()
+        resetAutomationViewportForAttachedBrowserInspector()
         setPreferredDeveloperToolsPresentation(.attached)
         setPreferredDeveloperToolsVisible(true)
         cancelDeveloperToolsRestoreRetry()

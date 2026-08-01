@@ -3,16 +3,17 @@ import CmuxMobileSupport
 import SwiftUI
 
 extension WorkspaceListView {
-    var newWorkspaceButton: some View {
-        Button {
-            guard canCreateWorkspaceForMacSelection else { return }
-            createWorkspace()
-        } label: {
-            Image(systemName: "plus")
-        }
-        .disabled(!canCreateWorkspaceForMacSelection)
-        .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
-        .accessibilityIdentifier("MobileNewWorkspaceButton")
+    var newWorkspaceButton: WorkspaceListNewWorkspaceMenu {
+        WorkspaceListNewWorkspaceMenu(
+            value: WorkspaceListNewWorkspaceMenuValue(
+                canCreate: canCreateWorkspaceForMacSelection,
+                canCreateGroup: createWorkspaceGroup != nil
+            ),
+            actions: WorkspaceListNewWorkspaceMenuActions(
+                createWorkspace: createWorkspace,
+                createWorkspaceGroup: createWorkspaceGroup
+            )
+        )
     }
 
     @discardableResult
@@ -53,6 +54,51 @@ extension WorkspaceListView {
             workspacePendingCloseID = workspaceID
         }
     }
+
+    #if os(iOS)
+    var requestWorkspaceRename: ((CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Void)? {
+        guard renameWorkspace != nil else { return nil }
+        return { workspacePendingRenameID = $0 }
+    }
+
+    var requestWorkspaceCustomization: ((CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Void)? {
+        guard customizeWorkspace != nil else { return nil }
+        return { workspacePendingCustomizationID = $0 }
+    }
+
+    var workspaceRenameIsPresented: Binding<Bool> {
+        Binding(
+            get: { workspacePendingRenameID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    workspacePendingRenameID = nil
+                }
+            }
+        )
+    }
+
+    var workspaceCustomizationIsPresented: Binding<Bool> {
+        Binding(
+            get: { workspacePendingCustomizationID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    workspacePendingCustomizationID = nil
+                }
+            }
+        )
+    }
+
+    var workspaceCloseConfirmationIsPresented: Binding<Bool> {
+        Binding(
+            get: { workspacePendingCloseID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    workspacePendingCloseID = nil
+                }
+            }
+        )
+    }
+    #endif
 
     func closeConfirmationBinding(for workspaceID: CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Binding<Bool> {
         Binding(

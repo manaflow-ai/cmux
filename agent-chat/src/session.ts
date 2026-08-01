@@ -372,6 +372,11 @@ export function useSession(): SessionState {
           case "options-list":
             setProviderOptions((m) => ({ ...m, [msg.provider]: msg.options ?? [] }));
             break;
+          case "model-catalog":
+            if (msg.options && typeof msg.options === "object") {
+              setProviderOptions((current) => ({ ...current, ...msg.options }));
+            }
+            break;
           case "commands-list":
             setProviderCommands((m) => ({ ...m, [msg.provider]: msg.groups ?? [] }));
             break;

@@ -34,6 +34,39 @@ let sql: Sql | null = null;
 
 const DEVICE_A = "11111111-1111-4111-8111-111111111111";
 const DEVICE_B = "22222222-2222-4222-8222-222222222222";
+const IROH_ENDPOINT_ID = "a".repeat(64);
+const APPROVED_IROH_RELAY = "https://use4.relay.cmux.dev/";
+
+const legacyTailscaleRoute = {
+  id: "legacy",
+  kind: "tailscale",
+  priority: 0,
+  endpoint: { type: "host_port", host: "100.64.1.2", port: 51001 },
+};
+
+const privateIrohRoute = {
+  id: "iroh-private",
+  kind: "iroh",
+  priority: 1,
+  endpoint: {
+    type: "peer",
+    id: IROH_ENDPOINT_ID,
+    relay_hint: "legacy-private-relay-hint",
+    relay_url: APPROVED_IROH_RELAY,
+    direct_addrs: ["192.168.1.20:49152", "100.64.1.2:49152"],
+  },
+};
+
+const publicIrohRoute = {
+  id: "iroh-private",
+  kind: "iroh",
+  priority: 1,
+  endpoint: {
+    type: "peer",
+    id: IROH_ENDPOINT_ID,
+    relay_url: APPROVED_IROH_RELAY,
+  },
+};
 
 function authHeaders(teamId?: string): Record<string, string> {
   const base: Record<string, string> = {
@@ -254,6 +287,70 @@ describe("device registry route", () => {
     expect(routes).toHaveLength(2);
   });
 
+  dbTest("persists and returns only public Iroh rendezvous data while preserving legacy routes", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    const register = await POST(
+      registerRequest({
+        deviceId: DEVICE_A,
+        platform: "mac",
+        tag: "stable",
+        routes: [
+          legacyTailscaleRoute,
+          privateIrohRoute,
+          {
+            ...privateIrohRoute,
+            id: "iroh-unmanaged-relay",
+            endpoint: {
+              ...privateIrohRoute.endpoint,
+              relay_url: "https://attacker.example/relay",
+            },
+          },
+        ],
+      }),
+    );
+    expect(register.status).toBe(200);
+
+    const [{ routes: storedRoutes }] = await sql<{ routes: unknown[] }[]>`
+      select routes from device_app_instances
+      where device_id in (select id from devices where device_uuid = ${DEVICE_A})
+        and tag = 'stable'
+    `;
+    expect(storedRoutes).toEqual([
+      legacyTailscaleRoute,
+      publicIrohRoute,
+      {
+        ...publicIrohRoute,
+        id: "iroh-unmanaged-relay",
+        endpoint: { type: "peer", id: IROH_ENDPOINT_ID },
+      },
+    ]);
+    expect(JSON.stringify(storedRoutes)).not.toContain("192.168.1.20");
+    expect(JSON.stringify(storedRoutes)).not.toContain("legacy-private-relay-hint");
+    expect(JSON.stringify(storedRoutes)).not.toContain("attacker.example");
+
+    // Simulate an unsafe Iroh route written by a pre-hardening deployment. A
+    // same-team member must not receive its private hints from the GET boundary.
+    await sql`
+      update device_app_instances
+      set routes = ${sql.json([legacyTailscaleRoute, privateIrohRoute])}
+      where device_id in (select id from devices where device_uuid = ${DEVICE_A})
+        and tag = 'stable'
+    `;
+    currentUserId = "registry-user-2";
+    const listResponse = await GET(
+      new Request("https://cmux.test/api/devices", { method: "GET", headers: authHeaders() }),
+    );
+    expect(listResponse.status).toBe(200);
+    const list = (await listResponse.json()) as {
+      devices: Array<{ instances: Array<{ routes: unknown[] }> }>;
+    };
+    const returnedRoutes = list.devices[0]?.instances[0]?.routes;
+    expect(returnedRoutes).toEqual([legacyTailscaleRoute, publicIrohRoute]);
+    expect(JSON.stringify(returnedRoutes)).not.toContain("192.168.1.20");
+    expect(JSON.stringify(returnedRoutes)).not.toContain("legacy-private-relay-hint");
+  });
+
   dbTest("registers the same device UUID in two teams the user belongs to", async () => {
     if (!sql) throw new Error("test database not initialized");
 
@@ -415,13 +512,12 @@ describe("device registry route", () => {
     }
   });
 
-  test("hostIsTailscaleAttachable accepts only CGNAT and *.ts.net", () => {
+  test("hostIsTailscaleAttachable accepts only numeric Tailscale peer addresses", () => {
     for (const host of [
       "100.64.0.1",
       "100.127.255.255",
       "100.100.5.7",
-      "my-mac.tailnet.ts.net",
-      "MY-MAC.TS.NET",
+      "fd7a:115c:a1e0::1",
     ]) {
       expect(hostIsTailscaleAttachable(host)).toBe(true);
     }
@@ -434,9 +530,9 @@ describe("device registry route", () => {
       "8.8.8.8",
       "example.com",
       "my-mac.local",
-      "fd7a:115c:a1e0::1",
-      // Malformed .ts.net strings that pass a naive suffix check but are not
-      // dialable bare hosts.
+      "my-mac.tailnet.ts.net",
+      "MY-MAC.TS.NET",
+      // MagicDNS never crosses this persistence boundary, valid or malformed.
       "bad host.ts.net",
       "https://mac.ts.net",
       "mac.ts.net:51001",
@@ -448,6 +544,10 @@ describe("device registry route", () => {
       "0100.64.1.2",
       "100.064.1.2",
       "100.64.01.2",
+      "100.100.100.100",
+      "100.100.0.1",
+      "100.115.92.1",
+      "fd7a:115c:a1e0::53",
     ]) {
       expect(hostIsTailscaleAttachable(host)).toBe(false);
     }
@@ -464,7 +564,8 @@ describe("device registry route", () => {
     ];
     // Valid: id present, tailscale host:port, attachable host, in-range port.
     expect(manualRoutesAreValid(ok())).toBe(true);
-    expect(manualRoutesAreValid(ok({}, { host: "my-mac.ts.net", port: 1 }))).toBe(true);
+    expect(manualRoutesAreValid(ok({}, { host: "fd7a:115c:a1e0::1", port: 1 }))).toBe(true);
+    expect(manualRoutesAreValid(ok({}, { host: "my-mac.ts.net", port: 1 }))).toBe(false);
     expect(manualRoutesAreValid(ok({ priority: 0 }))).toBe(true); // integer priority ok
     expect(manualRoutesAreValid(ok({ priority: 5 }))).toBe(true);
     expect(manualRoutesAreValid(ok({ priority: "0" }))).toBe(false); // string priority (iOS drops it)

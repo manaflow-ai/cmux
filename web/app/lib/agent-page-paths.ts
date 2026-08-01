@@ -1,7 +1,17 @@
 import { locales } from "../../i18n/routing";
 import { comparePages, comparePath } from "./compare-pages";
 import type { ComparePageKey } from "./compare-pages";
-import { featureWorkflowContentLocales } from "../../i18n/locale-availability";
+import {
+  DOWNLOAD_PLATFORMS,
+  PLATFORM_DOWNLOADS,
+  type DownloadPlatform,
+} from "./download";
+import {
+  englishFallbackContentLocales,
+  fallbackContentLocales,
+  featureWorkflowContentLocales,
+  remoteTmuxDocsLocales,
+} from "../../i18n/locale-availability";
 
 export type AgentPageFormat = "md" | "txt";
 
@@ -103,16 +113,34 @@ const agentReadableComparePages = comparePages.map((page) => ({
   title: comparePageTitles[page.key],
 }));
 
+const agentReadableDownloadTitles = {
+  windows: "cmux for Windows",
+  linux: "cmux for Linux",
+} satisfies Record<DownloadPlatform, string>;
+
+const agentReadableDownloadPages = DOWNLOAD_PLATFORMS.map((platform) => ({
+  path: PLATFORM_DOWNLOADS[platform].page,
+  title: agentReadableDownloadTitles[platform],
+}));
+
 export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/ios", title: "cmux iOS" },
-  { path: "/pricing", title: "Pricing" },
+  ...agentReadableDownloadPages,
+  { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
   { path: "/enterprise", title: "Enterprise" },
   { path: "/blog", title: "Blog" },
   {
-    path: "/blog/claude-code-best-worktree-manager",
-    title: "Claude Code Is The Best Worktree Manager",
+    path: "/blog/367-billion-tokens",
+    title: "How I used 367 billion tokens in 30 days",
+    locales: fallbackContentLocales,
   },
+  {
+    path: "/blog/claude-code-best-worktree-manager",
+    title: "Superrepos and Why Claude Code Is the Best Worktree Manager",
+    locales: fallbackContentLocales,
+  },
+  { path: "/blog/cmux-fork", title: "Introducing cmux Fork" },
   { path: "/blog/cmux-home", title: "cmux home" },
   { path: "/blog/cmux-history", title: "cmux history" },
   { path: "/blog/cmux-finder", title: "Introducing cmux Finder" },
@@ -122,16 +150,26 @@ export const agentReadablePages = [
   { path: "/blog/markdown-viewer", title: "A better markdown viewer in cmux" },
   { path: "/blog/unread-shortcuts", title: "Unread workspace shortcuts in cmux" },
   { path: "/blog/session-restore", title: "Session restore in cmux" },
-  { path: "/blog/cmux-ssh", title: "cmux SSH" },
+  {
+    path: "/blog/cmux-ssh",
+    title: "cmux SSH",
+    locales: fallbackContentLocales,
+  },
   {
     path: "/blog/cmux-claude-teams",
     title: "Claude Code teammate agents as native cmux panes",
+    locales: englishFallbackContentLocales,
   },
   {
     path: "/blog/cmux-omo",
     title: "oh-my-openagent subagents as native cmux panes",
+    locales: englishFallbackContentLocales,
   },
-  { path: "/blog/gpl", title: "cmux is now GPL" },
+  {
+    path: "/blog/gpl",
+    title: "cmux is now GPL",
+    locales: englishFallbackContentLocales,
+  },
   { path: "/blog/cmd-shift-u", title: "Cmd+Shift+U" },
   { path: "/blog/zen-of-cmux", title: "The Zen of cmux" },
   { path: "/blog/show-hn-launch", title: "Launching cmux on Show HN" },
@@ -139,7 +177,6 @@ export const agentReadablePages = [
   { path: "/docs", title: "Docs" },
   { path: "/docs/getting-started", title: "Getting Started" },
   { path: "/docs/concepts", title: "Concepts" },
-  { path: "/docs/base", title: "Base" },
   { path: "/docs/workspace-groups", title: "Workspace Groups" },
   { path: "/docs/configuration", title: "Configuration" },
   { path: "/docs/textbox", title: "TextBox" },
@@ -154,6 +191,7 @@ export const agentReadablePages = [
   { path: "/docs/skills", title: "Skills" },
   { path: "/docs/notifications", title: "Notifications" },
   { path: "/docs/ssh", title: "SSH" },
+  { path: "/docs/remote-tmux", title: "Remote tmux", locales: remoteTmuxDocsLocales },
   { path: "/docs/ios", title: "iOS App" },
   {
     path: "/docs/agent-integrations/claude-code-teams",
@@ -170,6 +208,7 @@ export const agentReadablePages = [
   {
     path: "/docs/agent-integrations/oh-my-pi",
     title: "oh-my-pi",
+    locales: fallbackContentLocales,
   },
   {
     path: "/docs/agent-integrations/oh-my-claudecode",
@@ -288,7 +327,10 @@ export function buildLlmsText(origin: string): string {
     "- Built on: libghostty (the Ghostty terminal engine)",
     "- Works with: Claude Code, Codex, OpenCode, Gemini CLI, Aider, and any CLI tool",
     "- Automation: `cmux` CLI and Unix socket API, browser automation, hooks, skills, and custom commands",
+    "- Remote tmux: attach to existing tmux sessions over SSH while preserving cmux workspaces and notifications.",
+    "- Agent pages: every public page has Markdown and plain-text variants for AI crawlers and answer engines.",
     `- Download: ${origin}/docs/getting-started`,
+    `- Updates: ${origin}/feed.xml`,
     "- Source: https://github.com/manaflow-ai/cmux",
     "",
     "## Comparisons and buying guides",

@@ -2,24 +2,27 @@ import Foundation
 
 @MainActor
 extension RemoteTmuxWindowMirror {
+    /// Live pane surface identities in the same order as the rendered layout.
+    var surfaceIDsInLayoutOrder: [UUID] {
+        paneIDsInOrder.compactMap { panel(forPane: $0)?.id }
+    }
+
     /// Projects the mirror's authoritative pane order into stable identities
     /// consumable by the control socket without duplicating mutable topology.
     func controlPanes() -> [RemoteTmuxControlPane] {
-        return paneIDsInOrder.compactMap { tmuxPaneID in
-            guard let paneID = syntheticPaneID(forPane: tmuxPaneID),
-                  let panel = panel(forPane: tmuxPaneID) else {
-                return nil
-            }
-            let header = paneHeaderLabels[tmuxPaneID]?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return RemoteTmuxControlPane(
-                tmuxPaneID: tmuxPaneID,
-                paneID: paneID,
-                panel: panel,
-                title: header.isEmpty ? panel.displayTitle : header,
-                isFocused: tmuxPaneID == activePaneId
-            )
-        }
+        paneIDsInOrder.compactMap(controlPane(tmuxPaneID:))
+    }
+
+    func controlPane(tmuxPaneID: Int) -> RemoteTmuxControlPane? {
+        guard let paneID = syntheticPaneID(forPane: tmuxPaneID),
+              let panel = panel(forPane: tmuxPaneID) else { return nil }
+        return RemoteTmuxControlPane(
+            tmuxPaneID: tmuxPaneID,
+            paneID: paneID,
+            panel: panel,
+            title: title(forPane: tmuxPaneID),
+            isFocused: tmuxPaneID == activePaneId
+        )
     }
 
     func controlPane(paneID: UUID) -> RemoteTmuxControlPane? {
@@ -32,14 +35,13 @@ extension RemoteTmuxWindowMirror {
 
     func activeControlPane() -> RemoteTmuxControlPane? {
         guard let activePaneId else { return nil }
-        return controlPanes().first(where: { $0.tmuxPaneID == activePaneId })
+        return controlPane(tmuxPaneID: activePaneId)
     }
 
-    /// Drops app-lifetime control refs before a projected pane leaves the
-    /// mirror-owned topology; these panels bypass Workspace panel lifecycle.
-    func cleanupControlPane(tmuxPaneID: Int) {
-        guard let paneID = syntheticPaneID(forPane: tmuxPaneID),
-              let surfaceID = panel(forPane: tmuxPaneID)?.id else { return }
-        onControlPaneRemoved?(paneID, surfaceID)
+    /// Resolves the active pane without formatting its control-plane title.
+    func activeControlSurfaceProjection() -> (surfaceID: UUID, paneID: UUID?, panel: TerminalPanel)? {
+        guard let activePaneId,
+              let panel = panel(forPane: activePaneId) else { return nil }
+        return (panel.id, syntheticPaneID(forPane: activePaneId)?.id, panel)
     }
 }

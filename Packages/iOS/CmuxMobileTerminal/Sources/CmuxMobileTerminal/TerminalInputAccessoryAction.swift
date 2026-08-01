@@ -77,6 +77,14 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// stable; its default on-bar position is curated separately in
     /// ``defaultConfigurableOrder``.
     case returnKey
+    /// Type the `ollama run ` launcher prefix. No trailing CR: unlike the
+    /// Claude/Codex launchers there is no universal model argument, so the
+    /// user completes the model name and submits. Appended at the end so
+    /// existing persisted raw values stay stable.
+    case ollama
+    /// Open the terminal files sheet for paths currently shown on screen.
+    /// Appended at the end so existing persisted raw values stay stable.
+    case files
     /// Short label rendered on the terminal accessory button.
     public var title: String {
         title(isMacRemote: false)
@@ -100,6 +108,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .zoomIn:
             return ""
         case .composer:
+            return ""
+        case .files:
             return ""
         case .escape:
             return String(localized: "terminal.input_accessory.title.escape", defaultValue: "Esc")
@@ -127,6 +137,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return "Claude"
         case .codex:
             return "Codex"
+        case .ollama:
+            return "Ollama"
         case .home:
             return String(localized: "terminal.input_accessory.title.home", defaultValue: "Home")
         case .end:
@@ -160,6 +172,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .zoomOut: return "terminal.inputAccessory.zoomOut"
         case .zoomIn: return "terminal.inputAccessory.zoomIn"
         case .composer: return "terminal.inputAccessory.composer"
+        case .files: return "terminal.inputAccessory.files"
         case .escape: return "terminal.inputAccessory.escape"
         case .tab: return "terminal.inputAccessory.tab"
         case .returnKey: return "terminal.inputAccessory.return"
@@ -169,6 +182,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .rightArrow: return "terminal.inputAccessory.right"
         case .claude: return "terminal.inputAccessory.claude"
         case .codex: return "terminal.inputAccessory.codex"
+        case .ollama: return "terminal.inputAccessory.ollama"
         case .tilde: return "terminal.inputAccessory.tilde"
         case .pipe: return "terminal.inputAccessory.pipe"
         case .dollar: return "terminal.inputAccessory.dollar"
@@ -197,6 +211,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return String(localized: "terminal.input_accessory.paste", defaultValue: "Paste")
         case .composer:
             return String(localized: "terminal.input_accessory.composer", defaultValue: "Composer")
+        case .files:
+            return String(localized: "terminal.input_accessory.files", defaultValue: "Files")
         default:
             return nil
         }
@@ -213,6 +229,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return "doc.on.clipboard"
         case .composer:
             return "square.and.pencil"
+        case .files:
+            return "doc.text.magnifyingglass"
         default:
             return nil
         }
@@ -242,7 +260,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// paste, composer).
     public var output: Data? {
         switch self {
-        case .control, .alternate, .command, .shift, .zoomOut, .zoomIn, .paste, .composer:
+        case .control, .alternate, .command, .shift, .zoomOut, .zoomIn, .paste, .composer, .files:
             return nil
         case .escape:
             return Data([0x1B])
@@ -280,6 +298,9 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return Data("claude --dangerously-skip-permissions\r".utf8)
         case .codex:
             return Data("codex --yolo -c model_reasoning_effort=xhigh --search\r".utf8)
+        case .ollama:
+            // No CR: the user completes the model name before submitting.
+            return Data("ollama run ".utf8)
         case .home:
             return Data([0x1B, 0x5B, 0x48]) // ESC[H
         case .end:
@@ -337,7 +358,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// Return sit immediately to the right of Tab so the most common terminal keys
     /// are adjacent. Curated independently of the enum's `rawValue` order so the
     /// default bar can be arranged without perturbing the persisted identifiers,
-    /// which are the `rawValue`s.
+    /// which are the `rawValue`s. ``files`` remains in this configurable order
+    /// for Settings, while ``TerminalAccessoryConfiguration`` hides it by default.
     ///
     /// Must stay a permutation of ``configurableActions``;
     /// ``TerminalAccessoryLayoutReducer`` defensively appends any omission, so a
@@ -348,12 +370,13 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             .escape,
             .returnKey,
             .ctrlC, .ctrlD,
-            .claude, .codex,
+            .claude, .codex, .ollama,
             .upArrow, .downArrow, .leftArrow, .rightArrow,
             .ctrlL,
             .tilde, .dollar, .slash, .atSign, .pipe,
             .ctrlZ,
             .home, .end, .pageUp, .pageDown,
+            .files,
         ] + defaultTrailingActions
     }
 
@@ -370,6 +393,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .rightArrow: return String(localized: "terminal.shortcut.name.rightArrow", defaultValue: "Right Arrow")
         case .claude: return String(localized: "terminal.shortcut.name.claude", defaultValue: "Claude")
         case .codex: return String(localized: "terminal.shortcut.name.codex", defaultValue: "Codex")
+        case .ollama: return String(localized: "terminal.shortcut.name.ollama", defaultValue: "Ollama")
         case .tilde: return String(localized: "terminal.shortcut.name.tilde", defaultValue: "Tilde ~")
         case .pipe: return String(localized: "terminal.shortcut.name.pipe", defaultValue: "Pipe |")
         case .dollar: return String(localized: "terminal.shortcut.name.dollar", defaultValue: "Dollar $")
@@ -389,6 +413,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .command: return String(localized: "terminal.shortcut.name.command", defaultValue: "Command")
         case .zoomIn: return String(localized: "terminal.input_accessory.zoom_in", defaultValue: "Zoom In")
         case .zoomOut: return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
+        case .files: return String(localized: "terminal.input_accessory.files", defaultValue: "Files")
         case .shift: return String(localized: "terminal.shortcut.name.shift", defaultValue: "Shift")
         case .composer:
             return title

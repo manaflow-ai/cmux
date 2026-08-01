@@ -4,9 +4,9 @@ import {
   featureWorkflowContentLocales,
   hasFeatureWorkflowContent,
 } from "@/i18n/locale-availability";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { DocsSchema } from "../docs-schema";
-import { Link } from "@/i18n/navigation";
+import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 
@@ -18,10 +18,20 @@ export async function generateMetadata({
   const { locale } = await params;
   if (!hasFeatureWorkflowContent(locale)) notFound();
   const t = await getTranslations({ locale, namespace: "docs.taskManager" });
+  const alternates = buildAlternates(locale, "/docs/task-manager", featureWorkflowContentLocales);
+  const title = t("metaTitle");
+  const description = seoDescription(locale, t("metaDescription"));
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/task-manager", featureWorkflowContentLocales),
+    title,
+    description,
+    alternates,
+    openGraph: {
+      ...openGraphDefaults(locale, "article"),
+      title,
+      description,
+      url: alternates.canonical,
+    },
+    twitter: twitterSummary(locale, title, description),
   };
 }
 

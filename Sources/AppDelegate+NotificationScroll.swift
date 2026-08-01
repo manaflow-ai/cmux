@@ -1,4 +1,3 @@
-import Bonsplit
 import Foundation
 
 @MainActor
@@ -22,7 +21,6 @@ extension AppDelegate {
         panelId: UUID?,
         workspace: Workspace?
     ) {
-        guard let position else { return }
         guard let workspace = workspace ?? workspaceFor(tabId: tabId) ?? tabManager?.tabs.first(where: { $0.id == tabId }) else {
             return
         }
@@ -35,16 +33,22 @@ extension AppDelegate {
         surfaceId: UUID?,
         panelId: UUID?
     ) -> TerminalPanel? {
-        if let panelId, let panel = workspace.panels[panelId] as? TerminalPanel {
+        // The surface is the exact notification identity. `panelId` is only a
+        // stable container fallback and may represent a remote-tmux window
+        // whose active pane changed after the notification was recorded.
+        if let surfaceId,
+           let panel = workspace.terminalInputTarget(forPanelID: surfaceId)?.panel {
             return panel
         }
-        if let surfaceId {
-            if let panel = workspace.panels[surfaceId] as? TerminalPanel {
-                return panel
-            }
-            return workspace.panelIdFromSurfaceId(TabID(uuid: surfaceId))
-                .flatMap { workspace.panels[$0] as? TerminalPanel }
+        if let surfaceId,
+           let mappedPanelID = workspace.panelId(forSurfaceId: surfaceId),
+           let panel = workspace.terminalInputTarget(forPanelID: mappedPanelID)?.panel {
+            return panel
         }
-        return workspace.focusedPanelId.flatMap { workspace.panels[$0] as? TerminalPanel }
+        if let panelId,
+           let panel = workspace.terminalInputTarget(forPanelID: panelId)?.panel {
+            return panel
+        }
+        return workspace.focusedTerminalInputTarget()?.panel
     }
 }

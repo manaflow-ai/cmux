@@ -79,6 +79,38 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testCodexWeakCurrentCapturePreservesDurableMappedResumeBinding() throws {
+        try assertCodexWeakCapturePreservesFlags(
+            currentArguments: nil,
+            mappedArguments: ["/usr/local/bin/codex", "--yolo"],
+            expectedFlag: "--yolo"
+        )
+    }
+
+    func testCodexWeakCurrentCaptureUsesSanitizedCurrentFlags() throws {
+        try assertCodexWeakCapturePreservesFlags(
+            currentArguments: ["/usr/local/bin/codex", "--yolo"],
+            mappedArguments: ["/usr/local/bin/codex", "--model", "gpt-5.4"],
+            expectedFlag: "--yolo",
+            unexpectedFlag: "--model"
+        )
+    }
+
+    func testCodexWeakMappedCaptureWithoutDurableTargetDoesNotPublishResumeBinding() throws {
+        try assertCodexWeakCapturePreservesFlags(
+            currentArguments: nil,
+            mappedArguments: ["/usr/local/bin/codex", "--yolo"],
+            expectedFlag: nil,
+            transcriptBacked: false
+        )
+    }
+
+    private func assertCodexWeakCapturePreservesFlags(
+        currentArguments: [String]?,
+        mappedArguments: [String],
+        expectedFlag: String?,
+        unexpectedFlag: String? = nil,
+        transcriptBacked: Bool = true
+    ) throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-weak-env-preserve")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -94,16 +126,29 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let ttyName = "ttys306"
 
         try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
-        try #"{"type":"event_msg","payload":{"type":"task_complete"}}"#
-            .write(to: transcript, atomically: true, encoding: .utf8)
+        if transcriptBacked {
+            try #"{"type":"event_msg","payload":{"type":"task_complete"}}"#
+                .write(to: transcript, atomically: true, encoding: .utf8)
+        }
         try writeCodexHookStore(
             root: root,
             sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             cwd: repo.path,
-            transcriptPath: transcript.path,
-            launchCommand: nil
+            transcriptPath: transcriptBacked ? transcript.path : nil,
+            launchCommand: [
+                "launcher": "codex",
+                "executablePath": "/usr/local/bin/codex",
+                "arguments": mappedArguments,
+                "workingDirectory": repo.path,
+                "environment": [
+                    "ANTHROPIC_BASE_URL": "http://subrouter-team:31415",
+                    "CLAUDE_CONFIG_DIR": root.appendingPathComponent(".codex-accounts/claude/work").path,
+                ],
+                "capturedAt": Date().timeIntervalSince1970,
+                "source": "environment",
+            ]
         )
         defer {
             Darwin.close(listenerFD)
@@ -148,8 +193,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["ANTHROPIC_BASE_URL"] = "http://subrouter-team:31415"
         environment["CLAUDE_CONFIG_DIR"] = root.appendingPathComponent(".codex-accounts/claude/work", isDirectory: true).path
         environment.removeValue(forKey: "CODEX_HOME")
-        for key in ["CMUX_AGENT_LAUNCH_KIND", "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD"] {
-            environment.removeValue(forKey: key)
+        if let currentArguments {
+            environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
+            environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
+            environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(currentArguments)
+            environment["CMUX_AGENT_LAUNCH_CWD"] = worktree.path
+        } else {
+            for key in ["CMUX_AGENT_LAUNCH_KIND", "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD"] {
+                environment.removeValue(forKey: key)
+            }
         }
 
         let result = runProcess(
@@ -165,19 +217,38 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         let commands = state.snapshot()
-        XCTAssertFalse(
-            commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.clear" },
-            "weak current Codex captures must not clear durable mapped bindings: \(commands)"
-        )
+        if expectedFlag != nil {
+            XCTAssertFalse(
+                commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.clear" },
+                "weak current Codex captures must not clear durable mapped bindings: \(commands)"
+            )
+        }
         let resumeRequests = commands.compactMap { command -> [String: Any]? in
             guard let payload = self.jsonObject(command),
                   payload["method"] as? String == "surface.resume.set" else { return nil }
             return payload["params"] as? [String: Any]
         }
+        guard let expectedFlag else {
+            XCTAssertTrue(
+                resumeRequests.isEmpty,
+                "weak mapped Codex captures must not become durable without target evidence: \(commands)"
+            )
+            return
+        }
         let resume = try XCTUnwrap(resumeRequests.last, "expected durable mapped resume binding, saw \(commands)")
         XCTAssertEqual(resume["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(resume["cwd"] as? String, repo.path)
         XCTAssertTrue((resume["command"] as? String)?.contains("codex") == true)
+        XCTAssertTrue(
+            (resume["command"] as? String)?.contains(expectedFlag) == true,
+            "a transcript-backed Codex resume must preserve safe launch flags: \(resume)"
+        )
+        if let unexpectedFlag {
+            XCTAssertFalse(
+                (resume["command"] as? String)?.contains(unexpectedFlag) == true,
+                "the sanitized current capture must win over weaker mapped flags: \(resume)"
+            )
+        }
     }
 
     func testCodexPlainHookWithoutLaunchCapturePublishesDefaultResumeBinding() throws {

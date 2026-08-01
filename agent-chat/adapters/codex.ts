@@ -1,6 +1,7 @@
 import type { Adapter, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
 import { prettifyModelLabel } from "./model-label";
+import { agentModelCatalog } from "../catalog";
 
 // Codex: one shared `codex app-server` process (JSON-RPC over NDJSON stdio,
 // the same interface the codex IDE extension uses) hosts a thread per chat
@@ -23,6 +24,7 @@ interface ModelInfo {
   serviceTiers: { id: string; name: string; description?: string }[];
   defaultServiceTier: string | null;
   isDefault?: boolean;
+  contextWindow?: string | number;
 }
 
 interface CodexState {
@@ -624,7 +626,34 @@ async function listModels(): Promise<ModelInfo[]> {
     for (const m of res.data ?? []) out.push(normalizeModel(m));
     cursor = res.nextCursor ?? null;
   } while (cursor);
-  return out;
+  return mergeCodexModels(out, agentModelCatalog.provider("codex"));
+}
+
+export function mergeCodexModels(binaryModels: ModelInfo[], remote = agentModelCatalog.provider("codex")): ModelInfo[] {
+  if (!remote) return binaryModels;
+  const binary = new Map(binaryModels.map((model) => [model.value, model]));
+  const merged = remote.models.map((model) => {
+    const reported = binary.get(model.id);
+    binary.delete(model.id);
+    const remoteEfforts = (model.efforts ?? [])
+      .map((effort) => ({ value: effort.value, label: effort.label, description: effort.description }))
+      .filter((effort) => !isOffLike(effort.value));
+    const efforts = remoteEfforts.length ? remoteEfforts : reported?.efforts ?? FALLBACK_EFFORTS;
+    const requestedEffort = model.defaultEffort ?? reported?.defaultEffort ?? "";
+    const defaultEffort = efforts.some((effort) => effort.value === requestedEffort) ? requestedEffort : efforts[0]?.value ?? "medium";
+    return {
+      value: model.id,
+      label: model.label,
+      description: model.description ?? reported?.description,
+      contextWindow: model.contextWindow ?? reported?.contextWindow,
+      efforts,
+      defaultEffort,
+      serviceTiers: model.serviceTiers ?? reported?.serviceTiers ?? [],
+      defaultServiceTier: model.defaultServiceTier !== undefined ? model.defaultServiceTier : reported?.defaultServiceTier ?? null,
+      isDefault: model.id === remote.defaultModel,
+    };
+  });
+  return [...merged, ...binary.values()];
 }
 
 function normalizeModel(m: any): ModelInfo {

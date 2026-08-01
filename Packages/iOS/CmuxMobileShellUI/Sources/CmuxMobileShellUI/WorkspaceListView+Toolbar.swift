@@ -1,6 +1,14 @@
 import SwiftUI
 
 extension WorkspaceListView {
+    var workspaceListFilterMenuActions: WorkspaceListFilterMenuActions {
+        WorkspaceListFilterMenuActions(
+            setReadState: { filter.readState = $0 },
+            clearMachines: { filter.machines.removeAll() },
+            toggleMachine: { filter.toggleMachine($0) }
+        )
+    }
+
     @ViewBuilder
     func workspaceListWithToolbar<Content: View>(
         _ content: Content,
@@ -11,21 +19,36 @@ extension WorkspaceListView {
             if showsNavigationToolbar {
                 content
                     .toolbar {
-                        ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
-                            settingsMenu
-                        }
-                        ToolbarItem(id: "workspace-list-title", placement: .principal) {
-                            macTitlePicker(machineSnapshots: machineSnapshots)
-                        }
-                        if showsDevicesButton {
-                            ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
-                                devicesButton
+                        if !usesExternalSharedToolbar {
+                            ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
+                                settingsMenu
+                            }
+                            ToolbarItem(id: "workspace-list-title", placement: .principal) {
+                                macTitlePicker(machineSnapshots: machineSnapshots)
+                            }
+                            if showsDevicesButton {
+                                ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
+                                    devicesButton
+                                }
                             }
                         }
                         ToolbarItemGroup(placement: .topBarTrailing) {
-                            WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
+                            if let macUpdateHint, let dismissMacUpdateHint,
+                               connectionChrome.showsMacUpdateHintIndicator {
+                                MacUpdateHintIndicatorButton(
+                                    hint: macUpdateHint,
+                                    macDisplayName: macUpdateHintMacName,
+                                    dismiss: dismissMacUpdateHint
+                                )
+                            }
+                            WorkspaceListFilterMenu(
+                                filter: filter,
+                                machines: filterMachines,
+                                actions: workspaceListFilterMenuActions
+                            )
+                            .equatable()
                             if canCreateWorkspace {
-                                newWorkspaceButton
+                                newWorkspaceButton.equatable()
                             }
                         }
                     }
@@ -36,9 +59,14 @@ extension WorkspaceListView {
             content
                 .toolbar {
                     ToolbarItemGroup {
-                        WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
+                        WorkspaceListFilterMenu(
+                            filter: filter,
+                            machines: filterMachines,
+                            actions: workspaceListFilterMenuActions
+                        )
+                        .equatable()
                         if canCreateWorkspace {
-                            newWorkspaceButton
+                            newWorkspaceButton.equatable()
                         }
                     }
                 }

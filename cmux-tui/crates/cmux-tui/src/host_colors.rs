@@ -175,10 +175,8 @@ fn find_terminator(bytes: &[u8], start: usize) -> Option<(usize, usize)> {
 fn parse_reply(reply: &[u8]) -> Option<(u8, Rgb)> {
     let (target, rest) = if let Some(rest) = reply.strip_prefix(b"10;rgb:") {
         (10, rest)
-    } else if let Some(rest) = reply.strip_prefix(b"11;rgb:") {
-        (11, rest)
     } else {
-        return None;
+        (11, reply.strip_prefix(b"11;rgb:")?)
     };
 
     let mut parts = rest.split(|b| *b == b'/');

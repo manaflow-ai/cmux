@@ -13,6 +13,7 @@ final class RecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Se
     private var _eventQueue: DispatchQueue?
     var attachError: (any Error)?
     var supportsInputSeqAck = false
+    var replayByteCount = 0
 
     var writes: [Data] {
         lock.lock()
@@ -58,7 +59,11 @@ final class RecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Se
         _onEvent = onEvent
         _eventQueue = queue
         lock.unlock()
-        return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "attach-token-1")
+        return RemotePTYBridgeAttachment(
+            attachmentID: attachmentID,
+            token: "attach-token-1",
+            replayByteCount: replayByteCount
+        )
     }
 
     func writePTY(
@@ -178,74 +183,6 @@ struct TestPTYBridgeStrings: RemotePTYBridgeStrings {
     var attachFailed: String { "test-attach-failed" }
 }
 
-/// Loopback TCP client helper for talking to a bridge endpoint.
-private final class BridgeTestClient: @unchecked Sendable {
-    private let connection: NWConnection
-    private let queue = DispatchQueue(label: "bridge-test-client")
-    private let lock = NSLock()
-    private var received = Data()
-    private var closed = false
-
-    init(endpoint: RemotePTYBridgeServer.Endpoint) {
-        connection = NWConnection(
-            host: NWEndpoint.Host(endpoint.host),
-            port: NWEndpoint.Port(rawValue: UInt16(endpoint.port))!,
-            using: .tcp
-        )
-        connection.start(queue: queue)
-        receiveLoop()
-    }
-
-    private func receiveLoop() {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
-            guard let self else { return }
-            self.lock.lock()
-            if let data { self.received.append(data) }
-            if isComplete || error != nil { self.closed = true }
-            let done = self.closed
-            self.lock.unlock()
-            if !done { self.receiveLoop() }
-        }
-    }
-
-    func send(_ data: Data) {
-        connection.send(content: data, completion: .contentProcessed { _ in })
-    }
-
-    func sendBlocking(_ data: Data, timeout: TimeInterval = 5.0) -> Bool {
-        let semaphore = DispatchSemaphore(value: 0)
-        connection.send(content: data, completion: .contentProcessed { _ in
-            semaphore.signal()
-        })
-        return semaphore.wait(timeout: .now() + timeout) == .success
-    }
-
-    /// Polls until `predicate` over the received bytes holds or the deadline
-    /// passes (generous upper bound only; the happy path returns quickly).
-    func waitForReceived(timeout: TimeInterval = 5.0, _ predicate: (Data, Bool) -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            lock.lock()
-            let snapshot = received
-            let isClosed = closed
-            lock.unlock()
-            if predicate(snapshot, isClosed) { return true }
-            usleep(20_000)
-        }
-        return false
-    }
-
-    var isClosed: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return closed
-    }
-
-    func cancel() {
-        connection.cancel()
-    }
-}
-
 @Suite("RemotePTYBridgeServer")
 struct RemotePTYBridgeServerTests {
     private func makeServer(
@@ -292,6 +229,7 @@ struct RemotePTYBridgeServerTests {
     @Test("a valid handshake attaches and the bridge pumps both directions")
     func handshakeAttachesAndPumps() throws {
         let rpc = RecordingPTYBridgeRPCClient()
+        rpc.replayByteCount = 6
         let server = makeServer(client: rpc)
         defer { server.stop() }
         let endpoint = try server.start()
@@ -303,7 +241,9 @@ struct RemotePTYBridgeServerTests {
         // The bridge answers with the newline-terminated ready status line
         // carrying the daemon attachment token (wire-pinned shape).
         #expect(client.waitForReceived { data, _ in
-            String(decoding: data, as: UTF8.self).contains("\"attachment_token\":\"attach-token-1\"")
+            let status = String(decoding: data, as: UTF8.self)
+            return status.contains("\"attachment_token\":\"attach-token-1\"") &&
+                status.contains("\"replay_bytes\":6")
         })
 
         // Client input is forwarded to pty.write.
@@ -378,7 +318,9 @@ struct RemotePTYBridgeServerTests {
         })
 
         let input = patternedInput(byteCount: 5 * 1024 * 1024)
-        #expect(client.sendBlocking(input))
+        // Acked input intentionally pauses reads at the 4 MiB window; awaiting
+        // the full send before acks would race kernel socket buffer capacity.
+        let inputSendCompleted = client.sendTracked(input)
 
         // No acks: the window must fill and pause, bounding delivery.
         let windowFillTarget = 3 * 1024 * 1024
@@ -406,6 +348,8 @@ struct RemotePTYBridgeServerTests {
         let deliveredMatchesInput = delivered == input
         #expect(deliveredMatchesInput)
         #expect(!client.isClosed)
+        // Only after acks drain the window can the client-side send complete.
+        #expect(waitUntil { inputSendCompleted() })
     }
 
     @Test("a pty.error mid-stream closes the session")

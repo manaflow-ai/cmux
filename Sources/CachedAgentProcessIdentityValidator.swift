@@ -161,32 +161,12 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         matchesExecutable liveExecutable: String,
         arguments: [String]
     ) -> Bool {
-        var expectedNames = rule.processNames
-        if let processName = normalizedProcessValue(rule.processName) {
-            expectedNames.append(processName)
-        }
-        let processNameMatch = expectedNames.isEmpty || expectedNames.contains { expected in
-            liveExecutable.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
-        }
-        let argvContainsMatch = rule.argvContains.isEmpty || argumentsContainAll(rule.argvContains, in: arguments)
-        let alternateArgvContainsMatch = !rule.alternateArgvContains.isEmpty
-            && argumentsContainAll(rule.alternateArgvContains, in: arguments)
-        return (processNameMatch && argvContainsMatch) || alternateArgvContainsMatch
-    }
-
-    private func argumentsContainAll(_ needles: [String], in arguments: [String]) -> Bool {
-        needles.allSatisfy { needle in
-            if needle.contains(" ") {
-                return arguments.joined(separator: " ").range(of: needle, options: [.caseInsensitive, .literal]) != nil
-            }
-            if needle.contains("/") {
-                return arguments.joined(separator: "\u{0}").range(of: needle, options: [.caseInsensitive, .literal]) != nil
-            }
-            return arguments.contains { argument in
-                argument.range(of: needle, options: [.caseInsensitive, .literal]) != nil
-                    || executableBasename(argument).range(of: needle, options: [.caseInsensitive, .literal]) != nil
-            }
-        }
+        rule.matches(VaultObservedAgentProcess(
+            processName: liveExecutable,
+            processPath: nil,
+            arguments: arguments,
+            environment: [:]
+        ))
     }
 
     private func argumentLooksLikeOpenCode(_ argument: String) -> Bool {

@@ -24,6 +24,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
     @Environment(\.chatTheme) private var theme
     @Environment(\.chatMarkdownRenderer) private var markdownRenderer
     @Environment(\.chatContentCache) private var contentCache
+    @Environment(\.chatArtifactLoader) private var artifactLoader
 
     func makeCoordinator() -> Coordinator {
         Coordinator(isAtBottom: $isAtBottom)
@@ -64,7 +65,8 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 onRetryInitialLoad: onRetryInitialLoad,
                 theme: theme,
                 markdownRenderer: markdownRenderer,
-                contentCache: contentCache
+                contentCache: contentCache,
+                artifactLoader: artifactLoader
             ),
             in: tableView,
             scrollToBottomRequest: scrollToBottomRequest
@@ -363,6 +365,7 @@ private struct ChatTranscriptTableConfiguration {
     let theme: ChatTheme
     let markdownRenderer: ChatMarkdownRenderer?
     let contentCache: ChatContentCache?
+    let artifactLoader: ChatArtifactLoader
 
     func makeItems() -> [ChatTranscriptTableItem] {
         var items: [ChatTranscriptTableItem] = []
@@ -395,6 +398,7 @@ private struct ChatTranscriptTableConfiguration {
             .environment(\.chatTheme, theme)
             .environment(\.chatMarkdownRenderer, markdownRenderer)
             .environment(\.chatContentCache, contentCache)
+            .environment(\.chatArtifactLoader, artifactLoader)
             .environment(
                 \.chatBubbleMaxWidth,
                 tableWidth > 0 ? tableWidth * theme.bubbleMaxWidthFraction : .infinity

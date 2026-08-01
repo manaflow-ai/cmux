@@ -36,7 +36,9 @@ DEFAULT_TIMINGS_PATH = Path(__file__).resolve().parent / "cmux-unit-test-timings
 FALLBACK_TEST_MS = 200
 FOCUSED_GATE_SELECTORS = {
     "cmuxTests/BrowserSystemProxyMirrorTests",
+    "cmuxTests/CLISSHSessionAttachAnchorTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
+    "cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
 }
 # BrowserDeveloperToolsVisibilityPersistenceTests reliably crash-restarts the
 # app host on CI runners (its detached-inspector tests kill the host mid-run;

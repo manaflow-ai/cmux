@@ -1,60 +1,82 @@
 import AppKit
 
-/// Event-driven follow-up state for the Dock portal reconciler, owned by
-/// `DockSplitStore.dockPortalReconcileState`. Mirrors the state backing
-/// `Workspace.beginEventDrivenLayoutFollowUp`.
+/// Event-driven follow-up state for the Dock portal reconciler.
+///
+/// Every request performs an immediate pass. Object-scoped portal observers
+/// remain installed only while a visible host is unresolved, so a later real
+/// mount event cannot be missed. Window-layout callbacks use a separate bounded
+/// budget; exhausting it stops layout churn without abandoning the portal
+/// lifecycle signal. There is no timer, backoff, app-wide event fanout, or
+/// focus-driven layout dependency.
 @MainActor
 final class DockPortalReconcileState {
-    var observers: [NSObjectProtocol] = []
-    var timeoutWorkItem: DispatchWorkItem?
+    var portalObservers: [NSObjectProtocol] = []
+    var layoutObservers: [NSObjectProtocol] = []
     var reason: String?
-    var attemptScheduled = false
-    var attemptVersion = 0
-    var stalledAttemptCount = 0
     var isAttempting = false
+    var layoutWakeAttemptsRemaining = 0
     var scheduledRequestCount = 0
 
     deinit {
-        timeoutWorkItem?.cancel()
-        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        (portalObservers + layoutObservers).forEach { NotificationCenter.default.removeObserver($0) }
     }
 }
 
 extension DockSplitStore {
-    private static let dockPortalReconcileTimeout: TimeInterval = 2
+    // A normal AppKit mount settles within a few window updates. Portal-specific
+    // observers stay alive separately if the real host event arrives later.
+    private static let maxDockPortalLayoutWakeAttempts = 8
 
     func scheduleDockPortalReconcile(reason: String) {
         let state = dockPortalReconcileState
         state.scheduledRequestCount += 1
         state.reason = reason
-        state.stalledAttemptCount = 0
-        state.attemptVersion &+= 1
-        state.attemptScheduled = false
-
-        if state.timeoutWorkItem == nil {
-            installDockPortalReconcileObservers()
-        }
-        refreshDockPortalReconcileTimeout()
-        scheduleDockPortalReconcileAttempt()
+        removeDockPortalReconcileObservers()
+        state.layoutWakeAttemptsRemaining = Self.maxDockPortalLayoutWakeAttempts
+        installDockPortalReconcileObservers()
+        installDockPortalLayoutObservers()
+        attemptDockPortalReconcile(isLayoutWake: false)
     }
 
     private func installDockPortalReconcileObservers() {
         let state = dockPortalReconcileState
-        guard state.timeoutWorkItem == nil else { return }
+        guard state.portalObservers.isEmpty else { return }
 
         let wake: () -> Void = { [weak self] in
-            self?.wakeDockPortalReconcileForStructuralEvent()
+            self?.wakeDockPortalReconcileForLifecycleEvent()
         }
-        let notificationNames: [Notification.Name] = [
-            .terminalSurfaceDidBecomeReady,
-            .terminalSurfaceHostedViewDidMoveToWindow,
-            .terminalPortalVisibilityDidChange,
-            .browserPortalRegistryDidChange,
-        ]
-        for name in notificationNames {
-            state.observers.append(NotificationCenter.default.addObserver(
+
+        func observe(_ name: Notification.Name, object: AnyObject) {
+            state.portalObservers.append(NotificationCenter.default.addObserver(
                 forName: name,
-                object: nil,
+                object: object,
+                queue: .main
+            ) { _ in
+                wake()
+            })
+        }
+
+        for panel in selectedVisibleDockPortalPanels() {
+            if let terminal = panel as? TerminalPanel {
+                observe(.terminalSurfaceDidBecomeReady, object: terminal.surface)
+                observe(.terminalSurfaceHostedViewDidMoveToWindow, object: terminal.surface)
+                observe(.terminalPortalVisibilityDidChange, object: terminal.hostedView)
+            } else if let browser = panel as? BrowserPanel {
+                observe(.browserPortalRegistryDidChange, object: browser.webView)
+            }
+        }
+    }
+
+    private func installDockPortalLayoutObservers() {
+        let state = dockPortalReconcileState
+        guard state.layoutObservers.isEmpty, state.layoutWakeAttemptsRemaining > 0 else { return }
+        let wake: () -> Void = { [weak self] in
+            self?.attemptDockPortalReconcile(isLayoutWake: true)
+        }
+        for window in dockPortalHostWindows() {
+            state.layoutObservers.append(NotificationCenter.default.addObserver(
+                forName: NSWindow.didUpdateNotification,
+                object: window,
                 queue: .main
             ) { _ in
                 wake()
@@ -62,94 +84,96 @@ extension DockSplitStore {
         }
     }
 
-    private func refreshDockPortalReconcileTimeout() {
+    private func wakeDockPortalReconcileForLifecycleEvent() {
         let state = dockPortalReconcileState
-        state.timeoutWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.clearDockPortalReconcile()
+        guard !state.isAttempting else { return }
+        state.layoutWakeAttemptsRemaining = Self.maxDockPortalLayoutWakeAttempts
+        installDockPortalLayoutObservers()
+        attemptDockPortalReconcile(isLayoutWake: false)
+    }
+
+    private func dockPortalHostWindows() -> [NSWindow] {
+        var seen: Set<ObjectIdentifier> = []
+        var windows: [NSWindow] = []
+        func append(_ window: NSWindow?) {
+            guard let window, seen.insert(ObjectIdentifier(window)).inserted else { return }
+            windows.append(window)
         }
-        state.timeoutWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.dockPortalReconcileTimeout,
-            execute: workItem
-        )
+
+        for panel in selectedVisibleDockPortalPanels() {
+            if let terminal = panel as? TerminalPanel {
+                append(terminal.hostedView.window)
+            } else if let browser = panel as? BrowserPanel {
+                append(browser.portalAnchorView.window)
+                append(browser.webView.window)
+            }
+        }
+        if let app = AppDelegate.shared,
+           let manager = app.dockReferenceTabManager(for: self),
+           let windowId = app.windowId(for: manager) {
+            append(app.windowForMainWindowId(windowId))
+        }
+        return windows
     }
 
     func clearDockPortalReconcile() {
         let state = dockPortalReconcileState
-        state.timeoutWorkItem?.cancel()
-        state.timeoutWorkItem = nil
-        state.observers.forEach { NotificationCenter.default.removeObserver($0) }
-        state.observers.removeAll()
+        removeDockPortalReconcileObservers()
+        state.layoutWakeAttemptsRemaining = 0
         state.reason = nil
-        state.attemptVersion &+= 1
-        state.attemptScheduled = false
-        state.stalledAttemptCount = 0
     }
 
-    private func wakeDockPortalReconcileForStructuralEvent() {
+    private func removeDockPortalReconcileObservers() {
         let state = dockPortalReconcileState
-        guard state.timeoutWorkItem != nil else { return }
-        state.stalledAttemptCount = 0
-        state.attemptVersion &+= 1
-        state.attemptScheduled = false
-        scheduleDockPortalReconcileAttempt()
+        state.portalObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        state.portalObservers.removeAll()
+        removeDockPortalLayoutObservers()
     }
 
-    private func scheduleDockPortalReconcileAttempt() {
+    private func removeDockPortalLayoutObservers() {
         let state = dockPortalReconcileState
-        guard state.timeoutWorkItem != nil else { return }
-        guard !state.attemptScheduled else { return }
+        state.layoutObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        state.layoutObservers.removeAll()
+    }
 
-        state.attemptScheduled = true
-        let delay = dockPortalReconcileBackoffDelay()
-        let version = state.attemptVersion
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self else { return }
-            let state = self.dockPortalReconcileState
-            guard state.attemptVersion == version,
-                  state.timeoutWorkItem != nil else { return }
-            state.attemptScheduled = false
-            self.attemptDockPortalReconcile()
+    private func attemptDockPortalReconcile(isLayoutWake: Bool) {
+        let state = dockPortalReconcileState
+        guard !state.isAttempting else { return }
+        if isLayoutWake {
+            guard state.layoutWakeAttemptsRemaining > 0 else {
+                removeDockPortalLayoutObservers()
+                return
+            }
+            state.layoutWakeAttemptsRemaining -= 1
         }
-    }
-
-    private func dockPortalReconcileBackoffDelay() -> TimeInterval {
-        let stalledAttemptCount = dockPortalReconcileState.stalledAttemptCount
-        guard stalledAttemptCount > 0 else { return 0 }
-        let baseDelay: TimeInterval = 0.01
-        let exponent = min(stalledAttemptCount - 1, 5)
-        return min(0.25, baseDelay * pow(2, Double(exponent)))
-    }
-
-    private func attemptDockPortalReconcile() {
-        let state = dockPortalReconcileState
-        guard state.timeoutWorkItem != nil, !state.isAttempting else { return }
         state.isAttempting = true
         defer { state.isAttempting = false }
 
-        let attemptVersion = state.attemptVersion
         let reason = state.reason ?? "dock.portal.reconcile"
-        guard reconcileDockPortalPass(reason: reason) else {
+        let needsFollowUp = reconcileDockPortalPass(reason: reason)
+        if !needsFollowUp {
             clearDockPortalReconcile()
-            return
+        } else if state.layoutWakeAttemptsRemaining == 0 {
+            removeDockPortalLayoutObservers()
         }
-
-        if state.attemptVersion == attemptVersion {
-            state.stalledAttemptCount += 1
-        }
-        scheduleDockPortalReconcileAttempt()
     }
 
     @discardableResult
     func reconcileDockPortalPass(reason: String) -> Bool {
         var needsFollowUpPass = false
         flushDockWindowLayouts()
+        let visiblePanels = selectedVisibleDockPortalPanels()
+        let visiblePanelIds = Set(visiblePanels.map(\.id))
+        let activePanelId = focusedPanelId
 
         withCoalescedTerminalViewReattach {
             for panel in panels.values {
-                if panelIsSelectedInVisibleDockPane(panel.id) {
-                    needsFollowUpPass = reconcileVisibleDockPortalPanel(panel, reason: reason) || needsFollowUpPass
+                if visiblePanelIds.contains(panel.id) {
+                    needsFollowUpPass = reconcileVisibleDockPortalPanel(
+                        panel,
+                        isActive: panel.id == activePanelId,
+                        reason: reason
+                    ) || needsFollowUpPass
                 } else {
                     applyVisibility(to: panel)
                 }
@@ -159,15 +183,28 @@ extension DockSplitStore {
         return needsFollowUpPass
     }
 
+    private func selectedVisibleDockPortalPanels() -> [any Panel] {
+        guard isVisibleInUI else { return [] }
+        let paneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
+        return paneIds.compactMap { paneId in
+            guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else { return nil }
+            return panel(for: tabId)
+        }
+    }
+
     private func flushDockWindowLayouts() {
-        for window in NSApp.windows where window.isVisible {
+        for window in dockPortalHostWindows() where window.isVisible {
             window.contentView?.layoutSubtreeIfNeeded()
         }
     }
 
-    private func reconcileVisibleDockPortalPanel(_ panel: any Panel, reason: String) -> Bool {
+    private func reconcileVisibleDockPortalPanel(
+        _ panel: any Panel,
+        isActive: Bool,
+        reason: String
+    ) -> Bool {
         if let terminal = panel as? TerminalPanel {
-            return reconcileVisibleDockTerminalPortal(terminal)
+            return reconcileVisibleDockTerminalPortal(terminal, isActive: isActive)
         }
         if let browser = panel as? BrowserPanel {
             return reconcileVisibleDockBrowserPortal(browser, reason: reason)
@@ -175,11 +212,11 @@ extension DockSplitStore {
         return false
     }
 
-    private func reconcileVisibleDockTerminalPortal(_ terminal: TerminalPanel) -> Bool {
+    private func reconcileVisibleDockTerminalPortal(_ terminal: TerminalPanel, isActive: Bool) -> Bool {
         var needsFollowUpPass = false
         let hostedView = terminal.hostedView
         hostedView.setVisibleInUI(true)
-        hostedView.setActive(panelIsActiveInVisibleDockPane(terminal.id))
+        hostedView.setActive(isActive)
 
         let needsPortalReattach = TerminalWindowPortalRegistry
             .updateEntryVisibility(for: hostedView, visibleInUI: true)
@@ -251,7 +288,7 @@ extension DockSplitStore {
     func dockBrowserPortalReady(_ browser: BrowserPanel) -> Bool {
         dockBrowserPortalAnchorReady(browser.portalAnchorView) &&
             browser.webView.window != nil &&
-            browser.webView.superview != nil &&
+            browser.webView.cmuxBrowserViewportAttachmentSuperview != nil &&
             BrowserWindowPortalRegistry.isWebView(browser.webView, boundTo: browser.portalAnchorView)
     }
 

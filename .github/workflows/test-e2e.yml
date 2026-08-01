@@ -25,7 +25,7 @@ on:
         default: true
         type: boolean
       runner:
-        description: "Runner OS (auto follows the MACOS_RUNNER_15 repo variable, default Blacksmith; pick warp-/depot-macos-* to override)"
+        description: "Runner OS (auto follows MACOS_RUNNER_15; tart-* choices use isolated VMs)"
         required: false
         default: "auto"
         type: choice
@@ -37,6 +37,9 @@ on:
           - warp-macos-15-arm64-6x
           - depot-macos-latest
           - depot-macos-14
+          - tart-canary
+          - tart-dual
+          - tart-small
 
 concurrency:
   group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
@@ -67,6 +70,25 @@ jobs:
               exit 1
               ;;
           esac
+
+      - name: Validate Tart canary identity
+        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'tart-') }}
+        env:
+          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          case "$RUNNER_CONTEXT_NAME" in
+            tart-cmux-*) ;;
+            *)
+              echo "::error::$REQUESTED_RUNNER resolved to unexpected runner $RUNNER_CONTEXT_NAME"
+              exit 1
+              ;;
+          esac
+          test -f /etc/cmux-tart-ci || {
+            echo "::error::$REQUESTED_RUNNER runner is missing the immutable VM identity marker"
+            exit 1
+          }
 
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -286,9 +308,6 @@ jobs:
             defaults write "$APPROVALS_PLIST" "$FFMPEG_BIN" -date "3000-01-01T00:00:00Z" 2>&1 || echo "  (failed)"
           fi
 
-      - name: Clean DerivedData
-        run: rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
-
       - name: Prepare isolated DerivedData
         run: |
           set -euo pipefail
@@ -369,28 +388,40 @@ jobs:
           # The display churn regression creates its own virtual display above,
           # so recording must start after that harness is ready.
           if [ "$RECORD_VIDEO" = "true" ]; then
-            DEVLIST=$( ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true )
-            echo "Available devices:"
-            echo "$DEVLIST" | grep -E "AVFoundation|Capture screen"
-
-            SCREEN_INDEX=$( echo "$DEVLIST" | grep "Capture screen" | head -1 \
-              | sed 's/.*\[\([0-9]*\)\].*/\1/' )
-            SCREEN_INDEX="${SCREEN_INDEX:-0}"
-            echo "Using screen device index: $SCREEN_INDEX"
-
-            ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 \
-              -i "${SCREEN_INDEX}:none" \
-              -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
-              /tmp/test-recording-raw.mp4 </dev/null >/tmp/ffmpeg.log 2>&1 &
+            # A persistent AVFoundation capture session prevents
+            # XCUIApplication from foregrounding a macOS app on both Warp and
+            # Tart. Capture independent JPEG frames instead, then assemble
+            # them after XCTest exits. No recorder owns the display while the
+            # app is activating.
+            GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+            if [ -z "$GUI_USER" ] || [ "$GUI_USER" = "root" ]; then
+              echo "::error::No logged-in GUI user is available for screen recording"
+              exit 1
+            fi
+            GUI_UID="$(id -u "$GUI_USER")"
+            FRAME_DIR=/tmp/test-recording-frames
+            rm -rf "$FRAME_DIR"
+            mkdir -p "$FRAME_DIR"
+            (
+              frame=0
+              while true; do
+                output="$(printf '%s/frame-%06d.jpg' "$FRAME_DIR" "$frame")"
+                sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" \
+                  /usr/sbin/screencapture -x -t jpg -D 1 "$output" || exit 1
+                frame=$((frame + 1))
+                sleep 0.5
+              done
+            ) </dev/null >/tmp/screencapture.log 2>&1 &
             RECORD_PID=$!
             echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
             sleep 2
 
-            if kill -0 "$RECORD_PID" 2>/dev/null; then
-              echo "Recording started (PID $RECORD_PID)"
+            if kill -0 "$RECORD_PID" 2>/dev/null && [ -s "$FRAME_DIR/frame-000000.jpg" ]; then
+              echo "Frame capture started (PID $RECORD_PID)"
             else
-              echo "::warning::ffmpeg screen recording failed to start"
-              cat /tmp/ffmpeg.log
+              echo "::error::screen frame capture failed to start"
+              cat /tmp/screencapture.log
+              exit 1
             fi
           fi
 
@@ -541,8 +572,10 @@ jobs:
       - name: Stop recording and trim
         if: ${{ always() && steps.filter.outputs.record_video == 'true' && env.RECORD_PID != '' }}
         run: |
-          # Stop ffmpeg cleanly
-          kill -INT "$RECORD_PID" 2>/dev/null || true
+          # Stop frame capture, then assemble the independent images into a
+          # video. This avoids holding an AVFoundation display session while
+          # XCTest foregrounds and relaunches the app.
+          kill -TERM "$RECORD_PID" 2>/dev/null || true
           for i in $(seq 1 15); do
             if ! kill -0 "$RECORD_PID" 2>/dev/null; then
               echo "Recording stopped after ${i}s"
@@ -552,8 +585,20 @@ jobs:
           done
           kill -9 "$RECORD_PID" 2>/dev/null || true
 
+          FRAME_COUNT="$(find /tmp/test-recording-frames -type f -name 'frame-*.jpg' 2>/dev/null | wc -l | tr -d ' ')"
+          echo "Captured frames: ${FRAME_COUNT:-0}"
+          if [ "${FRAME_COUNT:-0}" -eq 0 ]; then
+            echo "No recording frames"
+            cat /tmp/screencapture.log 2>/dev/null || true
+            exit 1
+          fi
+
+          ffmpeg -y -framerate 2 -i /tmp/test-recording-frames/frame-%06d.jpg \
+            -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+            /tmp/test-recording-raw.mp4 2>/dev/null
+
           echo "=== raw recording ==="
-          ls -lh /tmp/test-recording-raw.mp4 2>/dev/null || { echo "No recording file"; exit 0; }
+          ls -lh /tmp/test-recording-raw.mp4
 
           # Trim: detect first non-black frame and cut from there
           BLACK_END=$(ffmpeg -i /tmp/test-recording-raw.mp4 \
@@ -651,3 +696,21 @@ jobs:
 
           echo "Issue posted: $ISSUE_URL"
           echo "::notice title=Test Result Issue::$ISSUE_URL"
+
+      - name: Clean owned DerivedData
+        if: always()
+        run: |
+          set -euo pipefail
+          derived_data_path="${CMUX_DERIVED_DATA_PATH:-}"
+          case "$derived_data_path" in
+            "$RUNNER_TEMP"/cmux-derived-data-e2e-*)
+              rm -rf -- "$derived_data_path"
+              ;;
+            "")
+              echo "DerivedData was not prepared; nothing to clean"
+              ;;
+            *)
+              echo "::error::refusing to remove unowned DerivedData path: $derived_data_path"
+              exit 1
+              ;;
+          esac

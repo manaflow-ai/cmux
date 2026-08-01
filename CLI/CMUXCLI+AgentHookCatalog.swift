@@ -67,6 +67,15 @@ extension CMUXCLI {
             events: []
         ),
         AgentHookDef(
+            name: "campfire", displayName: "Campfire", statusKey: "campfire",
+            configDir: ".campfire/agent", configFile: "extensions/cmux-campfire-session.ts",
+            createConfigDirIfMissing: true,
+            configDirResolver: { CMUXCLI.resolvedCampfireAgentDirectory().path },
+            sessionStoreSuffix: "campfire", disableEnvVar: "CMUX_CAMPFIRE_HOOKS_DISABLED",
+            hookMarker: "cmux hooks campfire", format: .flat,
+            events: []
+        ),
+        AgentHookDef(
             name: "amp", displayName: "Amp", statusKey: "amp",
             configDir: ".config/amp", configFile: "plugins/cmux-session.ts",
             sessionStoreSuffix: "amp", disableEnvVar: "CMUX_AMP_HOOKS_DISABLED",
@@ -133,8 +142,7 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             aliases: ["agy"],
-            sessionEndIsTurnBoundary: true,
-            feedHookEvents: ["PreToolUse", "PostToolUse"]
+            sessionEndIsTurnBoundary: true
         ),
         AgentHookDef(
             name: "rovodev", displayName: "Rovo Dev", statusKey: "rovodev",
@@ -220,20 +228,19 @@ extension CMUXCLI {
         ),
         AgentHookDef(
             name: "kimi", displayName: "Kimi Code", statusKey: "kimi",
-            configDir: ".kimi-code", configFile: "config.toml", configDirEnvOverride: "KIMI_CODE_HOME",
-            binaryName: "kimi",
+            configDir: ".kimi", configFile: "config.toml", configDirEnvOverride: "KIMI_SHARE_DIR",
+            createConfigDirIfMissing: true, binaryName: "kimi",
             sessionStoreSuffix: "kimi", disableEnvVar: "CMUX_KIMI_HOOKS_DISABLED",
             hookMarker: "cmux hooks kimi", format: .tomlArrayTable,
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
-                .init(agentEvent: "PermissionRequest", cmuxSubcommand: "notification"),
+                .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
                 .init(agentEvent: "StopFailure", cmuxSubcommand: "notification"),
-                .init(agentEvent: "Interrupt", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["PreToolUse", "PostToolUse", "PermissionRequest"]
+            feedHookEvents: ["PreToolUse", "PostToolUse"]
         ),
     ]
 
