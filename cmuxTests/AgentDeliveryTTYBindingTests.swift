@@ -92,6 +92,26 @@ extension AgentNotificationRegressionTests {
         )
     }
 
+    @Test("Relay TTY resolution follows a freshly reported surface into another workspace")
+    func relayTTYResolutionFollowsFreshReportIntoWorkspace() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let configuration = deliveryTargetRemoteConfiguration(relayPort: 64_007)
+        fixture.source.remoteConfiguration = configuration
+        fixture.destination.remoteConfiguration = configuration
+        fixture.source.trackRemoteTerminalSurface(fixture.panelId)
+        fixture.source.registerReportedSurfaceTTYName("pts/4", panelId: fixture.panelId)
+
+        try movePanel(fixture)
+
+        assertRelayTTYTarget(
+            authenticatedWorkspaceID: fixture.destination.id,
+            ttyName: "pts/4",
+            expectedWorkspaceID: fixture.destination.id,
+            expectedSurfaceID: fixture.panelId
+        )
+    }
+
     @Test("A runtime TTY report refreshes a remote surface already in a Dock")
     func runtimeTTYReportRefreshesRemoteSurfaceAlreadyInDock() throws {
         let fixture = try makeFixture()
@@ -204,6 +224,38 @@ extension AgentNotificationRegressionTests {
         )
     }
 
+    @Test("A persistent workspace bridge retry preserves the remote PTY's TTY report")
+    func persistentWorkspaceRetryPreservesReportedTTY() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let terminal = try #require(workspace.panels[panelID] as? TerminalPanel)
+        workspace.remoteConfiguration = deliveryTargetRemoteConfiguration(
+            preserveAfterTerminalExit: true
+        )
+        workspace.trackRemoteTerminalSurface(panelID)
+        #expect(
+            workspace.markRemoteTerminalSessionLaunching(
+                surfaceId: panelID,
+                terminalLifecycleID: terminal.surface.terminalLifecycleId,
+                attemptID: UUID()
+            )
+        )
+        workspace.registerReportedSurfaceTTYName("pts/5", panelId: panelID)
+
+        #expect(
+            workspace.markRemoteTerminalSessionLaunching(
+                surfaceId: panelID,
+                terminalLifecycleID: terminal.surface.terminalLifecycleId,
+                attemptID: UUID()
+            )
+        )
+
+        #expect(
+            workspace.agentDeliveryTarget(forReportedTTYName: "pts/5") != nil,
+            "A bridge retry for the same persistent PTY must keep its report-once shell proof"
+        )
+    }
+
     @Test("A Dock reconnect invalidates the previous attempt's TTY report")
     func dockReconnectInvalidatesReportedTTY() throws {
         let fixture = try makeFixture()
@@ -249,6 +301,45 @@ extension AgentNotificationRegressionTests {
         assertNoRelayTTYTarget(
             authenticatedWorkspaceID: fixture.source.id,
             ttyName: "pts/0"
+        )
+    }
+
+    @Test("A persistent Dock bridge retry preserves the remote PTY's TTY report")
+    func persistentDockRetryPreservesReportedTTY() throws {
+        let fixture = try makeFixture()
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer {
+            dock.closeAllPanels()
+            fixture.restore()
+        }
+        let terminal = try #require(fixture.source.panels[fixture.panelId] as? TerminalPanel)
+        fixture.source.remoteConfiguration = deliveryTargetRemoteConfiguration(
+            preserveAfterTerminalExit: true
+        )
+        fixture.source.trackRemoteTerminalSurface(fixture.panelId)
+        #expect(
+            fixture.source.markRemoteTerminalSessionLaunching(
+                surfaceId: fixture.panelId,
+                terminalLifecycleID: terminal.surface.terminalLifecycleId,
+                attemptID: UUID()
+            )
+        )
+        fixture.source.registerReportedSurfaceTTYName("pts/6", panelId: fixture.panelId)
+        try moveRemoteSurface(fixture, into: dock)
+
+        #expect(
+            dock.markRemoteTerminalSessionLaunching(
+                panelId: fixture.panelId,
+                terminalLifecycleID: terminal.surface.terminalLifecycleId,
+                attemptID: UUID()
+            )
+        )
+
+        assertRelayTTYTarget(
+            authenticatedWorkspaceID: fixture.source.id,
+            ttyName: "pts/6",
+            expectedWorkspaceID: dock.workspaceId,
+            expectedSurfaceID: fixture.panelId
         )
     }
 
@@ -308,7 +399,10 @@ extension AgentNotificationRegressionTests {
         #expect(code == "not_found")
     }
 
-    private func deliveryTargetRemoteConfiguration(relayPort: Int? = nil) -> WorkspaceRemoteConfiguration {
+    private func deliveryTargetRemoteConfiguration(
+        relayPort: Int? = nil,
+        preserveAfterTerminalExit: Bool = false
+    ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "example.invalid",
             port: nil,
@@ -319,7 +413,9 @@ extension AgentNotificationRegressionTests {
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
-            terminalStartupCommand: nil
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: preserveAfterTerminalExit,
+            persistentDaemonSlot: preserveAfterTerminalExit ? "delivery-target-test" : nil
         )
     }
 }
