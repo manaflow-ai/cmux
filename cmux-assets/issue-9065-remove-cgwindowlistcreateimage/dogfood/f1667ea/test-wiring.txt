@@ -1,0 +1,1 @@
+lint-pbxproj-test-wiring: ok (checked 616 test files)

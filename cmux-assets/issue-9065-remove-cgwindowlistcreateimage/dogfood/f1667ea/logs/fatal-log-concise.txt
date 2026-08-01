@@ -1,0 +1,2 @@
+Timestamp               Ty Process[PID:TID]
+2026-07-28 17:02:24.524 Df cmux DEV[27985:1fdaee5] (libswiftCore.dylib) Swift/arm64e-apple-macos.swiftinterface:13152: Fatal error: Not enough bits to represent the passed value

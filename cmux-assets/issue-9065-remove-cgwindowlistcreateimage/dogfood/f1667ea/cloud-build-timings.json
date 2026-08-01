@@ -1,0 +1,9 @@
+{
+  "tag": "issue-9065-remove-cgwindowlistcreateimage",
+  "platform": "macos",
+  "runner": "blacksmith-6vcpu-macos-26",
+  "ref": "reload-build/austinwang/issue-9065-remove-cgwindowlistcreateimage-20260728163151-14189-15623",
+  "deps_seconds": 291,
+  "build_seconds": 345,
+  "post_checkout_total_seconds": 636
+}
