@@ -134,7 +134,7 @@ private struct CMUXSidebarExtensionLimitedChoiceStore {
 }
 
 @MainActor
-private final class CMUXSidebarSnapshotCache {
+final class CMUXSidebarSnapshotCache {
     private(set) var snapshot: CmuxSidebarSnapshot?
 
     func replace(with next: CmuxSidebarSnapshot) -> CmuxSidebarSnapshot {

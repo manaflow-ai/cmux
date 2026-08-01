@@ -9,6 +9,7 @@ import base64
 import fcntl
 import json
 import os
+import signal
 import shutil
 import subprocess
 import tempfile
@@ -37,12 +38,27 @@ def communicate_or_terminate(
     try:
         return process.communicate(input=input_text, timeout=timeout)
     except subprocess.TimeoutExpired:
-        process.terminate()
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
         try:
             process.communicate(timeout=2)
         except subprocess.TimeoutExpired:
-            process.kill()
-            process.communicate()
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
+                process.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                for pipe in (process.stdin, process.stdout, process.stderr):
+                    if pipe is not None:
+                        pipe.close()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    pass
         raise
 
 
@@ -192,6 +208,7 @@ def main() -> int:
                 stderr=subprocess.PIPE,
                 text=True,
                 env=refresh_env,
+                start_new_session=True,
             )
             extension_path.write_text(replacement, encoding="utf-8")
             try:
@@ -223,6 +240,7 @@ def main() -> int:
                 stderr=subprocess.PIPE,
                 text=True,
                 env=refresh_env,
+                start_new_session=True,
             )
             blocked_uninstall = subprocess.Popen(
                 [cli_path, "hooks", "pi", "uninstall"],
@@ -230,6 +248,7 @@ def main() -> int:
                 stderr=subprocess.PIPE,
                 text=True,
                 env=refresh_env,
+                start_new_session=True,
             )
             refresh_timed_out = False
             try:
