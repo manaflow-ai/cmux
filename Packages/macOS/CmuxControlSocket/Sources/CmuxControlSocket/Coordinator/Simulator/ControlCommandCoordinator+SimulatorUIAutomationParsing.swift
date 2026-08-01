@@ -93,7 +93,9 @@ extension ControlCommandCoordinator {
             )
         case "simulator.type_text":
             guard let elementRef = simulatorUIElementRef(params, "element_ref"),
-                  let text = simulatorUIString(params, "text", maximumBytes: 4_096),
+                  case let .string(text)? = params["text"],
+                  !text.isEmpty,
+                  text.utf8.count <= 4_096,
                   let replaceExisting = simulatorBool(params, "replace_existing") else {
                 return nil
             }
