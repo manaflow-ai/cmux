@@ -1560,6 +1560,50 @@ mod tests {
     use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 
     use super::*;
+    use crate::unix_socket::TestFileDescriptorExhaustion;
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_listener_retries_recoverable_accept_errors() {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "daemon::tests::unix_listener_accept_exhaustion_fixture",
+                "--nocapture",
+            ])
+            .env("CMUX_TEST_UNIX_ACCEPT_EXHAUSTION", "1")
+            .status()
+            .unwrap();
+
+        assert!(status.success(), "Unix listener stopped after a recoverable accept error");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_listener_accept_exhaustion_fixture() {
+        if std::env::var_os("CMUX_TEST_UNIX_ACCEPT_EXHAUSTION").is_none() {
+            return;
+        }
+
+        let directory = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "accept-retry-unix", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("link.sock");
+        let server = serve_unix(daemon, &socket, 65_535).await.unwrap();
+        let _queued = std::os::unix::net::UnixStream::connect(&socket).unwrap();
+        let mut exhaustion = TestFileDescriptorExhaustion::exhaust();
+
+        tokio::time::sleep(Duration::from_millis(75)).await;
+        exhaustion.restore();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        assert!(
+            !server.task.as_ref().unwrap().is_finished(),
+            "Unix listener task exited instead of retrying the recoverable accept error"
+        );
+        server.shutdown().await;
+    }
     use crate::connection::{ClientConnection, ClientConnectionConfig, LinkReady, ReconnectPolicy};
     use crate::crypto::{
         AuthRequest, ClientAuthMode, ClientHandshake, ServerAuthenticator, StaticIdentity,

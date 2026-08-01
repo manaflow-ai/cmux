@@ -624,6 +624,82 @@ fn machine_agent_argument_failures_are_stable_and_localized() {
     assert!(!stderr.contains("machine-agent を開始または続行できませんでした"));
 }
 
+#[cfg(unix)]
+#[test]
+fn known_daemon_human_output_uses_selected_locale() {
+    let dir = unique_temp_dir("known-daemon-locale");
+    let client = dir.join("client");
+    fs::create_dir_all(&client).unwrap();
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(&client, fs::Permissions::from_mode(0o700)).unwrap();
+    let state = serde_json::json!({
+        "version": 1,
+        "daemons": {
+            "enrolled-fingerprint": {
+                "fingerprint": "enrolled-fingerprint",
+                "name": "enrolled-host",
+                "public_key": "unused",
+                "route_hints": ["ssh://enrolled.example"],
+                "auth": "enrolled",
+                "first_seen_at_unix": 1,
+                "last_used_at_unix": 2
+            },
+            "carrier-fingerprint": {
+                "fingerprint": "carrier-fingerprint",
+                "name": "carrier-host",
+                "public_key": "unused",
+                "route_hints": ["ssh://carrier.example"],
+                "auth": "carrier",
+                "first_seen_at_unix": 1,
+                "last_used_at_unix": 2
+            }
+        }
+    });
+    let known = client.join("known-daemons.json");
+    fs::write(&known, serde_json::to_vec(&state).unwrap()).unwrap();
+    fs::set_permissions(&known, fs::Permissions::from_mode(0o600)).unwrap();
+
+    let localized = |arguments: &[&str]| {
+        Command::new(bin())
+            .args(arguments)
+            .arg("--state-dir")
+            .arg(&dir)
+            .env("LC_ALL", "ja_JP.UTF-8")
+            .env("LC_MESSAGES", "ja_JP.UTF-8")
+            .env("LANG", "ja_JP.UTF-8")
+            .output()
+            .unwrap()
+    };
+
+    let list = localized(&["known-daemons"]);
+    assert_success(&list);
+    let list = String::from_utf8(list.stdout).unwrap();
+    assert!(list.contains("\t登録済み\n"), "{list}");
+    assert!(list.contains("\t信頼済み搬送路\n"), "{list}");
+    assert!(!list.contains("\tenrolled\n"), "{list}");
+    assert!(!list.contains("\tcarrier\n"), "{list}");
+
+    let forget = localized(&["known-daemons", "forget", "enrolled-fingerprint"]);
+    assert_success(&forget);
+    let forget = String::from_utf8(forget.stdout).unwrap();
+    assert_eq!(forget, "デーモン enrolled-fingerprint を削除しました。\n");
+
+    let empty_dir = unique_temp_dir("known-daemon-empty-locale");
+    let empty = Command::new(bin())
+        .args(["known-daemons", "--state-dir"])
+        .arg(&empty_dir)
+        .env("LC_ALL", "ja_JP.UTF-8")
+        .env("LC_MESSAGES", "ja_JP.UTF-8")
+        .env("LANG", "ja_JP.UTF-8")
+        .output()
+        .unwrap();
+    assert_success(&empty);
+    assert_eq!(String::from_utf8(empty.stdout).unwrap(), "登録済みのデーモンはありません。\n");
+
+    fs::remove_dir_all(dir).unwrap();
+    fs::remove_dir_all(empty_dir).unwrap();
+}
+
 #[test]
 fn noun_first_ratio_commands_reject_nonfinite_values_before_connecting() {
     const PANE: &str = "pane_11111111111111111111111111111111";

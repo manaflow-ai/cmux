@@ -809,6 +809,53 @@ mod tests {
     use super::*;
     use crate::identity::AuthDatabase;
     use crate::session::SessionLimits;
+    use crate::unix_socket::TestFileDescriptorExhaustion;
+
+    #[test]
+    fn admin_listener_retries_recoverable_accept_errors() {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "admin::tests::admin_listener_accept_exhaustion_fixture",
+                "--nocapture",
+            ])
+            .env("CMUX_TEST_ADMIN_ACCEPT_EXHAUSTION", "1")
+            .status()
+            .unwrap();
+
+        assert!(status.success(), "admin listener stopped after a recoverable accept error");
+    }
+
+    #[tokio::test]
+    async fn admin_listener_accept_exhaustion_fixture() {
+        if std::env::var_os("CMUX_TEST_ADMIN_ACCEPT_EXHAUSTION").is_none() {
+            return;
+        }
+
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(
+            directory.path().join("state"),
+            "accept-retry-admin",
+            true,
+        )
+        .unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("admin.sock");
+        let server = serve_admin(daemon, &socket, Vec::new()).await.unwrap();
+        let _queued = std::os::unix::net::UnixStream::connect(&socket).unwrap();
+        let mut exhaustion = TestFileDescriptorExhaustion::exhaust();
+
+        tokio::time::sleep(TokioDuration::from_millis(75)).await;
+        exhaustion.restore();
+
+        let response =
+            timeout(TokioDuration::from_secs(2), call_admin(&socket, &AdminRequest::Status))
+                .await
+                .expect("admin listener never retried after file-descriptor exhaustion")
+                .unwrap();
+        assert!(response.ok);
+        server.shutdown().await;
+    }
 
     #[tokio::test]
     async fn owner_can_create_invitation_and_read_status() {

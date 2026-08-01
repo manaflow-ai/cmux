@@ -149,6 +149,67 @@ impl Drop for OwnedUnixListener {
     }
 }
 
+#[cfg(test)]
+pub(crate) struct TestFileDescriptorExhaustion {
+    original_limit: libc::rlimit,
+    held: Vec<fs::File>,
+    restored: bool,
+}
+
+#[cfg(test)]
+impl TestFileDescriptorExhaustion {
+    pub(crate) fn exhaust() -> Self {
+        let mut original_limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        assert_eq!(
+            unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut original_limit) },
+            0,
+            "could not read the file-descriptor limit: {}",
+            io::Error::last_os_error()
+        );
+        let constrained_limit = libc::rlimit {
+            rlim_cur: original_limit.rlim_cur.min(128),
+            rlim_max: original_limit.rlim_max,
+        };
+        assert_eq!(
+            unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const constrained_limit) },
+            0,
+            "could not constrain the file-descriptor limit: {}",
+            io::Error::last_os_error()
+        );
+
+        let mut held = Vec::new();
+        loop {
+            match fs::File::open("/dev/null") {
+                Ok(file) => held.push(file),
+                Err(error) if error.raw_os_error() == Some(libc::EMFILE) => break,
+                Err(error) => panic!("file-descriptor exhaustion failed unexpectedly: {error}"),
+            }
+        }
+        Self { original_limit, held, restored: false }
+    }
+
+    pub(crate) fn restore(&mut self) {
+        if self.restored {
+            return;
+        }
+        self.held.clear();
+        assert_eq!(
+            unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const self.original_limit) },
+            0,
+            "could not restore the file-descriptor limit: {}",
+            io::Error::last_os_error()
+        );
+        self.restored = true;
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestFileDescriptorExhaustion {
+    fn drop(&mut self) {
+        self.restore();
+    }
+}
+
 pub(crate) fn validate_socket_directory_for_uid(
     parent: &Path,
     effective_uid: u32,
