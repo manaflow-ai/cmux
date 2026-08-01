@@ -11,6 +11,7 @@ import { APNS_DEFAULT_MAX_DELIVERY_DURATION_MS } from "../services/apns/sender";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
+const DB_STRESS_TEST_TIMEOUT_MS = 30_000;
 
 let sql: Sql | null = null;
 
@@ -67,7 +68,7 @@ describe("notification rate limit", () => {
       "event-after-window",
       new Date(now.getTime() + 10 * 60 * 1000 + 1),
     );
-  });
+  }, DB_STRESS_TEST_TIMEOUT_MS);
 
   dbTest("counts repeated transport attempts for one correlation id as one logical event", async () => {
     if (!sql) throw new Error("test database not initialized");
@@ -141,5 +142,5 @@ describe("notification rate limit", () => {
       new Date(now.getTime() + 120_000),
       "dismiss",
     )).resolves.toMatchObject({ kind: "claimed" });
-  });
+  }, DB_STRESS_TEST_TIMEOUT_MS);
 });
