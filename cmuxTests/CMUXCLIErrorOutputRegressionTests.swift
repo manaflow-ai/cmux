@@ -225,9 +225,14 @@ import Testing
         XCTAssertFalse(result.timedOut, result.stdout)
         XCTAssertEqual(result.status, 1, result.stdout)
         XCTAssertTrue(
-            result.stdout.contains("executable '\(executableName)' was not found"),
+            result.stdout.contains(
+                "restore: the saved agent command is unavailable. "
+                    + "Make sure the agent is installed, then retry."
+            ),
             result.stdout
         )
+        XCTAssertFalse(result.stdout.contains(executableName), result.stdout)
+        XCTAssertFalse(result.stdout.contains(root.path), result.stdout)
         XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
     }
 
@@ -296,7 +301,8 @@ import Testing
         XCTAssertEqual(result.status, 1, result.stdout)
         XCTAssertTrue(
             result.stdout.contains(
-                "provider setup timed out after 10 seconds"
+                "restore: provider setup took too long. "
+                    + "Check the provider connection, then retry."
             ),
             result.stdout
         )

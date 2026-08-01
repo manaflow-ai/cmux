@@ -1131,6 +1131,47 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         XCTAssertTrue(preparedArguments.contains(restoredDirectory), "\(preparedArguments)")
         XCTAssertFalse(preparedArguments.contains(savedDirectory), "\(preparedArguments)")
+
+        let replacementSessionID = "replacement-cwd-session"
+        let replacementDirectory = "/tmp/replacement-project"
+        let replacementLaunch = AgentLaunchCommandSnapshot(
+            launcher: "cwd-agent",
+            executablePath: "/opt/cwd-agent",
+            arguments: ["/opt/cwd-agent"],
+            workingDirectory: replacementDirectory
+        )
+        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "cwd-agent",
+                command: "/opt/cwd-agent --cwd \(replacementDirectory) --session \(replacementSessionID)",
+                cwd: replacementDirectory,
+                checkpointId: replacementSessionID,
+                source: "agent-hook",
+                launchCommand: replacementLaunch,
+                autoResume: true
+            ),
+            panelId: panelId
+        ))
+
+        let replacementResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let replacementRecord = try XCTUnwrap(
+            replacementResult["restore_record"] as? [String: Any]
+        )
+        XCTAssertEqual(
+            replacementRecord["working_directory"] as? String,
+            replacementDirectory
+        )
+        XCTAssertNotEqual(
+            replacementRecord["working_directory"] as? String,
+            restoredDirectory
+        )
     }
 
     func testSurfaceResumeSetCannotEnableAutoResumeFromSocket() throws {

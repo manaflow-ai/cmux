@@ -46,15 +46,19 @@ import Testing
         #expect(decoded.command.contains("codex resume legacy-display-command"))
     }
 
-    @Test func commandOnlyLegacyBindingStillProducesRestoreVerb() throws {
+    @Test func v06420CommandOnlyBindingStillProducesRestoreVerb() throws {
         let json = """
         {
+          "name": "Legacy custom agent",
           "kind": "custom-agent",
           "command": "legacy-agent --resume 'old checkpoint'",
           "cwd": "/tmp/legacy",
           "checkpointId": "old checkpoint",
           "source": "agent-hook",
+          "environment": {"LEGACY_VALUE": "preserved"},
           "autoResume": true,
+          "approvalPolicy": "auto",
+          "approvalRecordId": "legacy-approval",
           "updatedAt": 1
         }
         """
@@ -64,6 +68,10 @@ import Testing
         )
 
         #expect(binding.launchCommand == nil)
+        #expect(binding.permissionMode == nil)
+        #expect(binding.launchFlavor == .local)
+        #expect(binding.wasDecodedWithoutLaunchFlavor)
+        #expect(binding.environment == ["LEGACY_VALUE": "preserved"])
         #expect(
             binding.restoreStartupInput()
                 == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore --surface\n"
