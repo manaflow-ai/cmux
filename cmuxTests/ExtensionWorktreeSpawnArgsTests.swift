@@ -27,7 +27,7 @@ struct ExtensionWorktreeSpawnArgsTests {
 
     @Test("setup command runs as interactive shell input")
     func setupCommandRunsAsShellInput() {
-        let setup = "cd '/tmp/sample' && python3 -m http.server 4100"
+        let setup = "echo hi"
         let args = makeResult(setupCommand: setup).workspaceSpawnArgs()
 
         // The setup command must NOT become the workspace's primary process (a
@@ -37,6 +37,7 @@ struct ExtensionWorktreeSpawnArgsTests {
         // The spawn-args type has no primary-command field, so the original bug
         // is structurally unrepresentable here.
         #expect(args.initialTerminalInput == setup + "\n")
+        #expect(args.autoWelcomeIfNeeded == false)
     }
 
     @Test("worktree path is the workspace working directory")
@@ -46,6 +47,7 @@ struct ExtensionWorktreeSpawnArgsTests {
         #expect(args.workingDirectory == "/tmp/project/.cmux/worktrees/cmux-sidebar-123")
         #expect(args.inheritWorkingDirectory == false)
         #expect(args.title == "cmux-sidebar-123")
+        #expect(args.autoWelcomeIfNeeded == false)
     }
 
     @Test("empty setup command yields no input")
@@ -53,5 +55,6 @@ struct ExtensionWorktreeSpawnArgsTests {
         let args = makeResult(setupCommand: "").workspaceSpawnArgs()
 
         #expect(args.initialTerminalInput == nil)
+        #expect(args.autoWelcomeIfNeeded == false)
     }
 }
