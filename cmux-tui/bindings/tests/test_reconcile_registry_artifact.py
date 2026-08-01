@@ -35,8 +35,18 @@ class RegistryArtifactTests(unittest.TestCase):
         return io.BytesIO(json.dumps(payload).encode())
 
     def test_crates_requires_the_exact_downloaded_bytes(self) -> None:
+        def crates_response(archive: bytes):
+            def response(request: object, **_kwargs: object) -> io.BytesIO:
+                if str(getattr(request, "full_url", "")).endswith("/download"):
+                    return self.response(archive)
+                return self.response({"version": {"yanked": False}})
+
+            return response
+
         with mock.patch.object(
-            reconcile, "urlopen", return_value=self.response(self.artifact.read_bytes())
+            reconcile,
+            "urlopen",
+            side_effect=crates_response(self.artifact.read_bytes()),
         ):
             self.assertEqual(
                 reconcile.registry_status(
@@ -46,7 +56,9 @@ class RegistryArtifactTests(unittest.TestCase):
             )
 
         with mock.patch.object(
-            reconcile, "urlopen", return_value=self.response(b"different")
+            reconcile,
+            "urlopen",
+            side_effect=crates_response(b"different"),
         ), self.assertRaises(reconcile.ArtifactMismatch):
             reconcile.registry_status(
                 "crates", "cmux-client", "1.0.0", self.artifact
@@ -76,7 +88,14 @@ class RegistryArtifactTests(unittest.TestCase):
 
     def test_npm_uses_the_registry_integrity_digest(self) -> None:
         metadata = {
-            "dist": {"integrity": reconcile._integrity(self.artifact, "sha512")}
+            "dist-tags": {"latest": "1.0.0"},
+            "versions": {
+                "1.0.0": {
+                    "dist": {
+                        "integrity": reconcile._integrity(self.artifact, "sha512")
+                    }
+                }
+            },
         }
         with mock.patch.object(
             reconcile, "urlopen", return_value=self.response(metadata)
@@ -86,7 +105,7 @@ class RegistryArtifactTests(unittest.TestCase):
                 reconcile.MATCH,
             )
 
-        metadata["dist"]["integrity"] = "sha512-invalid"
+        metadata["versions"]["1.0.0"]["dist"]["integrity"] = "sha512-invalid"
         with mock.patch.object(
             reconcile, "urlopen", return_value=self.response(metadata)
         ), self.assertRaises(reconcile.ArtifactMismatch):

@@ -94,7 +94,9 @@ registry. Before publishing or recovering a failed publish, the workflow checks
 the registry digest and skips only an artifact whose bytes exactly match the
 validated local package. PyPI reconciliation also rejects unexpected or yanked
 files while allowing the expected wheel and source distribution to arrive in
-either order.
+either order. Crates.io reconciliation rejects yanked versions, and npm
+reconciliation requires the requested stable version to own the `latest`
+distribution tag.
 
 The cut workflow holds one cross-version concurrency lock until the Go check and
 all registry jobs finish. If one publish job fails, use GitHub's **Re-run failed

@@ -489,7 +489,7 @@ jobs:
             --version "$CMUX_SDK_VERSION" \
             --artifact "${packages[0]}" \
             --wait-seconds 120 \
-            -- npm publish --provenance "${packages[0]}"
+            -- npm publish --provenance --tag latest "${packages[0]}"
 
   publish-python-wheel:
     needs:

@@ -41,6 +41,10 @@ class RegistryCancellation(RegistryError):
     """Raised when registry reconciliation is cancelled."""
 
 
+class ReleaseStateMismatch(RegistryError):
+    """Raised when exact bytes are not usable through the registry's stable path."""
+
+
 def _digest(path: Path, algorithm: str) -> str:
     digest = hashlib.new(algorithm)
     with path.open("rb") as handle:
@@ -92,13 +96,37 @@ def _json(url: str) -> Optional[dict[str, Any]]:
 
 
 def _crates_status(package: str, version: str, artifact: Path) -> str:
+    metadata_url = (
+        "https://crates.io/api/v1/crates/"
+        f"{quote(package, safe='')}/{quote(version, safe='')}"
+    )
+    metadata = _json(metadata_url)
+    if metadata is None:
+        return MISSING
+    version_metadata = metadata.get("version")
+    if not isinstance(version_metadata, dict):
+        raise RegistryError(
+            f"crates.io metadata has no version object for {package}@{version}"
+        )
+    yanked = version_metadata.get("yanked")
+    if not isinstance(yanked, bool):
+        raise RegistryError(
+            f"crates.io metadata has no yanked state for {package}@{version}"
+        )
+    if yanked:
+        raise ReleaseStateMismatch(
+            f"crates.io release {package}@{version} is yanked"
+        )
+
     url = (
         "https://crates.io/api/v1/crates/"
         f"{quote(package, safe='')}/{quote(version, safe='')}/download"
     )
     published = _request(url, "application/octet-stream")
     if published is None:
-        return MISSING
+        raise RegistryError(
+            f"crates.io metadata exists but its archive is missing for {package}@{version}"
+        )
     local = _digest(artifact, "sha256")
     remote = hashlib.sha256(published).hexdigest()
     if local != remote:
@@ -110,14 +138,19 @@ def _crates_status(package: str, version: str, artifact: Path) -> str:
 
 
 def _npm_status(package: str, version: str, artifact: Path) -> str:
-    url = (
-        "https://registry.npmjs.org/"
-        f"{quote(package, safe='')}/{quote(version, safe='')}"
-    )
+    url = "https://registry.npmjs.org/" f"{quote(package, safe='')}"
     metadata = _json(url)
     if metadata is None:
         return MISSING
-    dist = metadata.get("dist")
+    versions = metadata.get("versions")
+    if not isinstance(versions, dict):
+        raise RegistryError(f"npm metadata has no versions object for {package}")
+    release = versions.get(version)
+    if release is None:
+        return MISSING
+    if not isinstance(release, dict):
+        raise RegistryError(f"npm metadata is malformed for {package}@{version}")
+    dist = release.get("dist")
     if not isinstance(dist, dict):
         raise RegistryError(f"npm metadata has no dist object for {package}@{version}")
     integrity = dist.get("integrity")
@@ -136,17 +169,25 @@ def _npm_status(package: str, version: str, artifact: Path) -> str:
                 f"npm already has different bytes for {package}@{version}: "
                 f"local integrity={local}, remote integrity={integrity}"
             )
-        return MATCH
-    shasum = dist.get("shasum")
-    if not isinstance(shasum, str):
-        raise RegistryError(
-            f"npm metadata has no usable digest for {package}@{version}"
-        )
-    local = _digest(artifact, "sha1")
-    if local != shasum:
-        raise ArtifactMismatch(
-            f"npm already has different bytes for {package}@{version}: "
-            f"local sha1={local}, remote sha1={shasum}"
+    else:
+        shasum = dist.get("shasum")
+        if not isinstance(shasum, str):
+            raise RegistryError(
+                f"npm metadata has no usable digest for {package}@{version}"
+            )
+        local = _digest(artifact, "sha1")
+        if local != shasum:
+            raise ArtifactMismatch(
+                f"npm already has different bytes for {package}@{version}: "
+                f"local sha1={local}, remote sha1={shasum}"
+            )
+    dist_tags = metadata.get("dist-tags")
+    if not isinstance(dist_tags, dict):
+        raise RegistryError(f"npm metadata has no dist-tags object for {package}")
+    latest = dist_tags.get("latest")
+    if latest != version:
+        raise ReleaseStateMismatch(
+            f"npm dist-tag latest points to {latest!r}, expected {version!r}"
         )
     return MATCH
 
