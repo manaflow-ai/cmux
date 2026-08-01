@@ -258,6 +258,81 @@ struct SSHRemoteCommandChainingTests {
         }
     }
 
+    @Test
+    func legacyRemoteCommandTokensAreExpandedByOpenSSHDuringRestore() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-restore-token-expansion-\(UUID().uuidString)", isDirectory: true)
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let eventsFile = root.appendingPathComponent("ssh-events")
+        let resultFile = root.appendingPathComponent("remote-command-result")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        mode=session
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            -G) mode=config; shift ;;
+            -o|-p|-i) shift 2 ;;
+            -tt|-t|-T) shift ;;
+            -*) shift ;;
+            *) shift; break ;;
+          esac
+        done
+        if [ "$mode" = config ]; then
+          printf 'config\n' >> "$SSH_EVENTS_FILE"
+          printf '%s\n' "remotecommand printf '%s\\n' 'caller % resolved.example dev-alias 2233 remote-user' > \"$RESULT_FILE\""
+          exit 0
+        fi
+        printf 'session\n' >> "$SSH_EVENTS_FILE"
+        exec /bin/sh -c "$*"
+        """
+        .write(to: fakeSSH, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeSSH.path)
+
+        let legacyRemoteCommand = #"printf '%s\n' 'caller %% %h %n %p %r' > "$RESULT_FILE""#
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .ssh,
+            terminalProfile: .shell,
+            destination: "dev-alias",
+            port: 2233,
+            sshOptions: [
+                "HostName=resolved.example",
+                "User=remote-user",
+                "RemoteCommand=\(legacyRemoteCommand)",
+            ]
+        )
+        let restored = try #require(snapshot.workspaceConfiguration())
+        let startupCommand = try #require(restored.terminalStartupCommand)
+            .replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "/usr/bin:/bin"
+        environment["RESULT_FILE"] = resultFile.path
+        environment["SSH_EVENTS_FILE"] = eventsFile.path
+        environment["SHELL"] = "/bin/sh"
+
+        let result = processSupport.runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(
+            try String(contentsOf: resultFile, encoding: .utf8)
+                == "caller % resolved.example dev-alias 2233 remote-user\n"
+        )
+        #expect(
+            try String(contentsOf: eventsFile, encoding: .utf8) == "config\nsession\n",
+            "Restore must ask OpenSSH for the effective, token-expanded RemoteCommand before launching it"
+        )
+    }
+
     @Test(
         "explicit empty command suppresses a legacy SSH RemoteCommand",
         arguments: ["", "none"]
