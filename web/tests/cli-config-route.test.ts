@@ -3,7 +3,7 @@ import { GET } from "../app/api/cli/config/route";
 
 describe("CLI config route", () => {
   test("publishes native Stack Auth and hosted Subrouter configuration", async () => {
-    const response = GET();
+    const response = GET(new Request("https://cmux.com/api/cli/config"));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       version: 1,
@@ -36,7 +36,7 @@ describe("CLI config route", () => {
     delete process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
     delete process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY;
     try {
-      const response = GET();
+      const response = GET(new Request("https://cmux.com/api/cli/config"));
       expect(response.status).toBe(503);
       expect(await response.json()).toEqual({
         error: "cli_auth_unavailable",
