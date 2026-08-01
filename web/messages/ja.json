@@ -149,7 +149,8 @@
         "fallbackName": "チーム",
         "activeBody": "{team}は{date}に更新されます。",
         "pendingBody": "{team}は{date}に終了する予定です。",
-        "price": "$35/シート/月"
+        "price": "$35/シート/月",
+        "annualPrice": "$336/シート/年"
       },
       "details": {
         "renewsOn": "更新日",
@@ -399,8 +400,18 @@
     "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
     "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイを利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
-    "perMonth": "/月",
-    "perUserMonth": "/ユーザー/月",
+    "perMonth": "月額",
+    "perMonthBilledYearly": "月額（年払い）",
+    "perUserMonth": "ユーザーあたり月額",
+    "perUserMonthBilledYearly": "ユーザーあたり月額（年払い）",
+    "billingPeriod": "請求期間",
+    "monthly": "月払い",
+    "annual": "年払い",
+    "saveAnnual": "{discount}%割引",
+    "annualPriceDetail": "年額 ${amount} の一括払い · {discount}%割引",
+    "annualComparePrice": "${monthly}/月 · ${annual}/年",
+    "teamMonthlyComparePrice": "${monthly}/ユーザー/月",
+    "teamAnnualComparePrice": "${monthly}/ユーザー/月 · ${annual}/ユーザー/年",
     "currentPlan": "現在のプラン",
     "manageBilling": "請求を管理",
     "free": {
@@ -658,7 +669,7 @@
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月額 $30、または年額 $240(年払いでは月あたり約 $20)で、4 vCPU / 16 GB の Cloud VM で毎月20時間のアクティブ計算時間が含まれます。それを超えると、VM サイズに応じてアクティブな計算時間あたりで課金されます(上記の Cloud VM サイズを参照)。アイドルの VM は自動的に一時停止し、エージェントを並列実行するとより多くの時間を使うだけです。ターミナルとローカルエージェントは無料のままです。"
+          "a": "Pro は月額 $30、または年額 $288(年払いでは月あたり $24、20%割引)で、4 vCPU / 16 GB の Cloud VM で毎月20時間のアクティブ計算時間が含まれます。それを超えると、VM サイズに応じてアクティブな計算時間あたりで課金されます(上記の Cloud VM サイズを参照)。アイドルの VM は自動的に一時停止し、エージェントを並列実行するとより多くの時間を使うだけです。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -666,7 +677,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "はい。Team は1ユーザーあたり月額 $35 です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
+          "a": "はい。Team は1ユーザーあたり月額 $35、または年額 $336（月額換算 $28、20%割引）です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
         }
       ]
     },
