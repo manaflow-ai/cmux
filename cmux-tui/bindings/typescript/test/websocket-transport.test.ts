@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   Client,
   CmuxAbortError,
+  CmuxAuthenticationRejectedError,
   CmuxConnectionError,
   CmuxTimeoutError,
   MutationTransportUncertainError,
@@ -347,6 +348,29 @@ for (const surface of WEBSOCKET_SURFACES) {
       "close-one",
       "close-two",
     ]);
+  });
+
+  test(`${surface} WebSocket pairing denial preserves stored credentials`, () => {
+    let storedCredential = "credential-for-another-connection";
+    const errors: Error[] = [];
+    let closes = 0;
+    const { transport, socket } = createSurfaceTransport(surface, {
+      onAuthenticationRejected: () => {
+        storedCredential = "";
+      },
+    });
+    transport.onError((error) => errors.push(error));
+    transport.onClose(() => closes += 1);
+
+    socket.open();
+    socket.message(
+      '{"pairing":{"id":7,"code":"123 456","peer":"127.0.0.1","expires_in":60}}',
+    );
+    socket.rejectAuthentication();
+
+    assert.equal(storedCredential, "credential-for-another-connection");
+    assert.deepEqual(errors, []);
+    assert.equal(closes, 1);
   });
 
   test(`${surface} WebSocket non-text failure fans out and closes`, () => {
@@ -822,6 +846,38 @@ test("resource WebSocket reports synchronous token rejection conclusively", asyn
   assert.equal(failure?.constructor.name, "CmuxAuthenticationRejectedError");
   assert.ok(!(failure instanceof MutationTransportUncertainError));
   assert.deepEqual(socket.sent, ['{"auth":{"token":"expired"}}']);
+  client.close();
+});
+
+test("resource WebSocket pairing denial remains a connection failure", async () => {
+  let storedCredential = "credential-for-another-connection";
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+    onAuthenticationRejected: () => {
+      storedCredential = "";
+    },
+  });
+  const client = new Client({ transport, timeoutMs: 0 });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  const renaming = client
+    .session(RESOURCE_SESSION)
+    .workspace(RESOURCE_WORKSPACE)
+    .rename("not-dispatched");
+
+  socket.open();
+  socket.message(
+    '{"pairing":{"id":7,"code":"123 456","peer":"127.0.0.1","expires_in":60}}',
+  );
+  socket.rejectAuthentication();
+  const failure = await renaming.then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+
+  assert.ok(failure instanceof CmuxConnectionError);
+  assert.ok(!(failure instanceof CmuxAuthenticationRejectedError));
+  assert.ok(!(failure instanceof MutationTransportUncertainError));
+  assert.equal(storedCredential, "credential-for-another-connection");
   client.close();
 });
 
