@@ -388,41 +388,6 @@ import Testing
         }
     }
 
-    // MARK: - Replacement admission
-
-    @Test func supersededDismissUsesTheSingleActualForwardAdmission() {
-        let active = monitor(hardwareIdleSeconds: 0).evaluate()
-        let away = monitor(hardwareIdleSeconds: 3_600).evaluate()
-
-        // Away → active before queue admission: the actual active sample wins,
-        // so the stale banner is dismissed immediately.
-        let suppressed = PhonePushClient.admission(
-            enabled: true,
-            mode: .onlyWhenAway,
-            presence: active
-        )
-        #expect(suppressed == .presenceSuppressed)
-        #expect(
-            TerminalNotificationStore.supersededPhoneDismissDisposition(
-                after: suppressed
-            ) == .immediate
-        )
-
-        // Active → away before queue admission: the actual away sample wins,
-        // so dismissal follows the queued replacement.
-        let queued = PhonePushClient.admission(
-            enabled: true,
-            mode: .onlyWhenAway,
-            presence: away
-        )
-        #expect(queued == .queued)
-        #expect(
-            TerminalNotificationStore.supersededPhoneDismissDisposition(
-                after: queued
-            ) == .afterReplacementQueued
-        )
-    }
-
     // MARK: - Server acknowledgement
 
     @Test func requestEnvelopePinsCorrelationExpirationAndRedactsBeforeEncoding() throws {

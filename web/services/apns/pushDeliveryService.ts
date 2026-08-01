@@ -391,18 +391,21 @@ async function executePushDeliveryWithTargets(
   const deadTargets = results.flatMap((result) => {
     if (!result.prune) return [];
     const target = sentTargetByToken.get(result.deviceToken);
-    return target?.targetId ? [target] : [];
+    return target?.targetId
+      ? [{ ...target, targetId: target.targetId }]
+      : [];
   });
   const exactDeadTargetPredicate = or(
     ...deadTargets.map((target) => and(
-      eq(deviceTokens.id, target.targetId!),
+      eq(deviceTokens.id, target.targetId),
       eq(deviceTokens.deviceToken, target.deviceToken),
       eq(deviceTokens.bundleId, target.bundleId),
       eq(deviceTokens.environment, target.environment),
     )),
   );
+  const deletedTargetIDs = new Set<string>();
   if (exactDeadTargetPredicate) {
-    await db
+    const deletedTargets = await db
       .delete(deviceTokens)
       .where(
         and(
@@ -410,14 +413,26 @@ async function executePushDeliveryWithTargets(
           eq(deviceTokens.platform, "ios"),
           exactDeadTargetPredicate,
         ),
-      );
+      )
+      .returning({ targetId: deviceTokens.id });
+    for (const target of deletedTargets) {
+      deletedTargetIDs.add(target.targetId);
+    }
   }
+  const persistedResults = results.map((result) => {
+    if (!result.prune || (
+      result.targetId != null && deletedTargetIDs.has(result.targetId)
+    )) {
+      return result;
+    }
+    return { ...result, prune: false };
+  });
 
   return await completeDelivery(
     dependencies,
     input,
     leaseToken,
-    mergePushDeliveryOutcomes(priorOutcomes, results),
+    mergePushDeliveryOutcomes(priorOutcomes, persistedResults),
     false,
     deliveryPayload.expirationEpochSeconds,
   );

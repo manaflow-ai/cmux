@@ -11,18 +11,7 @@ nonisolated private let terminalNotificationLogger = Logger(
     category: "notification"
 )
 
-enum SupersededPhoneDismissDisposition: Equatable, Sendable {
-    case immediate
-    case afterReplacementQueued
-}
-
 extension TerminalNotificationStore {
-    nonisolated static func supersededPhoneDismissDisposition(
-        after admission: PhonePushForwardAdmission
-    ) -> SupersededPhoneDismissDisposition {
-        admission == .queued ? .afterReplacementQueued : .immediate
-    }
-
     nonisolated static func shouldAttemptPhoneForward(
         effects _: TerminalNotificationPolicyEffects,
         phoneForwardingEnabled: Bool,
@@ -1351,20 +1340,17 @@ final class TerminalNotificationStore: ObservableObject {
                     .configuration().forwardingEnabled,
                 categoryAllowsDelivery: true
             )
-        let admission = shouldAttemptPhone
-            ? PhonePushClient.shared.forward(
+        if shouldAttemptPhone {
+            PhonePushClient.shared.forward(
                 notification,
                 badgeCount: indexes.unreadCount
             )
-            : PhonePushForwardAdmission.disabled
+        }
         let superseded = supersededPhoneDismissBuffer.flush(forKey: key)
         if !superseded.isEmpty {
-            switch Self.supersededPhoneDismissDisposition(after: admission) {
-            case .immediate, .afterReplacementQueued:
-                // `.afterReplacementQueued` is ordered because both operations
-                // enter the same serial delivery queue synchronously here.
-                emitNotificationsDismissed(ids: superseded)
-            }
+            // The replacement enqueue above and this dismissal enter the same
+            // serial delivery queue synchronously, so ordering already holds.
+            emitNotificationsDismissed(ids: superseded)
         }
     }
 

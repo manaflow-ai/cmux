@@ -124,6 +124,7 @@ struct MobilePushReadinessPreviewView: View {
             mode: mode,
             admission: forwardingEnabled ? .allowed : .forwardingDisabled,
             hideContent: hideContent,
+            queuePersistence: current.queuePersistence,
             apiOrigin: current.apiOrigin,
             accountScope: current.accountScope
         )

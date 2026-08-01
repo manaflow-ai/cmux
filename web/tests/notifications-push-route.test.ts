@@ -1406,8 +1406,9 @@ describe("notifications push route", () => {
       reason: "Unregistered",
       prune: true,
     }]];
+    const testSql = sql;
     beforeNextSend = async () => {
-      await sql!`
+      await testSql`
         update device_tokens
         set bundle_id = 'dev.cmux.ios.push1', environment = 'sandbox'
         where user_id = 'user-1' and device_token = ${"a".repeat(64)}
