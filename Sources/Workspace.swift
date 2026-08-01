@@ -471,11 +471,14 @@ extension Workspace {
                 ? sessionRestorePolicy.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                 : nil
             let agentWasRunning: Bool? = {
-                if resumeBinding?.isAgentHookBinding == true {
-                    guard let bindingKindValue = Self.normalizedResumeBindingValue(resumeBinding?.kind),
+                if let resumeBinding, resumeBinding.isAgentHookBinding {
+                    guard let bindingKindValue = Self.normalizedResumeBindingValue(resumeBinding.kind),
                           let bindingKind = RestorableAgentKind(rawValue: bindingKindValue),
-                          let bindingSessionId = Self.normalizedResumeBindingValue(resumeBinding?.checkpointId) else {
+                          let bindingSessionId = Self.normalizedResumeBindingValue(resumeBinding.checkpointId) else {
                         return false
+                    }
+                    if restoredAgentLifecycleConfirmsRunning(resumeBinding, panelId: panelId) {
+                        return true
                     }
                     let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
                         kind: bindingKind,
@@ -1252,6 +1255,10 @@ extension Workspace {
                 continue
             }
             if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) {
+                invalidateRestoredAgentLifecycleIfBindingIsReplaced(
+                    by: detectedBinding,
+                    panelId: panelId
+                )
                 surfaceResumeBindingsByPanelId[panelId] = detectedBinding
             } else if storedBinding.isProcessDetected {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
@@ -5062,6 +5069,10 @@ final class Workspace: Identifiable, ObservableObject {
               !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
+        invalidateRestoredAgentLifecycleIfBindingIsReplaced(
+            by: binding,
+            panelId: panelId
+        )
         // This transient cwd belongs to the binding restored at launch. Let a
         // same-session hook refresh keep its cwd rescue, but never let it
         // override a replacement session's structured restore record.
