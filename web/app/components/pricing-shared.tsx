@@ -81,12 +81,18 @@ export function PlanCard({
     <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
       {badge ? <div className="absolute right-6 top-6">{badge}</div> : null}
       <h2 className="pr-28 text-sm font-medium tracking-tight">{name}</h2>
-      <div className="mt-3 flex items-baseline gap-1.5">
-        <span className="text-3xl font-medium tracking-tight">{price}</span>
-        {period ? <span className="text-sm text-muted">{period}</span> : null}
+      <div className="mt-3" style={{ minHeight: "4rem" }}>
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-3xl font-medium tracking-tight">{price}</span>
+          {period ? (
+            <span className="max-w-44 text-sm leading-snug text-muted">
+              {period}
+            </span>
+          ) : null}
+        </div>
+        {priceDetail}
       </div>
-      {priceDetail}
-      <div className="mt-6">{children}</div>
+      <div className="mt-5">{children}</div>
     </div>
   );
 }

@@ -129,7 +129,7 @@ export default async function AppPricingPage({
               surface="app_pricing"
             />
 
-            <div className="mt-6 grid items-stretch gap-5 md:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-6 grid items-stretch gap-5 sm:grid-cols-2 min-[1800px]:grid-cols-4">
               <PlanCard
                 name={pricing.free.name}
                 price={pricing.free.price}
@@ -164,7 +164,7 @@ export default async function AppPricingPage({
                 period={
                   <PricingIntervalValue
                     monthly={pricing.perMonth}
-                    annual={pricing.perMonthBilledYearly}
+                    annual={pricing.perMonth}
                   />
                 }
                 priceDetail={
@@ -222,7 +222,7 @@ export default async function AppPricingPage({
                 period={
                   <PricingIntervalValue
                     monthly={pricing.perUserMonth}
-                    annual={pricing.perUserMonthBilledYearly}
+                    annual={pricing.perUserMonth}
                   />
                 }
                 priceDetail={
@@ -275,6 +275,9 @@ export default async function AppPricingPage({
             </div>
 
           <section className="mt-16">
+            <h2 className="mb-5 text-lg font-medium tracking-tight">
+              {pricing.compare.title}
+            </h2>
             <PricingCompareTable
               rows={compareRows}
               stickyTopClassName="top-0"
@@ -299,48 +302,6 @@ export default async function AppPricingPage({
                   />
                 ),
                 enterprise: pricing.enterprise.price,
-              }}
-              actions={{
-                free:
-                  snapshot.planId === FREE_PLAN_ID ? (
-                    <DisabledButton size="compact">{pricing.currentPlan}</DisabledButton>
-                  ) : (
-                    <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF} size="compact">
-                      {pricing.free.cta}
-                    </PrimaryLink>
-                  ),
-                pro: snapshot.isPro ? (
-                  <DisabledButton size="compact">{pricing.currentPlan}</DisabledButton>
-                ) : appStorePaymentGated ? (
-                  <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
-                ) : (
-                  <PricingCheckoutButton
-                    hrefs={proCheckoutHrefs}
-                    size="compact"
-                    location="app_pricing_compare_header"
-                  >
-                    {pricing.pro.cta}
-                  </PricingCheckoutButton>
-                ),
-                team: appStorePaymentGated ? (
-                  <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
-                ) : (
-                  <PricingCheckoutButton
-                    hrefs={teamCheckoutHrefs}
-                    location="app_pricing_compare_header"
-                    plan="team"
-                    size="compact"
-                  >
-                    {pricing.team.cta}
-                  </PricingCheckoutButton>
-                ),
-                enterprise: appStorePaymentGated ? (
-                  <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
-                ) : (
-                  <SecondaryLink href={ENTERPRISE_CTA_URL} size="compact">
-                    {pricing.enterprise.cta}
-                  </SecondaryLink>
-                ),
               }}
             />
           </section>

@@ -98,6 +98,10 @@ describe("app pricing page", () => {
     );
     expect(html).toContain("$35/user/month");
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
+    expect(html).toContain("sm:grid-cols-2 min-[1800px]:grid-cols-4");
+    expect(html.split("api/billing/checkout?plan=pro")).toHaveLength(2);
+    expect(html.split("api/billing/checkout?plan=team")).toHaveLength(2);
+    expect(html).toContain("Compare plans");
     expect(html).not.toContain("/api/billing/portal");
   });
 
@@ -117,8 +121,8 @@ describe("app pricing page", () => {
 
     expect(html).toContain("$24");
     expect(html).toContain("$28");
-    expect(html).toContain("per month billed yearly");
-    expect(html).toContain("per user per month billed yearly");
+    expect(html).not.toContain("per month billed yearly");
+    expect(html).not.toContain("per user per month billed yearly");
     expect(html).toContain("Billed $288 annually · save 20%");
     expect(html).toContain("Billed $336 annually · save 20%");
     expect(html).toContain("$28/user/month · $336/user/year");
