@@ -70,7 +70,7 @@ import Testing
         #expect(ProcessInfo.processInfo.environment["CMUX_XCTEST_APP_HOST"] == "1")
     }
 
-    @Test func embeddedAppHostTestBundlePreventsSentryStartup() {
+    @Test func activeAppHostTestRuntimePreventsSentryStartup() {
         #expect(
             MacSentryStartupPolicy(
                 environment: [:],
@@ -79,33 +79,25 @@ import Testing
         )
     }
 
-    @Test func embeddedXCTestInjectionLibraryIsATestRunMarker() {
+    @Test func noLoadedXCTestInjectionImageIsNotATestRunMarker() {
         #expect(
-            MacSentryStartupPolicy.containsXCTestArtifacts(
-                plugInNames: [],
-                frameworkNames: ["libXCTestBundleInject.dylib"]
-            )
+            !MacSentryStartupPolicy.containsLoadedXCTestInjectionImage([])
         )
     }
 
-    @Test func dormantEmbeddedTestBundleIsNotAnActiveTestRunMarker() {
+    @Test func loadedTestBundleExecutableIsNotTheXCTestInjectionMarker() {
         #expect(
-            !MacSentryStartupPolicy.containsXCTestArtifacts(
-                plugInNames: ["cmuxTests.xctest"],
-                frameworkNames: []
-            )
+            !MacSentryStartupPolicy.containsLoadedXCTestInjectionImage([
+                "/tmp/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest/Contents/MacOS/cmuxTests"
+            ])
         )
     }
 
     @Test func loadedXCTestInjectionLibraryIsATestRunMarker() {
         #expect(
-            MacSentryStartupPolicy.containsXCTestArtifacts(
-                plugInNames: [],
-                frameworkNames: [],
-                loadedImageNames: [
-                    "/tmp/cmux DEV.app/Contents/Frameworks/libXCTestBundleInject.dylib"
-                ]
-            )
+            MacSentryStartupPolicy.containsLoadedXCTestInjectionImage([
+                "/tmp/cmux DEV.app/Contents/Frameworks/libXCTestBundleInject.dylib"
+            ])
         )
     }
 

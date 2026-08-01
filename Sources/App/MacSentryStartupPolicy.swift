@@ -44,31 +44,16 @@ struct MacSentryStartupPolicy: Sendable {
         return false
     }
 
-    static func containsXCTestArtifacts(
-        plugInNames: [String],
-        frameworkNames: [String],
-        loadedImageNames: [String] = []
+    static func containsLoadedXCTestInjectionImage(
+        _ loadedImageNames: [String]
     ) -> Bool {
-        return plugInNames.contains { $0.hasSuffix(".xctest") }
-            || frameworkNames.contains("libXCTestBundleInject.dylib")
-            || loadedImageNames.contains {
-                ($0 as NSString).lastPathComponent == "libXCTestBundleInject.dylib"
-            }
+        loadedImageNames.contains {
+            ($0 as NSString).lastPathComponent == "libXCTestBundleInject.dylib"
+        }
     }
 
     private static func hasXCTestRuntimeArtifacts() -> Bool {
-        let fileManager = FileManager.default
-        let plugInNames = Bundle.main.builtInPlugInsPath.flatMap {
-            try? fileManager.contentsOfDirectory(atPath: $0)
-        } ?? []
-        let frameworkNames = Bundle.main.privateFrameworksPath.flatMap {
-            try? fileManager.contentsOfDirectory(atPath: $0)
-        } ?? []
-        return containsXCTestArtifacts(
-            plugInNames: plugInNames,
-            frameworkNames: frameworkNames,
-            loadedImageNames: loadedImageNames()
-        )
+        containsLoadedXCTestInjectionImage(loadedImageNames())
     }
 
     private static func loadedImageNames() -> [String] {

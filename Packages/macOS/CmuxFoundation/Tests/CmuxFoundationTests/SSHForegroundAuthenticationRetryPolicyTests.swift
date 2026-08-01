@@ -338,10 +338,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let shell = SSHForegroundAuthenticationRetryPolicy()
             .processTreeTerminationShellFunction()
         let candidateStop = try #require(shell.range(
-            of: "if ! command kill -STOP \"$cmux_ssh_auth_tree_token_pid\""
+            of: "command kill -STOP $cmux_ssh_auth_tree_pending_frozen_processes"
         ))
         let candidateRevalidation = try #require(shell.range(
-            of: "if ! cmux_ssh_auth_process_is_original \"$cmux_ssh_auth_tree_token_pid\" \"$cmux_ssh_auth_tree_token_parent\"",
+            of: "if cmux_ssh_auth_tree_snapshot_has_stopped_process",
             range: candidateStop.upperBound..<shell.endIndex
         ))
         let candidateLedger = try #require(shell.range(
