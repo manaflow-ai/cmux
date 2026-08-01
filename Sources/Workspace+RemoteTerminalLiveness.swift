@@ -14,6 +14,11 @@ enum WorkspaceRemoteTerminalAuthority: Equatable, Sendable {
     case relayPort(Int)
     case persistentTransport(String)
 
+    var preservesRemotePTYAcrossAttachAttempts: Bool {
+        if case .persistentTransport = self { return true }
+        return false
+    }
+
     init?(configuration: WorkspaceRemoteConfiguration) {
         if configuration.preserveAfterTerminalExit {
             self = .persistentTransport(configuration.proxyBrokerTransportKey)
@@ -117,7 +122,8 @@ extension Workspace {
             return false
         }
         endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(forKey: surfaceId)
-        if remoteTerminalAttemptIDsBySurfaceId[surfaceId] != attemptID {
+        if remoteTerminalAttemptIDsBySurfaceId[surfaceId] != attemptID,
+           remoteConfiguration?.preserveAfterTerminalExit != true {
             invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
         }
         remoteTerminalAttemptIDsBySurfaceId[surfaceId] = attemptID

@@ -65,7 +65,8 @@ extension DockSplitStore {
         }
         let beginsNewRuntime =
             transfer.remoteTerminalLifecycleID != terminalLifecycleID ||
-            transfer.remoteTerminalAttemptID != attemptID
+            (transfer.remoteTerminalAttemptID != attemptID &&
+                transfer.remoteTerminalAuthority?.preservesRemotePTYAcrossAttachAttempts != true)
         transfer.remoteTerminalSessionPhase = .launching
         transfer.remoteTerminalLifecycleID = terminalLifecycleID
         transfer.remoteTerminalAttemptID = attemptID

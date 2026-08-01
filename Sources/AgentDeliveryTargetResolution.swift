@@ -136,6 +136,14 @@ extension Workspace {
         }
     }
 
+    func restoreTransferredSurfaceTTYRuntimeProofIfNeeded(from transfer: DetachedSurfaceTransfer) {
+        guard transfer.ttyNameWasReportedByCurrentRuntime,
+              !surfaceRegistry.runtimeReportedTTYSurfaceIDs.contains(transfer.panelId) else {
+            return
+        }
+        adoptTransferredSurfaceTTYName(from: transfer)
+    }
+
     /// Resolves a remote caller only from a TTY report observed in this app
     /// runtime. TTY basenames are unique only inside one authenticated remote
     /// workspace because separate hosts commonly reuse `/dev/pts/0`.
