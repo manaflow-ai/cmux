@@ -353,6 +353,35 @@ struct MobileIrohRuntimeCompositionCooldownTests {
     }
 
     @Test
+    func signOutReleasesIdentityOnlyRelayBarrierWithoutBrokerCompletion() async throws {
+        let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap(
+            suspendRelayBootstrap: true
+        )
+        await fixture.broker.waitForBootstrapRequest()
+
+        let completion = MobileIrohCooldownCompletionProbe()
+        let preparation = Task { @MainActor in
+            await completion.markStarted()
+            await fixture.composition.prepareForConnection()
+            await completion.markComplete()
+        }
+        await completion.waitUntilStarted()
+        for _ in 0 ..< 100 where !(await completion.isComplete()) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(!(await completion.isComplete()))
+
+        _ = await fixture.composition.beginSignOutPreparation().value
+        for _ in 0 ..< 500 where !(await completion.isComplete()) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await completion.isComplete())
+
+        preparation.cancel()
+        await fixture.broker.resumeRelayBootstrap()
+    }
+
+    @Test
     func activeRuntimeRateLimitFloorsRelayRefreshWithoutBlockingDiscovery() async throws {
         let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap()
         await settleActivation(fixture) {
