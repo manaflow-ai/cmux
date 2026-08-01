@@ -6,6 +6,68 @@ import Testing
 @MainActor
 @Suite("Simulator accessibility presentation")
 struct SimulatorAccessibilityPresentationTests {
+    @Test("Automation accessibility reads do not publish pane presentation state")
+    func automationReadDoesNotPublishPresentationState() async throws {
+        let snapshot = SimulatorAccessibilitySnapshot(
+            roots: [SimulatorAccessibilityNode(
+                id: "button", role: "Button", label: "Continue", value: nil,
+                frame: nil, isEnabled: true, children: []
+            )],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            delaysAccessibilityRead: true,
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.controlFailure = SimulatorFailure(
+            code: "existing_failure",
+            message: "Keep this visible failure.",
+            isRecoverable: true
+        )
+
+        let operation = Task {
+            try await coordinator.readAccessibility(timeout: .seconds(1))
+        }
+        await Self.eventually { await client.hasDelayedAccessibilityRead() }
+
+        #expect(!coordinator.isPerformingControlAction)
+        #expect(coordinator.accessibilitySnapshot == nil)
+        #expect(coordinator.actionLog.isEmpty)
+        #expect(coordinator.controlFailure?.code == "existing_failure")
+
+        await client.resumeAccessibilityRead()
+        let result = try await operation.value
+
+        #expect(result == .accessibility(snapshot))
+        #expect(!coordinator.isPerformingControlAction)
+        #expect(coordinator.accessibilitySnapshot == nil)
+        #expect(coordinator.actionLog.isEmpty)
+        #expect(coordinator.controlFailure?.code == "existing_failure")
+    }
+
+    @Test("Automation accessibility failures do not leak into pane state")
+    func automationReadFailureDoesNotPublishPresentationState() async {
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            failsAccessibilityRead: true
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+
+        await #expect(throws: SimulatorFailure.self) {
+            try await coordinator.readAccessibility(timeout: .seconds(1))
+        }
+
+        #expect(coordinator.controlFailure == nil)
+        #expect(coordinator.actionLog.isEmpty)
+    }
+
     @Test("Presentation cache preserves every bounded node past the first page")
     func preservesNodesBeyondFirstPage() {
         let children = (0..<75).map { index in

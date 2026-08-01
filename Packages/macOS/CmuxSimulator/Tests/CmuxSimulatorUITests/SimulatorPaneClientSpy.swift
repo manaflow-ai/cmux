@@ -7,6 +7,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private var devicesValue: [SimulatorDevice]
     private let applicationValues: [SimulatorInstalledApplication]
     private let delaysApplicationList: Bool
+    private let delaysAccessibilityRead: Bool
     private let delaysInvalidation: Bool
     private let delaysActivation: Bool
     private let delaysWebInspectorSend: Bool
@@ -15,7 +16,9 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private let failsWebInspectorHighlight: Bool
     private let failsWebInspectorRelease: Bool
     private let failsInteractiveAction: Bool
+    private let failsAccessibilityRead: Bool
     private let cancelsControlActionBeforeReturning: Bool
+    private let accessibilityResult: SimulatorControlResult
     private let eventStream: SimulatorWorkerEventStream
     private let eventContinuation: SimulatorWorkerEventStream.Continuation
     private var sentMessages: [SimulatorWorkerInbound] = []
@@ -24,6 +27,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private var invalidationValue = 0
     private var actionValues: [SimulatorControlAction] = []
     private var delayedApplicationList: CheckedContinuation<SimulatorControlResult, Never>?
+    private var delayedAccessibilityRead: CheckedContinuation<SimulatorControlResult, Error>?
     private var delayedInvalidation: CheckedContinuation<Void, Never>?
     private var delayedActivation: CheckedContinuation<Void, Error>?
     private var activationCancellationValue = 0
@@ -34,6 +38,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         devices: [SimulatorDevice],
         applications: [SimulatorInstalledApplication] = [],
         delaysApplicationList: Bool = false,
+        delaysAccessibilityRead: Bool = false,
         delaysInvalidation: Bool = false,
         delaysActivation: Bool = false,
         delaysWebInspectorSend: Bool = false,
@@ -42,11 +47,14 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         failsWebInspectorHighlight: Bool = false,
         failsWebInspectorRelease: Bool = false,
         failsInteractiveAction: Bool = false,
+        failsAccessibilityRead: Bool = false,
+        accessibilityResult: SimulatorControlResult = .none,
         cancelsControlActionBeforeReturning: Bool = false
     ) {
         self.devicesValue = devices
         self.applicationValues = applications
         self.delaysApplicationList = delaysApplicationList
+        self.delaysAccessibilityRead = delaysAccessibilityRead
         self.delaysInvalidation = delaysInvalidation
         self.delaysActivation = delaysActivation
         self.delaysWebInspectorSend = delaysWebInspectorSend
@@ -55,6 +63,8 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         self.failsWebInspectorHighlight = failsWebInspectorHighlight
         self.failsWebInspectorRelease = failsWebInspectorRelease
         self.failsInteractiveAction = failsInteractiveAction
+        self.failsAccessibilityRead = failsAccessibilityRead
+        self.accessibilityResult = accessibilityResult
         self.cancelsControlActionBeforeReturning = cancelsControlActionBeforeReturning
         let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 1_024 * 1_024,
@@ -104,6 +114,20 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     ) async throws -> SimulatorDisplayMetadata? {
         sentMessages.append(.rotate(orientation))
         return nil
+    }
+
+    func readAccessibility(timeout: Duration) async throws -> SimulatorControlResult {
+        _ = timeout
+        actionValues.append(.readAccessibility)
+        if failsAccessibilityRead {
+            throw SimulatorFailure(
+                code: "fixture_accessibility_failed",
+                message: "The fixture accessibility read failed.",
+                isRecoverable: true
+            )
+        }
+        guard delaysAccessibilityRead else { return accessibilityResult }
+        return try await withCheckedThrowingContinuation { delayedAccessibilityRead = $0 }
     }
 
     func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
@@ -253,5 +277,14 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     func resumeApplicationList(with applications: [SimulatorInstalledApplication]) {
         delayedApplicationList?.resume(returning: .applications(applications))
         delayedApplicationList = nil
+    }
+
+    func hasDelayedAccessibilityRead() -> Bool {
+        delayedAccessibilityRead != nil
+    }
+
+    func resumeAccessibilityRead() {
+        delayedAccessibilityRead?.resume(returning: accessibilityResult)
+        delayedAccessibilityRead = nil
     }
 }
