@@ -38,6 +38,20 @@ export function PricingIntervalProvider({
   initialInterval: BillingInterval;
   children: ReactNode;
 }) {
+  return (
+    <PricingIntervalState key={initialInterval} initialInterval={initialInterval}>
+      {children}
+    </PricingIntervalState>
+  );
+}
+
+function PricingIntervalState({
+  initialInterval,
+  children,
+}: {
+  initialInterval: BillingInterval;
+  children: ReactNode;
+}) {
   const [interval, setInterval] = useState(initialInterval);
 
   return (

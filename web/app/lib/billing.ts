@@ -65,6 +65,10 @@ export function appStorePricingUnavailableURL(requestUrl: URL): URL {
     const value = requestUrl.searchParams.get(key);
     if (value) redirectURL.searchParams.set(key, value);
   }
+  const interval = requestUrl.searchParams.get(CHECKOUT_INTERVAL_PARAM);
+  if (interval === "month" || interval === "year") {
+    redirectURL.searchParams.set(CHECKOUT_INTERVAL_PARAM, interval);
+  }
 
   return redirectURL;
 }

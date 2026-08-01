@@ -60,12 +60,122 @@ struct AppWebThemeSnapshot: Equatable {
               let backgroundColor = NSColor(hex: backgroundHex) else {
             return accent
         }
-        return cmuxContrastAdjustedAccentNSColor(
+        return Self.contrastAdjustedAccentNSColor(
             accentColor,
             on: backgroundColor
         ).hexString()
     }
 
+    /// Preserves the preferred app-web accent whenever it is readable,
+    /// otherwise makes the smallest 8-bit sRGB move toward white or black that
+    /// reaches the requested contrast.
+    static func contrastAdjustedAccentNSColor(
+        _ preferredColor: NSColor,
+        on backgroundColor: NSColor,
+        minimumContrast: CGFloat = 4.5
+    ) -> NSColor {
+        let preferred = RGBBytes(color: preferredColor).color
+        let background = RGBBytes(color: backgroundColor).color
+        guard cmuxContrastRatio(
+            foreground: preferred,
+            background: background
+        ) < minimumContrast else {
+            return preferred
+        }
+
+        let candidates = [0, 255].compactMap { targetComponent in
+            contrastAdjustmentCandidate(
+                preferred: RGBBytes(color: preferred),
+                background: background,
+                targetComponent: targetComponent,
+                minimumContrast: minimumContrast
+            )
+        }
+        if let candidate = candidates.min(by: {
+            if $0.step == $1.step {
+                return $0.contrast > $1.contrast
+            }
+            return $0.step < $1.step
+        }) {
+            return candidate.color
+        }
+
+        return cmuxContrastRatio(foreground: .white, background: background)
+            >= cmuxContrastRatio(foreground: .black, background: background)
+            ? .white
+            : .black
+    }
+
+    private struct RGBBytes {
+        let red: Int
+        let green: Int
+        let blue: Int
+
+        init(color: NSColor) {
+            let value = UInt64(color.hexString().dropFirst(), radix: 16) ?? 0
+            red = Int((value >> 16) & 0xFF)
+            green = Int((value >> 8) & 0xFF)
+            blue = Int(value & 0xFF)
+        }
+
+        init(red: Int, green: Int, blue: Int) {
+            self.red = red
+            self.green = green
+            self.blue = blue
+        }
+
+        var color: NSColor {
+            NSColor(
+                srgbRed: CGFloat(red) / 255,
+                green: CGFloat(green) / 255,
+                blue: CGFloat(blue) / 255,
+                alpha: 1
+            )
+        }
+
+        func mixed(toward targetComponent: Int, step: Int) -> RGBBytes {
+            func mix(_ component: Int) -> Int {
+                (component * (255 - step) + targetComponent * step) / 255
+            }
+            return RGBBytes(
+                red: mix(red),
+                green: mix(green),
+                blue: mix(blue)
+            )
+        }
+    }
+
+    private struct ContrastAdjustmentCandidate {
+        let color: NSColor
+        let step: Int
+        let contrast: CGFloat
+    }
+
+    private static func contrastAdjustmentCandidate(
+        preferred: RGBBytes,
+        background: NSColor,
+        targetComponent: Int,
+        minimumContrast: CGFloat
+    ) -> ContrastAdjustmentCandidate? {
+        for step in 1...255 {
+            let color = preferred.mixed(
+                toward: targetComponent,
+                step: step
+            ).color
+            let contrast = cmuxContrastRatio(
+                foreground: color,
+                background: background
+            )
+            if contrast >= minimumContrast {
+                return ContrastAdjustmentCandidate(
+                    color: color,
+                    step: step,
+                    contrast: contrast
+                )
+            }
+        }
+        return nil
+    }
 }
 
 /// Presents the one-time "Welcome to cmux Pro" checklist after a user becomes

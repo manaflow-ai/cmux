@@ -19,7 +19,6 @@ case "$MODE" in
     ;;
 esac
 
-WEBHOOK_SECRET_FILE="/tmp/.cmux-live-whsec"
 STRIPE_API_BASE="https://api.stripe.com/v1"
 WEBHOOK_URL="https://cmux.com/api/stripe/webhook"
 WEBHOOK_DESCRIPTION="cmux billing (webhook-driven entitlements)"
@@ -73,26 +72,54 @@ fi
 stripe_get() {
   local path="$1"
   shift
-  curl -fsS -u "${STRIPE_PROVISION_KEY}:" --get "$@" "${STRIPE_API_BASE}${path}"
+  printf 'Authorization: Bearer %s\n' "$STRIPE_PROVISION_KEY" |
+    curl -fsS --header @- --get "$@" "${STRIPE_API_BASE}${path}"
 }
 
 stripe_post() {
   local path="$1"
   shift
-  curl -fsS -u "${STRIPE_PROVISION_KEY}:" -X POST "$@" "${STRIPE_API_BASE}${path}"
+  printf 'Authorization: Bearer %s\n' "$STRIPE_PROVISION_KEY" |
+    curl -fsS --header @- -X POST "$@" "${STRIPE_API_BASE}${path}"
+}
+
+product_matches_catalog_identity() {
+  local product_json="$1"
+  local name="$2"
+  local plan="$3"
+  jq -e \
+    --arg name "$name" \
+    --arg plan "$plan" \
+    '
+      .name == $name
+      and .active == true
+      and .metadata.app == "cmux"
+      and .metadata.plan == $plan
+    ' <<<"$product_json" >/dev/null
 }
 
 ensure_product() {
   local name="$1"
   local plan="$2"
-  local response product_id
+  local response product_json product_id
+  local -a matching_product_ids=()
 
   response="$(
     stripe_get "/products/search" \
       --data-urlencode "query=name:'${name}' AND active:'true'" \
-      --data-urlencode "limit=1"
+      --data-urlencode "limit=100"
   )"
-  product_id="$(jq -r '.data[0].id // empty' <<<"$response")"
+  while IFS= read -r product_json; do
+    if product_matches_catalog_identity "$product_json" "$name" "$plan"; then
+      matching_product_ids+=("$(jq -er '.id' <<<"$product_json")")
+    fi
+  done < <(jq -c '.data[]' <<<"$response")
+
+  if (( ${#matching_product_ids[@]} > 1 )); then
+    echo "Multiple canonical products found for ${name}" >&2
+    exit 1
+  fi
+  product_id="${matching_product_ids[0]:-}"
 
   if [[ -n "$product_id" ]]; then
     echo "Found product ${name}: ${product_id}" >&2
@@ -113,7 +140,7 @@ canonical_product() {
   local monthly_lookup_key="$1"
   local name="$2"
   local plan="$3"
-  local response product_id product_name product_active
+  local response product_json product_id
 
   response="$(
     stripe_get "/prices" \
@@ -127,9 +154,8 @@ canonical_product() {
     return
   fi
 
-  product_name="$(jq -r '.data[0].product.name // empty' <<<"$response")"
-  product_active="$(jq -r '.data[0].product.active // false' <<<"$response")"
-  if [[ "$product_name" != "$name" || "$product_active" != "true" ]]; then
+  product_json="$(jq -c '.data[0].product' <<<"$response")"
+  if ! product_matches_catalog_identity "$product_json" "$name" "$plan"; then
     echo "Price ${monthly_lookup_key} belongs to an unexpected product: ${product_id}" >&2
     exit 1
   fi
@@ -145,6 +171,7 @@ ensure_price() {
   local interval="$4"
   local nickname="$5"
   local response price_id existing_amount existing_currency existing_interval
+  local existing_interval_count
   local existing_product existing_active
 
   response="$(
@@ -158,12 +185,14 @@ ensure_price() {
     existing_amount="$(jq -r '.data[0].unit_amount // empty' <<<"$response")"
     existing_currency="$(jq -r '.data[0].currency // empty' <<<"$response")"
     existing_interval="$(jq -r '.data[0].recurring.interval // empty' <<<"$response")"
+    existing_interval_count="$(jq -r '.data[0].recurring.interval_count // empty' <<<"$response")"
     existing_product="$(jq -r '.data[0].product // empty' <<<"$response")"
     existing_active="$(jq -r '.data[0].active // false' <<<"$response")"
     if [[
       "$existing_amount" != "$unit_amount" ||
       "$existing_currency" != "usd" ||
       "$existing_interval" != "$interval" ||
+      "$existing_interval_count" != "1" ||
       "$existing_product" != "$product_id" ||
       "$existing_active" != "true"
     ]]; then
@@ -200,13 +229,19 @@ ensure_price "$team_product_id" "cmux-team-yearly-336" "33600" "year" "cmux Team
 
 if [[ "$MODE" == "live" ]]; then
   webhooks_response="$(stripe_get "/webhook_endpoints" --data-urlencode "limit=100")"
-  webhook_id="$(
+  webhook_ids="$(
     jq -r --arg url "$WEBHOOK_URL" '
       .data[]
       | select(.url == $url and .status == "enabled")
       | .id
-    ' <<<"$webhooks_response" | head -n 1
+    ' <<<"$webhooks_response"
   )"
+  webhook_count="$(awk 'NF { count += 1 } END { print count + 0 }' <<<"$webhook_ids")"
+  if (( webhook_count > 1 )); then
+    echo "Multiple enabled webhook endpoints found for ${WEBHOOK_URL}" >&2
+    exit 1
+  fi
+  webhook_id="$(sed -n '1p' <<<"$webhook_ids")"
 
   event_args=()
   for event in "${EVENTS[@]}"; do
@@ -228,10 +263,11 @@ if [[ "$MODE" == "live" ]]; then
     webhook_id="$(jq -er '.id' <<<"$webhook_response")"
     webhook_secret="$(jq -er '.secret' <<<"$webhook_response")"
     umask 077
-    printf '%s\n' "$webhook_secret" >"$WEBHOOK_SECRET_FILE"
-    chmod 600 "$WEBHOOK_SECRET_FILE"
+    webhook_secret_file="$(mktemp "${TMPDIR:-/tmp}/cmux-live-whsec.XXXXXX")"
+    printf '%s\n' "$webhook_secret" >"$webhook_secret_file"
+    chmod 600 "$webhook_secret_file"
     echo "Created webhook endpoint: $webhook_id"
-    echo "Captured new webhook signing secret in $WEBHOOK_SECRET_FILE (chmod 600)."
+    echo "Captured new webhook signing secret in $webhook_secret_file (chmod 600)."
   fi
 
   cat <<'EOF'

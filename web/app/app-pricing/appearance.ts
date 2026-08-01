@@ -27,7 +27,7 @@ export function appPricingPageBackground(
   appearance: "light" | "dark",
 ): string {
   const background = appPricingFirstParam(params.background);
-  if (background && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(background)) {
+  if (background && /^#[0-9a-fA-F]{6}$/.test(background)) {
     return background;
   }
   return appearance === "dark" ? "#272822" : "#fafafa";

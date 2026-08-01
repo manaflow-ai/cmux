@@ -9,41 +9,16 @@ public struct BrowserExternalNavigationPolicy: Equatable, Sendable {
         self.trustedOrigin = trustedOrigin
     }
 
-    /// Returns true only for an HTTP(S) URL on the trusted origin with a nonzero intent marker.
+    /// Returns true only for an HTTP(S) URL on the trusted origin with an explicit intent marker.
     public func shouldOpenInSystemBrowser(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              sameOrigin(url, trustedOrigin) else {
+              BrowserAppWebOrigin(trustedOrigin).contains(url) else {
             return false
         }
         return components.queryItems?.contains(where: {
-            $0.name == "cmux_external_browser" && $0.value != "0"
+            $0.name == "cmux_external_browser" && $0.value == "1"
         }) == true
-    }
-
-    private func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
-        guard let lhsComponents = URLComponents(url: lhs, resolvingAgainstBaseURL: false),
-              let rhsComponents = URLComponents(url: rhs, resolvingAgainstBaseURL: false),
-              let lhsScheme = lhsComponents.scheme?.lowercased(),
-              let rhsScheme = rhsComponents.scheme?.lowercased(),
-              let lhsHost = lhsComponents.host?.lowercased(),
-              let rhsHost = rhsComponents.host?.lowercased() else {
-            return false
-        }
-        return lhsScheme == rhsScheme
-            && lhsHost == rhsHost
-            && effectivePort(lhsComponents) == effectivePort(rhsComponents)
-    }
-
-    private func effectivePort(_ components: URLComponents) -> Int? {
-        if let port = components.port {
-            return port
-        }
-        return switch components.scheme?.lowercased() {
-        case "http": 80
-        case "https": 443
-        default: nil
-        }
     }
 }

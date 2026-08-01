@@ -89,7 +89,10 @@ public struct BrowserAppTheme: Equatable, Sendable {
               BrowserAppWebOrigin(trustedOrigin).contains(url) else {
             return false
         }
-        return url.path == "/app-pricing" || url.path == "/app-pro-welcome"
+        let normalizedPath = url.path.count > 1 && url.path.hasSuffix("/")
+            ? String(url.path.dropLast())
+            : url.path
+        return normalizedPath == "/app-pricing" || normalizedPath == "/app-pro-welcome"
     }
 
     private struct JavaScriptPayload: Encodable {

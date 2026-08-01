@@ -59,6 +59,6 @@ describe("app pricing contrast-adjusted accent", () => {
     });
 
     expect(theme.background).toBe("#272822");
-    expect(theme.accentOnBackground).toBe("#0088ff");
+    expect(theme.accentOnBackground).toBe("#0F8FFF");
   });
 });
