@@ -140,15 +140,39 @@ impl PairingBroker {
     }
 
     pub(crate) fn respond(&self, id: u64, approve: bool) -> bool {
+        self.respond_after(id, approve, |_| Ok(())).ok().flatten().is_some()
+    }
+
+    /// Run a durable commit while this exact pending request is reserved,
+    /// then publish the decision. Credential allocation happens before the
+    /// commit, and every step after it succeeds is infallible.
+    pub(crate) fn respond_after<R>(
+        &self,
+        id: u64,
+        approve: bool,
+        commit: impl FnOnce(&PairingChallenge) -> anyhow::Result<R>,
+    ) -> anyhow::Result<Option<R>> {
         let now = Instant::now();
         let mut state = self.state.lock().unwrap();
         Self::prune(&mut state, now);
-        let Some(request) = state.pending.remove(&id) else { return false };
-        let decision = if approve {
-            let Ok(value) = random_credential() else {
-                let _ = request.response.send(PairingDecision::Denied);
-                return false;
-            };
+        let Some(challenge) = state.pending.get(&id).map(|request| request.challenge.clone())
+        else {
+            return Ok(None);
+        };
+        let credential = if approve {
+            Some(random_credential().map_err(|error| anyhow::anyhow!(error.to_string()))?)
+        } else {
+            None
+        };
+        if credential.is_some() {
+            state.credentials.try_reserve(1).map_err(|error| {
+                anyhow::anyhow!("could not reserve pairing credential: {error}")
+            })?;
+        }
+        let committed = commit(&challenge)?;
+        let request =
+            state.pending.remove(&id).expect("pairing lock reserves the validated pending request");
+        let decision = if let Some(value) = credential {
             state
                 .credentials
                 .push_back(Credential { value: value.clone(), expires_at: now + CREDENTIAL_TTL });
@@ -159,7 +183,10 @@ impl PairingBroker {
         } else {
             PairingDecision::Denied
         };
-        request.response.send(decision).is_ok()
+        // The requesting connection may already be gone. Resolution remains
+        // authoritative and the credential, when approved, is still valid.
+        let _ = request.response.send(decision);
+        Ok(Some(committed))
     }
 
     pub(crate) fn cancel(&self, id: u64) -> bool {

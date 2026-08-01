@@ -12,6 +12,13 @@ import Foundation
 /// let startupInput = launch?.authorizing(leadingShell: "", routedCommand: resumeCommand)
 /// ```
 public struct AgentRestoreLaunch: Sendable {
+    /// The readable restore executable typed into cmux-owned terminals.
+    ///
+    /// ``TerminalSurface`` prepends the owning app's bundled `Resources/bin`
+    /// directory to the terminal environment before the login shell starts, so
+    /// this resolves to the same build while keeping restored scrollback useful.
+    public static let cliStartupExecutableToken = "cmux"
+
     private enum Provider: String, Sendable {
         case claude
         case codex
@@ -57,6 +64,11 @@ public struct AgentRestoreLaunch: Sendable {
         }
     }
 
+    /// The provider- and session-bound authorization value passed to the wrapper.
+    public var authorizationEnvironmentValue: String {
+        "\(provider.rawValue):\(sessionID)"
+    }
+
     /// Wraps a provider-specific wrapper command so every supported login shell can dispatch it.
     ///
     /// - Parameter posixCommand: The command containing ``wrapperShellExecutableToken``.
@@ -80,7 +92,7 @@ public struct AgentRestoreLaunch: Sendable {
     ///   - routedCommand: The command beginning at its executable after wrapper routing.
     /// - Returns: Startup input carrying provider- and session-bound authorization.
     public func authorizing(leadingShell: String, routedCommand: String) -> String {
-        let assignment = "CMUX_AGENT_RESTORE_LAUNCH=\(provider.rawValue):\(sessionID)"
+        let assignment = "CMUX_AGENT_RESTORE_LAUNCH=\(authorizationEnvironmentValue)"
         return leadingShell + "/usr/bin/env '\(assignment)' " + routedCommand
     }
 }
