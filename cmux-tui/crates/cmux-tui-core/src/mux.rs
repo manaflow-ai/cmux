@@ -7816,45 +7816,87 @@ impl Mux {
             records
         };
 
-        let (surfaces, retained_count, tree_changed) = {
+        let (surfaces, retained_count, tree_changed, closed_public_ids) = {
             let mutation = WorkspaceMutation::local("cmux-tui-shutdown");
+            let operation = "server.stop";
+            let fingerprint = serde_json::json!({"operation":operation});
             let mut registry = self.workspace_registry.lock().unwrap();
-            let terminals = registry
-                .terminal_snapshot()?
+            let terminal_snapshot = registry.terminal_snapshot()?;
+            let terminals = terminal_snapshot
                 .terminals
                 .into_iter()
                 .map(|terminal| (terminal.terminal_id, terminal.incarnation))
                 .collect::<Vec<_>>();
-            let batch = registry.close_terminals_atomically(&mutation, &terminals)?;
+            let closed_public_ids = Self::terminal_public_ids_for_hosted(&registry, &terminals)?;
+            let preparation = registry.prepare_resource_effect(
+                &mutation.id,
+                operation,
+                &fingerprint,
+                &serde_json::json!({"scope":"session"}),
+                None,
+                None,
+            )?;
+            anyhow::ensure!(
+                matches!(preparation, ResourceEffectPreparation::Execute { .. }),
+                "server stop could not reserve its durable close transaction"
+            );
+            registry.mark_resource_effect_executing(&mutation.id, operation, &fingerprint)?;
 
-            let (surfaces, retained_count, tree_changed) = {
+            let result = (|| -> anyhow::Result<_> {
                 let mut state = self.state.lock().unwrap();
                 let retained_count = self.shutdown_owners.len();
                 let tree_changed = !state.surfaces.is_empty()
                     || !state.panes.is_empty()
                     || state.workspaces.iter().any(|workspace| !workspace.screens.is_empty());
-                let surfaces =
-                    state.surfaces.drain().map(|(_, surface)| surface).collect::<Vec<_>>();
-                for surface in &surfaces {
-                    let _ = self.shutdown_owners.stage_surface(surface);
-                }
-                for workspace in &mut state.workspaces {
+                let surfaces = state.surfaces.values().cloned().collect::<Vec<_>>();
+                let mut projected = state.clone();
+                projected.surfaces.clear();
+                for workspace in &mut projected.workspaces {
                     workspace.screens.clear();
                     workspace.active_screen = 0;
                 }
-                if !state.panes.is_empty() {
-                    state.pane_revision = state.pane_revision.saturating_add(1);
+                if !projected.panes.is_empty() {
+                    projected.pane_revision = projected.pane_revision.saturating_add(1);
                 }
-                state.panes.clear();
-                state.split_screens.clear();
-                (surfaces, retained_count, tree_changed)
+                projected.panes.clear();
+                projected.split_screens.clear();
+                let projection = self.resource_effect_projection_locked(
+                    &registry,
+                    &mut projected,
+                    serde_json::json!({"stopped":true}),
+                )?;
+                let close = registry.commit_resource_close_patch(
+                    &mutation.id,
+                    operation,
+                    &fingerprint,
+                    &projection.patch,
+                    &projection.result,
+                    &projection.changes,
+                    &terminals,
+                    None,
+                )?;
+                projected.resource_revision = close.resource.revision;
+                for surface in &surfaces {
+                    let _ = self.shutdown_owners.stage_surface(surface);
+                }
+                *state = projected;
+                Ok((surfaces, retained_count, tree_changed, close.terminal_batch))
+            })();
+            let (surfaces, retained_count, tree_changed, terminal_batch) = match result {
+                Ok(result) => result,
+                Err(error) => {
+                    let _ = registry.mark_resource_effect_indeterminate(&mutation.id);
+                    return Err(error);
+                }
             };
 
-            if batch.closed != 0 {
-                self.emit_terminal_registry_changed(&registry, batch.revision);
+            if terminal_batch.closed != 0 {
+                self.emit_terminal_registry_changed(&registry, terminal_batch.revision);
             }
-            (surfaces, retained_count, tree_changed)
+            (surfaces, retained_count, tree_changed, closed_public_ids)
         };
+        self.notify_terminal_exit_waiters(closed_public_ids);
+        self.publish_resource_event();
         self.pending_workspace_surfaces.lock().unwrap().clear();
         self.agent_records.lock().unwrap().clear();
         self.surface_notifications.lock().unwrap().clear();
@@ -19921,7 +19963,14 @@ mod tests {
         drop(sizing);
         let events = events.try_iter().collect::<Vec<_>>();
         assert_eq!(events.iter().filter(|event| matches!(event, MuxEvent::TreeChanged)).count(), 1);
-        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, MuxEvent::TerminalRegistryChanged { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(events.len(), 2);
         let error = mux.new_workspace(None, None).unwrap_err();
         assert_eq!(error.to_string(), "server is shutting down");
     }
