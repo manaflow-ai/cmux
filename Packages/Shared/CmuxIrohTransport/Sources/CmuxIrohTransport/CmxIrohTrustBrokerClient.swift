@@ -169,6 +169,30 @@ struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
 
 /// Authenticated client for endpoint registration, discovery, grants, and relay tokens.
 public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
+    private struct ConnectivitySyncRequest: Encodable {
+        let protocolVersion: Int
+        let knownRevision: UInt64?
+
+        private enum CodingKeys: String, CodingKey {
+            case protocolVersion = "protocol_version"
+            case knownRevision = "known_revision"
+        }
+
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(protocolVersion, forKey: .protocolVersion)
+            if let knownRevision {
+                try container.encode(knownRevision, forKey: .knownRevision)
+            } else {
+                // The v2 wire contract distinguishes an initial sync (`null`)
+                // from an absent field. Swift's synthesized Optional encoding
+                // omits nil values, which the bounded server parser correctly
+                // rejects as an incomplete request.
+                try container.encodeNil(forKey: .knownRevision)
+            }
+        }
+    }
+
     private struct BindingRequest: Encodable { let bindingId: String }
     private struct EndpointRequest: Encodable { let endpointId: String }
     private struct RelayAccessCredential: Decodable, Sendable {
@@ -320,6 +344,21 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         try await withBackpressure(operation: .discovery) {
             try await self.discoverAllPages()
         }
+    }
+
+    /// Reconciles one completely installed route revision with connectivity v2.
+    public func syncConnectivity(
+        knownRevision: UInt64?
+    ) async throws -> CmxConnectivitySyncResponse {
+        try await send(
+            path: "api/connectivity/v2/sync",
+            method: "POST",
+            body: ConnectivitySyncRequest(
+                protocolVersion: CmxConnectivitySyncResponse.protocolVersion,
+                knownRevision: knownRevision
+            ),
+            operation: .discovery
+        )
     }
 
     public func issuePairGrant(
@@ -478,6 +517,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             )
             if let first {
                 guard page.discovery.routeContractVersion == first.routeContractVersion,
+                      page.discovery.revision == first.revision,
                       page.discovery.relayFleet == first.relayFleet,
                       page.discovery.lanRendezvous == first.lanRendezvous,
                       page.discovery.grantVerificationKeys
@@ -506,6 +546,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
         return CmxIrohDiscoveryResponse(
             routeContractVersion: first.routeContractVersion,
+            revision: first.revision,
             bindings: bindings,
             relayFleet: first.relayFleet,
             lanRendezvous: first.lanRendezvous,

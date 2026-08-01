@@ -310,6 +310,27 @@ struct AuthEnvironmentTests {
         #expect(appProWelcomeURL.path == "/app-pro-welcome")
     }
 
+    @Test("app session handoff pins credentials to production or debug loopback")
+    func appSessionHandoffPinsCredentialOrigin() {
+        let production = AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: ["CMUX_WWW_ORIGIN": "https://attacker.example"],
+            isDebugBuild: false
+        )
+        #expect(production.absoluteString == "https://cmux.com")
+
+        let rejectedDebugRemote = AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: ["CMUX_AUTH_WWW_ORIGIN": "https://attacker.example"],
+            isDebugBuild: true
+        )
+        #expect(rejectedDebugRemote.absoluteString == "https://cmux.com")
+
+        let debugLoopback = AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: ["CMUX_WWW_ORIGIN": "http://127.0.0.1:4347"],
+            isDebugBuild: true
+        )
+        #expect(debugLoopback.absoluteString == "http://localhost:4347")
+    }
+
     @Test("Pro upgrade workspace reuse keeps a live tracked workspace")
     func proUpgradeWorkspaceReuseKeepsLiveTrackedWorkspace() {
         var state = ProUpgradeWorkspaceReuseState()

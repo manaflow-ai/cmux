@@ -5,6 +5,7 @@ import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
+import CmuxSentryReporting
 import Foundation
 import SwiftUI
 import cmuxFeature
@@ -48,6 +49,12 @@ final class AppCompositionRoot {
     /// credentials, peer identities, addresses, or free-form errors.
     let diagnosticLog: DiagnosticLog
 
+    /// Bridges the diagnostic event stream into Sentry (breadcrumbs, structured
+    /// logs, and throttled failure events with the ring export attached). Held
+    /// for the process lifetime; delivery no-ops whenever the crash SDK is off
+    /// (consent revoked or crash reporting disabled for the build).
+    private let transportSentryReporter: TransportSentryReporter
+
     init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
@@ -72,6 +79,17 @@ final class AppCompositionRoot {
                 consent: telemetryConsent,
                 revocationWatcher: crashRevocationWatcher
             )
+        }
+        // The reporter checks `SentrySDK.isEnabled` per event, so it respects
+        // both the build-level kill switch above and mid-session consent
+        // revocation (which closes the SDK) without extra plumbing.
+        let transportSentryReporter = TransportSentryReporter(
+            role: .mobileClient,
+            exportRing: { [diagnosticLog] in await diagnosticLog.export() }
+        )
+        self.transportSentryReporter = transportSentryReporter
+        diagnosticLog.setEventTap { event in
+            transportSentryReporter.ingest(event)
         }
         self.analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,

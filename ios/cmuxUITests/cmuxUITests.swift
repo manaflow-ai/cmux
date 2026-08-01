@@ -2714,6 +2714,54 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(3, label: "q quit", in: app)
     }
 
+    /// Regression: a center drag must keep scrolling the terminal, while a
+    /// diagonal left-edge swipe must pop the workspace detail without also
+    /// forwarding its vertical component as terminal scroll.
+    @MainActor
+    func testEdgeSwipeBackDoesNotScrollTerminal() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        defer { app.terminate() }
+        try openSelectedWorkspaceIfNeeded(app)
+        try await switchToTUITerminal(in: app, server: server)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let scrollStart = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+        let scrollEnd = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+        scrollStart.press(
+            forDuration: 0.05,
+            thenDragTo: scrollEnd,
+            withVelocity: .slow,
+            thenHoldForDuration: 0.5
+        )
+        let forwardedCenterScroll = await server.waitForTerminalScrollRequest(timeout: 2)
+        XCTAssertTrue(
+            forwardedCenterScroll,
+            "A center drag must keep forwarding ordinary terminal scroll."
+        )
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        await server.resetTerminalScrollRequests()
+
+        let edgeStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.78))
+        let edgeEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.22))
+        edgeStart.press(forDuration: 0.05, thenDragTo: edgeEnd)
+
+        let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(
+            workspaceRow.waitForExistence(timeout: 4),
+            "The system edge gesture must return to the workspace list."
+        )
+        let forwardedEdgeScroll = await server.waitForTerminalScrollRequest(timeout: 1.5)
+        XCTAssertFalse(
+            forwardedEdgeScroll,
+            "The edge navigation gesture also forwarded terminal scroll."
+        )
+    }
+
     @MainActor
     func testTUITerminalUsesAvailableViewportAndResizes() async throws {
         let server = try MobileSyncMockHostServer()
@@ -5953,6 +6001,8 @@ final class cmuxUITests: XCTestCase {
         static let hideButton = "terminal.inputAccessory.hideChrome"
         /// The growing message field inside the composer band.
         static let field = "MobileComposerField"
+        /// The paperclip button that presents the system photo picker.
+        static let attachButton = "MobileComposerAttach"
         /// Surface-side live dock-state probe (`key=value;…`).
         static let surfaceProbe = "MobileComposerDockProbe"
         /// Store-side source-of-truth probe (`key=value;…`).
@@ -6307,6 +6357,58 @@ final class cmuxUITests: XCTestCase {
         assertDockCoherent(in: app, cycle: 1)
     }
 
+    /// Opening the system photo picker while the terminal input proxy owns the
+    /// software keyboard must release that responder before presentation. Otherwise
+    /// the picker hides the keyboard while UIKit still reports the proxy as first
+    /// responder, and a later terminal tap cannot produce a new focus transition.
+    @MainActor
+    func testTerminalTapRestoresKeyboardAfterCancellingPhotoPicker() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        // The composer is open by default but unfocused. Focus the terminal's hidden
+        // input proxy so this covers the reported keyboard-up → attach path.
+        surface.tap()
+        waitForDock(in: app, describe: "terminal proxy owns the visible keyboard before photo picker") {
+            $0["proxyFirstResponder"] == "1" && $0["keyboardUp"] == "1"
+        }
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForExistence(timeout: 4),
+            "Tapping the terminal should show the keyboard before opening attachments"
+        )
+
+        let attachButton = app.buttons[Composer.attachButton]
+        XCTAssertTrue(attachButton.waitForExistence(timeout: 4))
+        attachButton.tap()
+
+        let cancelButton = app.buttons["Cancel"].firstMatch
+        XCTAssertTrue(
+            cancelButton.waitForExistence(timeout: 6),
+            "The system photo picker should present from the attachment button"
+        )
+        cancelButton.tap()
+        XCTAssertTrue(
+            waitForKeyboardDismissal(in: app),
+            "Cancelling the photo picker should leave the keyboard visually closed"
+        )
+
+        // A terminal tap must create a real responder transition and re-open the
+        // keyboard, rather than no-op against a stale first-responder proxy.
+        surface.tap()
+        waitForDock(in: app, describe: "terminal tap restores keyboard after photo picker cancellation") {
+            $0["proxyFirstResponder"] == "1" && $0["keyboardUp"] == "1"
+        }
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForExistence(timeout: 4),
+            "Tapping the terminal after cancelling the photo picker should restore the keyboard"
+        )
+    }
+
     /// Rapid double-toggle: two compose taps with no settle in between. This is the
     /// most direct provocation of the deferred-focus race — the second tap can land
     /// before the field has taken first responder, so the reducer mis-resolves and the
@@ -6419,6 +6521,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var selectedTerminalID = "terminal-build"
     private var workspaceCreateRequests: [WorkspaceCreateRequest] = []
     private var replayCounts: [String: Int] = [:]
+    private var terminalScrollRequestsReceived = 0
     private var streamOffset: UInt64 = 1
     private var workspaces: [Workspace] = [
         Workspace(
@@ -6617,6 +6720,35 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         }
     }
 
+    func waitForTerminalScrollRequest(timeout: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if await terminalScrollRequestCount() > 0 {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        return await terminalScrollRequestCount() > 0
+    }
+
+    func resetTerminalScrollRequests() async {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                self.terminalScrollRequestsReceived = 0
+                continuation.resume()
+            }
+        }
+    }
+
+    private func terminalScrollRequestCount() async -> Int {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.terminalScrollRequestsReceived)
+            }
+        }
+    }
+
     private func replayCount(for terminalID: String) async -> Int {
         await withCheckedContinuation { continuation in
             queue.async {
@@ -6751,6 +6883,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             ]
         case "mobile.terminal.replay", "terminal.replay":
             result = terminalReplayResult(params: params)
+        case "mobile.terminal.scroll":
+            terminalScrollRequestsReceived += 1
+            result = [:]
         default:
             result = [:]
         }

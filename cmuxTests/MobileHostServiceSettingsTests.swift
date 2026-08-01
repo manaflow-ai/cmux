@@ -253,7 +253,10 @@ struct MobileHostTransportRouteCompositionTests {
             priority: 10
         )
 
-        MobileHostPublicStatusCache.update(irohBinding: binding)
+        MobileHostPublicStatusCache.update(
+            irohIdentity: binding.endpointID,
+            pathHints: binding.pathHints
+        )
         MobileHostPublicStatusCache.update(routes: [tailscale])
         #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh, .tailscale])
 
@@ -312,10 +315,13 @@ struct MobileHostTransportRouteCompositionTests {
         )
 
         MobileHostPublicStatusCache.update(routes: [tailscale])
-        MobileHostPublicStatusCache.update(irohBinding: binding)
+        MobileHostPublicStatusCache.update(
+            irohIdentity: binding.endpointID,
+            pathHints: binding.pathHints
+        )
         #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh, .tailscale])
 
-        MobileHostPublicStatusCache.update(irohBinding: nil)
+        MobileHostPublicStatusCache.update(irohIdentity: nil)
         #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.tailscale])
     }
 }
