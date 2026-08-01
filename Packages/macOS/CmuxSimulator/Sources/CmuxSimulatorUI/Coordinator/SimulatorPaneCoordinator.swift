@@ -81,6 +81,8 @@ public final class SimulatorPaneCoordinator {
     }
     /// A monotonically increasing request observed by the AppKit input surface.
     public internal(set) var focusRequestGeneration: UInt64 = 0
+    /// A monotonically increasing reset observed by the AppKit input surface.
+    var rendererInputResetGeneration: UInt64 = 0
     /// Input currently captured by SimulatorKit inside the worker.
     public internal(set) var hidCaptureMode: SimulatorHIDCaptureMode = .none
     /// Cursor rendered only inside this panel's owning workspace surface.
@@ -112,6 +114,7 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var outgoingDeliveryReceipts: [
         ObjectIdentifier: SimulatorOutgoingDeliveryReceipt
     ] = [:]
+    @ObservationIgnored var rendererInputResetHandler: (@MainActor (UInt64) -> Void)?
     @ObservationIgnored var eventsTask: Task<Void, Never>?
     @ObservationIgnored var activationTask: Task<Void, Never>?
     @ObservationIgnored var startupTask: Task<Void, Never>?

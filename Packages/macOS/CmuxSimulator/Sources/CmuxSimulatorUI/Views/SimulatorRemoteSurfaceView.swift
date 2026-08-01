@@ -40,6 +40,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     var hostKeyEquivalentHandler: (@MainActor (NSEvent) -> Bool)?
     var handledFocusGeneration: UInt64 = 0
     var pendingFocusGeneration: UInt64?
+    private(set) var handledInputResetGeneration: UInt64 = 0
 
     override init(frame frameRect: NSRect) {
         frameSourceFactory = { try SimulatorFrameSurfaceSource(descriptor: $0) }
@@ -580,6 +581,12 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         activeChromeButton = nil
         hoveredChromeButton = nil
         needsDisplay = true
+    }
+
+    func resetInput(generation: UInt64) {
+        guard !isTornDown, generation > handledInputResetGeneration else { return }
+        discardRejectedInputs()
+        handledInputResetGeneration = generation
     }
 
     private func deliverInput(_ message: SimulatorWorkerInbound) -> Bool {

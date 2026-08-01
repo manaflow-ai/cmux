@@ -24,6 +24,9 @@ struct SimulatorRemoteSurface: NSViewRepresentable {
         view.onMessage = { [weak coordinator] message in
             coordinator?.enqueue(message) == true
         }
+        coordinator.rendererInputResetHandler = { [weak view] generation in
+            view?.resetInput(generation: generation)
+        }
         view.onGeometry = { [weak coordinator] geometry in
             coordinator?.updateGeometry(geometry)
         }
@@ -37,6 +40,7 @@ struct SimulatorRemoteSurface: NSViewRepresentable {
             coordinator?.acknowledgeFrameTransportAdoption(descriptor)
         }
         view.update(frameTransport: frameTransport, display: display, chrome: chrome)
+        view.resetInput(generation: coordinator.rendererInputResetGeneration)
         view.requestFocus(generation: coordinator.focusRequestGeneration)
         return view
     }
@@ -49,6 +53,9 @@ struct SimulatorRemoteSurface: NSViewRepresentable {
         view.onMessage = { [weak coordinator] message in
             coordinator?.enqueue(message) == true
         }
+        coordinator.rendererInputResetHandler = { [weak view] generation in
+            view?.resetInput(generation: generation)
+        }
         view.onGeometry = { [weak coordinator] geometry in
             coordinator?.updateGeometry(geometry)
         }
@@ -62,6 +69,7 @@ struct SimulatorRemoteSurface: NSViewRepresentable {
             coordinator?.acknowledgeFrameTransportAdoption(descriptor)
         }
         view.update(frameTransport: frameTransport, display: display, chrome: chrome)
+        view.resetInput(generation: coordinator.rendererInputResetGeneration)
         view.requestFocus(generation: coordinator.focusRequestGeneration)
     }
 

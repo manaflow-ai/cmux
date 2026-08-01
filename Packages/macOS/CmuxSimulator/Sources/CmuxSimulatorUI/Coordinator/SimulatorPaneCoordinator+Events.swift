@@ -118,6 +118,10 @@ extension SimulatorPaneCoordinator {
 
     func quiesceAdmittedInputDelivery() async throws {
         let cleanup = admittedInput.releaseAll()
+        if !cleanup.isEmpty {
+            rendererInputResetGeneration &+= 1
+            rendererInputResetHandler?(rendererInputResetGeneration)
+        }
         guard pendingLiveInputDeliveryCount > 0 || !cleanup.isEmpty else { return }
         guard outgoingTask != nil, !closed, !outgoingOverflowed else {
             throw simulatorInputDeliveryUnavailable()
