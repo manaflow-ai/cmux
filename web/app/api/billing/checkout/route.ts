@@ -55,7 +55,16 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(appStorePricingUnavailableURL(request.nextUrl));
   }
 
-  const configuredRelayURL = appPricingCheckoutRelayURL(request.nextUrl);
+  const configuredRelayURL = appPricingCheckoutRelayURL(request.nextUrl, {
+    plan: checkoutPlan(request.nextUrl.searchParams.get("plan")),
+    interval: checkoutBillingInterval(
+      request.nextUrl.searchParams.get("interval"),
+    ),
+    cmuxScheme: validatedNativeCallbackScheme(
+      request.nextUrl.searchParams.get("cmux_scheme"),
+      request,
+    ),
+  });
   if (configuredRelayURL) {
     return NextResponse.redirect(configuredRelayURL);
   }

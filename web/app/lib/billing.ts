@@ -7,6 +7,11 @@ export const CHECKOUT_APP_RELAY_PARAM = "cmux_app_checkout";
 export const CHECKOUT_PATH = "/api/billing/checkout";
 export type CheckoutPlan = "pro" | "team";
 export type CheckoutInterval = "month" | "year";
+export type AppPricingCheckoutRelayParameters = {
+  plan: CheckoutPlan | null;
+  interval: CheckoutInterval | null;
+  cmuxScheme: string;
+};
 export const PRO_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "pro");
 export const TEAM_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "team");
 export const PRO_CHECKOUT_URL = withExternalBrowserIntent(PRO_CHECKOUT_PATH);
@@ -50,21 +55,20 @@ export function appPricingCheckoutURL(
   return href;
 }
 
-export function appPricingCheckoutRelayURL(requestURL: URL): URL | null {
+export function appPricingCheckoutRelayURL(
+  requestURL: URL,
+  parameters: AppPricingCheckoutRelayParameters,
+): URL | null {
   if (requestURL.searchParams.get(CHECKOUT_APP_RELAY_PARAM) !== "1") {
     return null;
   }
+  if (!parameters.plan || !parameters.interval) return null;
   const target = configuredAppPricingCheckoutURL();
   if (!target) return null;
 
-  for (const key of [
-    CHECKOUT_PLAN_PARAM,
-    CHECKOUT_INTERVAL_PARAM,
-    CHECKOUT_NATIVE_SCHEME_PARAM,
-  ]) {
-    const value = requestURL.searchParams.get(key);
-    if (value) target.searchParams.set(key, value);
-  }
+  target.searchParams.set(CHECKOUT_PLAN_PARAM, parameters.plan);
+  target.searchParams.set(CHECKOUT_INTERVAL_PARAM, parameters.interval);
+  target.searchParams.set(CHECKOUT_NATIVE_SCHEME_PARAM, parameters.cmuxScheme);
   return target;
 }
 

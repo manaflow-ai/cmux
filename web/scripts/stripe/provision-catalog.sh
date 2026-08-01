@@ -143,9 +143,9 @@ ensure_product() {
   else
     response="$(
       stripe_post "/products" \
-        -d "name=${name}" \
-        -d "metadata[app]=cmux" \
-        -d "metadata[plan]=${plan}"
+        --data-urlencode "name=${name}" \
+        --data-urlencode "metadata[app]=cmux" \
+        --data-urlencode "metadata[plan]=${plan}"
     )"
     product_id="$(jq -er '.id' <<<"$response")"
     echo "Created product ${name}: ${product_id}" >&2
