@@ -61,13 +61,21 @@ final class PushReadinessUITests: XCTestCase {
         XCTAssertEqual(always.value as? String, "not selected")
         XCTAssertEqual(hideContent.value as? String, "0")
 
-        forwarding.tap()
-        waitForValue(forwarding, "0")
         always.tap()
         waitForValue(always, "selected")
         waitForValue(away, "not selected")
+        let status = app.descendants(matching: .any)[
+            "MobileSettingsPushReadinessStatus"
+        ]
+        XCTAssertTrue(status.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            status.label.contains("Ready, Always"),
+            "Expected a healthy persistence status after mode mutation, got '\(status.label)'"
+        )
         hideContent.tap()
         waitForValue(hideContent, "1")
+        forwarding.tap()
+        waitForValue(forwarding, "0")
     }
 
     @MainActor

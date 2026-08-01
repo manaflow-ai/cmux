@@ -36,7 +36,8 @@ import Testing
         #expect(coordinator.currentUser == nil)
     }
 
-    @Test func sessionIdentityStreamPublishesSignInAndImmediateSignOut() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func sessionIdentityStreamPublishesSignInAndImmediateSignOut() async throws {
         let user = CMUXAuthUser(
             id: "u1",
             primaryEmail: "a@b.com",

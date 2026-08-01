@@ -9,6 +9,10 @@ struct RedirectMethodPreservingDelegateTests {
         ("file:///tmp/source", "file:///tmp/target"),
         ("ws://example.test/source", "ws://example.test/target"),
         ("wss://example.test/source", "wss://example.test/target"),
+        ("https://example.test/source", "https://other.test/target"),
+        ("https://example.test/source", "http://example.test/target"),
+        ("https://example.test/source", "https://example.test:8443/target"),
+        ("https://example.test/source", "https://sub.example.test/target"),
     ])
     func nonHTTPOriginsFailClosed(
         source: String,

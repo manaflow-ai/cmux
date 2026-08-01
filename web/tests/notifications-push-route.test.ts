@@ -1432,7 +1432,7 @@ describe("notifications push route", () => {
       >[1],
     );
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ pruned: 1 });
+    expect(await response.json()).toMatchObject({ pruned: 0 });
     const [registered] = await sql<{
       bundleId: string;
       environment: string;

@@ -212,6 +212,33 @@ import Testing
     }
 
     @MainActor
+    @Test func sessionSwitchDropsOldGenerationWorkBeforeStartingTheQueue() async {
+        let probe = RecordingDeliveryProbe()
+        let queue = PhonePushSerialDeliveryQueue(
+            startsImmediately: false,
+            sender: { await probe.deliver($0) }
+        )
+        let staleSession = requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000001",
+            expectedAccountID: "account-a",
+            expectedSessionGeneration: 1
+        )
+        let currentSession = requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000002",
+            expectedAccountID: "account-a",
+            expectedSessionGeneration: 2
+        )
+        #expect(queue.enqueue(staleSession))
+        #expect(queue.enqueue(currentSession))
+
+        queue.retainOnly(accountID: "account-a", generation: 2)
+        queue.start()
+        await probe.waitForCount(1)
+
+        #expect(await probe.correlationIDs == [currentSession.correlationID])
+    }
+
+    @MainActor
     @Test func restoredQueueKeepsDistinctIDsAndOnlyTheLatestSameIDValue() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
             "phone-push-queue-\(UUID().uuidString)",
@@ -450,14 +477,16 @@ import Testing
     private func requestEnvelope(
         correlationID: String,
         coalescingID: String? = nil,
-        expectedAccountID: String? = nil
+        expectedAccountID: String? = nil,
+        expectedSessionGeneration: UInt64? = nil
     ) -> PhonePushRequestEnvelope {
         PhonePushRequestEnvelope(
             correlationID: correlationID,
             expirationEpochSeconds: 1_750_000_120,
             body: Data(),
             coalescingID: coalescingID,
-            expectedAccountID: expectedAccountID
+            expectedAccountID: expectedAccountID,
+            expectedSessionGeneration: expectedSessionGeneration
         )
     }
 }
