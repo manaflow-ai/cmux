@@ -8,6 +8,7 @@ final class TranscriptDemoContainerViewController: UIViewController {
     private var currentTheme: AgentGUITheme
     private var composerHost: UIHostingController<TranscriptDemoComposerView>?
     private(set) var composerBottomConstraint: NSLayoutConstraint?
+    private var keyboardIsPresented = false
 
     var composerHostView: UIView? {
         composerHost?.view
@@ -21,6 +22,10 @@ final class TranscriptDemoContainerViewController: UIViewController {
 
     required init?(coder: NSCoder) {
         nil
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     override func viewDidLoad() {
@@ -37,6 +42,24 @@ final class TranscriptDemoContainerViewController: UIViewController {
             transcript.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             transcript.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardWillShow),
+            name: UIResponder.keyboardWillShowNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardDidHide),
+            name: UIResponder.keyboardDidHideNotification,
+            object: nil
+        )
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        guard !keyboardIsPresented else { return }
+        updateComposerBottomOffset()
     }
 
     override func viewDidLayoutSubviews() {
@@ -56,18 +79,24 @@ final class TranscriptDemoContainerViewController: UIViewController {
             }
         ))
         host.sizingOptions = .intrinsicContentSize
-        host.safeAreaRegions = .container
+        // The keyboard guide already resolves the composer's moving bottom edge.
+        // Applying the hosting container's bottom safe area as well would animate
+        // that inset inside the translated host and separate the visible controls
+        // from the keyboard. Keep the hosted subtree's own geometry fixed.
+        host.safeAreaRegions = []
         host.view.translatesAutoresizingMaskIntoConstraints = false
         host.view.backgroundColor = .clear
         host.view.accessibilityIdentifier = "transcript.demo.composer-host"
         addChild(host)
         view.addSubview(host.view)
-        // Keep the Liquid Glass subtree's local bounds fixed. UIKit translates
-        // this hosting layer with the same keyboard guide as the transcript;
-        // SwiftUI therefore does not rematerialize each glass control while its
-        // simultaneously moving backdrop is being sampled.
+        // Track the keyboard all the way to the physical screen edge. The guide's
+        // safe-area fallback otherwise holds the composer above the home indicator
+        // for the first and last visible keyboard frames. The resting safe-area
+        // offset is applied only outside the keyboard animation below.
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
         let bottomConstraint = host.view.bottomAnchor.constraint(
-            equalTo: view.keyboardLayoutGuide.topAnchor
+            equalTo: view.keyboardLayoutGuide.topAnchor,
+            constant: -view.safeAreaInsets.bottom
         )
         NSLayoutConstraint.activate([
             host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -79,6 +108,28 @@ final class TranscriptDemoContainerViewController: UIViewController {
         composerBottomConstraint = bottomConstraint
         transcript.setBottomEdgeElementContainers([host.view])
         view.setNeedsLayout()
+    }
+
+    @objc private func keyboardWillShow(_ notification: Notification) {
+        guard view.window != nil else { return }
+        keyboardIsPresented = true
+        updateComposerBottomOffset()
+    }
+
+    @objc private func keyboardDidHide(_ notification: Notification) {
+        guard view.window != nil else { return }
+        keyboardIsPresented = false
+        updateComposerBottomOffset()
+    }
+
+    private func updateComposerBottomOffset() {
+        guard let composerBottomConstraint else { return }
+        let offset = keyboardIsPresented ? 0 : -view.safeAreaInsets.bottom
+        guard composerBottomConstraint.constant != offset else { return }
+        composerBottomConstraint.constant = offset
+        UIView.performWithoutAnimation {
+            view.layoutIfNeeded()
+        }
     }
 
     func apply(input: TranscriptProjectionInput) {

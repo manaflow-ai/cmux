@@ -243,9 +243,14 @@ extension TranscriptRenderingRegressionTests {
         let initialFrame = hostView.frame
         let initialChromeHeight = container.transcript.bottomChromeHeight
         let bottomConstraint = try #require(container.composerBottomConstraint)
+        let composerHost = try #require(container.children.compactMap {
+            $0 as? UIHostingController<TranscriptDemoComposerView>
+        }.first)
 
-        #expect(bottomConstraint.secondItem as? UIView === container.view)
-        #expect(bottomConstraint.secondAttribute == .bottom)
+        #expect(bottomConstraint.secondItem as? UIKeyboardLayoutGuide === container.view.keyboardLayoutGuide)
+        #expect(bottomConstraint.secondAttribute == .top)
+        #expect(!container.view.keyboardLayoutGuide.usesBottomSafeArea)
+        #expect(composerHost.safeAreaRegions.isEmpty)
 
         bottomConstraint.constant = -320
         UIView.performWithoutAnimation {
