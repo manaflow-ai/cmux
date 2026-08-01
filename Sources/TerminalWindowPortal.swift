@@ -1452,6 +1452,7 @@ final class WindowTerminalPortal: NSObject {
         entry.visibleInUI = false
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
+        presentedHostedIds.remove(hostedId)
         entry.hostedView?.isHidden = true
 #if DEBUG
         cmuxDebugLog("portal.hideEntry hosted=\(portalDebugToken(entry.hostedView)) reason=workspaceUnmount")
@@ -1470,6 +1471,11 @@ final class WindowTerminalPortal: NSObject {
         entry.visibleInUI = visibleInUI
         if !visibleInUI { entry.transientRecoveryRetriesRemaining = 0 }
         entriesByHostedId[hostedId] = entry
+        if becameHidden {
+            // Visibility updates are coalesced. Clear the presentation edge
+            // synchronously so a hide -> show in one turn can notify again.
+            presentedHostedIds.remove(hostedId)
+        }
         // A view that just became visible may still hold the frame it was
         // born with (bind can seed from a pre-settle anchor reading, and a
         // hidden entry's frame is deliberately left alone). Visibility is a
@@ -1560,7 +1566,7 @@ final class WindowTerminalPortal: NSObject {
             guard let previousAnchor = previousEntry?.anchorView else { return true }
             return previousAnchor !== anchorView
         }()
-        if didChangeAnchor {
+        if didChangeAnchor || !visibleInUI {
             presentedHostedIds.remove(hostedId)
         }
         let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
