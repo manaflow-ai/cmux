@@ -407,6 +407,17 @@ public struct WorkspaceListLayoutPreviewView: View {
                 }
                 .onAppear {
                     fixtureNavTrail.append("stackAppear")
+                    // Mount-anchored reconciliation: the search tab's
+                    // .searchable unmounts with its tab without toggling the
+                    // presentation binding, so once this stack is on screen
+                    // with a selection still pending, tell the coordinator
+                    // search ended, then consume.
+                    if selectedPrimaryTab == .workspaces,
+                       pendingSearchFixtureRoute != nil,
+                       primarySearchCoordinator.isPresented {
+                        fixtureNavTrail.append("reconcile")
+                        primarySearchCoordinator.deactivateCurrentSearch()
+                    }
                     consumePendingSearchFixtureNavigation()
                 }
                 .onChange(of: pendingSearchFixtureRoute) { _, _ in
