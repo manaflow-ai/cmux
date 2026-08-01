@@ -295,6 +295,7 @@ extension CMUXCLI {
         for key in ClaudeSessionEnvironmentPolicy().inheritedIndependentLaunchKeys {
             unsetenv(key)
         }
+        unsetenv(Self.claudeTeamsRespawnEnvironmentTransportKey)
     }
 
     private func providerExecutableSearchDirectories(searchPath: String?) -> [String] {

@@ -20571,6 +20571,14 @@ struct CMUXCLI {
         launchContext: TmuxCompatLaunchContext?, commandArgs: [String]
     ) {
         clearInheritedClaudeLaunchEnvironment()
+        defer {
+            let launcherEnvironment = ProcessInfo.processInfo.environment
+            if let encoded = claudeTeamsRespawnEnvironmentTransportValue(from: launcherEnvironment) {
+                setenv(Self.claudeTeamsRespawnEnvironmentTransportKey, encoded, 1)
+            } else {
+                unsetenv(Self.claudeTeamsRespawnEnvironmentTransportKey)
+            }
+        }
         configureTmuxCompatEnvironment(
             processEnvironment: processEnvironment,
             shimDirectory: shimDirectory,
