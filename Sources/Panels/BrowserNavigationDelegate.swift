@@ -7,7 +7,8 @@ import WebKit
     enum PolicyCancellationKind { case terminal(restoreAttemptID: UUID?) }
     private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
     private let externalNavigationPolicy = BrowserExternalNavigationPolicy(
-        trustedOrigin: AuthEnvironment.appWebOrigin
+        trustedOrigin: AuthEnvironment.appWebOrigin,
+        billingCheckoutURL: AuthEnvironment.billingCheckoutURL
     )
     private var shouldPrintAfterCurrentNavigationFinishes = false
     var didStartProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
