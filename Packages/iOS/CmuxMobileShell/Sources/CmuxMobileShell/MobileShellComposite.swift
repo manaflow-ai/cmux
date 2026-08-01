@@ -2449,36 +2449,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             setHasKnownPairedMac(true, generation: generation)
         }
         let irohReconnectIsBlocked = automaticIrohReconnectIsBlocked(accountID: scope.userID)
-        let zeroTouchCandidates: [MobilePairedMac] = if irohReconnectIsBlocked {
-            []
-        } else {
-            await discoverZeroTouchIrohCandidates(
-                scope: scope,
-                generation: generation,
-                excluding: Set(candidates.map {
-                    MobilePairedMac.pairingID(
-                        macDeviceID: $0.macDeviceID,
-                        instanceTag: $0.instanceTag
-                    )
-                })
-            )
-        }
-        guard generation == storedMacReconnectGeneration else {
-            return .superseded
-        }
-        guard await isScopeCurrent(scope) else {
-            finishStoredMacReconnectAttempt(generation: generation)
-            return .superseded
-        }
-        candidates.append(contentsOf: zeroTouchCandidates)
-        let zeroTouchCandidateIDs = Set(zeroTouchCandidates.map(\.id))
-        guard !candidates.isEmpty else {
-            if !hasKnownStoredMac, !irohReconnectIsBlocked {
-                setHasKnownPairedMac(false, generation: generation)
-            }
-            finishStoredMacReconnectAttempt(generation: generation)
-            return .failed(.noRoute)
-        }
         // Capture one coherent post-request view of the registry and paired-Mac
         // store. The store read happens after the registry await, so an
         // authenticated Presence write that lands during the request wins. The
@@ -2543,8 +2513,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
             }
             if connectionState != .connected,
-               !automaticIrohReconnectIsBlocked(accountID: scope.userID),
-               !zeroTouchCandidateIDs.contains(mac.id) {
+               !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
                 switch await freshReconnectRoutesAfterLocalFailure(
                     for: mac,
                     scope: scope,
@@ -2575,6 +2544,63 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
             if connectionState == .connected { break }
+        }
+        // A saved authenticated route is the cheapest and most authoritative
+        // recovery path. Broker discovery can be slow for accounts with a large
+        // development fleet, so only ask for zero-touch candidates after every
+        // saved candidate failed. This keeps a healthy saved Mac from sitting
+        // behind an unrelated account-wide discovery request.
+        var zeroTouchCandidates: [MobilePairedMac] = []
+        if connectionState != .connected,
+           !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
+            zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
+                scope: scope,
+                generation: generation,
+                excluding: Set(candidates.map {
+                    MobilePairedMac.pairingID(
+                        macDeviceID: $0.macDeviceID,
+                        instanceTag: $0.instanceTag
+                    )
+                })
+            )
+            guard generation == storedMacReconnectGeneration else {
+                return .superseded
+            }
+            guard await isScopeCurrent(scope) else {
+                finishStoredMacReconnectAttempt(generation: generation)
+                return .superseded
+            }
+            for mac in zeroTouchCandidates {
+                guard generation == storedMacReconnectGeneration,
+                      await isScopeCurrent(scope),
+                      await !isHiddenMacDeviceID(
+                          mac.macDeviceID,
+                          instanceTag: mac.instanceTag,
+                          scope: scope
+                      ) else { break }
+                let routes = storedReconnectRoutes(mac)
+                attemptedAutomaticIroh = attemptedAutomaticIroh
+                    || routes.contains { $0.kind == .iroh }
+                lastDialOutcome = await connectStoredMacOutcome(
+                    name: mac.displayName ?? mac.macDeviceID,
+                    routes: routes,
+                    pairedMacDeviceID: mac.macDeviceID,
+                    instanceTag: mac.instanceTag,
+                    legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
+                    automaticReconnectAccountID: scope.userID,
+                    ifStillCurrent: { [weak self] in
+                        self?.storedMacReconnectGeneration == generation
+                    }
+                )
+                if connectionState == .connected { break }
+            }
+        }
+        if candidates.isEmpty, zeroTouchCandidates.isEmpty {
+            if !hasKnownStoredMac, !irohReconnectIsBlocked {
+                setHasKnownPairedMac(false, generation: generation)
+            }
+            finishStoredMacReconnectAttempt(generation: generation)
+            return .failed(.noRoute)
         }
         // A newer attempt may have started during the connect; it now owns the flags.
         guard generation == storedMacReconnectGeneration else { return .superseded }
