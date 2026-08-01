@@ -5,12 +5,7 @@ import Testing
 /// Immediate for the sub-second plumbing delays; parks second-or-longer deadlines until the test
 /// releases them with ``fireDeadlines()`` so watchdog time is explicit.
 actor TestDeadlineClock: UpdateClock {
-    private struct ParkedDeadline {
-        let duration: Duration
-        let continuation: CheckedContinuation<Void, any Error>
-    }
-
-    private var parked: [UUID: ParkedDeadline] = [:]
+    private var parked: [UUID: (duration: Duration, continuation: CheckedContinuation<Void, any Error>)] = [:]
 
     func sleep(for duration: Duration) async throws {
         try Task.checkCancellation()
@@ -18,7 +13,7 @@ actor TestDeadlineClock: UpdateClock {
         let id = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                parked[id] = ParkedDeadline(duration: duration, continuation: continuation)
+                parked[id] = (duration, continuation)
             }
         } onCancel: {
             Task { await self.cancelParked(id) }
