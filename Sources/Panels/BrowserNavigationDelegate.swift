@@ -379,6 +379,10 @@ import WebKit
             return
         }
 
+        if handleAuthCallbackNavigationAction(navigationAction, webView: webView, decisionHandler: decisionHandler) {
+            return
+        }
+
         if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
            shouldBlockInsecureHTTPNavigation?(url) == true {
@@ -502,6 +506,58 @@ import WebKit
             return
         }
         decisionHandler(.allow)
+    }
+
+    let authCallbackNavigationPolicy = BrowserAuthCallbackNavigationPolicy(
+        trustedSourcePageOrigin: AuthEnvironment.appSessionHandoffOrigin,
+        callbackScheme: AuthEnvironment.callbackScheme
+    )
+
+    /// Handles auth-callback-shaped navigation actions. Returns `true` when
+    /// the navigation was consumed (delivered in-app or blocked); the caller
+    /// must stop policy evaluation in that case.
+    private func handleAuthCallbackNavigationAction(
+        _ navigationAction: WKNavigationAction,
+        webView: WKWebView,
+        decisionHandler: (WKNavigationActionPolicy) -> Void
+    ) -> Bool {
+        guard let url = navigationAction.request.url else { return false }
+        let disposition = authCallbackNavigationPolicy.disposition(
+            for: navigationAction,
+            url: url
+        )
+        return authCallbackNavigationPolicy.consume(
+            disposition: disposition,
+            callbackURL: url,
+            sourcePageURL: webView.url,
+            cancelNavigation: { [self] in
+                clearAttemptedRequest(discardPendingBypasses: true)
+                decisionHandler(.cancel)
+            },
+            reportTerminalCancellation: { [self] in
+                let report = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+                report()
+            },
+            deliver: authCallbackNavigationPolicy.deliverAuthCallbackInApp,
+            completion: { [weak self, weak webView] delivered, returnURL in
+                guard let self, let webView else { return }
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.nav.decidePolicy.action kind=deliverNativeAuthCallbackInApp " +
+                    "delivered=\(delivered ? 1 : 0) scheme=\(url.scheme ?? "nil")"
+                )
+#endif
+                BrowserAuthCallbackNavigationPolicy.finishDelivery(
+                    delivered: delivered,
+                    returnURL: returnURL,
+                    in: webView,
+                    prepareReturnRequest: { [weak self] request in
+                        self?.recordAttemptedRequest(request)
+                    },
+                    presentAlert: presentAlert
+                )
+            }
+        )
     }
 
     private func restartNavigationForUserAgentPolicyIfNeeded(

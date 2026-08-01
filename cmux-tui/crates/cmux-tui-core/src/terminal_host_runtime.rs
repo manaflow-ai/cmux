@@ -330,8 +330,8 @@ mod unix {
     use std::time::{Duration, Instant};
 
     use anyhow::Context;
+    use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtySize};
     use ghostty_vt::{Callbacks, CursorShape, Terminal};
-    use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
     use super::*;
 
@@ -341,6 +341,8 @@ mod unix {
     const HOST_PTY_DRAIN_GRACE: Duration = Duration::from_millis(250);
     const HOST_FORCED_DRAIN_WINDOW: Duration = Duration::from_millis(100);
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
+    const HOST_LAUNCH_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
+    const HOST_EXIT_STREAM_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
     struct SpawnedHostProcess {
         child: Option<std::process::Child>,
@@ -1810,6 +1812,9 @@ mod unix {
         sequence: AtomicU64,
         next_client: AtomicU64,
         dead: AtomicBool,
+        launch_owner_claimed: AtomicBool,
+        launch_owner_stream_ready: AtomicBool,
+        launch_owner_completed: AtomicBool,
         child_exit: (Mutex<Option<TerminalExit>>, Condvar),
         child_waitable: AtomicBool,
         pty_drained: AtomicBool,
@@ -1822,6 +1827,45 @@ mod unix {
         child_signal_lock: Mutex<()>,
         child_reaped: AtomicBool,
         group_escalation_complete: AtomicBool,
+    }
+
+    struct LaunchOwnerConnection {
+        host: Arc<HostShared>,
+        claimed: bool,
+    }
+
+    impl LaunchOwnerConnection {
+        fn claim(host: Arc<HostShared>, granted_rights: CapabilityRights) -> Self {
+            let claimed = granted_rights.contains(CapabilityRights::ADMIN)
+                && host
+                    .launch_owner_claimed
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok();
+            Self { host, claimed }
+        }
+
+        fn stream_ready(&self) {
+            if !self.claimed {
+                return;
+            }
+            self.host.launch_owner_stream_ready.store(true, Ordering::Release);
+            self.host.publish_exit_if_drained();
+        }
+    }
+
+    impl Drop for LaunchOwnerConnection {
+        fn drop(&mut self) {
+            if !self.claimed {
+                return;
+            }
+            // A failed initial stream must release the same launch barrier as
+            // a successful one. The launching daemon reports the handshake
+            // failure, while the independently hosted process can still
+            // publish or clean up its terminal exit.
+            self.host.launch_owner_stream_ready.store(true, Ordering::Release);
+            self.host.launch_owner_completed.store(true, Ordering::Release);
+            self.host.publish_exit_if_drained();
+        }
     }
 
     fn publish_host_frames(
@@ -2237,6 +2281,13 @@ mod unix {
         }
 
         fn publish_exit_if_drained(&self) {
+            // A command may exit before its launching daemon reaches the host
+            // socket. Keep the final parser snapshot and canonical Exit
+            // available until that first authenticated owner stream has been
+            // inserted into the broadcast set.
+            if !self.launch_owner_stream_ready.load(Ordering::Acquire) {
+                return;
+            }
             let _publish = self.exit_publish_lock.lock().unwrap();
             let mut reported = false;
             loop {
@@ -2421,7 +2472,7 @@ mod unix {
         endpoint: PathBuf,
         record_path: PathBuf,
         record: TerminalHostRecord,
-        lease: HostLivenessLease,
+        lease: Option<HostLivenessLease>,
         published: bool,
     }
 
@@ -2451,21 +2502,34 @@ mod unix {
             if !self.shared.child_exited() {
                 return;
             }
-            let mut removed_record = !self.published;
-            if self.published
-                && let Ok(bytes) = fs::read(&self.record_path)
-                && let Ok(current) = serde_json::from_slice::<TerminalHostRecord>(&bytes)
-                && current.terminal_id == self.record.terminal_id
-                && current.incarnation == self.record.incarnation
-                && current.host_start_nonce == self.record.host_start_nonce
-            {
-                removed_record = fs::remove_file(&self.record_path).is_ok();
-            }
+            let owns_record = !self.published
+                || fs::read(&self.record_path)
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<TerminalHostRecord>(&bytes).ok())
+                    .is_some_and(|current| {
+                        current.terminal_id == self.record.terminal_id
+                            && current.incarnation == self.record.incarnation
+                            && current.host_start_nonce == self.record.host_start_nonce
+                    });
+            let released_lease_path = if owns_record {
+                self.lease.take().map(|lease| {
+                    let _ = lease.file.sync_all();
+                    let path = lease.path.clone();
+                    // Unlock the process-incarnation proof before removing its
+                    // discovery record. Observers can never see an absent
+                    // record whose captured liveness proof still says Live.
+                    drop(lease);
+                    path
+                })
+            } else {
+                None
+            };
+            let removed_record =
+                !self.published || (owns_record && fs::remove_file(&self.record_path).is_ok());
             let _ = fs::remove_file(&self.endpoint);
-            if removed_record {
-                let _ = fs::remove_file(&self.lease.path);
+            if removed_record && let Some(path) = released_lease_path {
+                let _ = fs::remove_file(path);
             }
-            let _ = self.lease.file.sync_all();
         }
     }
 
@@ -2524,7 +2588,7 @@ mod unix {
             endpoint,
             record_path: PathBuf::from(&launch.record_path),
             record: record.clone(),
-            lease,
+            lease: Some(lease),
             published: false,
         };
         unpublished.armed = false;
@@ -2559,7 +2623,34 @@ mod unix {
         // record and connects through the already-listening Unix socket.
         let _ = write_frame(writer, &response);
 
-        while !shared.dead.load(Ordering::Acquire) {
+        let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
+        let mut exit_drain_deadline = None;
+        loop {
+            let now = Instant::now();
+            if !shared.launch_owner_claimed.load(Ordering::Acquire)
+                && now >= launch_owner_deadline
+                && shared
+                    .launch_owner_claimed
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+            {
+                // A launcher that vanished before authenticating must not
+                // retain an already-exited host forever. A live PTY remains
+                // adoptable; only its eventual exit is now unblocked.
+                shared.launch_owner_stream_ready.store(true, Ordering::Release);
+                shared.launch_owner_completed.store(true, Ordering::Release);
+                shared.publish_exit_if_drained();
+            }
+            if shared.dead.load(Ordering::Acquire) {
+                let deadline =
+                    *exit_drain_deadline.get_or_insert(now + HOST_EXIT_STREAM_DRAIN_TIMEOUT);
+                let clients_drained = shared.taps.lock().unwrap().is_empty();
+                if (shared.launch_owner_completed.load(Ordering::Acquire) && clients_drained)
+                    || now >= deadline
+                {
+                    break;
+                }
+            }
             match listener.accept() {
                 Ok((stream, _)) => {
                     // Accepted sockets inherit O_NONBLOCK from the listener
@@ -2589,14 +2680,14 @@ mod unix {
         launch: &HostLaunch,
         bootstrapped: &crate::terminal_host::BootstrappedHost,
     ) -> anyhow::Result<Arc<HostShared>> {
-        let pty = native_pty_system().openpty(PtySize {
+        let pty = cmux_pty::open(PtySize {
             rows: launch.rows,
             cols: launch.cols,
             pixel_width: 0,
             pixel_height: 0,
         })?;
-        let mut command = CommandBuilder::new(&launch.command[0]);
-        command.args(&launch.command[1..]);
+        let mut command = PtyCommand::new(&launch.command[0]);
+        command.args(launch.command[1..].iter().cloned());
         command.env("TERM", &launch.term);
         for (key, value) in &launch.extra_env {
             command.env(key, value);
@@ -2604,13 +2695,12 @@ mod unix {
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }
-        let mut child = pty.slave.spawn_command(command)?;
+        let cmux_pty::SpawnedPty { master, mut child } = pty.spawn(command)?;
         let pid = child.process_id();
-        drop(pty.slave);
         let killer = child.clone_killer();
-        let pty_poll_fd = pty.master.as_raw_fd().context("open terminal-host PTY poll fd")?;
-        let mut pty_reader = pty.master.try_clone_reader()?;
-        let pty_writer = pty.master.take_writer()?;
+        let pty_poll_fd = master.as_raw_fd().context("open terminal-host PTY poll fd")?;
+        let mut pty_reader = master.try_clone_reader()?;
+        let pty_writer = master.take_writer()?;
         let (pty_drain_waker, pty_drain_waiter) = UnixStream::pair()?;
 
         let pending_responses = Arc::new(Mutex::new(Vec::<u8>::new()));
@@ -2647,7 +2737,7 @@ mod unix {
             term: Mutex::new(term),
             stream_progress: TerminalStreamProgress::default(),
             writer: Mutex::new(pty_writer),
-            master: Mutex::new(pty.master),
+            master: Mutex::new(master),
             killer: Mutex::new(killer),
             pid,
             command: launch.command.clone(),
@@ -2659,6 +2749,9 @@ mod unix {
             sequence: AtomicU64::new(0),
             next_client: AtomicU64::new(1),
             dead: AtomicBool::new(false),
+            launch_owner_claimed: AtomicBool::new(false),
+            launch_owner_stream_ready: AtomicBool::new(false),
+            launch_owner_completed: AtomicBool::new(false),
             child_exit: (Mutex::new(None), Condvar::new()),
             child_waitable: AtomicBool::new(false),
             pty_drained: AtomicBool::new(false),
@@ -2816,6 +2909,7 @@ mod unix {
             anyhow::bail!("terminal-host capability denied");
         }
         let granted_rights = response.granted_rights;
+        let launch_owner = LaunchOwnerConnection::claim(host.clone(), granted_rights);
         let viewer_size_acks = hello_frame.flags & FLAG_VIEWER_SIZE_ACKS != 0
             && granted_rights.contains(CapabilityRights::RESIZE);
         let mut hello_response = Frame::new(MessageKind::HostHello, response.encode());
@@ -2873,6 +2967,10 @@ mod unix {
                 host.sequence.load(Ordering::Acquire),
             )
         };
+        // The tap and snapshot boundary are now atomic members of the live
+        // stream. Releasing a deferred fast-exit event here places Exit after
+        // that boundary even if the PTY finished before this connection.
+        launch_owner.stream_ready();
         let mut snapshot_frame = Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
         snapshot_frame.sequence = snapshot_sequence;
         if let Err(error) = write_frame(&mut stream, &snapshot_frame) {
