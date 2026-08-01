@@ -35,4 +35,29 @@ struct CmxIrohTrustBrokerClientAuthClassifierTests {
         ))
     }
 
+    @Test
+    func authRejectionsAreNotAvailabilityFailures() {
+        // The security boundary: an authenticated denial must never unlock
+        // dial-time cached grants or the offline policy store, even though
+        // the same rejection preserves in-memory verified state during a
+        // refresh. Revocation takes effect at the next dial.
+        #expect(!CmxIrohTrustBrokerClientError.isAvailabilityFailure(
+            CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 401,
+                code: "unauthorized"
+            )
+        ))
+        #expect(!CmxIrohTrustBrokerClientError.isAvailabilityFailure(
+            CmxIrohTrustBrokerClientError.rejected(statusCode: 403, code: nil)
+        ))
+        #expect(CmxIrohTrustBrokerClientError.isAvailabilityFailure(
+            CmxIrohTrustBrokerClientError.connectivity
+        ))
+        #expect(CmxIrohTrustBrokerClientError.isAvailabilityFailure(
+            CmxIrohTrustBrokerClientError.rejected(statusCode: 503, code: nil)
+        ))
+        #expect(!CmxIrohTrustBrokerClientError.isAvailabilityFailure(
+            CmxIrohTrustBrokerClientError.invalidResponse
+        ))
+    }
 }

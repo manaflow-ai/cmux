@@ -128,6 +128,13 @@ public final class AuthCoordinator {
     @ObservationIgnored var latestSignInRefreshToken: String?
     @ObservationIgnored var activeSignInExchanges: [UInt64: AuthTrackedSignInExchange] = [:]
     @ObservationIgnored var activeSessionValidations: [UUID: AuthTrackedTokenWork] = [:]
+    /// The one in-flight rejection-driven force mint. Every
+    /// ``forceRefreshAccessToken()`` caller (RPC lane, broker lane,
+    /// ``credentialsAfterRejection(accountID:rejectedRefreshToken:)``)
+    /// coalesces onto this task, so N concurrent server rejections of the same
+    /// pair produce exactly one rotation instead of N mints racing each
+    /// other's in-flight requests.
+    @ObservationIgnored var inFlightRejectionMint: Task<String, any Error>?
     @ObservationIgnored var activePostSignInHooks: [UUID: AuthTrackedTokenWork] = [:]
     @ObservationIgnored var activeTokenTouchingPhases: [UUID: AuthTrackedTokenWork] = [:]
     @ObservationIgnored var timedOutTokenTouchingPhaseStates: [AuthPhase: AuthPhaseTimedOutState] = [:]

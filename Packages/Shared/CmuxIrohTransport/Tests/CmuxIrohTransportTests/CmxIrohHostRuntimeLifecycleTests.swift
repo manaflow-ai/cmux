@@ -583,6 +583,11 @@ extension CmxIrohHostRuntimeTests {
             code: "challenge_rate_limited"
         ),
         .rejected(statusCode: 503, code: "unavailable"),
+        // Auth rejections joined the preserved set: they already survived the
+        // broker client's single force-refresh retry, so they are a session
+        // transition still settling, not a trust revocation.
+        .rejected(statusCode: 401, code: "unauthorized"),
+        .rejected(statusCode: 403, code: "forbidden"),
     ])
     func unavailableRegistrationRefreshPreservesActiveEndpoint(
         _ failure: CmxIrohTrustBrokerClientError

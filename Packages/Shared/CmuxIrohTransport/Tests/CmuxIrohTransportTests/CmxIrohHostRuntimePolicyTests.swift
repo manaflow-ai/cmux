@@ -78,14 +78,19 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
-    func unauthorizedRegistrationRefreshDeactivatesActiveEndpoint() async throws {
+    func terminalRegistrationRefreshDeactivatesActiveEndpoint() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        // 400 is a genuinely terminal rejection. A 401 is deliberately NOT
+        // terminal anymore: a Mac that self-deactivates hosting because a
+        // token pair went stale across sleep/wake leaves every phone unable
+        // to attach until re-activation; auth rejections now preserve the
+        // active endpoint (see unavailableRegistrationRefreshPreservesActiveEndpoint).
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
             subsequentRegistrationErrors: [
-                .rejected(statusCode: 401, code: "unauthorized"),
+                .rejected(statusCode: 400, code: "bad_request"),
             ]
         )
         let deactivations = HostRuntimeDeactivationRecorder()

@@ -4994,9 +4994,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             supportedKinds: supportedRouteKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
-        let foregroundIDSet: Set<String>
+        // During a bounded foreground redial, `clearRemoteConnectionContext()`
+        // has already nil'd `foregroundMacDeviceID`, which would make the very
+        // Mac being redialed eligible as a "secondary". That opens a duplicate
+        // background-control session the redial must then drain — one wasted
+        // QUIC dial plus up to the handoff-drain timeout of added reconnect
+        // latency. Exclude the in-flight recovery target exactly like a live
+        // foreground; once recovery settles the normal exclusion (success) or
+        // eligibility (terminal failure) resumes.
+        let exclusionMacDeviceID: String?
+        let exclusionTag: String?
         if let foregroundMacDeviceID {
-            let canonicalID = cmxCanonicalDeviceID(foregroundMacDeviceID)
+            exclusionMacDeviceID = foregroundMacDeviceID
+            exclusionTag = activeMacInstanceTag
+        } else if isReconnectingStoredMac || connectionRecoveryOwner.isActive {
+            exclusionMacDeviceID = recoveryTargetMacDeviceID
+            exclusionTag = recoveryTargetInstanceTag
+        } else {
+            exclusionMacDeviceID = nil
+            exclusionTag = nil
+        }
+        let foregroundIDSet: Set<String>
+        if let exclusionMacDeviceID {
+            let canonicalID = cmxCanonicalDeviceID(exclusionMacDeviceID)
             foregroundIDSet = physicalAliasIDsByCanonicalID[canonicalID]
                 ?? Set([canonicalID])
         } else {
@@ -5006,9 +5026,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if case let .peer(identity, _)? = activeRoute?.endpoint {
             foregroundIrohEndpointIDs.insert(identity.endpointID)
         }
-        let activeTag = activeMacInstanceTag
-        if let foregroundMacDeviceID {
-            let canonicalForegroundID = cmxCanonicalDeviceID(foregroundMacDeviceID)
+        let activeTag = exclusionTag
+        if let exclusionMacDeviceID {
+            let canonicalForegroundID = cmxCanonicalDeviceID(exclusionMacDeviceID)
             // With no authenticated tag the foreground could be any of the
             // device's rows, so every row's endpoint is treated as the
             // foreground's own; with a tag, only the exact pairing's endpoints

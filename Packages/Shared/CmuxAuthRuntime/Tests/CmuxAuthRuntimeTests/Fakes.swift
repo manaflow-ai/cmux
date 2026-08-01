@@ -81,7 +81,41 @@ actor FakeAuthClient: AuthClient {
     private(set) var mintedAccessTokenCount = 0
 
     func setStoredAccessTokenStale(_ stale: Bool) { storedAccessIsStale = stale }
+
+    /// Force-refresh instrumentation for single-flight coverage: a call count,
+    /// plus an optional gate that parks the mint mid-flight so a test can pile
+    /// concurrent callers onto one in-flight refresh before releasing it.
+    private(set) var forceRefreshCount = 0
+    private var forceRefreshGateArmed = false
+    private var isParkedInForceRefresh = false
+    private var forceRefreshParkObservers: [CheckedContinuation<Void, Never>] = []
+    private var forceRefreshReleaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func armForceRefreshGate() { forceRefreshGateArmed = true }
+
+    /// Suspends until a force refresh is parked inside the armed gate.
+    func waitForParkedForceRefresh() async {
+        if isParkedInForceRefresh { return }
+        await withCheckedContinuation { forceRefreshParkObservers.append($0) }
+    }
+
+    func releaseForceRefreshGate() {
+        forceRefreshGateArmed = false
+        let waiters = forceRefreshReleaseWaiters
+        forceRefreshReleaseWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
+
     func forceRefreshAccessToken() async -> String? {
+        forceRefreshCount += 1
+        if forceRefreshGateArmed {
+            isParkedInForceRefresh = true
+            let observers = forceRefreshParkObservers
+            forceRefreshParkObservers.removeAll()
+            observers.forEach { $0.resume() }
+            await withCheckedContinuation { forceRefreshReleaseWaiters.append($0) }
+            isParkedInForceRefresh = false
+        }
         if case let .some(scripted) = forceRefreshResult {
             return scripted
         }
