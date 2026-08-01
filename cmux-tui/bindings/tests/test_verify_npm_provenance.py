@@ -89,6 +89,7 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
     def attestation(
         self,
         *,
+        event_name: str = "repository_dispatch",
         workflow: str | None = None,
     ) -> dict[str, object]:
         statement = {
@@ -114,7 +115,7 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                     },
                     "internalParameters": {
                         "github": {
-                            "event_name": "workflow_dispatch",
+                            "event_name": event_name,
                             "repository_id": "1144115288",
                             "repository_owner_id": "171392238",
                         }
@@ -349,6 +350,25 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
             ),
         ), mock.patch.object(provenance.subprocess, "run") as run, \
             self.assertRaisesRegex(provenance.ProvenanceError, "workflow"):
+            provenance.verify(
+                self.package,
+                self.version,
+                self.repository_url,
+                self.repository_directory,
+                self.artifact,
+                **self.verification_options(),
+            )
+        run.assert_not_called()
+
+    def test_rejects_a_branch_dispatch_attestation(self) -> None:
+        with mock.patch.object(
+            provenance,
+            "urlopen",
+            side_effect=self.registry_response(
+                attestation=self.attestation(event_name="workflow_dispatch")
+            ),
+        ), mock.patch.object(provenance.subprocess, "run") as run, \
+            self.assertRaisesRegex(provenance.ProvenanceError, "repository"):
             provenance.verify(
                 self.package,
                 self.version,
