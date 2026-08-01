@@ -484,7 +484,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
         .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
             fixtureNavTrail.append("presented(\(isPresented))")
-            guard !isPresented else { return }
+            guard !isPresented, selectedPrimaryTab != .search else { return }
             consumePendingSearchFixtureNavigation()
         }
         .onChange(of: selectedPrimaryTab) { old, new in

@@ -285,7 +285,7 @@ struct WorkspaceShellView: View {
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
             .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
-                guard !isPresented else { return }
+                guard !isPresented, selectedPrimaryTab != .search else { return }
                 consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
             }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
