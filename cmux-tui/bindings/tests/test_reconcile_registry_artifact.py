@@ -140,6 +140,23 @@ class RegistryArtifactTests(unittest.TestCase):
                 "crates", "cmux-client", "1.0.0", self.artifact
             )
 
+    def test_crates_retries_when_history_precedes_the_version_endpoint(self) -> None:
+        missing = HTTPError("https://registry.example", 404, "missing", None, None)
+
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            if str(getattr(request, "full_url", "")).endswith("/1.0.0"):
+                raise missing
+            return self.response({
+                "crate": {"name": "cmux-client"},
+                "versions": [{"num": "1.0.0", "yanked": False}],
+            })
+
+        with mock.patch.object(reconcile, "urlopen", side_effect=response), \
+            self.assertRaises(reconcile.RegistryLookupError):
+            reconcile.registry_status(
+                "crates", "cmux-client", "1.0.0", self.artifact
+            )
+
     def test_crates_allows_stable_after_its_prerelease(self) -> None:
         missing = HTTPError("https://registry.example", 404, "missing", None, None)
 
@@ -306,6 +323,88 @@ class RegistryArtifactTests(unittest.TestCase):
 
         with mock.patch.object(reconcile, "urlopen", side_effect=response), \
             self.assertRaises(reconcile.ReleaseStateMismatch):
+            reconcile.registry_status("pypi", "cmux-sdk", "1.0.0", self.artifact)
+
+    def test_pypi_accepts_the_attested_bootstrap_prerelease(self) -> None:
+        metadata = {
+            "urls": [{
+                "filename": self.artifact.name,
+                "digests": {
+                    "sha256": hashlib.sha256(
+                        self.artifact.read_bytes()
+                    ).hexdigest()
+                },
+                "yanked": False,
+            }],
+        }
+        project = {
+            "info": {"name": "cmux-sdk"},
+            "releases": {
+                "0.0.0.dev1": [{"yanked": False}],
+                "0.0.0a0": [{"yanked": False}],
+            },
+        }
+
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            url = str(getattr(request, "full_url", ""))
+            return self.response(
+                metadata if url.endswith("/0.0.0a0/json") else project
+            )
+
+        with mock.patch.object(reconcile, "urlopen", side_effect=response):
+            self.assertEqual(
+                reconcile.registry_status(
+                    "pypi", "cmux-sdk", "0.0.0a0", self.artifact
+                ),
+                reconcile.MATCH,
+            )
+
+    def test_pypi_bootstrap_rejects_newer_prerelease_history(self) -> None:
+        metadata = {
+            "urls": [{
+                "filename": self.artifact.name,
+                "digests": {
+                    "sha256": hashlib.sha256(
+                        self.artifact.read_bytes()
+                    ).hexdigest()
+                },
+                "yanked": False,
+            }],
+        }
+        project = {
+            "info": {"name": "cmux-sdk"},
+            "releases": {
+                "0.0.0a0": [{"yanked": False}],
+                "0.0.0b0": [{"yanked": False}],
+            },
+        }
+
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            url = str(getattr(request, "full_url", ""))
+            return self.response(
+                metadata if url.endswith("/0.0.0a0/json") else project
+            )
+
+        with mock.patch.object(reconcile, "urlopen", side_effect=response), \
+            self.assertRaises(reconcile.ReleaseStateMismatch):
+            reconcile.registry_status(
+                "pypi", "cmux-sdk", "0.0.0a0", self.artifact
+            )
+
+    def test_pypi_retries_when_history_precedes_version_metadata(self) -> None:
+        missing = HTTPError("https://registry.example", 404, "missing", None, None)
+        project = {
+            "info": {"name": "cmux-sdk"},
+            "releases": {"1.0.0": [{"yanked": False}]},
+        }
+
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            if str(getattr(request, "full_url", "")).endswith("/1.0.0/json"):
+                raise missing
+            return self.response(project)
+
+        with mock.patch.object(reconcile, "urlopen", side_effect=response), \
+            self.assertRaises(reconcile.RegistryLookupError):
             reconcile.registry_status("pypi", "cmux-sdk", "1.0.0", self.artifact)
 
     def test_pypi_rejects_a_missing_project(self) -> None:
