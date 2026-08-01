@@ -340,7 +340,6 @@ class RegistryArtifactTests(unittest.TestCase):
         project = {
             "info": {"name": "cmux-sdk"},
             "releases": {
-                "0.0.0.dev1": [{"yanked": False}],
                 "0.0.0a0": [{"yanked": False}],
             },
         }

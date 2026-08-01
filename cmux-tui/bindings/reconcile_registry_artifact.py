@@ -43,6 +43,7 @@ PYPI_VERSION = re.compile(
     r"(?:\+[0-9a-z]+(?:[-_.][0-9a-z]+)*)?$",
     re.IGNORECASE,
 )
+PYPI_BOOTSTRAP_VERSION = "0.0.0a0"
 
 
 class RegistryError(RuntimeError):
@@ -168,6 +169,16 @@ def _reject_newer_registry_history(
     *,
     allow_version: Optional[str] = None,
 ) -> None:
+    if registry == "PyPI" and requested == PYPI_BOOTSTRAP_VERSION:
+        unexpected = sorted(
+            version for version in active_versions if version != allow_version
+        )
+        if unexpected:
+            raise ReleaseStateMismatch(
+                f"PyPI bootstrap project {package} already contains another active "
+                f"version {unexpected[-1]!r}"
+            )
+        return
     candidate = _stable_version(requested)
     if candidate is None:
         raise RegistryError(f"{registry} release version must match X.Y.Z: {requested!r}")
@@ -269,6 +280,18 @@ def _crates_status(package: str, version: str, artifact: Path) -> str:
     metadata = _json(metadata_url)
     if metadata is None:
         active_versions = _crates_active_versions(package)
+        if version in active_versions:
+            _reject_newer_registry_history(
+                "crates.io",
+                package,
+                version,
+                active_versions,
+                allow_version=version,
+            )
+            raise RegistryLookupError(
+                f"crates.io version metadata has not converged for "
+                f"{package}@{version}"
+            )
         _reject_newer_registry_history(
             "crates.io", package, version, active_versions
         )
@@ -460,6 +483,18 @@ def _pypi_status(
     metadata = _json(url)
     if metadata is None:
         active_versions = _pypi_active_versions(package)
+        if version in active_versions:
+            _reject_newer_registry_history(
+                "PyPI",
+                package,
+                version,
+                active_versions,
+                allow_version=version,
+            )
+            raise RegistryLookupError(
+                f"PyPI release metadata has not converged for "
+                f"{package}=={version}"
+            )
         _reject_newer_registry_history("PyPI", package, version, active_versions)
         return MISSING
     files = metadata.get("urls")
