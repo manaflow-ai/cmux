@@ -60,7 +60,8 @@ final class BrowserAppSessionStoreRegistry {
     func panelsForCleanup() -> [BrowserPanel] {
         pruneReleasedOwnership()
         return livePanels.values.compactMap(\.value).filter {
-            liveStores[ObjectIdentifier($0.websiteDataStore)]?.value != nil
+            !$0.isClosingWebViewLifecycle
+                && liveStores[ObjectIdentifier($0.websiteDataStore)]?.value != nil
         }
     }
 
@@ -93,8 +94,12 @@ final class BrowserAppSessionStoreRegistry {
 
     private func pruneReleasedOwnership() {
         liveStores = liveStores.filter { $0.value.value != nil }
+        // Panel ownership follows the exact authenticated store it was
+        // registered with. A sign-out replacement intentionally releases the
+        // panel association while the old store claim remains until cleanup.
         livePanels = livePanels.filter { _, reference in
             guard let panel = reference.value else { return false }
+            guard !panel.isClosingWebViewLifecycle else { return false }
             return liveStores[
                 ObjectIdentifier(panel.websiteDataStore)
             ]?.value != nil

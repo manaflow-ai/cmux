@@ -362,7 +362,8 @@ struct BrowserWebContentProcessTests {
             openInSourcePane: { _, _ in
                 placements.append("source")
                 return true
-            }
+            },
+            isBrowserAvailable: { true }
         )
 
         #expect(opened)
@@ -396,7 +397,8 @@ struct BrowserWebContentProcessTests {
                 placements.append("source")
                 #expect(!store.isPersistent)
                 return true
-            }
+            },
+            isBrowserAvailable: { true }
         )
 
         #expect(opened)

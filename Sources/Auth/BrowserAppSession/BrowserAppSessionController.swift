@@ -220,6 +220,10 @@ final class BrowserAppSessionController {
         if cleanupCompleted {
             storeRegistry.removeAllOwnership()
         }
+        // A failed WebKit callback leaves a weak ownership claim as a
+        // fail-closed retry token. The handoff coordinator retries an explicit
+        // request once, then uses its normal external recovery path; clearing
+        // ownership here would admit new credentials into an uncleared store.
     }
 
     private func performHandoff(

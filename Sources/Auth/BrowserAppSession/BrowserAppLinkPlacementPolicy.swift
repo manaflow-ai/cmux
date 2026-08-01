@@ -24,10 +24,11 @@ final class BrowserAppLinkPlacementPolicy {
         openInPreferredPane: RequestPlacement,
         openHorizontalSplit: RequestPlacement,
         openInSourcePane: RequestPlacement,
-        isBrowserAvailable: () -> Bool = {
-            BrowserAvailabilitySettings.isEnabled()
-        }
+        isBrowserAvailable: () -> Bool
     ) -> Bool {
+        // The handoff coordinator owns the one-shot recovery path. Returning
+        // false here makes it recover the destination once; opening it here
+        // would duplicate that fallback when availability changes mid-placement.
         guard isBrowserAvailable() else { return false }
         if openInPreferredPane(
             navigation.request,
@@ -54,9 +55,7 @@ final class BrowserAppLinkPlacementPolicy {
         openInPreferredPane: URLPlacement,
         openHorizontalSplit: URLPlacement,
         openInSourcePane: URLPlacement,
-        isBrowserAvailable: () -> Bool = {
-            BrowserAvailabilitySettings.isEnabled()
-        }
+        isBrowserAvailable: () -> Bool
     ) -> Bool {
         let websiteDataStore = WKWebsiteDataStore.nonPersistent()
         guard isBrowserAvailable() else {

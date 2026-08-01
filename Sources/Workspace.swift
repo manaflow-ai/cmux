@@ -3982,7 +3982,8 @@ final class Workspace: Identifiable, ObservableObject {
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
-            }
+            },
+            isBrowserAvailable: { BrowserAvailabilitySettings.isEnabled() }
         )
     }
 
@@ -4040,7 +4041,8 @@ final class Workspace: Identifiable, ObservableObject {
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
-            }
+            },
+            isBrowserAvailable: { BrowserAvailabilitySettings.isEnabled() }
         )
     }
 
