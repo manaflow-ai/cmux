@@ -34,6 +34,15 @@ def workflow_job(text: str, name: str) -> str:
     return match.group(1)
 
 
+def workflow_dispatch_input(text: str, name: str) -> str:
+    match = re.search(
+        rf"(?ms)^      {re.escape(name)}:\n(.*?)(?=^      [A-Za-z0-9_-]+:\n|^permissions:)",
+        text,
+    )
+    assert match is not None
+    return match.group(1)
+
+
 def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
     bindings = ROOT / "cmux-tui" / "bindings"
     typescript = json.loads(
@@ -204,6 +213,26 @@ def test_registry_publishers_reuse_preflight_artifacts() -> None:
     assert "python3 -m build" not in python_publish
 
 
+def test_irreversible_registry_writes_are_independently_rerunnable() -> None:
+    release = workflow("sdk-release-cut.yml")
+
+    client = workflow_job(release, "publish-crate-client")
+    sidebar = workflow_job(release, "publish-crate-sidebar")
+    assert "Publish cmux-client" in client
+    assert "Publish cmux-sidebar" not in client
+    assert "publish-crate-client" in sidebar
+    assert "Publish cmux-sidebar" in sidebar
+
+    wheel = workflow_job(release, "publish-python-wheel")
+    sdist = workflow_job(release, "publish-python-sdist")
+    assert "*.whl" in wheel
+    assert "*.tar.gz" not in wheel
+    assert "*.tar.gz" in sdist
+    assert "*.whl" not in sdist
+    assert "gh-action-pypi-publish" in wheel
+    assert "gh-action-pypi-publish" in sdist
+
+
 def test_typescript_spec_uses_the_sdk_registry_name() -> None:
     spec = (ROOT / "cmux-tui" / "spec" / "bindings.md").read_text()
     typescript = spec.split("### TypeScript", 1)[1].split("### Go", 1)[0]
@@ -231,6 +260,26 @@ def test_required_sdk_ci_checks_only_the_publish_set_version() -> None:
     assert '"tests/test_tui_publish_workflow_security.py"' in sdk_ci
 
 
+def test_workflow_guard_runs_for_every_workflow_it_validates() -> None:
+    sdk_ci = workflow("cmux-tui-sdks.yml")
+    guarded = (
+        "cmux-tui-nightly.yml",
+        "cmux-tui-release-cut.yml",
+        "cmux-tui-release.yml",
+        "cmux-tui-sdks.yml",
+        "sdk-publish-crates.yml",
+        "sdk-publish-go.yml",
+        "sdk-publish-java.yml",
+        "sdk-publish-npm.yml",
+        "sdk-publish-python.yml",
+        "sdk-release-cut.yml",
+        "tui-publish-npm.yml",
+        "tui-publish-pypi.yml",
+    )
+    for name in guarded:
+        assert sdk_ci.count(f'".github/workflows/{name}"') == 2
+
+
 def test_python_wheel_consumer_derives_the_manifest_version() -> None:
     test = (
         ROOT
@@ -243,6 +292,9 @@ def test_python_wheel_consumer_derives_the_manifest_version() -> None:
 
     assert "CMUX_EXPECTED_SDK_VERSION" in test
     assert "version('cmux-sdk') == '1.0.0'" not in test
+    assert "import tomllib" in test
+    assert '["project"]["version"]' in test
+    assert "VERSION_MATCH" not in test
 
 
 def test_stable_registry_publishers_are_exact_tag_and_artifact_bound() -> None:
@@ -257,7 +309,8 @@ def test_stable_registry_publishers_are_exact_tag_and_artifact_bound() -> None:
         assert 'git rev-parse "refs/tags/$tag^{commit}"' in text
         assert 'if [[ "$release_sha" != "$GITHUB_SHA" ]]' in text
         assert "artifact_run_id:" in text
-        assert "required: true" in text
+        artifact_input = workflow_dispatch_input(text, "artifact_run_id")
+        assert "required: true" in artifact_input
         assert '[[ "$ARTIFACT_RUN_ID" =~ ^[0-9]+$ ]]' in text
         assert 'artifact_path=".github/workflows/cmux-tui-release.yml"' in text
         assert 'if [[ "$artifact_head_sha" != "$release_sha" ]]' in text
