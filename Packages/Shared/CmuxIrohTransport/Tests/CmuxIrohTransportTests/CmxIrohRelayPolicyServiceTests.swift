@@ -289,6 +289,51 @@ struct CmxIrohRelayPolicyServiceTests {
     }
 
     @Test
+    func equivalentPreferenceRebasesAfterBrokerRevisionReset() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let stores = makeStores()
+        _ = try await stores.service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(
+                    sequence: 2,
+                    expiresAt: Int64(fixture.now.timeIntervalSince1970) + 3_600
+                ),
+                preference: .automatic,
+                preferenceRevision: 1_000
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+
+        let rebased = try await stores.service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(
+                    sequence: 2,
+                    expiresAt: Int64(fixture.now.timeIntervalSince1970) + 7_200
+                ),
+                preference: .automatic,
+                preferenceRevision: 24
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+
+        #expect(rebased.preferenceRevision == 24)
+        #expect(rebased.effectivePreference == .automatic)
+        #expect(rebased.endpointRelayProfile.allowedRelayURLs == Set(fixture.relayURLs))
+        let stored = try #require(
+            try await stores.preferenceStore.load(accountID: "account-a")
+        )
+        #expect(stored.revision == 24)
+        #expect(stored.requested == .automatic)
+        #expect(await stores.service.diagnosticsSnapshot().failure == nil)
+    }
+
+    @Test
     func cacheRestoresUntilSignedExpiryAndSupportsStagedKeyRotation() async throws {
         let fixture = RelayPolicyServiceTestFixture()
         let stores = makeStores()
