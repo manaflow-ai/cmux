@@ -27,12 +27,14 @@ extension CMUXCLI {
         }
     }
 
+    @discardableResult
     private func withPiExtensionMutationLock<T>(
         at extensionURL: URL,
         createParentDirectory: Bool,
+        acquireNonBlocking: Bool = false,
         fileManager: FileManager = .default,
         _ operation: () throws -> T
-    ) throws -> T {
+    ) throws -> T? {
         let directoryURL = extensionURL.deletingLastPathComponent()
         if createParentDirectory {
             try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -47,10 +49,14 @@ extension CMUXCLI {
             throw piExtensionReadError(at: extensionURL)
         }
         defer { Darwin.close(descriptor) }
-        guard Darwin.flock(descriptor, LOCK_EX) == 0 else {
+        let lockOperation = LOCK_EX | (acquireNonBlocking ? LOCK_NB : 0)
+        guard flock(descriptor, lockOperation) == 0 else {
+            if acquireNonBlocking, errno == EWOULDBLOCK || errno == EAGAIN {
+                return nil
+            }
             throw piExtensionReadError(at: extensionURL)
         }
-        defer { Darwin.flock(descriptor, LOCK_UN) }
+        defer { flock(descriptor, LOCK_UN) }
         return try operation()
     }
 
@@ -72,11 +78,16 @@ extension CMUXCLI {
             try withPiExtensionMutationLock(
                 at: extensionURL,
                 createParentDirectory: false,
+                acquireNonBlocking: true,
                 fileManager: fileManager
             ) {
+                guard fileManager.fileExists(atPath: extensionURL.path) else { return }
                 let existing = try existingPiExtensionContents(at: extensionURL, fileManager: fileManager)
-                guard !existing.isEmpty,
-                      existing.contains(Self.piExtensionMarker),
+                if existing.isEmpty {
+                    try Self.piExtensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
+                    return
+                }
+                guard existing.contains(Self.piExtensionMarker),
                       existing != Self.piExtensionSource
                 else {
                     return

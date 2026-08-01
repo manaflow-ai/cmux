@@ -167,6 +167,10 @@ public final class SidebarUnreadModel {
 
     @ObservationIgnored
     private var snapshotObservers: [UUID: (SidebarUnreadSnapshot) -> Bool] = [:]
+    @ObservationIgnored
+    private var pendingSnapshots: [SidebarUnreadSnapshot] = []
+    @ObservationIgnored
+    private var isPublishingSnapshot = false
 
     /// Creates an empty unread model.
     public init() {}
@@ -202,13 +206,27 @@ public final class SidebarUnreadModel {
             focusedReadIndicatorByWorkspaceId: focusedReadIndicatorByWorkspaceId,
             manualUnreadWorkspaceIds: manualUnreadWorkspaceIds
         )
-        guard snapshot != next else { return }
-        snapshot = next
-        var expiredObserverIDs: [UUID] = []
-        for (id, observer) in snapshotObservers where !observer(next) {
-            expiredObserverIDs.append(id)
+        guard (pendingSnapshots.last ?? snapshot) != next else { return }
+        pendingSnapshots.append(next)
+        guard !isPublishingSnapshot else { return }
+
+        isPublishingSnapshot = true
+        defer {
+            pendingSnapshots.removeAll(keepingCapacity: true)
+            isPublishingSnapshot = false
         }
-        for id in expiredObserverIDs { snapshotObservers[id] = nil }
+        var publicationIndex = 0
+        while publicationIndex < pendingSnapshots.count {
+            let publication = pendingSnapshots[publicationIndex]
+            publicationIndex += 1
+            snapshot = publication
+            for id in Array(snapshotObservers.keys) {
+                guard let observer = snapshotObservers[id] else { continue }
+                if !observer(publication) {
+                    snapshotObservers[id] = nil
+                }
+            }
+        }
     }
 
     fileprivate func removeSnapshotObserver(_ id: UUID) {

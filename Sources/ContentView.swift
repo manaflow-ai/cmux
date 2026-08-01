@@ -824,7 +824,7 @@ private struct SidebarUnreadSnapshotReader<Content: View>: View {
 }
 
 /// Runs an imperative unread side effect from an isolated Observation leaf.
-private struct SidebarUnreadSnapshotObserver: View {
+struct SidebarUnreadSnapshotObserver: View {
     let source: SidebarUnreadModel
     let action: @MainActor (SidebarUnreadSnapshot) -> Void
 

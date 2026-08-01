@@ -174,20 +174,6 @@ private final class CMUXSidebarSnapshotCache {
     }
 }
 
-private struct CMUXSidebarUnreadSnapshotObserver: View {
-    let source: SidebarUnreadModel
-    let action: @MainActor (SidebarUnreadSnapshot) -> Void
-
-    var body: some View {
-        Color.clear
-            .frame(width: 0, height: 0)
-            .accessibilityHidden(true)
-            .onChange(of: source.snapshot) { _, snapshot in
-                action(snapshot)
-            }
-    }
-}
-
 struct CMUXInstalledExtensionSidebarHostView: View {
     private static let selectedExtensionBundleIDDefaultsKey = "cmuxExtensionSidebar.selectedExtensionBundleId"
     private static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
@@ -322,7 +308,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             await observeExtensionAvailability()
         }
         .background {
-            CMUXSidebarUnreadSnapshotObserver(source: unreadSource) { unreadSnapshot in
+            SidebarUnreadSnapshotObserver(source: unreadSource) { unreadSnapshot in
                 // Rebuild rich metadata only when workspace membership changed.
                 // The common unread-only path stays a cheap cache patch.
                 if !snapshotCache.containsWorkspaces(workspaceIDsProvider()) {
