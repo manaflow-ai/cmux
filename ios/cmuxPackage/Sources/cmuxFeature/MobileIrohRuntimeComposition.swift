@@ -171,8 +171,8 @@ public final class MobileIrohRuntimeComposition:
 
     private static let capabilities = ["mobile-rpc-v1", "multistream-v1"]
     /// The stable factory registered before debug-loopback and Tailscale fallbacks.
-    public lazy var transportFactory = CmxIrohByteTransportFactory(
-        deferredProvider: self
+    public lazy var transportFactory = CmxConnectivityDeferredTransportFactory(
+        provider: self
     )
 
     /// Broker-verified personal-account Mac routes and live discovery candidates.
@@ -230,6 +230,9 @@ public final class MobileIrohRuntimeComposition:
     private let authObserver = MobileIrohAuthObserver()
 
     private weak var auth: AuthCoordinator?
+    private var connectivityInvalidationSubscriber:
+        CmxConnectivityInvalidationSubscriber?
+    private var connectivityInvalidationAccountID: String?
     private var authObservationTask: Task<Void, Never>?
     private var transitionTask: Task<Void, Never>?
     private let connectionReadiness = MobileIrohConnectionReadinessSignal()
@@ -522,8 +525,24 @@ public final class MobileIrohRuntimeComposition:
     /// Starts auth observation after the coordinator's launch restore completes.
     ///
     /// - Parameter auth: The process-owned authentication coordinator.
-    public func configure(auth: AuthCoordinator) {
+    public func configure(
+        auth: AuthCoordinator,
+        connectivityInvalidationBaseURL: URL? = nil
+    ) {
         self.auth = auth
+        if let connectivityInvalidationBaseURL {
+            connectivityInvalidationSubscriber = CmxConnectivityInvalidationSubscriber(
+                serviceBaseURL: connectivityInvalidationBaseURL,
+                accessToken: { [weak auth] in
+                    try? await auth?.accessToken()
+                },
+                handler: { [weak self] invalidation in
+                    await self?.receiveConnectivityInvalidation(invalidation)
+                }
+            )
+        } else {
+            connectivityInvalidationSubscriber = nil
+        }
         authObservationTask?.cancel()
         authObservationTask = Task { @MainActor [weak self, weak auth] in
             guard let auth else { return }
@@ -539,6 +558,29 @@ public final class MobileIrohRuntimeComposition:
                 guard !Task.isCancelled else { return }
                 await self.applyAuthState(state)
             }
+        }
+    }
+
+    private func setConnectivityInvalidationAccount(_ accountID: String?) async {
+        guard connectivityInvalidationAccountID != accountID else { return }
+        connectivityInvalidationAccountID = accountID
+        await connectivityInvalidationSubscriber?.stop()
+        if accountID != nil {
+            await connectivityInvalidationSubscriber?.start()
+        }
+    }
+
+    private func receiveConnectivityInvalidation(
+        _ invalidation: CmxConnectivityInvalidation
+    ) async {
+        guard connectivityInvalidationAccountID != nil,
+              connectivityInvalidationAccountID == observedAccountID,
+              let runtime else { return }
+        let outcome = await runtime.reconcileConnectivityRevision(
+            invalidation.revision
+        )
+        if let event = Self.discoveryRefreshFailureEvent(for: outcome) {
+            diagnosticLog?.record(event)
         }
     }
 
@@ -1030,6 +1072,7 @@ public final class MobileIrohRuntimeComposition:
     }
 
     private func applyAuthState(_ state: MobileIrohAuthState) async {
+        await setConnectivityInvalidationAccount(state.accountID)
         guard await prepareForAuthReconcile(accountID: state.accountID) else {
             return
         }
@@ -1558,6 +1601,7 @@ public final class MobileIrohRuntimeComposition:
         let resolvedPolicyService: CmxIrohRelayPolicyService?
         let resolvedEffectivePolicy: CmxIrohEffectiveRelayPolicy?
         var freshRelayCredential: CmxIrohRelayTokenResponse?
+        var relayPolicyNeedsImmediateRefresh = false
         if let relayPolicyTrustRoot {
             let service = CmxIrohRelayPolicyService(
                 policyCache: relayPolicyCache,
@@ -1566,31 +1610,43 @@ public final class MobileIrohRuntimeComposition:
                 broker: brokerBundle.relayPolicy
             )
             let effective: CmxIrohEffectiveRelayPolicy
-            diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
-            do {
-                let outcome = try await service.refreshWithCredential(
-                    endpointID: endpointID,
-                    accountID: accountID,
-                    trustRoot: relayPolicyTrustRoot,
-                    now: now()
-                )
-                effective = outcome.effective
-                freshRelayCredential = outcome.relayCredential
-                diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
-            } catch {
-                diagnosticLog?.record(DiagnosticEvent(
-                    .relayPolicyRefreshFailed,
-                    b: Self.diagnosticFailureKind(for: error).rawValue
-                ))
+            if Self.protocolConfiguration(for: transportVerificationMode)
+                .allowsNATTraversalAfterAdmission {
+                // Restore verified local authority first. The live refresh
+                // starts after activation, keeping broker latency off the
+                // direct-path discovery critical path.
                 effective = await service.restore(
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
                     relayCredential: cachedRelay,
                     now: now()
                 )
-                mobileIrohLog.error(
-                    "Signed relay policy refresh failed; restored verified cache: \(String(describing: error), privacy: .private)"
-                )
+                relayPolicyNeedsImmediateRefresh = true
+            } else {
+                diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
+                do {
+                    let outcome = try await service.refreshWithCredential(
+                        endpointID: endpointID,
+                        accountID: accountID,
+                        trustRoot: relayPolicyTrustRoot,
+                        now: now()
+                    )
+                    effective = outcome.effective
+                    freshRelayCredential = outcome.relayCredential
+                    diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
+                } catch {
+                    diagnosticLog?.record(DiagnosticEvent(
+                        .relayPolicyRefreshFailed,
+                        b: Self.diagnosticFailureKind(for: error).rawValue
+                    ))
+                    effective = await service.restore(
+                        accountID: accountID,
+                        trustRoot: relayPolicyTrustRoot,
+                        relayCredential: cachedRelay,
+                        now: now()
+                    )
+                    relayPolicyNeedsImmediateRefresh = true
+                }
             }
             endpointRelayProfile = effective.endpointRelayProfile
             managedRelayURLs = Set(effective.managedPolicy?.relays.map(\.url) ?? [])
@@ -1628,7 +1684,8 @@ public final class MobileIrohRuntimeComposition:
             capabilities: Self.capabilities,
             managedRelayURLs: managedRelayURLs,
             endpointRelayProfile: endpointRelayProfile,
-            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay
+            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay,
+            cachedBinding: bindingMatches ? cachedBinding : nil
         )
         let credentialRepository = brokerCredentials
         let routeCatalog = routeCatalog
@@ -1689,12 +1746,11 @@ public final class MobileIrohRuntimeComposition:
                 )
             },
             automaticRelayCredentialRefreshEnabled: automaticRelayCredentialRefreshEnabled,
-            handleBinding: { [weak self] registration, discovery in
+            handleBinding: { [weak self] binding, discovery in
                 guard await self?.allowsPersistence(
                     accountID: accountID,
                     revision: revision
                 ) == true else { return false }
-                let binding = registration.binding
                 try? await credentialRepository.saveBinding(
                     CmxIrohBrokerBindingMetadata(binding: binding),
                     accountID: accountID
@@ -1803,7 +1859,8 @@ public final class MobileIrohRuntimeComposition:
             accountID: accountID,
             endpointID: endpointID,
             trustRoot: relayPolicyTrustRoot,
-            revision: revision
+            revision: revision,
+            refreshImmediately: relayPolicyNeedsImmediateRefresh
         )
         publishIrohSettingsUpdate()
     }
@@ -2450,7 +2507,8 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         accountID: String,
         endpointID: CmxIrohPeerIdentity,
         trustRoot: CmxIrohRelayPolicyTrustRoot?,
-        revision: UInt64
+        revision: UInt64,
+        refreshImmediately: Bool
     ) {
         relayPolicyRefreshTask?.cancel()
         guard Self.shouldScheduleRelayPolicyRefresh(
@@ -2468,6 +2526,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         relayPolicyRefreshTask = Task { @MainActor [weak self] in
             var retryAt: Date?
             var relayAuthorityExpired = false
+            var shouldRefreshImmediately = refreshImmediately
             while !Task.isCancelled {
                 guard let self,
                       revision == self.lifecycleRevision,
@@ -2475,13 +2534,19 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                       self.relayPolicyService === service else { return }
                 let snapshot = await service.diagnosticsSnapshot()
                 let current = self.now()
-                let attemptAt = Self.relayPolicyRefreshAttemptDate(
-                    policyExpiresAt: relayAuthorityExpired
-                        ? nil
-                        : snapshot.policyExpiresAt,
-                    retryAt: retryAt,
-                    now: current
-                )
+                let attemptAt: Date
+                if shouldRefreshImmediately {
+                    attemptAt = current
+                    shouldRefreshImmediately = false
+                } else {
+                    attemptAt = Self.relayPolicyRefreshAttemptDate(
+                        policyExpiresAt: relayAuthorityExpired
+                            ? nil
+                            : snapshot.policyExpiresAt,
+                        retryAt: retryAt,
+                        now: current
+                    )
+                }
                 let delay = attemptAt.timeIntervalSince(current)
                 if delay > 0 {
                     do {
