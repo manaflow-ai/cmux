@@ -144,6 +144,7 @@ def test_python_sdk_publisher_cannot_publish_the_cli_package() -> None:
 
 def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
     release = workflow("sdk-release-cut.yml")
+    validation = workflow_job(release, "validate-release")
 
     assert 'sdk_tag="cmux-sdk-v$VERSION"' in release
     assert 'go_tag="cmux-tui/bindings/go/v$VERSION"' in release
@@ -164,6 +165,10 @@ def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
     assert "validate_release_version.py" in release
     assert "--require-newer-than-tags" in release
     assert "git tag --list 'cmux-sdk-v*'" in release
+    assert "check-spec-inventory.py" in validation
+    assert "codegen/generate.py --check" in validation
+    for language in ("rust", "go", "typescript", "python"):
+        assert f"--language {language}" in validation
     assert "gh workflow run sdk-publish-" not in release
     assert "verify-go-tag:" in release
     assert release.index("verify-go-tag:") > tag_push
@@ -300,6 +305,12 @@ def test_go_public_tag_probe_retries_proxy_propagation() -> None:
     assert "--wait-seconds 1800" in public_probe[wait:]
     assert "--retry-seconds 30" in public_probe[wait:]
     assert wait < public_probe.index('go get "$module@$expected"')
+    assert "export GOENV=off" in public_probe
+    assert "export GOPROXY=https://proxy.golang.org" in public_probe
+    assert "export GOSUMDB=sum.golang.org" in public_probe
+    assert 'export GOPRIVATE=""' in public_probe
+    assert "export GONOPROXY=none" in public_probe
+    assert "export GONOSUMDB=none" in public_probe
 
 
 def test_workflow_trigger_guard_parses_flow_style_yaml() -> None:

@@ -77,14 +77,28 @@ class RegistryArtifactTests(unittest.TestCase):
                 "crates", "cmux-client", "1.0.0", self.artifact
             )
 
-    def test_missing_registry_version_is_publishable(self) -> None:
+    def test_missing_crates_version_is_publishable_when_project_exists(self) -> None:
         missing = HTTPError("https://registry.example", 404, "missing", None, None)
-        with mock.patch.object(reconcile, "urlopen", side_effect=missing):
+
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            if str(getattr(request, "full_url", "")).endswith("/1.0.0"):
+                raise missing
+            return self.response({"crate": {"name": "cmux-client"}})
+
+        with mock.patch.object(reconcile, "urlopen", side_effect=response):
             self.assertEqual(
                 reconcile.registry_status(
                     "crates", "cmux-client", "1.0.0", self.artifact
                 ),
                 reconcile.MISSING,
+            )
+
+    def test_crates_rejects_a_missing_project(self) -> None:
+        missing = HTTPError("https://registry.example", 404, "missing", None, None)
+        with mock.patch.object(reconcile, "urlopen", side_effect=missing), \
+            self.assertRaisesRegex(reconcile.RegistryError, "project"):
+            reconcile.registry_status(
+                "crates", "cmux-sidebar", "1.0.0", self.artifact
             )
 
     def test_npm_uses_the_registry_integrity_digest(self) -> None:
@@ -110,6 +124,12 @@ class RegistryArtifactTests(unittest.TestCase):
         with mock.patch.object(
             reconcile, "urlopen", return_value=self.response(metadata)
         ), self.assertRaises(reconcile.ArtifactMismatch):
+            reconcile.registry_status("npm", "cmux-sdk", "1.0.0", self.artifact)
+
+    def test_npm_rejects_a_missing_project(self) -> None:
+        missing = HTTPError("https://registry.example", 404, "missing", None, None)
+        with mock.patch.object(reconcile, "urlopen", side_effect=missing), \
+            self.assertRaisesRegex(reconcile.RegistryError, "project"):
             reconcile.registry_status("npm", "cmux-sdk", "1.0.0", self.artifact)
 
     def test_npm_rejects_exact_bytes_when_latest_points_elsewhere(self) -> None:
