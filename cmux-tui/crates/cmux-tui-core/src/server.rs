@@ -12927,6 +12927,29 @@ mod tests {
     }
 
     #[test]
+    fn confirmed_control_precedes_initial_stream_backlog() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let stream = OutboundStream::new(1, r#"{"event":"overflow"}"#.to_string());
+        outbound.push_initial("initial".to_string(), &stream).unwrap();
+        let confirmed = {
+            let outbound = outbound.clone();
+            std::thread::spawn(move || {
+                outbound.push_control_confirmed("ack".to_string(), Duration::from_secs(1))
+            })
+        };
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while outbound.state.lock().unwrap().control_bytes == 0 && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+
+        let first = outbound.try_pop().unwrap();
+        let second = outbound.try_pop().unwrap();
+        confirmed.join().unwrap().unwrap();
+        assert_eq!(first, "ack", "confirmed control waited behind initial stream state");
+        assert_eq!(second, "initial");
+    }
+
+    #[test]
     fn terminal_overflow_purges_only_its_stream_and_rejects_late_frames() {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });

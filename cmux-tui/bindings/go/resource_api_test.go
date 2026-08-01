@@ -3586,6 +3586,24 @@ func TestSlowConsumerQueueBoundsEndOnlyThatStream(t *testing.T) {
 	}
 }
 
+func TestRejectedStreamEndStillRecordsServerTermination(t *testing.T) {
+	route := &streamRoute{
+		messages:  make(chan streamMessage, 1),
+		accepting: true,
+	}
+	route.messages <- streamMessage{
+		envelope: streamEnvelope{Type: "stream_item"},
+		size:     1,
+	}
+
+	if route.deliver(streamMessage{envelope: streamEnvelope{Type: "stream_end"}, size: 1}) {
+		t.Fatal("stream_end unexpectedly fit in the full delivery queue")
+	}
+	if !route.hasServerEnd() {
+		t.Fatal("observed stream_end was lost when its delivery queue was full")
+	}
+}
+
 func TestOversizedUnterminatedFrameIsBounded(t *testing.T) {
 	clientSide, serverSide := net.Pipe()
 	go func() {

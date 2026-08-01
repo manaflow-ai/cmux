@@ -1810,6 +1810,57 @@ mod tests {
     }
 
     #[test]
+    fn panicked_shutdown_retains_server_until_explicit_retry() {
+        let mux = Mux::new("shutdown-panic-retry-test", SurfaceOptions::default());
+        let server_process = ServerProcessShutdownGuard::start(&mux).unwrap();
+        let suffix =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let socket_dir =
+            std::env::temp_dir().join(format!("csp-{}-{suffix:x}", std::process::id()));
+        let socket_path = socket_dir.join("server.sock");
+        let published = cmux_tui_core::server::serve_owned(mux.clone(), Some(socket_path)).unwrap();
+        server_process.publish_socket(published).unwrap();
+        let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        server_process.cleanup.set_shutdown_attempt_for_test({
+            let attempts = attempts.clone();
+            move || {
+                if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                    panic!("forced first shutdown panic");
+                }
+                Ok(())
+            }
+        });
+        let cleanup = server_process.cleanup.clone();
+        let (returned, observed) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let result = finish_server_process(server_process, Ok(()));
+            let _ = returned.send(result);
+        });
+
+        let first_deadline = std::time::Instant::now() + std::time::Duration::from_millis(350);
+        while attempts.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < first_deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert!(
+            observed.recv_timeout(std::time::Duration::from_millis(75)).is_err(),
+            "a panicked cleanup released the server's process owners"
+        );
+
+        mux.request_shutdown();
+        let retried = observed.recv_timeout(std::time::Duration::from_secs(1));
+        if retried.is_err() {
+            cleanup.abandon();
+            let _ = observed.recv_timeout(std::time::Duration::from_secs(1));
+        }
+        worker.join().unwrap();
+        assert!(retried.is_ok(), "an explicit shutdown retry did not recover from a panic");
+        retried.unwrap().unwrap();
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        let _ = std::fs::remove_dir_all(socket_dir);
+    }
+
+    #[test]
     fn unpublished_shutdown_failure_returns_without_waiting_for_retry() {
         let mux = Mux::new("unpublished-shutdown-test", SurfaceOptions::default());
         let server_process = ServerProcessShutdownGuard::start(&mux).unwrap();

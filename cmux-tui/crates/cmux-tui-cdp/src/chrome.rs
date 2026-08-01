@@ -524,6 +524,35 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn confirmed_kill_releases_reaper_capacity_before_chrome_drop() {
+        let child = Command::new("sleep")
+            .arg("60")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let (sender, _receiver) = mpsc::channel();
+        let active = Arc::new(AtomicUsize::new(0));
+        let reaper = reserve_reaper_lease(sender, active.clone(), 1).unwrap();
+        let chrome = Chrome {
+            child: Mutex::new(Some(child)),
+            profile_dir: make_profile_dir().unwrap(),
+            profile_ephemeral: true,
+            web_socket_url: "ws://127.0.0.1/unused".to_string(),
+            reaper: Some(reaper),
+        };
+
+        assert!(chrome.kill_until(Instant::now() + Duration::from_secs(1)));
+        assert_eq!(
+            active.load(Ordering::Acquire),
+            0,
+            "a confirmed child retained bounded reaper capacity until Chrome was dropped"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn drop_transfers_an_unconfirmed_child_to_a_reaper() {
         let _guard = REAPER_TEST_LOCK.lock().unwrap();
         unsafe extern "C" {

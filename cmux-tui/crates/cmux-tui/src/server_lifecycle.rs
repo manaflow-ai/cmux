@@ -1876,6 +1876,18 @@ mod tests {
         assert!(message.contains("Stopping exits pane processes."));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn shell_quote_preserves_non_utf8_socket_paths() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let quoted = shell_quote(Path::new(OsStr::from_bytes(b"/tmp/test-\xff.sock")));
+
+        assert_eq!(quoted, "$'/tmp/test-\\377.sock'");
+        assert!(!quoted.contains('\u{fffd}'));
+    }
+
     #[test]
     fn replayable_launcher_override_survives_one_shot_package_shims() {
         let argv0 = OsStr::new("/tmp/ephemeral/bin/cmux");

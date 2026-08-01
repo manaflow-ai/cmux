@@ -1452,6 +1452,11 @@ fn server_status_and_stop_control_a_compatible_headless_session() {
         serde_json::from_slice::<serde_json::Value>(&stop.stdout).unwrap(),
         serde_json::json!({"stopped": true})
     );
+    assert!(
+        String::from_utf8_lossy(&stop.stderr).contains("Stopping exits pane processes."),
+        "direct server stop omitted its destructive-operation warning: {}",
+        String::from_utf8_lossy(&stop.stderr)
+    );
     assert!(server.child.wait().unwrap().success());
     assert!(!server.socket.exists());
 }
