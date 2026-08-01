@@ -133,7 +133,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let notificationFeedCapability = "notification.feed.v1"
     static let phonePushSettingsCapability = "phone_push.settings.v1"
     static let phonePushTestCapability = "phone_push.test.v1"
-    private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
+    nonisolated private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
     /// How long the render-grid stream may stay silent (no event of any topic)
     /// before the liveness watchdog suspects the push subscription is dead and
     /// runs a bounded host probe; only repeated failed probes force the
