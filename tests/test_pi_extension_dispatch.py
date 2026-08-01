@@ -200,10 +200,11 @@ const ctx = {
 };
 await Promise.resolve(handlers.get("session_start")({}, ctx));
 await Promise.resolve(handlers.get("before_agent_start")({ prompt: "hello" }, ctx));
-await Promise.resolve(handlers.get("tool_execution_start")({
+await Promise.resolve(handlers.get("tool_execution_end")({
   toolCallId: "ui-lifecycle-tool",
   toolName: "bash",
-  args: { command: "true" }
+  result: { content: [{ type: "text", text: "done" }] },
+  isError: false
 }, ctx));
 await Promise.resolve(handlers.get("agent_end")({
   messages: [{ role: "assistant", content: "done" }],
@@ -253,7 +254,7 @@ while (performance.now() < deadline) {
         "--json surface resume set",
         "--json surface resume get",
         "hooks pi prompt-submit",
-        "hooks feed --source pi --event PreToolUse",
+        "hooks feed --source pi --event PostToolUse",
         "hooks pi notification",
         "hooks pi stop",
     )

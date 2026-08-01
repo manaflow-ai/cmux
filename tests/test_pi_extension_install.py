@@ -227,6 +227,7 @@ def main() -> int:
             print("FAIL: in-flight Pi refresh overwrote a replacement extension")
             return 1
 
+        extension_path.unlink()
         extension_path = install_pi_extension(config_dir, cli_path)
         extension_text = extension_path.read_text(encoding="utf-8")
         extension_path.write_text(
