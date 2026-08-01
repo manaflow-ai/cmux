@@ -343,6 +343,55 @@ fn vt_replay_restores_cursor_position_after_tabstops() {
 }
 
 #[test]
+fn theme_portable_replay_preserves_stream_state_at_every_byte_boundary() {
+    let transcript = concat!(
+        "before λ 🙂 e\u{301} ",
+        "\u{1b}[1;31mstyled 赤\u{1b}[0m ",
+        "\u{1b}]0;title λ🙂\u{1b}\\",
+        " after"
+    )
+    .as_bytes();
+    let mut failures = Vec::new();
+
+    for split in 0..=transcript.len() {
+        let mut source = Terminal::new(80, 4, 100, Callbacks::default()).unwrap();
+        source.vt_write(&transcript[..split]);
+        let replay = source.vt_replay_bounded_theme_portable(8 * 1024 * 1024).unwrap();
+
+        let mut mirror = Terminal::new(80, 4, 100, Callbacks::default()).unwrap();
+        mirror.vt_write(&replay);
+        source.vt_write(&transcript[split..]);
+        mirror.vt_write(&transcript[split..]);
+
+        let source_text = source.viewport_text().unwrap();
+        let mirror_text = mirror.viewport_text().unwrap();
+        let source_cells = snapshot_cells(&mut source);
+        let mirror_cells = snapshot_cells(&mut mirror);
+        if mirror_text.contains('\u{fffd}')
+            || source_text != mirror_text
+            || source_cells != mirror_cells
+            || source.cursor_position() != mirror.cursor_position()
+            || source.title() != mirror.title()
+        {
+            failures.push(format!(
+                "split {split}: source={source_text:?} mirror={mirror_text:?} \
+                 source_cursor={:?} mirror_cursor={:?} source_title={:?} mirror_title={:?}",
+                source.cursor_position(),
+                mirror.cursor_position(),
+                source.title(),
+                mirror.title()
+            ));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "snapshot replay lost incremental parser state:\n{}",
+        failures.join("\n")
+    );
+}
+
+#[test]
 fn plain_text_dump() {
     let mut term = Terminal::new(40, 5, 0, Callbacks::default()).unwrap();
     term.vt_write(b"alpha\r\nbeta");
