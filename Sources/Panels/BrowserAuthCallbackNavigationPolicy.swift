@@ -63,7 +63,7 @@ struct BrowserAuthCallbackNavigationPolicy {
     func disposition(for navigationAction: WKNavigationAction, url: URL) -> Disposition {
         disposition(
             for: url,
-            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame != false,
+            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame == true,
             isLinkActivated: navigationAction.navigationType == .linkActivated,
             sourceOriginMatches: trustedSourceOrigin?.matches(
                 navigationAction.sourceFrame.securityOrigin
@@ -131,60 +131,5 @@ struct BrowserAuthCallbackNavigationPolicy {
             return false
         }
         return AuthCallbackRouter(extraAllowedScheme: scheme).isAuthCallbackURL(url)
-    }
-}
-
-extension BrowserNavigationDelegate {
-    /// Handles auth-callback-shaped navigation actions. Returns `true` when
-    /// the navigation was consumed (delivered in-app or blocked); the caller
-    /// must stop policy evaluation in that case.
-    func handleAuthCallbackNavigationAction(
-        _ navigationAction: WKNavigationAction,
-        webView: WKWebView,
-        decisionHandler: (WKNavigationActionPolicy) -> Void
-    ) -> Bool {
-        guard let url = navigationAction.request.url else { return false }
-        switch authCallbackNavigationPolicy.disposition(for: navigationAction, url: url) {
-        case .passThrough:
-            return false
-        case .deliverInApp:
-            clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
-            let sourcePageURL = webView.url
-            // Cancel immediately because WebKit cannot render the native
-            // callback scheme. Account completion continues on MainActor.
-            decisionHandler(.cancel)
-            Task { @MainActor [weak self, weak webView] in
-                guard let self else { return }
-                let delivered = await authCallbackNavigationPolicy.deliverAuthCallbackInApp(url)
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.nav.decidePolicy.action kind=deliverNativeAuthCallbackInApp " +
-                    "delivered=\(delivered ? 1 : 0) scheme=\(url.scheme ?? "nil")"
-                )
-#endif
-                guard delivered else { return }
-                reportTerminalCancellation()
-                guard let webView,
-                      let returnURL = BrowserAuthCallbackNavigationPolicy.webReturnURL(
-                          fromPageURL: sourcePageURL
-                      ) else {
-                    return
-                }
-                recordAttemptedRequest(URLRequest(url: returnURL))
-                _ = browserLoadRequest(URLRequest(url: returnURL), in: webView)
-            }
-            return true
-        case .block:
-            clearAttemptedRequest(discardPendingBypasses: true)
-#if DEBUG
-            cmuxDebugLog(
-                "browser.nav.decidePolicy.action kind=blockUntrustedAuthCallback " +
-                "scheme=\(url.scheme ?? "nil")"
-            )
-#endif
-            decisionHandler(.cancel)
-            return true
-        }
     }
 }
