@@ -287,7 +287,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             try? await self.clock.sleep(for: .seconds(self.checkTimeoutDuration))
             guard !Task.isCancelled else { return }
             guard case .checking = self.model.state else { return }
-            self.setState(.notFound(.init(acknowledgement: {})))
+            // A local deadline is not an authoritative Sparkle no-update result. Forward it to
+            // the controller, which owns whether this check was manual or an accepted install.
+            self.eventDelegate?.updateDriverCheckDidTimeOut()
         }
     }
 

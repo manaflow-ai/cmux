@@ -425,6 +425,10 @@ import Testing
         #expect(error.code == NSURLErrorTimedOut)
         #expect(!harness.controller.attemptCoordinator.isMonitoring)
         #expect(!harness.controller.installWatchdog.isArmed)
+
+        failure.retry()
+        #expect(harness.controller.attemptCoordinator.isMonitoring)
+        #expect(harness.controller.installWatchdog.isArmed)
     }
 
     /// If the live prompt is still visible but already answered before the queued confirm

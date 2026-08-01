@@ -285,4 +285,31 @@ extension UpdateController: UpdateDriverEventDelegate {
         attemptCoordinator.cancel()
         installWatchdog.disarm()
     }
+
+    func updateDriverCheckDidTimeOut() {
+        let intent = activeCheckIntent
+        activeCheckIntent = nil
+        cancelReadinessRetry()
+        let isInstallAttempt = intent == .installLatest || attemptCoordinator.isMonitoring
+        log.append(
+            "foreground check timed out (intent=\(intent?.rawValue ?? "external"), installAttempt=\(isInstallAttempt))"
+        )
+
+        let retry: () -> Void
+        if isInstallAttempt {
+            attemptCoordinator.cancel()
+            installWatchdog.disarm()
+            retry = { [weak self] in self?.attemptUpdate() }
+        } else {
+            retry = { [weak self] in self?.checkForUpdates() }
+        }
+
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
+        model.replaceActiveState(with: .error(.init(
+            error: error,
+            retry: retry,
+            dismiss: { [weak self] in self?.model.setState(.idle) },
+            feedURLString: driver.resolvedFeedURLString()
+        )))
+    }
 }
