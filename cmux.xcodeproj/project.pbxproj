@@ -1270,6 +1270,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		730600000000000000000001 /* MainWindowVisibleFrameFitCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 730600010000000000000001 /* MainWindowVisibleFrameFitCoreTests.swift */; };
 		730600020000000000000002 /* MainWindowVisibleFrameFitRescue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 730600020000000000000001 /* MainWindowVisibleFrameFitRescue.swift */; };
 		A9D9000000000000000F0017 /* markdown-viewer in Resources */ = {isa = PBXBuildFile; fileRef = A9D9000000000000000F0016 /* markdown-viewer */; };
+		D9154002D9154002D9154002 /* MarkdownCodespanRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9154001D9154001D9154001 /* MarkdownCodespanRenderingTests.swift */; };
 		A28B087F0000000000000003 /* MarkdownEditableFocusMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000004 /* MarkdownEditableFocusMessageHandler.swift */; };
 		F5168A040000000000000001 /* MarkdownFontFamily.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A040000000000000002 /* MarkdownFontFamily.swift */; };
 		F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */; };
@@ -3850,6 +3851,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		730600010000000000000001 /* MainWindowVisibleFrameFitCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowVisibleFrameFitCoreTests.swift; sourceTree = "<group>"; };
 		730600020000000000000001 /* MainWindowVisibleFrameFitRescue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowVisibleFrameFitRescue.swift; sourceTree = "<group>"; };
 		A9D9000000000000000F0016 /* markdown-viewer */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "markdown-viewer"; sourceTree = "<group>"; };
+		D9154001D9154001D9154001 /* MarkdownCodespanRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownCodespanRenderingTests.swift; sourceTree = "<group>"; };
 		A28B087F0000000000000004 /* MarkdownEditableFocusMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownEditableFocusMessageHandler.swift; sourceTree = "<group>"; };
 		F5168A040000000000000002 /* MarkdownFontFamily.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontFamily.swift; sourceTree = "<group>"; };
 		F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontFamilyCache.swift; sourceTree = "<group>"; };
@@ -7586,6 +7588,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				4C1A7E10B2D34F56A8C90014 /* MobileHostStatusVerificationLimiterTests.swift */,
 				C0DEFB300000000000000002 /* FocusSurfaceBroadcasterTests.swift */,
 				A5001435A5001435A5001435 /* FilePreviewPDFThumbnailSidebarTests.swift */,
+				D9154001D9154001D9154001 /* MarkdownCodespanRenderingTests.swift */,
 				D7470001D7470001D7470001 /* MarkdownLinkBoundaryRegressionTests.swift */,
 				D8072A01D8072A01D8072A01 /* BrowserViewportRuntimeLoadDelegate.swift */,
 				D8072A03D8072A03D8072A03 /* BrowserViewportRuntimeTests.swift */,
@@ -10541,6 +10544,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */,
 				A6D1F0100000000000000002 /* MainWindowVisibilityLifecycleTests.swift in Sources */,
 				730600000000000000000001 /* MainWindowVisibleFrameFitCoreTests.swift in Sources */,
+				D9154002D9154002D9154002 /* MarkdownCodespanRenderingTests.swift in Sources */,
 				D7470002D7470002D7470002 /* MarkdownLinkBoundaryRegressionTests.swift in Sources */,
 				D6069002D6069002D6069002 /* MarkdownMermaidZoomTests.swift in Sources */,
 				D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */,
