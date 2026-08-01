@@ -29,12 +29,12 @@ Do not publish SDK contents through `tui-publish-npm.yml` or
 
 - npm: the package must exist before npm allows a trusted publisher. Publish the
   first `cmux-sdk` release interactively from the merged release commit, then
-  configure repository `manaflow-ai/cmux`, workflow `sdk-publish-npm.yml`, and
+  configure repository `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, and
   allow `npm publish`. Keep the GitHub environment named `npm`.
 - PyPI: add a pending trusted publisher for project `cmux-sdk`, repository
-  `manaflow-ai/cmux`, workflow `sdk-publish-python.yml`, environment `pypi`.
+  `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, environment `pypi`.
 - crates.io: configure trusted publishers for existing crate `cmux-client` with
-  owner `manaflow-ai`, repository `cmux`, workflow `sdk-publish-crates.yml`,
+  owner `manaflow-ai`, repository `cmux`, workflow `sdk-release-cut.yml`,
   environment `crates-io`. crates.io requires a manual first release for a new
   crate, so publish `cmux-sidebar` interactively once, then add the same trusted
   publisher configuration for subsequent releases.
@@ -65,26 +65,22 @@ and crates.io require the interactive bootstrap above.
 4. Run `.github/workflows/sdk-release-cut.yml` from `main` with `version=X.Y.Z`
    and `confirm_publish=true`.
 
-The cut workflow verifies current protected `main`, runs the complete Go
-publisher as a reusable preflight against that exact commit, then creates
-`cmux-sdk-vX.Y.Z` and `cmux-tui/bindings/go/vX.Y.Z` atomically on the same
-commit. Publisher workflows do not publish from tag-push events. The cut
-workflow explicitly dispatches exactly four workflows in independent jobs:
+The cut workflow verifies current protected `main`, then runs Rust, Go,
+TypeScript, and Python package and live-conformance preflights in parallel
+against that exact commit. The TypeScript and Python preflights retain the
+validated registry artifacts. Only after all four preflights pass does the
+workflow create `cmux-sdk-vX.Y.Z` and `cmux-tui/bindings/go/vX.Y.Z` atomically
+on the same commit.
 
-- `sdk-publish-crates.yml`
-- `sdk-publish-go.yml`
-- `sdk-publish-npm.yml`
-- `sdk-publish-python.yml`
+The workflow next resolves the public Go module from a clean consumer. It then
+publishes crates.io, npm, and PyPI in parallel through jobs owned directly by
+the cut workflow. Each job requires the exact latest release tag, verifies that
+its commit is on protected `main`, and binds provenance to that commit. Manual
+publisher dispatches validate only and cannot write to a registry.
 
-Each publisher runs its package tests and live conformance case before any
-registry write. A confirmed registry publish also requires the exact release
-tag, verifies that the tag commit is on protected `main`, and binds provenance
-to that commit. The Go workflow additionally resolves the tagged module from a
-clean external consumer.
-
-If one dispatch job fails, use GitHub's **Re-run failed jobs** action. Successful
-dispatch jobs are not repeated, and the tag step safely accepts tags that
-already point to the same release commit.
+The cut workflow holds one cross-version concurrency lock until the Go check and
+all registry jobs finish. If one publish job fails, use GitHub's **Re-run failed
+jobs** action so successful publishers and the tag step are not repeated.
 
 ## Verification after publishing
 

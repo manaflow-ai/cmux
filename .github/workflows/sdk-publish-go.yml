@@ -1,11 +1,21 @@
-name: sdk publish go
+name: sdk validate go
 
 on:
   workflow_call:
     inputs:
       version:
-        description: "SDK version to validate before a release tag is created"
+        description: "SDK version to validate or verify"
         required: true
+        type: string
+      verify_tag:
+        description: "Resolve the coordinated public Go module tag"
+        required: false
+        default: false
+        type: boolean
+      release_ref:
+        description: "Exact coordinated Go module tag ref"
+        required: false
+        default: ""
         type: string
   workflow_dispatch:
     inputs:
@@ -31,11 +41,15 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Validate tag and package versions
         id: version
         env:
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
           DISPATCH_VERSION: ${{ inputs.version }}
+          RELEASE_REF: ${{ inputs.release_ref }}
+          VERIFY_TAG: ${{ inputs.verify_tag }}
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
@@ -57,6 +71,36 @@ jobs:
           fi
           python3 cmux-tui/bindings/validate_release_version.py \
             --version "$version"
+          if [[ "$VERIFY_TAG" == "true" ]]; then
+            expected_caller="$GITHUB_REPOSITORY/.github/workflows/sdk-release-cut.yml@$GITHUB_REF"
+            [[ "$CALLER_WORKFLOW_REF" == "$expected_caller" ]] || {
+              echo "Public Go tag verification is only available through sdk-release-cut.yml." >&2
+              exit 1
+            }
+            tag="cmux-tui/bindings/go/v$version"
+            expected_ref="refs/tags/$tag"
+            [[ "$RELEASE_REF" == "$expected_ref" ]] || {
+              echo "Refusing to verify Go ref $RELEASE_REF; expected $expected_ref." >&2
+              exit 1
+            }
+            git fetch --force origin main --tags
+            git tag --list 'cmux-sdk-v*' | \
+              python3 cmux-tui/bindings/validate_release_version.py \
+                --version "$version" \
+                --require-latest-tag
+            release_sha="$(git rev-parse "refs/tags/$tag^{commit}")" || {
+              echo "release tag does not exist: $tag" >&2
+              exit 1
+            }
+            git merge-base --is-ancestor "$release_sha" origin/main || {
+              echo "release tag $tag is not an ancestor of protected main" >&2
+              exit 1
+            }
+            [[ "$release_sha" == "$GITHUB_SHA" ]] || {
+              echo "release tag $tag resolves to $release_sha, expected workflow commit $GITHUB_SHA" >&2
+              exit 1
+            }
+          fi
           python3 - "$version" <<'PY'
           import json
           import pathlib
@@ -83,6 +127,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   bindings-e2e-go:
+    if: inputs.verify_tag != true
     needs: version
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
@@ -132,6 +177,7 @@ jobs:
           grep -Eq '^PASS +go +live-creation-exit-restart-unix$' "$report"
 
   validate-go-module:
+    if: inputs.verify_tag != true
     needs: bindings-e2e-go
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
@@ -154,10 +200,8 @@ jobs:
           go vet ./...
 
   verify-versioned-go-module:
-    if: github.ref_type == 'tag'
-    needs:
-      - version
-      - validate-go-module
+    if: inputs.verify_tag == true
+    needs: version
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read

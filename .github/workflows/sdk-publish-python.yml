@@ -1,17 +1,18 @@
-name: sdk publish python
+name: sdk preflight python
 
 on:
+  workflow_call:
+    inputs:
+      version:
+        description: "SDK version to validate"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       version:
-        description: "SDK version to validate/publish, for example 0.1.0"
+        description: "SDK version to validate, for example 0.1.0"
         required: true
         type: string
-      confirm_publish:
-        description: "Publish cmux-sdk after validation"
-        required: true
-        default: false
-        type: boolean
 
 permissions: {}
 
@@ -38,7 +39,6 @@ jobs:
       - name: Validate tag and package versions
         id: version
         env:
-          CONFIRM_PUBLISH: ${{ inputs.confirm_publish }}
           DISPATCH_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
@@ -61,31 +61,6 @@ jobs:
           fi
           python3 cmux-tui/bindings/validate_release_version.py \
             --version "$version"
-          if [[ "$CONFIRM_PUBLISH" == "true" ]]; then
-            tag="cmux-sdk-v$version"
-            expected_ref="refs/tags/$tag"
-            [[ "$GITHUB_REF" == "$expected_ref" ]] || {
-              echo "Refusing to publish PyPI from $GITHUB_REF; dispatch on $expected_ref." >&2
-              exit 1
-            }
-            git fetch --force origin main --tags
-            git tag --list 'cmux-sdk-v*' | \
-              python3 cmux-tui/bindings/validate_release_version.py \
-                --version "$version" \
-                --require-latest-tag
-            release_sha="$(git rev-parse "refs/tags/$tag^{commit}")" || {
-              echo "release tag does not exist: $tag" >&2
-              exit 1
-            }
-            git merge-base --is-ancestor "$release_sha" origin/main || {
-              echo "release tag $tag is not an ancestor of protected main" >&2
-              exit 1
-            }
-            [[ "$release_sha" == "$GITHUB_SHA" ]] || {
-              echo "release tag $tag resolves to $release_sha, expected workflow commit $GITHUB_SHA" >&2
-              exit 1
-            }
-          fi
           python3 - "$version" <<'PY'
           import json
           import pathlib
@@ -179,26 +154,4 @@ jobs:
           name: cmux-python-dist
           path: cmux-tui/bindings/python/dist/*
           if-no-files-found: error
-
-  publish:
-    if: inputs.confirm_publish == true
-    needs: build
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    permissions:
-      contents: read
-      id-token: write
-    environment:
-      name: pypi
-      url: https://pypi.org/p/cmux-sdk
-    steps:
-      - name: Download distributions
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-python-dist
-          path: dist
-
-      - name: Publish package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
-        with:
-          packages-dir: dist
-          attestations: true
+          overwrite: true

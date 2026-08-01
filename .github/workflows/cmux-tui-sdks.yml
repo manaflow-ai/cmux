@@ -8,11 +8,23 @@ on:
       - "cmux-tui/**"
       - ".github/workflows/cmux-tui-sdks.yml"
       - ".github/workflows/cmux-tui-spec.yml"
+      - ".github/workflows/sdk-publish-crates.yml"
+      - ".github/workflows/sdk-publish-go.yml"
+      - ".github/workflows/sdk-publish-npm.yml"
+      - ".github/workflows/sdk-publish-python.yml"
+      - ".github/workflows/sdk-release-cut.yml"
+      - "tests/test_tui_publish_workflow_security.py"
   pull_request:
     paths:
       - "cmux-tui/**"
       - ".github/workflows/cmux-tui-sdks.yml"
       - ".github/workflows/cmux-tui-spec.yml"
+      - ".github/workflows/sdk-publish-crates.yml"
+      - ".github/workflows/sdk-publish-go.yml"
+      - ".github/workflows/sdk-publish-npm.yml"
+      - ".github/workflows/sdk-publish-python.yml"
+      - ".github/workflows/sdk-release-cut.yml"
+      - "tests/test_tui_publish_workflow_security.py"
   workflow_dispatch:
 
 concurrency:
@@ -69,6 +81,9 @@ jobs:
             -s cmux-tui/bindings/tests \
             -p 'test_*.py' \
             -v
+
+      - name: Test SDK publishing workflow guards
+        run: python3 tests/test_tui_publish_workflow_security.py -v
 
       - name: Check package versions
         run: python3 cmux-tui/bindings/check-versions.py --published-only

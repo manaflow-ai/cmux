@@ -1,17 +1,18 @@
-name: sdk publish npm
+name: sdk preflight npm
 
 on:
+  workflow_call:
+    inputs:
+      version:
+        description: "SDK version to validate"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       version:
-        description: "SDK version to validate/publish, for example 0.1.0"
+        description: "SDK version to validate, for example 0.1.0"
         required: true
         type: string
-      confirm_publish:
-        description: "Publish cmux-sdk after validation"
-        required: true
-        default: false
-        type: boolean
 
 permissions: {}
 
@@ -38,7 +39,6 @@ jobs:
       - name: Validate tag and package versions
         id: version
         env:
-          CONFIRM_PUBLISH: ${{ inputs.confirm_publish }}
           DISPATCH_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
@@ -61,31 +61,6 @@ jobs:
           fi
           python3 cmux-tui/bindings/validate_release_version.py \
             --version "$version"
-          if [[ "$CONFIRM_PUBLISH" == "true" ]]; then
-            tag="cmux-sdk-v$version"
-            expected_ref="refs/tags/$tag"
-            [[ "$GITHUB_REF" == "$expected_ref" ]] || {
-              echo "Refusing to publish npm from $GITHUB_REF; dispatch on $expected_ref." >&2
-              exit 1
-            }
-            git fetch --force origin main --tags
-            git tag --list 'cmux-sdk-v*' | \
-              python3 cmux-tui/bindings/validate_release_version.py \
-                --version "$version" \
-                --require-latest-tag
-            release_sha="$(git rev-parse "refs/tags/$tag^{commit}")" || {
-              echo "release tag does not exist: $tag" >&2
-              exit 1
-            }
-            git merge-base --is-ancestor "$release_sha" origin/main || {
-              echo "release tag $tag is not an ancestor of protected main" >&2
-              exit 1
-            }
-            [[ "$release_sha" == "$GITHUB_SHA" ]] || {
-              echo "release tag $tag resolves to $release_sha, expected workflow commit $GITHUB_SHA" >&2
-              exit 1
-            }
-          fi
           python3 - "$version" <<'PY'
           import json
           import pathlib
@@ -168,43 +143,16 @@ jobs:
           grep -Eq '^PASS +typescript +live-creation-exit-restart-unix$' "$report"
           grep -Eq '^PASS +typescript +live-creation-exit-restart-websocket$' "$report"
 
-  publish:
-    if: inputs.confirm_publish == true
-    needs: bindings-e2e-typescript
-    # npm --provenance rejects self-hosted runners; the attestation is only
-    # verifiable from a GitHub-hosted runner. This one publish job must stay on
-    # ubuntu-latest (github-hosted), unlike the routed self-hosted jobs above.
-    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
-    permissions:
-      contents: read
-      id-token: write
-    environment:
-      name: npm
-      url: https://www.npmjs.com/package/cmux-sdk
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "22.14.0"
-          registry-url: https://registry.npmjs.org
-
-      - name: Install npm with OIDC trusted publishing support
-        # Node 22 bundles npm 10, which signs provenance but cannot
-        # authenticate the publish via OIDC trusted publishing (the PUT is
-        # unauthenticated and 404s). npm >= 11.5.1 performs the OIDC token
-        # exchange for the publish itself.
-        run: npm install -g npm@11.5.1
-
-      - name: Build and test package
+      - name: Pack the validated npm artifact
         working-directory: cmux-tui/bindings/typescript
         run: |
-          npm ci --no-audit --no-fund
-          npm test
+          mkdir -p "$RUNNER_TEMP/cmux-npm-dist"
+          npm pack --pack-destination "$RUNNER_TEMP/cmux-npm-dist"
 
-      - name: Publish package to npm
-        working-directory: cmux-tui/bindings/typescript
-        run: npm publish --provenance
+      - name: Upload the validated npm artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-npm-dist
+          path: ${{ runner.temp }}/cmux-npm-dist/*.tgz
+          if-no-files-found: error
+          overwrite: true

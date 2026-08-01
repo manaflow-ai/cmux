@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       confirm_publish:
-        description: "Create release tags and dispatch all four publishers"
+        description: "Create release tags and publish all four SDKs"
         required: true
         default: false
         type: boolean
@@ -97,6 +97,14 @@ jobs:
             echo "go_tag=$go_tag"
           } >> "$GITHUB_OUTPUT"
 
+  rust-preflight:
+    needs: validate-release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/sdk-publish-crates.yml
+    with:
+      version: ${{ needs.validate-release.outputs.version }}
+
   go-preflight:
     needs: validate-release
     permissions:
@@ -105,10 +113,29 @@ jobs:
     with:
       version: ${{ needs.validate-release.outputs.version }}
 
+  typescript-preflight:
+    needs: validate-release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/sdk-publish-npm.yml
+    with:
+      version: ${{ needs.validate-release.outputs.version }}
+
+  python-preflight:
+    needs: validate-release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/sdk-publish-python.yml
+    with:
+      version: ${{ needs.validate-release.outputs.version }}
+
   cut-tags:
     needs:
       - validate-release
+      - rust-preflight
       - go-preflight
+      - typescript-preflight
+      - python-preflight
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: write
@@ -127,9 +154,8 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --force origin main --tags
-          main_sha="$(git rev-parse origin/main)"
-          [[ "$GITHUB_SHA" == "$main_sha" ]] || {
-            echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "validated release commit $GITHUB_SHA is no longer on protected main" >&2
             exit 1
           }
 
@@ -156,79 +182,239 @@ jobs:
           ensure_tag "$go_tag" "cmux Go SDK $VERSION"
           git push --atomic origin "refs/tags/$sdk_tag" "refs/tags/$go_tag"
 
-  dispatch-crates:
+  verify-go-tag:
     needs:
       - validate-release
       - cut-tags
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
-      actions: write
       contents: read
+    uses: ./.github/workflows/sdk-publish-go.yml
+    with:
+      version: ${{ needs.validate-release.outputs.version }}
+      verify_tag: true
+      release_ref: refs/tags/${{ needs.validate-release.outputs.go_tag }}
+
+  publish-crates:
+    needs:
+      - validate-release
+      - cut-tags
+      - verify-go-tag
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment:
+      name: crates-io
+      url: https://crates.io/crates/cmux-client
     steps:
-      - name: Dispatch crates.io publisher
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require the coordinated release source
         env:
-          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.validate-release.outputs.version }}
           SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
-        run: gh workflow run sdk-publish-crates.yml --repo "$GITHUB_REPOSITORY" --ref "$SDK_TAG" -f version="$VERSION" -f confirm_publish=true
+        run: |
+          set -euo pipefail
+          git fetch --force origin main --tags
+          [[ "$SDK_TAG" == "cmux-sdk-v$VERSION" ]] || {
+            echo "unexpected coordinated SDK tag: $SDK_TAG" >&2
+            exit 1
+          }
+          git tag --list 'cmux-sdk-v*' | \
+            python3 cmux-tui/bindings/validate_release_version.py \
+              --version "$VERSION" \
+              --require-latest-tag
+          release_sha="$(git rev-parse "refs/tags/$SDK_TAG^{commit}")"
+          [[ "$release_sha" == "$GITHUB_SHA" ]] || {
+            echo "release tag $SDK_TAG resolves to $release_sha, expected $GITHUB_SHA" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$release_sha" origin/main || {
+            echo "release tag $SDK_TAG is not on protected main" >&2
+            exit 1
+          }
 
-  dispatch-go:
+      - name: Authenticate cmux-client with crates.io trusted publishing
+        id: auth_client
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish cmux-client
+        working-directory: cmux-tui
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth_client.outputs.token }}
+        run: cargo publish -p cmux-client --locked
+
+      - name: Wait for cmux-client to reach the crates.io index
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 30); do
+            if cargo info "cmux-client@$CMUX_SDK_VERSION" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "cmux-client@$CMUX_SDK_VERSION did not reach the crates.io index" >&2
+          exit 1
+
+      - name: Authenticate cmux-sidebar with crates.io trusted publishing
+        id: auth_sidebar
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish cmux-sidebar
+        working-directory: cmux-tui
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth_sidebar.outputs.token }}
+        run: cargo publish -p cmux-sidebar --locked
+
+  publish-npm:
     needs:
       - validate-release
       - cut-tags
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+      - verify-go-tag
     permissions:
-      actions: write
+      actions: read
       contents: read
+      id-token: write
+    # npm provenance and trusted publishing require a GitHub-hosted runner.
+    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/cmux-sdk
     steps:
-      - name: Dispatch Go module verification
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.validate-release.outputs.version }}
-          GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
-        run: gh workflow run sdk-publish-go.yml --repo "$GITHUB_REPOSITORY" --ref "$GO_TAG" -f version="$VERSION"
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
 
-  dispatch-npm:
-    needs:
-      - validate-release
-      - cut-tags
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    permissions:
-      actions: write
-      contents: read
-    steps:
-      - name: Dispatch npm publisher
+      - name: Require the coordinated release source
         env:
-          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.validate-release.outputs.version }}
           SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
-        run: gh workflow run sdk-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$SDK_TAG" -f version="$VERSION" -f confirm_publish=true
+        run: |
+          set -euo pipefail
+          git fetch --force origin main --tags
+          [[ "$SDK_TAG" == "cmux-sdk-v$VERSION" ]] || {
+            echo "unexpected coordinated SDK tag: $SDK_TAG" >&2
+            exit 1
+          }
+          git tag --list 'cmux-sdk-v*' | \
+            python3 cmux-tui/bindings/validate_release_version.py \
+              --version "$VERSION" \
+              --require-latest-tag
+          release_sha="$(git rev-parse "refs/tags/$SDK_TAG^{commit}")"
+          [[ "$release_sha" == "$GITHUB_SHA" ]] || {
+            echo "release tag $SDK_TAG resolves to $release_sha, expected $GITHUB_SHA" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$release_sha" origin/main || {
+            echo "release tag $SDK_TAG is not on protected main" >&2
+            exit 1
+          }
 
-  dispatch-python:
+      - name: Download the validated npm artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-npm-dist
+          path: dist
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          registry-url: https://registry.npmjs.org
+
+      - name: Install npm with OIDC trusted publishing support
+        run: npm install -g npm@11.5.1
+
+      - name: Publish package to npm
+        run: |
+          shopt -s nullglob
+          packages=(dist/*.tgz)
+          [[ "${#packages[@]}" == 1 ]] || {
+            echo "expected one validated npm artifact, found ${#packages[@]}" >&2
+            exit 1
+          }
+          npm publish --provenance "${packages[0]}"
+
+  publish-python:
     needs:
       - validate-release
       - cut-tags
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+      - verify-go-tag
     permissions:
-      actions: write
+      actions: read
       contents: read
+      id-token: write
+    # PyPI trusted publishers cannot authenticate a reusable workflow, so the
+    # OIDC publish job stays directly in this top-level release workflow.
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment:
+      name: pypi
+      url: https://pypi.org/p/cmux-sdk
     steps:
-      - name: Dispatch PyPI publisher
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require the coordinated release source
         env:
-          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.validate-release.outputs.version }}
           SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
-        run: gh workflow run sdk-publish-python.yml --repo "$GITHUB_REPOSITORY" --ref "$SDK_TAG" -f version="$VERSION" -f confirm_publish=true
+        run: |
+          set -euo pipefail
+          git fetch --force origin main --tags
+          [[ "$SDK_TAG" == "cmux-sdk-v$VERSION" ]] || {
+            echo "unexpected coordinated SDK tag: $SDK_TAG" >&2
+            exit 1
+          }
+          git tag --list 'cmux-sdk-v*' | \
+            python3 cmux-tui/bindings/validate_release_version.py \
+              --version "$VERSION" \
+              --require-latest-tag
+          release_sha="$(git rev-parse "refs/tags/$SDK_TAG^{commit}")"
+          [[ "$release_sha" == "$GITHUB_SHA" ]] || {
+            echo "release tag $SDK_TAG resolves to $release_sha, expected $GITHUB_SHA" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$release_sha" origin/main || {
+            echo "release tag $SDK_TAG is not on protected main" >&2
+            exit 1
+          }
+
+      - name: Download distributions
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-python-dist
+          path: dist
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: dist
+          attestations: true
 
   summarize:
     if: always()
     needs:
       - validate-release
+      - rust-preflight
+      - go-preflight
+      - typescript-preflight
+      - python-preflight
       - cut-tags
-      - dispatch-crates
-      - dispatch-go
-      - dispatch-npm
-      - dispatch-python
+      - verify-go-tag
+      - publish-crates
+      - publish-npm
+      - publish-python
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions: {}
     steps:
@@ -238,11 +424,15 @@ jobs:
           SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
           GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
           VALIDATE_RESULT: ${{ needs.validate-release.result }}
+          RUST_PREFLIGHT_RESULT: ${{ needs.rust-preflight.result }}
+          GO_PREFLIGHT_RESULT: ${{ needs.go-preflight.result }}
+          TYPESCRIPT_PREFLIGHT_RESULT: ${{ needs.typescript-preflight.result }}
+          PYTHON_PREFLIGHT_RESULT: ${{ needs.python-preflight.result }}
           CUT_TAGS_RESULT: ${{ needs.cut-tags.result }}
-          CRATES_RESULT: ${{ needs.dispatch-crates.result }}
-          GO_RESULT: ${{ needs.dispatch-go.result }}
-          NPM_RESULT: ${{ needs.dispatch-npm.result }}
-          PYTHON_RESULT: ${{ needs.dispatch-python.result }}
+          GO_TAG_RESULT: ${{ needs.verify-go-tag.result }}
+          CRATES_RESULT: ${{ needs.publish-crates.result }}
+          NPM_RESULT: ${{ needs.publish-npm.result }}
+          PYTHON_RESULT: ${{ needs.publish-python.result }}
         run: |
           {
             echo "### cmux SDK $VERSION"
@@ -250,9 +440,13 @@ jobs:
             echo "- Rust, TypeScript, and Python ref: \`$SDK_TAG\`"
             echo "- Go module ref: \`$GO_TAG\`"
             echo "- Validation: \`$VALIDATE_RESULT\`"
+            echo "- Rust preflight: \`$RUST_PREFLIGHT_RESULT\`"
+            echo "- Go preflight: \`$GO_PREFLIGHT_RESULT\`"
+            echo "- TypeScript preflight: \`$TYPESCRIPT_PREFLIGHT_RESULT\`"
+            echo "- Python preflight: \`$PYTHON_PREFLIGHT_RESULT\`"
             echo "- Tag creation: \`$CUT_TAGS_RESULT\`"
-            echo "- crates.io dispatch: \`$CRATES_RESULT\`"
-            echo "- Go verification dispatch: \`$GO_RESULT\`"
-            echo "- npm dispatch: \`$NPM_RESULT\`"
-            echo "- PyPI dispatch: \`$PYTHON_RESULT\`"
+            echo "- Public Go tag: \`$GO_TAG_RESULT\`"
+            echo "- crates.io publish: \`$CRATES_RESULT\`"
+            echo "- npm publish: \`$NPM_RESULT\`"
+            echo "- PyPI publish: \`$PYTHON_RESULT\`"
           } >> "$GITHUB_STEP_SUMMARY"

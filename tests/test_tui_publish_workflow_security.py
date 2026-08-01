@@ -1,13 +1,37 @@
 import json
+import re
 import tomllib
+import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def load_tests(
+    loader: unittest.TestLoader,
+    standard_tests: unittest.TestSuite,
+    pattern: str | None,
+) -> unittest.TestSuite:
+    del loader, standard_tests, pattern
+    suite = unittest.TestSuite()
+    for name, test in sorted(globals().items()):
+        if name.startswith("test_") and callable(test):
+            suite.addTest(unittest.FunctionTestCase(test, description=name))
+    return suite
+
+
 def workflow(name: str) -> str:
     return (ROOT / ".github" / "workflows" / name).read_text()
+
+
+def workflow_job(text: str, name: str) -> str:
+    match = re.search(
+        rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+        text,
+    )
+    assert match is not None
+    return match.group(1)
 
 
 def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
@@ -35,13 +59,15 @@ def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
 
 
 def test_typescript_sdk_publisher_cannot_publish_the_cli_package() -> None:
-    sdk = workflow("sdk-publish-npm.yml")
+    preflight = workflow("sdk-publish-npm.yml")
+    release = workflow("sdk-release-cut.yml")
     tui = workflow("tui-publish-npm.yml")
 
-    assert "https://www.npmjs.com/package/cmux-sdk" in sdk
-    assert "npm publish --provenance" in sdk
-    assert "--tag sdk" not in sdk
-    assert "confirm_npm_cmux" not in sdk
+    assert "https://www.npmjs.com/package/cmux-sdk" in release
+    assert "npm publish --provenance" in release
+    assert "npm publish" not in preflight
+    assert "--tag sdk" not in release
+    assert "confirm_npm_cmux" not in release
     assert "publish_target" not in tui
     assert "publish-sdk" not in tui
     assert "confirm_sdk_cmux" not in tui
@@ -49,49 +75,67 @@ def test_typescript_sdk_publisher_cannot_publish_the_cli_package() -> None:
 
 
 def test_python_sdk_publisher_cannot_publish_the_cli_package() -> None:
-    sdk = workflow("sdk-publish-python.yml")
+    preflight = workflow("sdk-publish-python.yml")
+    release = workflow("sdk-release-cut.yml")
     tui = workflow("tui-publish-pypi.yml")
 
-    assert "https://pypi.org/p/cmux-sdk" in sdk
+    assert "https://pypi.org/p/cmux-sdk" in release
+    assert "gh-action-pypi-publish" in release
+    assert "gh-action-pypi-publish" not in preflight
     assert "https://pypi.org/p/cmux" in tui
 
 
-def test_sdk_release_cut_dispatches_only_the_selected_four_languages() -> None:
+def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
     release = workflow("sdk-release-cut.yml")
 
     assert 'sdk_tag="cmux-sdk-v$VERSION"' in release
     assert 'go_tag="cmux-tui/bindings/go/v$VERSION"' in release
     assert 'git push --atomic origin "refs/tags/$sdk_tag" "refs/tags/$go_tag"' in release
-    assert "go-preflight:" in release
-    assert "uses: ./.github/workflows/sdk-publish-go.yml" in release
-    assert release.index("go-preflight:") < release.index("git push --atomic origin")
+    preflights = {
+        "rust": "crates",
+        "go": "go",
+        "typescript": "npm",
+        "python": "python",
+    }
+    tag_push = release.index("git push --atomic origin")
+    for job, publisher in preflights.items():
+        assert f"{job}-preflight:" in release
+        assert f"uses: ./.github/workflows/sdk-publish-{publisher}.yml" in release
+        assert release.index(f"{job}-preflight:") < tag_push
     assert 'existing_sha="$(git rev-parse' in release
     assert '"$existing_sha" != "$GITHUB_SHA"' in release
     assert "validate_release_version.py" in release
     assert "--require-newer-than-tags" in release
     assert "git tag --list 'cmux-sdk-v*'" in release
-    assert release.count("gh workflow run sdk-publish-") == 4
+    assert "gh workflow run sdk-publish-" not in release
+    assert "verify-go-tag:" in release
+    assert release.index("verify-go-tag:") > tag_push
+    for job, publisher in (
+        ("publish-crates", "crates"),
+        ("publish-npm", "npm"),
+        ("publish-python", "python"),
+    ):
+        assert f"{job}:" in release
+        block = workflow_job(release, job)
+        assert f"uses: ./.github/workflows/sdk-publish-{publisher}.yml" not in block
+        assert "verify-go-tag" in block
+        assert "Require the coordinated release source" in block
+        assert "--require-latest-tag" in block
     assert "if: always()" in release
     for result in (
         "VALIDATE_RESULT",
+        "RUST_PREFLIGHT_RESULT",
+        "GO_PREFLIGHT_RESULT",
+        "TYPESCRIPT_PREFLIGHT_RESULT",
+        "PYTHON_PREFLIGHT_RESULT",
         "CUT_TAGS_RESULT",
         "CRATES_RESULT",
-        "GO_RESULT",
+        "GO_TAG_RESULT",
         "NPM_RESULT",
         "PYTHON_RESULT",
     ):
         assert result in release
-    for publisher in ("crates", "go", "npm", "python"):
-        assert f"dispatch-{publisher}:" in release
-        assert f"gh workflow run sdk-publish-{publisher}.yml" in release
     assert "sdk-publish-java.yml" not in release
-    for publisher in ("crates", "npm", "python"):
-        command = next(
-            line
-            for line in release.splitlines()
-            if f"gh workflow run sdk-publish-{publisher}.yml" in line
-        )
-        assert "-f confirm_publish=true" in command
 
 
 def test_go_publisher_uses_the_nested_module_semver_tag() -> None:
@@ -105,7 +149,7 @@ def test_go_publisher_uses_the_nested_module_semver_tag() -> None:
     assert '"cmux-sdk-v*"' not in java
 
 
-def test_sdk_publishers_only_publish_after_confirmed_dispatch() -> None:
+def test_sdk_preflight_workflows_cannot_write_to_registries() -> None:
     for name in (
         "sdk-publish-crates.yml",
         "sdk-publish-npm.yml",
@@ -113,22 +157,51 @@ def test_sdk_publishers_only_publish_after_confirmed_dispatch() -> None:
     ):
         text = workflow(name)
         assert "push:\n    tags:" not in text
-        assert "if: inputs.confirm_publish == true" in text
+        assert "workflow_call:" in text
+        dispatch_inputs = text.split("workflow_dispatch:", 1)[1].split(
+            "permissions:", 1
+        )[0]
+        assert "confirm_publish:" not in dispatch_inputs
         assert "github.event_name == 'push'" not in text
-        assert 'expected_ref="refs/tags/$tag"' in text
-        assert '[[ "$GITHUB_REF" == "$expected_ref" ]]' in text
-        assert 'git merge-base --is-ancestor "$release_sha" origin/main' in text
-        assert '[[ "$release_sha" == "$GITHUB_SHA" ]]' in text
         assert "validate_release_version.py" in text
-        assert "--require-latest-tag" in text
+        assert "id-token: write" not in text
+        assert "  publish:\n" not in text
+
+    release = workflow("sdk-release-cut.yml")
+    assert release.count("id-token: write") == 3
+    assert release.count("Require the coordinated release source") == 3
+    assert release.count("--require-latest-tag") == 3
 
     go = workflow("sdk-publish-go.yml")
     assert "push:\n    tags:" not in go
     assert "workflow_call:" in go
     assert "workflow_dispatch:" in go
+    assert "if: inputs.verify_tag != true" in go
+    assert "if: inputs.verify_tag == true" in go
+    assert "CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}" in go
+    assert ".github/workflows/sdk-release-cut.yml@$GITHUB_REF" in go
     public_probe = go.split("verify-versioned-go-module:", 1)[1]
     setup = public_probe.split("Resolve the public module tag", 1)[0]
     assert "cache: false" in setup
+
+
+def test_registry_publishers_reuse_preflight_artifacts() -> None:
+    npm = workflow("sdk-publish-npm.yml")
+    python = workflow("sdk-publish-python.yml")
+    release = workflow("sdk-release-cut.yml")
+
+    assert npm.count("name: cmux-npm-dist") == 1
+    assert release.count("name: cmux-npm-dist") == 1
+    assert "npm pack --pack-destination" in npm
+    npm_publish = workflow_job(release, "publish-npm")
+    assert "Download the validated npm artifact" in npm_publish
+    assert "npm test" not in npm_publish
+
+    assert python.count("name: cmux-python-dist") == 1
+    assert release.count("name: cmux-python-dist") == 1
+    python_publish = workflow_job(release, "publish-python")
+    assert "Download distributions" in python_publish
+    assert "python3 -m build" not in python_publish
 
 
 def test_typescript_spec_uses_the_sdk_registry_name() -> None:
@@ -151,6 +224,11 @@ def test_required_sdk_ci_checks_only_the_publish_set_version() -> None:
     sdk_ci = workflow("cmux-tui-sdks.yml")
 
     assert "check-versions.py --published-only" in sdk_ci
+    assert "python3 tests/test_tui_publish_workflow_security.py -v" in sdk_ci
+    for publisher in ("crates", "go", "npm", "python"):
+        assert f'".github/workflows/sdk-publish-{publisher}.yml"' in sdk_ci
+    assert '".github/workflows/sdk-release-cut.yml"' in sdk_ci
+    assert '"tests/test_tui_publish_workflow_security.py"' in sdk_ci
 
 
 def test_python_wheel_consumer_derives_the_manifest_version() -> None:
@@ -197,7 +275,11 @@ def test_stable_pypi_publish_is_not_triggered_directly_by_a_tag() -> None:
 
 
 def test_npm_publishers_pin_the_oidc_capable_npm_version() -> None:
-    for name in ("tui-publish-npm.yml", "cmux-tui-nightly.yml"):
+    for name in (
+        "tui-publish-npm.yml",
+        "cmux-tui-nightly.yml",
+        "sdk-release-cut.yml",
+    ):
         text = workflow(name)
         assert "npm install -g npm@11.5.1" in text
         assert "npm@^11.5.1" not in text
@@ -274,3 +356,7 @@ def test_stable_release_builds_and_tests_once_before_dispatching_publishers() ->
 
     for name in ("tui-publish-npm.yml", "tui-publish-pypi.yml"):
         assert "workflow_call:" not in workflow(name)
+
+
+if __name__ == "__main__":
+    unittest.main()
