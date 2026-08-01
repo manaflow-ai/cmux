@@ -20,6 +20,8 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
     public let cleared: Bool
     /// The resulting resume binding, or `nil`.
     public let binding: ControlSurfaceResumeBinding?
+    /// Structured process data used by `cmux restore`.
+    public let restoreRecord: ControlSurfaceRestoreRecord?
 
     /// Creates a resume snapshot.
     ///
@@ -36,7 +38,8 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
         paneID: UUID?,
         surfaceID: UUID,
         cleared: Bool,
-        binding: ControlSurfaceResumeBinding?
+        binding: ControlSurfaceResumeBinding?,
+        restoreRecord: ControlSurfaceRestoreRecord?
     ) {
         self.windowID = windowID
         self.workspaceID = workspaceID
@@ -44,5 +47,6 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
         self.surfaceID = surfaceID
         self.cleared = cleared
         self.binding = binding
+        self.restoreRecord = restoreRecord
     }
 }

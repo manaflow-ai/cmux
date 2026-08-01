@@ -15,7 +15,7 @@ extension WorkspaceListTableCoordinator {
         /// The listed cells stay untouched until the swipe closes.
         case deferredNativeActionReload([String])
         /// Structure or a row height changed; a snapshot was applied.
-        case snapshotApply
+        case tableReload
     }
 
     func recordPayloadApplyRoute(_ route: PayloadApplyRoute) {

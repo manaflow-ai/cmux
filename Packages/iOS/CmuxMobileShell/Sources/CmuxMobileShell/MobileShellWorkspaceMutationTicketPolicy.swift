@@ -31,7 +31,10 @@ struct MobileShellWorkspaceMutationTicketPolicy {
         guard let ticket,
               ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
               !ticket.isExpired(at: now) else {
-            return false
+            // No current token: nothing narrows the connection. Mirrors the
+            // host, where a missing or expired token cannot narrow anything
+            // and the account gate is the sole authority.
+            return hostAuthorizesByAccount
         }
         return ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }

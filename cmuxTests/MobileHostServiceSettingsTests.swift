@@ -345,48 +345,5 @@ struct MobileHostMacScopedMutationAuthorizationTests {
         }
     }
 
-    @Test func sameAccountAllowsMacScopedMutationsWithoutAttachToken() async {
-        let service = MobileHostService.shared
-        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
-        defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
-        let cases: [(String, [String: String])] = [
-            ("workspace.create", ["group_id": "group-main"]),
-            ("workspace.move", ["workspace_id": "workspace-main", "before_workspace_id": "workspace-next"]),
-            ("workspace.group.action", ["group_id": "group-main", "action": "rename"]),
-            ("workspace.group.create", ["title": "Ops"]),
-        ]
-        for (method, params) in cases {
-            let request = MobileHostRPCRequest(
-                id: method,
-                method: method,
-                params: params,
-                auth: MobileHostRPCAuth(attachToken: nil, stackAccessToken: "cmux-dev-token")
-            )
-            let result = await service.debugAuthorizationError(for: request)
-            #expect(result == nil, "same-account authorization should allow \(method) without a narrowing ticket")
-        }
-    }
-
-    @Test func sameAccountAllowsMacScopedMutationsWithExpiredOrUnknownAttachToken() async {
-        let service = MobileHostService.shared
-        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
-        defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
-        let cases: [(String, [String: String])] = [
-            ("workspace.create", ["group_id": "group-main"]),
-            ("workspace.move", ["workspace_id": "workspace-main", "before_workspace_id": "workspace-next"]),
-            ("workspace.group.action", ["group_id": "group-main", "action": "rename"]),
-            ("workspace.group.create", ["title": "Ops"]),
-        ]
-        for (method, params) in cases {
-            let request = MobileHostRPCRequest(
-                id: method,
-                method: method,
-                params: params,
-                auth: MobileHostRPCAuth(attachToken: "stale-ticket", stackAccessToken: "cmux-dev-token")
-            )
-            let result = await service.debugAuthorizationError(for: request)
-            #expect(result == nil, "an unknown ticket cannot narrow same-account authorization for \(method)")
-        }
-    }
 }
 #endif

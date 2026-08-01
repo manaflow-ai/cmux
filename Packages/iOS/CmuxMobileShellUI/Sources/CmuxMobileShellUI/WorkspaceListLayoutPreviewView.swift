@@ -390,6 +390,12 @@ public struct WorkspaceListLayoutPreviewView: View {
             setGroupPinned: reorderEnabled ? { _, _ in } : nil,
             ungroupWorkspaceGroup: reorderEnabled ? { _ in } : nil,
             deleteWorkspaceGroup: reorderEnabled ? { _ in } : nil,
+            toggleGroupCollapsed: reorderEnabled ? { groupID, isCollapsed in
+                guard let index = model.groups.firstIndex(where: { $0.id == groupID }) else {
+                    return
+                }
+                model.groups[index].isCollapsed = isCollapsed
+            } : nil,
             filterState: filterState,
             searchText: searchText
         )
