@@ -632,11 +632,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // is a sibling of `composerContainer`, so `endEditing` on the container
             // alone would resign nothing and the keyboard would stay up.
             if self.keyboardVisible {
-                if self.inputProxy.isFirstResponder {
-                    self.resignInput()
-                } else {
-                    self.composerContainer.endEditing(true)
-                }
+                self.resignCurrentInput()
             } else {
                 self.focusInput()
             }
@@ -1321,11 +1317,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // `composerContainer`) holds first responder, so gating on
             // `composerActive` alone would leave the keyboard up while the chrome
             // hides.
-            if inputProxy.isFirstResponder {
-                resignInput()
-            } else {
-                composerContainer.endEditing(true)
-            }
+            resignCurrentInput()
         }
         updateDockedToolbarVisibility()
         if hidden {
@@ -2645,6 +2637,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// geometry after the keyboard leaves.
     public static func resignActiveInput() {
         activeInputSurface?.resignInput()
+    }
+
+    /// Resigns whichever input currently owns this surface's software keyboard.
+    ///
+    /// The terminal proxy and the hosted composer field are siblings, so neither
+    /// subtree can release the other. Modal presentations must call this before
+    /// presenting: UIKit can otherwise hide the keyboard while leaving the proxy
+    /// first responder, and a later terminal tap cannot trigger another focus
+    /// transition because the proxy already reports itself focused.
+    public func resignCurrentInput() {
+        if inputProxy.isFirstResponder {
+            resignInput()
+            return
+        }
+
+        composerContainer.endEditing(true)
+        if Self.activeInputSurface === self {
+            Self.activeInputSurface = nil
+        }
     }
 
     /// Resigns this surface's hidden text input and clears keyboard geometry.
