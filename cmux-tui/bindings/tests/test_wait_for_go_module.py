@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -233,6 +234,18 @@ class WaitForGoModuleTests(unittest.TestCase):
             )
         self.assertEqual(process.wait.call_count, 2)
         process.communicate.assert_not_called()
+
+    def test_non_utf8_tool_output_is_decoded_safely(self) -> None:
+        result = waiter._run_command(
+            [sys.executable, "-c", "import os; os.write(1, b'\\xff')"],
+            env=os.environ.copy(),
+            deadline=30.0,
+            clock=lambda: 0.0,
+            cancel_event=waiter.threading.Event(),
+        )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "\ufffd")
 
 
 if __name__ == "__main__":
