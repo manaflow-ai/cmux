@@ -1173,6 +1173,33 @@ mod unix {
         record_path: PathBuf,
         handshake_timeout: Duration,
     ) -> anyhow::Result<HostAttachment> {
+        match connect_record_mode(
+            record.clone(),
+            record_path.clone(),
+            handshake_timeout,
+            true,
+        ) {
+            Ok(attachment) => Ok(attachment),
+            Err(smart_error) => connect_record_mode(
+                record,
+                record_path,
+                handshake_timeout,
+                false,
+            )
+            .map_err(|legacy_error| {
+                anyhow::anyhow!(
+                    "smart terminal-host handshake failed ({smart_error:#}); legacy fallback failed ({legacy_error:#})"
+                )
+            }),
+        }
+    }
+
+    fn connect_record_mode(
+        record: TerminalHostRecord,
+        record_path: PathBuf,
+        handshake_timeout: Duration,
+        smart_renderer: bool,
+    ) -> anyhow::Result<HostAttachment> {
         let terminal_id = TerminalId::from_bytes(decode_hex_array(&record.terminal_id)?);
         let incarnation = HostIncarnation::from_bytes(decode_hex_array(&record.incarnation)?);
         let owner_token = CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?);
@@ -1188,11 +1215,13 @@ mod unix {
             token: owner_token,
         };
         let mut hello_frame = hello.into_frame(1);
-        hello_frame.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+        if smart_renderer {
+            hello_frame.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+        }
         write_frame(&mut stream, &hello_frame)?;
         let hello_frame = read_required_frame(&mut stream, "host hello")?;
         if hello_frame.kind != MessageKind::HostHello
-            || hello_frame.flags & FLAG_SMART_RENDERER == 0
+            || (smart_renderer && hello_frame.flags & FLAG_SMART_RENDERER == 0)
         {
             anyhow::bail!("terminal host rejected owner handshake");
         }
@@ -1218,14 +1247,16 @@ mod unix {
         }
         snapshot.sequence_boundary = snapshot_frame.sequence;
         snapshot.colors = decode_terminal_color_overrides(&colors_frame.payload)?;
-        let ready_frame = read_required_frame(&mut stream, "terminal ready boundary")?;
-        if ready_frame.kind != MessageKind::Ready
-            || ready_frame.flags != 0
-            || ready_frame.sequence != snapshot_frame.sequence
-            || ready_frame.request_id != 0
-            || !ready_frame.payload.is_empty()
-        {
-            anyhow::bail!("terminal host did not send Ready at the snapshot sequence boundary");
+        if smart_renderer {
+            let ready_frame = read_required_frame(&mut stream, "terminal ready boundary")?;
+            if ready_frame.kind != MessageKind::Ready
+                || ready_frame.flags != 0
+                || ready_frame.sequence != snapshot_frame.sequence
+                || ready_frame.request_id != 0
+                || !ready_frame.payload.is_empty()
+            {
+                anyhow::bail!("terminal host did not send Ready at the snapshot sequence boundary");
+            }
         }
         let snapshot_size = (snapshot.cols, snapshot.rows);
         stream.set_read_timeout(None)?;
@@ -1239,7 +1270,7 @@ mod unix {
             record,
             record_path,
             snapshot,
-            smart_renderer: true,
+            smart_renderer,
             reader: Some(reader),
             writer: Arc::new(Mutex::new(stream)),
             capability_responses: Arc::new(CapabilityResponses {
@@ -1500,6 +1531,11 @@ mod unix {
             acknowledge_with_replay: bool,
             targeted_ack: Option<(u64, HostTap)>,
             response: SyncSender<Result<ParserResizeResult, String>>,
+        },
+        SetDefaults {
+            colors: DefaultColors,
+            source_cursor: u64,
+            response: SyncSender<()>,
         },
         Drain,
     }
@@ -1837,19 +1873,25 @@ mod unix {
         }
 
         fn set_default_colors(&self, colors: DefaultColors) {
-            let mut term = self.term.lock().unwrap();
-            term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
-            term.set_default_palette(&colors.palette);
-            replace_ghostty_cursor_defaults(&mut term, colors);
-            let resolved = term.color_overrides();
-            // An empty coupled Output is an ordered state transition already
-            // understood by every v2 consumer; no standalone Colors frame can
-            // split or bypass the live-stream stager.
-            self.broadcast_with_colors(
-                MessageKind::Output,
-                Vec::new(),
-                encode_terminal_color_overrides(&resolved),
-            );
+            // Default changes have no raw VT representation. Order an
+            // explicit resync marker with PTY bytes, then apply the defaults
+            // on the FIFO parser worker before advancing its snapshot
+            // boundary. Legacy mirrors retain their coupled color update.
+            let _source_order = self.source_order_lock.lock().unwrap();
+            let source_cursor =
+                self.smart.publish(Frame::new(MessageKind::ResyncRequired, Vec::new()));
+            let (response, applied) = sync_channel(1);
+            if self
+                .parser_commands
+                .send(ParserCommand::SetDefaults { colors, source_cursor, response })
+                .is_err()
+            {
+                self.smart.mark_applied(source_cursor);
+                return;
+            }
+            if applied.recv().is_err() {
+                self.smart.mark_applied(source_cursor);
+            }
         }
 
         fn remove_client(&self, client: u64) {
@@ -2712,6 +2754,29 @@ mod unix {
                             )
                             .map_err(|error| error.to_string());
                         let _ = response.send(result);
+                    }
+                    ParserCommand::SetDefaults { colors, source_cursor, response } => {
+                        {
+                            let mut term = parser_host.term.lock().unwrap();
+                            term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
+                            term.set_default_palette(&colors.palette);
+                            replace_ghostty_cursor_defaults(&mut term, colors);
+                            let resolved = term.color_overrides();
+                            last_colors = resolved.clone();
+                            // An empty coupled Output is an ordered state
+                            // transition already understood by every legacy
+                            // v2 consumer. Smart clients reopen from the
+                            // ResyncRequired snapshot boundary published by
+                            // the command submitter.
+                            parser_host.broadcast_with_colors(
+                                MessageKind::Output,
+                                Vec::new(),
+                                encode_terminal_color_overrides(&resolved),
+                            );
+                            parser_host.smart.mark_applied(source_cursor);
+                        }
+                        parser_host.note_parser_progress();
+                        let _ = response.send(());
                     }
                     ParserCommand::Drain => {
                         // FIFO reception proves every source byte published by
@@ -3699,7 +3764,10 @@ mod unix {
                 let accept_before = |deadline: Instant| -> anyhow::Result<Option<UnixStream>> {
                     loop {
                         match listener.accept() {
-                            Ok((stream, _)) => return Ok(Some(stream)),
+                            Ok((stream, _)) => {
+                                stream.set_nonblocking(false)?;
+                                return Ok(Some(stream));
+                            }
                             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                                 if Instant::now() >= deadline {
                                     return Ok(None);
@@ -3758,10 +3826,12 @@ mod unix {
                     Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
                 snapshot_frame.sequence = 17;
                 write_frame(&mut legacy, &snapshot_frame)?;
-                let mut colors = Frame::new(
-                    MessageKind::Colors,
-                    encode_terminal_color_overrides(&TerminalColorOverrides::default()),
-                );
+                let colors_state = TerminalColorOverrides {
+                    cursor_visual: Some((CursorShape::Block, false)),
+                    ..Default::default()
+                };
+                let mut colors =
+                    Frame::new(MessageKind::Colors, encode_terminal_color_overrides(&colors_state));
                 colors.sequence = snapshot_frame.sequence;
                 write_frame(&mut legacy, &colors)?;
 

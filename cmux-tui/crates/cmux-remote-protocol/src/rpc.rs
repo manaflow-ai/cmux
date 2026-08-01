@@ -102,6 +102,7 @@ pub enum Service {
     /// short-lived renderer capability to bridge that surface's terminal host;
     /// carriers, authentication, reconnect, and replay remain properties of
     /// the enclosing remote session.
+    #[serde(rename = "terminal-bytes-v1")]
     TerminalBytes,
     TcpTunnel,
     ComputerUse,

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::ffi::{CStr, c_char};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use base64::Engine;
@@ -20,7 +20,9 @@ use cmux_tui_core::terminal_host_protocol::{
 };
 use cmux_tui_core::terminal_host_runtime::decode_host_snapshot_payload;
 use cmux_tui_core::terminal_host_runtime::decode_terminal_color_overrides;
-use ghostty_vt::{Callbacks, CellWidth, RenderState, Terminal};
+use ghostty_vt::{
+    Callbacks, CellWidth, KeyAction, KeyEncoder, RenderState, Terminal, key_input_from_chord,
+};
 use serde::Serialize;
 use tokio::runtime::Runtime;
 use url::Url;
@@ -37,7 +39,8 @@ pub struct CmuxTerminalClient {
 }
 
 struct ActiveTerminal {
-    stream: Arc<ServiceStream>,
+    streams: tokio::sync::watch::Sender<Option<Arc<ServiceStream>>>,
+    closed: Arc<AtomicBool>,
     command_sender: tokio::sync::mpsc::Sender<Bytes>,
     receiver_task: tokio::task::JoinHandle<()>,
     command_task: tokio::task::JoinHandle<()>,
@@ -45,16 +48,21 @@ struct ActiveTerminal {
 
 impl ActiveTerminal {
     async fn close(self) {
-        self.command_task.abort();
-        let _ = self.command_task.await;
-        let _ = self.stream.close().await;
+        self.closed.store(true, Ordering::Release);
         self.receiver_task.abort();
+        self.command_task.abort();
+        let stream = self.streams.send_replace(None);
+        let _ = self.command_task.await;
+        if let Some(stream) = stream {
+            let _ = stream.close().await;
+        }
         let _ = self.receiver_task.await;
     }
 }
 
 struct ClientState {
     terminal: Option<Terminal>,
+    key_encoder: KeyEncoder,
     render: RenderState,
     frame_text: String,
     render_dirty: bool,
@@ -99,10 +107,18 @@ struct Diagnostics<'a> {
     rows: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FrameEffect {
+    Continue,
+    Restart,
+    Stop,
+}
+
 impl ClientState {
     fn new(provider: String, path: String, generation: u64, surface: u64) -> Result<Self, String> {
         Ok(Self {
             terminal: None,
+            key_encoder: KeyEncoder::new().map_err(|error| error.to_string())?,
             render: RenderState::new().map_err(|error| error.to_string())?,
             frame_text: String::new(),
             render_dirty: false,
@@ -126,8 +142,40 @@ impl ClientState {
         })
     }
 
-    fn apply(&mut self, frame: Frame) -> Result<(), String> {
-        match frame.kind {
+    fn prepare_handshake(&mut self, surface: u64) -> Result<(), String> {
+        self.terminal = None;
+        self.render = RenderState::new().map_err(|error| error.to_string())?;
+        self.render_dirty = false;
+        self.status = "resyncing".into();
+        self.surface = surface;
+        self.snapshot_boundary = 0;
+        self.snapshot_bytes = 0;
+        self.bootstrap_frames = 0;
+        self.ready = false;
+        self.expected_sequence = None;
+        self.cols = 0;
+        self.rows = 0;
+        Ok(())
+    }
+
+    fn encode_key(&mut self, chord: &str, repeat: bool) -> Result<Vec<u8>, String> {
+        let mut input = key_input_from_chord(chord)
+            .ok_or_else(|| format!("unsupported terminal key chord: {chord}"))?;
+        if repeat {
+            input.action = Some(KeyAction::Repeat);
+        }
+        let terminal = self
+            .terminal
+            .as_ref()
+            .ok_or_else(|| "terminal keyboard state is not ready".to_string())?;
+        self.key_encoder.sync_from_terminal(terminal);
+        let mut encoded = Vec::new();
+        self.key_encoder.encode(&input, &mut encoded).map_err(|error| error.to_string())?;
+        Ok(encoded)
+    }
+
+    fn apply(&mut self, frame: Frame) -> Result<FrameEffect, String> {
+        let effect = match frame.kind {
             MessageKind::Snapshot => {
                 let snapshot = decode_host_snapshot_payload(&frame.payload)
                     .map_err(|error| error.to_string())?;
@@ -146,6 +194,7 @@ impl ClientState {
                 self.terminal = Some(terminal);
                 self.status = "snapshot".into();
                 self.render_dirty = true;
+                FrameEffect::Continue
             }
             MessageKind::Colors if frame.sequence == self.snapshot_boundary => {
                 let colors = decode_terminal_color_overrides(&frame.payload)
@@ -158,11 +207,13 @@ impl ClientState {
                 );
                 self.bootstrap_frames = self.bootstrap_frames.saturating_add(1);
                 self.render_dirty = true;
+                FrameEffect::Continue
             }
             MessageKind::Ready if frame.sequence == self.snapshot_boundary => {
                 self.ready = true;
                 self.status = "live".into();
                 self.bootstrap_frames = self.bootstrap_frames.saturating_add(1);
+                FrameEffect::Continue
             }
             MessageKind::Output => {
                 self.require_sequence(frame.sequence)?;
@@ -175,6 +226,7 @@ impl ClientState {
                 self.raw_frames = self.raw_frames.saturating_add(1);
                 self.local_parser_cursor = frame.sequence;
                 self.render_dirty = true;
+                FrameEffect::Continue
             }
             MessageKind::Resized if frame.payload.len() == 4 => {
                 self.require_sequence(frame.sequence)?;
@@ -189,24 +241,26 @@ impl ClientState {
                 self.rows = rows;
                 self.local_parser_cursor = frame.sequence;
                 self.render_dirty = true;
+                FrameEffect::Continue
             }
             MessageKind::Exit => {
                 self.require_sequence(frame.sequence)?;
                 self.local_parser_cursor = frame.sequence;
                 self.status = "exited".into();
+                FrameEffect::Stop
             }
             MessageKind::ResyncRequired => {
                 self.source_cursor = frame.sequence;
                 self.resync_count = self.resync_count.saturating_add(1);
                 self.status = "resync-required".into();
-                return Err("terminal stream requested a fresh snapshot".into());
+                FrameEffect::Restart
             }
             // Targeted resize acknowledgements are outside the source
             // sequence and carry no render state.
-            MessageKind::ResizeAck if frame.sequence == 0 => {}
+            MessageKind::ResizeAck if frame.sequence == 0 => FrameEffect::Continue,
             other => return Err(format!("unexpected smart terminal frame {other:?}")),
-        }
-        Ok(())
+        };
+        Ok(effect)
     }
 
     fn require_sequence(&mut self, sequence: u64) -> Result<(), String> {
@@ -312,17 +366,25 @@ async fn open_terminal_stream(
             .await
             .map_err(|error| format!("open terminal-bytes-v1: {error}"))?,
     );
-    let opened = stream
-        .receive()
-        .await
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "terminal service closed before Opened".to_string())?;
-    let control: ServiceControl =
-        serde_json::from_slice(&opened.payload).map_err(|error| error.to_string())?;
-    if opened.lane != Lane::Interactive
-        || control != (ServiceControl::Opened { service: Service::TerminalBytes })
-    {
-        return Err("terminal service returned an invalid Opened acknowledgement".into());
+    let handshake = async {
+        let opened = stream
+            .receive()
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "terminal service closed before Opened".to_string())?;
+        let control: ServiceControl =
+            serde_json::from_slice(&opened.payload).map_err(|error| error.to_string())?;
+        if opened.lane != Lane::Interactive
+            || control != (ServiceControl::Opened { service: Service::TerminalBytes })
+        {
+            return Err("terminal service returned an invalid Opened acknowledgement".into());
+        }
+        Ok::<(), String>(())
+    }
+    .await;
+    if let Err(error) = handshake {
+        let _ = stream.close().await;
+        return Err(error);
     }
     Ok(stream)
 }
@@ -402,37 +464,122 @@ async fn connect_client(
     Ok((stream, connection, provider, multiplexer, state))
 }
 
-async fn receive_frames(stream: Arc<ServiceStream>, state: Arc<Mutex<ClientState>>) {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StreamOutcome {
+    Restart,
+    Stop,
+}
+
+fn finish_decoder(decoder: &FrameDecoder, state: &Arc<Mutex<ClientState>>) -> bool {
+    match decoder.finish() {
+        Ok(()) => true,
+        Err(error) => {
+            state.lock().unwrap().status = format!("codec: {error}");
+            false
+        }
+    }
+}
+
+async fn receive_frames(
+    stream: Arc<ServiceStream>,
+    state: Arc<Mutex<ClientState>>,
+) -> StreamOutcome {
     let mut decoder = FrameDecoder::new(MAX_FRAME_PAYLOAD);
     loop {
         match stream.receive().await {
             Ok(Some(chunk)) => {
                 if chunk.lane != Lane::Interactive {
                     state.lock().unwrap().status = "wrong-lane".into();
-                    break;
+                    let _ = finish_decoder(&decoder, &state);
+                    return StreamOutcome::Restart;
                 }
                 match decoder.push(&chunk.payload) {
                     Ok(frames) => {
+                        let mut outcome = None;
                         for frame in frames {
-                            if let Err(error) = state.lock().unwrap().apply(frame) {
-                                state.lock().unwrap().status = error;
-                                return;
+                            let applied = state.lock().unwrap().apply(frame);
+                            match applied {
+                                Ok(FrameEffect::Continue) => {}
+                                Ok(FrameEffect::Restart) => {
+                                    outcome = Some(StreamOutcome::Restart);
+                                }
+                                Ok(FrameEffect::Stop) => outcome = Some(StreamOutcome::Stop),
+                                Err(error) => {
+                                    state.lock().unwrap().status = error;
+                                    return StreamOutcome::Restart;
+                                }
                             }
+                        }
+                        if let Some(outcome) = outcome {
+                            let _ = finish_decoder(&decoder, &state);
+                            return outcome;
                         }
                     }
                     Err(error) => {
                         state.lock().unwrap().status = format!("codec: {error}");
-                        break;
+                        return StreamOutcome::Restart;
                     }
                 }
                 if chunk.finished || chunk.reset {
-                    break;
+                    if finish_decoder(&decoder, &state) {
+                        state.lock().unwrap().status =
+                            if chunk.reset { "stream-reset" } else { "stream-closed" }.into();
+                    }
+                    return StreamOutcome::Restart;
                 }
             }
-            Ok(None) => break,
+            Ok(None) => {
+                if finish_decoder(&decoder, &state) {
+                    state.lock().unwrap().status = "stream-closed".into();
+                }
+                return StreamOutcome::Restart;
+            }
             Err(error) => {
-                state.lock().unwrap().status = format!("stream: {error}");
-                break;
+                if finish_decoder(&decoder, &state) {
+                    state.lock().unwrap().status = format!("stream: {error}");
+                }
+                return StreamOutcome::Restart;
+            }
+        }
+    }
+}
+
+async fn supervise_terminal_stream(
+    multiplexer: Arc<ServiceMultiplexer>,
+    surface: u64,
+    initial_stream: Arc<ServiceStream>,
+    streams: tokio::sync::watch::Sender<Option<Arc<ServiceStream>>>,
+    closed: Arc<AtomicBool>,
+    state: Arc<Mutex<ClientState>>,
+) {
+    let mut stream = initial_stream;
+    loop {
+        let outcome = receive_frames(stream.clone(), state.clone()).await;
+        let current = streams.send_replace(None);
+        if let Some(current) = current {
+            let _ = current.close().await;
+        }
+        if outcome == StreamOutcome::Stop || closed.load(Ordering::Acquire) {
+            return;
+        }
+        if let Err(error) = state.lock().unwrap().prepare_handshake(surface) {
+            state.lock().unwrap().status = format!("resync: {error}");
+            return;
+        }
+        loop {
+            if closed.load(Ordering::Acquire) {
+                return;
+            }
+            match open_terminal_stream(&multiplexer, surface).await {
+                Ok(next) => {
+                    stream = next;
+                    streams.send_replace(Some(stream.clone()));
+                    break;
+                }
+                Err(error) => {
+                    state.lock().unwrap().status = format!("reconnect: {error}");
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                }
             }
         }
     }
@@ -441,21 +588,62 @@ async fn receive_frames(stream: Arc<ServiceStream>, state: Arc<Mutex<ClientState
 fn start_terminal_tasks(
     runtime: &Runtime,
     stream: Arc<ServiceStream>,
+    multiplexer: Arc<ServiceMultiplexer>,
+    surface: u64,
     state: Arc<Mutex<ClientState>>,
 ) -> ActiveTerminal {
-    let receiver_task = runtime.spawn(receive_frames(stream.clone(), state.clone()));
+    let closed = Arc::new(AtomicBool::new(false));
+    let (streams, mut command_streams) = tokio::sync::watch::channel(Some(stream.clone()));
+    let receiver_task = runtime.spawn(supervise_terminal_stream(
+        multiplexer,
+        surface,
+        stream,
+        streams.clone(),
+        closed.clone(),
+        state.clone(),
+    ));
     let (command_sender, mut commands) = tokio::sync::mpsc::channel::<Bytes>(256);
-    let command_stream = stream.clone();
     let command_state = state;
+    let command_closed = closed.clone();
     let command_task = runtime.spawn(async move {
         while let Some(command) = commands.recv().await {
-            if let Err(error) = command_stream.send(command).await {
-                command_state.lock().unwrap().status = format!("write: {error}");
-                break;
+            loop {
+                if command_closed.load(Ordering::Acquire) {
+                    return;
+                }
+                let current = command_streams.borrow().clone();
+                let Some(current) = current else {
+                    if command_streams.changed().await.is_err() {
+                        return;
+                    }
+                    continue;
+                };
+                match current.send(command.clone()).await {
+                    Ok(()) => break,
+                    Err(error) => {
+                        command_state.lock().unwrap().status = format!("write: {error}");
+                        let failed = current.id();
+                        loop {
+                            if command_closed.load(Ordering::Acquire) {
+                                return;
+                            }
+                            let replaced = command_streams
+                                .borrow()
+                                .as_ref()
+                                .is_none_or(|stream| stream.id() != failed);
+                            if replaced {
+                                break;
+                            }
+                            if command_streams.changed().await.is_err() {
+                                return;
+                            }
+                        }
+                    }
+                }
             }
         }
     });
-    ActiveTerminal { stream, command_sender, receiver_task, command_task }
+    ActiveTerminal { streams, closed, command_sender, receiver_task, command_task }
 }
 
 impl CmuxTerminalClient {
@@ -474,7 +662,13 @@ impl CmuxTerminalClient {
             .unwrap_or_else(|| snapshot.transport.route.clone());
         *self.state.lock().unwrap() =
             ClientState::new(snapshot.transport.provider, path, snapshot.generation, surface)?;
-        *terminal = Some(start_terminal_tasks(&self.runtime, stream, self.state.clone()));
+        *terminal = Some(start_terminal_tasks(
+            &self.runtime,
+            stream,
+            self.multiplexer.clone(),
+            surface,
+            self.state.clone(),
+        ));
         Ok(())
     }
 
@@ -569,7 +763,8 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
                     state.generation = snapshot.generation;
                 }
             });
-            let terminal = start_terminal_tasks(&runtime, stream, state.clone());
+            let terminal =
+                start_terminal_tasks(&runtime, stream, multiplexer.clone(), surface, state.clone());
             Box::into_raw(Box::new(CmuxTerminalClient {
                 runtime,
                 connection,
@@ -689,6 +884,47 @@ pub unsafe extern "C" fn cmux_terminal_client_send(
         return false;
     };
     enqueue_command(client, Frame::new(MessageKind::Input, bytes.to_vec()))
+}
+
+/// Encodes a named key chord with the local libghostty terminal modes and
+/// queues the resulting PTY input.
+///
+/// # Safety
+///
+/// `client` must be a live handle returned by
+/// [`cmux_terminal_client_connect`]. `chord` must point to a readable
+/// NUL-terminated UTF-8 string for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_send_key(
+    client: *mut CmuxTerminalClient,
+    chord: *const c_char,
+    repeat: bool,
+) -> bool {
+    let Some(client) = (unsafe { client.as_ref() }) else { return false };
+    if chord.is_null() {
+        return false;
+    }
+    // SAFETY: checked non-null above; the C API requires a NUL-terminated chord.
+    let chord = unsafe { CStr::from_ptr(chord) };
+    let chord = match chord.to_str() {
+        Ok(chord) => chord,
+        Err(error) => {
+            client.state.lock().unwrap().status = format!("key: {error}");
+            return false;
+        }
+    };
+    let key_result = client.state.lock().unwrap().encode_key(chord, repeat);
+    let encoded = match key_result {
+        Ok(encoded) => encoded,
+        Err(error) => {
+            client.state.lock().unwrap().status = format!("key: {error}");
+            return false;
+        }
+    };
+    if encoded.is_empty() {
+        return true;
+    }
+    enqueue_command(client, Frame::new(MessageKind::Input, encoded))
 }
 
 /// Queues opaque paste bytes for the connected surface.
@@ -850,6 +1086,25 @@ mod tests {
         )
     }
 
+    fn test_snapshot_payload(replay: &[u8]) -> Vec<u8> {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&80u16.to_le_bytes());
+        payload.extend_from_slice(&24u16.to_le_bytes());
+        payload.extend_from_slice(&0u32.to_le_bytes());
+        payload.extend_from_slice(&(replay.len() as u32).to_le_bytes());
+        payload.extend_from_slice(replay);
+        payload.push(0);
+        payload.extend_from_slice(&0u16.to_le_bytes());
+        payload
+    }
+
+    async fn send_test_terminal_frame(stream: &ServiceStream, frame: Frame) {
+        stream
+            .send_on(Lane::Interactive, Bytes::from(encode_frame(&frame).unwrap()))
+            .await
+            .unwrap();
+    }
+
     #[test]
     fn bounded_command_queue_preserves_order_and_reports_backpressure() {
         let runtime = Runtime::new().unwrap();
@@ -884,6 +1139,17 @@ mod tests {
             Some("https://relay.example")
         );
         assert_eq!(routing.get(ROUTING_DIRECT_ADDRS).map(String::as_str), Some("127.0.0.1:9000"));
+    }
+
+    #[test]
+    fn named_key_encoding_uses_the_local_terminal_keyboard_modes() {
+        let mut state = ClientState::new("test".into(), "memory".into(), 1, 73).unwrap();
+        state.terminal = Some(Terminal::new(80, 24, 0, Callbacks::default()).unwrap());
+
+        assert_eq!(state.encode_key("up", false).unwrap(), b"\x1b[A");
+        state.terminal.as_mut().unwrap().vt_write(b"\x1b[?1h");
+        assert_eq!(state.encode_key("up", false).unwrap(), b"\x1bOA");
+        assert_eq!(state.encode_key("ctrl+c", false).unwrap(), vec![0x03]);
     }
 
     #[test]
@@ -1025,6 +1291,108 @@ mod tests {
                 state.lock().unwrap().status.contains("truncated"),
                 "stream termination discarded the decoder's buffered prefix"
             );
+            client.shutdown().await;
+            daemon.shutdown().await;
+        });
+    }
+
+    #[test]
+    fn resync_required_reopens_the_terminal_service_and_applies_a_new_snapshot() {
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(async {
+            let (client_endpoint, daemon_endpoint) = endpoint_pair();
+            let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+            let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+            let daemon_task = tokio::spawn({
+                let daemon = daemon.clone();
+                async move {
+                    for round in 0..2 {
+                        let incoming = daemon.accept().await.unwrap().unwrap();
+                        let opened = serde_json::to_vec(&ServiceControl::Opened {
+                            service: Service::TerminalBytes,
+                        })
+                        .unwrap();
+                        incoming
+                            .stream
+                            .send_on(Lane::Interactive, Bytes::from(opened))
+                            .await
+                            .unwrap();
+
+                        let boundary = if round == 0 { 10 } else { 20 };
+                        let mut snapshot = Frame::new(
+                            MessageKind::Snapshot,
+                            test_snapshot_payload(if round == 0 { b"first" } else { b"second" }),
+                        );
+                        snapshot.sequence = boundary;
+                        send_test_terminal_frame(&incoming.stream, snapshot).await;
+
+                        let colors = Frame {
+                            sequence: boundary,
+                            ..Frame::new(
+                                MessageKind::Colors,
+                                cmux_tui_core::terminal_host_runtime::encode_terminal_color_overrides(
+                                    &ghostty_vt::TerminalColorOverrides {
+                                        cursor_visual: Some((ghostty_vt::CursorShape::Block, false)),
+                                        ..Default::default()
+                                    },
+                                ),
+                            )
+                        };
+                        send_test_terminal_frame(&incoming.stream, colors).await;
+                        let mut ready = Frame::new(MessageKind::Ready, Vec::new());
+                        ready.sequence = boundary;
+                        send_test_terminal_frame(&incoming.stream, ready).await;
+
+                        if round == 0 {
+                            let mut resync =
+                                Frame::new(MessageKind::ResyncRequired, Vec::new());
+                            resync.sequence = boundary + 1;
+                            send_test_terminal_frame(&incoming.stream, resync).await;
+                        } else {
+                            let mut output =
+                                Frame::new(MessageKind::Output, b" recovered".to_vec());
+                            output.sequence = boundary + 1;
+                            send_test_terminal_frame(&incoming.stream, output).await;
+                        }
+
+                        let closed = incoming.stream.receive().await.unwrap().unwrap();
+                        assert!(closed.finished || closed.reset);
+                    }
+                }
+            });
+
+            let stream = open_terminal_stream(&client, 73).await.unwrap();
+            let state = Arc::new(Mutex::new(
+                ClientState::new("test".into(), "memory".into(), 1, 73).unwrap(),
+            ));
+            let active = start_terminal_tasks(
+                &runtime,
+                stream,
+                client.clone(),
+                73,
+                state.clone(),
+            );
+
+            tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                loop {
+                    let recovered = {
+                        let mut state = state.lock().unwrap();
+                        state.materialize_frame().unwrap();
+                        state.ready
+                            && state.resync_count == 1
+                            && state.frame_text.contains("second recovered")
+                    };
+                    if recovered {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("renderer did not recover from ResyncRequired");
+
+            active.close().await;
+            daemon_task.await.unwrap();
             client.shutdown().await;
             daemon.shutdown().await;
         });
