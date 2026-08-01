@@ -135,6 +135,7 @@ class FakeTransport implements Transport {
 
 class DispatchHandleTransport implements Transport {
   readonly dispatched: string[] = [];
+  readonly registrations: string[] = [];
   retained: string | undefined;
   releases = 0;
   private queued: { readonly json: string; readonly dispatch: () => void } | undefined;
@@ -148,6 +149,7 @@ class DispatchHandleTransport implements Transport {
   }
 
   sendCancellable(json: string, onDispatched: () => void): Unsubscribe {
+    this.registrations.push(json);
     this.retained = json;
     const dispatch = () => {
       onDispatched();
@@ -250,6 +252,44 @@ test("raw router releases the exact cancellation handle at dispatch", async () =
     await client.close();
     await assert.rejects(() => pending, /transport closed/);
     assert.equal(transport.releases, 1);
+  }
+});
+
+test("raw request timeout rejects invalid timer values before registration or dispatch", async () => {
+  for (const timeoutMs of [-1, Number.NaN, Number.POSITIVE_INFINITY, 0x8000_0000]) {
+    const transport = new DispatchHandleTransport(true);
+    const client = new CmuxClient({ transport, timeoutMs: 1_000 });
+
+    await assert.rejects(
+      () => client.sendRaw(
+        { id: `invalid-${String(timeoutMs)}`, cmd: "ping" },
+        { timeoutMs },
+      ),
+      (error: unknown) => {
+        assert.ok(error instanceof TypeError);
+        assert.equal(error.message, "timeoutMs must be between 0 and 2147483647");
+        return true;
+      },
+    );
+    assert.deepEqual(transport.registrations, []);
+    assert.deepEqual(transport.dispatched, []);
+    await client.close();
+  }
+});
+
+test("raw request timeout accepts the inclusive timer boundaries", async () => {
+  for (const timeoutMs of [0, 0x7fff_ffff]) {
+    const transport = new DispatchHandleTransport(true);
+    const client = new CmuxClient({ transport, timeoutMs: 1_000 });
+    const pending = client.sendRaw(
+      { id: `boundary-${timeoutMs}`, cmd: "ping" },
+      { timeoutMs },
+    );
+
+    assert.equal(transport.registrations.length, 1);
+    assert.equal(transport.dispatched.length, 1);
+    await client.close();
+    await assert.rejects(() => pending, /session transport closed/);
   }
 });
 
