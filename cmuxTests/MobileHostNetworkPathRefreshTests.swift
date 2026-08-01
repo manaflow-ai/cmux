@@ -217,14 +217,17 @@ struct MobileHostIrohStartupRetryTests {
         runtime.stageIrohRoute(binding, revision: revision)
 
         #expect(!MobileHostPublicStatusCache.hasIrohRoute())
+        #expect(runtime.routePublicationPhase == .starting(revision: revision))
         #expect(!runtime.publishIrohRouteIfActive(revision: revision - 1))
         #expect(!MobileHostPublicStatusCache.hasIrohRoute())
         #expect(runtime.publishIrohRouteIfActive(revision: revision))
         #expect(MobileHostPublicStatusCache.hasIrohRoute())
 
+        runtime.lifecycleRevision = revision + 1
         runtime.beginIrohRouteActivation(revision: revision + 1)
 
         #expect(!MobileHostPublicStatusCache.hasIrohRoute())
+        #expect(runtime.routePublicationPhase == .starting(revision: revision + 1))
     }
 
     @Test
