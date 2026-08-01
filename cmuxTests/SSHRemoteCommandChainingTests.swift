@@ -306,14 +306,20 @@ struct SSHRemoteCommandChainingTests {
         while [ "$#" -gt 0 ]; do
           case "$1" in
             -o)
-              case "$2" in
-                RemoteCommand=none|remotecommand=none) remote_command_override=none ;;
-              esac
-              shift 2
+              if [ "$#" -gt 1 ]; then
+                option=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
+                [ "$option" = remotecommand=none ] && remote_command_override=none
+                shift 2
+              else
+                shift
+              fi
               ;;
-            -p|-i) shift 2 ;;
-            -tt|-t|-T) shift ;;
-            *) shift; break ;;
+            -o*)
+              option=$(printf '%s' "${1#-o}" | tr '[:upper:]' '[:lower:]')
+              [ "$option" = remotecommand=none ] && remote_command_override=none
+              shift
+              ;;
+            *) shift ;;
           esac
         done
         if [ "$remote_command_override" = inherited ]; then
