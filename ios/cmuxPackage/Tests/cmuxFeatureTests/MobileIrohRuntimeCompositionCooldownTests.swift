@@ -699,10 +699,38 @@ private struct MobileIrohCooldownFixture {
     }
 
     func requestWithDirectPath(
-        privacyScope: CmxIrohPathPrivacyScope
+        privacyScope: CmxIrohPathHintPrivacyScope
     ) throws -> CmxByteTransportRequest {
         guard case let .peer(identity, _) = request.route.endpoint else {
             throw MobileIrohCooldownTestError.unavailable
+        }
+        let hint: CmxIrohPathHint
+        switch privacyScope {
+        case .publicInternet:
+            hint = try CmxIrohPathHint(
+                kind: .directAddress,
+                value: "8.8.8.8:443",
+                source: .native,
+                privacyScope: privacyScope
+            )
+        case .localNetwork, .privateNetwork:
+            let source: CmxIrohPathHintSource = privacyScope == .localNetwork
+                ? .lan
+                : .tailscale
+            hint = try CmxIrohPathHint(
+                kind: .directAddress,
+                value: privacyScope == .localNetwork
+                    ? "192.168.50.10:443"
+                    : "100.64.0.10:443",
+                source: source,
+                privacyScope: privacyScope,
+                observedAt: clock.now,
+                expiresAt: clock.now.addingTimeInterval(600),
+                networkProfile: CmxIrohNetworkProfileKey(
+                    source: source,
+                    profileID: String(repeating: "a", count: 64)
+                )
+            )
         }
         return CmxByteTransportRequest(
             route: try CmxAttachRoute(
@@ -710,14 +738,7 @@ private struct MobileIrohCooldownFixture {
                 kind: request.route.kind,
                 endpoint: .peer(
                     identity: identity,
-                    pathHints: [
-                        try CmxIrohPathHint(
-                            kind: .directAddress,
-                            value: "203.0.113.10:443",
-                            source: .native,
-                            privacyScope: privacyScope
-                        ),
-                    ]
+                    pathHints: [hint]
                 ),
                 priority: request.route.priority
             ),
