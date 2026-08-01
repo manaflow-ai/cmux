@@ -110,7 +110,12 @@ extension TerminalSurface {
             }
             return (fit.columns, fit.rows)
         }
-        ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
+        applySurfaceSize(
+            surface,
+            width: appliedWidth,
+            height: appliedHeight,
+            caller: "mobile.viewport.apply"
+        )
         lastPixelWidth = appliedWidth
         lastPixelHeight = appliedHeight
         ghostty_surface_refresh(surface)
@@ -159,7 +164,12 @@ extension TerminalSurface {
         #endif
 
         guard sizeChanged else { return (appliedColumns, appliedRows) }
-        ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
+        applySurfaceSize(
+            surface,
+            width: appliedWidth,
+            height: appliedHeight,
+            caller: "mobile.viewport.legacy"
+        )
         lastPixelWidth = appliedWidth
         lastPixelHeight = appliedHeight
         ghostty_surface_refresh(surface)
@@ -204,7 +214,12 @@ extension TerminalSurface {
             ghostty_surface_refresh(surface)
             return fontRestored
         }
-        ghostty_surface_set_size(surface, uncappedWidth, uncappedHeight)
+        applySurfaceSize(
+            surface,
+            width: uncappedWidth,
+            height: uncappedHeight,
+            caller: "mobile.viewport.clear"
+        )
         lastPixelWidth = uncappedWidth
         lastPixelHeight = uncappedHeight
         ghostty_surface_refresh(surface)
