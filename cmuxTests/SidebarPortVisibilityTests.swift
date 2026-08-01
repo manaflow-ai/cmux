@@ -30,23 +30,49 @@ struct SidebarPortVisibilityTests {
         #expect(workspace.listeningPorts == [3_000, 49_151])
     }
 
-    @Test("Empty ignored-ports override republishes every raw observation")
-    func emptyOverrideRepublishesEveryRawObservation() throws {
+    @Test("Settings notification republishes every raw observation for an empty override")
+    func settingsNotificationRepublishesEveryRawObservationForEmptyOverride() throws {
         let (defaults, suiteName) = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let catalog = SettingCatalog()
         let settings = UserDefaultsSettingsClient(defaults: defaults)
 
-        let workspace = Workspace(settings: settings)
+        let manager = TabManager(settings: settings)
+        let workspace = try #require(manager.selectedWorkspace)
         workspace.agentListeningPorts = [3_000, 49_152, 65_535]
         workspace.recomputeListeningPorts()
 
         #expect(workspace.listeningPorts == [3_000])
 
         settings.set([], for: catalog.sidebar.ignoredPorts)
-        workspace.recomputeListeningPorts()
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: defaults
+        )
 
         #expect(workspace.listeningPorts == [3_000, 49_152, 65_535])
+    }
+
+    @Test("Custom-sidebar surface snapshots apply the policy without discarding observations")
+    func customSidebarSurfaceSnapshotsApplyPolicyWithoutDiscardingObservations() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let workspace = Workspace(settings: UserDefaultsSettingsClient(defaults: defaults))
+        let panelID = try #require(workspace.focusedPanelId)
+        let observedPorts = [49_151, 49_152, 65_535]
+
+        workspace.surfaceListeningPorts[panelID] = observedPorts
+        workspace.recomputeListeningPorts()
+
+        let snapshot = workspace.customSidebarWorkspaceSnapshot(
+            index: 0,
+            selectedId: workspace.id,
+            unreadCount: 0
+        )
+        let surface = try #require(snapshot.surfaces.first { $0.panelId == panelID })
+
+        #expect(surface.listeningPorts == [49_151])
+        #expect(workspace.surfaceListeningPorts[panelID] == observedPorts)
     }
 
     @Test("cmux.json parses exact ports and inclusive ignored ranges")

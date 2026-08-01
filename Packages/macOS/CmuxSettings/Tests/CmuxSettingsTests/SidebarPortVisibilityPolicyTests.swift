@@ -76,4 +76,18 @@ struct SidebarPortVisibilityPolicyTests {
         #expect(SidebarIgnoredPortRule.decodeFromJSON(NSNumber(value: true)) == nil)
         #expect(SidebarIgnoredPortRule.decodeFromJSON(NSNumber(value: 49_152.5)) == nil)
     }
+
+    @Test("Malformed boolean UserDefaults entries fall back to the default policy")
+    func booleanUserDefaultsEntryFallsBackToDefaultPolicy() throws {
+        let suiteName = "SidebarPortVisibilityPolicyTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = SettingCatalog().sidebar.ignoredPorts
+
+        defaults.set([true], forKey: key.userDefaultsKey)
+
+        #expect(UserDefaultsSettingsClient(defaults: defaults).value(for: key) == [
+            .range(SidebarPortVisibilityPolicy.operatingSystemEphemeralRange),
+        ])
+    }
 }
