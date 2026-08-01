@@ -634,9 +634,9 @@ def test_matcherless_turn_hooks_run_for_every_turn(failures: list[str]) -> None:
     hooks = settings.get("hooks", {})
 
     # Claude Code does not support matchers for these once-per-turn events.
-    # Supplying even an empty matcher can silently prevent UserPromptSubmit
-    # from running, leaving text-only turns with no Running transition.
-    for event_name in ("UserPromptSubmit", "Stop"):
+    # Supplying even an empty matcher can silently prevent UserPromptSubmit or
+    # StopFailure from running, stranding a turn in its previous lifecycle.
+    for event_name in ("UserPromptSubmit", "Stop", "StopFailure"):
         groups = hooks.get(event_name, [])
         expect(bool(groups), f"matcherless hooks: missing {event_name} hook", failures)
         for group in groups:
