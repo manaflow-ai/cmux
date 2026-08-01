@@ -53,11 +53,7 @@ extension CMUXCLI {
             }
             params["surface_id"] = surfaceID
         } else if selector.usesCurrentSurface,
-                  let ttyName = resolveCallerTTYName(),
-                  let caller = resolveTerminalBinding(
-                      ttyName: ttyName,
-                      client: client
-                  ) {
+                  let caller = uniqueCallerTerminalBindingByTTY(client: client) {
             params["surface_id"] = caller.surfaceId
         } else if selector.usesCurrentSurface,
                   let surfaceID = processEnvironment["CMUX_SURFACE_ID"],
