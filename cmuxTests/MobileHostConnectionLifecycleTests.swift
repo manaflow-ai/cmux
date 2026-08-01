@@ -14,6 +14,8 @@ import Testing
 @MainActor
 extension MobileHostAuthorizationTests {
     @Test func testMobileHostConnectionRunOwnsTransportUntilRemoteClose() async {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
         let connectionID = UUID()
         let transport = GatedMobileHostByteTransport()
         let closeRecorder = MobileHostConnectionCloseRecorder()
@@ -36,6 +38,13 @@ extension MobileHostAuthorizationTests {
 
         await transport.finishReceiving()
         await runTask.value
+
+        let closedEvents = Self.retainedConnectionEvents(named: "mobile.rpc.closed")
+        #expect(closedEvents.count == 1)
+        #expect(
+            (closedEvents.first?["payload"] as? [String: Any])?["connection_id"] as? String
+                == session.connectionID.uuidString
+        )
         await session.close(reason: "duplicate close after remote EOF")
 
         #expect(await transport.observedConnectCount() == 1)
@@ -199,8 +208,12 @@ extension MobileHostAuthorizationTests {
     }
 
     private static func retainedUsableSessionEvents() -> [[String: Any]] {
+        retainedConnectionEvents(named: "mobile.rpc.ready")
+    }
+
+    private static func retainedConnectionEvents(named name: String) -> [[String: Any]] {
         CmuxEventBus.shared.retainedSnapshot().filter {
-            $0["name"] as? String == "mobile.rpc.ready"
+            $0["name"] as? String == name
         }
     }
 

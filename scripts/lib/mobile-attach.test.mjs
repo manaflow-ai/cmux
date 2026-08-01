@@ -94,6 +94,34 @@ function waitForUsableSession(status = 0, baseline = "100", timeout = "30") {
   }
 }
 
+function waitForSessionThatClosesDuringAdmissionRevalidation() {
+  return run(
+    "bash",
+    [
+      "-c",
+      [
+        'source "$1"',
+        'cmux_attach_events() {',
+        '  local args=" $* "',
+        '  if [[ "$args" == *" --name mobile.rpc.ready "* ]]; then',
+        '    printf \'%s\\n\' \'{"type":"event","seq":101,"name":"mobile.rpc.ready","payload":{"connection_id":"connection-A"}}\'',
+        '    return 0',
+        '  fi',
+        '  if [[ "$args" == *" --name mobile.rpc.closed "* ]]; then',
+        '    printf \'%s\\n\' \'{"type":"event","seq":102,"name":"mobile.rpc.closed","payload":{"connection_id":"connection-A"}}\'',
+        '    return 1',
+        '  fi',
+        '  printf \'%s\\n\' \'{"type":"ack","resume":{"latest_seq":102}}\'',
+        '}',
+        'cmux_attach_wait_for_usable_session "ready" "$2" 100 30 35',
+      ].join("\n"),
+      "mobile-admission-revalidation-test",
+      validator,
+      repoRoot,
+    ],
+  );
+}
+
 function readinessCursor(snapshot) {
   return run(
     "bash",
@@ -465,6 +493,13 @@ test("dogfood readiness fails when a usable RPC session misses its deadline", ()
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /did not establish a usable RPC session.*readiness deadline/i);
+});
+
+test("dogfood readiness fails when the usable RPC session closes during admission revalidation", () => {
+  const result = waitForSessionThatClosesDuringAdmissionRevalidation();
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /closed during admission revalidation/i);
 });
 
 test("macOS and iOS reloads share the dev API backend override", () => {
