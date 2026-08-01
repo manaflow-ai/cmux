@@ -355,7 +355,41 @@ extension MobileShellComposite {
               !connectionRecoveryOwner.isActive else {
             return
         }
-        recoverMobileConnection(trigger: .foreground)
+        if let accountID = identityProvider?.currentUserID {
+            clearTransientAutomaticReconnectBackoff(accountID: accountID)
+        }
+        connectionRecoveryOwner.cancel()
+        applyConnectionRecoveryOwnerState()
+        isReconnectingStoredMac = true
+        isRecoveringConnection = true
+        connectionRecoveryFailed = false
+        let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let outcome = await self.reconnectActiveMacOutcome(
+                stackUserID: stackUserID,
+                refreshBackupBeforeDial: false
+            )
+            guard !Task.isCancelled else { return }
+            switch outcome {
+            case .connected:
+                self.isRecoveringConnection = false
+                self.connectionRecoveryFailed = false
+            case .failed:
+                self.isRecoveringConnection = false
+                if self.connectionState != .connected,
+                   !self.connectionRequiresReauth {
+                    self.connectionRecoveryFailed = true
+                }
+            case .superseded:
+                if self.connectionState == .connected {
+                    self.isRecoveringConnection = false
+                    self.connectionRecoveryFailed = false
+                } else if !self.isReconnectingStoredMac {
+                    self.isRecoveringConnection = false
+                }
+            }
+        }
     }
 
     func loadReconnectRefreshSnapshot(
