@@ -219,8 +219,8 @@ async fn read_credential_command(
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    let mut child =
-        command.spawn().map_err(|_| credential_source_error("command could not be started"))?;
+    let mut child = crate::process_creation::spawn(&mut command)
+        .map_err(|_| credential_source_error("command could not be started"))?;
     let stdout = child
         .stdout
         .take()

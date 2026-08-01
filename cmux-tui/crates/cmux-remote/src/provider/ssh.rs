@@ -180,8 +180,7 @@ impl LinkGroup for SshLinkGroup {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .kill_on_drop(true);
-        let mut child = command
-            .spawn()
+        let mut child = crate::process_creation::spawn(&mut command)
             .map_err(|error| ProviderError::Transport(format!("could not start ssh: {error}")))?;
         let stdin = child
             .stdin

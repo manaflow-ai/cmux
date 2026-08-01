@@ -22,6 +22,7 @@ base64.workspace = true
 bytes.workspace = true
 cmux-pty.workspace = true
 cmux-remote-protocol.workspace = true
+cmux-tui-process.workspace = true
 diffy.workspace = true
 futures-util.workspace = true
 fs4.workspace = true
@@ -46,7 +47,6 @@ zeroize.workspace = true
 
 [dev-dependencies]
 cmux-relay = { path = "../cmux-relay" }
-cmux-tui-process.workspace = true
 rcgen = "0.14"
 tempfile = "3"
  tower = { version = "0.5", features = ["util"] }

@@ -1165,8 +1165,7 @@ impl ProcessManager {
         let mut child_events =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())
                 .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
-        let mut child = command
-            .spawn()
+        let mut child = crate::process_creation::spawn(&mut command)
             .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
         let pid = child.id();
         #[cfg(unix)]

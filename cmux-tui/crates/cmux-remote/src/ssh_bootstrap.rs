@@ -262,13 +262,12 @@ impl SshBootstrapper {
         for argument in remote_arguments {
             command.arg(argument);
         }
-        let mut child = command
+        command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(BootstrapError::Io)?;
+            .kill_on_drop(true);
+        let mut child = crate::process_creation::spawn(&mut command).map_err(BootstrapError::Io)?;
         let stdout = match child.stdout.take() {
             Some(stdout) => stdout,
             None => {

@@ -259,6 +259,10 @@ extension TerminalSurface {
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
+            if closeRuntimeTeardownTicket == nil {
+                closeRuntimeTeardownTicket =
+                    agentHibernationRuntimeTeardownTicket
+            }
             return closeRuntimeTeardownTicket
         }
 
@@ -315,6 +319,9 @@ extension TerminalSurface {
         let completed = await ticket.wait(timeout: timeout)
         if completed, closeRuntimeTeardownTicket?.id == ticket.id {
             closeRuntimeTeardownTicket = nil
+        }
+        if completed, agentHibernationRuntimeTeardownTicket?.id == ticket.id {
+            agentHibernationRuntimeTeardownTicket = nil
         }
         return completed
     }

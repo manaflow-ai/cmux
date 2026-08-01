@@ -1843,7 +1843,8 @@ fn ensure_daemon(
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));
         configure_detached_process(&mut mux_owner);
-        let mut child = mux_owner.spawn().context("could not start remote mux owner")?;
+        let mut child =
+            cmux_tui_process::spawn(&mut mux_owner).context("could not start remote mux owner")?;
         let deadline = Instant::now() + Duration::from_secs(20);
         while Instant::now() < deadline {
             if UnixStream::connect(&mux_socket).is_ok() {
@@ -1875,7 +1876,8 @@ fn ensure_daemon(
     command.stdin(Stdio::null());
     command.stdout(Stdio::from(log.try_clone()?)).stderr(Stdio::from(log));
     configure_detached_process(&mut command);
-    let mut child = command.spawn().context("could not start remote daemon")?;
+    let mut child =
+        cmux_tui_process::spawn(&mut command).context("could not start remote daemon")?;
     let deadline = Instant::now() + Duration::from_secs(20);
     while Instant::now() < deadline {
         if UnixStream::connect(link).is_ok() {
