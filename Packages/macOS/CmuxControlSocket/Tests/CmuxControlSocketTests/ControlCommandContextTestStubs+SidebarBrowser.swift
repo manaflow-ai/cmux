@@ -61,7 +61,11 @@ extension ControlSidebarContext {
         pid: Int32?
     ) {}
 
-    nonisolated func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String) {}
+    nonisolated func controlSidebarScheduleStatusClear(
+        target: ControlSidebarTabTarget,
+        key: String,
+        panelID: UUID?
+    ) {}
 
     nonisolated func controlSidebarScheduleAgentPIDRecord(
         target: ControlSidebarTabTarget,
@@ -97,7 +101,8 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
-        clearStatus: Bool
+        clearStatus: Bool,
+        requireOwnedKey: Bool
     ) {}
 
     nonisolated func controlSidebarScheduleMetadataBlockUpsert(
@@ -227,7 +232,11 @@ extension ControlSidebarContext {
 
     func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution { .noTabSelected }
 
-    func controlSidebarReloadConfig() {}
+    func controlSidebarReloadConfig(
+        completion: @escaping @MainActor () -> Void
+    ) {
+        completion()
+    }
     func controlSidebarRefreshSurfaces() -> Int { 0 }
     func controlSidebarSurfaceHealth(tabArg: String) -> [ControlSidebarSurfaceHealthRow]? { nil }
 }

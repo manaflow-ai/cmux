@@ -40,9 +40,9 @@ Verification:
    `local_parser_cursor` and `raw_frames` prove that raw PTY bytes are being
    parsed in the app. `server_snapshot_rpc_count` remains zero.
 
-The build requires Rust 1.97.1, Zig 0.15, `jq`, OpenSSL, and
-XcodeBuildMCP. Set `ZIG=/path/to/zig-0.15` when Zig 0.15 is not installed at
-the Homebrew `zig@0.15` path.
+The build requires Rust 1.97.1, the Zig version declared by Ghostty, `jq`,
+OpenSSL, and XcodeBuildMCP. `run-demo.sh` validates `zig` from `PATH`; set
+`ZIG=/path/to/zig` to select another compatible executable.
 
 ## Protocol contract
 

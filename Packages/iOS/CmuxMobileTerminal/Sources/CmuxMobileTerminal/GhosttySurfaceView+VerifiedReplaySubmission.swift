@@ -7,7 +7,8 @@ import QuartzCore
 @MainActor
 extension GhosttySurfaceView {
     func submitVerifiedReplayRenderAndWait(
-        read: VerifiedReplaySurfaceRead?
+        read: VerifiedReplaySurfaceRead?,
+        rearmReadyFenceOnPresent: Bool = false
     ) async -> VerifiedReplayPresentedSubmission? {
         guard let surface,
               !isDismantled,
@@ -45,6 +46,7 @@ extension GhosttySurfaceView {
                     read: read,
                     fence: fence,
                     observedFrame: nil,
+                    rearmReadyFenceOnPresent: rearmReadyFenceOnPresent,
                     continuation: continuation
                 )
             )

@@ -4,6 +4,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 TUI_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd -P)"
+REPO_ROOT="$(cd "$TUI_ROOT/.." && pwd -P)"
+
+# shellcheck source=/dev/null
+source "$REPO_ROOT/scripts/ghostty-zig-version.sh"
+ZIG_REQUIRED="$(ghostty_minimum_zig_version "$REPO_ROOT")"
 
 for command in cargo codesign jq openssl xcodebuildmcp; do
   if ! command -v "$command" >/dev/null 2>&1; then
@@ -13,17 +18,15 @@ for command in cargo codesign jq openssl xcodebuildmcp; do
 done
 
 if [[ -z "${ZIG:-}" ]]; then
-  for candidate in \
-    /opt/homebrew/opt/zig@0.15/bin/zig \
-    /usr/local/opt/zig@0.15/bin/zig; do
-    if [[ -x "$candidate" ]]; then
-      ZIG="$candidate"
-      break
-    fi
-  done
+  ZIG="$(command -v zig || true)"
 fi
 if [[ -z "${ZIG:-}" || ! -x "$ZIG" ]]; then
-  echo "Set ZIG to a Zig 0.15 executable (for example /opt/homebrew/opt/zig@0.15/bin/zig)." >&2
+  echo "Set ZIG to a Zig $ZIG_REQUIRED-compatible executable." >&2
+  exit 1
+fi
+if ! ZIG_ACTUAL="$("$ZIG" version 2>/dev/null)" \
+  || ! ghostty_zig_version_is_compatible "$ZIG_ACTUAL" "$ZIG_REQUIRED"; then
+  echo "TerminalBytes demo needs Zig $ZIG_REQUIRED-compatible; $ZIG reports ${ZIG_ACTUAL:-unknown}." >&2
   exit 1
 fi
 export ZIG

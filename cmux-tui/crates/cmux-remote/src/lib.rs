@@ -7,6 +7,7 @@ pub mod client;
 pub mod connection;
 pub mod crypto;
 pub mod daemon;
+pub mod http;
 pub mod identity;
 pub mod link;
 mod mux_codec;

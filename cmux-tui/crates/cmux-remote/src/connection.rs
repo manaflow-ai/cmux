@@ -125,6 +125,8 @@ pub struct ClientConnection {
     daemon_public_key: [u8; 32],
     reconnecting: Arc<Mutex<()>>,
     lane_sends: [Mutex<()>; 4],
+    receiving: Mutex<()>,
+    deferred_receive: StdMutex<Option<Result<ReceivedFrame, ConnectionError>>>,
     last_received: StdMutex<Instant>,
     closed: AtomicBool,
     close_state: watch::Sender<CloseState>,
@@ -241,6 +243,8 @@ impl ClientConnection {
             daemon_public_key,
             reconnecting: Arc::new(Mutex::new(())),
             lane_sends: std::array::from_fn(|_| Mutex::new(())),
+            receiving: Mutex::new(()),
+            deferred_receive: StdMutex::new(None),
             last_received: StdMutex::new(Instant::now()),
             closed: AtomicBool::new(false),
             close_state,
@@ -384,9 +388,18 @@ impl ClientConnection {
     }
 
     pub async fn receive(&self) -> Result<Option<ReceivedFrame>, ConnectionError> {
+        let _receiving = self.receiving.lock().await;
         loop {
             if self.closed.load(Ordering::Acquire) {
                 return Ok(None);
+            }
+            if let Some(received) = self
+                .deferred_receive
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take()
+            {
+                return received.map(Some);
             }
             let session = self.session.read().await.clone();
             let generation = session.generation();
@@ -409,6 +422,61 @@ impl ClientConnection {
                     self.recover(generation).await?;
                 }
                 Err(error) => return Err(error.into()),
+            }
+        }
+    }
+
+    /// Drive one idle receive while no application reader owns the session.
+    /// Heartbeat control frames are consumed internally. At most one
+    /// application frame or terminal error is deferred, which keeps liveness
+    /// independent of caller polling without creating an unbounded side queue.
+    async fn probe_liveness(&self, generation: u64, observed: Instant) -> bool {
+        let _receiving = self.receiving.lock().await;
+        if self.closed.load(Ordering::Acquire)
+            || self.session.read().await.generation() != generation
+            || self.last_received() > observed
+        {
+            return true;
+        }
+        if self.deferred_receive.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
+        {
+            // The application is applying receive backpressure. Do not mistake
+            // that local condition for a dead carrier.
+            return true;
+        }
+        let session = self.session.read().await.clone();
+        if session.generation() != generation {
+            return true;
+        }
+        match session.receive().await {
+            Ok(Some(frame)) => {
+                self.mark_received();
+                if frame.flags.contains(FrameFlags::HEARTBEAT_RESPONSE) {
+                    return true;
+                }
+                if frame.flags.contains(FrameFlags::HEARTBEAT_REQUEST) {
+                    return self
+                        .send_in_generation(
+                            Some(generation),
+                            Lane::Control,
+                            0,
+                            Bytes::new(),
+                            FrameFlags::HEARTBEAT_RESPONSE,
+                        )
+                        .await
+                        .is_ok();
+                }
+                *self.deferred_receive.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                    Some(Ok(frame));
+                true
+            }
+            Err(SessionError::StaleGeneration { .. }) => true,
+            Ok(None) => false,
+            Err(error) if reconnectable_session_error(&error) => false,
+            Err(error) => {
+                *self.deferred_receive.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                    Some(Err(error.into()));
+                true
             }
         }
     }
@@ -693,6 +761,16 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         if connection.closed.load(Ordering::Acquire) {
             return;
         }
+        if connection
+            .deferred_receive
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_some()
+        {
+            // The consumer must drain its deferred frame before another probe
+            // can be observed without expanding local buffering.
+            continue;
+        }
         let observed = connection.last_received();
         let generation = connection.session.read().await.generation();
         if connection
@@ -708,15 +786,15 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         {
             continue;
         }
-        drop(connection);
-        tokio::time::sleep(timeout).await;
-        let Some(connection) = weak.upgrade() else { return };
+        let live = tokio::time::timeout(timeout, connection.probe_liveness(generation, observed))
+            .await
+            .unwrap_or(false);
         if connection.closed.load(Ordering::Acquire)
             || connection.session.read().await.generation() != generation
         {
             continue;
         }
-        if connection.last_received() <= observed {
+        if !live && connection.last_received() <= observed {
             let _ = connection.recover(generation).await;
         }
     }
@@ -960,20 +1038,14 @@ impl fmt::Display for ConnectionError {
 fn reconnectable_session_error(error: &SessionError) -> bool {
     matches!(
         error,
-        SessionError::Link(_) | SessionError::LinkMessage(_) | SessionError::SchedulerClosed
+        SessionError::Link(LinkError::Closed | LinkError::Transport(_))
+            | SessionError::LinkMessage(_)
+            | SessionError::SchedulerClosed
     )
 }
 
 fn retryable_connection_error(error: &ConnectionError) -> bool {
     error.is_retryable_carrier_failure()
-        || matches!(
-            error,
-            ConnectionError::Provider(ProviderError::Transport(_))
-                | ConnectionError::Crypto(CryptoError::LinkError(_))
-                | ConnectionError::Crypto(CryptoError::Link(_))
-                | ConnectionError::Link(_)
-                | ConnectionError::Session(SessionError::Link(_))
-        )
 }
 
 impl std::error::Error for ConnectionError {}
@@ -1027,6 +1099,12 @@ mod tests {
         }
         assert!(!retryable_connection_error(&ConnectionError::Provider(ProviderError::Link(
             LinkError::Protocol("invalid peer frame".into())
+        ))));
+        assert!(!retryable_connection_error(&ConnectionError::Crypto(CryptoError::Link(
+            "invalid secure-link setup".into()
+        ))));
+        assert!(!retryable_connection_error(&ConnectionError::Link(LinkError::Protocol(
+            "invalid physical frame".into()
         ))));
     }
 
@@ -1378,7 +1456,9 @@ mod tests {
 
         async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
             if self.opens.fetch_add(1, Ordering::AcqRel) != 0 {
-                return Err(ProviderError::Transport("replacement carrier unavailable".into()));
+                return Err(ProviderError::Link(LinkError::Transport(
+                    "replacement carrier unavailable".into(),
+                )));
             }
             let (client, daemon, epoch) = fault_pair();
             *self.epoch.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(epoch);
@@ -1484,6 +1564,63 @@ mod tests {
         let reconnected = client.snapshot().await;
         assert_eq!(reconnected.generation, 1);
         assert_eq!(reconnected.state, ConnectionState::Connected);
+    }
+
+    #[tokio::test]
+    async fn heartbeat_reads_responses_without_an_application_receive_poll() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "idle-heartbeat", true).unwrap();
+        let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let group = Arc::new(FaultGroup {
+            daemon,
+            epochs: Mutex::new(Vec::new()),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let client = ClientConnection::connect(
+            group,
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "idle-heartbeat-client".into(),
+                session: SessionId([90; 16]),
+                lane_policy: LanePolicy::Single,
+                limits: SessionLimits::default(),
+                reconnect: ReconnectPolicy {
+                    initial_delay: Duration::from_millis(1),
+                    maximum_delay: Duration::from_millis(5),
+                    attempt_timeout: Duration::from_millis(100),
+                    full_jitter: false,
+                    heartbeat_interval: Some(Duration::from_millis(10)),
+                    heartbeat_timeout: Duration::from_millis(30),
+                    maximum_attempts: Some(2),
+                },
+            },
+        )
+        .await
+        .unwrap();
+        let server =
+            tokio::time::timeout(Duration::from_secs(2), accepted.recv()).await.unwrap().unwrap();
+        let receiving_server = server.clone();
+        let server_reader =
+            tokio::spawn(
+                async move { while receiving_server.receive().await.unwrap().is_some() {} },
+            );
+        server
+            .send(
+                Lane::Control,
+                44,
+                Bytes::from_static(b"deferred while idle"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(client.snapshot().await.generation, 0);
+        assert_eq!(client.receive().await.unwrap().unwrap().payload, b"deferred while idle"[..]);
+        client.close().await.unwrap();
+        server_reader.await.unwrap();
     }
 
     #[tokio::test]

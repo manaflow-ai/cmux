@@ -1,6 +1,7 @@
 use std::io::{Cursor, Write};
 use std::sync::OnceLock;
 
+use cmux_tui_core::BrowserFailure;
 use cmux_tui_machine_protocol::provider_action_id;
 use unicode_width::UnicodeWidthStr;
 
@@ -20,6 +21,37 @@ pub(crate) struct PairingMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ForeignViewportMessages {
     pub terminal_grid: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct TerminalMessages {
+    pub clear_history_help: &'static str,
+    pub clear_history_failed: &'static str,
+    pub clear_history_outcome_unknown: &'static str,
+    pub clear_history_unsupported: &'static str,
+    pub clear_history_fallback_unrepresentable: &'static str,
+    pub clear_history_preservation_impossible: &'static str,
+    pub clear_history_stream_timeout: &'static str,
+    pub clear_history_fallback_write_timeout: &'static str,
+    pub clear_history_host_unsupported: &'static str,
+    pub clear_history_host_exited: &'static str,
+    pub clear_history_host_failed: &'static str,
+    pub clear_history_host_malformed_response: &'static str,
+    pub clear_history_host_no_response: &'static str,
+    pub clear_history_remote_no_response: &'static str,
+    pub clear_history_remote_disconnected: &'static str,
+    pub clear_history_remote_rejected: &'static str,
+    pub clear_history_unexpected: &'static str,
+    pub keyboard_text_too_large: &'static str,
+    pub paste_text_too_large: &'static str,
+    pub deferred_input_destination_changed: &'static str,
+    pub pointer_input_discarded_during_layout_change: &'static str,
+    pub deferred_input_queue_full: &'static str,
+    pub pty_input_too_large: &'static str,
+    pub pty_input_queue_full: &'static str,
+    pub pty_input_unavailable: &'static str,
+    pub attach_outcome_unknown: &'static str,
+    pub operation_failed: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -79,6 +111,167 @@ pub(crate) struct ShortcutMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct BrowserMessages {
+    failed_prefix: &'static str,
+    not_responding: &'static str,
+    resize_recovery: &'static str,
+    new_page_verification_prefix: &'static str,
+    updated_page_verification_prefix: &'static str,
+    verification_suffix: &'static str,
+}
+
+impl BrowserMessages {
+    pub(crate) fn failure_message(&self, failure: BrowserFailure<'_>) -> String {
+        match failure {
+            BrowserFailure::NotResponding => self.not_responding.to_string(),
+            BrowserFailure::ResizeRecovery => self.resize_recovery.to_string(),
+            BrowserFailure::NewPageVerification(detail) => {
+                format!("{}{detail}{}", self.new_page_verification_prefix, self.verification_suffix)
+            }
+            BrowserFailure::UpdatedPageVerification(detail) => format!(
+                "{}{detail}{}",
+                self.updated_page_verification_prefix, self.verification_suffix
+            ),
+            BrowserFailure::Other(detail) => format!("{}{detail}", self.failed_prefix),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct LayoutMessages {
+    pub startup_shortcuts: &'static str,
+    pub verb_help_heading: &'static str,
+    pub new_pane_right_help: &'static str,
+    pub set_viewport_pane_width_help: &'static str,
+    pub undo_layout_help: &'static str,
+    pub create_viewport_pane_operation: &'static str,
+    pub undo_layout_operation: &'static str,
+    pub resize_exact_split_operation: &'static str,
+    pub split_id_subject: &'static str,
+    pub resize_viewport_pane_operation: &'static str,
+    pub viewport_pane_subject: &'static str,
+    pub remote_viewport_panes_unsupported: &'static str,
+    pub ratio_must_be_number: &'static str,
+    pub ratio_must_be_finite: &'static str,
+    pub viewport_width_must_be_number: &'static str,
+    pub viewport_width_must_be_finite: &'static str,
+    pub viewport_width_out_of_range: &'static str,
+    surface_size_release_failed: &'static str,
+    pane_without_resizable_column: &'static str,
+    pub remote_viewport_resize_unsupported: &'static str,
+    pub remote_layout_undo_unsupported: &'static str,
+    pub layout_undo_missing_screen: &'static str,
+    pub layout_undo_missing_revision: &'static str,
+    pub layout_undo_missing_closes_panes: &'static str,
+    pub layout_undo_invalid_pane: &'static str,
+    pub layout_undo_missing_outcome: &'static str,
+    pub layout_undo_confirmation_flags_together: &'static str,
+    pub layout_changed_before_undo: &'static str,
+    unknown_split: &'static str,
+    unknown_pane_split: &'static str,
+    unrepresentable_viewport_width: &'static str,
+    unrepresentable_viewport_ratio: &'static str,
+    pub viewport_ratio_target_missing: &'static str,
+    pub viewport_ratio_out_of_range: &'static str,
+    pub viewport_column_missing: &'static str,
+    unsupported_server_command: &'static str,
+    layout_undo_applied: &'static str,
+    layout_undo_confirmation_required: &'static str,
+}
+
+impl LayoutMessages {
+    pub(crate) fn surface_size_release_failed(&self, surface: u64, error: &str) -> String {
+        self.surface_size_release_failed
+            .replace("{surface}", &surface.to_string())
+            .replace("{error}", error)
+    }
+
+    pub(crate) fn pane_without_resizable_column(&self, pane: u64) -> String {
+        self.pane_without_resizable_column.replace("{pane}", &pane.to_string())
+    }
+
+    pub(crate) fn unknown_split(&self, split: u64) -> String {
+        self.unknown_split.replace("{split}", &split.to_string())
+    }
+
+    pub(crate) fn unknown_pane_split(&self, pane: u64) -> String {
+        self.unknown_pane_split.replace("{pane}", &pane.to_string())
+    }
+
+    pub(crate) fn unrepresentable_viewport_width(
+        &self,
+        split: u64,
+        ratio: f32,
+        width: f32,
+    ) -> String {
+        self.unrepresentable_viewport_width
+            .replace("{split}", &split.to_string())
+            .replace("{ratio}", &ratio.to_string())
+            .replace("{width}", &width.to_string())
+    }
+
+    pub(crate) fn unrepresentable_viewport_ratio(&self, split: u64, ratio: f32) -> String {
+        self.unrepresentable_viewport_ratio
+            .replace("{split}", &split.to_string())
+            .replace("{ratio}", &ratio.to_string())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn unsupported_server_command(&self, command: &str) -> String {
+        self.unsupported_server_command.replace("{command}", command)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn layout_undo_applied(&self, screen: u64, revision: u64) -> String {
+        self.layout_undo_applied
+            .replace("{screen}", &screen.to_string())
+            .replace("{revision}", &revision.to_string())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn layout_undo_confirmation_required(&self, revision: u64, panes: &str) -> String {
+        self.layout_undo_confirmation_required
+            .replace("{revision}", &revision.to_string())
+            .replace("{panes}", panes)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RuntimeMessages {
+    pub unknown_panic: &'static str,
+    renderer_panicked: &'static str,
+    host_input_failed: &'static str,
+    terminal_restore_also_failed: &'static str,
+}
+
+impl RuntimeMessages {
+    pub(crate) fn renderer_panicked(&self, message: &str) -> String {
+        self.renderer_panicked.replace("{message}", message)
+    }
+
+    pub(crate) fn host_input_failed(&self, error: &str) -> String {
+        self.host_input_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn terminal_restore_also_failed(&self, error: &str, restore_error: &str) -> String {
+        self.terminal_restore_also_failed
+            .replace("{error}", error)
+            .replace("{restore_error}", restore_error)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ConfigMessages {
+    invalid_macos_option_as_alt: &'static str,
+}
+
+impl ConfigMessages {
+    pub(crate) fn invalid_macos_option_as_alt(&self, value: &str) -> String {
+        self.invalid_macos_option_as_alt.replace("{value}", value)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct AttachMessages {
     pub filtered_subscription_unavailable: &'static str,
     unknown_terminal_prefix: &'static str,
@@ -94,10 +287,12 @@ impl AttachMessages {
         format!("{}{reference:?}{}", self.unknown_terminal_prefix, self.unknown_terminal_suffix)
     }
 
+    #[cfg(test)]
     pub fn ambiguous_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.ambiguous_terminal_prefix, self.ambiguous_terminal_suffix)
     }
 
+    #[cfg(test)]
     pub fn browser_not_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.browser_terminal_prefix, self.browser_terminal_suffix)
     }
@@ -157,8 +352,13 @@ pub(crate) struct SidebarMessages {
     pub action_open_private_workspace_port: &'static str,
     pub action_workspace_port: &'static str,
     pub confirm_destructive_action: &'static str,
+    pub confirm_layout_undo: &'static str,
     pub confirmation_mismatch: &'static str,
+    pub layout_nothing_to_undo: &'static str,
+    pub layout_undo_stale: &'static str,
     pub initial_machine_connection_failed: &'static str,
+    pub provider_notice_identity_unavailable: &'static str,
+    pub provider_connection_already_running: &'static str,
     pub machine_provider_disconnected: &'static str,
     pub machine_action_failed: &'static str,
     pub provider_action_open_url: &'static str,
@@ -257,13 +457,38 @@ const fn decimal_width(mut value: u16) -> usize {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct StartupMessages {
+    schema_too_new: &'static str,
+    pub session_socket: &'static str,
+    pub stop_newer_server: &'static str,
+    pub no_server_listening: &'static str,
+    pub forced_handoff_unsupported: &'static str,
+    pub different_server: &'static str,
+    pub server_not_verified: &'static str,
+    pub saved_state_requires_newer: &'static str,
+    pub start_separate_session: &'static str,
+}
+
+impl StartupMessages {
+    pub(crate) fn schema_too_new(&self, session: &str, version: &str) -> String {
+        self.schema_too_new.replace("{version}", version).replace("{session}", session)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
+    pub startup: StartupMessages,
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
+    pub terminal: TerminalMessages,
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
+    pub browser: BrowserMessages,
+    pub layout: LayoutMessages,
+    pub runtime: RuntimeMessages,
+    pub config: ConfigMessages,
     pub attach: AttachMessages,
     pub sidebar: SidebarMessages,
 }
@@ -277,6 +502,17 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
+    startup: StartupMessages {
+        schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
+        session_socket: "session socket",
+        stop_newer_server: "a newer cmux server owns this saved session; stop it before retrying:",
+        no_server_listening: "no server is listening on this socket; nothing needs to be stopped",
+        forced_handoff_unsupported: "this server cannot accept a safe forced shutdown command; use the newer cmux build that started it to stop the session",
+        different_server: "this socket belongs to a different cmux session; no shutdown command is shown",
+        server_not_verified: "cmux could not verify which session owns this socket; no shutdown command is shown",
+        saved_state_requires_newer: "the saved state still requires a newer cmux; upgrade cmux to reopen this session",
+        start_separate_session: "or start this build in a separate session:",
+    },
     pairing: PairingMessages {
         title: "Approve browser?",
         confirm: "Confirm this code matches the browser:",
@@ -285,6 +521,35 @@ static ENGLISH: Catalog = Catalog {
         approve: "[ Approve enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
+    terminal: TerminalMessages {
+        clear_history_help: "Clear PTY history while preserving its active prompt.",
+        clear_history_failed: "Could not clear terminal history",
+        clear_history_outcome_unknown: "Terminal history clear outcome is unknown. Reconnect the session before retrying.",
+        clear_history_unsupported: "clear-history is not supported by this server; restart the cmux-tui server",
+        clear_history_fallback_unrepresentable: "the current terminal keyboard mode cannot encode the fallback key",
+        clear_history_preservation_impossible: "the active terminal input extends into retained history",
+        clear_history_stream_timeout: "terminal output did not reach a safe clear-history boundary",
+        clear_history_fallback_write_timeout: "terminal input did not accept the fallback key before timeout",
+        clear_history_host_unsupported: "the terminal host does not support clear-history; reconnect the session",
+        clear_history_host_exited: "the terminal host exited; reconnect the session",
+        clear_history_host_failed: "the terminal host could not clear its history",
+        clear_history_host_malformed_response: "the terminal host returned an invalid response; reconnect the session",
+        clear_history_host_no_response: "the terminal host did not acknowledge clear-history; reconnect the session",
+        clear_history_remote_no_response: "the remote session did not respond",
+        clear_history_remote_disconnected: "the remote session disconnected; reconnect it",
+        clear_history_remote_rejected: "the remote server rejected clear-history",
+        clear_history_unexpected: "an unexpected terminal error occurred",
+        keyboard_text_too_large: "Keyboard text exceeds the 4 MiB PTY buffer limit",
+        paste_text_too_large: "Paste exceeds the 4 MiB PTY buffer limit",
+        deferred_input_destination_changed: "Deferred input was discarded because its destination changed",
+        pointer_input_discarded_during_layout_change: "Pointer input was discarded while the layout changed",
+        deferred_input_queue_full: "Input queue byte limit reached while a session change is pending",
+        pty_input_too_large: "Input exceeds the 4 MiB PTY buffer limit",
+        pty_input_queue_full: "PTY input queue is full; input was not sent",
+        pty_input_unavailable: "PTY input is unavailable after a transport failure",
+        attach_outcome_unknown: "Surface attach outcome is unknown. Detach and reconnect before sending more input",
+        operation_failed: "Terminal input failed",
+    },
     machine_agent: MachineAgentMessages {
         help: "\
 cmux machine-agent - share one local cmux session through a remote service
@@ -305,7 +570,7 @@ OPTIONS:
 The agent opens one outbound connection. It never opens a public listener or
 edits shell files. Authenticate with the configured host before retrying.
 ",
-        usage: "cmux machine-agent           Share one local session through the configured host",
+        usage: "cmux machine-agent       Share one local session through the configured host",
         pairing_code: "Pairing code",
         registered: "Sharing local cmux session",
         retrying: "Cloud connection lost; retrying in {milliseconds} ms",
@@ -335,12 +600,69 @@ edits shell files. Authenticate with the configured host before retrying.
         close_button: "Esc close",
         footer: "↑/↓ or wheel scroll · Esc or ? close",
     },
+    browser: BrowserMessages {
+        failed_prefix: "browser failed: ",
+        not_responding: "browser failed: browser is not responding",
+        resize_recovery: "browser failed: browser resize recovery failed; reload to retry",
+        new_page_verification_prefix: "browser failed: could not verify new page pixels: ",
+        updated_page_verification_prefix: "browser failed: could not verify updated page pixels: ",
+        verification_suffix: "; reload to retry",
+    },
+    layout: LayoutMessages {
+        startup_shortcuts: "  g  new 2/3 column right   U    undo layout",
+        verb_help_heading: "VERB HELP",
+        new_pane_right_help: "Create a viewport pane to the right (default width: two-thirds).",
+        set_viewport_pane_width_help: "Set the viewport width of the column containing a pane.",
+        undo_layout_help: "Undo the latest structural layout change.",
+        create_viewport_pane_operation: "create viewport pane",
+        undo_layout_operation: "undo layout",
+        resize_exact_split_operation: "resize exact pane split",
+        split_id_subject: "split id",
+        resize_viewport_pane_operation: "resize viewport pane",
+        viewport_pane_subject: "viewport pane",
+        remote_viewport_panes_unsupported: "remote cmux server does not support viewport panes; upgrade the server before using new-pane-right",
+        ratio_must_be_number: "--ratio must be a number",
+        ratio_must_be_finite: "--ratio must be a finite number",
+        viewport_width_must_be_number: "--width must be a number",
+        viewport_width_must_be_finite: "--width must be a finite number",
+        viewport_width_out_of_range: "viewport pane width must be between 0.1 and 1.0",
+        surface_size_release_failed: "surface {surface} size release failed; retrying on the next layout: {error}",
+        pane_without_resizable_column: "pane {pane} has no resizable viewport column",
+        remote_viewport_resize_unsupported: "remote cmux server does not support viewport pane resizing; upgrade the server",
+        remote_layout_undo_unsupported: "remote cmux server does not support layout undo; upgrade the server",
+        layout_undo_missing_screen: "layout undo response is missing screen",
+        layout_undo_missing_revision: "layout undo response is missing revision",
+        layout_undo_missing_closes_panes: "layout undo response is missing closes_panes",
+        layout_undo_invalid_pane: "layout undo response contains an invalid pane",
+        layout_undo_missing_outcome: "layout undo response does not contain exactly one valid outcome",
+        layout_undo_confirmation_flags_together: "--revision and --confirm-close must be supplied together",
+        layout_changed_before_undo: "layout changed before undo",
+        unknown_split: "unknown split {split}",
+        unknown_pane_split: "unknown pane/split {pane}",
+        unrepresentable_viewport_width: "split {split} ratio {ratio} implies viewport width {width}; width must be between 0.1 and 1",
+        unrepresentable_viewport_ratio: "split {split} ratio {ratio} cannot be represented as a viewport width between 0.1 and 1",
+        viewport_ratio_target_missing: "the pane or split no longer exists",
+        viewport_ratio_out_of_range: "the requested ratio cannot be represented by a viewport width between 0.1 and 1",
+        viewport_column_missing: "the pane has no resizable viewport column",
+        unsupported_server_command: "{command} is not supported by this server",
+        layout_undo_applied: "undone screen={screen} revision={revision}",
+        layout_undo_confirmation_required: "confirmation required: rerun with --revision {revision} --confirm-close (closes panes {panes})",
+    },
+    runtime: RuntimeMessages {
+        unknown_panic: "unknown panic",
+        renderer_panicked: "terminal renderer panicked: {message}",
+        host_input_failed: "host terminal input failed: {error}",
+        terminal_restore_also_failed: "{error}; host terminal restoration also failed: {restore_error}",
+    },
+    config: ConfigMessages {
+        invalid_macos_option_as_alt: "cmux-tui: ignoring non-boolean keys.macos_option_as_alt = {value}",
+    },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
         unknown_terminal_prefix: "unknown terminal ",
-        unknown_terminal_suffix: "; use `cmux-tui ids` to list surfaces",
+        unknown_terminal_suffix: "; use `cmux terminal list` to list terminal IDs",
         ambiguous_terminal_prefix: "ambiguous terminal reference ",
-        ambiguous_terminal_suffix: "; use an unambiguous id from `cmux-tui ids`",
+        ambiguous_terminal_suffix: "; use an unambiguous ID from `cmux terminal list`",
         browser_terminal_prefix: "surface ",
         browser_terminal_suffix: " is a browser, not a terminal",
     },
@@ -397,8 +719,13 @@ edits shell files. Authenticate with the configured host before retrying.
         action_open_private_workspace_port: "Open private workspace port",
         action_workspace_port: "Port",
         confirm_destructive_action: "Type CONFIRM to continue",
+        confirm_layout_undo: "Type CONFIRM to close pane(s) {items}",
         confirmation_mismatch: "Type CONFIRM exactly to run this action",
+        layout_nothing_to_undo: "Nothing to undo",
+        layout_undo_stale: "The layout changed; undo was not applied",
         initial_machine_connection_failed: "Could not connect",
+        provider_notice_identity_unavailable: "Could not prepare the connection. Try again; if the problem persists, restart cmux.",
+        provider_connection_already_running: "Another connection is already running. Close it and try again.",
         machine_provider_disconnected: "Machine provider disconnected; reconnecting",
         machine_action_failed: "Machine action failed",
         provider_action_open_url: "Open",
@@ -426,6 +753,17 @@ edits shell files. Authenticate with the configured host before retrying.
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
+    startup: StartupMessages {
+        schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
+        session_socket: "セッションソケット",
+        stop_newer_server: "新しい cmux サーバーがこの保存済みセッションを所有しています。再試行する前に停止:",
+        no_server_listening: "このソケットを待ち受けているサーバーはありません。停止は不要です",
+        forced_handoff_unsupported: "このサーバーは安全な強制停止コマンドに対応していません。セッションを停止するには、起動に使用した新しい cmux ビルドを使用してください",
+        different_server: "このソケットは別の cmux セッションに属しています。シャットダウンコマンドは表示しません",
+        server_not_verified: "このソケットを所有するセッションを確認できませんでした。シャットダウンコマンドは表示しません",
+        saved_state_requires_newer: "保存状態には新しい cmux が必要です。このセッションを再度開くには cmux をアップグレードしてください",
+        start_separate_session: "または、このビルドを別のセッションで開始:",
+    },
     pairing: PairingMessages {
         title: "ブラウザを承認しますか？",
         confirm: "ブラウザのコードと一致するか確認:",
@@ -434,6 +772,35 @@ static JAPANESE: Catalog = Catalog {
         approve: "[ 承認 enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
+    terminal: TerminalMessages {
+        clear_history_help: "アクティブなプロンプトを保持したまま PTY 履歴を消去します。",
+        clear_history_failed: "ターミナル履歴を消去できませんでした",
+        clear_history_outcome_unknown: "ターミナル履歴の消去結果を確認できません。再試行する前にセッションを再接続してください。",
+        clear_history_unsupported: "このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください",
+        clear_history_fallback_unrepresentable: "現在のターミナルキーボードモードでは代替キーを送信できません",
+        clear_history_preservation_impossible: "アクティブなターミナル入力が保持中の履歴にまたがっています",
+        clear_history_stream_timeout: "ターミナル出力が履歴を安全に消去できる境界に達しませんでした",
+        clear_history_fallback_write_timeout: "タイムアウトまでにターミナル入力が代替キーを受け付けませんでした",
+        clear_history_host_unsupported: "ターミナルホストが clear-history に対応していません。セッションを再接続してください",
+        clear_history_host_exited: "ターミナルホストが終了しました。セッションを再接続してください",
+        clear_history_host_failed: "ターミナルホストで履歴の消去に失敗しました",
+        clear_history_host_malformed_response: "ターミナルホストから無効な応答が返されました。セッションを再接続してください",
+        clear_history_host_no_response: "ターミナルホストから clear-history の応答がありませんでした。セッションを再接続してください",
+        clear_history_remote_no_response: "リモートセッションから応答がありませんでした",
+        clear_history_remote_disconnected: "リモートセッションとの接続が切れました。再接続してください",
+        clear_history_remote_rejected: "リモートサーバーが clear-history を拒否しました",
+        clear_history_unexpected: "予期しないターミナルエラーが発生しました",
+        keyboard_text_too_large: "キーボード入力が 4 MiB の PTY バッファ上限を超えています",
+        paste_text_too_large: "貼り付けテキストが 4 MiB の PTY バッファ上限を超えています",
+        deferred_input_destination_changed: "遅延入力は送信先が変更されたため破棄されました",
+        pointer_input_discarded_during_layout_change: "レイアウトの変更中にポインター入力が破棄されました",
+        deferred_input_queue_full: "セッション変更の保留中に入力キューのバイト上限に達しました",
+        pty_input_too_large: "入力が 4 MiB の PTY バッファ上限を超えています",
+        pty_input_queue_full: "PTY 入力キューがいっぱいのため、入力は送信されませんでした",
+        pty_input_unavailable: "転送エラー後のため PTY 入力を使用できません",
+        attach_outcome_unknown: "サーフェスの接続結果を確認できません。入力を再開する前に切断して再接続してください",
+        operation_failed: "ターミナル入力に失敗しました",
+    },
     machine_agent: MachineAgentMessages {
         help: "\
 cmux machine-agent - ローカルの cmux セッションをリモートサービス経由で共有
@@ -454,7 +821,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
 エージェントは外向きの接続を 1 つ開きます。公開リスナーを開いたり、シェルファイル
 を編集したりしません。再試行する前に、設定したホストで認証してください。
 ",
-        usage: "cmux machine-agent           設定したホスト経由でローカルセッションを共有",
+        usage: "cmux machine-agent       設定したホスト経由でローカルセッションを共有",
         pairing_code: "ペアリングコード",
         registered: "ローカル cmux セッションを共有中",
         retrying: "クラウド接続が切断されました。{milliseconds} ミリ秒後に再接続します",
@@ -484,12 +851,69 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         close_button: "Esc 閉じる",
         footer: "↑/↓ またはホイールでスクロール · Esc または ? で閉じる",
     },
+    browser: BrowserMessages {
+        failed_prefix: "ブラウザでエラーが発生しました: ",
+        not_responding: "ブラウザが応答していません",
+        resize_recovery: "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
+        new_page_verification_prefix: "新しいページの表示を確認できませんでした: ",
+        updated_page_verification_prefix: "更新後のページ表示を確認できませんでした: ",
+        verification_suffix: "。再読み込みして再試行してください",
+    },
+    layout: LayoutMessages {
+        startup_shortcuts: "  g  右に 2/3 幅の列を追加   U    レイアウトを元に戻す",
+        verb_help_heading: "コマンドヘルプ",
+        new_pane_right_help: "右側にビューポートペインを作成（既定の幅: 3 分の 2）。",
+        set_viewport_pane_width_help: "ペインを含むビューポート列の幅を設定。",
+        undo_layout_help: "直前のレイアウト変更を元に戻す。",
+        create_viewport_pane_operation: "ビューポートペインを作成",
+        undo_layout_operation: "レイアウトを元に戻す",
+        resize_exact_split_operation: "ペイン分割のサイズを変更",
+        split_id_subject: "分割 ID",
+        resize_viewport_pane_operation: "ビューポートペインのサイズを変更",
+        viewport_pane_subject: "ビューポートペイン",
+        remote_viewport_panes_unsupported: "リモート cmux サーバーはビューポートペインに対応していません。new-pane-right を使用する前にサーバーをアップグレードしてください",
+        ratio_must_be_number: "--ratio には数値を指定してください",
+        ratio_must_be_finite: "--ratio には有限の数値を指定してください",
+        viewport_width_must_be_number: "--width には数値を指定してください",
+        viewport_width_must_be_finite: "--width には有限の数値を指定してください",
+        viewport_width_out_of_range: "ビューポートペインの幅は 0.1 から 1.0 の範囲で指定してください",
+        surface_size_release_failed: "サーフェス {surface} のサイズ設定の解放に失敗しました。次回のレイアウト更新時に再試行します: {error}",
+        pane_without_resizable_column: "ペイン {pane} にはサイズ変更可能なビューポート列がありません",
+        remote_viewport_resize_unsupported: "リモート cmux サーバーはビューポートペインのサイズ変更に対応していません。サーバーをアップグレードしてください",
+        remote_layout_undo_unsupported: "リモート cmux サーバーはレイアウトの取り消しに対応していません。サーバーをアップグレードしてください",
+        layout_undo_missing_screen: "レイアウト取り消し応答にスクリーンがありません",
+        layout_undo_missing_revision: "レイアウト取り消し応答にリビジョンがありません",
+        layout_undo_missing_closes_panes: "レイアウト取り消し応答に closes_panes がありません",
+        layout_undo_invalid_pane: "レイアウト取り消し応答に無効なペインがあります",
+        layout_undo_missing_outcome: "レイアウト取り消し応答に有効な結果が1つだけ含まれていません",
+        layout_undo_confirmation_flags_together: "--revision と --confirm-close は同時に指定してください",
+        layout_changed_before_undo: "取り消し前にレイアウトが変更されました",
+        unknown_split: "分割 {split} が見つかりません",
+        unknown_pane_split: "ペインまたは分割 {pane} が見つかりません",
+        unrepresentable_viewport_width: "分割 {split} の比率 {ratio} ではビューポート幅が {width} になります。幅は 0.1 から 1 の範囲で指定してください",
+        unrepresentable_viewport_ratio: "分割 {split} の比率 {ratio} は 0.1 から 1 の範囲のビューポート幅では表現できません",
+        viewport_ratio_target_missing: "対象のペインまたは分割が存在しません",
+        viewport_ratio_out_of_range: "指定した比率は 0.1 から 1 の範囲のビューポート幅では表現できません",
+        viewport_column_missing: "対象のペインにはサイズ変更可能なビューポート列がありません",
+        unsupported_server_command: "{command} はこのサーバーではサポートされていません",
+        layout_undo_applied: "元に戻しました screen={screen} revision={revision}",
+        layout_undo_confirmation_required: "確認が必要です: --revision {revision} --confirm-close を付けて再実行してください（閉じるペイン: {panes}）",
+    },
+    runtime: RuntimeMessages {
+        unknown_panic: "不明なパニック",
+        renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
+        host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
+        terminal_restore_also_failed: "{error}; ホストターミナルの復元にも失敗しました: {restore_error}",
+    },
+    config: ConfigMessages {
+        invalid_macos_option_as_alt: "cmux-tui: 真偽値ではない keys.macos_option_as_alt = {value} を無視します",
+    },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
         unknown_terminal_prefix: "ターミナル ",
-        unknown_terminal_suffix: " が見つかりません。`cmux-tui ids` でサーフェス一覧を確認してください",
+        unknown_terminal_suffix: " が見つかりません。`cmux terminal list` でターミナル ID 一覧を確認してください",
         ambiguous_terminal_prefix: "ターミナル参照 ",
-        ambiguous_terminal_suffix: " は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください",
+        ambiguous_terminal_suffix: " は曖昧です。`cmux terminal list` に表示される一意の ID を使用してください",
         browser_terminal_prefix: "サーフェス ",
         browser_terminal_suffix: " はブラウザであり、ターミナルではありません",
     },
@@ -546,8 +970,13 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         action_open_private_workspace_port: "非公開のワークスペースポートを開く",
         action_workspace_port: "ポート",
         confirm_destructive_action: "続行するには CONFIRM と入力",
+        confirm_layout_undo: "ペイン {items} を閉じるには CONFIRM と入力",
         confirmation_mismatch: "この操作を実行するには CONFIRM と正確に入力してください",
+        layout_nothing_to_undo: "元に戻せるレイアウト操作はありません",
+        layout_undo_stale: "レイアウトが変更されたため、元に戻す操作は適用されませんでした",
         initial_machine_connection_failed: "マシンに接続できませんでした",
+        provider_notice_identity_unavailable: "接続を準備できませんでした。もう一度お試しください。問題が解決しない場合は、cmux を再起動してください。",
+        provider_connection_already_running: "別の接続がすでに実行中です。終了してから、もう一度お試しください。",
         machine_provider_disconnected: "マシンプロバイダーから切断されました。再接続しています",
         machine_action_failed: "マシン操作に失敗しました",
         provider_action_open_url: "リンクを開く",
@@ -607,20 +1036,48 @@ mod tests {
         assert_eq!(ENGLISH.shortcuts.close_button, "Esc close");
         assert_eq!(JAPANESE.shortcuts.close_button, "Esc 閉じる");
         assert_eq!(
+            ENGLISH.terminal.deferred_input_destination_changed,
+            "Deferred input was discarded because its destination changed"
+        );
+        assert_eq!(
+            JAPANESE.terminal.deferred_input_destination_changed,
+            "遅延入力は送信先が変更されたため破棄されました"
+        );
+        assert_eq!(
+            ENGLISH.terminal.deferred_input_queue_full,
+            "Input queue byte limit reached while a session change is pending"
+        );
+        assert_eq!(
+            JAPANESE.terminal.deferred_input_queue_full,
+            "セッション変更の保留中に入力キューのバイト上限に達しました"
+        );
+        assert_eq!(
             JAPANESE.attach.filtered_subscription_unavailable,
             "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください"
         );
         assert_eq!(
             ENGLISH.attach.unknown_terminal("missing"),
-            "unknown terminal \"missing\"; use `cmux-tui ids` to list surfaces"
+            "unknown terminal \"missing\"; use `cmux terminal list` to list terminal IDs"
         );
         assert_eq!(
             JAPANESE.attach.ambiguous_terminal("000010"),
-            "ターミナル参照 \"000010\" は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください"
+            "ターミナル参照 \"000010\" は曖昧です。`cmux terminal list` に表示される一意の ID を使用してください"
         );
         assert_eq!(
             JAPANESE.attach.browser_not_terminal("browser"),
             "サーフェス \"browser\" はブラウザであり、ターミナルではありません"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").terminal.keyboard_text_too_large,
+            "キーボード入力が 4 MiB の PTY バッファ上限を超えています"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").terminal.clear_history_help,
+            "アクティブなプロンプトを保持したまま PTY 履歴を消去します。"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").terminal.clear_history_unsupported,
+            "このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください"
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_disconnected,
@@ -686,6 +1143,14 @@ mod tests {
             "Machine action failed"
         );
         assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.provider_notice_identity_unavailable,
+            "Could not prepare the connection. Try again; if the problem persists, restart cmux."
+        );
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.provider_connection_already_running,
+            "Another connection is already running. Close it and try again."
+        );
+        assert_eq!(
             catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
             "Host address or pairing code"
         );
@@ -700,6 +1165,14 @@ mod tests {
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_action_failed,
             "マシン操作に失敗しました"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.provider_notice_identity_unavailable,
+            "接続を準備できませんでした。もう一度お試しください。問題が解決しない場合は、cmux を再起動してください。"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.provider_connection_already_running,
+            "別の接続がすでに実行中です。終了してから、もう一度お試しください。"
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_external_connect_ambiguous,
@@ -729,6 +1202,152 @@ mod tests {
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_managed_authority_invalid,
             "マシンプロバイダーから無効な管理ワークスペース権限バインディングが返されました"
         );
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.confirm_layout_undo,
+            "Type CONFIRM to close pane(s) {items}"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.confirm_layout_undo,
+            "ペイン {items} を閉じるには CONFIRM と入力"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.layout_nothing_to_undo,
+            "元に戻せるレイアウト操作はありません"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.layout_undo_stale,
+            "レイアウトが変更されたため、元に戻す操作は適用されませんでした"
+        );
+        let japanese_layout = &catalog_for_locale("ja_JP.UTF-8").layout;
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").layout.surface_size_release_failed(7, "disconnected"),
+            "surface 7 size release failed; retrying on the next layout: disconnected"
+        );
+        assert_eq!(
+            japanese_layout.surface_size_release_failed(7, "切断"),
+            "サーフェス 7 のサイズ設定の解放に失敗しました。次回のレイアウト更新時に再試行します: 切断"
+        );
+        assert_eq!(
+            japanese_layout.viewport_width_out_of_range,
+            "ビューポートペインの幅は 0.1 から 1.0 の範囲で指定してください"
+        );
+        assert_eq!(
+            japanese_layout.viewport_width_must_be_finite,
+            "--width には有限の数値を指定してください"
+        );
+        assert_eq!(
+            japanese_layout.viewport_width_must_be_number,
+            "--width には数値を指定してください"
+        );
+        assert_eq!(japanese_layout.ratio_must_be_number, "--ratio には数値を指定してください");
+        assert_eq!(
+            japanese_layout.ratio_must_be_finite,
+            "--ratio には有限の数値を指定してください"
+        );
+        assert_eq!(
+            japanese_layout.pane_without_resizable_column(42),
+            "ペイン 42 にはサイズ変更可能なビューポート列がありません"
+        );
+        assert_eq!(
+            japanese_layout.unsupported_server_command("undo-layout"),
+            "undo-layout はこのサーバーではサポートされていません"
+        );
+        assert_eq!(japanese_layout.layout_undo_applied(3, 9), "元に戻しました screen=3 revision=9");
+        assert_eq!(
+            japanese_layout.layout_undo_confirmation_required(8, "15,16"),
+            "確認が必要です: --revision 8 --confirm-close を付けて再実行してください（閉じるペイン: 15,16）"
+        );
+        assert_eq!(
+            japanese_layout.layout_undo_confirmation_flags_together,
+            "--revision と --confirm-close は同時に指定してください"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").runtime.renderer_panicked("描画セルが無効"),
+            "ターミナル描画処理でパニックが発生しました: 描画セルが無効"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").runtime.host_input_failed("切断"),
+            "ホストターミナルの入力に失敗しました: 切断"
+        );
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8")
+                .runtime
+                .terminal_restore_also_failed("event loop failed", "restore failed"),
+            "event loop failed; host terminal restoration also failed: restore failed"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8")
+                .runtime
+                .terminal_restore_also_failed("イベントループ失敗", "復元失敗"),
+            "イベントループ失敗; ホストターミナルの復元にも失敗しました: 復元失敗"
+        );
+    }
+
+    #[test]
+    fn deferred_input_discard_status_is_catalog_backed() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").terminal.deferred_input_destination_changed,
+            "Deferred input was discarded because its destination changed"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").terminal.deferred_input_destination_changed,
+            "遅延入力は送信先が変更されたため破棄されました"
+        );
+    }
+
+    #[test]
+    fn option_mode_config_warning_is_localized() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").config.invalid_macos_option_as_alt("\"guess\""),
+            "cmux-tui: ignoring non-boolean keys.macos_option_as_alt = \"guess\""
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").config.invalid_macos_option_as_alt("\"guess\""),
+            "cmux-tui: 真偽値ではない keys.macos_option_as_alt = \"guess\" を無視します"
+        );
+    }
+
+    #[test]
+    fn deferred_input_overflow_status_is_catalog_backed() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").terminal.deferred_input_queue_full,
+            "Input queue byte limit reached while a session change is pending"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").terminal.deferred_input_queue_full,
+            "セッション変更の保留中に入力キューのバイト上限に達しました"
+        );
+    }
+
+    #[test]
+    fn browser_recovery_failures_are_localized_at_the_ui_boundary() {
+        let cases = [
+            (
+                "browser resize recovery failed; reload to retry",
+                "browser failed: browser resize recovery failed; reload to retry",
+                "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
+            ),
+            (
+                "could not verify new page pixels: capture timed out; reload to retry",
+                "browser failed: could not verify new page pixels: capture timed out; reload to retry",
+                "新しいページの表示を確認できませんでした: capture timed out。再読み込みして再試行してください",
+            ),
+            (
+                "could not verify updated page pixels: capture timed out; reload to retry",
+                "browser failed: could not verify updated page pixels: capture timed out; reload to retry",
+                "更新後のページ表示を確認できませんでした: capture timed out。再読み込みして再試行してください",
+            ),
+        ];
+
+        for (error, english, japanese) in cases {
+            let status = cmux_tui_core::BrowserStatus::Failed(error.to_string());
+            let failure = status.failure().expect("failed status");
+            assert_eq!(catalog_for_locale("en_US.UTF-8").browser.failure_message(failure), english);
+            assert_eq!(
+                catalog_for_locale("ja_JP.UTF-8").browser.failure_message(failure),
+                japanese
+            );
+        }
     }
 
     #[test]

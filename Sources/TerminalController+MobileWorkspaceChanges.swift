@@ -2,6 +2,41 @@ import CmuxGit
 import Foundation
 // MARK: - Mobile workspace changes
 extension TerminalController {
+    /// Routes every `mobile.workspace.changes.*` method through the remote
+    /// feature flag, mirroring the `workspace.changes.v1` capability gate, so
+    /// the RPCs and the advertised capability cannot drift: a phone that
+    /// cached the capability from an earlier status reply still gets a clean
+    /// error once the flag turns off.
+    @MainActor
+    func v2MobileWorkspaceChanges(method: String, params: [String: Any]) async -> V2CallResult {
+        guard CmuxFeatureFlags.shared.isMobileWorkspaceChangesEnabled else {
+            return .err(
+                code: "capability_disabled",
+                message: String(
+                    localized: "mobile.workspaceChanges.error.capabilityDisabled",
+                    defaultValue: "Workspace changes are not enabled on this Mac"
+                ),
+                data: ["capability": MobileHostService.workspaceChangesCapability]
+            )
+        }
+        switch method {
+        case "mobile.workspace.changes.summary":
+            return await v2MobileWorkspaceChangesSummary(params: params)
+        case "mobile.workspace.changes.files":
+            return await v2MobileWorkspaceChangesFiles(params: params)
+        case "mobile.workspace.changes.file_diff":
+            return await v2MobileWorkspaceChangesFileDiff(params: params)
+        case "mobile.workspace.changes.file_stat":
+            return await v2MobileWorkspaceChangesFileStat(params: params)
+        case "mobile.workspace.changes.file_fetch":
+            return await v2MobileWorkspaceChangesFileFetch(params: params)
+        default:
+            return .err(code: "method_not_found", message: "Unknown mobile method", data: [
+                "method": method
+            ])
+        }
+    }
+
     /// Returns cached change totals for 1...64 explicit workspaces.
     ///
     /// IDs never fall back to the current selection. UI-owned workspace lookup

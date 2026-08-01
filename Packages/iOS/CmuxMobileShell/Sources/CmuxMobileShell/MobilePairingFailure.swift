@@ -88,6 +88,9 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// The pairing code carried no route kind this device build can dial (for
     /// example an iroh-only ticket on a build without the iroh transport).
     case noSupportedRoute
+    /// Two cancellation-ignoring route cleanups are still alive. Retrying in
+    /// this process cannot start another transport without exceeding the cap.
+    case routeCleanupBlocked
     /// The attempt was cancelled (the user tapped Cancel, or a newer attempt
     /// superseded it). Not surfaced as an error.
     case cancelled
@@ -119,6 +122,7 @@ extension MobilePairingFailureCategory {
         case .macUpdateRequired: return "mac_update_required"
         case .unsupportedRoute: return "unsupported_route"
         case .noSupportedRoute: return "no_supported_route"
+        case .routeCleanupBlocked: return "route_cleanup_blocked"
         case .cancelled: return "cancelled"
         case .unknown: return "other"
         }
@@ -275,6 +279,11 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.unsupportedRoute",
                 defaultValue: "This pairing code is not supported."
             )
+        case .routeCleanupBlocked:
+            return L10n.string(
+                "mobile.pairing.routeCleanupBlocked",
+                defaultValue: "cmux paused new connections because earlier connection cleanups are still stuck."
+            )
         case .cancelled:
             return ""
         case let .unknown(host, port):
@@ -349,6 +358,11 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.guidance.macUpdateRequired",
                 defaultValue: "Your saved computer will reconnect automatically after you update cmux on the Mac. You do not need to sign out or pair again."
             )
+        case .routeCleanupBlocked:
+            return L10n.string(
+                "mobile.pairing.guidance.routeCleanupBlocked",
+                defaultValue: "Force-quit and reopen cmux on this iPhone, then reconnect. If this returns, restart cmux on the Mac."
+            )
         case .invalidCode, .loopbackRejected, .cancelled, .unknown:
             return nil
         }
@@ -399,7 +413,7 @@ extension MobilePairingFailureCategory {
 
         if let connectionError = error as? MobileShellConnectionError {
             switch connectionError {
-            case .requestTimedOut:
+            case .requestTimedOut, .connectAttemptGated:
                 return .handshakeTimedOut(host: host, port: port)
             case .insecureManualRoute:
                 return .unsupportedRoute
@@ -411,6 +425,8 @@ extension MobilePairingFailureCategory {
                 return .accountMismatch
             case .connectionClosed, .transportWriteTimedOut:
                 return .connectionDropped(host: host, port: port)
+            case .routeCleanupBlocked:
+                return .routeCleanupBlocked
             case .invalidResponse:
                 return .unknown(host: host, port: port)
             case let .rpcError(code, message):

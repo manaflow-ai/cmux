@@ -88,7 +88,19 @@ pub struct PageCursor(pub String);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct ComputerUseInvocationId(pub u64);
+pub struct ComputerUseInvocationId(pub uuid::Uuid);
+
+impl ComputerUseInvocationId {
+    pub const fn from_u128(value: u128) -> Self {
+        Self(uuid::Uuid::from_u128(value))
+    }
+}
+
+impl std::fmt::Display for ComputerUseInvocationId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -130,6 +142,7 @@ pub enum RemoteCapability {
     ComputerUseNegotiationV1,
     WorkspacePaginationV1,
     WorkspacePatchV2,
+    WorkspacePatchV3,
     StructuredDiffV1,
     ProcessLifecycleV2,
     ProcessReplayV1,
@@ -1094,6 +1107,14 @@ mod tests {
         assert!(
             serde_json::to_value(ProcessId::from_u128(0x5a17)).unwrap().is_string(),
             "numeric process handles lose precision in JavaScript clients"
+        );
+    }
+
+    #[test]
+    fn computer_use_invocation_ids_are_json_strings() {
+        assert!(
+            serde_json::to_value(ComputerUseInvocationId::from_u128(0x5a17)).unwrap().is_string(),
+            "numeric computer-use handles lose precision in JavaScript clients"
         );
     }
 

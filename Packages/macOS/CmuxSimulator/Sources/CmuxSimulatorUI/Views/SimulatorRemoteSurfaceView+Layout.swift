@@ -30,6 +30,7 @@ extension SimulatorRemoteSurfaceView {
 
     func layoutFrameLayer() {
         guard let frameLayer else { return }
+        updateFrameLayerBackingScale()
         let rect = displayRect
         let geometry = orientationGeometry
         let swapsAxes = geometry?.swapsAxes == true
@@ -37,6 +38,7 @@ extension SimulatorRemoteSurfaceView {
             width: swapsAxes ? rect.height : rect.width,
             height: swapsAxes ? rect.width : rect.height
         )
+        updateFrameLayerSampling(displayedRawSize: rawSize)
         let radians = CGFloat(geometry?.presentationRotationDegrees ?? 0) * .pi / 180
         let radius =
             if let chrome, let display {
@@ -53,5 +55,11 @@ extension SimulatorRemoteSurfaceView {
         frameLayer.cornerCurve = .continuous
         frameLayer.masksToBounds = true
         CATransaction.commit()
+    }
+
+    func updateFrameLayerBackingScale() {
+        guard let frameLayer else { return }
+        let scale = window?.backingScaleFactor ?? layer?.contentsScale ?? 1
+        frameLayer.contentsScale = scale.isFinite && scale > 0 ? scale : 1
     }
 }

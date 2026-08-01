@@ -3,10 +3,9 @@ import Testing
 import UIKit
 @testable import CmuxMobileShellUI
 
-/// The workspace table is a `UIViewRepresentable`, so SwiftUI never registers
-/// it with the enclosing bars. These tests pin the UIKit contract that makes
-/// the soft scroll edge effect render: once hosted under a navigation and tab
-/// bar controller, the table must be each container's content scroll view.
+/// SwiftUI does not register a represented UIKit table with its enclosing
+/// bars. These tests pin the controller contract that makes the soft scroll
+/// edge effect render without taking inset or offset ownership from UIKit.
 @MainActor
 @Suite struct WorkspaceListScrollEdgeEffectTests {
     @Test func hostedTableDrivesNavigationAndTabBarScrollEdgeEffects() throws {
@@ -15,6 +14,18 @@ import UIKit
 
         #expect(fixture.content.contentScrollView(for: .top) === fixture.tableView)
         #expect(fixture.navigation.contentScrollView(for: .bottom) === fixture.tableView)
+    }
+
+    @Test func underlappedTableUsesParentChromeAsUIKitSafeArea() throws {
+        guard #available(iOS 26.0, *) else { return }
+        let fixture = Fixture()
+
+        #expect(fixture.tableView.frame == fixture.content.view.bounds)
+        #expect(fixture.tableView.safeAreaInsets.top > 0)
+        #expect(fixture.tableView.safeAreaInsets.bottom > 0)
+        #expect(fixture.tableView.adjustedContentInset.top > 0)
+        #expect(fixture.tableView.adjustedContentInset.bottom > 0)
+        #expect(fixture.tableView.contentInset == .zero)
     }
 
     @Test func tableLeavingTheWindowReleasesBarRegistrations() throws {
@@ -39,9 +50,10 @@ import UIKit
     /// ``survivingTableReclaimsRegistrationAfterOwnerDeparts()``.
     @Test func lateTabControllerAttachmentStillRegistersBottomEdge() throws {
         guard #available(iOS 26.0, *) else { return }
-        let tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
+        let tableController = WorkspaceListTableViewController()
+        let tableView = tableController.tableView
         let content = UIViewController()
-        content.view.addSubview(tableView)
+        Self.install(tableController, in: content)
         let navigation = UINavigationController(rootViewController: content)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = navigation
@@ -68,10 +80,11 @@ import UIKit
     @Test func coexistingTablesDoNotStealRegistrationFromEachOther() throws {
         guard #available(iOS 26.0, *) else { return }
         let fixture = Fixture()
-        let second = WorkspaceListUITableView(frame: .zero, style: .plain)
+        let secondController = WorkspaceListTableViewController()
+        let second = secondController.tableView
 
-        fixture.content.view.addSubview(second)
-        second.layoutIfNeeded()
+        Self.install(secondController, in: fixture.content)
+        fixture.content.view.layoutIfNeeded()
         #expect(fixture.content.contentScrollView(for: .top) === fixture.tableView)
 
         second.setNeedsLayout()
@@ -83,20 +96,20 @@ import UIKit
         #expect(fixture.navigation.contentScrollView(for: .bottom) === fixture.tableView)
     }
 
-    /// When the owning table departs it clears the edges and nudges the
-    /// waiting table, which claims them on the next layout flush. The test
-    /// only flushes pending window layout; the survivor is never marked
-    /// dirty by hand, so a missing wake fails the assertions.
+    /// When SwiftUI dismantles the owning table controller, it clears the
+    /// edges and wakes the waiting table. Reclaim may happen synchronously or
+    /// on the next layout pass, but the departed table must never remain held.
     @Test func survivingTableReclaimsRegistrationAfterOwnerDeparts() throws {
         guard #available(iOS 26.0, *) else { return }
         let fixture = Fixture()
-        let second = WorkspaceListUITableView(frame: .zero, style: .plain)
-        fixture.content.view.addSubview(second)
-        second.layoutIfNeeded()
+        let secondController = WorkspaceListTableViewController()
+        let second = secondController.tableView
+        Self.install(secondController, in: fixture.content)
+        fixture.content.view.layoutIfNeeded()
         #expect(fixture.content.contentScrollView(for: .top) === fixture.tableView)
 
-        fixture.tableView.removeFromSuperview()
-        #expect(fixture.content.contentScrollView(for: .top) == nil)
+        fixture.tableController.detach()
+        #expect(fixture.content.contentScrollView(for: .top) !== fixture.tableView)
 
         fixture.window.layoutIfNeeded()
 
@@ -109,15 +122,20 @@ import UIKit
     @MainActor
     private struct Fixture {
         let tableView: WorkspaceListUITableView
+        let tableController: WorkspaceListTableViewController
         let content: UIViewController
         let navigation: UINavigationController
         let tabs: UITabBarController
         let window: UIWindow
 
         init() {
-            tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
+            tableController = WorkspaceListTableViewController()
+            tableView = tableController.tableView
             content = UIViewController()
-            content.view.addSubview(tableView)
+            WorkspaceListScrollEdgeEffectTests.install(
+                tableController,
+                in: content
+            )
             navigation = UINavigationController(rootViewController: content)
             tabs = UITabBarController()
             tabs.viewControllers = [navigation]
@@ -127,6 +145,22 @@ import UIKit
             window.layoutIfNeeded()
             content.view.layoutIfNeeded()
         }
+    }
+
+    private static func install(
+        _ child: UIViewController,
+        in parent: UIViewController
+    ) {
+        parent.addChild(child)
+        child.view.translatesAutoresizingMaskIntoConstraints = false
+        parent.view.addSubview(child.view)
+        NSLayoutConstraint.activate([
+            child.view.topAnchor.constraint(equalTo: parent.view.topAnchor),
+            child.view.leadingAnchor.constraint(equalTo: parent.view.leadingAnchor),
+            child.view.trailingAnchor.constraint(equalTo: parent.view.trailingAnchor),
+            child.view.bottomAnchor.constraint(equalTo: parent.view.bottomAnchor),
+        ])
+        child.didMove(toParent: parent)
     }
 }
 #endif

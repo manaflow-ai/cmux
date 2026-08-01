@@ -7,27 +7,38 @@
 
 use std::path::{Path, PathBuf};
 
-use ghostty_vt::{Rgb, TerminalColorOverrides};
+use ghostty_vt::{KeyInput, Rgb, TerminalColorOverrides};
 use serde::{Deserialize, Serialize};
 
-use crate::surface::{DefaultColors, SurfaceOptions, replace_ghostty_cursor_defaults};
+use crate::surface::{
+    CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+    CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR,
+    CLEAR_HISTORY_STREAM_WAIT_TIMEOUT, ClearHistoryDelivery, ClearHistoryFailure,
+    ClearHistoryTransition, DefaultColors, SurfaceOptions, TerminalStreamProgress,
+    apply_clear_history_transition, replace_ghostty_cursor_defaults, write_clear_history_fallback,
+};
 use crate::terminal_host::{
     CapabilityRights, CapabilityStore, CapabilityToken, ClientHello, ClientRole, HostBootstrap,
     HostHello, HostIncarnation, HostReady, TerminalId,
 };
 use crate::terminal_host_protocol::{
+    CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
+    CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
+    CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
     FLAG_COLORS_FOLLOW, FLAG_SMART_RENDERER, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD,
-    MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
+    MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, TerminalExit,
+    encode_terminal_exit, read_frame, wait_for_native_child_status, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
+const HOST_EXIT_RECORD_VERSION: u32 = 1;
 const MAX_LAUNCH_PAYLOAD: usize = 1024 * 1024;
 const MAX_STRING: usize = 256 * 1024;
 const MAX_BLOB: usize = 8 * 1024 * 1024;
 const MAX_ARGV: usize = 256;
 const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
-const CAPABILITY_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_SNAPSHOT_BOUNDARY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
 const MAX_HOST_CLIENT_QUEUED_BYTES: usize = 8 * 1024 * 1024;
@@ -79,6 +90,10 @@ pub struct TerminalHostRecord {
     /// hosts and must never receive the unknown SetDefaults message.
     #[serde(default)]
     pub supports_set_defaults: bool,
+    /// Additive control capability. Missing/false records belong to legacy
+    /// hosts and must never receive the unknown ClearHistory message.
+    #[serde(default)]
+    pub supports_clear_history: bool,
 }
 
 impl std::fmt::Debug for TerminalHostRecord {
@@ -93,6 +108,7 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("host_start_nonce", &self.host_start_nonce)
             .field("workspace_key", &self.workspace_key)
             .field("supports_set_defaults", &self.supports_set_defaults)
+            .field("supports_clear_history", &self.supports_clear_history)
             .finish()
     }
 }
@@ -100,6 +116,35 @@ impl std::fmt::Debug for TerminalHostRecord {
 impl TerminalHostRecord {
     pub fn record_path(&self, root: &Path) -> PathBuf {
         root.join(format!("{}.json", self.terminal_id))
+    }
+}
+
+/// Host-owned completion sidecar. It is written and fsynced after the final
+/// PTY bytes are published but before the sequenced Exit frame. The mux
+/// removes it only after the same outcome is durable in SQLite, which makes
+/// removal an acknowledgement and keeps exit status recoverable across a
+/// daemon crash.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalHostExitRecord {
+    pub record_version: u32,
+    pub terminal_id: String,
+    pub incarnation: String,
+    pub exit: TerminalExit,
+}
+
+impl TerminalHostExitRecord {
+    pub fn new(identity: &TerminalHostIdentity, exit: TerminalExit) -> Self {
+        Self {
+            record_version: HOST_EXIT_RECORD_VERSION,
+            terminal_id: identity.terminal_id.clone(),
+            incarnation: identity.incarnation.clone(),
+            exit,
+        }
+    }
+
+    pub fn record_path(&self, root: &Path) -> PathBuf {
+        root.join(format!("{}.exit", self.terminal_id))
     }
 }
 
@@ -273,9 +318,12 @@ pub fn decode_terminal_color_overrides(payload: &[u8]) -> anyhow::Result<Termina
 #[cfg(unix)]
 mod unix {
     use std::collections::{HashMap, HashSet, VecDeque};
+    use std::ffi::CString;
     use std::fs::{self, File, OpenOptions};
+    use std::io as std_io;
     use std::io::{Read, Write};
     use std::os::fd::{AsRawFd, RawFd};
+    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::os::unix::process::CommandExt;
@@ -536,15 +584,30 @@ mod unix {
         Ok(colors)
     }
 
-    pub(crate) struct CapabilityResponses {
-        waiters: Mutex<HashMap<u64, SyncSender<Vec<u8>>>>,
+    struct ControlResponseWaiter {
+        kind: MessageKind,
+        sender: SyncSender<Vec<u8>>,
     }
 
-    impl CapabilityResponses {
-        pub(crate) fn resolve(&self, frame: &Frame) {
-            if let Some(waiter) = self.waiters.lock().unwrap().remove(&frame.request_id) {
-                let _ = waiter.try_send(frame.payload.clone());
+    pub(crate) struct ControlResponses {
+        waiters: Mutex<HashMap<u64, ControlResponseWaiter>>,
+    }
+
+    impl ControlResponses {
+        pub(crate) fn resolve(&self, frame: &Frame) -> bool {
+            let mut waiters = self.waiters.lock().unwrap();
+            let Some(waiter) = waiters.remove(&frame.request_id) else {
+                return false;
+            };
+            if waiter.kind != frame.kind {
+                return false;
             }
+            let _ = waiter.sender.try_send(frame.payload.clone());
+            true
+        }
+
+        pub(crate) fn cancel_all(&self) {
+            self.waiters.lock().unwrap().clear();
         }
     }
 
@@ -555,7 +618,7 @@ mod unix {
         smart_renderer: bool,
         reader: Option<UnixStream>,
         writer: Arc<Mutex<UnixStream>>,
-        capability_responses: Arc<CapabilityResponses>,
+        control_responses: Arc<ControlResponses>,
         next_request: AtomicU64,
         viewer_size: Mutex<Option<(u16, u16)>>,
         /// Exact process ownership retained only between a successful launch
@@ -572,6 +635,61 @@ mod unix {
                 .field("endpoint", &self.record.endpoint)
                 .finish_non_exhaustive()
         }
+    }
+
+    fn clear_history_ack_status(result: Result<(), ClearHistoryFailure>) -> u8 {
+        match result {
+            Ok(()) => CLEAR_HISTORY_ACK_OK,
+            Err(failure) if failure.delivery() == ClearHistoryDelivery::Ambiguous => {
+                CLEAR_HISTORY_ACK_AMBIGUOUS
+            }
+            Err(failure) => match failure.error().to_string().as_str() {
+                CLEAR_HISTORY_PRESERVATION_ERROR => CLEAR_HISTORY_ACK_PRESERVATION_FAILED,
+                CLEAR_HISTORY_STREAM_TIMEOUT_ERROR => CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
+                CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR => {
+                    CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE
+                }
+                CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR => {
+                    CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT
+                }
+                _ => CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
+            },
+        }
+    }
+
+    fn clear_history_ack_failure(status: u8) -> Option<ClearHistoryFailure> {
+        let (delivery, message) = match status {
+            CLEAR_HISTORY_ACK_PRESERVATION_FAILED => {
+                (ClearHistoryDelivery::KnownNotDelivered, CLEAR_HISTORY_PRESERVATION_ERROR)
+            }
+            CLEAR_HISTORY_ACK_STREAM_TIMEOUT => {
+                (ClearHistoryDelivery::KnownNotDelivered, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR)
+            }
+            CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE => (
+                ClearHistoryDelivery::KnownNotDelivered,
+                CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR,
+            ),
+            CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT => (
+                ClearHistoryDelivery::KnownNotDelivered,
+                CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+            ),
+            CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED => (
+                ClearHistoryDelivery::KnownNotDelivered,
+                "terminal host rejected clear-history before execution",
+            ),
+            CLEAR_HISTORY_ACK_AMBIGUOUS => (
+                ClearHistoryDelivery::Ambiguous,
+                "terminal host may have partially applied clear-history",
+            ),
+            _ => return None,
+        };
+        let error = anyhow::anyhow!(message);
+        Some(match delivery {
+            ClearHistoryDelivery::KnownNotDelivered => {
+                ClearHistoryFailure::known_not_delivered(error)
+            }
+            ClearHistoryDelivery::Ambiguous => ClearHistoryFailure::ambiguous(error),
+        })
     }
 
     impl HostAttachment {
@@ -605,6 +723,45 @@ mod unix {
             }
             self.send(MessageKind::SetDefaults, &encode_default_colors_payload(colors))?;
             Ok(true)
+        }
+
+        pub fn send_clear_history(
+            &self,
+            fallback_key: Option<&KeyInput>,
+        ) -> Result<bool, ClearHistoryFailure> {
+            if !self.record.supports_clear_history {
+                return Ok(false);
+            }
+            let payload = crate::server::encode_terminal_host_clear_history(fallback_key)
+                .map_err(ClearHistoryFailure::known_not_delivered)?;
+            let response = self.send_control_request(
+                MessageKind::ClearHistory,
+                MessageKind::ClearHistoryAck,
+                payload,
+            )?;
+            match response.as_slice() {
+                [CLEAR_HISTORY_ACK_OK] => {}
+                [status] => {
+                    let Some(failure) = clear_history_ack_failure(*status) else {
+                        self.disconnect();
+                        return Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
+                            "terminal host returned an unknown clear-history status"
+                        )));
+                    };
+                    return Err(failure);
+                }
+                _ => {
+                    self.disconnect();
+                    return Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
+                        "terminal host returned a malformed clear-history response"
+                    )));
+                }
+            }
+            Ok(true)
+        }
+
+        pub fn supports_clear_history(&self) -> bool {
+            self.record.supports_clear_history
         }
 
         pub fn send_viewer_size(&self, cols: u16, rows: u16) -> std::io::Result<()> {
@@ -673,12 +830,64 @@ mod unix {
             }
         }
 
+        pub(crate) fn exit_record_path(&self) -> PathBuf {
+            self.record_path.with_extension("exit")
+        }
+
         pub(crate) fn discovery_record(&self) -> (TerminalHostRecord, PathBuf) {
             (self.record.clone(), self.record_path.clone())
         }
 
-        pub(crate) fn capability_responses(&self) -> Arc<CapabilityResponses> {
-            self.capability_responses.clone()
+        pub(crate) fn control_responses(&self) -> Arc<ControlResponses> {
+            self.control_responses.clone()
+        }
+
+        fn send_control_request(
+            &self,
+            request_kind: MessageKind,
+            response_kind: MessageKind,
+            payload: Vec<u8>,
+        ) -> Result<Vec<u8>, ClearHistoryFailure> {
+            let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
+            if request_id == 0 {
+                return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                    "terminal host control request id exhausted"
+                )));
+            }
+            let (sender, receiver) = sync_channel(1);
+            {
+                let mut waiters = self.control_responses.waiters.lock().unwrap();
+                if waiters.contains_key(&request_id) {
+                    return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                        "terminal host control request id collision"
+                    )));
+                }
+                waiters.insert(request_id, ControlResponseWaiter { kind: response_kind, sender });
+            }
+            let mut frame = Frame::new(request_kind, payload);
+            frame.request_id = request_id;
+            let write_result = {
+                let mut writer = self.writer.lock().unwrap();
+                let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
+                if result.is_err() {
+                    let _ = writer.shutdown(std::net::Shutdown::Both);
+                }
+                result
+            };
+            if let Err(error) = write_result {
+                self.control_responses.waiters.lock().unwrap().remove(&request_id);
+                return Err(ClearHistoryFailure::ambiguous(error.into()));
+            }
+            match receiver.recv_timeout(CONTROL_RESPONSE_TIMEOUT) {
+                Ok(payload) => Ok(payload),
+                Err(error) => {
+                    self.control_responses.waiters.lock().unwrap().remove(&request_id);
+                    self.disconnect();
+                    Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
+                        "terminal host did not acknowledge {request_kind:?}: {error}"
+                    )))
+                }
+            }
         }
 
         pub fn mint_renderer_grant(&self, ttl: Duration) -> anyhow::Result<RendererGrant> {
@@ -687,33 +896,15 @@ mod unix {
             }
             let ttl_ms = u32::try_from(ttl.as_millis())
                 .map_err(|_| anyhow::anyhow!("renderer capability TTL is too large"))?;
-            let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
-            let (sender, receiver) = sync_channel(1);
-            self.capability_responses.waiters.lock().unwrap().insert(request_id, sender);
             let mut payload = Vec::with_capacity(8);
             payload.extend_from_slice(&CapabilityRights::RENDERER.bits().to_le_bytes());
             payload.extend_from_slice(&ttl_ms.to_le_bytes());
-            let mut frame = Frame::new(MessageKind::MintCapability, payload);
-            frame.request_id = request_id;
-            let write_result = {
-                let mut writer = self.writer.lock().unwrap();
-                write_frame(&mut *writer, &frame).map_err(protocol_io_error)
-            };
-            if let Err(error) = write_result {
-                let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
-                self.capability_responses.waiters.lock().unwrap().remove(&request_id);
-                return Err(error.into());
-            }
-            let payload = match receiver.recv_timeout(CAPABILITY_RESPONSE_TIMEOUT) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    self.capability_responses.waiters.lock().unwrap().remove(&request_id);
-                    return Err(anyhow::anyhow!(
-                        "terminal host did not mint renderer grant: {error}"
-                    ));
-                }
-            };
+            let payload = self
+                .send_control_request(MessageKind::MintCapability, MessageKind::Capability, payload)
+                .map_err(ClearHistoryFailure::into_error)
+                .context("terminal host did not mint renderer grant")?;
             if payload.len() != crate::terminal_host::CAPABILITY_TOKEN_LEN {
+                self.disconnect();
                 anyhow::bail!("terminal host returned a malformed renderer capability");
             }
             Ok(RendererGrant {
@@ -968,6 +1159,7 @@ mod unix {
             if record.host_pid != 0
                 || !record.host_start_nonce.is_empty()
                 || record.supports_set_defaults
+                || record.supports_clear_history
             {
                 anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
             }
@@ -1161,6 +1353,112 @@ mod unix {
         Ok(records)
     }
 
+    pub fn validate_terminal_host_exit_record(
+        record_path: &Path,
+        record: &TerminalHostExitRecord,
+    ) -> anyhow::Result<()> {
+        if record.record_version != HOST_EXIT_RECORD_VERSION {
+            anyhow::bail!(
+                "unsupported terminal-host exit record version {}",
+                record.record_version
+            );
+        }
+        TerminalId::from_hex(&record.terminal_id)
+            .ok_or_else(|| anyhow::anyhow!("terminal-host exit id is not a canonical UUIDv4"))?;
+        HostIncarnation::from_hex(&record.incarnation).ok_or_else(|| {
+            anyhow::anyhow!("terminal-host exit incarnation is not a canonical UUIDv4")
+        })?;
+        anyhow::ensure!(record.exit.is_valid(), "terminal-host exit outcome is invalid");
+        let parent = record_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("terminal-host exit record has no parent directory"))?;
+        if record_path != parent.join(format!("{}.exit", record.terminal_id)) {
+            anyhow::bail!("terminal-host exit record filename is not canonical");
+        }
+        let metadata = fs::symlink_metadata(record_path)?;
+        let expected_uid = fs::metadata(parent)?.uid();
+        if !metadata.file_type().is_file()
+            || metadata.uid() != expected_uid
+            || metadata.nlink() != 1
+            || metadata.mode() & 0o077 != 0
+        {
+            anyhow::bail!("terminal-host exit record permissions or ownership are unsafe");
+        }
+        Ok(())
+    }
+
+    pub fn load_terminal_host_exit_records(
+        root: &Path,
+    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostExitRecord)>> {
+        let mut records = Vec::new();
+        let mut identities = HashSet::new();
+        let entries = match fs::read_dir(root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(records),
+            Err(error) => return Err(error.into()),
+        };
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("exit") {
+                continue;
+            }
+            let bytes = match fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(_) => continue,
+            };
+            let Ok(record) = serde_json::from_slice::<TerminalHostExitRecord>(&bytes) else {
+                continue;
+            };
+            if validate_terminal_host_exit_record(&path, &record).is_err()
+                || !identities.insert((record.terminal_id.clone(), record.incarnation.clone()))
+            {
+                continue;
+            }
+            records.push((path, record));
+        }
+        records.sort_by(|left, right| left.0.cmp(&right.0));
+        Ok(records)
+    }
+
+    pub fn terminal_host_exit_record(
+        host_record_path: &Path,
+    ) -> anyhow::Result<Option<(PathBuf, TerminalHostExitRecord)>> {
+        let path = host_record_path.with_extension("exit");
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let record = serde_json::from_slice::<TerminalHostExitRecord>(&bytes)?;
+        validate_terminal_host_exit_record(&path, &record)?;
+        Ok(Some((path, record)))
+    }
+
+    /// Acknowledge only the exact sidecar already committed to the registry.
+    /// A mismatched replacement is retained for reconciliation rather than
+    /// deleting evidence from another incarnation.
+    pub fn acknowledge_terminal_host_exit_record(
+        record_path: &Path,
+        expected: &TerminalHostExitRecord,
+    ) -> anyhow::Result<bool> {
+        let bytes = match fs::read(record_path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        let current: TerminalHostExitRecord = serde_json::from_slice(&bytes)?;
+        validate_terminal_host_exit_record(record_path, &current)?;
+        if &current != expected {
+            return Ok(false);
+        }
+        fs::remove_file(record_path)?;
+        if let Some(parent) = record_path.parent() {
+            File::open(parent)?.sync_all()?;
+        }
+        Ok(true)
+    }
+
     fn connect_record(
         record: TerminalHostRecord,
         record_path: PathBuf,
@@ -1273,9 +1571,7 @@ mod unix {
             smart_renderer,
             reader: Some(reader),
             writer: Arc::new(Mutex::new(stream)),
-            capability_responses: Arc::new(CapabilityResponses {
-                waiters: Mutex::new(HashMap::new()),
-            }),
+            control_responses: Arc::new(ControlResponses { waiters: Mutex::new(HashMap::new()) }),
             next_request: AtomicU64::new(2),
             // New hosts do not register Admin as a viewer. Initialize this as
             // if they did so the unconditional release below also upgrades
@@ -1310,6 +1606,98 @@ mod unix {
     }
 
     fn write_record(path: &Path, record: &TerminalHostRecord) -> anyhow::Result<()> {
+        write_json_record(path, record)
+    }
+
+    fn write_exit_record(path: &Path, record: &TerminalHostExitRecord) -> anyhow::Result<()> {
+        if let Some(parent) = path.parent() {
+            prepare_private_dir(parent)?;
+        }
+        let temporary = path.with_extension(format!(
+            "tmp-{}-{}",
+            std::process::id(),
+            RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let bytes = serde_json::to_vec(record)?;
+        let result = (|| -> anyhow::Result<bool> {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+                .open(&temporary)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            match rename_no_replace(&temporary, path) {
+                Ok(()) => {
+                    if let Some(parent) = path.parent() {
+                        File::open(parent)?.sync_all()?;
+                    }
+                    Ok(true)
+                }
+                Err(error) if error.kind() == std_io::ErrorKind::AlreadyExists => Ok(false),
+                Err(error) => Err(error.into()),
+            }
+        })();
+        if temporary.exists() {
+            let _ = fs::remove_file(&temporary);
+        }
+        if result? {
+            return validate_terminal_host_exit_record(path, record);
+        }
+        let current: TerminalHostExitRecord = serde_json::from_slice(&fs::read(path)?)?;
+        validate_terminal_host_exit_record(path, &current)?;
+        anyhow::ensure!(
+            current == *record,
+            "terminal-host exit sidecar already contains a different outcome"
+        );
+        Ok(())
+    }
+
+    #[cfg(target_vendor = "apple")]
+    fn rename_no_replace(from: &Path, to: &Path) -> std_io::Result<()> {
+        let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| {
+            std_io::Error::new(std_io::ErrorKind::InvalidInput, "temporary path has NUL")
+        })?;
+        let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| {
+            std_io::Error::new(std_io::ErrorKind::InvalidInput, "exit path has NUL")
+        })?;
+        // SAFETY: both pointers reference live NUL-terminated path strings,
+        // and RENAME_EXCL asks the kernel to leave an existing target intact.
+        if unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) } == 0 {
+            Ok(())
+        } else {
+            Err(std_io::Error::last_os_error())
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    fn rename_no_replace(from: &Path, to: &Path) -> std_io::Result<()> {
+        let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| {
+            std_io::Error::new(std_io::ErrorKind::InvalidInput, "temporary path has NUL")
+        })?;
+        let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| {
+            std_io::Error::new(std_io::ErrorKind::InvalidInput, "exit path has NUL")
+        })?;
+        // SAFETY: both pointers reference live NUL-terminated path strings,
+        // and RENAME_NOREPLACE asks the kernel to leave an existing target intact.
+        if unsafe {
+            libc::renameat2(
+                libc::AT_FDCWD,
+                from.as_ptr(),
+                libc::AT_FDCWD,
+                to.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        } == 0
+        {
+            Ok(())
+        } else {
+            Err(std_io::Error::last_os_error())
+        }
+    }
+
+    fn write_json_record(path: &Path, record: &impl Serialize) -> anyhow::Result<()> {
         if let Some(parent) = path.parent() {
             prepare_private_dir(parent)?;
         }
@@ -1665,6 +2053,7 @@ mod unix {
         owner_token: CapabilityToken,
         capabilities: CapabilityStore,
         term: Mutex<Terminal>,
+        stream_progress: TerminalStreamProgress,
         writer: Mutex<Box<dyn Write + Send>>,
         master: Mutex<Box<dyn MasterPty + Send>>,
         killer: Mutex<Box<dyn ChildKiller + Send>>,
@@ -1692,10 +2081,12 @@ mod unix {
         launch_owner_claimed: AtomicBool,
         launch_owner_stream_ready: AtomicBool,
         launch_owner_completed: AtomicBool,
-        child_exit: (Mutex<bool>, Condvar),
+        child_exit: (Mutex<Option<TerminalExit>>, Condvar),
         child_waitable: AtomicBool,
         pty_drained: AtomicBool,
         exit_published: AtomicBool,
+        exit_record_path: PathBuf,
+        exit_publish_lock: Mutex<()>,
         force_pty_drain: AtomicBool,
         pty_drain_waker: Mutex<UnixStream>,
         termination_started: AtomicBool,
@@ -1895,6 +2286,57 @@ mod unix {
             }
             if applied.recv().is_err() {
                 self.smart.mark_applied(source_cursor);
+            }
+        }
+
+        fn clear_history_or_encode_key(
+            &self,
+            fallback_key: Option<&KeyInput>,
+        ) -> Result<(), ClearHistoryFailure> {
+            let mut observed_progress = self.stream_progress.revision();
+            let mut stream_wait = None;
+            loop {
+                let mut term = self.term.lock().unwrap();
+                match apply_clear_history_transition(&mut term, fallback_key)
+                    .map_err(ClearHistoryFailure::known_not_delivered)?
+                {
+                    ClearHistoryTransition::Cleared(clear) => {
+                        // Keep the authoritative parser lock through sequence
+                        // publication so child output cannot overtake the
+                        // emulator-only erase on any attached mirror.
+                        self.broadcast(MessageKind::Output, clear);
+                        return Ok(());
+                    }
+                    ClearHistoryTransition::Blocked => {
+                        drop(term);
+                        let deadline = stream_wait
+                            .get_or_insert_with(|| {
+                                self.stream_progress
+                                    .begin_clear_history_wait(CLEAR_HISTORY_STREAM_WAIT_TIMEOUT)
+                            })
+                            .deadline();
+                        let Some(progress) =
+                            self.stream_progress.wait_for_change(observed_progress, deadline)
+                        else {
+                            stream_wait.as_mut().unwrap().mark_timed_out();
+                            return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                                CLEAR_HISTORY_STREAM_TIMEOUT_ERROR
+                            )));
+                        };
+                        observed_progress = progress;
+                    }
+                    ClearHistoryTransition::EncodedFallback(encoded) => {
+                        drop(term);
+                        let mut writer = self.writer.lock().unwrap();
+                        let master = self.master.lock().unwrap();
+                        return write_clear_history_fallback(
+                            master.as_ref(),
+                            writer.as_mut(),
+                            &encoded,
+                        );
+                    }
+                    ClearHistoryTransition::Noop => return Ok(()),
+                }
             }
         }
 
@@ -2110,17 +2552,20 @@ mod unix {
         }
 
         fn child_exited(&self) -> bool {
-            *self.child_exit.0.lock().unwrap()
+            self.child_exit.0.lock().unwrap().is_some()
         }
 
         fn wait_for_child_exit(&self, timeout: Duration) -> bool {
             let exited = self.child_exit.0.lock().unwrap();
-            if *exited {
+            if exited.is_some() {
                 return true;
             }
-            let (exited, _) =
-                self.child_exit.1.wait_timeout_while(exited, timeout, |exited| !*exited).unwrap();
-            *exited
+            let (exited, _) = self
+                .child_exit
+                .1
+                .wait_timeout_while(exited, timeout, |value| value.is_none())
+                .unwrap();
+            exited.is_some()
         }
 
         fn wait_for_child_waitable(&self, timeout: Duration) -> bool {
@@ -2152,6 +2597,24 @@ mod unix {
                 .wait_timeout_while(state, timeout, |_| !self.pty_drained.load(Ordering::Acquire))
                 .unwrap();
             self.pty_drained.load(Ordering::Acquire)
+        }
+
+        fn publish_child_wait_predicate(&self, predicate: &AtomicBool) {
+            // Every predicate consumed by child_exit.wait_* must change while
+            // holding this mutex. Otherwise a notifier can run after a waiter
+            // checks the atomic but before Condvar::wait arms, losing the only
+            // wake that allows the terminal exit to be published.
+            let _state = self.child_exit.0.lock().unwrap();
+            predicate.store(true, Ordering::Release);
+            self.child_exit.1.notify_all();
+        }
+
+        fn mark_child_waitable(&self) {
+            self.publish_child_wait_predicate(&self.child_waitable);
+        }
+
+        fn mark_pty_drained(&self) {
+            self.publish_child_wait_predicate(&self.pty_drained);
         }
 
         fn signal_terminal_process_groups(&self, signal: libc::c_int) {
@@ -2220,8 +2683,7 @@ mod unix {
         }
 
         fn finish_group_escalation(&self) {
-            self.group_escalation_complete.store(true, Ordering::Release);
-            self.child_exit.1.notify_all();
+            self.publish_child_wait_predicate(&self.group_escalation_complete);
         }
 
         fn publish_exit_if_drained(&self) {
@@ -2232,29 +2694,60 @@ mod unix {
             if !self.launch_owner_stream_ready.load(Ordering::Acquire) {
                 return;
             }
-            let _source_order = self.source_order_lock.lock().unwrap();
-            // Snapshot capture keeps `term` held from the dead check through
-            // tap insertion. Publish the terminal transition under that same
-            // lock so an attach either joins before Exit or observes `dead`;
-            // it can never advance its boundary past an Exit it did not see.
-            let published = {
-                let _term = self.term.lock().unwrap();
-                if claim_host_exit_after_drain(
+            let _publish = self.exit_publish_lock.lock().unwrap();
+            let mut reported = false;
+            loop {
+                let result = persist_and_claim_host_exit_after_drain(
                     &self.child_exit.0,
                     &self.pty_drained,
                     &self.exit_published,
-                ) {
-                    self.dead.store(true, Ordering::Release);
-                    let cursor = self.smart.publish(Frame::new(MessageKind::Exit, Vec::new()));
-                    self.smart.mark_applied(cursor);
-                    self.broadcast(MessageKind::Exit, Vec::new());
-                    true
-                } else {
-                    false
+                    |exit| {
+                        write_exit_record(
+                            &self.exit_record_path,
+                            &TerminalHostExitRecord::new(
+                                &TerminalHostIdentity {
+                                    terminal_id: self.terminal_id.to_hex(),
+                                    incarnation: self.incarnation.to_hex(),
+                                },
+                                exit.clone(),
+                            ),
+                        )
+                    },
+                );
+                match result {
+                    Ok(Some(exit)) => {
+                        let _source_order = self.source_order_lock.lock().unwrap();
+                        // Snapshot capture keeps `term` held from the dead
+                        // check through tap insertion. Publish the durable
+                        // terminal transition under that same lock so an
+                        // attach either joins before Exit or observes `dead`.
+                        {
+                            let _term = self.term.lock().unwrap();
+                            self.dead.store(true, Ordering::Release);
+                            let payload = encode_terminal_exit(&exit);
+                            let cursor =
+                                self.smart.publish(Frame::new(MessageKind::Exit, payload.clone()));
+                            self.smart.mark_applied(cursor);
+                            self.broadcast(MessageKind::Exit, payload);
+                        }
+                        self.note_parser_progress();
+                        return;
+                    }
+                    Ok(None) => return,
+                    Err(error) => {
+                        // The host stays live and sends no Exit until the
+                        // durable sidecar succeeds. Reconnecting muxes can
+                        // still inspect the retained snapshot, and a disk
+                        // failure cannot erase the only authoritative status.
+                        if !reported {
+                            eprintln!(
+                                "cmux-tui: terminal-host exit persistence failed; retrying: {error:#}"
+                            );
+                            reported = true;
+                        }
+                        thread::sleep(Duration::from_millis(100));
+                    }
                 }
-            };
-            if published {
-                self.note_parser_progress();
             }
         }
 
@@ -2297,16 +2790,26 @@ mod unix {
         }
     }
 
-    fn claim_host_exit_after_drain(
-        child_exited: &Mutex<bool>,
+    fn persist_and_claim_host_exit_after_drain(
+        child_exited: &Mutex<Option<TerminalExit>>,
         pty_drained: &AtomicBool,
         exit_published: &AtomicBool,
-    ) -> bool {
-        pty_drained.load(Ordering::Acquire)
-            && *child_exited.lock().unwrap()
-            && exit_published
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
+        persist: impl FnOnce(&TerminalExit) -> anyhow::Result<()>,
+    ) -> anyhow::Result<Option<TerminalExit>> {
+        if !pty_drained.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        let Some(exit) = child_exited.lock().unwrap().clone() else {
+            return Ok(None);
+        };
+        if exit_published.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        persist(&exit)?;
+        Ok(exit_published
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+            .then_some(exit))
     }
 
     /// Keep viewer mutation, minimum reduction, and the resulting PTY resize
@@ -2495,6 +2998,7 @@ mod unix {
             host_start_nonce: encode_hex(start_nonce.as_bytes()),
             workspace_key: String::new(),
             supports_set_defaults: true,
+            supports_clear_history: true,
         };
         let lease =
             HostLivenessLease::acquire(liveness_path(Path::new(&launch.record_path), &record))?;
@@ -2652,6 +3156,7 @@ mod unix {
             owner_token: bootstrapped.owner_token(),
             capabilities: CapabilityStore::new(64),
             term: Mutex::new(term),
+            stream_progress: TerminalStreamProgress::default(),
             writer: Mutex::new(pty_writer),
             master: Mutex::new(master),
             killer: Mutex::new(killer),
@@ -2673,10 +3178,12 @@ mod unix {
             launch_owner_claimed: AtomicBool::new(false),
             launch_owner_stream_ready: AtomicBool::new(false),
             launch_owner_completed: AtomicBool::new(false),
-            child_exit: (Mutex::new(false), Condvar::new()),
+            child_exit: (Mutex::new(None), Condvar::new()),
             child_waitable: AtomicBool::new(false),
             pty_drained: AtomicBool::new(false),
             exit_published: AtomicBool::new(false),
+            exit_record_path: Path::new(&launch.record_path).with_extension("exit"),
+            exit_publish_lock: Mutex::new(()),
             force_pty_drain: AtomicBool::new(false),
             pty_drain_waker: Mutex::new(pty_drain_waker),
             termination_started: AtomicBool::new(false),
@@ -2726,6 +3233,7 @@ mod unix {
                             title
                         };
                         parser_host.note_parser_progress();
+                        parser_host.stream_progress.notify();
                         parser_host.parser_budget.release(accounted_bytes);
                         if let Some(title) = title {
                             parser_host.broadcast(MessageKind::Title, title.into_bytes());
@@ -2786,8 +3294,7 @@ mod unix {
                     ParserCommand::Drain => {
                         // FIFO reception proves every source byte published by
                         // the PTY reader has reached the authoritative parser.
-                        parser_host.pty_drained.store(true, Ordering::Release);
-                        parser_host.child_exit.1.notify_all();
+                        parser_host.mark_pty_drained();
                         parser_host.publish_exit_if_drained();
                         break;
                     }
@@ -2809,6 +3316,14 @@ mod unix {
                 let count = match pty_reader.read(&mut buffer) {
                     Ok(0) => break,
                     Ok(count) => count,
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
+                        ) =>
+                    {
+                        continue;
+                    }
                     Err(_) => break,
                 };
                 let bytes = buffer[..count].to_vec();
@@ -2842,8 +3357,7 @@ mod unix {
                 .and_then(|pid| libc::pid_t::try_from(pid).ok())
                 .is_some_and(|pid| wait_for_child_exit_without_reaping(pid).is_ok());
             if observed_without_reaping {
-                child_host.child_waitable.store(true, Ordering::Release);
-                child_host.child_exit.1.notify_all();
+                child_host.mark_child_waitable();
                 loop {
                     let signal = child_host.child_signal_lock.lock().unwrap();
                     let escalation_complete =
@@ -2852,9 +3366,10 @@ mod unix {
                         child_host.termination_started.load(Ordering::Acquire);
                     let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
                     if escalation_complete || (!termination_started && pty_drained) {
-                        let _ = child.wait();
+                        let exit = wait_for_native_child_status(child.as_mut());
                         child_host.child_reaped.store(true, Ordering::Release);
                         drop(signal);
+                        *child_host.child_exit.0.lock().unwrap() = Some(exit);
                         break;
                     }
                     drop(signal);
@@ -2869,19 +3384,16 @@ mod unix {
                         })
                         .unwrap();
                 }
-                let mut exited = child_host.child_exit.0.lock().unwrap();
-                *exited = true;
-                drop(exited);
                 child_host.child_exit.1.notify_all();
                 child_host.publish_exit_if_drained();
             } else {
                 // Native Unix PTYs always expose a PID and support waitid;
                 // retain a conservative fallback for alternate backends.
-                let _ = child.wait();
+                let exit = wait_for_native_child_status(child.as_mut());
                 child_host.child_reaped.store(true, Ordering::Release);
-                child_host.child_waitable.store(true, Ordering::Release);
+                child_host.mark_child_waitable();
                 let mut exited = child_host.child_exit.0.lock().unwrap();
-                *exited = true;
+                *exited = Some(exit);
                 child_host.child_exit.1.notify_all();
                 child_host.publish_exit_if_drained();
             }
@@ -3116,8 +3628,31 @@ mod unix {
                         };
                         command_host.set_default_colors(colors);
                     }
+                    MessageKind::ClearHistory => {
+                        if !granted_rights.contains(CapabilityRights::INPUT)
+                            || frame.request_id == 0
+                        {
+                            break;
+                        }
+                        let Ok(fallback_key) =
+                            crate::server::decode_terminal_host_clear_history(&frame.payload)
+                        else {
+                            break;
+                        };
+                        let status = clear_history_ack_status(
+                            command_host.clear_history_or_encode_key(fallback_key.as_ref()),
+                        );
+                        let mut response = Frame::new(MessageKind::ClearHistoryAck, vec![status]);
+                        response.request_id = frame.request_id;
+                        let _broadcast = command_host.broadcast_lock.lock().unwrap();
+                        if !command_sender.try_send(response) {
+                            break;
+                        }
+                    }
                     MessageKind::MintCapability => {
-                        if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
+                        if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY)
+                            || frame.request_id == 0
+                        {
                             break;
                         }
                         let Ok(token) = mint_renderer_capability(&command_host, &frame.payload)
@@ -3505,12 +4040,18 @@ mod unix {
             let term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
             let (parser_commands, _parser_receiver) = sync_channel(1);
             let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
+            let terminal_id = TerminalId::random().unwrap();
+            let exit_record_root = std::env::temp_dir()
+                .join(format!("cmux-terminal-exit-tests-{}", std::process::id()));
+            prepare_private_dir(&exit_record_root).unwrap();
+            let exit_record_path = exit_record_root.join(format!("{}.exit", terminal_id.to_hex()));
             Arc::new(HostShared {
-                terminal_id: TerminalId::random().unwrap(),
+                terminal_id,
                 incarnation: HostIncarnation::random().unwrap(),
                 owner_token: CapabilityToken::random().unwrap(),
                 capabilities: CapabilityStore::new(1),
                 term: Mutex::new(term),
+                stream_progress: TerminalStreamProgress::default(),
                 writer: Mutex::new(Box::new(std::io::sink())),
                 master: Mutex::new(Box::new(ExitTestMaster)),
                 killer: Mutex::new(Box::new(ExitTestKiller)),
@@ -3532,10 +4073,15 @@ mod unix {
                 launch_owner_claimed: AtomicBool::new(true),
                 launch_owner_stream_ready: AtomicBool::new(true),
                 launch_owner_completed: AtomicBool::new(false),
-                child_exit: (Mutex::new(true), Condvar::new()),
+                child_exit: (
+                    Mutex::new(Some(TerminalExit::unknown("test host exited"))),
+                    Condvar::new(),
+                ),
                 child_waitable: AtomicBool::new(true),
                 pty_drained: AtomicBool::new(true),
                 exit_published: AtomicBool::new(false),
+                exit_record_path,
+                exit_publish_lock: Mutex::new(()),
                 force_pty_drain: AtomicBool::new(false),
                 pty_drain_waker: Mutex::new(pty_drain_waker),
                 termination_started: AtomicBool::new(false),
@@ -3568,6 +4114,7 @@ mod unix {
                 host_start_nonce: encode_hex(nonce.as_bytes()),
                 workspace_key: String::new(),
                 supports_set_defaults: true,
+                supports_clear_history: true,
             };
             let record_path = record.record_path(&root);
             let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
@@ -3632,6 +4179,139 @@ mod unix {
         }
 
         #[test]
+        fn clear_history_ack_preserves_known_not_delivered_failure() {
+            let (record_path, record, lease) = record_fixture("clear-history-ack");
+            let root = record_path.parent().unwrap().to_path_buf();
+            let (client, mut host) = UnixStream::pair().unwrap();
+            let control_responses =
+                Arc::new(ControlResponses { waiters: Mutex::new(HashMap::new()) });
+            let attachment = HostAttachment {
+                record,
+                record_path,
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    replay: Vec::new(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: Vec::new(),
+                    cwd: None,
+                },
+                smart_renderer: false,
+                reader: None,
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: control_responses.clone(),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+            };
+            let responder = thread::spawn(move || {
+                let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+                assert_eq!(request.kind, MessageKind::ClearHistory);
+                let mut response = Frame::new(
+                    MessageKind::ClearHistoryAck,
+                    vec![crate::terminal_host_protocol::CLEAR_HISTORY_ACK_FAILED],
+                );
+                response.request_id = request.request_id;
+                assert!(control_responses.resolve(&response));
+            });
+
+            let failure = attachment.send_clear_history(None).unwrap_err();
+            responder.join().unwrap();
+
+            assert_eq!(failure.delivery(), ClearHistoryDelivery::KnownNotDelivered);
+            assert_eq!(failure.into_error().to_string(), CLEAR_HISTORY_PRESERVATION_ERROR);
+            drop(attachment);
+            drop(lease);
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn clear_history_control_write_failure_after_header_is_ambiguous() {
+            let (record_path, record, lease) =
+                record_fixture("clear-history-partial-control-write");
+            let root = record_path.parent().unwrap().to_path_buf();
+            let (client, mut host) = UnixStream::pair().unwrap();
+            let attachment = HostAttachment {
+                record,
+                record_path,
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    replay: Vec::new(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: Vec::new(),
+                    cwd: None,
+                },
+                smart_renderer: false,
+                reader: None,
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: Arc::new(ControlResponses {
+                    waiters: Mutex::new(HashMap::new()),
+                }),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+            };
+            let peer = thread::spawn(move || {
+                let mut header = [0; crate::terminal_host_protocol::HEADER_LEN];
+                Read::read_exact(&mut host, &mut header).unwrap();
+                host.shutdown(std::net::Shutdown::Both).unwrap();
+            });
+
+            let failure = attachment
+                .send_control_request(
+                    MessageKind::ClearHistory,
+                    MessageKind::ClearHistoryAck,
+                    vec![b'x'; MAX_FRAME_PAYLOAD],
+                )
+                .unwrap_err();
+            peer.join().unwrap();
+
+            assert_eq!(
+                failure.delivery(),
+                ClearHistoryDelivery::Ambiguous,
+                "a delivered frame header means the host may have received the complete request"
+            );
+            drop(attachment);
+            drop(lease);
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn clear_history_ack_status_preserves_reason_and_delivery() {
+            for (message, expected) in [
+                (CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_ACK_PRESERVATION_FAILED),
+                (CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, CLEAR_HISTORY_ACK_STREAM_TIMEOUT),
+                (
+                    CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR,
+                    CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
+                ),
+                (
+                    CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+                    CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT,
+                ),
+                ("other pre-execution failure", CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED),
+            ] {
+                assert_eq!(
+                    clear_history_ack_status(Err(ClearHistoryFailure::known_not_delivered(
+                        anyhow::anyhow!(message)
+                    ))),
+                    expected
+                );
+            }
+            assert_eq!(
+                clear_history_ack_status(Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
+                    "partial PTY write"
+                )))),
+                CLEAR_HISTORY_ACK_AMBIGUOUS
+            );
+        }
+
+        #[test]
         fn process_nonce_proves_stale_record_even_if_pid_is_live_and_reused() {
             let (record_path, record, lease) = record_fixture("liveness");
             assert_eq!(
@@ -3674,6 +4354,109 @@ mod unix {
         }
 
         #[test]
+        fn exit_sidecar_round_trips_and_requires_exact_acknowledgement() {
+            let (record_path, record, lease) = record_fixture("exit-sidecar");
+            let root = record_path.parent().unwrap();
+            let exit_record = TerminalHostExitRecord::new(
+                &TerminalHostIdentity {
+                    terminal_id: record.terminal_id.clone(),
+                    incarnation: record.incarnation.clone(),
+                },
+                TerminalExit {
+                    outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+                    exited_at_ms: 1_234_567,
+                },
+            );
+            let exit_path = record_path.with_extension("exit");
+            write_exit_record(&exit_path, &exit_record).unwrap();
+            assert_eq!(
+                load_terminal_host_exit_records(root).unwrap(),
+                vec![(exit_path.clone(), exit_record.clone())]
+            );
+            assert_eq!(
+                terminal_host_exit_record(&record_path).unwrap(),
+                Some((exit_path.clone(), exit_record.clone()))
+            );
+
+            let mut mismatch = exit_record.clone();
+            mismatch.exit.exited_at_ms += 1;
+            assert!(!acknowledge_terminal_host_exit_record(&exit_path, &mismatch).unwrap());
+            assert!(exit_path.exists(), "mismatched ack must retain restart evidence");
+            assert!(acknowledge_terminal_host_exit_record(&exit_path, &exit_record).unwrap());
+            assert!(!exit_path.exists());
+            assert!(
+                !acknowledge_terminal_host_exit_record(&exit_path, &exit_record).unwrap(),
+                "repeated exact ack is an idempotent no-op"
+            );
+
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn exit_sidecar_publication_never_clobbers_a_concurrent_outcome() {
+            let (record_path, record, lease) = record_fixture("exit-sidecar-race");
+            let root = record_path.parent().unwrap().to_path_buf();
+            let exit_path = record_path.with_extension("exit");
+            let identity = TerminalHostIdentity {
+                terminal_id: record.terminal_id.clone(),
+                incarnation: record.incarnation.clone(),
+            };
+            let first = TerminalHostExitRecord::new(
+                &identity,
+                TerminalExit {
+                    outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+                    exited_at_ms: 1_234_567,
+                },
+            );
+            let second = TerminalHostExitRecord::new(
+                &identity,
+                TerminalExit {
+                    outcome: crate::terminal_host_protocol::TerminalExitOutcome::Signal {
+                        signal: libc::SIGTERM,
+                        core_dumped: false,
+                    },
+                    exited_at_ms: 1_234_568,
+                },
+            );
+            let barrier = Arc::new(std::sync::Barrier::new(3));
+            let publishers = [first.clone(), second.clone()]
+                .into_iter()
+                .map(|candidate| {
+                    let barrier = barrier.clone();
+                    let exit_path = exit_path.clone();
+                    thread::spawn(move || {
+                        barrier.wait();
+                        write_exit_record(&exit_path, &candidate)
+                    })
+                })
+                .collect::<Vec<_>>();
+            barrier.wait();
+            let results = publishers
+                .into_iter()
+                .map(|publisher| publisher.join().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+            let stored: TerminalHostExitRecord =
+                serde_json::from_slice(&fs::read(&exit_path).unwrap()).unwrap();
+            assert!(stored == first || stored == second);
+            validate_terminal_host_exit_record(&exit_path, &stored).unwrap();
+
+            let mut unknown_field = serde_json::to_value(&stored).unwrap();
+            unknown_field["unexpected"] = serde_json::json!(true);
+            assert!(
+                serde_json::from_value::<TerminalHostExitRecord>(unknown_field).is_err(),
+                "exit sidecars must reject fields outside the versioned schema"
+            );
+
+            assert!(acknowledge_terminal_host_exit_record(&exit_path, &stored).unwrap());
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
         fn legacy_record_is_adoptable_shape_but_never_unsafely_reaped() {
             let (v2_path, v2, lease) = record_fixture("legacy");
             let root = v2_path.parent().unwrap();
@@ -3686,6 +4469,7 @@ mod unix {
             legacy.host_pid = 0;
             legacy.host_start_nonce.clear();
             legacy.supports_set_defaults = false;
+            legacy.supports_clear_history = false;
             let legacy_path = legacy.record_path(root);
             write_record(&legacy_path, &legacy).unwrap();
 
@@ -4219,6 +5003,8 @@ mod unix {
         #[test]
         fn smart_attach_cannot_miss_exit_between_dead_check_and_subscribe() {
             let host = exited_host_fixture();
+            let exit_record_path = host.exit_record_path.clone();
+            let exit_record_root = exit_record_path.parent().unwrap().to_path_buf();
             let exit_host = host.clone();
             let term = host.term.lock().unwrap();
             let smart_publication = host.smart.broadcast_lock.lock().unwrap();
@@ -4269,6 +5055,8 @@ mod unix {
             let exit = receiver.recv().unwrap();
             assert_eq!((exit.kind, exit.sequence), (MessageKind::Exit, 1));
             assert!(receiver.try_recv().is_err(), "attach received Exit more than once");
+            fs::remove_file(exit_record_path).unwrap();
+            let _ = fs::remove_dir(exit_record_root);
         }
 
         #[test]
@@ -4488,17 +5276,26 @@ mod unix {
                 let broadcast_lock = Mutex::new(());
                 let sequence = AtomicU64::new(0);
                 let taps = Mutex::new(HashMap::from([(1, tap)]));
-                let child_exited = Mutex::new(false);
+                let exit = TerminalExit {
+                    outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+                    exited_at_ms: 1234,
+                };
+                let child_exited = Mutex::new(None);
                 let pty_drained = AtomicBool::new(false);
                 let exit_published = AtomicBool::new(false);
 
                 if child_first {
-                    *child_exited.lock().unwrap() = true;
-                    assert!(!claim_host_exit_after_drain(
-                        &child_exited,
-                        &pty_drained,
-                        &exit_published,
-                    ));
+                    *child_exited.lock().unwrap() = Some(exit.clone());
+                    assert!(
+                        persist_and_claim_host_exit_after_drain(
+                            &child_exited,
+                            &pty_drained,
+                            &exit_published,
+                            |_| Ok(()),
+                        )
+                        .unwrap()
+                        .is_none()
+                    );
                 }
 
                 publish_host_frames(
@@ -4510,22 +5307,42 @@ mod unix {
                 pty_drained.store(true, Ordering::Release);
 
                 if !child_first {
-                    assert!(!claim_host_exit_after_drain(
-                        &child_exited,
-                        &pty_drained,
-                        &exit_published,
-                    ));
-                    *child_exited.lock().unwrap() = true;
+                    assert!(
+                        persist_and_claim_host_exit_after_drain(
+                            &child_exited,
+                            &pty_drained,
+                            &exit_published,
+                            |_| Ok(()),
+                        )
+                        .unwrap()
+                        .is_none()
+                    );
+                    *child_exited.lock().unwrap() = Some(exit.clone());
                 }
-                assert!(claim_host_exit_after_drain(&child_exited, &pty_drained, &exit_published,));
+                let claimed = persist_and_claim_host_exit_after_drain(
+                    &child_exited,
+                    &pty_drained,
+                    &exit_published,
+                    |_| Ok(()),
+                )
+                .unwrap()
+                .expect("drained exited child claims one Exit");
+                assert_eq!(claimed, exit);
                 publish_host_frames(
                     &broadcast_lock,
                     &sequence,
                     &taps,
-                    [Frame::new(MessageKind::Exit, Vec::new())],
+                    [Frame::new(MessageKind::Exit, encode_terminal_exit(&claimed))],
                 );
                 assert!(
-                    !claim_host_exit_after_drain(&child_exited, &pty_drained, &exit_published,)
+                    persist_and_claim_host_exit_after_drain(
+                        &child_exited,
+                        &pty_drained,
+                        &exit_published,
+                        |_| Ok(()),
+                    )
+                    .unwrap()
+                    .is_none()
                 );
 
                 let frames = receiver.try_iter().collect::<Vec<_>>();
@@ -4535,7 +5352,54 @@ mod unix {
                 assert_eq!(frames[0].sequence, 1);
                 assert_eq!(frames[1].kind, MessageKind::Exit);
                 assert_eq!(frames[1].sequence, 2);
+                assert_eq!(
+                    crate::terminal_host_protocol::decode_terminal_exit(&frames[1].payload)
+                        .unwrap(),
+                    exit
+                );
             }
+        }
+
+        #[test]
+        fn exit_persistence_failure_does_not_claim_or_publish_status() {
+            let exit = TerminalExit {
+                outcome: crate::terminal_host_protocol::TerminalExitOutcome::Signal {
+                    signal: libc::SIGTERM,
+                    core_dumped: false,
+                },
+                exited_at_ms: 4567,
+            };
+            let child_exited = Mutex::new(Some(exit.clone()));
+            let pty_drained = AtomicBool::new(true);
+            let exit_published = AtomicBool::new(false);
+            let failed = persist_and_claim_host_exit_after_drain(
+                &child_exited,
+                &pty_drained,
+                &exit_published,
+                |_| anyhow::bail!("injected sidecar fsync failure"),
+            );
+            assert!(failed.is_err());
+            assert!(!exit_published.load(Ordering::Acquire));
+
+            let claimed = persist_and_claim_host_exit_after_drain(
+                &child_exited,
+                &pty_drained,
+                &exit_published,
+                |_| Ok(()),
+            )
+            .unwrap();
+            assert_eq!(claimed, Some(exit));
+            assert!(exit_published.load(Ordering::Acquire));
+            assert!(
+                persist_and_claim_host_exit_after_drain(
+                    &child_exited,
+                    &pty_drained,
+                    &exit_published,
+                    |_| panic!("already-published exit must not persist twice"),
+                )
+                .unwrap()
+                .is_none()
+            );
         }
 
         #[test]
@@ -4746,10 +5610,12 @@ mod unix {
 
 #[cfg(unix)]
 pub use unix::{
-    HostAttachment, adopt_terminal_host, decode_host_snapshot_payload,
-    isolate_terminal_host_process_fds, launch_terminal_host, launch_terminal_host_with_identity,
+    HostAttachment, acknowledge_terminal_host_exit_record, adopt_terminal_host,
+    decode_host_snapshot_payload, isolate_terminal_host_process_fds, launch_terminal_host,
+    launch_terminal_host_with_identity, load_terminal_host_exit_records,
     load_terminal_host_records, remove_stale_terminal_host_record, serve_terminal_host_stdio,
-    terminal_host_record_liveness, terminal_host_root, validate_terminal_host_record,
+    terminal_host_exit_record, terminal_host_record_liveness, terminal_host_root,
+    validate_terminal_host_exit_record, validate_terminal_host_record,
 };
 
 #[cfg(not(unix))]

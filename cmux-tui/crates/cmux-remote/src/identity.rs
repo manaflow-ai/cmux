@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use base64::Engine;
+use fs4::FileExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, Notify, oneshot, watch};
 
@@ -22,6 +23,10 @@ const ENROLLMENT_RETRY_GRACE: Duration = Duration::from_secs(60);
 const MAX_INVITATION_RELAY_ROUTES: usize = 2;
 const MAX_RELAY_SLOT_BYTES: usize = 256;
 const MAX_RELAY_TICKET_BYTES: usize = 4 * 1024;
+const ENROLLMENT_URI_PREFIX: &str = "cmux://enroll/";
+const CLIENT_STATE_FILE: &str = "known-daemons.json";
+const CLIENT_STATE_LOCK_FILE: &str = "known-daemons.lock";
+pub const MAX_INVITATION_URI_BYTES: usize = ENROLLMENT_URI_PREFIX.len() + 16 * 1024;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EnrollmentRelayAccess {
@@ -81,17 +86,21 @@ impl EnrollmentInvitation {
     pub fn to_uri(&self) -> Result<String, IdentityError> {
         validate_relay_access(&self.route_hints, &self.relay_access)?;
         let json = serde_json::to_vec(self).map_err(IdentityError::Json)?;
-        Ok(format!(
-            "cmux://enroll/{}",
+        let uri = format!(
+            "{ENROLLMENT_URI_PREFIX}{}",
             base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json)
-        ))
+        );
+        if uri.len() > MAX_INVITATION_URI_BYTES {
+            return Err(IdentityError::Invalid("enrollment URI is too large".into()));
+        }
+        Ok(uri)
     }
 
     pub fn from_uri(uri: &str) -> Result<Self, IdentityError> {
         let encoded = uri
-            .strip_prefix("cmux://enroll/")
+            .strip_prefix(ENROLLMENT_URI_PREFIX)
             .ok_or_else(|| IdentityError::Invalid("enrollment URI has the wrong scheme".into()))?;
-        if encoded.len() > 16 * 1024 {
+        if encoded.len() > MAX_INVITATION_URI_BYTES - ENROLLMENT_URI_PREFIX.len() {
             return Err(IdentityError::Invalid("enrollment URI is too large".into()));
         }
         let json = base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -173,29 +182,9 @@ impl ClientIdentityStore {
     pub fn load_or_create(state_dir: impl Into<PathBuf>) -> Result<Arc<Self>, IdentityError> {
         let state_dir = state_dir.into();
         secure_directory(&state_dir)?;
+        let _state_lock = lock_client_state(&state_dir)?;
         let identity = load_or_create_identity(&state_dir.join("client-identity.json"))?;
-        let path = state_dir.join("known-daemons.json");
-        let mut state = if path.exists() {
-            let data = fs::read(&path).map_err(IdentityError::Io)?;
-            let state: PersistedClientState =
-                serde_json::from_slice(&data).map_err(IdentityError::Json)?;
-            if state.version != STATE_VERSION {
-                return Err(IdentityError::Invalid(format!(
-                    "known-daemon state version {} is unsupported",
-                    state.version
-                )));
-            }
-            state
-        } else {
-            PersistedClientState::default()
-        };
-        let mut routes_changed = false;
-        for daemon in state.daemons.values_mut() {
-            routes_changed |= sanitize_loaded_known_daemon(daemon);
-        }
-        if routes_changed {
-            atomic_json(&path, &state)?;
-        }
+        let state = load_client_state(&state_dir.join(CLIENT_STATE_FILE))?;
         Ok(Arc::new(Self { state_dir, identity, state: Mutex::new(state) }))
     }
 
@@ -248,6 +237,8 @@ impl ClientIdentityStore {
         let fingerprint = public_key_fingerprint(&public_key);
         let now = unix_time()?;
         let mut state = self.state.lock().await;
+        let _state_lock = lock_client_state(&self.state_dir)?;
+        *state = load_client_state(&self.state_dir.join(CLIENT_STATE_FILE))?;
         if let Some(existing) = state.daemons.get_mut(&fingerprint) {
             if decode_key(&existing.public_key)? != public_key {
                 return Err(IdentityError::Invalid("known daemon fingerprint collision".into()));
@@ -291,6 +282,8 @@ impl ClientIdentityStore {
         let route = credential_free_route_hint(route)?;
         let now = unix_time()?;
         let mut state = self.state.lock().await;
+        let _state_lock = lock_client_state(&self.state_dir)?;
+        *state = load_client_state(&self.state_dir.join(CLIENT_STATE_FILE))?;
         let Some(existing) = state.daemons.get_mut(fingerprint) else {
             return Ok(None);
         };
@@ -304,17 +297,16 @@ impl ClientIdentityStore {
     }
 
     pub async fn daemon_key(&self, fingerprint: &str) -> Result<Option<[u8; 32]>, IdentityError> {
-        self.state
-            .lock()
-            .await
-            .daemons
-            .get(fingerprint)
-            .map(|daemon| decode_key(&daemon.public_key))
-            .transpose()
+        let mut state = self.state.lock().await;
+        let _state_lock = lock_client_state(&self.state_dir)?;
+        *state = load_client_state(&self.state_dir.join(CLIENT_STATE_FILE))?;
+        state.daemons.get(fingerprint).map(|daemon| decode_key(&daemon.public_key)).transpose()
     }
 
     pub async fn forget_daemon(&self, fingerprint: &str) -> Result<bool, IdentityError> {
         let mut state = self.state.lock().await;
+        let _state_lock = lock_client_state(&self.state_dir)?;
+        *state = load_client_state(&self.state_dir.join(CLIENT_STATE_FILE))?;
         let removed = state.daemons.remove(fingerprint).is_some();
         if removed {
             self.persist_client_locked(&state)?;
@@ -323,7 +315,7 @@ impl ClientIdentityStore {
     }
 
     fn persist_client_locked(&self, state: &PersistedClientState) -> Result<(), IdentityError> {
-        atomic_json(&self.state_dir.join("known-daemons.json"), state)
+        atomic_json(&self.state_dir.join(CLIENT_STATE_FILE), state)
     }
 }
 
@@ -338,6 +330,49 @@ impl Default for PersistedClientState {
     fn default() -> Self {
         Self { version: STATE_VERSION, daemons: HashMap::new() }
     }
+}
+
+fn lock_client_state(state_dir: &Path) -> Result<File, IdentityError> {
+    let path = state_dir.join(CLIENT_STATE_LOCK_FILE);
+    let mut options = OpenOptions::new();
+    options.create(true).truncate(false).read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(&path).map_err(IdentityError::Io)?;
+    restrict_file(&path)?;
+    FileExt::lock(&file).map_err(IdentityError::Io)?;
+    Ok(file)
+}
+
+/// Load the latest client state while the caller holds `known-daemons.lock`.
+/// Every mutation reloads under the same cross-process lock before writing, so
+/// concurrent CLI invocations cannot replace each other's daemon records.
+fn load_client_state(path: &Path) -> Result<PersistedClientState, IdentityError> {
+    let mut state = if path.exists() {
+        let data = fs::read(path).map_err(IdentityError::Io)?;
+        let state: PersistedClientState =
+            serde_json::from_slice(&data).map_err(IdentityError::Json)?;
+        if state.version != STATE_VERSION {
+            return Err(IdentityError::Invalid(format!(
+                "known-daemon state version {} is unsupported",
+                state.version
+            )));
+        }
+        state
+    } else {
+        PersistedClientState::default()
+    };
+    let mut routes_changed = false;
+    for daemon in state.daemons.values_mut() {
+        routes_changed |= sanitize_loaded_known_daemon(daemon);
+    }
+    if routes_changed {
+        atomic_json(path, &state)?;
+    }
+    Ok(state)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -364,7 +399,7 @@ pub struct AuthDatabase {
     daemon_name: String,
     identity: StaticIdentity,
     allow_carrier: bool,
-    state: Mutex<AuthState>,
+    state: Arc<Mutex<AuthState>>,
     pending_changed: Notify,
     revocation_tx: watch::Sender<u64>,
 }
@@ -397,7 +432,7 @@ impl AuthDatabase {
             daemon_name: daemon_name.into(),
             identity,
             allow_carrier,
-            state: Mutex::new(AuthState::from_persisted(persisted)),
+            state: Arc::new(Mutex::new(AuthState::from_persisted(persisted))),
             pending_changed: Notify::new(),
             revocation_tx,
         }))
@@ -443,21 +478,9 @@ impl AuthDatabase {
         let id = random_token(16)?;
         let mut secret = [0_u8; 32];
         getrandom::fill(&mut secret).map_err(|error| IdentityError::Random(error.to_string()))?;
-        let mut state = self.state.lock().await;
-        state.prune_invitations(now);
-        state.invitations.insert(
-            id.clone(),
-            InvitationRecord {
-                secret,
-                expires_at_unix,
-                route_hints: route_hints.clone(),
-                claimed_by: None,
-            },
-        );
-        self.persist_locked(&state)?;
-        Ok(EnrollmentInvitation {
+        let invitation = EnrollmentInvitation {
             version: STATE_VERSION,
-            id,
+            id: id.clone(),
             secret: encode_key(&secret),
             daemon_public_key: encode_key(&self.identity.public_key()),
             daemon_fingerprint: self.identity.fingerprint(),
@@ -466,7 +489,21 @@ impl AuthDatabase {
             route_hints,
             relay_access,
             approval_required: true,
-        })
+        };
+        invitation.to_uri()?;
+        let mut state = self.state.lock().await;
+        state.prune_invitations(now);
+        state.invitations.insert(
+            id,
+            InvitationRecord {
+                secret,
+                expires_at_unix,
+                route_hints: invitation.route_hints.clone(),
+                claimed_by: None,
+            },
+        );
+        self.persist_locked(&state)?;
+        Ok(invitation)
     }
 
     pub async fn list_devices(&self) -> Vec<DeviceRecord> {
@@ -510,11 +547,12 @@ impl AuthDatabase {
     ) -> Result<Vec<PendingEnrollment>, IdentityError> {
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
+            let notified = self.pending_changed.notified();
             let pending = self.pending_enrollments().await;
             if !pending.is_empty() {
                 return Ok(pending);
             }
-            tokio::time::timeout_at(deadline, self.pending_changed.notified())
+            tokio::time::timeout_at(deadline, notified)
                 .await
                 .map_err(|_| IdentityError::Timeout)?;
         }
@@ -528,13 +566,19 @@ impl AuthDatabase {
                 .pending
                 .remove(invitation_id)
                 .ok_or_else(|| IdentityError::UnknownPending(invitation_id.into()))?;
-            let invitation = state
+            let invitation_expired = state
                 .invitations
-                .get_mut(invitation_id)
-                .ok_or_else(|| IdentityError::InvitationExpired(invitation_id.into()))?;
-            if invitation.expires_at_unix <= now {
+                .get(invitation_id)
+                .ok_or_else(|| IdentityError::InvitationExpired(invitation_id.into()))?
+                .expires_at_unix
+                <= now;
+            if invitation_expired {
+                state.invitations.remove(invitation_id);
+                self.persist_locked(&state)?;
                 return Err(IdentityError::InvitationExpired(invitation_id.into()));
             }
+            let invitation =
+                state.invitations.get_mut(invitation_id).expect("the invitation was checked above");
             let fingerprint = public_key_fingerprint(&pending.device_public_key);
             invitation.claimed_by = Some(fingerprint.clone());
             invitation.expires_at_unix = invitation
@@ -624,7 +668,9 @@ impl ServerAuthenticator for AuthDatabase {
     async fn invitation_secret(&self, id: &str) -> Result<Option<[u8; 32]>, CryptoError> {
         let now = unix_time().map_err(|error| CryptoError::Unauthorized(error.to_string()))?;
         let mut state = self.state.lock().await;
-        state.prune_invitations(now);
+        if state.prune_invitations(now) {
+            self.persist_locked(&state).map_err(|error| CryptoError::Link(error.to_string()))?;
+        }
         Ok(state.invitations.get(id).map(|invitation| invitation.secret))
     }
 
@@ -680,15 +726,24 @@ impl ServerAuthenticator for AuthDatabase {
                 let now = unix_time().map_err(|error| error.to_string())?;
                 let fingerprint = public_key_fingerprint(&request.device_public_key);
                 let (decision_tx, decision_rx) = oneshot::channel();
+                let pending_id = uuid::Uuid::new_v4();
                 {
                     let mut state = self.state.lock().await;
+                    let invitation_expired = state
+                        .invitations
+                        .get(&invitation_id)
+                        .ok_or_else(|| "invitation is unknown or expired".to_string())?
+                        .expires_at_unix
+                        <= now;
+                    if invitation_expired {
+                        state.invitations.remove(&invitation_id);
+                        self.persist_locked(&state).map_err(|error| error.to_string())?;
+                        return Err("invitation is expired".into());
+                    }
                     let invitation = state
                         .invitations
                         .get(&invitation_id)
-                        .ok_or_else(|| "invitation is unknown or expired".to_string())?;
-                    if invitation.expires_at_unix <= now {
-                        return Err("invitation is expired".into());
-                    }
+                        .expect("the invitation was checked above");
                     if let Some(claimed_by) = &invitation.claimed_by {
                         if claimed_by != &fingerprint {
                             return Err("invitation was already claimed by another device".into());
@@ -717,6 +772,7 @@ impl ServerAuthenticator for AuthDatabase {
                     state.pending.insert(
                         invitation_id.clone(),
                         PendingDecision {
+                            id: pending_id,
                             request: PendingEnrollment {
                                 invitation_id: invitation_id.clone(),
                                 device_name: request.device_name,
@@ -728,12 +784,24 @@ impl ServerAuthenticator for AuthDatabase {
                         },
                     );
                 }
+                let _pending_guard = PendingEnrollmentGuard {
+                    state: self.state.clone(),
+                    invitation_id: invitation_id.clone(),
+                    pending_id,
+                };
                 self.pending_changed.notify_waiters();
                 match tokio::time::timeout(APPROVAL_TIMEOUT, decision_rx).await {
                     Ok(Ok(result)) => result,
                     Ok(Err(_)) => Err("enrollment approval channel closed".into()),
                     Err(_) => {
-                        self.state.lock().await.pending.remove(&invitation_id);
+                        let mut state = self.state.lock().await;
+                        if state
+                            .pending
+                            .get(&invitation_id)
+                            .is_some_and(|pending| pending.id == pending_id)
+                        {
+                            state.pending.remove(&invitation_id);
+                        }
                         Err("enrollment approval timed out".into())
                     }
                 }
@@ -779,10 +847,10 @@ impl AuthState {
         }
     }
 
-    fn prune_invitations(&mut self, now: u64) {
-        self.invitations.retain(|id, invitation| {
-            invitation.expires_at_unix > now || self.pending.contains_key(id)
-        });
+    fn prune_invitations(&mut self, now: u64) -> bool {
+        let previous = self.invitations.len();
+        self.invitations.retain(|_, invitation| invitation.expires_at_unix > now);
+        self.invitations.len() != previous
     }
 }
 
@@ -794,9 +862,31 @@ struct InvitationRecord {
 }
 
 struct PendingDecision {
+    id: uuid::Uuid,
     request: PendingEnrollment,
     device_public_key: [u8; 32],
     decision: oneshot::Sender<Result<AuthGrant, String>>,
+}
+
+struct PendingEnrollmentGuard {
+    state: Arc<Mutex<AuthState>>,
+    invitation_id: String,
+    pending_id: uuid::Uuid,
+}
+
+impl Drop for PendingEnrollmentGuard {
+    fn drop(&mut self) {
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        let state = self.state.clone();
+        let invitation_id = self.invitation_id.clone();
+        let pending_id = self.pending_id;
+        runtime.spawn(async move {
+            let mut state = state.lock().await;
+            if state.pending.get(&invitation_id).is_some_and(|pending| pending.id == pending_id) {
+                state.pending.remove(&invitation_id);
+            }
+        });
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -896,13 +986,16 @@ fn load_state(path: &Path) -> Result<PersistedState, IdentityError> {
             state.version
         )));
     }
-    let mut routes_changed = false;
+    let now = unix_time()?;
+    let invitation_count = state.invitations.len();
+    state.invitations.retain(|invitation| invitation.expires_at_unix > now);
+    let mut changed = state.invitations.len() != invitation_count;
     for invitation in &mut state.invitations {
         let sanitized = credential_free_route_hints_lossy(&invitation.route_hints);
-        routes_changed |= sanitized != invitation.route_hints;
+        changed |= sanitized != invitation.route_hints;
         invitation.route_hints = sanitized;
     }
-    if routes_changed {
+    if changed {
         atomic_json(path, &state)?;
     }
     Ok(state)
@@ -1316,6 +1409,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn independent_client_stores_merge_known_daemon_updates() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let second = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let first_key = StaticIdentity::generate().unwrap().public_key();
+        let second_key = StaticIdentity::generate().unwrap().public_key();
+
+        first
+            .pin_daemon("first".into(), first_key, vec!["wss://first.example".into()])
+            .await
+            .unwrap();
+        second
+            .pin_daemon("second".into(), second_key, vec!["wss://second.example".into()])
+            .await
+            .unwrap();
+
+        let reloaded = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let daemons = reloaded.known_daemons().await;
+        assert_eq!(daemons.len(), 2);
+        assert!(daemons.iter().any(|daemon| daemon.name == "first"));
+        assert!(daemons.iter().any(|daemon| daemon.name == "second"));
+    }
+
+    #[tokio::test]
     async fn known_daemon_routes_are_persisted_without_credentials() {
         let temp = tempfile::tempdir().unwrap();
         let key = StaticIdentity::generate().unwrap().public_key();
@@ -1598,6 +1715,65 @@ mod tests {
 
         let reloaded = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
         assert_eq!(reloaded.list_devices().await, vec![record]);
+    }
+
+    #[tokio::test]
+    async fn canceled_enrollment_releases_its_invitation_for_retry() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        let invitation =
+            database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+        let request = AuthRequest {
+            mode: AuthKind::Invitation,
+            invitation_id: Some(invitation.id.clone()),
+            device_public_key: StaticIdentity::generate().unwrap().public_key(),
+            device_name: "cancelled".into(),
+            session: SessionId([7; 16]),
+            lane: Lane::Control,
+            lanes: vec![Lane::Control],
+            generation: 0,
+            inbound: InboundAuthEvidence::Network(NetworkPeer::Tls),
+        };
+        let first = tokio::spawn({
+            let database = database.clone();
+            let request = request.clone();
+            async move { database.authorize(request).await }
+        });
+        database.wait_for_pending(Duration::from_secs(2)).await.unwrap();
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !database.pending_enrollments().await.is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled enrollment remained pending");
+
+        let retry = tokio::spawn({
+            let database = database.clone();
+            async move { database.authorize(request).await }
+        });
+        database.wait_for_pending(Duration::from_secs(2)).await.unwrap();
+        retry.abort();
+        assert!(retry.await.unwrap_err().is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn expired_invitation_secret_is_removed_from_persisted_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        let invitation =
+            database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+        {
+            let mut state = database.state.lock().await;
+            state.invitations.get_mut(&invitation.id).unwrap().expires_at_unix = 0;
+            database.persist_locked(&state).unwrap();
+        }
+
+        assert!(database.invitation_secret(&invitation.id).await.unwrap().is_none());
+        let persisted = fs::read_to_string(temp.path().join("devices.json")).unwrap();
+        assert!(!persisted.contains(&invitation.id));
     }
 
     #[tokio::test]

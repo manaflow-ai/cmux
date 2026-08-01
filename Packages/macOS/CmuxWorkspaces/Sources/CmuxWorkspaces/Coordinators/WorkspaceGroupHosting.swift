@@ -29,7 +29,7 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
         select: Bool
     ) -> Tab
     /// Creates a member workspace for `createWorkspaceInGroup`, preserving the
-    /// initial-surface options and sticky-customization eligibility.
+    /// initial-surface options and creation-title ownership policy.
     func createWorkspaceForGroup(
         title: String?,
         workingDirectory: String?,
@@ -39,7 +39,7 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
         select: Bool,
-        shouldApplyWorkspaceDirectoryCustomization: Bool
+        applyCreationTitleAsCustomTitle: Bool
     ) -> Tab
     /// Closes a member workspace during group deletion (legacy
     /// `closeWorkspace(_:recordHistory:)`, including its teardown chain).
