@@ -25,6 +25,9 @@ python -m pip install cmux-sdk
 Do not publish SDK contents through `tui-publish-npm.yml` or
 `tui-publish-pypi.yml`.
 
+All packages target mux protocol 10 and expose the same 92 commands and 45
+events. The shared conformance suite verifies their common wire behavior.
+
 ## One-time registry setup
 
 - npm: the package must exist before npm allows a trusted publisher. Publish the

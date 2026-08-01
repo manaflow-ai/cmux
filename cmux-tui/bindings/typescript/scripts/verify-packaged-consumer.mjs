@@ -180,6 +180,12 @@ void write;
     assert.ok(!graph.some((path) => path.endsWith("/node.js")));
   }
 
+  const rawBrowserGraph = dependencyGraph(
+    join(installedRoot, "dist/src/raw/browser.js"),
+  );
+  assert.ok(!rawBrowserGraph.some((path) => path.endsWith("/node-transport.js")));
+  assert.ok(!rawBrowserGraph.some((path) => path.endsWith("/node-client.js")));
+
   const runtimeTypes = execFileSync(process.execPath, [
     "--input-type=module",
     "--eval",
