@@ -1755,7 +1755,16 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn legacy_quarantine_blocks_replacement_publication() {
-        let (listener, mut quarantine, path) = quarantined_test_listener("cq-publication");
+        let directory = std::env::temp_dir().join(format!(
+            "cq-publication-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("server.sock");
+        let publication_lock = directory.join(".server.sock.publish.lock");
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let mut quarantine = LegacySocketQuarantine::acquire(&path).unwrap();
         let (sender, receiver) = mpsc::channel();
         let publication_path = path.clone();
         let publisher = std::thread::spawn(move || {
@@ -1776,6 +1785,8 @@ mod tests {
                 drop(listener);
                 let _ = std::fs::remove_file(&path);
                 publisher.join().unwrap();
+                let _ = std::fs::remove_file(&publication_lock);
+                std::fs::remove_dir(&directory).unwrap();
                 panic!("replacement server published while the legacy socket was quarantined");
             }
         }
@@ -1789,6 +1800,8 @@ mod tests {
         publisher.join().unwrap();
         drop(listener);
         std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(publication_lock).unwrap();
+        std::fs::remove_dir(directory).unwrap();
     }
 
     #[test]
