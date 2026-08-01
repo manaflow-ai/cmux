@@ -1,35 +1,75 @@
-export const CHECKOUT_EXTERNAL_BROWSER_PARAM = "cmux_external_browser";
+export const EXTERNAL_BROWSER_PARAM = "cmux_external_browser";
+export const CHECKOUT_EXTERNAL_BROWSER_PARAM = EXTERNAL_BROWSER_PARAM;
 export const CHECKOUT_NATIVE_SCHEME_PARAM = "cmux_scheme";
 export const CHECKOUT_PLAN_PARAM = "plan";
+export const CHECKOUT_INTERVAL_PARAM = "interval";
+export const CHECKOUT_APP_RELAY_PARAM = "cmux_app_checkout";
 export const CHECKOUT_PATH = "/api/billing/checkout";
 export type CheckoutPlan = "pro" | "team";
+export type CheckoutInterval = "month" | "year";
+export type AppPricingCheckoutRelayParameters = {
+  plan: CheckoutPlan | null;
+  interval: CheckoutInterval | null;
+  cmuxScheme: string;
+};
 export const PRO_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "pro");
 export const TEAM_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "team");
-export const PRO_CHECKOUT_URL = withCheckoutExternalBrowserIntent(PRO_CHECKOUT_PATH);
-export const TEAM_CHECKOUT_URL = withCheckoutExternalBrowserIntent(TEAM_CHECKOUT_PATH);
+export const PRO_CHECKOUT_URL = withExternalBrowserIntent(PRO_CHECKOUT_PATH);
+export const TEAM_CHECKOUT_URL = withExternalBrowserIntent(TEAM_CHECKOUT_PATH);
 
 const DEFAULT_APP_PRICING_CHECKOUT_URL = "https://cmux.com/api/billing/checkout";
 
 type SearchParamValue = string | string[] | null | undefined;
 
-export function withCheckoutExternalBrowserIntent(href: string): string {
-  return withSearchParam(href, CHECKOUT_EXTERNAL_BROWSER_PARAM, "1");
+export function withExternalBrowserIntent(href: string): string {
+  return withSearchParam(href, EXTERNAL_BROWSER_PARAM, "1");
 }
+
+export const withCheckoutExternalBrowserIntent = withExternalBrowserIntent;
 
 export function withCheckoutPlan(href: string, plan: CheckoutPlan): string {
   return withSearchParam(href, CHECKOUT_PLAN_PARAM, plan);
+}
+
+export function withCheckoutInterval(
+  href: string,
+  interval: CheckoutInterval,
+): string {
+  return withSearchParam(href, CHECKOUT_INTERVAL_PARAM, interval);
 }
 
 export function appPricingCheckoutURL(
   plan: CheckoutPlan,
   requestOrigin: string | null,
   cmuxScheme?: string | null,
+  interval?: CheckoutInterval,
 ): string {
-  let href = withCheckoutExternalBrowserIntent(
-    withCheckoutPlan(configuredAppPricingCheckoutURL(requestOrigin), plan),
+  let href = withExternalBrowserIntent(
+    withCheckoutPlan(appPricingCheckoutEntryURL(requestOrigin), plan),
   );
+  if (configuredAppPricingCheckoutURL()) {
+    href = withSearchParam(href, CHECKOUT_APP_RELAY_PARAM, "1");
+  }
   if (cmuxScheme) href = withSearchParam(href, CHECKOUT_NATIVE_SCHEME_PARAM, cmuxScheme);
+  if (interval) href = withCheckoutInterval(href, interval);
   return href;
+}
+
+export function appPricingCheckoutRelayURL(
+  requestURL: URL,
+  parameters: AppPricingCheckoutRelayParameters,
+): URL | null {
+  if (requestURL.searchParams.get(CHECKOUT_APP_RELAY_PARAM) !== "1") {
+    return null;
+  }
+  if (!parameters.plan || !parameters.interval) return null;
+  const target = configuredAppPricingCheckoutURL();
+  if (!target) return null;
+
+  target.searchParams.set(CHECKOUT_PLAN_PARAM, parameters.plan);
+  target.searchParams.set(CHECKOUT_INTERVAL_PARAM, parameters.interval);
+  target.searchParams.set(CHECKOUT_NATIVE_SCHEME_PARAM, parameters.cmuxScheme);
+  return target;
 }
 
 export function isAppStoreDistributionMode(params: {
@@ -47,9 +87,13 @@ export function appStorePricingUnavailableURL(requestUrl: URL): URL {
   redirectURL.searchParams.set("cmux_distribution", "appstore");
   redirectURL.searchParams.set("billing", "unavailable");
 
-  for (const key of ["appearance", "background"]) {
+  for (const key of ["appearance", "background", "foreground", "accent"]) {
     const value = requestUrl.searchParams.get(key);
     if (value) redirectURL.searchParams.set(key, value);
+  }
+  const interval = requestUrl.searchParams.get(CHECKOUT_INTERVAL_PARAM);
+  if (interval === "month" || interval === "year") {
+    redirectURL.searchParams.set(CHECKOUT_INTERVAL_PARAM, interval);
   }
 
   return redirectURL;
@@ -67,9 +111,7 @@ function firstSearchParam(value: SearchParamValue): string | null {
   return value ?? null;
 }
 
-function configuredAppPricingCheckoutURL(requestOrigin: string | null): string {
-  const configured = process.env.CMUX_APP_PRICING_CHECKOUT_URL?.trim();
-  if (configured && configured.length > 0) return configured;
+function appPricingCheckoutEntryURL(requestOrigin: string | null): string {
   if (requestOrigin) {
     try {
       return new URL(CHECKOUT_PATH, requestOrigin).toString();
@@ -78,4 +120,23 @@ function configuredAppPricingCheckoutURL(requestOrigin: string | null): string {
     }
   }
   return DEFAULT_APP_PRICING_CHECKOUT_URL;
+}
+
+function configuredAppPricingCheckoutURL(): URL | null {
+  const configured = process.env.CMUX_APP_PRICING_CHECKOUT_URL?.trim();
+  if (!configured) return null;
+  try {
+    const target = new URL(configured);
+    if (target.username || target.password || !target.hostname) return null;
+    if (target.protocol === "https:") return target;
+    if (
+      target.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(target.hostname.toLowerCase())
+    ) {
+      return target;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
