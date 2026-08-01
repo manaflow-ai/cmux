@@ -5102,7 +5102,7 @@ fn surface_public_content_id(mux: &Mux, surface: SurfaceId) -> Option<String> {
 }
 
 fn resource_client_cell_pixels_set(
-    mux: &Mux,
+    mux: &Arc<Mux>,
     requesting_client: u64,
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
@@ -5510,8 +5510,13 @@ fn prepare_terminal_resource_attach(
     ))
 }
 
-fn terminal_resource_snapshot(terminal_id: &TerminalPublicId, frame: &SurfaceRenderFrame) -> Value {
-    let mut render = render_state_json(0, frame);
+fn terminal_resource_snapshot(
+    render_service: &RenderService,
+    terminal_id: &TerminalPublicId,
+    frame: &SurfaceRenderFrame,
+) -> Value {
+    let mut render = serde_json::to_value(render_state_message(render_service, 0, frame))
+        .expect("render snapshot serializes");
     let render = render.as_object_mut().expect("render snapshot is an object");
     render.remove("event");
     render.remove("surface");
@@ -5527,7 +5532,8 @@ fn terminal_resource_patch(
     state: &mut RenderClientState,
     frame: &SurfaceRenderFrame,
 ) -> Value {
-    let mut render = state.delta_json(0, frame);
+    let mut render =
+        serde_json::to_value(state.delta_message(0, frame)).expect("render patch serializes");
     let render = render.as_object_mut().expect("render patch is an object");
     render.remove("event");
     render.remove("surface");
@@ -5613,7 +5619,11 @@ fn start_terminal_resource_attach(
                 &start.common.outbound,
                 &start.common.stream_id,
                 sequence,
-                terminal_resource_snapshot(&start.terminal_id, &start.attach.initial),
+                terminal_resource_snapshot(
+                    &worker_writer.render_service,
+                    &start.terminal_id,
+                    &start.attach.initial,
+                ),
             ) {
                 finish_resource_surface_attach(
                     &worker_mux,
@@ -5625,7 +5635,8 @@ fn start_terminal_resource_attach(
                 return;
             }
             sequence = sequence.saturating_add(1);
-            let mut render_state = RenderClientState::new(&start.attach.initial);
+            let mut render_state =
+                RenderClientState::new(worker_writer.render_service.clone(), &start.attach.initial);
             while worker_writer.is_open()
                 && start.common.outbound.is_open()
                 && !start.common.canceled.load(Ordering::Acquire)
@@ -10018,7 +10029,10 @@ pub fn cleanup(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ProviderWorkspaceAuthority, SidebarPluginOptions, SurfaceOptions};
+    use crate::{
+        BrowserFrame, BrowserStatus, ProviderWorkspaceAuthority, SidebarPluginOptions,
+        SurfaceOptions,
+    };
     use ghostty_vt::{Callbacks, RenderState, Terminal};
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
@@ -12611,8 +12625,8 @@ mod tests {
             title: "example".to_string(),
             cols: 10,
             rows: 5,
-            status: crate::BrowserStatus::Live,
-            frame: Some(crate::BrowserFrame {
+            status: BrowserStatus::Live,
+            frame: Some(BrowserFrame {
                 session_id: "session-test".to_string(),
                 data_b64: "AAAA".to_string(),
                 css_width: 80,
@@ -12638,7 +12652,7 @@ mod tests {
     #[test]
     fn browser_frame_json_couples_authoritative_pointer_admission() {
         let update = BrowserFrameUpdate {
-            frame: crate::BrowserFrame {
+            frame: BrowserFrame {
                 session_id: "session-test".to_string(),
                 data_b64: "AAAA".to_string(),
                 css_width: 80,
@@ -12647,7 +12661,7 @@ mod tests {
                 image_height: 48,
                 seq: 7,
             },
-            status: crate::BrowserStatus::Failed("navigation failed".to_string()),
+            status: BrowserStatus::Failed("navigation failed".to_string()),
             pointer_frame_floor_seq: None,
             pointer_frame_seq: None,
         };
@@ -12662,7 +12676,7 @@ mod tests {
 
     #[test]
     fn browser_resource_frame_couples_exact_nullable_pointer_authority() {
-        let frame = crate::BrowserFrame {
+        let frame = BrowserFrame {
             session_id: "session-test".to_string(),
             data_b64: "AAAA".to_string(),
             css_width: 80,
@@ -12684,7 +12698,7 @@ mod tests {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
         let stream = writer.start_stream(&json!({"event": "overflow"})).unwrap();
-        let frame = crate::BrowserFrame {
+        let frame = BrowserFrame {
             session_id: "session-test".to_string(),
             data_b64: "AAAA".to_string(),
             css_width: 80,
@@ -12696,7 +12710,7 @@ mod tests {
         let update = BrowserAttachUpdate {
             frame: Some(BrowserFrameUpdate {
                 frame: frame.clone(),
-                status: crate::BrowserStatus::Live,
+                status: BrowserStatus::Live,
                 pointer_frame_floor_seq: Some(7),
                 pointer_frame_seq: Some(7),
             }),
@@ -12705,7 +12719,7 @@ mod tests {
                 title: "example".to_string(),
                 cols: 10,
                 rows: 5,
-                status: crate::BrowserStatus::Live,
+                status: BrowserStatus::Live,
                 frame: Some(frame),
                 pointer_frame_floor_seq: Some(7),
                 pointer_frame_seq: Some(7),
@@ -12732,8 +12746,8 @@ mod tests {
             title: "Example".to_string(),
             cols: 80,
             rows: 24,
-            status: crate::BrowserStatus::Live,
-            frame: Some(crate::BrowserFrame {
+            status: BrowserStatus::Live,
+            frame: Some(BrowserFrame {
                 session_id: "browser-session".to_string(),
                 data_b64: "frame".to_string(),
                 css_width: 800,
@@ -12934,13 +12948,13 @@ mod tests {
 
     #[test]
     fn browser_state_wire_prefix_identifies_attach_before_large_frame_data() {
-        let state = crate::BrowserAttachState {
+        let state = BrowserAttachState {
             url: "https://example.com".into(),
             title: "Example".into(),
             cols: 80,
             rows: 24,
-            status: crate::BrowserStatus::Live,
-            frame: Some(crate::BrowserFrame {
+            status: BrowserStatus::Live,
+            frame: Some(BrowserFrame {
                 session_id: "session".into(),
                 data_b64: "eA==".repeat(256),
                 css_width: 800,

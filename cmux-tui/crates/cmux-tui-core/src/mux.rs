@@ -426,7 +426,7 @@ struct DeadlineFanoutState {
 #[derive(Default)]
 struct DeadlineFanoutInner {
     state: Mutex<DeadlineFanoutState>,
-    changed: std::sync::Condvar,
+    changed: Condvar,
 }
 
 struct DeadlineFanoutPool {
@@ -1608,7 +1608,7 @@ pub struct Mux {
     active_render_attachments: Arc<AtomicUsize>,
     deadline_fanout_pool: DeadlineFanoutPool,
     kitty_image_budget: Mutex<KittyImageBudgetState>,
-    kitty_image_budget_changed: std::sync::Condvar,
+    kitty_image_budget_changed: Condvar,
     #[cfg(debug_assertions)]
     terminal_host_reconnect_completion_failures: AtomicU64,
     #[cfg(debug_assertions)]
@@ -1926,7 +1926,7 @@ impl Mux {
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
             deadline_fanout_pool: DeadlineFanoutPool::new(),
             kitty_image_budget: Mutex::new(KittyImageBudgetState::default()),
-            kitty_image_budget_changed: std::sync::Condvar::new(),
+            kitty_image_budget_changed: Condvar::new(),
             #[cfg(debug_assertions)]
             terminal_host_reconnect_completion_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES")
@@ -16497,7 +16497,7 @@ mod tests {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let gate = gate.clone();
             move |surface, limits, _deadline| {
@@ -16590,7 +16590,7 @@ mod tests {
         wait_for_kitty_image_budget(&mux);
 
         let expansion = kitty_image_limits_for_capacity(1);
-        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
         let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let gate = gate.clone();
@@ -16659,7 +16659,7 @@ mod tests {
         wait_for_kitty_image_budget(&mux);
 
         let expansion = kitty_image_limits_for_capacity(1);
-        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
         let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let gate = gate.clone();
@@ -16903,7 +16903,7 @@ mod tests {
         let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
         wait_for_kitty_image_budget(&mux);
 
-        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
         let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
         let (finished_sender, finished_receiver) = std::sync::mpsc::sync_channel(1);
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
@@ -17055,7 +17055,7 @@ mod tests {
 
     #[test]
     fn cell_pixel_fanout_returns_when_an_operation_ignores_its_deadline() {
-        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let caller_gate = gate.clone();
         let caller = std::thread::spawn(move || {

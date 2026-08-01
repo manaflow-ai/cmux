@@ -39,10 +39,10 @@ use crate::browser::{
     BrowserMouseDispatch, BrowserPointerOwner, BrowserResizeWaiter, BrowserSurface,
     PendingBrowserResize,
 };
+#[cfg(all(unix, test))]
+use crate::terminal_host_protocol::PROTOCOL_VERSION;
 #[cfg(unix)]
-use crate::terminal_host_protocol::{
-    FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION, decode_terminal_exit,
-};
+use crate::terminal_host_protocol::{FLAG_COLORS_FOLLOW, Frame, MessageKind, decode_terminal_exit};
 use cmux_tui_cdp::BrowserMode;
 
 /// Result of encoding terminal mouse input against a previously observed
@@ -1013,7 +1013,7 @@ pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     term: Mutex<Box<Terminal>>,
     stream_progress: Box<TerminalStreamProgress>,
-    mouse_encoders: Mutex<MouseEncoders>,
+    mouse_encoders: Mutex<Box<MouseEncoders>>,
     runtime: Mutex<PtyRuntime>,
     supports_clear_history_key_fallback: AtomicBool,
     host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
@@ -1595,6 +1595,7 @@ impl Surface {
 
     /// Spawn runtime-only terminal content which is not part of the public
     /// resource tree, such as a sidebar view process.
+    #[allow(dead_code)]
     pub(crate) fn spawn_auxiliary(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -1655,6 +1656,7 @@ impl Surface {
         )
     }
 
+    #[allow(dead_code)]
     pub(crate) fn spawn_with_resource_identity(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -1811,7 +1813,7 @@ impl Surface {
             },
             term: Mutex::new(Box::new(term)),
             stream_progress: Box::new(TerminalStreamProgress::default()),
-            mouse_encoders: Mutex::new(mouse_encoders),
+            mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
             runtime: Mutex::new(PtyRuntime::Local { writer, master: pty.master, killer }),
             supports_clear_history_key_fallback: AtomicBool::new(
                 supports_clear_history_key_fallback,
@@ -2156,7 +2158,7 @@ impl Surface {
             },
             term: Mutex::new(Box::new(term)),
             stream_progress: Box::new(TerminalStreamProgress::default()),
-            mouse_encoders: Mutex::new(mouse_encoders),
+            mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
             runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
             supports_clear_history_key_fallback: AtomicBool::new(
                 supports_clear_history_key_fallback,
@@ -2930,7 +2932,7 @@ impl Surface {
             },
             term: Mutex::new(Box::new(term)),
             stream_progress: Box::new(TerminalStreamProgress::default()),
-            mouse_encoders: Mutex::new(mouse_encoders),
+            mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
             runtime: Mutex::new(PtyRuntime::ExitedHosted),
             supports_clear_history_key_fallback: AtomicBool::new(false),
             host_identity: Some(identity),
@@ -3095,7 +3097,7 @@ impl Surface {
             },
             term: Mutex::new(Box::new(term)),
             stream_progress: Box::new(TerminalStreamProgress::default()),
-            mouse_encoders: Mutex::new(mouse_encoders),
+            mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
             runtime: Mutex::new(PtyRuntime::Local {
                 writer: Box::new(std::io::sink()),
                 master: Box::new(TestMasterPty {
@@ -5309,8 +5311,10 @@ mod tests {
         const MAX_TEST_SURFACE_BYTES: usize = 800;
         assert!(
             size_of::<Surface>() <= MAX_TEST_SURFACE_BYTES,
-            "Surface grew to {} bytes; keep the large libghostty terminal state out of line",
-            size_of::<Surface>()
+            "Surface grew to {} bytes (PTY {}, browser {}); keep large runtime state out of line",
+            size_of::<Surface>(),
+            size_of::<PtySurface>(),
+            size_of::<BrowserSurface>()
         );
     }
 

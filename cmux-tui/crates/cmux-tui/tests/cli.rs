@@ -431,7 +431,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
         fs::remove_file(&socket).unwrap();
         let listener = UnixListener::bind(&socket).unwrap();
         let expected_session = session.to_string();
-        let expected_registry_id = registry_id.clone();
+        let expected_registry_id = registry_id;
         let responder = std::thread::spawn(move || {
             let mut stream = accept_with_deadline(&listener);
             let mut request = String::new();

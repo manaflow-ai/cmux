@@ -4474,10 +4474,16 @@ mod unix {
                 sequence: AtomicU64::new(0),
                 next_client: AtomicU64::new(1),
                 dead: AtomicBool::new(false),
-                child_exit: (Mutex::new(false), Condvar::new()),
+                child_exit: (Mutex::new(None), Condvar::new()),
                 child_waitable: AtomicBool::new(false),
                 pty_drained: AtomicBool::new(false),
                 exit_published: AtomicBool::new(false),
+                exit_record_path: std::env::temp_dir().join(format!(
+                    "cmux-host-test-exit-{}-{}",
+                    std::process::id(),
+                    RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+                )),
+                exit_publish_lock: Mutex::new(()),
                 force_pty_drain: AtomicBool::new(false),
                 pty_drain_waker: Mutex::new(pty_drain_waker),
                 termination_started: AtomicBool::new(false),
