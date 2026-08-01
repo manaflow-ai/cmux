@@ -1,81 +1,39 @@
 import AppKit
 import SwiftUI
 
-enum StackAccountAvatarLoadingPlaceholder {
-    case identity
-    case systemIcon(name: String)
-}
-
-enum StackAccountAvatarIdentityFallbackStyle {
-    case accent
-    case neutral
-}
-
 /// Displays the Stack profile image with an initial-based fallback.
 struct StackAccountAvatarView: View {
     let avatarURL: URL?
     let displayName: String
     let email: String
     let size: CGFloat
-    let loadingPlaceholder: StackAccountAvatarLoadingPlaceholder
-    let identityFallbackStyle: StackAccountAvatarIdentityFallbackStyle
-
-    init(
-        avatarURL: URL?,
-        displayName: String,
-        email: String,
-        size: CGFloat,
-        loadingPlaceholder: StackAccountAvatarLoadingPlaceholder = .identity,
-        identityFallbackStyle: StackAccountAvatarIdentityFallbackStyle = .accent
-    ) {
-        self.avatarURL = avatarURL
-        self.displayName = displayName
-        self.email = email
-        self.size = size
-        self.loadingPlaceholder = loadingPlaceholder
-        self.identityFallbackStyle = identityFallbackStyle
-    }
+    var loadingSystemName: String? = nil
 
     var body: some View {
         Group {
             if let avatarURL {
                 AsyncImage(url: avatarURL) { phase in
                     if let image = phase.image {
-                        framedAvatar(image.resizable().scaledToFill())
-                    } else if phase.error != nil {
-                        framedAvatar(fallback)
+                        image.resizable().scaledToFill()
+                    } else if phase.error == nil, let loadingSystemName {
+                        CmuxSystemSymbolImage(
+                            systemName: loadingSystemName,
+                            pointSize: size,
+                            weight: .regular
+                        )
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                     } else {
-                        loadingView
+                        fallback
                     }
                 }
             } else {
-                framedAvatar(fallback)
+                fallback
             }
         }
         .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(Circle().stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
         .accessibilityHidden(true)
-    }
-
-    @ViewBuilder
-    private var loadingView: some View {
-        switch loadingPlaceholder {
-        case .identity:
-            framedAvatar(fallback)
-        case .systemIcon(let name):
-            CmuxSystemSymbolImage(
-                systemName: name,
-                pointSize: size,
-                weight: .regular
-            )
-            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-        }
-    }
-
-    private func framedAvatar(_ content: some View) -> some View {
-        content
-            .frame(width: size, height: size)
-            .clipShape(Circle())
-            .overlay(Circle().stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
     }
 
     private var fallback: some View {
@@ -97,12 +55,7 @@ struct StackAccountAvatarView: View {
     }
 
     private var fallbackForegroundColor: Color {
-        switch identityFallbackStyle {
-        case .accent:
-            Color.accentColor
-        case .neutral:
-            Color(nsColor: .secondaryLabelColor)
-        }
+        loadingSystemName == nil ? Color.accentColor : Color(nsColor: .secondaryLabelColor)
     }
 
     private var initial: String? {
