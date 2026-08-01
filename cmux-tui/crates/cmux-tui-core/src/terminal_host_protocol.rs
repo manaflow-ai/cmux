@@ -21,8 +21,8 @@ pub const FLAG_COLORS_FOLLOW: u32 = 1 << 0;
 /// control responses. This handshake-only flag lets v1 peers negotiate the
 /// optimization without exposing an unknown ResizeAck to legacy renderers.
 pub const FLAG_VIEWER_SIZE_ACKS: u32 = 1 << 1;
-/// ClientHello opt-in and HostHello acknowledgement for the smart renderer
-/// stream. Smart renderers receive an explicit Snapshot/Colors/Ready barrier,
+/// ClientHello opt-in and HostHello acknowledgement for the smart terminal
+/// stream. Smart clients receive an explicit Snapshot/Colors/Ready barrier,
 /// followed by retained and live raw PTY Output frames from a source cursor
 /// that is independent of the authoritative host parser's cursor. Their
 /// Resized payload is exactly cols:u16 + rows:u16 and carries no Colors pair.

@@ -552,6 +552,7 @@ mod unix {
         pub record: TerminalHostRecord,
         pub record_path: PathBuf,
         pub snapshot: HostSnapshot,
+        smart_renderer: bool,
         reader: Option<UnixStream>,
         writer: Arc<Mutex<UnixStream>>,
         capability_responses: Arc<CapabilityResponses>,
@@ -576,6 +577,10 @@ mod unix {
     impl HostAttachment {
         pub fn take_reader(&mut self) -> anyhow::Result<UnixStream> {
             self.reader.take().ok_or_else(|| anyhow::anyhow!("terminal-host reader already taken"))
+        }
+
+        pub(crate) fn is_smart_renderer(&self) -> bool {
+            self.smart_renderer
         }
 
         pub fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
@@ -1182,9 +1187,13 @@ mod unix {
             terminal_id,
             token: owner_token,
         };
-        write_frame(&mut stream, &hello.into_frame(1))?;
+        let mut hello_frame = hello.into_frame(1);
+        hello_frame.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+        write_frame(&mut stream, &hello_frame)?;
         let hello_frame = read_required_frame(&mut stream, "host hello")?;
-        if hello_frame.kind != MessageKind::HostHello {
+        if hello_frame.kind != MessageKind::HostHello
+            || hello_frame.flags & FLAG_SMART_RENDERER == 0
+        {
             anyhow::bail!("terminal host rejected owner handshake");
         }
         let host_hello = HostHello::decode(&hello_frame.payload)?;
@@ -1209,6 +1218,15 @@ mod unix {
         }
         snapshot.sequence_boundary = snapshot_frame.sequence;
         snapshot.colors = decode_terminal_color_overrides(&colors_frame.payload)?;
+        let ready_frame = read_required_frame(&mut stream, "terminal ready boundary")?;
+        if ready_frame.kind != MessageKind::Ready
+            || ready_frame.flags != 0
+            || ready_frame.sequence != snapshot_frame.sequence
+            || ready_frame.request_id != 0
+            || !ready_frame.payload.is_empty()
+        {
+            anyhow::bail!("terminal host did not send Ready at the snapshot sequence boundary");
+        }
         let snapshot_size = (snapshot.cols, snapshot.rows);
         stream.set_read_timeout(None)?;
         // Keep bounded writes for the lifetime of the disposable admin
@@ -1221,6 +1239,7 @@ mod unix {
             record,
             record_path,
             snapshot,
+            smart_renderer: true,
             reader: Some(reader),
             writer: Arc::new(Mutex::new(stream)),
             capability_responses: Arc::new(CapabilityResponses {
@@ -1975,8 +1994,29 @@ mod unix {
                     return Err(error.into());
                 }
             }
-            let replay =
-                match term.vt_replay_bounded_theme_portable(crate::surface::VT_REPLAY_MAX_BYTES) {
+            let targeted = targeted_ack.as_ref().map(|(request_id, tap)| {
+                let mut frame =
+                    Frame::new(MessageKind::ResizeAck, encode_resize_ack(cols, rows, changed));
+                frame.request_id = *request_id;
+                (tap, frame)
+            });
+            let has_legacy_clients = !self.taps.lock().unwrap().is_empty();
+            let publish_legacy_resize = acknowledge_with_replay || (changed && has_legacy_clients);
+            let acknowledgement_queued = if publish_legacy_resize && !term.vt_stream_is_ground() {
+                // A replay cannot serialize an in-progress decoder or escape
+                // sequence. Force compatibility clients to take a new safe
+                // snapshot instead of orphaning the sequence's later bytes.
+                publish_host_frames_and_targeted(
+                    &self.broadcast_lock,
+                    &self.sequence,
+                    &self.taps,
+                    [Frame::new(MessageKind::ResyncRequired, Vec::new())],
+                    targeted,
+                )
+            } else if publish_legacy_resize {
+                let replay = match term
+                    .vt_replay_bounded_theme_portable(crate::surface::VT_REPLAY_MAX_BYTES)
+                {
                     Ok(replay) => replay,
                     Err(error) => {
                         if changed {
@@ -1991,16 +2031,10 @@ mod unix {
                         return Err(error.into());
                     }
                 };
-            let colors = term.color_overrides();
-            let mut resized = Frame::new(MessageKind::Resized, encode_resize(cols, rows, &replay));
-            resized.flags = FLAG_COLORS_FOLLOW;
-            let targeted = targeted_ack.as_ref().map(|(request_id, tap)| {
-                let mut frame =
-                    Frame::new(MessageKind::ResizeAck, encode_resize_ack(cols, rows, changed));
-                frame.request_id = *request_id;
-                (tap, frame)
-            });
-            let acknowledgement_queued = if changed || acknowledge_with_replay {
+                let colors = term.color_overrides();
+                let mut resized =
+                    Frame::new(MessageKind::Resized, encode_resize(cols, rows, &replay));
+                resized.flags = FLAG_COLORS_FOLLOW;
                 publish_host_frames_and_targeted(
                     &self.broadcast_lock,
                     &self.sequence,
@@ -2812,8 +2846,8 @@ mod unix {
         let launch_owner = LaunchOwnerConnection::claim(host.clone(), granted_rights);
         let viewer_size_acks = hello_frame.flags & FLAG_VIEWER_SIZE_ACKS != 0
             && granted_rights.contains(CapabilityRights::RESIZE);
-        let smart_renderer =
-            hello_frame.flags & FLAG_SMART_RENDERER != 0 && hello.role == ClientRole::Renderer;
+        let smart_renderer = hello_frame.flags & FLAG_SMART_RENDERER != 0
+            && matches!(hello.role, ClientRole::Renderer | ClientRole::Admin);
         let mut hello_response = Frame::new(MessageKind::HostHello, response.encode());
         if viewer_size_acks {
             hello_response.flags |= FLAG_VIEWER_SIZE_ACKS;
@@ -2973,7 +3007,7 @@ mod unix {
                         let targeted_ack = viewer_size_acks
                             .then_some((frame.request_id, &command_sender))
                             .filter(|(request_id, _)| *request_id != 0);
-                        let acknowledge_with_replay = targeted_ack.is_none();
+                        let acknowledge_with_replay = !smart_renderer && targeted_ack.is_none();
                         if !matches!(
                             command_host.set_viewer_size(
                                 client,
@@ -3893,6 +3927,17 @@ mod unix {
                 read_required_frame(&mut client_stream, "ready").unwrap().kind,
                 MessageKind::Ready
             );
+
+            for (kind, payload) in [
+                (MessageKind::Output, vec![0xce]),
+                (MessageKind::Resized, vec![100, 0, 30, 0]),
+                (MessageKind::Output, vec![0xbb]),
+            ] {
+                let cursor = host.smart.publish(Frame::new(kind, payload.clone()));
+                host.smart.mark_applied(cursor);
+                let received = read_required_frame(&mut client_stream, "smart transition").unwrap();
+                assert_eq!((received.kind, received.payload), (kind, payload));
+            }
 
             let cursor = host.smart.publish(Frame::new(MessageKind::Exit, Vec::new()));
             host.smart.mark_applied(cursor);

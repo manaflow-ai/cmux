@@ -240,6 +240,7 @@ pub enum AttachFrame {
 enum HostedTransition {
     Output(Vec<u8>),
     OutputWithColors { output: Vec<u8>, colors: TerminalColorOverrides },
+    Resized { cols: u16, rows: u16 },
     ResizedWithColors { cols: u16, rows: u16, replay: Vec<u8>, colors: TerminalColorOverrides },
     Metadata(MessageKind),
     Exit,
@@ -256,13 +257,14 @@ enum PendingHostedTransition {
 #[cfg(unix)]
 struct HostedFrameStager {
     expected_sequence: u64,
+    smart_renderer: bool,
     pending: Option<PendingHostedTransition>,
 }
 
 #[cfg(unix)]
 impl HostedFrameStager {
-    fn new(sequence_boundary: u64) -> Self {
-        Self { expected_sequence: sequence_boundary.wrapping_add(1), pending: None }
+    fn new(sequence_boundary: u64, smart_renderer: bool) -> Self {
+        Self { expected_sequence: sequence_boundary.wrapping_add(1), smart_renderer, pending: None }
     }
 
     fn push(&mut self, frame: Frame) -> Result<Option<HostedTransition>, &'static str> {
@@ -301,10 +303,13 @@ impl HostedFrameStager {
                 _ => Err("unknown Output flags"),
             },
             MessageKind::Resized => {
-                if frame.flags != FLAG_COLORS_FOLLOW
-                    || frame.payload.len() < 4
-                    || frame.payload.len() - 4 > VT_REPLAY_MAX_BYTES
-                {
+                let valid_smart =
+                    self.smart_renderer && frame.flags == 0 && frame.payload.len() == 4;
+                let valid_legacy = !self.smart_renderer
+                    && frame.flags == FLAG_COLORS_FOLLOW
+                    && frame.payload.len() >= 4
+                    && frame.payload.len() - 4 <= VT_REPLAY_MAX_BYTES;
+                if !valid_smart && !valid_legacy {
                     return Err("invalid Resized frame");
                 }
                 let (cols, rows) = crate::terminal_host_runtime::normalize_terminal_geometry(
@@ -312,6 +317,9 @@ impl HostedFrameStager {
                     u16::from_le_bytes([frame.payload[2], frame.payload[3]]),
                 )
                 .map_err(|_| "invalid Resized geometry")?;
+                if valid_smart {
+                    return Ok(Some(HostedTransition::Resized { cols, rows }));
+                }
                 self.pending = Some(PendingHostedTransition::Resized {
                     cols,
                     rows,
@@ -915,6 +923,7 @@ impl Surface {
             anyhow::bail!("injected hosted surface setup failure after attachment");
         }
         let mut capability_responses = attachment.capability_responses();
+        let smart_renderer = attachment.is_smart_renderer();
         let snapshot = attachment.snapshot.clone();
         let mut applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
@@ -982,7 +991,7 @@ impl Surface {
             move || {
                 let mut sequence_boundary = sequence_boundary;
                 'connection: loop {
-                    let mut stager = HostedFrameStager::new(sequence_boundary);
+                    let mut stager = HostedFrameStager::new(sequence_boundary, smart_renderer);
                     let mut received_exit = false;
                     'host_stream: while let Ok(Some(frame)) =
                         crate::terminal_host_protocol::read_frame(
@@ -1038,6 +1047,8 @@ impl Surface {
                                             term.vt_write(&delta);
                                         }
                                         applied_color_overrides = colors.clone();
+                                    } else if smart_renderer {
+                                        applied_color_overrides = term.color_overrides();
                                     } else if !terminal_color_overrides_match_applied(
                                         term.color_overrides(),
                                         &applied_color_overrides,
@@ -1092,6 +1103,47 @@ impl Surface {
                                         offset,
                                         at_bottom,
                                     });
+                                }
+                            }
+                            HostedTransition::Resized { cols, rows } => {
+                                let defaults = mux
+                                    .upgrade()
+                                    .map(|mux| mux.default_colors())
+                                    .unwrap_or_default();
+                                let mut scroll_changed = None;
+                                let generation = {
+                                    let mut term = pty.term.lock().unwrap();
+                                    let before = terminal_scroll_position(&term);
+                                    if term.resize(cols, rows, 8, 16).is_err() {
+                                        break 'host_stream;
+                                    }
+                                    pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+                                    *pty.size.lock().unwrap() = (cols, rows);
+                                    let after = terminal_scroll_position(&term);
+                                    if before != after {
+                                        scroll_changed = Some(after);
+                                        broadcast_render_scroll_locked(pty, after);
+                                    }
+                                    pty.broadcast_attach_resize_locked(
+                                        &mut term, cols, rows, defaults,
+                                    );
+                                    pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+                                };
+                                pty.request_frame(generation);
+                                if let Some(mux) = mux.upgrade() {
+                                    mux.emit(MuxEvent::SurfaceResized {
+                                        surface: surface.id,
+                                        cols,
+                                        rows,
+                                        reservation_id: None,
+                                    });
+                                    if let Some((offset, at_bottom)) = scroll_changed {
+                                        mux.emit(MuxEvent::ScrollChanged {
+                                            surface: surface.id,
+                                            offset,
+                                            at_bottom,
+                                        });
+                                    }
                                 }
                             }
                             HostedTransition::ResizedWithColors { cols, rows, replay, colors } => {
@@ -2324,6 +2376,37 @@ impl PtySurface {
         self.taps.lock().unwrap().retain(|tap| tap.try_send(frame.clone()));
     }
 
+    /// Legacy byte attachments replace their parser on resize, so a replay is
+    /// valid only when libghostty has no pending UTF-8 or escape state. Smart
+    /// mirrors resize in place; an unsafe compatibility attachment reconnects
+    /// and takes a fresh snapshot instead of receiving a corrupt replay.
+    fn broadcast_attach_resize_locked(
+        &self,
+        term: &mut Terminal,
+        cols: u16,
+        rows: u16,
+        defaults: DefaultColors,
+    ) {
+        let replay = if term.vt_stream_is_ground() {
+            term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).ok()
+        } else {
+            None
+        };
+        let Some(replay) = replay else {
+            let mut taps = self.taps.lock().unwrap();
+            for tap in taps.drain(..) {
+                tap.lifecycle.cancel();
+            }
+            return;
+        };
+        let live_colors = TerminalColors::from_pty_output(term, defaults);
+        let colors = Box::new(self.terminal_colors_locked(term, defaults));
+        self.attach_colors_pending.store(false, Ordering::Release);
+        self.attach_colors_force_pending.store(false, Ordering::Release);
+        *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
+        self.broadcast_attach_frame(AttachFrame::ResizedWithColors { cols, rows, replay, colors });
+    }
+
     /// Emit at most one latest effective palette snapshot per frame cadence.
     /// The caller holds `term`, so attach registration cannot interleave with
     /// the snapshot or miss a state transition.
@@ -2436,9 +2519,8 @@ impl PtySurface {
                 {
                     return false;
                 }
-                // Do not speculatively reflow the mirror. The host returns a
-                // Resized+Colors pair containing the canonical post-resize
-                // replay, which the reader installs as one transition.
+                // The smart host stream orders one compact resize marker with
+                // raw PTY bytes. The reader applies that marker in place.
                 return host.send_viewer_size(cols, rows).is_ok();
             }
         }
@@ -2467,16 +2549,10 @@ impl PtySurface {
         }
         // Nominal cell metrics; only pixel size reports observe these.
         let _ = term.resize(cols, rows, 8, 16);
-        let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
         let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
-        let live_colors = TerminalColors::from_pty_output(&term, defaults);
-        let colors = Box::new(self.terminal_colors_locked(&term, defaults));
-        self.attach_colors_pending.store(false, Ordering::Release);
-        self.attach_colors_force_pending.store(false, Ordering::Release);
-        *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
-        self.broadcast_attach_frame(AttachFrame::ResizedWithColors { cols, rows, replay, colors });
+        self.broadcast_attach_resize_locked(&mut term, cols, rows, defaults);
         true
     }
 }
@@ -3110,7 +3186,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn hosted_stager_exposes_coupled_state_only_after_colors() {
-        let mut stager = HostedFrameStager::new(40);
+        let mut stager = HostedFrameStager::new(40, false);
         let mut resize = Frame::new(MessageKind::Resized, {
             let mut payload = Vec::from([101, 0, 37, 0]);
             payload.extend_from_slice(b"authoritative replay");
@@ -3159,19 +3235,45 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn smart_hosted_stager_orders_raw_output_and_incremental_resize() {
+        let mut stager = HostedFrameStager::new(7, true);
+        let mut prefix = Frame::new(MessageKind::Output, vec![0xce]);
+        prefix.sequence = 8;
+        assert!(matches!(
+            stager.push(prefix).unwrap(),
+            Some(HostedTransition::Output(bytes)) if bytes == vec![0xce]
+        ));
+
+        let mut resized = Frame::new(MessageKind::Resized, vec![100, 0, 30, 0]);
+        resized.sequence = 9;
+        assert!(matches!(
+            stager.push(resized).unwrap(),
+            Some(HostedTransition::Resized { cols: 100, rows: 30 })
+        ));
+
+        let mut suffix = Frame::new(MessageKind::Output, vec![0xbb]);
+        suffix.sequence = 10;
+        assert!(matches!(
+            stager.push(suffix).unwrap(),
+            Some(HostedTransition::Output(bytes)) if bytes == vec![0xbb]
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn hosted_stager_fails_closed_on_invalid_flags_and_pairing() {
-        let mut stager = HostedFrameStager::new(0);
+        let mut stager = HostedFrameStager::new(0, false);
         let mut resized = Frame::new(MessageKind::Resized, vec![80, 0, 24, 0]);
         resized.sequence = 1;
         assert!(stager.push(resized).is_err(), "Resized must declare Colors follow");
 
-        let mut stager = HostedFrameStager::new(0);
+        let mut stager = HostedFrameStager::new(0, false);
         let mut output = Frame::new(MessageKind::Output, vec![]);
         output.flags = FLAG_COLORS_FOLLOW | (1 << 7);
         output.sequence = 1;
         assert!(stager.push(output).is_err(), "unknown flags must fail closed");
 
-        let mut stager = HostedFrameStager::new(0);
+        let mut stager = HostedFrameStager::new(0, false);
         let mut output = Frame::new(MessageKind::Output, vec![]);
         output.flags = FLAG_COLORS_FOLLOW;
         output.sequence = 1;
