@@ -106,14 +106,9 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
         ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
     ).read_text()
 
-    assert workflow_triggers(bootstrap) == {"workflow_dispatch": {"inputs": {
-        "confirm_bootstrap": {
-            "description": "Claim cmux-sdk with a tested prerelease artifact",
-            "required": "true",
-            "default": "false",
-            "type": "boolean",
-        }
-    }}}
+    assert workflow_triggers(bootstrap) == {
+        "repository_dispatch": {"types": ["sdk-bootstrap-npm"]}
+    }
     assert "runs-on: ubuntu-24.04" in bootstrap
     assert "id-token: write" in bootstrap
     assert "NPM_BOOTSTRAP_TOKEN" in bootstrap
@@ -139,14 +134,9 @@ def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
         ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
     ).read_text()
 
-    assert workflow_triggers(bootstrap) == {"workflow_dispatch": {"inputs": {
-        "confirm_bootstrap": {
-            "description": "Reserve cmux-sdk with an attested prerelease",
-            "required": "true",
-            "default": "false",
-            "type": "boolean",
-        }
-    }}}
+    assert workflow_triggers(bootstrap) == {
+        "repository_dispatch": {"types": ["sdk-bootstrap-pypi"]}
+    }
     assert "runs-on: ubuntu-24.04" in bootstrap
     assert "id-token: write" in bootstrap
     assert "name: pypi-bootstrap" in bootstrap
@@ -244,6 +234,9 @@ def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
     release = workflow("sdk-release-cut.yml")
     validation = workflow_job(release, "validate-release")
 
+    assert workflow_triggers(release) == {
+        "repository_dispatch": {"types": ["sdk-release-cut"]}
+    }
     assert 'sdk_tag="cmux-sdk-v$VERSION"' in release
     assert 'go_tag="cmux-tui/bindings/go/v$VERSION"' in release
     assert 'git push --atomic origin "refs/tags/$sdk_tag" "refs/tags/$go_tag"' in release
@@ -305,6 +298,51 @@ def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
     ):
         assert result in release
     assert "sdk-publish-java.yml" not in release
+
+
+def test_privileged_sdk_workflows_use_external_release_authority() -> None:
+    release = workflow("sdk-release-cut.yml")
+    npm_bootstrap = workflow("sdk-bootstrap-npm.yml")
+    pypi_bootstrap = workflow("sdk-bootstrap-pypi.yml")
+    releasing = (
+        ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
+    ).read_text()
+
+    for text, event_type in (
+        (release, "sdk-release-cut"),
+        (npm_bootstrap, "sdk-bootstrap-npm"),
+        (pypi_bootstrap, "sdk-bootstrap-pypi"),
+    ):
+        assert workflow_triggers(text) == {
+            "repository_dispatch": {"types": [event_type]}
+        }
+        assert "github.event.client_payload" in text
+
+    cut_tags = workflow_job(release, "cut-tags")
+    assert "contents: write" not in cut_tags
+    assert "contents: read" in cut_tags
+    assert "name: sdk-release" in cut_tags
+    assert (
+        "actions/create-github-app-token@"
+        "bcd2ba49218906704ab6c1aa796996da409d3eb1"
+    ) in cut_tags
+    assert "client-id: ${{ vars.SDK_RELEASE_APP_CLIENT_ID }}" in cut_tags
+    assert (
+        "private-key: ${{ secrets.SDK_RELEASE_APP_PRIVATE_KEY }}"
+        in cut_tags
+    )
+    assert "permission-contents: write" in cut_tags
+    assert "token: ${{ steps.release_app_token.outputs.token }}" in cut_tags
+
+    for phrase in (
+        "protected branches only",
+        "prevent self-review",
+        "disable administrator bypass",
+        "SDK release GitHub App",
+        "refs/tags/cmux-sdk-v*",
+        "refs/tags/cmux-tui/bindings/go/v*",
+    ):
+        assert phrase in releasing
 
 
 def test_registry_state_is_validated_before_irreversible_tags() -> None:
