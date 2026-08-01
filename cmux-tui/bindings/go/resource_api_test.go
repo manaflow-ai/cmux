@@ -2814,6 +2814,80 @@ func TestTypedStreamEndAndCancellation(t *testing.T) {
 	}
 }
 
+func TestAcknowledgedStreamOpenSurvivesTerminalTransportClose(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	releaseWrite := make(chan struct{})
+	heldClientSide := &heldWriteReturnConn{
+		Conn:    clientSide,
+		release: releaseWrite,
+	}
+	go func() {
+		defer serverSide.Close()
+		open := readRequest(t, bufio.NewReader(serverSide))
+		streamID := requestParams(t, open)["stream_id"]
+		var batch bytes.Buffer
+		encoder := json.NewEncoder(&batch)
+		for _, envelope := range []map[string]any{
+			{
+				"protocol": "cmux.protocol/1",
+				"type":     "response",
+				"id":       open["id"],
+				"ok":       true,
+				"result":   map[string]any{"stream_id": streamID},
+			},
+			{
+				"protocol":  "cmux.protocol/1",
+				"type":      "stream_end",
+				"stream_id": streamID,
+				"reason":    "completed",
+			},
+		} {
+			if err := encoder.Encode(envelope); err != nil {
+				t.Errorf("encode server batch: %v", err)
+				return
+			}
+		}
+		if _, err := serverSide.Write(batch.Bytes()); err != nil {
+			t.Errorf("write server batch: %v", err)
+		}
+	}()
+	client, err := NewClient(context.Background(), ClientOptions{
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			return heldClientSide, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		<-client.done
+		close(releaseWrite)
+	}()
+	session := client.Machine(SelectID(testMachineID)).Session(SelectID(testSessionID))
+	stream, err := session.Events(context.Background(), SessionEventsOptions{})
+	if err != nil {
+		t.Fatalf("open acknowledged stream: %v", err)
+	}
+	_, err = stream.Recv(context.Background())
+	var end *StreamEndError
+	if !errors.As(err, &end) || end.Reason != "completed" {
+		t.Fatalf("stream end = %T %#v", err, err)
+	}
+}
+
+type heldWriteReturnConn struct {
+	net.Conn
+	release <-chan struct{}
+}
+
+func (c *heldWriteReturnConn) Write(value []byte) (int, error) {
+	count, err := c.Conn.Write(value)
+	if err == nil && count == len(value) {
+		<-c.release
+	}
+	return count, err
+}
+
 func TestCancelPreservesOpeningRouteAndServerEnd(t *testing.T) {
 	clientSide, serverSide := net.Pipe()
 	cancelRequests := make(chan map[string]any, 1)
