@@ -10,6 +10,7 @@ private enum SimulatorUIAutomationTransactionContext {
 final class SimulatorUIAutomationSession {
     private static let maximumQueuedTransactionCount = 8
 
+    private let refNamespace = UUID()
     private var record: SimulatorUIAutomationSnapshotRecord?
     private var nextSequence: UInt64 = 1
     private(set) var mutationGeneration: UInt64 = 0
@@ -47,11 +48,13 @@ final class SimulatorUIAutomationSession {
                 .invalidatedDuringPreparation
         }
         let reservedSequence = nextSequence
+        let refNamespace = self.refNamespace
         nextSequence &+= 1
         let preparation = Task.detached(priority: .userInitiated) {
             try Task.checkCancellation()
             let prepared = try snapshot.uiAutomationRecord(
                 simulatorID: simulatorID,
+                refNamespace: refNamespace,
                 sequence: reservedSequence,
                 capturedAtMilliseconds: capturedAtMilliseconds
             )

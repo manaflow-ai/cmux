@@ -1,8 +1,10 @@
 import CmuxSimulator
+import Foundation
 
 /// Tracks only live input that the pane accepted for worker delivery.
 struct SimulatorAdmittedInputStateMachine {
     private var activePointer: SimulatorPointerEvent?
+    private var activeScrollIdentifier: UUID?
     private var heldKeys: Set<UInt32> = []
     private var heldButtons: Set<SimulatorHIDButtonUsage> = []
 
@@ -29,6 +31,8 @@ struct SimulatorAdmittedInputStateMachine {
             case .up:
                 heldButtons.remove(event.button)
             }
+        case let .scrollWheel(event):
+            activeScrollIdentifier = event.id
         case .releaseInputs:
             reset()
         default:
@@ -37,6 +41,10 @@ struct SimulatorAdmittedInputStateMachine {
     }
 
     mutating func releaseAll() -> [SimulatorWorkerInbound] {
+        if activeScrollIdentifier != nil {
+            reset()
+            return [.releaseInputs]
+        }
         var messages: [SimulatorWorkerInbound] = []
         if let activePointer {
             messages.append(.pointer(SimulatorPointerEvent(
@@ -62,8 +70,14 @@ struct SimulatorAdmittedInputStateMachine {
         reset()
     }
 
+    mutating func finishScrollWheel(eventID: UUID) {
+        guard activeScrollIdentifier == eventID else { return }
+        activeScrollIdentifier = nil
+    }
+
     private mutating func reset() {
         activePointer = nil
+        activeScrollIdentifier = nil
         heldKeys.removeAll(keepingCapacity: true)
         heldButtons.removeAll(keepingCapacity: true)
     }

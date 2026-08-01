@@ -7,17 +7,20 @@ struct SimulatorUIAutomationSnapshotBuilder {
 
     private let source: SimulatorAccessibilitySnapshot
     private let simulatorID: String
+    private let refNamespace: String
     private let sequence: UInt64
     private let capturedAtMilliseconds: Int64
 
     init(
         source: SimulatorAccessibilitySnapshot,
         simulatorID: String,
+        refNamespace: UUID,
         sequence: UInt64,
         capturedAtMilliseconds: Int64
     ) {
         self.source = source
         self.simulatorID = simulatorID
+        self.refNamespace = refNamespace.uuidString.lowercased()
         self.sequence = sequence
         self.capturedAtMilliseconds = capturedAtMilliseconds
     }
@@ -165,7 +168,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
             descendantFrameBounds: descendantFrameBounds
         )
         let element = SimulatorUIAutomationElement(
-            ref: "e\(sequence)_\(index + 1)",
+            ref: "e\(refNamespace)_\(sequence)_\(index + 1)",
             role: role,
             label: normalizedLabel,
             value: normalizedValue,

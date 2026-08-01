@@ -282,8 +282,10 @@ extension SimulatorPaneCoordinator {
             privacySnapshot = snapshot
         case .privatePrivacy, .reactNativeReload, .accessibilityHighlight, .interactiveAction,
              .cameraTargetResolved, .cameraConfiguration, .cameraMirror,
-             .applicationMutationPrepared, .privateInterface, .scrollWheelEnded:
+             .applicationMutationPrepared, .privateInterface:
             break
+        case let .scrollWheelEnded(eventID):
+            admittedInput.finishScrollWheel(eventID: eventID)
         case let .textInput(requestID, succeeded):
             textInputCompletions.removeValue(forKey: requestID)?(succeeded)
         case let .cameraStatus(_, status):

@@ -4,7 +4,7 @@ import Testing
 
 @Suite("Simulator UI automation snapshots")
 struct SimulatorUIAutomationSnapshotTests {
-    @Test("Snapshots expose deterministic refs, normalized roles, state, and actions")
+    @Test("Snapshots expose opaque refs, normalized roles, state, and actions")
     func compactSnapshotContract() throws {
         let record = try snapshot().uiAutomationRecord(
             simulatorID: "SIM-1",
@@ -15,28 +15,28 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect(record.snapshot.protocol == "rs/1")
         #expect(record.snapshot.sequence == 7)
         #expect(record.snapshot.expiresAtMilliseconds == 61_000)
-        #expect(
-            record.snapshot.elements.map(\.ref)
-                == ["e7_1", "e7_2", "e7_3", "e7_4"]
-        )
+        let elements = record.snapshot.elements
+        #expect(elements.count == 4)
+        #expect(Set(elements.map(\.ref)).count == elements.count)
+        #expect(elements.allSatisfy { !$0.ref.isEmpty })
 
-        let button = try #require(record.element(ref: "e7_2")?.element)
+        let button = elements[1]
         #expect(button.identifier == "settings.general")
         #expect(button.role == .button)
         #expect(button.state.isEnabled)
         #expect(button.state.isFocused == false)
         #expect(button.actions == [.tap, .longPress, .touch])
 
-        let textField = try #require(record.element(ref: "e7_3")?.element)
+        let textField = elements[2]
         #expect(textField.role == .textField)
         #expect(textField.state.isFocused == true)
         #expect(textField.actions.contains(.typeText))
 
-        let list = try #require(record.element(ref: "e7_4")?.element)
+        let list = elements[3]
         #expect(list.role == .scrollView)
         #expect(list.actions.contains(.swipeWithin))
         #expect(record.snapshot.actions.contains {
-            $0.elementRef == "e7_3" && $0.action == .typeText
+            $0.elementRef == textField.ref && $0.action == .typeText
         })
     }
 
@@ -415,12 +415,18 @@ struct SimulatorUIAutomationSnapshotTests {
             capturedAtMilliseconds: 1_000
         )
 
-        let selector = try #require(record.stableSelector(for: "e1_2"))
+        let buttonRef = try #require(record.snapshot.elements.first {
+            $0.identifier == "settings.general"
+        }?.ref)
+        let listRef = try #require(record.snapshot.elements.first {
+            $0.role == .scrollView
+        }?.ref)
+        let selector = try #require(record.stableSelector(for: buttonRef))
         #expect(selector.identifier == "settings.general")
         #expect(selector.label == nil)
 
         let swipe = try #require(record.swipePoints(
-            elementRef: "e1_4",
+            elementRef: listRef,
             direction: .up,
             distance: 1
         ))
@@ -431,11 +437,11 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect((0...1).contains(swipe.to.y))
 
         let drag = try #require(record.dragPoints(
-            elementRef: "e1_2",
+            elementRef: buttonRef,
             direction: .right,
             distance: 0.5
         ))
-        let dragTarget = try #require(record.element(ref: "e1_2"))
+        let dragTarget = try #require(record.element(ref: buttonRef))
         #expect(drag.from == dragTarget.activationPoint)
         #expect(drag.from.x < drag.to.x)
         #expect((0...1).contains(drag.from.x))
@@ -450,29 +456,36 @@ struct SimulatorUIAutomationSnapshotTests {
             capturedAtMilliseconds: 1_000
         )
 
+        let generalRef = try #require(record.snapshot.elements.first {
+            $0.identifier == "settings.general"
+        }?.ref)
+        let searchRef = try #require(record.snapshot.elements.first {
+            $0.identifier == "settings.search"
+        }?.ref)
+
         #expect(record.matching(SimulatorUIAutomationSelector(
             label: "General",
             role: .button
-        )).map(\.ref) == ["e1_2"])
+        )).map(\.ref) == [generalRef])
         #expect(record.accessibilityInteractionTargets(
             label: "Search",
             identifier: nil,
             role: "text-field"
-        ).map(\.element.ref) == ["e1_3"])
+        ).map(\.element.ref) == [searchRef])
         #expect(record.accessibilityInteractionTargets(
             label: nil,
             identifier: "0.2",
             role: nil
         ).isEmpty)
-        #expect(record.containingText("search").map(\.ref) == ["e1_3"])
-        #expect(record.containingText("GENERAL").map(\.ref) == ["e1_2"])
+        #expect(record.containingText("search").map(\.ref) == [searchRef])
+        #expect(record.containingText("GENERAL").map(\.ref) == [generalRef])
 
         let repeated = [
-            try #require(record.element(ref: "e1_2")?.element),
-            try #require(record.element(ref: "e1_2")?.element),
+            try #require(record.element(ref: generalRef)?.element),
+            try #require(record.element(ref: generalRef)?.element),
         ]
         let distinct = repeated + [
-            try #require(record.element(ref: "e1_3")?.element),
+            try #require(record.element(ref: searchRef)?.element),
         ]
         #expect(record.candidatesShareMatchingText(repeated, containing: "general"))
         #expect(!record.candidatesShareMatchingText(distinct, containing: "e"))
@@ -611,13 +624,17 @@ struct SimulatorUIAutomationSnapshotTests {
             capturedAtMilliseconds: 1_000
         )
 
-        let tab = try #require(record.element(ref: "e1_2"))
+        let tab = try #require(record.elementRecords.first {
+            $0.element.identifier == "example.tab"
+        })
         #expect(tab.element.role == .tab)
         #expect(tab.element.actions.contains(.tap))
         #expect((0...1).contains(tab.activationPoint.x))
         #expect((0...1).contains(tab.activationPoint.y))
 
-        let scrollView = try #require(record.element(ref: "e1_3")?.element)
+        let scrollView = try #require(record.snapshot.elements.first {
+            $0.identifier == "content.scrollView"
+        })
         #expect(scrollView.role == .scrollView)
         #expect(scrollView.actions.contains(.swipeWithin))
     }
@@ -651,9 +668,9 @@ struct SimulatorUIAutomationSnapshotTests {
             capturedAtMilliseconds: 1_000
         )
 
-        let key = try #require(record.element(ref: "e1_1")?.element)
+        let key = try #require(record.snapshot.elements.first)
         #expect(key.role == .keyboardKey)
-        #expect(record.matching(SimulatorUIAutomationSelector(role: .keyboardKey)).map(\.ref) == ["e1_1"])
+        #expect(record.matching(SimulatorUIAutomationSelector(role: .keyboardKey)).map(\.ref) == [key.ref])
     }
 
     @Test("Nested content extending past a container infers one swipe target")
@@ -702,7 +719,9 @@ struct SimulatorUIAutomationSnapshotTests {
             capturedAtMilliseconds: 1_000
         )
 
-        let container = try #require(record.element(ref: "e1_2")?.element)
+        let container = try #require(record.snapshot.elements.first {
+            $0.label == "Content"
+        })
         #expect(container.actions.contains(.swipeWithin))
     }
 
