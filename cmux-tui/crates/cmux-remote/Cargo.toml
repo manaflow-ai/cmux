@@ -11,8 +11,11 @@ description = "Authenticated remote daemon, transports, and workspace services f
 workspace = true
 
 [features]
-default = ["iroh-transport"]
+default = ["iroh-transport", "daemon-services"]
 iroh-transport = ["dep:iroh", "dep:socket2"]
+# Host-side services. Off for client-only builds, which then need no Zig
+# toolchain because libghostty-vt is only used by the workspace service.
+daemon-services = ["dep:ghostty-vt"]
 
 [dependencies]
 anyhow.workspace = true
@@ -26,7 +29,7 @@ diffy.workspace = true
 futures-util.workspace = true
 fs4.workspace = true
 getrandom.workspace = true
-ghostty-vt.workspace = true
+ghostty-vt = { workspace = true, optional = true }
 hmac.workspace = true
 http.workspace = true
 iroh = { workspace = true, optional = true }
@@ -46,6 +49,7 @@ zeroize.workspace = true
 
 [dev-dependencies]
 cmux-relay = { path = "../cmux-relay" }
+iroh-relay = { version = "1.0.3", default-features = false, features = ["server"] }
 rcgen = "0.14"
 tempfile = "3"
  tower = { version = "0.5", features = ["util"] }

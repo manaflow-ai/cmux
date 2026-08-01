@@ -789,6 +789,8 @@ impl ServiceStream {
         }
     }
 
+    // Only the daemon's service loops race a stream against its failure.
+    #[cfg_attr(not(feature = "daemon-services"), allow(dead_code))]
     pub(crate) async fn wait_for_failure(&self) -> ServiceError {
         let mut failure = self.failure.subscribe();
         loop {
@@ -2736,7 +2738,7 @@ mod tests {
     async fn message_stream_rejects_frames_outside_its_declared_lane() {
         use bytes::{BufMut, BytesMut};
 
-        use crate::services::{MessageStream, ServicesError};
+        use crate::message::{MessageStream, ServicesError};
 
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);

@@ -25,45 +25,29 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_VT_ZIG_CPU");
+    println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_VT_LIB_DIR");
     println!("cargo:rerun-if-changed={}", ghostty_dir.join("include").display());
     println!("cargo:rerun-if-changed={}", ghostty_dir.join("build.zig").display());
     println!("cargo:rerun-if-changed={}", ghostty_dir.join("src").display());
 
-    // Build libghostty-vt.a with zig. ReleaseFast regardless of the cargo
-    // profile: the VT parser is on the PTY hot path and a debug zig build
-    // is an order of magnitude slower.
-    let zig = env::var("ZIG").unwrap_or_else(|_| "zig".to_string());
-    let prefix = out_dir.join("ghostty-vt");
     let target = env::var("TARGET").unwrap();
-    let host = env::var("HOST").unwrap();
-    let mut command = Command::new(&zig);
-    command
-        .current_dir(&ghostty_dir)
-        .arg("build")
-        .arg("-Demit-lib-vt=true")
-        .arg("-Demit-xcframework=false")
-        .arg("-Doptimize=ReleaseFast");
-    if target != host
-        && let Some(zig_target) = zig_target_for_rust_target(&target)
-    {
-        command.arg(format!("-Dtarget={zig_target}"));
-    }
-    // Valgrind's instruction emulation doesn't cover every CPU-native SIMD
-    // extension zig's default target detection can select (e.g. some AVX-512
-    // variants), which SIGILLs under valgrind. CI's valgrind job sets this to
-    // "baseline" to match the same workaround ghostty's own build.zig uses
-    // for its valgrind step (see `Config.baselineTarget()`).
-    if let Ok(cpu) = env::var("CMUX_GHOSTTY_VT_ZIG_CPU") {
-        command.arg(format!("-Dcpu={cpu}"));
-    }
-    let status = command.arg("--prefix").arg(&prefix).status().unwrap_or_else(|e| {
-        panic!("failed to run `{zig} build` in {}: {e}", ghostty_dir.display())
-    });
-    if !status.success() {
-        panic!("zig build of libghostty-vt failed with {status}");
-    }
 
-    let lib_dir = prefix.join("lib");
+    // A prebuilt archive skips zig entirely, the same way the Swift side
+    // consumes a prebuilt GhosttyKit.xcframework instead of building one.
+    //
+    // This is what makes an iOS build possible on a current Mac. `zig build`
+    // compiles its own build runner for the host before it does anything else,
+    // and zig 0.15.2 cannot link a host executable on macOS 26 -- it misdetects
+    // the OS version and drops libSystem, so every libc symbol comes back
+    // undefined. That happens even when the artifact being produced is a
+    // cross-compiled iOS archive, so the failure is not avoidable by target
+    // selection. Cross-compiling the archive elsewhere and pointing at it here
+    // is.
+    let lib_dir = match env::var("CMUX_GHOSTTY_VT_LIB_DIR") {
+        Ok(dir) => PathBuf::from(dir),
+        Err(_) => build_libghostty_vt(&ghostty_dir, &out_dir, &target),
+    };
+
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     if target.contains("windows") {
         // zig installs the Windows static archive as `ghostty-vt-static.lib`
@@ -82,7 +66,49 @@ fn main() {
         println!("cargo:rustc-link-lib=static=ghostty-vt");
     }
 
-    // Generate bindings from the public C header.
+    generate_bindings(&ghostty_dir, &out_dir, &target);
+}
+
+/// Build libghostty-vt.a with zig. ReleaseFast regardless of the cargo
+/// profile: the VT parser is on the PTY hot path and a debug zig build is an
+/// order of magnitude slower.
+fn build_libghostty_vt(ghostty_dir: &PathBuf, out_dir: &PathBuf, target: &str) -> PathBuf {
+    let zig = env::var("ZIG").unwrap_or_else(|_| "zig".to_string());
+    let prefix = out_dir.join("ghostty-vt");
+    let host = env::var("HOST").unwrap();
+    let mut command = Command::new(&zig);
+    command
+        .current_dir(&ghostty_dir)
+        .arg("build")
+        .arg("-Demit-lib-vt=true")
+        .arg("-Demit-xcframework=false")
+        .arg("-Doptimize=ReleaseFast");
+    if target != host
+        && let Some(zig_target) = zig_target_for_rust_target(target)
+    {
+        command.arg(format!("-Dtarget={zig_target}"));
+    }
+    // Valgrind's instruction emulation doesn't cover every CPU-native SIMD
+    // extension zig's default target detection can select (e.g. some AVX-512
+    // variants), which SIGILLs under valgrind. CI's valgrind job sets this to
+    // "baseline" to match the same workaround ghostty's own build.zig uses
+    // for its valgrind step (see `Config.baselineTarget()`).
+    if let Ok(cpu) = env::var("CMUX_GHOSTTY_VT_ZIG_CPU") {
+        command.arg(format!("-Dcpu={cpu}"));
+    }
+    let status = command.arg("--prefix").arg(&prefix).status().unwrap_or_else(|e| {
+        panic!("failed to run `{zig} build` in {}: {e}", ghostty_dir.display())
+    });
+    if !status.success() {
+        panic!("zig build of libghostty-vt failed with {status}");
+    }
+
+    prefix.join("lib")
+}
+
+/// Generate Rust bindings from the public C header. This needs the ghostty
+/// sources but no zig, so it runs the same way for a prebuilt archive.
+fn generate_bindings(ghostty_dir: &PathBuf, out_dir: &PathBuf, _target: &str) {
     let include_dir = ghostty_dir.join("include");
     let bindings = bindgen::Builder::default()
         .header(include_dir.join("ghostty/vt.h").to_str().unwrap().to_string())
