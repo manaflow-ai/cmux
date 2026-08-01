@@ -12895,14 +12895,68 @@ mod tests {
     }
 
     #[test]
-    fn detached_terminal_requires_an_explicit_pane() {
+    fn detached_terminal_without_a_pane_materializes_only_an_empty_workspace() {
         let mux = test_mux();
+        let detached = mux.create_empty_workspace(Some("detached".into()), None, None).unwrap();
+        let owner = mux.new_workspace(Some("owner".into()), None).unwrap();
+        let owner_focus = mux.with_state(|state| {
+            let workspace = &state.workspaces[state.active_workspace];
+            let screen = workspace.active_screen_ref().unwrap();
+            (
+                workspace.id,
+                screen.id,
+                screen.active_pane,
+                state.panes[&screen.active_pane].active_surface(),
+            )
+        });
+
+        let placement = handle_command(
+            &mux,
+            0,
+            Command::CreateTerminal {
+                workspace: Some(detached.workspace),
+                key: None,
+                pane: None,
+                argv: None,
+                command: None,
+                cwd: None,
+                name: Some("detached bootstrap".into()),
+                cols: Some(80),
+                rows: Some(24),
+                terminal_id: Some("00000000000040008000000000000002".into()),
+                activate: Some(false),
+                mutation: MutationRequest {
+                    origin: Some("browser-bootstrap-test".into()),
+                    mutation_id: Some("detached-empty-terminal".into()),
+                    ..Default::default()
+                },
+            },
+            &test_writer(),
+        )
+        .unwrap();
+
+        assert_eq!(placement["workspace"].as_u64(), Some(detached.workspace));
+        assert!(placement["screen"].as_u64().is_some());
+        assert!(placement["pane"].as_u64().is_some());
+        assert_eq!(
+            mux.with_state(|state| {
+                let workspace = &state.workspaces[state.active_workspace];
+                let screen = workspace.active_screen_ref().unwrap();
+                (
+                    workspace.id,
+                    screen.id,
+                    screen.active_pane,
+                    state.panes[&screen.active_pane].active_surface(),
+                )
+            }),
+            owner_focus
+        );
 
         let error = handle_command(
             &mux,
             0,
             Command::CreateTerminal {
-                workspace: None,
+                workspace: Some(detached.workspace),
                 key: None,
                 pane: None,
                 argv: None,
@@ -12919,8 +12973,13 @@ mod tests {
         )
         .unwrap_err();
 
-        assert_eq!(error.to_string(), "create-terminal activate:false requires pane");
-        assert_eq!(mux.surface_count(), 0);
+        assert_eq!(
+            error.to_string(),
+            "create-terminal activate:false without pane requires an empty workspace"
+        );
+        assert_eq!(mux.surface_count(), 2);
+        assert!(mux.with_state(|state| state.pane_of(owner.id)).is_some());
+        mux.shutdown();
     }
 
     #[test]
