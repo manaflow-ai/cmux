@@ -123,6 +123,16 @@ class RegistryArtifactTests(unittest.TestCase):
         ), self.assertRaises(reconcile.RegistryError):
             reconcile.registry_status("npm", "cmux-sdk", "1.0.0", self.artifact)
 
+    def test_npm_rejects_a_missing_version_older_than_registry_history(self) -> None:
+        metadata = {
+            "dist-tags": {"latest": "2.0.0"},
+            "versions": {"2.0.0": {"dist": {}}},
+        }
+        with mock.patch.object(
+            reconcile, "urlopen", return_value=self.response(metadata)
+        ), self.assertRaises(reconcile.ReleaseStateMismatch):
+            reconcile.registry_status("npm", "cmux-sdk", "1.0.0", self.artifact)
+
     def test_pypi_matches_the_exact_filename_and_sha256(self) -> None:
         metadata = {
             "urls": [

@@ -152,6 +152,30 @@ def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
     assert "sdk-publish-java.yml" not in release
 
 
+def test_registry_state_is_validated_before_irreversible_tags() -> None:
+    release = workflow("sdk-release-cut.yml")
+    registry = workflow_job(release, "registry-preflight")
+    cut_tags = workflow_job(release, "cut-tags")
+
+    for prerequisite in (
+        "rust-preflight",
+        "typescript-preflight",
+        "python-preflight",
+    ):
+        assert prerequisite in registry
+    for artifact in (
+        "cmux-rust-client-crate",
+        "cmux-rust-sidebar-crate",
+        "cmux-npm-dist",
+        "cmux-python-dist",
+    ):
+        assert f"name: {artifact}" in registry
+    assert registry.count("reconcile_registry_artifact.py check") == 5
+    assert "id-token: write" not in registry
+    assert "registry-preflight" in cut_tags
+    assert release.index("registry-preflight:") < release.index("cut-tags:")
+
+
 def test_go_publisher_uses_the_nested_module_semver_tag() -> None:
     go = workflow("sdk-publish-go.yml")
     java = workflow("sdk-publish-java.yml")
@@ -197,6 +221,14 @@ def test_sdk_preflight_workflows_cannot_write_to_registries() -> None:
     public_probe = go.split("verify-versioned-go-module:", 1)[1]
     setup = public_probe.split("Resolve the public module tag", 1)[0]
     assert "cache: false" in setup
+    assert "GOPROXY=https://proxy.golang.org" in public_probe
+    assert "GOSUMDB=sum.golang.org" in public_probe
+    assert "GOPROXY=direct" not in public_probe
+    assert "GONOSUMDB" not in public_probe
+    assert '"$module/raw"' in public_probe
+    assert "go mod download" in public_probe
+    assert "go mod verify" in public_probe
+    assert "go test" in public_probe
 
 
 def test_registry_publishers_reuse_preflight_artifacts() -> None:
