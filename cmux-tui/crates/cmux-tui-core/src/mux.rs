@@ -17356,6 +17356,52 @@ mod tests {
         let _ = mux.shutdown();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn terminal_close_reports_exact_host_record_read_failure() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("exact-host-close".into()), Some((80, 24))).unwrap();
+        let identity = mux.resource_terminal_host_identity(&surface).unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-close-host-record-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(format!("{}.json", identity.terminal_id)), b"{invalid-json")
+            .unwrap();
+        mux.surface_options.lock().unwrap().terminal_host_root = Some(root.clone());
+
+        let result = mux.close_terminal(&identity.terminal_id, &identity.incarnation);
+        let _ = std::fs::remove_dir_all(root);
+
+        let error = result.expect_err("close acknowledged an unreadable exact host record");
+        assert!(format!("{error:#}").contains("terminal-host"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_close_reports_exact_host_record_read_failure() {
+        let mux = test_mux();
+        let surface =
+            mux.new_workspace(Some("exact-workspace-close".into()), Some((80, 24))).unwrap();
+        let identity = mux.resource_terminal_host_identity(&surface).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let root = std::env::temp_dir().join(format!(
+            "cmux-workspace-close-host-record-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(format!("{}.json", identity.terminal_id)), b"{invalid-json")
+            .unwrap();
+        mux.surface_options.lock().unwrap().terminal_host_root = Some(root.clone());
+
+        let result = mux.close_workspace_at_revision(workspace, None);
+        let _ = std::fs::remove_dir_all(root);
+
+        let error = result.expect_err("workspace close acknowledged an unreadable host record");
+        assert!(format!("{error:#}").contains("terminal-host"));
+    }
+
     #[test]
     fn ordinary_topology_projection_failure_keeps_memory_and_public_state_unchanged() {
         let mux = test_mux();
