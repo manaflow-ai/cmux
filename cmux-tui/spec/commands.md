@@ -1212,7 +1212,12 @@ numeric `workspace`. An empty workspace is materialized in place with its
 first screen and pane; no workspace revision is advanced. `argv` executes
 directly, while `command` executes through the default shell. With an explicit
 `pane`, servers advertising `independent-client-selection-v1` accept
-`activate:false` and preserve the owner client's complete focus identity.
+`activate:false` and preserve the owner client's complete focus identity. A
+detached request may omit `pane` only while the selected workspace is empty;
+the server holds that workspace's lifecycle lock through launch and atomically
+materializes its first screen and pane without changing another workspace's
+selection. If another surface materializes the workspace first, the request
+fails instead of falling back to its active pane.
 
 Params:
 
@@ -1227,7 +1232,7 @@ Params:
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
 | `pane` | `Id` | default null | Must belong to the selected workspace |
-| `activate` | `bool` | default `true` | `false` requires an explicit `pane` and `independent-client-selection-v1` |
+| `activate` | `bool` | default `true` | `false` requires `independent-client-selection-v1` and an explicit `pane`, except when atomically materializing an empty workspace |
 
 Result:
 
@@ -1235,7 +1240,9 @@ Result:
 object{surface:Id,pane:Id,screen:Id,workspace:Id,key:string}
 ```
 
-Errors include missing, unknown, or mismatched workspace selectors; mutually exclusive or empty commands; PTY spawn failures; and malformed requests.
+Errors include missing, unknown, or mismatched workspace selectors; a pane-less
+detached request targeting a nonempty workspace; mutually exclusive or empty
+commands; PTY spawn failures; and malformed requests.
 
 Example:
 

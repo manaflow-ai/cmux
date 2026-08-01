@@ -7417,6 +7417,11 @@ impl Mux {
             let Some(workspace) = state.workspace_by_id(workspace) else {
                 anyhow::bail!("unknown workspace {workspace}");
             };
+            if !activate && target_pane.is_none() && !workspace.screens.is_empty() {
+                anyhow::bail!(
+                    "create-terminal activate:false without pane requires an empty workspace"
+                );
+            }
             let inherited_pane = target_pane
                 .or_else(|| workspace.active_screen_ref().map(|screen| screen.active_pane));
             if let Some(target_pane) = target_pane

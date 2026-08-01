@@ -8020,9 +8020,6 @@ fn handle_command_with_cancellation(
             activate,
             mutation,
         } => {
-            if activate == Some(false) && pane.is_none() {
-                anyhow::bail!("create-terminal activate:false requires pane");
-            }
             if argv.is_some() && command.is_some() {
                 anyhow::bail!("argv and command are mutually exclusive");
             }
