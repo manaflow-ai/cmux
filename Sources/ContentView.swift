@@ -11620,6 +11620,21 @@ struct VerticalTabsSidebar: View, Equatable {
                 refreshWorkspaceSnapshots()
             }
         }
+        .overlay(alignment: .topTrailing) {
+            if isPresented, !renderContext.workspaceGroups.isEmpty {
+                SidebarWorkspaceGroupBulkToggle(
+                    allGroupsCollapsed: renderContext.workspaceGroups.allSatisfy { $0.isCollapsed },
+                    onCollapseAll: { [weak tabManager] in
+                        tabManager?.collapseAllWorkspaceGroups()
+                    },
+                    onExpandAll: { [weak tabManager] in
+                        tabManager?.expandAllWorkspaceGroups()
+                    }
+                )
+                .padding(.top, 4)
+                .padding(.trailing, 6)
+            }
+        }
         .onDisappear {
             workspaceSnapshotRefreshCoalescer.cancel()
         }

@@ -268458,6 +268458,23 @@
         }
       }
     },
+    "workspaceGroup.collapseAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapse All Workspace Groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのワークスペースグループを折りたたむ"
+          }
+        }
+      }
+    },
     "workspaceGroup.contextMenu.clearLatestNotifications": {
       "extractionState": "manual",
       "localizations": {
@@ -270215,6 +270232,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "展開群組"
+          }
+        }
+      }
+    },
+    "workspaceGroup.expandAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expand All Workspace Groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのワークスペースグループを展開"
           }
         }
       }
