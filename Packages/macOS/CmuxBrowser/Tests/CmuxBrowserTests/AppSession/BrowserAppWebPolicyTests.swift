@@ -37,6 +37,14 @@ struct BrowserAppWebPolicyTests {
             sourceURL: trustedSource
         ))
         #expect(!policy.shouldOpenInSystemBrowser(
+            try #require(
+                URL(
+                    string: "https://attacker.example/checkout?cmux_external_browser=1"
+                )
+            ),
+            sourceURL: trustedSource
+        ))
+        #expect(!policy.shouldOpenInSystemBrowser(
             try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser")),
             sourceURL: trustedSource
         ))
