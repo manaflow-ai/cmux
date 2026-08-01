@@ -91,6 +91,45 @@ struct SimulatorUIAutomationExecutorWaitTests {
         await coordinator.close()
     }
 
+    @Test("Label-only text fields are rejected before focus changes")
+    func labelOnlyTextFieldDoesNotTap() async throws {
+        let snapshot = Self.labelOnlyTextFieldSnapshot()
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let record = try await coordinator.recordUIAutomationSnapshot(
+            snapshot,
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+        let elementRef = try #require(record.snapshot.elements.first {
+            $0.role == .textField
+        }?.ref)
+
+        do {
+            _ = try await SimulatorUIAutomationExecutor(
+                scheduler: AdvancingActionScheduler(nowMilliseconds: 1_000)
+            ).perform(
+                .uiAction(.typeText(
+                    elementRef: elementRef,
+                    text: "Hello",
+                    replaceExisting: false
+                )),
+                coordinator: coordinator
+            )
+            Issue.record("Expected the label-only text field to be rejected")
+        } catch {}
+
+        #expect(!(await client.actions().contains { action in
+            if case .interactive = action { return true }
+            return false
+        }))
+        await coordinator.close()
+    }
+
     @Test("Up-only touch rejects a different held-touch ref")
     func mismatchedTouchUpPreservesHeldTouch() async throws {
         let snapshot = Self.twoButtonSnapshot()
@@ -414,6 +453,34 @@ struct SimulatorUIAutomationExecutorWaitTests {
                         children: []
                     ),
                 ]
+            )],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+    }
+
+    private static func labelOnlyTextFieldSnapshot() -> SimulatorAccessibilitySnapshot {
+        SimulatorAccessibilitySnapshot(
+            roots: [SimulatorAccessibilityNode(
+                id: "root",
+                role: "Application",
+                label: "Example",
+                value: nil,
+                frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                isEnabled: true,
+                children: [SimulatorAccessibilityNode(
+                    id: "name",
+                    role: "AXTextField",
+                    label: "Name",
+                    value: nil,
+                    frame: SimulatorRect(x: 20, y: 100, width: 200, height: 44),
+                    isEnabled: true,
+                    children: []
+                )]
             )],
             display: SimulatorDisplayMetadata(
                 width: 1_170,

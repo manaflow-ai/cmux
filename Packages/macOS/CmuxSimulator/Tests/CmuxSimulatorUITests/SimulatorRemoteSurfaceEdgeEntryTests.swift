@@ -123,8 +123,8 @@ struct SimulatorRemoteSurfaceEdgeEntryTests {
         #expect(harness.pointerEvents.map(\.phase) == [.began, .moved, .ended])
     }
 
-    @Test("Rejected input clears local state and stops the pending batch")
-    func rejectedInputStopsPendingBatch() throws {
+    @Test("Rejected input forwards cleanup and stops the pending batch")
+    func rejectedInputForwardsCleanupAndStopsPendingBatch() throws {
         let harness = try SimulatorRemoteSurfaceEdgeEntryHarness()
         defer { harness.close() }
         let point = SimulatorPoint(x: 0.5, y: 0.5)
@@ -132,20 +132,41 @@ struct SimulatorRemoteSurfaceEdgeEntryTests {
             at: point,
             optionPinch: false
         )
-        messages.append(.pointer(SimulatorPointerEvent(
-            phase: .moved,
-            primary: SimulatorPoint(x: 0.6, y: 0.6)
-        )))
-        var received: [SimulatorWorkerInbound] = []
+        messages.append(contentsOf: harness.view.input.key(usage: 4, phase: .down))
+        var delivered: [SimulatorWorkerInbound] = []
+        var rejected = false
         harness.view.onMessage = { message in
-            received.append(message)
-            harness.view.discardRejectedInputs()
+            if !rejected, case .key = message {
+                rejected = true
+                harness.view.discardRejectedInputs()
+                return
+            }
+            delivered.append(message)
         }
 
         harness.view.send(messages)
 
-        #expect(received.count == 1)
+        #expect(delivered.contains { message in
+            if case let .pointer(event) = message {
+                return event.phase == .began
+            }
+            return false
+        })
+        #expect(delivered.contains { message in
+            if case let .pointer(event) = message {
+                return event.phase == .cancelled
+            }
+            return false
+        })
+        #expect(delivered.contains { message in
+            if case let .key(event) = message {
+                return event.usage == 4 && event.phase == .up
+            }
+            return false
+        })
+        #expect(delivered.contains(.releaseInputs))
         #expect(harness.view.input.activePointer == nil)
+        #expect(harness.view.input.heldKeys.isEmpty)
         #expect(harness.view.pendingInputMotion == nil)
     }
 
