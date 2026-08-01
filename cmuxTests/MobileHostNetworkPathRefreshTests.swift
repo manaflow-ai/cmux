@@ -1,3 +1,4 @@
+import CmuxIrohTransport
 import Foundation
 import Testing
 
@@ -188,6 +189,44 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostIrohStartupRetryTests {
+    @Test
+    func bindingRemainsUnavailableUntilMatchingHostRuntimeIsActive() throws {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalRevision = runtime.lifecycleRevision
+        let revision: UInt64 = 4_200
+        let binding = try CmxIrohBrokerBindingMetadata(
+            bindingID: "123e4567-e89b-42d3-a456-426614174010",
+            deviceID: "123e4567-e89b-42d3-a456-426614174011",
+            appInstanceID: "123e4567-e89b-42d3-a456-426614174012",
+            tag: "route-ready",
+            platform: .mac,
+            endpointID: CmxIrohPeerIdentity(
+                endpointID: String(repeating: "a", count: 64)
+            ),
+            identityGeneration: 1
+        )
+        defer {
+            runtime.lifecycleRevision = originalRevision
+            runtime.clearIrohRoutePublication()
+            MobileHostPublicStatusCache.removeAll()
+        }
+        MobileHostPublicStatusCache.removeAll()
+        runtime.lifecycleRevision = revision
+
+        runtime.beginIrohRouteActivation(revision: revision)
+        runtime.stageIrohRoute(binding, revision: revision)
+
+        #expect(!MobileHostPublicStatusCache.hasIrohRoute())
+        #expect(!runtime.publishIrohRouteIfActive(revision: revision - 1))
+        #expect(!MobileHostPublicStatusCache.hasIrohRoute())
+        #expect(runtime.publishIrohRouteIfActive(revision: revision))
+        #expect(MobileHostPublicStatusCache.hasIrohRoute())
+
+        runtime.beginIrohRouteActivation(revision: revision + 1)
+
+        #expect(!MobileHostPublicStatusCache.hasIrohRoute())
+    }
+
     @Test
     func sameAccountAuthObservationDoesNotSupersedeActivationInFlight() {
         #expect(!MobileHostIrohRuntime.shouldReconcileAuthObservation(
