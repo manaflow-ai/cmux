@@ -55,7 +55,8 @@ extension CMUXCLI {
             params["surface_id"] = surfaceID
         } else if selector.usesCurrentSurface,
                   let surfaceID = try currentRestoreSurfaceID(
-                      client: client
+                      client: client,
+                      processEnvironment: processEnvironment
                   ) {
             params["surface_id"] = surfaceID
         } else {
@@ -181,11 +182,15 @@ extension CMUXCLI {
     }
 
     private func currentRestoreSurfaceID(
-        client: SocketClient
+        client: SocketClient,
+        processEnvironment: [String: String]
     ) throws -> String? {
         // The remote relay and the local CLI do not share a PID namespace.
-        guard !client.isRelayBacked else {
-            return legacyRestoreSurfaceID(client: client)
+        if client.isRelayBacked {
+            return try relayRestoreSurfaceID(
+                client: client,
+                processEnvironment: processEnvironment
+            )
         }
 
         let resolution = AgentProcessBindingResolution.controllingTTY.rawValue
@@ -224,7 +229,10 @@ extension CMUXCLI {
                 case "method_not_found", "unrecognized_method":
                     // These protocol replies were consumed in full, so the socket
                     // remains synchronized for the legacy discovery request.
-                    return legacyRestoreSurfaceID(client: client)
+                    return legacyRestoreSurfaceID(
+                        client: client,
+                        workspaceID: nil
+                    )
                 default:
                     client.close()
                     throw error
@@ -236,7 +244,86 @@ extension CMUXCLI {
         }
     }
 
-    private func legacyRestoreSurfaceID(client: SocketClient) -> String? {
+    private func relayRestoreSurfaceID(
+        client: SocketClient,
+        processEnvironment: [String: String]
+    ) throws -> String? {
+        let ttyName = resolveCallerDescriptorTTYName()
+            ?? resolveCallerTTYName(includeAmbientTTY: false)
+        guard let ttyName else { return nil }
+
+        let resolution = AgentTTYBindingResolution.reportedTTY.rawValue
+        let workspaceID = normalizedHandleValue(processEnvironment["CMUX_WORKSPACE_ID"])
+        var params: [String: Any] = [
+            "tty_name": ttyName,
+            "tty_resolution": resolution,
+        ]
+        if let workspaceID {
+            // Lets an older app identify this probe as an unsupported
+            // workspace-only resolution. The authenticated relay rewrites
+            // aliases and separately stamps its authoritative owner id.
+            params["workspace_id"] = workspaceID
+        }
+
+        let retryDelays: [useconds_t] = [25_000, 50_000, 100_000, 200_000, 400_000]
+        var retryIndex = 0
+        while true {
+            do {
+                let payload = try client.sendV2(
+                    method: "agent.resolve_delivery_target",
+                    params: params
+                )
+                if payload["source"] as? String == "workspace",
+                   payload["surface_id"] == nil || payload["surface_id"] is NSNull,
+                   let resolvedWorkspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
+                   isUUID(resolvedWorkspaceID) {
+                    // Previous app versions ignore the TTY probe and resolve
+                    // only workspace_id. Use their alias-rewritten result to
+                    // scope the legacy terminal list, not the stale remote
+                    // shell environment value that produced the request.
+                    return legacyRestoreSurfaceID(
+                        client: client,
+                        workspaceID: resolvedWorkspaceID
+                    )
+                }
+                guard payload["source"] as? String == "tty",
+                      payload["tty_resolution"] as? String == resolution,
+                      let resolvedWorkspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
+                      isUUID(resolvedWorkspaceID),
+                      let surfaceID = normalizedHandleValue(payload["surface_id"] as? String),
+                      isUUID(surfaceID) else {
+                    throw currentRestoreSurfaceUnknownError()
+                }
+                return surfaceID
+            } catch let error as CLIError {
+                switch error.v2Code {
+                case "not_found" where retryIndex < retryDelays.count:
+                    usleep(retryDelays[retryIndex])
+                    retryIndex += 1
+                case "not_found":
+                    client.close()
+                    throw currentRestoreSurfaceUnknownError()
+                case "method_not_found", "unrecognized_method":
+                    guard let workspaceID, isUUID(workspaceID) else { return nil }
+                    return legacyRestoreSurfaceID(
+                        client: client,
+                        workspaceID: workspaceID
+                    )
+                default:
+                    client.close()
+                    throw error
+                }
+            } catch {
+                client.close()
+                throw error
+            }
+        }
+    }
+
+    private func legacyRestoreSurfaceID(
+        client: SocketClient,
+        workspaceID: String?
+    ) -> String? {
         // Prefer the live descriptors. Generic TTY variables can be inherited
         // across nested shells, so only dedicated cmux hints are a fallback.
         let ttyName = resolveCallerDescriptorTTYName()
@@ -244,7 +331,8 @@ extension CMUXCLI {
         guard let ttyName,
               let binding = uniqueCallerTerminalBindingByTTY(
                   ttyName: ttyName,
-                  client: client
+                  client: client,
+                  workspaceId: workspaceID
               ) else {
             return nil
         }

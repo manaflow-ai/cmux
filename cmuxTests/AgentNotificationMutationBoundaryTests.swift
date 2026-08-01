@@ -134,7 +134,13 @@ extension AgentNotificationRegressionTests {
             "Persisted TTY metadata is not evidence from the current terminal runtime"
         )
 
-        workspace.surfaceTTYNames[panelId] = "/dev/null"
+        workspace.pruneSurfaceMetadata(validSurfaceIds: [panelId])
+        #expect(
+            workspace.localAgentDeliveryTTYDevices.isEmpty,
+            "Metadata pruning must not promote a persisted TTY into live evidence"
+        )
+
+        workspace.registerReportedSurfaceTTYName("/dev/null", panelId: panelId)
         #expect(workspace.localAgentDeliveryTTYDevices.map(\.surfaceId) == [panelId])
     }
 

@@ -85,7 +85,7 @@ extension Workspace {
                 surfaceAliases: surfaceAliases,
                 didRewrite: &didRewrite
             ) as? [String: Any] ?? params
-            if method == "surface.resume.set",
+            if method == "surface.resume.set" || method == "agent.resolve_delivery_target",
                let remoteWorkspaceID {
                 params["_cmux_remote_workspace_id"] = remoteWorkspaceID.uuidString
                 didRewrite = true

@@ -85,17 +85,28 @@ extension Workspace {
         set {
             let previous = surfaceRegistry.surfaceTTYNames
             var devices = surfaceRegistry.surfaceTTYDevices.filter { newValue[$0.key] != nil }
-            for (panelId, ttyName) in newValue
-            where previous[panelId] != ttyName || devices[panelId] == nil {
+            var runtimeReported = surfaceRegistry.runtimeReportedTTYSurfaceIDs.intersection(newValue.keys)
+            for (panelId, ttyName) in newValue where previous[panelId] != ttyName {
                 devices[panelId] = CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName)
+                runtimeReported.insert(panelId)
             }
             surfaceRegistry.surfaceTTYNames = newValue
             surfaceRegistry.surfaceTTYDevices = devices
+            surfaceRegistry.runtimeReportedTTYSurfaceIDs = runtimeReported
         }
     }
 
     /// Cached TTY character-device ids, updated with ``surfaceTTYNames``.
     var surfaceTTYDevices: [UUID: Int64] { surfaceRegistry.surfaceTTYDevices }
+
+    /// Records an explicit `report_tty` from the current terminal runtime.
+    /// This stays distinct from dictionary metadata writes because a restored
+    /// runtime can legitimately report the same TTY name as its predecessor.
+    func registerReportedSurfaceTTYName(_ ttyName: String, panelId: UUID) {
+        surfaceTTYNames[panelId] = ttyName
+        surfaceRegistry.surfaceTTYDevices[panelId] = CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName)
+        surfaceRegistry.runtimeReportedTTYSurfaceIDs.insert(panelId)
+    }
 
     /// Restores display/port-scan metadata without treating the previous
     /// process's PTY as evidence about the newly created terminal runtime.
@@ -104,6 +115,32 @@ extension Workspace {
     func restorePersistedSurfaceTTYName(_ ttyName: String?, panelId: UUID) {
         surfaceRegistry.surfaceTTYNames[panelId] = ttyName
         surfaceRegistry.surfaceTTYDevices.removeValue(forKey: panelId)
+        surfaceRegistry.runtimeReportedTTYSurfaceIDs.remove(panelId)
+    }
+
+    /// Resolves a remote caller only from a TTY report observed in this app
+    /// runtime. TTY basenames are unique only inside one authenticated remote
+    /// workspace because separate hosts commonly reuse `/dev/pts/0`.
+    func agentDeliveryTarget(forReportedTTYName ttyName: String) -> AgentDeliveryTargetCandidate? {
+        guard isRemoteWorkspace else { return nil }
+        let candidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] =
+            surfaceRegistry.runtimeReportedTTYSurfaceIDs.compactMap { surfaceId
+                -> (binding: TerminalCallerTTYBinding, ttyName: String)? in
+                guard panels[surfaceId] != nil,
+                      let reportedTTYName = surfaceRegistry.surfaceTTYNames[surfaceId] else {
+                    return nil
+                }
+                return (
+                    binding: TerminalCallerTTYBinding(workspaceId: id, surfaceId: surfaceId),
+                    ttyName: reportedTTYName
+                )
+            }
+        let resolver = TerminalCallerTTYResolver(reportedCandidates: candidates)
+        guard let binding = resolver.binding(for: ttyName) else { return nil }
+        return AgentDeliveryTargetCandidate(
+            workspaceId: binding.workspaceId,
+            surfaceId: binding.surfaceId
+        )
     }
 
     /// Host-local TTY bindings eligible to identify a process running on this
@@ -268,6 +305,8 @@ extension TerminalController {
     /// - `{surface_id, workspace_id?}`: the workspace that currently hosts a
     ///   known surface (`source: "surface"`), re-homing moved panes.
     /// - `{workspace_id}`: existence check only (`source: "workspace"`).
+    /// - `{tty_name, tty_resolution: "reported_tty"}`: a relay-authenticated
+    ///   remote workspace's unique fresh TTY report (`source: "tty"`).
     func v2AgentResolveDeliveryTarget(params: [String: Any]) -> V2CallResult {
         let claimedWorkspaceId = v2UUID(params, "workspace_id")
         let claimedSurfaceId = v2UUID(params, "surface_id")
@@ -297,6 +336,30 @@ extension TerminalController {
                 ),
                 data: nil
             )
+        }
+        if params.keys.contains("tty_name") {
+            let ttyResolution = AgentTTYBindingResolution.reportedTTY.rawValue
+            guard params["tty_resolution"] as? String == ttyResolution,
+                  let ttyName = params["tty_name"] as? String,
+                  TerminalCallerTTYResolver.normalizedName(ttyName) != nil,
+                  let remoteWorkspaceId = v2UUID(params, "_cmux_remote_workspace_id"),
+                  let workspace = controlTabForSidebarMutation(id: remoteWorkspaceId),
+                  let target = workspace.agentDeliveryTarget(forReportedTTYName: ttyName) else {
+                return .err(
+                    code: "not_found",
+                    message: String(
+                        localized: "agent.deliveryTarget.error.notFound",
+                        defaultValue: "No live delivery target"
+                    ),
+                    data: nil
+                )
+            }
+            return .ok([
+                "workspace_id": target.workspaceId.uuidString,
+                "surface_id": target.surfaceId.uuidString,
+                "source": "tty",
+                "tty_resolution": ttyResolution,
+            ])
         }
         if params.keys.contains("pid") {
             // A socket caller controls both the value and its JSON type. Do

@@ -50,6 +50,11 @@ public final class SurfaceRegistryModel<TabSelectionRequest> {
     /// routing never performs per-surface filesystem work on the main actor.
     public var surfaceTTYDevices: [UUID: Int64] = [:]
 
+    /// Surface ids whose TTY name was reported by the current terminal
+    /// runtime. Persisted names stay out of this set until `report_tty`
+    /// arrives, including when the current runtime reuses the same name.
+    public var runtimeReportedTTYSurfaceIDs: Set<UUID> = []
+
     /// The shell-activity classification reported for each terminal panel,
     /// keyed by panel id (legacy `Workspace.panelShellActivityStates`).
     public var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
