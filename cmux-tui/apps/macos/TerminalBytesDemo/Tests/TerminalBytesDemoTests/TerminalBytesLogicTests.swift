@@ -1,10 +1,39 @@
 import AppKit
 import Foundation
 import Testing
+
 @testable import TerminalBytesDemo
+
+private final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = false
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func set() {
+        lock.lock()
+        storage = true
+        lock.unlock()
+    }
+}
 
 @Suite
 struct TerminalBytesLogicTests {
+    @MainActor
+    private func waitUntil(
+        _ predicate: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        for _ in 0..<100 {
+            if predicate() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return predicate()
+    }
+
     @Test
     func demoConfigurationUsesOnlyExplicitEnvironment() throws {
         let directory = FileManager.default.temporaryDirectory
@@ -20,11 +49,13 @@ struct TerminalBytesLogicTests {
             "CMUX_TERMINAL_AUTOCONNECT": "1",
         ])
 
-        #expect(configuration == DemoLaunchConfiguration(
-            invitation: "cmux://enroll/fresh",
-            surface: "73",
-            autoConnect: true
-        ))
+        #expect(
+            configuration
+                == DemoLaunchConfiguration(
+                    invitation: "cmux://enroll/fresh",
+                    surface: "73",
+                    autoConnect: true
+                ))
     }
 
     @Test
@@ -129,14 +160,12 @@ struct TerminalBytesLogicTests {
             resizeClient: { _, _, _ in true }
         )
 
-        #expect(handle.withRaw { $0 } == raw)
         #expect(handle.submit(.bytes(Data("x".utf8))) == false)
         #expect(handle.submit(.paste("貼り付け")) == true)
         #expect(handle.submit(.key(chord: "up", repeat: false)) == true)
 
         handle.disconnect()
         handle.disconnect()
-        #expect(handle.withRaw { $0 } == raw)
         #expect(detached == [raw])
         #expect(handle.reconnect(surface: 73) == nil)
         #expect(handle.reconnect(surface: 73) == nil)
@@ -145,7 +174,80 @@ struct TerminalBytesLogicTests {
 
         handle.shutdown()
         handle.shutdown()
-        #expect(handle.withRaw { $0 } == nil)
         #expect(destroyed == [raw])
+    }
+
+    @Test @MainActor
+    func reconnectDoesNotBlockTheMainActor() async throws {
+        let raw = try #require(OpaquePointer(bitPattern: 2))
+        let attachStarted = LockedFlag()
+        let releaseAttach = DispatchSemaphore(value: 0)
+        let handle = TerminalClientHandle(
+            raw: raw,
+            attachClient: { _, _, _, _ in
+                attachStarted.set()
+                releaseAttach.wait()
+                return true
+            },
+            destroyClient: { _ in },
+            detachClient: { _ in },
+            copyFrameClient: { _, _, _ in 0 },
+            copyDiagnosticsClient: { _, _, _ in 0 }
+        )
+        handle.disconnect()
+        let model = TerminalModel(
+            configuration: DemoLaunchConfiguration(
+                invitation: "",
+                surface: "73",
+                autoConnect: false
+            ),
+            retainedClient: handle
+        )
+
+        model.connect()
+        #expect(model.isConnecting)
+        #expect(await waitUntil { attachStarted.value })
+        #expect(model.isConnecting)
+
+        releaseAttach.signal()
+        #expect(await waitUntil { model.isConnected && !model.isConnecting })
+        model.shutdown()
+    }
+
+    @Test @MainActor
+    func disconnectDoesNotBlockTheMainActor() async throws {
+        let raw = try #require(OpaquePointer(bitPattern: 3))
+        let detachStarted = LockedFlag()
+        let releaseDetach = DispatchSemaphore(value: 0)
+        let handle = TerminalClientHandle(
+            raw: raw,
+            attachClient: { _, _, _, _ in true },
+            destroyClient: { _ in },
+            detachClient: { _ in
+                detachStarted.set()
+                releaseDetach.wait()
+            },
+            copyFrameClient: { _, _, _ in 0 },
+            copyDiagnosticsClient: { _, _, _ in 0 }
+        )
+        let model = TerminalModel(
+            configuration: DemoLaunchConfiguration(
+                invitation: "",
+                surface: "73",
+                autoConnect: false
+            ),
+            retainedClient: handle,
+            initiallyConnected: true
+        )
+
+        model.disconnect()
+        #expect(!model.isConnected)
+        #expect(model.isConnecting)
+        #expect(await waitUntil { detachStarted.value })
+        #expect(model.isConnecting)
+
+        releaseDetach.signal()
+        #expect(await waitUntil { !model.isConnecting })
+        model.shutdown()
     }
 }

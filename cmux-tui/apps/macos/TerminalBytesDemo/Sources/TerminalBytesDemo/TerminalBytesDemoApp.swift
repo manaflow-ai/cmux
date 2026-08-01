@@ -16,7 +16,7 @@ struct TerminalBytesDemoApp: App {
     @StateObject private var model = TerminalModel()
 
     var body: some Scene {
-        WindowGroup(L10n.text("app.title", "TerminalBytes Demo")) {
+        Window(L10n.text("app.title", "TerminalBytes Demo"), id: "terminal-bytes-demo") {
             ContentView(model: model)
                 .frame(minWidth: 780, minHeight: 520)
                 .onDisappear {
@@ -71,6 +71,7 @@ struct ContentView: View {
 
             TerminalView(
                 text: model.frame,
+                inputReady: model.isConnected,
                 submit: model.submit,
                 resize: model.resize
             )
@@ -79,11 +80,13 @@ struct ContentView: View {
             HStack(spacing: 8) {
                 Text(L10n.text("diagnostics.title", "Diagnostics"))
                     .fontWeight(.semibold)
-                Text(model.diagnostics.isEmpty
-                     ? L10n.text("diagnostics.disconnected", "Disconnected")
-                     : model.diagnostics)
-                    .font(.system(size: 10, design: .monospaced))
-                    .textSelection(.enabled)
+                Text(
+                    model.diagnostics.isEmpty
+                        ? L10n.text("diagnostics.disconnected", "Disconnected")
+                        : model.diagnostics
+                )
+                .font(.system(size: 10, design: .monospaced))
+                .textSelection(.enabled)
                 Spacer(minLength: 0)
                 Button(L10n.text("diagnostics.copy", "Copy Diagnostics")) {
                     NSPasteboard.general.clearContents()
