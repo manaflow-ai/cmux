@@ -303,7 +303,8 @@ import UIKit
             authoritativeRevision: 30
         )
 
-        let request = try #require(state.beginMove(from: 0, to: 1))
+        let pendingRequest = state.beginMove(from: 0, to: 1)
+        let request = try #require(pendingRequest)
         state.reconcile(
             authoritativePaneIDs: ["left", "right"],
             authoritativeRevision: 31
