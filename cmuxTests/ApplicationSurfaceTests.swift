@@ -1334,6 +1334,50 @@ struct ApplicationSurfaceTests {
         #expect(source.panelTitle(panelId: panel.id) == nil)
     }
 
+    @Test func applicationSurfaceMoveRejectsRemoteTmuxMirrorDestinationWithoutDetachingSource() throws {
+        let app = AppDelegate()
+        let windowID = UUID()
+        let manager = TabManager()
+        app.registerMainWindowContextForTesting(
+            windowId: windowID,
+            tabManager: manager
+        )
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+        }
+
+        let runtime = FakeApplicationSurfaceRuntime()
+        let source = try #require(manager.selectedWorkspace)
+        let sourcePane = try #require(
+            source.bonsplitController.allPaneIds.first
+        )
+        let panel = try #require(source.newApplicationSurface(
+            inPane: sourcePane,
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            runtime: runtime
+        ))
+        let destination = manager.addWorkspace(
+            title: "Remote tmux",
+            select: false
+        )
+        destination.isRemoteTmuxMirror = true
+        let destinationPanelIDs = Set(destination.panels.keys)
+
+        #expect(!app.moveSurface(
+            panelId: panel.id,
+            toWorkspace: destination.id,
+            focus: false,
+            focusWindow: false
+        ))
+        #expect(source.panels[panel.id] as? ApplicationPanel === panel)
+        #expect(source.surfaceIdFromPanelId(panel.id) != nil)
+        #expect(destination.panels[panel.id] == nil)
+        #expect(Set(destination.panels.keys) == destinationPanelIDs)
+        panel.close()
+    }
+
     @Test func workspaceUsesItsInjectedApplicationSurfaceRuntime() throws {
         let runtime = FakeApplicationSurfaceRuntime()
         let workspace = Workspace(applicationSurfaceRuntime: runtime)
