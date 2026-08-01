@@ -214,8 +214,8 @@ struct SimulatorWebInspectorServiceFailureTests {
         service.shutdown()
     }
 
-    @Test("Attach rematches a page after Web Inspector changes its process identifier")
-    func attachRematchesChangedApplicationIdentifier() async throws {
+    @Test("Attach rejects a page after Web Inspector changes its process identifier")
+    func attachRejectsChangedApplicationIdentifier() async throws {
         let service = Self.service()
         let transport = SuccessfulWebInspectorTransport(
             service: service,
@@ -225,13 +225,10 @@ struct SimulatorWebInspectorServiceFailureTests {
         service.currentDeviceIdentifier = "DEVICE"
         Self.seedTarget(into: service, applicationIdentifier: "PID:1")
 
-        let status = try await service.attach(targetIdentifier: "PID:1|7")
-
-        guard case let .attached(_, targetID) = status else {
-            Issue.record("Expected the refreshed page to attach")
-            return
+        await #expect(throws: SimulatorWebInspectorError.targetNotFound) {
+            try await service.attach(targetIdentifier: "PID:1|7")
         }
-        #expect(targetID == "PID:2|7")
+        #expect(service.session == nil)
         service.shutdown()
     }
 

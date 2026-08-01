@@ -577,6 +577,64 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect(record.containingText("continue").map(\.identifier) == ["visible.continue"])
     }
 
+    @Test("Ancestor clipping hides descendants outside their container")
+    func ancestorClippingHidesDescendants() throws {
+        let source = SimulatorAccessibilitySnapshot(
+            roots: [
+                node(
+                    id: "0",
+                    role: "Application",
+                    label: "Example",
+                    frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                    children: [
+                        node(
+                            id: "0.0",
+                            role: "Scroll view",
+                            label: "Visible list",
+                            frame: SimulatorRect(x: 0, y: 100, width: 390, height: 200),
+                            children: [
+                                node(
+                                    id: "0.0.0",
+                                    identifier: "clipped.continue",
+                                    role: "AXButton",
+                                    label: "Continue",
+                                    frame: SimulatorRect(
+                                        x: 20,
+                                        y: 350,
+                                        width: 120,
+                                        height: 44
+                                    )
+                                ),
+                            ]
+                        ),
+                    ]
+                ),
+            ],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+
+        let record = try source.uiAutomationRecord(
+            simulatorID: "SIM-1",
+            sequence: 1,
+            capturedAtMilliseconds: 1_000
+        )
+        let clipped = try #require(record.snapshot.elements.first {
+            $0.identifier == "clipped.continue"
+        })
+
+        #expect(!clipped.state.isVisible)
+        #expect(clipped.actions.isEmpty)
+        #expect(record.matching(SimulatorUIAutomationSelector(
+            label: "Continue",
+            role: .button
+        )).isEmpty)
+    }
+
     @Test("Role descriptions and clipped targets remain semantic and actionable")
     func roleDescriptionsAndClippedTargets() throws {
         let source = SimulatorAccessibilitySnapshot(
