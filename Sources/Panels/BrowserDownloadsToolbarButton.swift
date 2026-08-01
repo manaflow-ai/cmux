@@ -1,5 +1,9 @@
 import SwiftUI
 
+#if DEBUG
+import AppKit
+#endif
+
 /// Safari/Chrome-style downloads button for the browser omnibar. Shows a
 /// popover listing recent downloads with Open / Show in Finder actions.
 ///
@@ -7,6 +11,8 @@ import SwiftUI
 /// (`BrowserDownloadRecord`) plus action closures — no `BrowserPanel` store
 /// crosses the popover's `ForEach` boundary (CLAUDE.md snapshot-boundary rule).
 struct BrowserDownloadsToolbarButton: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let downloads: [BrowserDownloadRecord]
     let isDownloading: Bool
     let iconPointSize: CGFloat
@@ -73,6 +79,13 @@ struct BrowserDownloadsToolbarButton: View {
         .buttonStyle(OmnibarAddressButtonStyle())
         .safeHelp(String(localized: "browser.downloads.title", defaultValue: "Downloads"))
         .accessibilityLabel(String(localized: "browser.downloads.title", defaultValue: "Downloads"))
+        .onAppear {
+            presentAppearanceProbeIfReady()
+        }
+        .onChange(of: colorScheme) { _, _ in
+            presentAppearanceProbeIfReady()
+        }
+        .accessibilityIdentifier("BrowserDownloadsButton")
         .onChange(of: isPresented) { _, presented in
             if presented {
                 seenIDs = Set(downloads.map(\.id))
@@ -87,9 +100,19 @@ struct BrowserDownloadsToolbarButton: View {
             )
         }
     }
+
+    private func presentAppearanceProbeIfReady() {
+        #if DEBUG
+        guard BrowserDownloadsPopoverAppearanceUITestProbe.isEnabled,
+              colorScheme == .light else { return }
+        isPresented = true
+        #endif
+    }
 }
 
 private struct BrowserDownloadsPopoverContent: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let downloads: [BrowserDownloadRecord]
     let onOpen: (BrowserDownloadRecord) -> Void
     let onReveal: (BrowserDownloadRecord) -> Void
@@ -100,6 +123,7 @@ private struct BrowserDownloadsPopoverContent: View {
             HStack {
                 Text(String(localized: "browser.downloads.title", defaultValue: "Downloads"))
                     .font(.headline)
+                    .accessibilityIdentifier("BrowserDownloadsPopoverTitle")
                 Spacer()
                 if !downloads.isEmpty {
                     Button(String(localized: "browser.downloads.clear", defaultValue: "Clear")) {
@@ -135,6 +159,23 @@ private struct BrowserDownloadsPopoverContent: View {
             }
         }
         .frame(width: 340)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("BrowserDownloadsPopover")
+        .background(appearanceProbe)
+    }
+
+    @ViewBuilder
+    private var appearanceProbe: some View {
+        #if DEBUG
+        if BrowserDownloadsPopoverAppearanceUITestProbe.isEnabled {
+            WindowAccessor(dedupeByWindow: false, refreshID: colorScheme) { window in
+                BrowserDownloadsPopoverAppearanceUITestProbe.record(
+                    window: window,
+                    contentColorScheme: colorScheme
+                )
+            }
+        }
+        #endif
     }
 }
 
@@ -152,6 +193,7 @@ private struct BrowserDownloadRow: View {
                 Text(record.filename)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .accessibilityIdentifier("BrowserDownloadFilename")
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(record.state == .failed ? Color.red : Color.secondary)
@@ -165,6 +207,7 @@ private struct BrowserDownloadRow: View {
                 }
                 .buttonStyle(.borderless)
                 .font(.callout)
+                .accessibilityIdentifier("BrowserDownloadOpenButton")
 
                 Button {
                     onReveal(record)
@@ -216,3 +259,76 @@ private struct BrowserDownloadRow: View {
         }
     }
 }
+
+#if DEBUG
+enum BrowserDownloadsPopoverAppearanceUITestProbe {
+    private static let probePathEnvironmentKey = "CMUX_UI_TEST_DOWNLOADS_POPOVER_APPEARANCE_PATH"
+    private static let fixturePathEnvironmentKey = "CMUX_UI_TEST_DOWNLOADS_POPOVER_FIXTURE_PATH"
+
+    static var isEnabled: Bool {
+        configuredPath(for: probePathEnvironmentKey) != nil
+    }
+
+    static var fixtureDownload: BrowserDownloadRecord? {
+        guard isEnabled,
+              let fixturePath = configuredPath(for: fixturePathEnvironmentKey) else { return nil }
+        let fixtureURL = URL(fileURLWithPath: fixturePath)
+        return BrowserDownloadRecord(
+            id: "ui-test-downloads-popover-appearance",
+            filename: fixtureURL.lastPathComponent,
+            fileURL: fixtureURL,
+            state: .saved,
+            byteCount: 5_400
+        )
+    }
+
+    @MainActor
+    static func record(window: NSWindow, contentColorScheme: ColorScheme) {
+        guard let probePath = configuredPath(for: probePathEnvironmentKey) else { return }
+
+        let writeSnapshot = { @MainActor [weak window] in
+            guard let window else { return }
+            let windowAppearance: String
+            switch window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) {
+            case .aqua:
+                windowAppearance = "light"
+            case .darkAqua:
+                windowAppearance = "dark"
+            default:
+                windowAppearance = "unknown"
+            }
+
+            let contentScheme: String
+            switch contentColorScheme {
+            case .light:
+                contentScheme = "light"
+            case .dark:
+                contentScheme = "dark"
+            @unknown default:
+                contentScheme = "unknown"
+            }
+
+            let payload: [String: String] = [
+                "contentColorScheme": contentScheme,
+                "windowAppearance": windowAppearance,
+                "windowClass": String(describing: type(of: window)),
+                "windowVisible": window.isVisible ? "true" : "false",
+            ]
+            guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
+                return
+            }
+            try? data.write(to: URL(fileURLWithPath: probePath), options: .atomic)
+        }
+
+        writeSnapshot()
+        DispatchQueue.main.async(execute: writeSnapshot)
+    }
+
+    private static func configuredPath(for key: String) -> String? {
+        guard let value = ProcessInfo.processInfo.environment[key]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        return value
+    }
+}
+#endif

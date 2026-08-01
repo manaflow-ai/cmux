@@ -1232,9 +1232,9 @@ struct BrowserPanelView: View {
                 hitSize: addressBarButtonHitSize
             )
 
-            if panel.isDownloading || !panel.recentDownloads.isEmpty {
+            if panel.isDownloading || !browserToolbarDownloads.isEmpty {
                 BrowserDownloadsToolbarButton(
-                    downloads: panel.recentDownloads,
+                    downloads: browserToolbarDownloads,
                     isDownloading: panel.isDownloading,
                     iconPointSize: chromeMetrics.navigationIconFontSize,
                     hitSize: addressBarButtonHitSize,
@@ -1244,6 +1244,16 @@ struct BrowserPanelView: View {
                 )
             }
         }
+    }
+
+    private var browserToolbarDownloads: [BrowserDownloadRecord] {
+        #if DEBUG
+        if panel.recentDownloads.isEmpty,
+           let fixtureDownload = BrowserDownloadsPopoverAppearanceUITestProbe.fixtureDownload {
+            return [fixtureDownload]
+        }
+        #endif
+        return panel.recentDownloads
     }
 
     private var screenshotPageButton: some View {

@@ -329,6 +329,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C59240010000000000000003 /* BrowserDownloadFilenameResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */; };
 		C67540020000000000000001 /* BrowserDownloadHTTPStatusDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540020000000000000002 /* BrowserDownloadHTTPStatusDecision.swift */; };
 		C67540110000000000000001 /* BrowserDownloadRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540110000000000000002 /* BrowserDownloadRecord.swift */; };
+		D93410000000000000000001 /* BrowserDownloadsPopoverContrastUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93410000000000000000002 /* BrowserDownloadsPopoverContrastUITests.swift */; };
 		C67540120000000000000001 /* BrowserDownloadsToolbarButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */; };
 		B5A5E55B0000000000000001 /* BrowserEphemeralRestorationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */; };
 		C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A010000000000000002 /* BrowserErrorPage.swift */; };
@@ -3029,6 +3030,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDownloadFilenameResolverTests.swift; sourceTree = "<group>"; };
 		C67540020000000000000002 /* BrowserDownloadHTTPStatusDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadHTTPStatusDecision.swift; sourceTree = "<group>"; };
 		C67540110000000000000002 /* BrowserDownloadRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadRecord.swift; sourceTree = "<group>"; };
+		D93410000000000000000002 /* BrowserDownloadsPopoverContrastUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDownloadsPopoverContrastUITests.swift; sourceTree = "<group>"; };
 		C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadsToolbarButton.swift; sourceTree = "<group>"; };
 		B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserEphemeralRestorationTests.swift; sourceTree = "<group>"; };
 		C2035A010000000000000002 /* BrowserErrorPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPage.swift; sourceTree = "<group>"; };
@@ -5455,6 +5457,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FE00AA11C1B2C3D4E5F60718 /* FocusHistoryShortcutUITests.swift */,
 				D0E0F0B5A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift */,
 				D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */,
+				D93410000000000000000002 /* BrowserDownloadsPopoverContrastUITests.swift */,
 				FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */,
 				7B5F1A2E9C0D4B6A8E217301 /* BrowserFixtureInteractionUITests.swift */,
 				81464EB0D515022903F26DD8 /* WorkspaceWorkingDirectorySpawnUITests.swift */,
@@ -10322,6 +10325,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			files = (
 				B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */,
 				AA1B2C3D4E5F60718 /* BonsplitTabDragUITests.swift in Sources */,
+				D93410000000000000000001 /* BrowserDownloadsPopoverContrastUITests.swift in Sources */,
 				7B5F1A2E9C0D4B6A8E217302 /* BrowserFixtureInteractionUITests.swift in Sources */,
 				8478B0000000000000000002 /* BrowserFixtureSocketTestCase+PendingRequest.swift in Sources */,
 				FB100000A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift in Sources */,
