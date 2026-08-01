@@ -120,7 +120,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         #expect(await Set(recorder.freed) == Set(surfaces.map { UInt(bitPattern: $0) }))
     }
 
-    @Test func stuckCloseFreeDoesNotStrandLaterCloses() async {
+    @Test func stuckCloseFreeDoesNotStrandLaterCloses() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let surfaces = (0..<3).map { _ in
             UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
@@ -128,7 +128,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         defer { for surface in surfaces { surface.deallocate() } }
         let stuckFreeStarted = AsyncStream<Void>.makeStream()
         let releaseStuckFree = DispatchSemaphore(value: 0)
-        let recorder = FreedSurfaceRecorder()
+        let freedSurfaceBits = OSAllocatedUnfairLock(initialState: Set<UInt>())
         defer {
             releaseStuckFree.signal()
             stuckFreeStarted.continuation.finish()
@@ -157,21 +157,22 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
                 callbackContext: nil,
                 freeSurface: { pointer in
                     let bits = UInt(bitPattern: pointer)
-                    Task { await recorder.record(bits) }
+                    freedSurfaceBits.withLock {
+                        _ = $0.insert(bits)
+                    }
                 }
             )
         }
 
         for ticket in laterTickets {
-            #expect(
+            try #require(
                 await ticket.wait(timeout: .seconds(1)),
                 "a stuck native free stranded a later close"
             )
         }
-        await recorder.waitForFreeCount(laterTickets.count)
         #expect(await stuckTicket.wait(timeout: .zero) == false)
         #expect(
-            await Set(recorder.freed) ==
+            freedSurfaceBits.withLock { $0 } ==
                 Set(surfaces.dropFirst().map { UInt(bitPattern: $0) })
         )
 
