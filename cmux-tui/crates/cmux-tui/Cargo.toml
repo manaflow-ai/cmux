@@ -33,3 +33,6 @@ libc.workspace = true
 smallvec.workspace = true
 zeroize.workspace = true
 parking_lot.workspace = true
+
+[dev-dependencies]
+rusqlite.workspace = true

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
-inline constexpr std::string_view kProtocolIrSha256 = "c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd";
+inline constexpr std::string_view kProtocolIrSha256 = "05f952383037543fc9083005dd4d45e44b362e9624d80cd37f563c12c1e83c88";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -46,6 +46,7 @@ struct IdentifyResult;
 struct IdsResult;
 struct JsonValue;
 struct Layout;
+struct LayoutColumn;
 struct LayoutUndoConfirmationRequired;
 struct LayoutUndoResult;
 struct LayoutUndoUndone;
@@ -53,14 +54,17 @@ struct ListAgentsResult;
 struct ListTerminalsResult;
 struct LivePane;
 struct MintTerminalRendererResult;
+struct MoveTabResult;
 struct MoveTerminalResult;
 enum class NotificationLevel;
 struct NotificationMarker;
 struct NotifyResult;
 struct Pane;
 enum class PaneDirection;
+enum class PaneKind;
 struct PaneNeighborResult;
 struct PingResult;
+struct PlacementResult;
 struct ProcessInfoResult;
 struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
@@ -92,6 +96,7 @@ struct TerminalPlacement;
 struct TerminalRecord;
 struct TerminalRegistryEvent;
 struct Tree;
+struct ViewportSplit;
 struct VtStateResult;
 struct WaitForResult;
 struct Workspace;
@@ -136,8 +141,13 @@ struct ListClientsResult;
 struct ListTerminalsRequest;
 struct ListWorkspacesRequest;
 struct MarkWorkspacesProviderManagedRequest;
+struct MergePaneRequest;
 struct MintTerminalRendererRequest;
+struct MovePaneToNewColumnRequest;
+struct MovePaneToSplitRequest;
 struct MoveTabRequest;
+struct MoveTabToNewColumnRequest;
+struct MoveTabToSplitRequest;
 struct MoveTerminalRequest;
 struct MoveWorkspaceRequest;
 struct NewBrowserTabRequest;
@@ -838,6 +848,7 @@ struct CopyResult {
 };
 
 struct CreateTerminalRequest {
+    Field<bool> activate{};
     Field<std::vector<std::string>> argv{};
     Field<std::uint16_t> cols{};
     Field<std::string> command{};
@@ -848,6 +859,7 @@ struct CreateTerminalRequest {
     Field<std::string> mutation_id{};
     Field<std::string> name{};
     Field<std::string> origin{};
+    Field<Id> pane{};
     Field<std::uint16_t> rows{};
     Field<std::string> terminal_id{};
     Field<Id> workspace{};
@@ -855,6 +867,7 @@ struct CreateTerminalRequest {
 };
 
 struct CreateWorkspaceRequest {
+    Field<bool> activate{};
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
     Field<std::string> key{};
@@ -1050,6 +1063,13 @@ struct LayoutChangedEvent {
     friend bool operator==(const LayoutChangedEvent&, const LayoutChangedEvent&) = default;
 };
 
+struct LayoutColumn {
+    Id id{};
+    Layout layout{};
+    float width{};
+    friend bool operator==(const LayoutColumn&, const LayoutColumn&) = default;
+};
+
 struct LayoutUndoConfirmationRequired {
     std::vector<Id> closes_panes{};
     std::uint64_t revision{};
@@ -1194,6 +1214,14 @@ struct MarkWorkspacesProviderManagedRequest {
     friend bool operator==(const MarkWorkspacesProviderManagedRequest&, const MarkWorkspacesProviderManagedRequest&) = default;
 };
 
+struct MergePaneRequest {
+    Field<bool> activate{};
+    std::uint64_t index{};
+    Id pane{};
+    Id target{};
+    friend bool operator==(const MergePaneRequest&, const MergePaneRequest&) = default;
+};
+
 struct MintTerminalRendererRequest {
     Id surface{};
     std::optional<std::uint64_t> ttl_ms{};
@@ -1210,11 +1238,60 @@ struct MintTerminalRendererResult {
     friend bool operator==(const MintTerminalRendererResult&, const MintTerminalRendererResult&) = default;
 };
 
+struct MovePaneToNewColumnRequest {
+    Field<bool> activate{};
+    std::uint64_t index{};
+    Id pane{};
+    float width{};
+    friend bool operator==(const MovePaneToNewColumnRequest&, const MovePaneToNewColumnRequest&) = default;
+};
+
+struct MovePaneToSplitRequest {
+    Field<bool> activate{};
+    SplitDirection dir{};
+    std::optional<bool> insert_first{};
+    Id pane{};
+    Id target{};
+    friend bool operator==(const MovePaneToSplitRequest&, const MovePaneToSplitRequest&) = default;
+};
+
 struct MoveTabRequest {
+    Field<bool> activate{};
     std::uint64_t index{};
     Id pane{};
     Id surface{};
     friend bool operator==(const MoveTabRequest&, const MoveTabRequest&) = default;
+};
+
+struct PlacementResult {
+    Id pane{};
+    Id screen{};
+    Id surface{};
+    Id workspace{};
+    friend bool operator==(const PlacementResult&, const PlacementResult&) = default;
+};
+
+struct MoveTabResult {
+    using Variant = std::variant<PlacementResult, EmptyResult>;
+    Variant value{};
+    friend bool operator==(const MoveTabResult&, const MoveTabResult&) = default;
+};
+
+struct MoveTabToNewColumnRequest {
+    Field<bool> activate{};
+    std::uint64_t index{};
+    Id surface{};
+    float width{};
+    friend bool operator==(const MoveTabToNewColumnRequest&, const MoveTabToNewColumnRequest&) = default;
+};
+
+struct MoveTabToSplitRequest {
+    Field<bool> activate{};
+    SplitDirection dir{};
+    std::optional<bool> insert_first{};
+    Id pane{};
+    Id surface{};
+    friend bool operator==(const MoveTabToSplitRequest&, const MoveTabToSplitRequest&) = default;
 };
 
 struct MoveTerminalRequest {
@@ -1257,7 +1334,9 @@ struct MoveWorkspaceRequest {
 };
 
 struct NewBrowserTabRequest {
+    Field<bool> activate{};
     Field<std::uint16_t> cols{};
+    Field<std::uint64_t> index{};
     Field<Id> pane{};
     Field<std::uint16_t> rows{};
     std::string url{};
@@ -1265,21 +1344,31 @@ struct NewBrowserTabRequest {
 };
 
 struct NewPaneRequest {
+    Field<bool> activate{};
     Field<std::uint16_t> cols{};
     Id pane{};
     Field<std::uint16_t> rows{};
     friend bool operator==(const NewPaneRequest&, const NewPaneRequest&) = default;
 };
 
+enum class PaneKind {
+    pty,
+    browser,
+};
+
 struct NewPaneRightRequest {
+    Field<bool> activate{};
     Field<std::uint16_t> cols{};
+    Field<PaneKind> kind{};
     Id pane{};
     Field<std::uint16_t> rows{};
+    Field<std::string> url{};
     Field<float> width{};
     friend bool operator==(const NewPaneRightRequest&, const NewPaneRightRequest&) = default;
 };
 
 struct NewScreenRequest {
+    Field<bool> activate{};
     Field<std::uint16_t> cols{};
     Field<std::uint16_t> rows{};
     Field<Id> workspace{};
@@ -1661,14 +1750,23 @@ struct RunResult {
     friend bool operator==(const RunResult&, const RunResult&) = default;
 };
 
+struct ViewportSplit {
+    Id split{};
+    float width{};
+    friend bool operator==(const ViewportSplit&, const ViewportSplit&) = default;
+};
+
 struct Screen {
     bool active{};
     Id active_pane{};
+    std::optional<std::vector<LayoutColumn>> columns{};
     Id id{};
     Layout layout{};
     std::optional<std::string> name{};
     std::vector<Pane> panes{};
     std::optional<std::string> short_id{};
+    std::optional<float> viewport_base_width{};
+    std::optional<std::vector<ViewportSplit>> viewport_splits{};
     std::optional<Id> zoomed_pane{};
     friend bool operator==(const Screen&, const Screen&) = default;
 };
@@ -1809,6 +1907,7 @@ struct SetWindowTitleRequest {
 };
 
 struct ShutdownDaemonRequest {
+    std::optional<bool> force{};
     std::string generation{};
     std::uint32_t pid{};
     friend bool operator==(const ShutdownDaemonRequest&, const ShutdownDaemonRequest&) = default;
@@ -1835,10 +1934,13 @@ struct SidebarPluginResult {
 };
 
 struct SplitRequest {
+    Field<bool> activate{};
     Field<std::uint16_t> cols{};
     SplitDirection dir{};
+    Field<PaneKind> kind{};
     Id pane{};
     Field<std::uint16_t> rows{};
+    Field<std::string> url{};
     friend bool operator==(const SplitRequest&, const SplitRequest&) = default;
 };
 
@@ -1887,9 +1989,12 @@ struct SurfaceResizedEvent {
 };
 
 struct SurfaceResult {
+    std::optional<Id> pane{};
+    std::optional<Id> screen{};
     Id surface{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
+    std::optional<Id> workspace{};
     friend bool operator==(const SurfaceResult&, const SurfaceResult&) = default;
 };
 
@@ -2311,6 +2416,12 @@ struct Codec<Layout> {
 };
 
 template <>
+struct Codec<LayoutColumn> {
+    static Result<Json> encode(const LayoutColumn& value);
+    static Result<LayoutColumn> decode(const Json& value);
+};
+
+template <>
 struct Codec<LayoutUndoConfirmationRequired> {
     static Result<Json> encode(const LayoutUndoConfirmationRequired& value);
     static Result<LayoutUndoConfirmationRequired> decode(const Json& value);
@@ -2353,6 +2464,12 @@ struct Codec<MintTerminalRendererResult> {
 };
 
 template <>
+struct Codec<MoveTabResult> {
+    static Result<Json> encode(const MoveTabResult& value);
+    static Result<MoveTabResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<MoveTerminalResult> {
     static Result<Json> encode(const MoveTerminalResult& value);
     static Result<MoveTerminalResult> decode(const Json& value);
@@ -2389,6 +2506,12 @@ struct Codec<PaneDirection> {
 };
 
 template <>
+struct Codec<PaneKind> {
+    static Result<Json> encode(const PaneKind& value);
+    static Result<PaneKind> decode(const Json& value);
+};
+
+template <>
 struct Codec<PaneNeighborResult> {
     static Result<Json> encode(const PaneNeighborResult& value);
     static Result<PaneNeighborResult> decode(const Json& value);
@@ -2398,6 +2521,12 @@ template <>
 struct Codec<PingResult> {
     static Result<Json> encode(const PingResult& value);
     static Result<PingResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<PlacementResult> {
+    static Result<Json> encode(const PlacementResult& value);
+    static Result<PlacementResult> decode(const Json& value);
 };
 
 template <>
@@ -2584,6 +2713,12 @@ template <>
 struct Codec<Tree> {
     static Result<Json> encode(const Tree& value);
     static Result<Tree> decode(const Json& value);
+};
+
+template <>
+struct Codec<ViewportSplit> {
+    static Result<Json> encode(const ViewportSplit& value);
+    static Result<ViewportSplit> decode(const Json& value);
 };
 
 template <>
@@ -2851,15 +2986,45 @@ struct Codec<MarkWorkspacesProviderManagedRequest> {
 };
 
 template <>
+struct Codec<MergePaneRequest> {
+    static Result<Json> encode(const MergePaneRequest& value);
+    static Result<MergePaneRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<MintTerminalRendererRequest> {
     static Result<Json> encode(const MintTerminalRendererRequest& value);
     static Result<MintTerminalRendererRequest> decode(const Json& value);
 };
 
 template <>
+struct Codec<MovePaneToNewColumnRequest> {
+    static Result<Json> encode(const MovePaneToNewColumnRequest& value);
+    static Result<MovePaneToNewColumnRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MovePaneToSplitRequest> {
+    static Result<Json> encode(const MovePaneToSplitRequest& value);
+    static Result<MovePaneToSplitRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<MoveTabRequest> {
     static Result<Json> encode(const MoveTabRequest& value);
     static Result<MoveTabRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveTabToNewColumnRequest> {
+    static Result<Json> encode(const MoveTabToNewColumnRequest& value);
+    static Result<MoveTabToNewColumnRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveTabToSplitRequest> {
+    static Result<Json> encode(const MoveTabToSplitRequest& value);
+    static Result<MoveTabToSplitRequest> decode(const Json& value);
 };
 
 template <>

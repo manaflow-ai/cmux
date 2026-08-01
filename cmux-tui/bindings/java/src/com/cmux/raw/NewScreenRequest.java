@@ -12,11 +12,13 @@ import java.util.Objects;
 
 /** Immutable new-screen request. Protocol v5; authority: control. */
 public final class NewScreenRequest implements WireValue {
+    private final Field<Boolean> activate;
     private final Field<Integer> cols;
     private final Field<Integer> rows;
     private final Field<UInt64> workspace;
 
     private NewScreenRequest(Builder builder) {
+        this.activate = builder.activate;
         this.cols = builder.cols;
         this.rows = builder.rows;
         this.workspace = builder.workspace;
@@ -24,6 +26,7 @@ public final class NewScreenRequest implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<Boolean> activate() { return activate; }
     public Field<Integer> cols() { return cols; }
     public Field<Integer> rows() { return rows; }
     public Field<UInt64> workspace() { return workspace; }
@@ -31,6 +34,10 @@ public final class NewScreenRequest implements WireValue {
     public static NewScreenRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "NewScreenRequest");
         Builder builder = builder();
+        Object rawActivate = Wire.optional(object, "activate");
+        if (!Wire.isMissing(rawActivate)) {
+            builder.activate(rawActivate == null ? null : Wire.bool(rawActivate, "NewScreenRequest.activate"));
+        }
         Object rawCols = Wire.optional(object, "cols");
         if (!Wire.isMissing(rawCols)) {
             builder.cols(rawCols == null ? null : Wire.uint16(rawCols, "NewScreenRequest.cols"));
@@ -49,6 +56,7 @@ public final class NewScreenRequest implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "activate", activate);
         Wire.put(object, "cols", cols);
         Wire.put(object, "rows", rows);
         Wire.put(object, "workspace", workspace);
@@ -58,20 +66,25 @@ public final class NewScreenRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewScreenRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(rows, that.rows) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(activate, that.activate) && Objects.equals(cols, that.cols) && Objects.equals(rows, that.rows) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, rows, workspace); }
+    public int hashCode() { return Objects.hash(activate, cols, rows, workspace); }
 
     @Override
     public String toString() { return "NewScreenRequest" + toWire(); }
 
     public static final class Builder {
+        private Field<Boolean> activate = Field.omitted();
         private Field<Integer> cols = Field.omitted();
         private Field<Integer> rows = Field.omitted();
         private Field<UInt64> workspace = Field.omitted();
 
+        public Builder activate(Boolean value) {
+            this.activate = Field.ofNullable(value);
+            return this;
+        }
         public Builder cols(Integer value) {
             this.cols = Field.ofNullable(value);
             return this;

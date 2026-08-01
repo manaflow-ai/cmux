@@ -201,7 +201,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `canonical-layout-columns-v1` advertises the authoritative ordered `Screen.columns` field. `canonical-layout-relocation-v1` advertises atomic tab/pane relocation across split and viewport-column topology. `independent-client-selection-v1` advertises non-activating structural mutations with placement results. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `canonical-layout-columns-v1` advertises the authoritative ordered `Screen.columns` field. `canonical-layout-relocation-v1` advertises atomic tab/pane relocation across split and viewport-column topology. `independent-client-selection-v1` advertises non-activating structural mutations with placement results. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
 
 Errors:
 
@@ -223,10 +223,42 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","canonical-layout-columns-v1","canonical-layout-relocation-v1","independent-client-selection-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","daemon-handoff-force-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","canonical-layout-columns-v1","canonical-layout-relocation-v1","independent-client-selection-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
 The current server reports protocol `10` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, and protocol 10 before using per-surface client sizing.
+
+### shutdown-daemon
+
+| Field | Value |
+| --- | --- |
+| name | `shutdown-daemon` |
+| status | implemented |
+| since | protocol 9 |
+| authority | local-admin |
+
+Gracefully hands the durable session to a replacement daemon. `pid` and `generation` must match the latest `identify` result. A successful response is queued before shutdown begins.
+
+Params:
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `pid` | `uint32` | required | Exact process from `identify` |
+| `generation` | `string` | required | Exact daemon boot generation from `identify` |
+| `force` | `boolean` | `false` | Requires `daemon-handoff-force-v1`; bypasses native-browser ownership only |
+
+Result: `object{accepted:true,pid:uint32,generation:string}`.
+
+The identity fence and trusted-local authority apply even when `force` is true. A stale process or generation is rejected, so reconnecting the same socket path cannot redirect a recovery command to another daemon.
+
+Errors include stale identity, non-local transport, another native-browser owner when unforced, and an existing handoff.
+
+Example:
+
+```json
+{"id":2,"cmd":"shutdown-daemon","pid":12345,"generation":"boot-uuid","force":true}
+{"id":2,"ok":true,"data":{"accepted":true,"pid":12345,"generation":"boot-uuid"}}
+```
 
 ### ping
 
@@ -2624,30 +2656,107 @@ Example:
 {"id":26,"ok":true,"data":{"surface":1,"pane":2,"screen":3,"workspace":4}}
 ```
 
-### canonical layout relocation
+The following atomic relocation commands require
+`canonical-layout-relocation-v1`. Their placement result is
+`object{surface:Id,pane:Id,screen:Id,workspace:Id}`. `activate:false` also
+requires `independent-client-selection-v1` and preserves the owner client's
+active workspace, screen, pane, and tab.
 
-The following commands require `canonical-layout-relocation-v1`. They mutate
-the canonical tree atomically, return
-`object{surface:Id,pane:Id,screen:Id,workspace:Id}`, and accept
-`activate:false` to preserve the owner client's complete focus identity:
+### move-tab-to-split
 
-| Command | Required params | Effect |
-| --- | --- | --- |
-| `move-tab-to-split` | `surface`, target `pane`, `dir:"right"` or `dir:"down"` | Moves one tab into a new pane split beside the target |
-| `move-tab-to-new-column` | `surface`, insertion `index`, `width` | Moves one tab into a new viewport column |
-| `merge-pane` | source `pane`, `target`, insertion `index` | Moves every source tab into the target and removes the source pane |
-| `move-pane-to-split` | source `pane`, `target`, `dir:"right"` or `dir:"down"` | Relocates one pane beside the target without changing its tab identity |
-| `move-pane-to-new-column` | source `pane`, insertion `index`, `width` | Relocates one pane as an exact viewport column |
+| Field | Value |
+| --- | --- |
+| name | `move-tab-to-split` |
+| status | implemented |
+| since | protocol 10 capability `canonical-layout-relocation-v1` |
 
-`move-tab-to-split` and `move-pane-to-split` also accept
-`insert_first:boolean` (default `false`) for left/top placement.
-Column widths are finite viewport fractions from 0.1 through 1.0. Tab/pane
-sources and split targets must belong to one screen; a pane cannot target
-itself.
+Moves one tab into a new pane beside an existing target pane. Both panes stay
+inside the target's canonical viewport column.
+
+Params: required `surface`, target `pane`, and `dir` (`"right"` or `"down"`);
+optional `insert_first:boolean` defaults to `false`, and optional
+`activate:boolean` defaults to `true`. `insert_first:true` means left/top.
+
+Errors include an unknown surface or pane, a cross-screen source and target,
+an invalid direction, and attempting to split a pane's only tab out of itself.
 
 ```json
 {"id":27,"cmd":"move-tab-to-split","surface":8,"pane":2,"dir":"down","insert_first":false,"activate":false}
 {"id":27,"ok":true,"data":{"surface":8,"pane":9,"screen":3,"workspace":4}}
+```
+
+### move-tab-to-new-column
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-to-new-column` |
+| status | implemented |
+| since | protocol 10 capability `canonical-layout-relocation-v1` |
+
+Moves one tab into a new canonical viewport column at insertion `index`.
+Required `width` is a finite viewport fraction from 0.1 through 1.0; the
+insertion index clamps to the column-list end. Optional `activate:boolean`
+defaults to `true`.
+
+```json
+{"id":28,"cmd":"move-tab-to-new-column","surface":8,"index":1,"width":0.6666667,"activate":false}
+{"id":28,"ok":true,"data":{"surface":8,"pane":10,"screen":3,"workspace":4}}
+```
+
+### merge-pane
+
+| Field | Value |
+| --- | --- |
+| name | `merge-pane` |
+| status | implemented |
+| since | protocol 10 capability `canonical-layout-relocation-v1` |
+
+Moves every tab from source `pane` into `target` at insertion `index`, then
+removes the empty source pane and collapses its old layout edge. The source
+and target must differ and belong to one screen. Optional
+`activate:boolean` defaults to `true`.
+
+```json
+{"id":29,"cmd":"merge-pane","pane":10,"target":2,"index":1,"activate":false}
+{"id":29,"ok":true,"data":{"surface":8,"pane":2,"screen":3,"workspace":4}}
+```
+
+### move-pane-to-split
+
+| Field | Value |
+| --- | --- |
+| name | `move-pane-to-split` |
+| status | implemented |
+| since | protocol 10 capability `canonical-layout-relocation-v1` |
+
+Detaches source `pane` from its old edge or column and inserts it beside
+`target` without changing the pane or tab identities. Required `dir` is
+`"right"` or `"down"`; optional `insert_first:boolean` defaults to `false`
+and means left/top when true. Optional `activate:boolean` defaults to `true`.
+The panes must differ and belong to one screen.
+
+```json
+{"id":30,"cmd":"move-pane-to-split","pane":10,"target":2,"dir":"right","activate":false}
+{"id":30,"ok":true,"data":{"surface":8,"pane":10,"screen":3,"workspace":4}}
+```
+
+### move-pane-to-new-column
+
+| Field | Value |
+| --- | --- |
+| name | `move-pane-to-new-column` |
+| status | implemented |
+| since | protocol 10 capability `canonical-layout-relocation-v1` |
+
+Relocates source `pane` as an exact canonical viewport column at insertion
+`index`. Required `width` is a finite viewport fraction from 0.1 through 1.0;
+the insertion index clamps after accounting for removal of an existing source
+column. Optional `activate:boolean` defaults to `true`. Moving the screen's
+only pane is rejected.
+
+```json
+{"id":31,"cmd":"move-pane-to-new-column","pane":10,"index":0,"width":0.7,"activate":false}
+{"id":31,"ok":true,"data":{"surface":8,"pane":10,"screen":3,"workspace":4}}
 ```
 
 ### move-workspace

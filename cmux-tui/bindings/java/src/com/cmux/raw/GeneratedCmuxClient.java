@@ -203,14 +203,39 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final PlacementResult mergePane(MergePaneRequest request) throws CmuxException {
+        Object result = execute(Commands.MERGE_PANE, request.toWire());
+        return PlacementResult.fromWire(result);
+    }
+
     public final MintTerminalRendererResult mintTerminalRenderer(MintTerminalRendererRequest request) throws CmuxException {
         Object result = execute(Commands.MINT_TERMINAL_RENDERER, request.toWire());
         return MintTerminalRendererResult.fromWire(result);
     }
 
-    public final EmptyResult moveTab(MoveTabRequest request) throws CmuxException {
+    public final PlacementResult movePaneToNewColumn(MovePaneToNewColumnRequest request) throws CmuxException {
+        Object result = execute(Commands.MOVE_PANE_TO_NEW_COLUMN, request.toWire());
+        return PlacementResult.fromWire(result);
+    }
+
+    public final PlacementResult movePaneToSplit(MovePaneToSplitRequest request) throws CmuxException {
+        Object result = execute(Commands.MOVE_PANE_TO_SPLIT, request.toWire());
+        return PlacementResult.fromWire(result);
+    }
+
+    public final MoveTabResult moveTab(MoveTabRequest request) throws CmuxException {
         Object result = execute(Commands.MOVE_TAB, request.toWire());
-        return EmptyResult.fromWire(result);
+        return MoveTabResult.fromWire(result);
+    }
+
+    public final PlacementResult moveTabToNewColumn(MoveTabToNewColumnRequest request) throws CmuxException {
+        Object result = execute(Commands.MOVE_TAB_TO_NEW_COLUMN, request.toWire());
+        return PlacementResult.fromWire(result);
+    }
+
+    public final PlacementResult moveTabToSplit(MoveTabToSplitRequest request) throws CmuxException {
+        Object result = execute(Commands.MOVE_TAB_TO_SPLIT, request.toWire());
+        return PlacementResult.fromWire(result);
     }
 
     public final MoveTerminalResult moveTerminal(MoveTerminalRequest request) throws CmuxException {

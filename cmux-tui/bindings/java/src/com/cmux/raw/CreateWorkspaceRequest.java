@@ -12,6 +12,7 @@ import java.util.Objects;
 
 /** Immutable create-workspace request. Protocol v7; authority: control. */
 public final class CreateWorkspaceRequest implements WireValue {
+    private final Field<Boolean> activate;
     private final Field<String> expectedGeneration;
     private final Field<UInt64> expectedRevision;
     private final Field<String> key;
@@ -20,6 +21,7 @@ public final class CreateWorkspaceRequest implements WireValue {
     private final Field<String> origin;
 
     private CreateWorkspaceRequest(Builder builder) {
+        this.activate = builder.activate;
         this.expectedGeneration = builder.expectedGeneration;
         this.expectedRevision = builder.expectedRevision;
         this.key = builder.key;
@@ -30,6 +32,7 @@ public final class CreateWorkspaceRequest implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<Boolean> activate() { return activate; }
     public Field<String> expectedGeneration() { return expectedGeneration; }
     public Field<UInt64> expectedRevision() { return expectedRevision; }
     public Field<String> key() { return key; }
@@ -40,6 +43,10 @@ public final class CreateWorkspaceRequest implements WireValue {
     public static CreateWorkspaceRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "CreateWorkspaceRequest");
         Builder builder = builder();
+        Object rawActivate = Wire.optional(object, "activate");
+        if (!Wire.isMissing(rawActivate)) {
+            builder.activate(rawActivate == null ? null : Wire.bool(rawActivate, "CreateWorkspaceRequest.activate"));
+        }
         Object rawExpectedGeneration = Wire.optional(object, "expected_generation");
         if (!Wire.isMissing(rawExpectedGeneration)) {
             builder.expectedGeneration(rawExpectedGeneration == null ? null : Wire.string(rawExpectedGeneration, "CreateWorkspaceRequest.expected_generation"));
@@ -70,6 +77,7 @@ public final class CreateWorkspaceRequest implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "activate", activate);
         Wire.put(object, "expected_generation", expectedGeneration);
         Wire.put(object, "expected_revision", expectedRevision);
         Wire.put(object, "key", key);
@@ -82,16 +90,17 @@ public final class CreateWorkspaceRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CreateWorkspaceRequest that)) return false;
-        return Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin);
+        return Objects.equals(activate, that.activate) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(expectedGeneration, expectedRevision, key, mutationId, name, origin); }
+    public int hashCode() { return Objects.hash(activate, expectedGeneration, expectedRevision, key, mutationId, name, origin); }
 
     @Override
     public String toString() { return "CreateWorkspaceRequest" + toWire(); }
 
     public static final class Builder {
+        private Field<Boolean> activate = Field.omitted();
         private Field<String> expectedGeneration = Field.omitted();
         private Field<UInt64> expectedRevision = Field.omitted();
         private Field<String> key = Field.omitted();
@@ -99,6 +108,10 @@ public final class CreateWorkspaceRequest implements WireValue {
         private Field<String> name = Field.omitted();
         private Field<String> origin = Field.omitted();
 
+        public Builder activate(Boolean value) {
+            this.activate = Field.ofNullable(value);
+            return this;
+        }
         public Builder expectedGeneration(String value) {
             this.expectedGeneration = Field.ofNullable(value);
             return this;

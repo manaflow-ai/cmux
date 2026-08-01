@@ -23,7 +23,7 @@ from app release tags such as `vX.Y.Z`. Current SDK package versions are
 | C++ | C++20 and CMake 3.20 | standard library and platform socket APIs | installable CMake package |
 | Zig | Zig 0.15.2 | standard library only | source package |
 
-All packages target mux protocol 10 and expose the same 91 commands and 44
+All packages target mux protocol 10 and expose the same 96 commands and 44
 events. The shared conformance suite verifies their common wire behavior.
 
 ## One-time registry setup

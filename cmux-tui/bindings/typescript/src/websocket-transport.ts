@@ -1,10 +1,20 @@
-import { CmuxConnectionError } from "./errors.js";
-import type { Transport, Unsubscribe } from "./transport.js";
+import {
+  CmuxAuthenticationRejectedError,
+  CmuxConnectionError,
+} from "./errors.js";
+import { WebSocketLifecycle } from "./internal/websocket-lifecycle.js";
+import type {
+  DispatchGuard,
+  OnDispatched,
+  Transport,
+  Unsubscribe,
+} from "./transport.js";
 import {
   MAX_INBOUND_MESSAGE_BYTES,
   MAX_OUTBOUND_MESSAGE_BYTES,
   MAX_PENDING_BYTES,
   MAX_PENDING_MESSAGES,
+  MAX_PREAUTH_MESSAGE_BYTES,
   positiveLimit,
   utf8ByteLength,
 } from "./transport-limits.js";
@@ -39,31 +49,49 @@ export interface WebSocketConstructor {
 export interface WebSocketTransportOptions {
   readonly protocols?: string | string[];
   readonly authToken?: string;
+  /** Called while the server waits for a trusted TUI to approve this connection. */
+  readonly onPairingChallenge?: (challenge: PairingChallenge) => void;
+  /** Receives the credential issued after approval for reconnects. */
+  readonly onPairingCredential?: (credential: string) => void;
+  /** Called when a supplied token or reconnect credential is rejected. */
+  readonly onAuthenticationRejected?: () => void;
   readonly WebSocket?: WebSocketConstructor;
   readonly maxInboundMessageBytes?: number;
   readonly maxOutboundMessageBytes?: number;
   readonly maxPendingBytes?: number;
   readonly maxPendingMessages?: number;
+  readonly maxPreauthenticationMessageBytes?: number;
+}
+
+export interface PairingChallenge {
+  readonly code: string;
+  readonly peer: string;
+  readonly expiresIn: number;
+}
+
+interface PendingMessage {
+  readonly json: string;
+  readonly bytes: number;
+  readonly onDispatched: OnDispatched;
+  readonly dispatchGuard: DispatchGuard | undefined;
 }
 
 /** Browser-safe text-frame transport with bounded pre-open buffering. */
 export class WebSocketTransport implements Transport {
+  readonly supportsDispatchGuard: true = true;
   private readonly socket: WebSocketLike;
-  private readonly pending: string[] = [];
+  private readonly lifecycle: WebSocketLifecycle;
+  private readonly pending: PendingMessage[] = [];
   private readonly messages = new Set<(json: string) => void>();
-  private readonly closes = new Set<() => void>();
-  private readonly errors = new Set<(error: Error) => void>();
-  private readonly maxInboundMessageBytes: number;
   private readonly maxOutboundMessageBytes: number;
   private readonly maxPendingBytes: number;
   private readonly maxPendingMessages: number;
   private pendingBytes = 0;
-  private opened = false;
-  private closed = false;
+  private flushing = false;
 
   constructor(url: string | URL, options: WebSocketTransportOptions = {}) {
     const Constructor = options.WebSocket ?? globalWebSocket();
-    this.maxInboundMessageBytes = positiveLimit(
+    const maxInboundMessageBytes = positiveLimit(
       "maxInboundMessageBytes",
       options.maxInboundMessageBytes,
       MAX_INBOUND_MESSAGE_BYTES,
@@ -83,39 +111,83 @@ export class WebSocketTransport implements Transport {
       options.maxPendingMessages,
       MAX_PENDING_MESSAGES,
     );
+    const maxPreauthenticationMessageBytes = positiveLimit(
+      "maxPreauthenticationMessageBytes",
+      options.maxPreauthenticationMessageBytes,
+      MAX_PREAUTH_MESSAGE_BYTES,
+    );
     this.socket = new Constructor(url, options.protocols);
-    this.listen("open", () => {
-      this.opened = true;
-      if (options.authToken !== undefined) {
-        this.socket.send(JSON.stringify({ auth: { token: options.authToken } }));
-      }
-      this.flush();
+    this.lifecycle = new WebSocketLifecycle({
+      socket: this.socket,
+      authToken: options.authToken,
+      maxInboundMessageBytes,
+      maxPreauthenticationMessageBytes,
+      createError: (message) => new CmuxConnectionError(message),
+      createAuthenticationRejectedError: () =>
+        new CmuxAuthenticationRejectedError("WebSocket authentication rejected"),
+      flushPending: () => this.flush(),
+      clearPending: () => this.clearPending(),
+      deliverMessage: (json) => this.deliverMessage(json),
+      onPairingChallenge: options.onPairingChallenge
+        ? ({ code, peer, expiresIn }) =>
+          options.onPairingChallenge?.({ code, peer, expiresIn })
+        : undefined,
+      onPairingCredential: options.onPairingCredential,
+      onAuthenticationRejected: options.onAuthenticationRejected,
     });
-    this.listen("message", (event) => this.receive(event));
-    this.listen("error", (event) => this.fail(eventError(event)));
-    this.listen("close", () => this.finish());
+    this.listen("open", () => this.lifecycle.open());
+    this.listen("message", (event) => this.lifecycle.receive(event));
+    this.listen("error", (event) => this.lifecycle.receiveError(event));
+    this.listen("close", (event, reason) => {
+      this.lifecycle.finish(event, reason);
+    });
   }
 
   send(json: string): void {
-    if (this.closed) throw new CmuxConnectionError("WebSocket transport is closed");
+    this.enqueue(json, () => undefined);
+  }
+
+  sendCancellable(
+    json: string,
+    onDispatched: OnDispatched,
+    dispatchGuard?: DispatchGuard,
+  ): Unsubscribe {
+    return this.enqueue(json, onDispatched, dispatchGuard);
+  }
+
+  private enqueue(
+    json: string,
+    onDispatched: OnDispatched,
+    dispatchGuard?: DispatchGuard,
+  ): Unsubscribe {
+    this.lifecycle.assertOpen();
     const bytes = utf8ByteLength(json);
     if (bytes > this.maxOutboundMessageBytes) {
       throw new CmuxConnectionError(
         `outbound message exceeds ${this.maxOutboundMessageBytes} bytes`,
       );
     }
-    if (this.opened && this.socket.readyState === 1) {
-      this.socket.send(json);
-      return;
-    }
+    const mustBuffer =
+      !this.lifecycle.canDispatch
+      || this.flushing
+      || this.pending.length > 0;
     if (
-      this.pending.length >= this.maxPendingMessages
-      || bytes > this.maxPendingBytes - this.pendingBytes
+      mustBuffer
+      && (this.pending.length >= this.maxPendingMessages
+        || bytes > this.maxPendingBytes - this.pendingBytes)
     ) {
       throw new CmuxConnectionError("pending WebSocket message buffer is full");
     }
-    this.pending.push(json);
+    const message = { json, bytes, onDispatched, dispatchGuard };
+    this.pending.push(message);
     this.pendingBytes += bytes;
+    if (this.lifecycle.canDispatch) this.flush();
+    return () => {
+      const index = this.pending.indexOf(message);
+      if (index < 0) return;
+      this.pending.splice(index, 1);
+      this.pendingBytes -= bytes;
+    };
   }
 
   onMessage(handler: (json: string) => void): Unsubscribe {
@@ -124,23 +196,20 @@ export class WebSocketTransport implements Transport {
   }
 
   onClose(handler: () => void): Unsubscribe {
-    this.closes.add(handler);
-    if (this.closed) queueMicrotask(handler);
-    return () => this.closes.delete(handler);
+    return this.lifecycle.onClose(handler);
   }
 
   onError(handler: (error: Error) => void): Unsubscribe {
-    this.errors.add(handler);
-    return () => this.errors.delete(handler);
+    return this.lifecycle.onError(handler);
   }
 
   close(): void {
-    if (!this.closed) this.socket.close();
+    this.lifecycle.close();
   }
 
   private listen<Kind extends keyof WebSocketEventMap>(
     type: Kind,
-    handler: (event: WebSocketEventMap[Kind]) => void,
+    handler: (event: WebSocketEventMap[Kind], ...args: unknown[]) => void,
   ): void {
     if (this.socket.addEventListener) {
       this.socket.addEventListener(type, handler);
@@ -154,45 +223,32 @@ export class WebSocketTransport implements Transport {
   }
 
   private flush(): void {
-    while (this.pending.length > 0) {
-      const message = this.pending.shift()!;
-      this.pendingBytes -= utf8ByteLength(message);
-      this.socket.send(message);
+    if (this.flushing || !this.lifecycle.canDispatch) return;
+    this.flushing = true;
+    try {
+      while (this.lifecycle.canDispatch && this.pending.length > 0) {
+        const message = this.pending.shift()!;
+        this.pendingBytes -= message.bytes;
+        const result = this.lifecycle.dispatch(
+          message.json,
+          message.onDispatched,
+          message.dispatchGuard,
+        );
+        if (result === "vetoed") continue;
+        if (result === "failed") return;
+      }
+    } finally {
+      this.flushing = false;
     }
   }
 
-  private receive(event: WebSocketEventMap["message"] | unknown): void {
-    const data =
-      event && typeof event === "object" && "data" in event
-        ? (event as { data: unknown }).data
-        : event;
-    if (typeof data !== "string") {
-      this.fail(new CmuxConnectionError("WebSocket server sent a non-text frame"));
-      this.socket.close(1003, "text frames required");
-      return;
-    }
-    if (utf8ByteLength(data) > this.maxInboundMessageBytes) {
-      this.fail(
-        new CmuxConnectionError(
-          `WebSocket message exceeds ${this.maxInboundMessageBytes} bytes`,
-        ),
-      );
-      this.socket.close(1009, "message too large");
-      return;
-    }
-    for (const handler of this.messages) handler(data);
-  }
-
-  private fail(error: Error): void {
-    for (const handler of this.errors) handler(error);
-  }
-
-  private finish(): void {
-    if (this.closed) return;
-    this.closed = true;
+  private clearPending(): void {
     this.pending.length = 0;
     this.pendingBytes = 0;
-    for (const handler of this.closes) handler();
+  }
+
+  private deliverMessage(json: string): void {
+    for (const handler of this.messages) handler(json);
   }
 }
 
@@ -206,17 +262,4 @@ function globalWebSocket(): WebSocketConstructor {
     );
   }
   return Constructor;
-}
-
-function eventError(event: unknown): Error {
-  if (event instanceof Error) return event;
-  if (
-    event
-    && typeof event === "object"
-    && "error" in event
-    && (event as { error?: unknown }).error instanceof Error
-  ) {
-    return (event as { error: Error }).error;
-  }
-  return new CmuxConnectionError("WebSocket transport error");
 }

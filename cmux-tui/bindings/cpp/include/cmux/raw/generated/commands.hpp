@@ -79,8 +79,13 @@ public:
     [[nodiscard]] Result<ListTerminalsResult> list_terminals(const ListTerminalsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<Tree> list_workspaces(const ListWorkspacesRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> mark_workspaces_provider_managed(const MarkWorkspacesProviderManagedRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<PlacementResult> merge_pane(const MergePaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer(const MintTerminalRendererRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<EmptyResult> move_tab(const MoveTabRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<PlacementResult> move_pane_to_new_column(const MovePaneToNewColumnRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<PlacementResult> move_pane_to_split(const MovePaneToSplitRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<MoveTabResult> move_tab(const MoveTabRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<PlacementResult> move_tab_to_new_column(const MoveTabToNewColumnRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<PlacementResult> move_tab_to_split(const MoveTabToSplitRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MoveTerminalResult> move_terminal(const MoveTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WorkspaceMutationResult> move_workspace(const MoveWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_browser_tab(const NewBrowserTabRequest& request, RequestOptions options = {});

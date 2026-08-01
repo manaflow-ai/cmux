@@ -48,7 +48,7 @@ use crate::browser::{
     BrowserAttachUpdate, BrowserFrameUpdate, BrowserMouseDispatch, BrowserPointerOwner,
 };
 use crate::model::{Screen, State, Workspace};
-use crate::mux::{ResourceWaitWake, clamp_terminal_size};
+use crate::mux::{DaemonHandoffRequest, ResourceWaitWake, clamp_terminal_size};
 use crate::platform::{self, transport};
 use crate::resource::{
     BrowserPublicId, ClientPublicId, ContentPublicId, RequestId as ResourceRequestId,
@@ -74,6 +74,7 @@ use crate::{
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guard-v1";
+pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 pub const CANONICAL_LAYOUT_COLUMNS_CAPABILITY: &str = "canonical-layout-columns-v1";
@@ -96,6 +97,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
+        DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
@@ -483,6 +485,8 @@ enum Command {
     ShutdownDaemon {
         pid: u32,
         generation: String,
+        #[serde(default)]
+        force: bool,
     },
     Ping,
     SetClientInfo {
@@ -3763,7 +3767,7 @@ fn handle_resource_session_shutdown(
     let force =
         request.fields["force"].as_bool().expect("catalog validates the shutdown force flag");
     let result = trusted_local_resource_client(mux, client, operation).and_then(|()| {
-        mux.begin_daemon_handoff(client, force).map_err(|error| {
+        mux.begin_daemon_handoff(client, DaemonHandoffRequest::unfenced(force)).map_err(|error| {
             ResourceError::operation_failed(
                 "session.shutdown",
                 error.to_string(),
@@ -7272,20 +7276,15 @@ fn handle_command_with_cancellation(
                 "daemon_handoff": 1,
             }))
         }
-        Command::ShutdownDaemon { pid, generation } => {
-            let actual_pid = std::process::id();
-            if pid != actual_pid {
-                anyhow::bail!("daemon pid changed; identify again");
-            }
-            let (_, actual_generation) = mux.registry_identity();
-            if generation != actual_generation {
-                anyhow::bail!("daemon generation changed; identify again");
-            }
-            mux.begin_daemon_handoff(client, false)?;
+        Command::ShutdownDaemon { pid, generation, force } => {
+            let actual_identity = mux.begin_daemon_handoff(
+                client,
+                DaemonHandoffRequest::fenced(pid, generation, force),
+            )?;
             Ok(json!({
                 "accepted": true,
-                "pid": actual_pid,
-                "generation": actual_generation,
+                "pid": actual_identity.pid,
+                "generation": actual_identity.generation,
             }))
         }
         Command::Ping => Ok(json!({
@@ -12424,6 +12423,12 @@ mod tests {
         assert_eq!(data["ghostty_commit"].as_str(), stamped_ghostty_commit());
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
         assert_eq!(identity["daemon_handoff"].as_u64(), Some(1));
+        assert!(
+            identity["capabilities"].as_array().is_some_and(|capabilities| capabilities
+                .iter()
+                .any(|capability| capability == DAEMON_HANDOFF_FORCE_CAPABILITY)),
+            "the server must advertise forced fenced daemon handoff"
+        );
         assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
         assert_eq!(PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION, 10);
@@ -13280,6 +13285,63 @@ mod tests {
     }
 
     #[test]
+    fn daemon_shutdown_force_preserves_the_identity_fence() {
+        let mux = test_mux();
+        let owner_writer = test_writer();
+        let owner = mux.control_clients.register(ClientTransport::Unix, owner_writer.clone());
+        handle_command(
+            &mux,
+            owner,
+            Command::SetClientInfo {
+                name: Some("browser owner".to_string()),
+                kind: Some("native-browser".to_string()),
+                capabilities: None,
+            },
+            &owner_writer,
+        )
+        .unwrap();
+
+        let (requester_writer, outbound) = captured_writer();
+        let requester =
+            mux.control_clients.register(ClientTransport::Unix, requester_writer.clone());
+        let (_, generation) = mux.registry_identity();
+        assert!(handle_message(
+            &mux,
+            requester,
+            &json!({
+                "id": 95,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id(),
+                "generation": "stale-generation",
+                "force": true,
+            })
+            .to_string(),
+            &requester_writer,
+        ));
+        let rejected = pop_json(&outbound);
+        assert_eq!(rejected["ok"], false);
+        assert!(rejected["error"].as_str().unwrap().contains("generation changed"));
+        assert!(!mux.daemon_shutdown_requested());
+
+        assert!(handle_message(
+            &mux,
+            requester,
+            &json!({
+                "id": 96,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id(),
+                "generation": generation,
+                "force": true,
+            })
+            .to_string(),
+            &requester_writer,
+        ));
+        let accepted = pop_json(&outbound);
+        assert_eq!(accepted["ok"], true);
+        assert!(mux.daemon_shutdown_requested());
+    }
+
+    #[test]
     fn daemon_shutdown_atomically_fences_native_browser_ownership() {
         let owned = test_mux();
         let requester_writer = test_writer();
@@ -13302,7 +13364,7 @@ mod tests {
         let error = handle_command(
             &owned,
             requester,
-            Command::ShutdownDaemon { pid: std::process::id(), generation },
+            Command::ShutdownDaemon { pid: std::process::id(), generation, force: false },
             &requester_writer,
         )
         .unwrap_err();
@@ -13319,7 +13381,7 @@ mod tests {
         handle_command(
             &fenced,
             requester,
-            Command::ShutdownDaemon { pid: std::process::id(), generation },
+            Command::ShutdownDaemon { pid: std::process::id(), generation, force: false },
             &requester_writer,
         )
         .unwrap();

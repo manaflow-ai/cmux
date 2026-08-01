@@ -1349,6 +1349,55 @@ Result<Layout> Codec<Layout>::decode(const Json& value) {
     return make_error(ErrorCode::decode, "unknown Layout tag");
 }
 
+Result<Json> Codec<LayoutColumn>::encode(const LayoutColumn& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_id = encode_value(value.id);
+    if (!encoded_id) return std::move(encoded_id).error();
+    object.emplace("id", std::move(encoded_id).value());
+    auto encoded_layout = encode_value(value.layout);
+    if (!encoded_layout) return std::move(encoded_layout).error();
+    object.emplace("layout", std::move(encoded_layout).value());
+    auto encoded_width = encode_value(value.width);
+    if (!encoded_width) return std::move(encoded_width).error();
+    object.emplace("width", std::move(encoded_width).value());
+    return Json(std::move(object));
+}
+
+Result<LayoutColumn> Codec<LayoutColumn>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    LayoutColumn result{};
+    const Json* field_id = value.find("id");
+    if (!field_id) {
+        return make_error(ErrorCode::decode, "missing required field 'id'");
+    }
+    if (field_id) {
+        auto decoded = decode_value<Id>(*field_id);
+        if (!decoded) return std::move(decoded).error();
+        result.id = std::move(decoded).value();
+    }
+    const Json* field_layout = value.find("layout");
+    if (!field_layout) {
+        return make_error(ErrorCode::decode, "missing required field 'layout'");
+    }
+    if (field_layout) {
+        auto decoded = decode_value<Layout>(*field_layout);
+        if (!decoded) return std::move(decoded).error();
+        result.layout = std::move(decoded).value();
+    }
+    const Json* field_width = value.find("width");
+    if (!field_width) {
+        return make_error(ErrorCode::decode, "missing required field 'width'");
+    }
+    if (field_width) {
+        auto decoded = decode_value<float>(*field_width);
+        if (!decoded) return std::move(decoded).error();
+        result.width = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<LayoutUndoConfirmationRequired>::encode(const LayoutUndoConfirmationRequired& value) {
     (void)value;
     Json::Object object;
@@ -1756,6 +1805,20 @@ Result<MintTerminalRendererResult> Codec<MintTerminalRendererResult>::decode(con
     return result;
 }
 
+Result<Json> Codec<MoveTabResult>::encode(const MoveTabResult& value) {
+    return encode_value(value.value);
+}
+
+Result<MoveTabResult> Codec<MoveTabResult>::decode(const Json& value) {
+    if (auto decoded = decode_value<PlacementResult>(value); decoded) {
+        return MoveTabResult{MoveTabResult::Variant(std::move(decoded).value())};
+    }
+    if (auto decoded = decode_value<EmptyResult>(value); decoded) {
+        return MoveTabResult{MoveTabResult::Variant(std::move(decoded).value())};
+    }
+    return make_error(ErrorCode::decode, "value did not match any MoveTabResult variant");
+}
+
 Result<Json> Codec<MoveTerminalResult>::encode(const MoveTerminalResult& value) {
     (void)value;
     Json::Object object;
@@ -2087,6 +2150,20 @@ Result<PaneDirection> Codec<PaneDirection>::decode(const Json& value) {
     return make_error(ErrorCode::decode, "unknown PaneDirection value");
 }
 
+Result<Json> Codec<PaneKind>::encode(const PaneKind& value) {
+    switch (value) {
+        case PaneKind::pty: return Json(std::string("pty"));
+        case PaneKind::browser: return Json(std::string("browser"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<PaneKind> Codec<PaneKind>::decode(const Json& value) {
+    if (value == Json(std::string("pty"))) return PaneKind::pty;
+    if (value == Json(std::string("browser"))) return PaneKind::browser;
+    return make_error(ErrorCode::decode, "unknown PaneKind value");
+}
+
 Result<Json> Codec<PaneNeighborResult>::encode(const PaneNeighborResult& value) {
     (void)value;
     Json::Object object;
@@ -2193,6 +2270,67 @@ Result<PingResult> Codec<PingResult>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_version);
         if (!decoded) return std::move(decoded).error();
         result.version = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<PlacementResult>::encode(const PlacementResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_pane = encode_value(value.pane);
+    if (!encoded_pane) return std::move(encoded_pane).error();
+    object.emplace("pane", std::move(encoded_pane).value());
+    auto encoded_screen = encode_value(value.screen);
+    if (!encoded_screen) return std::move(encoded_screen).error();
+    object.emplace("screen", std::move(encoded_screen).value());
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    auto encoded_workspace = encode_value(value.workspace);
+    if (!encoded_workspace) return std::move(encoded_workspace).error();
+    object.emplace("workspace", std::move(encoded_workspace).value());
+    return Json(std::move(object));
+}
+
+Result<PlacementResult> Codec<PlacementResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    PlacementResult result{};
+    const Json* field_pane = value.find("pane");
+    if (!field_pane) {
+        return make_error(ErrorCode::decode, "missing required field 'pane'");
+    }
+    if (field_pane) {
+        auto decoded = decode_value<Id>(*field_pane);
+        if (!decoded) return std::move(decoded).error();
+        result.pane = std::move(decoded).value();
+    }
+    const Json* field_screen = value.find("screen");
+    if (!field_screen) {
+        return make_error(ErrorCode::decode, "missing required field 'screen'");
+    }
+    if (field_screen) {
+        auto decoded = decode_value<Id>(*field_screen);
+        if (!decoded) return std::move(decoded).error();
+        result.screen = std::move(decoded).value();
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<Id>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
+    }
+    const Json* field_workspace = value.find("workspace");
+    if (!field_workspace) {
+        return make_error(ErrorCode::decode, "missing required field 'workspace'");
+    }
+    if (field_workspace) {
+        auto decoded = decode_value<Id>(*field_workspace);
+        if (!decoded) return std::move(decoded).error();
+        result.workspace = std::move(decoded).value();
     }
     return result;
 }
@@ -3023,6 +3161,11 @@ Result<Json> Codec<Screen>::encode(const Screen& value) {
     auto encoded_active_pane = encode_value(value.active_pane);
     if (!encoded_active_pane) return std::move(encoded_active_pane).error();
     object.emplace("active_pane", std::move(encoded_active_pane).value());
+    if (value.columns) {
+        auto encoded = encode_value(*value.columns);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("columns", std::move(encoded).value());
+    }
     auto encoded_id = encode_value(value.id);
     if (!encoded_id) return std::move(encoded_id).error();
     object.emplace("id", std::move(encoded_id).value());
@@ -3043,6 +3186,16 @@ Result<Json> Codec<Screen>::encode(const Screen& value) {
         auto encoded = encode_value(*value.short_id);
         if (!encoded) return std::move(encoded).error();
         object.emplace("short_id", std::move(encoded).value());
+    }
+    if (value.viewport_base_width) {
+        auto encoded = encode_value(*value.viewport_base_width);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("viewport_base_width", std::move(encoded).value());
+    }
+    if (value.viewport_splits) {
+        auto encoded = encode_value(*value.viewport_splits);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("viewport_splits", std::move(encoded).value());
     }
     if (value.zoomed_pane) {
         auto encoded = encode_value(*value.zoomed_pane);
@@ -3075,6 +3228,12 @@ Result<Screen> Codec<Screen>::decode(const Json& value) {
         auto decoded = decode_value<Id>(*field_active_pane);
         if (!decoded) return std::move(decoded).error();
         result.active_pane = std::move(decoded).value();
+    }
+    const Json* field_columns = value.find("columns");
+    if (field_columns) {
+        auto decoded = decode_value<std::vector<LayoutColumn>>(*field_columns);
+        if (!decoded) return std::move(decoded).error();
+        result.columns = std::move(decoded).value();
     }
     const Json* field_id = value.find("id");
     if (!field_id) {
@@ -3121,6 +3280,18 @@ Result<Screen> Codec<Screen>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_short_id);
         if (!decoded) return std::move(decoded).error();
         result.short_id = std::move(decoded).value();
+    }
+    const Json* field_viewport_base_width = value.find("viewport_base_width");
+    if (field_viewport_base_width) {
+        auto decoded = decode_value<float>(*field_viewport_base_width);
+        if (!decoded) return std::move(decoded).error();
+        result.viewport_base_width = std::move(decoded).value();
+    }
+    const Json* field_viewport_splits = value.find("viewport_splits");
+    if (field_viewport_splits) {
+        auto decoded = decode_value<std::vector<ViewportSplit>>(*field_viewport_splits);
+        if (!decoded) return std::move(decoded).error();
+        result.viewport_splits = std::move(decoded).value();
     }
     const Json* field_zoomed_pane = value.find("zoomed_pane");
     if (!field_zoomed_pane) {
@@ -3349,6 +3520,16 @@ Result<SplitDirection> Codec<SplitDirection>::decode(const Json& value) {
 Result<Json> Codec<SurfaceResult>::encode(const SurfaceResult& value) {
     (void)value;
     Json::Object object;
+    if (value.pane) {
+        auto encoded = encode_value(*value.pane);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pane", std::move(encoded).value());
+    }
+    if (value.screen) {
+        auto encoded = encode_value(*value.screen);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("screen", std::move(encoded).value());
+    }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
@@ -3362,6 +3543,11 @@ Result<Json> Codec<SurfaceResult>::encode(const SurfaceResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("terminal_incarnation", std::move(encoded).value());
     }
+    if (value.workspace) {
+        auto encoded = encode_value(*value.workspace);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("workspace", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -3369,6 +3555,18 @@ Result<SurfaceResult> Codec<SurfaceResult>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     SurfaceResult result{};
+    const Json* field_pane = value.find("pane");
+    if (field_pane) {
+        auto decoded = decode_value<Id>(*field_pane);
+        if (!decoded) return std::move(decoded).error();
+        result.pane = std::move(decoded).value();
+    }
+    const Json* field_screen = value.find("screen");
+    if (field_screen) {
+        auto decoded = decode_value<Id>(*field_screen);
+        if (!decoded) return std::move(decoded).error();
+        result.screen = std::move(decoded).value();
+    }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {
         return make_error(ErrorCode::decode, "missing required field 'surface'");
@@ -3397,6 +3595,12 @@ Result<SurfaceResult> Codec<SurfaceResult>::decode(const Json& value) {
             if (!decoded) return std::move(decoded).error();
             result.terminal_incarnation = Field<std::string>(std::move(decoded).value());
         }
+    }
+    const Json* field_workspace = value.find("workspace");
+    if (field_workspace) {
+        auto decoded = decode_value<Id>(*field_workspace);
+        if (!decoded) return std::move(decoded).error();
+        result.workspace = std::move(decoded).value();
     }
     return result;
 }
@@ -4819,6 +5023,43 @@ Result<Tree> Codec<Tree>::decode(const Json& value) {
         auto decoded = decode_value<std::vector<Workspace>>(*field_workspaces);
         if (!decoded) return std::move(decoded).error();
         result.workspaces = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ViewportSplit>::encode(const ViewportSplit& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_split = encode_value(value.split);
+    if (!encoded_split) return std::move(encoded_split).error();
+    object.emplace("split", std::move(encoded_split).value());
+    auto encoded_width = encode_value(value.width);
+    if (!encoded_width) return std::move(encoded_width).error();
+    object.emplace("width", std::move(encoded_width).value());
+    return Json(std::move(object));
+}
+
+Result<ViewportSplit> Codec<ViewportSplit>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ViewportSplit result{};
+    const Json* field_split = value.find("split");
+    if (!field_split) {
+        return make_error(ErrorCode::decode, "missing required field 'split'");
+    }
+    if (field_split) {
+        auto decoded = decode_value<Id>(*field_split);
+        if (!decoded) return std::move(decoded).error();
+        result.split = std::move(decoded).value();
+    }
+    const Json* field_width = value.find("width");
+    if (!field_width) {
+        return make_error(ErrorCode::decode, "missing required field 'width'");
+    }
+    if (field_width) {
+        auto decoded = decode_value<float>(*field_width);
+        if (!decoded) return std::move(decoded).error();
+        result.width = std::move(decoded).value();
     }
     return result;
 }
@@ -6505,6 +6746,11 @@ Result<CopyRequest> Codec<CopyRequest>::decode(const Json& value) {
 Result<Json> Codec<CreateTerminalRequest>::encode(const CreateTerminalRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.activate.is_absent()) {
+        auto encoded = encode_value(value.activate);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("activate", std::move(encoded).value());
+    }
     if (!value.argv.is_absent()) {
         auto encoded = encode_value(value.argv);
         if (!encoded) return std::move(encoded).error();
@@ -6555,6 +6801,11 @@ Result<Json> Codec<CreateTerminalRequest>::encode(const CreateTerminalRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("origin", std::move(encoded).value());
     }
+    if (!value.pane.is_absent()) {
+        auto encoded = encode_value(value.pane);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pane", std::move(encoded).value());
+    }
     if (!value.rows.is_absent()) {
         auto encoded = encode_value(value.rows);
         if (!encoded) return std::move(encoded).error();
@@ -6577,6 +6828,16 @@ Result<CreateTerminalRequest> Codec<CreateTerminalRequest>::decode(const Json& v
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     CreateTerminalRequest result{};
+    const Json* field_activate = value.find("activate");
+    if (field_activate) {
+        if (field_activate->is_null()) {
+            result.activate = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_activate);
+            if (!decoded) return std::move(decoded).error();
+            result.activate = Field<bool>(std::move(decoded).value());
+        }
+    }
     const Json* field_argv = value.find("argv");
     if (field_argv) {
         if (field_argv->is_null()) {
@@ -6680,6 +6941,16 @@ Result<CreateTerminalRequest> Codec<CreateTerminalRequest>::decode(const Json& v
             result.origin = Field<std::string>(std::move(decoded).value());
         }
     }
+    const Json* field_pane = value.find("pane");
+    if (field_pane) {
+        if (field_pane->is_null()) {
+            result.pane = Field<Id>::null();
+        } else {
+            auto decoded = decode_value<Id>(*field_pane);
+            if (!decoded) return std::move(decoded).error();
+            result.pane = Field<Id>(std::move(decoded).value());
+        }
+    }
     const Json* field_rows = value.find("rows");
     if (field_rows) {
         if (field_rows->is_null()) {
@@ -6716,6 +6987,11 @@ Result<CreateTerminalRequest> Codec<CreateTerminalRequest>::decode(const Json& v
 Result<Json> Codec<CreateWorkspaceRequest>::encode(const CreateWorkspaceRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.activate.is_absent()) {
+        auto encoded = encode_value(value.activate);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("activate", std::move(encoded).value());
+    }
     if (!value.expected_generation.is_absent()) {
         auto encoded = encode_value(value.expected_generation);
         if (!encoded) return std::move(encoded).error();
@@ -6753,6 +7029,16 @@ Result<CreateWorkspaceRequest> Codec<CreateWorkspaceRequest>::decode(const Json&
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     CreateWorkspaceRequest result{};
+    const Json* field_activate = value.find("activate");
+    if (field_activate) {
+        if (field_activate->is_null()) {
+            result.activate = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_activate);
+            if (!decoded) return std::move(decoded).error();
+            result.activate = Field<bool>(std::move(decoded).value());
+        }
+    }
     const Json* field_expected_generation = value.find("expected_generation");
     if (field_expected_generation) {
         if (field_expected_generation->is_null()) {
@@ -7144,6 +7430,70 @@ Result<MarkWorkspacesProviderManagedRequest> Codec<MarkWorkspacesProviderManaged
     return result;
 }
 
+Result<Json> Codec<MergePaneRequest>::encode(const MergePaneRequest& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.activate.is_absent()) {
+        auto encoded = encode_value(value.activate);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("activate", std::move(encoded).value());
+    }
+    auto encoded_index = encode_value(value.index);
+    if (!encoded_index) return std::move(encoded_index).error();
+    object.emplace("index", std::move(encoded_index).value());
+    auto encoded_pane = encode_value(value.pane);
+    if (!encoded_pane) return std::move(encoded_pane).error();
+    object.emplace("pane", std::move(encoded_pane).value());
+    auto encoded_target = encode_value(value.target);
+    if (!encoded_target) return std::move(encoded_target).error();
+    object.emplace("target", std::move(encoded_target).value());
+    return Json(std::move(object));
+}
+
+Result<MergePaneRequest> Codec<MergePaneRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    MergePaneRequest result{};
+    const Json* field_activate = value.find("activate");
+    if (field_activate) {
+        if (field_activate->is_null()) {
+            result.activate = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_activate);
+            if (!decoded) return std::move(decoded).error();
+            result.activate = Field<bool>(std::move(decoded).value());
+        }
+    }
+    const Json* field_index = value.find("index");
+    if (!field_index) {
+        return make_error(ErrorCode::decode, "missing required field 'index'");
+    }
+    if (field_index) {
+        auto decoded = decode_value<std::uint64_t>(*field_index);
+        if (!decoded) return std::move(decoded).error();
+        result.index = std::move(decoded).value();
+    }
+    const Json* field_pane = value.find("pane");
+    if (!field_pane) {
+        return make_error(ErrorCode::decode, "missing required field 'pane'");
+    }
+    if (field_pane) {
+        auto decoded = decode_value<Id>(*field_pane);
+        if (!decoded) return std::move(decoded).error();
+        result.pane = std::move(decoded).value();
+    }
+    const Json* field_target = value.find("target");
+    if (!field_target) {
+        return make_error(ErrorCode::decode, "missing required field 'target'");
+    }
+    if (field_target) {
+        auto decoded = decode_value<Id>(*field_target);
+        if (!decoded) return std::move(decoded).error();
+        result.target = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<MintTerminalRendererRequest>::encode(const MintTerminalRendererRequest& value) {
     (void)value;
     Json::Object object;
@@ -7180,9 +7530,153 @@ Result<MintTerminalRendererRequest> Codec<MintTerminalRendererRequest>::decode(c
     return result;
 }
 
+Result<Json> Codec<MovePaneToNewColumnRequest>::encode(const MovePaneToNewColumnRequest& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.activate.is_absent()) {
+        auto encoded = encode_value(value.activate);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("activate", std::move(encoded).value());
+    }
+    auto encoded_index = encode_value(value.index);
+    if (!encoded_index) return std::move(encoded_index).error();
+    object.emplace("index", std::move(encoded_index).value());
+    auto encoded_pane = encode_value(value.pane);
+    if (!encoded_pane) return std::move(encoded_pane).error();
+    object.emplace("pane", std::move(encoded_pane).value());
+    auto encoded_width = encode_value(value.width);
+    if (!encoded_width) return std::move(encoded_width).error();
+    object.emplace("width", std::move(encoded_width).value());
+    return Json(std::move(object));
+}
+
+Result<MovePaneToNewColumnRequest> Codec<MovePaneToNewColumnRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    MovePaneToNewColumnRequest result{};
+    const Json* field_activate = value.find("activate");
+    if (field_activate) {
+        if (field_activate->is_null()) {
+            result.activate = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_activate);
+            if (!decoded) return std::move(decoded).error();
+            result.activate = Field<bool>(std::move(decoded).value());
+        }
+    }
+    const Json* field_index = value.find("index");
+    if (!field_index) {
+        return make_error(ErrorCode::decode, "missing required field 'index'");
+    }
+    if (field_index) {
+        auto decoded = decode_value<std::uint64_t>(*field_index);
+        if (!decoded) return std::move(decoded).error();
+        result.index = std::move(decoded).value();
+    }
+    const Json* field_pane = value.find("pane");
+    if (!field_pane) {
+        return make_error(ErrorCode::decode, "missing required field 'pane'");
+    }
+    if (field_pane) {
+        auto decoded = decode_value<Id>(*field_pane);
+        if (!decoded) return std::move(decoded).error();
+        result.pane = std::move(decoded).value();
+    }
+    const Json* field_width = value.find("width");
+    if (!field_width) {
+        return make_error(ErrorCode::decode, "missing required field 'width'");
+    }
+    if (field_width) {
+        auto decoded = decode_value<float>(*field_width);
+        if (!decoded) return std::move(decoded).error();
+        result.width = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<MovePaneToSplitRequest>::encode(const MovePaneToSplitRequest& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.activate.is_absent()) {
+        auto encoded = encode_value(value.activate);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("activate", std::move(encoded).value());
+    }
+    auto encoded_dir = encode_value(value.dir);
+    if (!encoded_dir) return std::move(encoded_dir).error();
+    object.emplace("dir", std::move(encoded_dir).value());
+    if (value.insert_first) {
+        auto encoded = encode_value(*value.insert_first);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("insert_first", std::move(encoded).value());
+    }
+    auto encoded_pane = encode_value(value.pane);
+    if (!encoded_pane) return std::move(encoded_pane).error();
+    object.emplace("pane", std::move(encoded_pane).value());
+    auto encoded_target = encode_value(value.target);
+    if (!encoded_target) return std::move(encoded_target).error();
+    object.emplace("target", std::move(encoded_target).value());
+    return Json(std::move(object));
+}
+
+Result<MovePaneToSplitRequest> Codec<MovePaneToSplitRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    MovePaneToSplitRequest result{};
+    const Json* field_activate = value.find("activate");
+    if (field_activate) {
+        if (field_activate->is_null()) {
+            result.activate = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_activate);
+            if (!decoded) return std::move(decoded).error();
+            result.activate = Field<bool>(std::move(decoded).value());
+        }
+    }
+    const Json* field_dir = value.find("dir");
+    if (!field_dir) {
+        return make_error(ErrorCode::decode, "missing required field 'dir'");
+    }
+    if (field_dir) {
+        auto decoded = decode_value<SplitDirection>(*field_dir);
+        if (!decoded) return std::move(decoded).error();
+        result.dir = std::move(decoded).value();
+    }
+    const Json* field_insert_first = value.find("insert_first");
+    if (field_insert_first) {
+        auto decoded = decode_value<bool>(*field_insert_first);
+        if (!decoded) return std::move(decoded).error();
+        result.insert_first = std::move(decoded).value();
+    }
+    const Json* field_pane = value.find("pane");
+    if (!field_pane) {
+        return make_error(ErrorCode::decode, "missing required field 'pane'");
+    }
+    if (field_pane) {
+        auto decoded = decode_value<Id>(*field_pane);
+        if (!decoded) return std::move(decoded).error();
+        result.pane = std::move(decoded).value();
+    }
+    const Json* field_target = value.find("target");
+    if (!field_target) {
+        return make_error(ErrorCode::decode, "missing required field 'target'");
+    }
+    if (field_target) {
+        auto decoded = decode_value<Id>(*field_target);
+        if (!decoded) return std::move(decoded).error();
+        result.target = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<MoveTabRequest>::encode(const MoveTabRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.activate.is_absent()) {
+        auto encoded = encode_value(value.activate);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("activate", std::move(encoded).value());
+    }
     auto encoded_index = encode_value(value.index);
     if (!encoded_index) return std::move(encoded_index).error();
     object.emplace("index", std::move(encoded_index).value());
@@ -7199,6 +7693,16 @@ Result<MoveTabRequest> Codec<MoveTabRequest>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     MoveTabRequest result{};
+    const Json* field_activate = value.find("activate");
+    if (field_activate) {
+        if (field_activate->is_null()) {
+            result.activate = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_activate);
+            if (!decoded) return std::move(decoded).error();
+            result.activate = Field<bool>(std::move(decoded).value());
+        }
+    }
     const Json* field_index = value.find("index");
     if (!field_index) {
         return make_error(ErrorCode::decode, "missing required field 'index'");
@@ -7207,6 +7711,145 @@ Result<MoveTabRequest> Codec<MoveTabRequest>::decode(const Json& value) {
         auto decoded = decode_value<std::uint64_t>(*field_index);
         if (!decoded) return std::move(decoded).error();
         result.index = std::move(decoded).value();
+    }
+    const Json* field_pane = value.find("pane");
+    if (!field_pane) {
+        return make_error(ErrorCode::decode, "missing required field 'pane'");
+    }
+    if (field_pane) {
+        auto decoded = decode_value<Id>(*field_pane);
+        if (!decoded) return std::move(decoded).error();
+        result.pane = std::move(decoded).value();
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<Id>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<MoveTabToNewColumnRequest>::encode(const MoveTabToNewColumnRequest& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.activate.is_absent()) {
+        auto encoded = encode_value(value.activate);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("activate", std::move(encoded).value());
+    }
+    auto encoded_index = encode_value(value.index);
+    if (!encoded_index) return std::move(encoded_index).error();
+    object.emplace("index", std::move(encoded_index).value());
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    auto encoded_width = encode_value(value.width);
+    if (!encoded_width) return std::move(encoded_width).error();
+    object.emplace("width", std::move(encoded_width).value());
+    return Json(std::move(object));
+}
+
+Result<MoveTabToNewColumnRequest> Codec<MoveTabToNewColumnRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    MoveTabToNewColumnRequest result{};
+    const Json* field_activate = value.find("activate");
+    if (field_activate) {
+        if (field_activate->is_null()) {
+            result.activate = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_activate);
+            if (!decoded) return std::move(decoded).error();
+            result.activate = Field<bool>(std::move(decoded).value());
+        }
+    }
+    const Json* field_index = value.find("index");
+    if (!field_index) {
+        return make_error(ErrorCode::decode, "missing required field 'index'");
+    }
+    if (field_index) {
+        auto decoded = decode_value<std::uint64_t>(*field_index);
+        if (!decoded) return std::move(decoded).error();
+        result.index = std::move(decoded).value();
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<Id>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
+    }
+    const Json* field_width = value.find("width");
+    if (!field_width) {
+        return make_error(ErrorCode::decode, "missing required field 'width'");
+    }
+    if (field_width) {
+        auto decoded = decode_value<float>(*field_width);
+        if (!decoded) return std::move(decoded).error();
+        result.width = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<MoveTabToSplitRequest>::encode(const MoveTabToSplitRequest& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.activate.is_absent()) {
+        auto encoded = encode_value(value.activate);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("activate", std::move(encoded).value());
+    }
+    auto encoded_dir = encode_value(value.dir);
+    if (!encoded_dir) return std::move(encoded_dir).error();
+    object.emplace("dir", std::move(encoded_dir).value());
+    if (value.insert_first) {
+        auto encoded = encode_value(*value.insert_first);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("insert_first", std::move(encoded).value());
+    }
+    auto encoded_pane = encode_value(value.pane);
+    if (!encoded_pane) return std::move(encoded_pane).error();
+    object.emplace("pane", std::move(encoded_pane).value());
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    return Json(std::move(object));
+}
+
+Result<MoveTabToSplitRequest> Codec<MoveTabToSplitRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    MoveTabToSplitRequest result{};
+    const Json* field_activate = value.find("activate");
+    if (field_activate) {
+        if (field_activate->is_null()) {
+            result.activate = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_activate);
+            if (!decoded) return std::move(decoded).error();
+            result.activate = Field<bool>(std::move(decoded).value());
+        }
+    }
+    const Json* field_dir = value.find("dir");
+    if (!field_dir) {
+        return make_error(ErrorCode::decode, "missing required field 'dir'");
+    }
+    if (field_dir) {
+        auto decoded = decode_value<SplitDirection>(*field_dir);
+        if (!decoded) return std::move(decoded).error();
+        result.dir = std::move(decoded).value();
+    }
+    const Json* field_insert_first = value.find("insert_first");
+    if (field_insert_first) {
+        auto decoded = decode_value<bool>(*field_insert_first);
+        if (!decoded) return std::move(decoded).error();
+        result.insert_first = std::move(decoded).value();
     }
     const Json* field_pane = value.find("pane");
     if (!field_pane) {
@@ -7465,10 +8108,20 @@ Result<MoveWorkspaceRequest> Codec<MoveWorkspaceRequest>::decode(const Json& val
 Result<Json> Codec<NewBrowserTabRequest>::encode(const NewBrowserTabRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.activate.is_absent()) {
+        auto encoded = encode_value(value.activate);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("activate", std::move(encoded).value());
+    }
     if (!value.cols.is_absent()) {
         auto encoded = encode_value(value.cols);
         if (!encoded) return std::move(encoded).error();
         object.emplace("cols", std::move(encoded).value());
+    }
+    if (!value.index.is_absent()) {
+        auto encoded = encode_value(value.index);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("index", std::move(encoded).value());
     }
     if (!value.pane.is_absent()) {
         auto encoded = encode_value(value.pane);
@@ -7490,6 +8143,16 @@ Result<NewBrowserTabRequest> Codec<NewBrowserTabRequest>::decode(const Json& val
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     NewBrowserTabRequest result{};
+    const Json* field_activate = value.find("activate");
+    if (field_activate) {
+        if (field_activate->is_null()) {
+            result.activate = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_activate);
+            if (!decoded) return std::move(decoded).error();
+            result.activate = Field<bool>(std::move(decoded).value());
+        }
+    }
     const Json* field_cols = value.find("cols");
     if (field_cols) {
         if (field_cols->is_null()) {
@@ -7498,6 +8161,16 @@ Result<NewBrowserTabRequest> Codec<NewBrowserTabRequest>::decode(const Json& val
             auto decoded = decode_value<std::uint16_t>(*field_cols);
             if (!decoded) return std::move(decoded).error();
             result.cols = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_index = value.find("index");
+    if (field_index) {
+        if (field_index->is_null()) {
+            result.index = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_index);
+            if (!decoded) return std::move(decoded).error();
+            result.index = Field<std::uint64_t>(std::move(decoded).value());
         }
     }
     const Json* field_pane = value.find("pane");
@@ -7535,6 +8208,11 @@ Result<NewBrowserTabRequest> Codec<NewBrowserTabRequest>::decode(const Json& val
 Result<Json> Codec<NewPaneRequest>::encode(const NewPaneRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.activate.is_absent()) {
+        auto encoded = encode_value(value.activate);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("activate", std::move(encoded).value());
+    }
     if (!value.cols.is_absent()) {
         auto encoded = encode_value(value.cols);
         if (!encoded) return std::move(encoded).error();
@@ -7555,6 +8233,16 @@ Result<NewPaneRequest> Codec<NewPaneRequest>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     NewPaneRequest result{};
+    const Json* field_activate = value.find("activate");
+    if (field_activate) {
+        if (field_activate->is_null()) {
+            result.activate = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_activate);
+            if (!decoded) return std::move(decoded).error();
+            result.activate = Field<bool>(std::move(decoded).value());
+        }
+    }
     const Json* field_cols = value.find("cols");
     if (field_cols) {
         if (field_cols->is_null()) {
@@ -7590,10 +8278,20 @@ Result<NewPaneRequest> Codec<NewPaneRequest>::decode(const Json& value) {
 Result<Json> Codec<NewPaneRightRequest>::encode(const NewPaneRightRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.activate.is_absent()) {
+        auto encoded = encode_value(value.activate);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("activate", std::move(encoded).value());
+    }
     if (!value.cols.is_absent()) {
         auto encoded = encode_value(value.cols);
         if (!encoded) return std::move(encoded).error();
         object.emplace("cols", std::move(encoded).value());
+    }
+    if (!value.kind.is_absent()) {
+        auto encoded = encode_value(value.kind);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("kind", std::move(encoded).value());
     }
     auto encoded_pane = encode_value(value.pane);
     if (!encoded_pane) return std::move(encoded_pane).error();
@@ -7602,6 +8300,11 @@ Result<Json> Codec<NewPaneRightRequest>::encode(const NewPaneRightRequest& value
         auto encoded = encode_value(value.rows);
         if (!encoded) return std::move(encoded).error();
         object.emplace("rows", std::move(encoded).value());
+    }
+    if (!value.url.is_absent()) {
+        auto encoded = encode_value(value.url);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("url", std::move(encoded).value());
     }
     if (!value.width.is_absent()) {
         auto encoded = encode_value(value.width);
@@ -7615,6 +8318,16 @@ Result<NewPaneRightRequest> Codec<NewPaneRightRequest>::decode(const Json& value
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     NewPaneRightRequest result{};
+    const Json* field_activate = value.find("activate");
+    if (field_activate) {
+        if (field_activate->is_null()) {
+            result.activate = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_activate);
+            if (!decoded) return std::move(decoded).error();
+            result.activate = Field<bool>(std::move(decoded).value());
+        }
+    }
     const Json* field_cols = value.find("cols");
     if (field_cols) {
         if (field_cols->is_null()) {
@@ -7623,6 +8336,16 @@ Result<NewPaneRightRequest> Codec<NewPaneRightRequest>::decode(const Json& value
             auto decoded = decode_value<std::uint16_t>(*field_cols);
             if (!decoded) return std::move(decoded).error();
             result.cols = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_kind = value.find("kind");
+    if (field_kind) {
+        if (field_kind->is_null()) {
+            result.kind = Field<PaneKind>::null();
+        } else {
+            auto decoded = decode_value<PaneKind>(*field_kind);
+            if (!decoded) return std::move(decoded).error();
+            result.kind = Field<PaneKind>(std::move(decoded).value());
         }
     }
     const Json* field_pane = value.find("pane");
@@ -7644,6 +8367,16 @@ Result<NewPaneRightRequest> Codec<NewPaneRightRequest>::decode(const Json& value
             result.rows = Field<std::uint16_t>(std::move(decoded).value());
         }
     }
+    const Json* field_url = value.find("url");
+    if (field_url) {
+        if (field_url->is_null()) {
+            result.url = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_url);
+            if (!decoded) return std::move(decoded).error();
+            result.url = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_width = value.find("width");
     if (field_width) {
         if (field_width->is_null()) {
@@ -7660,6 +8393,11 @@ Result<NewPaneRightRequest> Codec<NewPaneRightRequest>::decode(const Json& value
 Result<Json> Codec<NewScreenRequest>::encode(const NewScreenRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.activate.is_absent()) {
+        auto encoded = encode_value(value.activate);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("activate", std::move(encoded).value());
+    }
     if (!value.cols.is_absent()) {
         auto encoded = encode_value(value.cols);
         if (!encoded) return std::move(encoded).error();
@@ -7682,6 +8420,16 @@ Result<NewScreenRequest> Codec<NewScreenRequest>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     NewScreenRequest result{};
+    const Json* field_activate = value.find("activate");
+    if (field_activate) {
+        if (field_activate->is_null()) {
+            result.activate = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_activate);
+            if (!decoded) return std::move(decoded).error();
+            result.activate = Field<bool>(std::move(decoded).value());
+        }
+    }
     const Json* field_cols = value.find("cols");
     if (field_cols) {
         if (field_cols->is_null()) {
@@ -9678,6 +10426,11 @@ Result<SetWindowTitleRequest> Codec<SetWindowTitleRequest>::decode(const Json& v
 Result<Json> Codec<ShutdownDaemonRequest>::encode(const ShutdownDaemonRequest& value) {
     (void)value;
     Json::Object object;
+    if (value.force) {
+        auto encoded = encode_value(*value.force);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("force", std::move(encoded).value());
+    }
     auto encoded_generation = encode_value(value.generation);
     if (!encoded_generation) return std::move(encoded_generation).error();
     object.emplace("generation", std::move(encoded_generation).value());
@@ -9691,6 +10444,12 @@ Result<ShutdownDaemonRequest> Codec<ShutdownDaemonRequest>::decode(const Json& v
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ShutdownDaemonRequest result{};
+    const Json* field_force = value.find("force");
+    if (field_force) {
+        auto decoded = decode_value<bool>(*field_force);
+        if (!decoded) return std::move(decoded).error();
+        result.force = std::move(decoded).value();
+    }
     const Json* field_generation = value.find("generation");
     if (!field_generation) {
         return make_error(ErrorCode::decode, "missing required field 'generation'");
@@ -9763,6 +10522,11 @@ Result<SidebarPluginRequest> Codec<SidebarPluginRequest>::decode(const Json& val
 Result<Json> Codec<SplitRequest>::encode(const SplitRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.activate.is_absent()) {
+        auto encoded = encode_value(value.activate);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("activate", std::move(encoded).value());
+    }
     if (!value.cols.is_absent()) {
         auto encoded = encode_value(value.cols);
         if (!encoded) return std::move(encoded).error();
@@ -9771,6 +10535,11 @@ Result<Json> Codec<SplitRequest>::encode(const SplitRequest& value) {
     auto encoded_dir = encode_value(value.dir);
     if (!encoded_dir) return std::move(encoded_dir).error();
     object.emplace("dir", std::move(encoded_dir).value());
+    if (!value.kind.is_absent()) {
+        auto encoded = encode_value(value.kind);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("kind", std::move(encoded).value());
+    }
     auto encoded_pane = encode_value(value.pane);
     if (!encoded_pane) return std::move(encoded_pane).error();
     object.emplace("pane", std::move(encoded_pane).value());
@@ -9779,6 +10548,11 @@ Result<Json> Codec<SplitRequest>::encode(const SplitRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("rows", std::move(encoded).value());
     }
+    if (!value.url.is_absent()) {
+        auto encoded = encode_value(value.url);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("url", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -9786,6 +10560,16 @@ Result<SplitRequest> Codec<SplitRequest>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     SplitRequest result{};
+    const Json* field_activate = value.find("activate");
+    if (field_activate) {
+        if (field_activate->is_null()) {
+            result.activate = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_activate);
+            if (!decoded) return std::move(decoded).error();
+            result.activate = Field<bool>(std::move(decoded).value());
+        }
+    }
     const Json* field_cols = value.find("cols");
     if (field_cols) {
         if (field_cols->is_null()) {
@@ -9805,6 +10589,16 @@ Result<SplitRequest> Codec<SplitRequest>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         result.dir = std::move(decoded).value();
     }
+    const Json* field_kind = value.find("kind");
+    if (field_kind) {
+        if (field_kind->is_null()) {
+            result.kind = Field<PaneKind>::null();
+        } else {
+            auto decoded = decode_value<PaneKind>(*field_kind);
+            if (!decoded) return std::move(decoded).error();
+            result.kind = Field<PaneKind>(std::move(decoded).value());
+        }
+    }
     const Json* field_pane = value.find("pane");
     if (!field_pane) {
         return make_error(ErrorCode::decode, "missing required field 'pane'");
@@ -9822,6 +10616,16 @@ Result<SplitRequest> Codec<SplitRequest>::decode(const Json& value) {
             auto decoded = decode_value<std::uint16_t>(*field_rows);
             if (!decoded) return std::move(decoded).error();
             result.rows = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_url = value.find("url");
+    if (field_url) {
+        if (field_url->is_null()) {
+            result.url = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_url);
+            if (!decoded) return std::move(decoded).error();
+            result.url = Field<std::string>(std::move(decoded).value());
         }
     }
     return result;
@@ -14146,30 +14950,68 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand22FieldRequirements{{
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand24FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand24FieldRequirements{{
+    {"activate", 10U, "independent-client-selection-v1"},
+    {"pane", 10U, "independent-client-selection-v1"},
     {"terminal_id", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand41FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand25FieldRequirements{{
+    {"activate", 10U, "independent-client-selection-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand38FieldRequirements{{
+    {"activate", 0U, "independent-client-selection-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand40FieldRequirements{{
+    {"activate", 0U, "independent-client-selection-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand41FieldRequirements{{
+    {"activate", 0U, "independent-client-selection-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand42FieldRequirements{{
+    {"activate", 10U, "independent-client-selection-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand43FieldRequirements{{
+    {"activate", 0U, "independent-client-selection-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand44FieldRequirements{{
+    {"activate", 0U, "independent-client-selection-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 5> kCommand46FieldRequirements{{
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand62FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand47FieldRequirements{{
+    {"activate", 10U, "independent-client-selection-v1"},
+    {"index", 10U, "independent-client-selection-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand48FieldRequirements{{
+    {"activate", 10U, "independent-client-selection-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 3> kCommand49FieldRequirements{{
+    {"activate", 10U, "independent-client-selection-v1"},
+    {"kind", 10U, "independent-client-selection-v1"},
+    {"url", 10U, "independent-client-selection-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand50FieldRequirements{{
+    {"activate", 10U, "independent-client-selection-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 5> kCommand67FieldRequirements{{
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
-}};
-constexpr std::array<CommandFieldRequirement, 1> kCommand66FieldRequirements{{
-    {"key", 9U, ""},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand71FieldRequirements{{
+    {"key", 9U, ""},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand76FieldRequirements{{
     {"paste", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 7> kCommand76FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 7> kCommand81FieldRequirements{{
     {"complete", 9U, ""},
     {"cursor", 9U, ""},
     {"cursor_blink", 9U, ""},
@@ -14178,17 +15020,25 @@ constexpr std::array<CommandFieldRequirement, 7> kCommand76FieldRequirements{{
     {"selection_bg", 9U, ""},
     {"selection_fg", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand78FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand83FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand79FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand84FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand84FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand86FieldRequirements{{
+    {"force", 10U, "daemon-handoff-force-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 3> kCommand88FieldRequirements{{
+    {"activate", 10U, "independent-client-selection-v1"},
+    {"kind", 10U, "independent-client-selection-v1"},
+    {"url", 10U, "independent-client-selection-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 2> kCommand89FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
-constexpr std::array<CommandMetadata, 91> kCommands{{
+constexpr std::array<CommandMetadata, 96> kCommands{{
     {"apply-layout", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"attach-surface", "frontend", 5U, "", true, "attach", "detached", std::span<const CommandFieldRequirement>(kCommand1FieldRequirements)},
     {"browser-activate", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -14214,7 +15064,7 @@ constexpr std::array<CommandMetadata, 91> kCommands{{
     {"close-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand22FieldRequirements)},
     {"copy", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"create-terminal", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand24FieldRequirements)},
-    {"create-workspace", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"create-workspace", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand25FieldRequirements)},
     {"detach-client", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"export-layout", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"focus-direction", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -14227,14 +15077,19 @@ constexpr std::array<CommandMetadata, 91> kCommands{{
     {"list-terminals", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"list-workspaces", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"mark-workspaces-provider-managed", "provider-authority", 9U, "provider-managed-workspace-authority-v2", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"merge-pane", "control", 10U, "canonical-layout-relocation-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand38FieldRequirements)},
     {"mint-terminal-renderer", "frontend", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"move-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"move-pane-to-new-column", "control", 10U, "canonical-layout-relocation-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand40FieldRequirements)},
+    {"move-pane-to-split", "control", 10U, "canonical-layout-relocation-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand41FieldRequirements)},
+    {"move-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand42FieldRequirements)},
+    {"move-tab-to-new-column", "control", 10U, "canonical-layout-relocation-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand43FieldRequirements)},
+    {"move-tab-to-split", "control", 10U, "canonical-layout-relocation-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand44FieldRequirements)},
     {"move-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"move-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand41FieldRequirements)},
-    {"new-browser-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"new-pane", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"new-pane-right", "control", 9U, "viewport-splits-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"new-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"move-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand46FieldRequirements)},
+    {"new-browser-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand47FieldRequirements)},
+    {"new-pane", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand48FieldRequirements)},
+    {"new-pane-right", "control", 9U, "viewport-splits-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand49FieldRequirements)},
+    {"new-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand50FieldRequirements)},
     {"new-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"notify", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -14251,29 +15106,29 @@ constexpr std::array<CommandMetadata, 91> kCommands{{
     {"rename-provider-managed-workspace", "provider-authority", 9U, "provider-managed-workspace-authority-v2", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"rename-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"rename-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"rename-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand62FieldRequirements)},
+    {"rename-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand67FieldRequirements)},
     {"report-agent", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"resize-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"resolve-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"run", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand66FieldRequirements)},
+    {"run", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand71FieldRequirements)},
     {"scroll-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand71FieldRequirements)},
+    {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand76FieldRequirements)},
     {"send-key", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-cell-pixels", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-client-info", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-client-sizing", "control", 10U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand76FieldRequirements)},
+    {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand81FieldRequirements)},
     {"set-ratio", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-split-ratio", "control", 8U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand78FieldRequirements)},
-    {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand79FieldRequirements)},
+    {"set-split-ratio", "control", 8U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand83FieldRequirements)},
+    {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand84FieldRequirements)},
     {"set-window-title", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand86FieldRequirements)},
     {"sidebar-plugin", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand84FieldRequirements)},
+    {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand88FieldRequirements)},
+    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand89FieldRequirements)},
     {"swap-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-events", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"undo-layout", "control", 9U, "layout-undo-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -14764,6 +15619,17 @@ Result<EmptyResult> Client::mark_workspaces_provider_managed(
     return decode_value<EmptyResult>(response.value());
 }
 
+Result<PlacementResult> Client::merge_pane(
+    const MergePaneRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("merge-pane", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<PlacementResult>(response.value());
+}
+
 Result<MintTerminalRendererResult> Client::mint_terminal_renderer(
     const MintTerminalRendererRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
@@ -14775,7 +15641,29 @@ Result<MintTerminalRendererResult> Client::mint_terminal_renderer(
     return decode_value<MintTerminalRendererResult>(response.value());
 }
 
-Result<EmptyResult> Client::move_tab(
+Result<PlacementResult> Client::move_pane_to_new_column(
+    const MovePaneToNewColumnRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("move-pane-to-new-column", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<PlacementResult>(response.value());
+}
+
+Result<PlacementResult> Client::move_pane_to_split(
+    const MovePaneToSplitRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("move-pane-to-split", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<PlacementResult>(response.value());
+}
+
+Result<MoveTabResult> Client::move_tab(
     const MoveTabRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -14783,7 +15671,29 @@ Result<EmptyResult> Client::move_tab(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("move-tab", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<EmptyResult>(response.value());
+    return decode_value<MoveTabResult>(response.value());
+}
+
+Result<PlacementResult> Client::move_tab_to_new_column(
+    const MoveTabToNewColumnRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("move-tab-to-new-column", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<PlacementResult>(response.value());
+}
+
+Result<PlacementResult> Client::move_tab_to_split(
+    const MoveTabToSplitRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("move-tab-to-split", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<PlacementResult>(response.value());
 }
 
 Result<MoveTerminalResult> Client::move_terminal(

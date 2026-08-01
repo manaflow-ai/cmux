@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd.
+// cmux-tui mux protocol 10, IR 05f952383037543fc9083005dd4d45e44b362e9624d80cd37f563c12c1e83c88.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -319,6 +319,14 @@ pub enum Layout {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayoutColumn {
+    pub id: Id,
+    pub layout: Layout,
+    pub width: f32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutUndoConfirmationRequired {
     pub closes_panes: Vec<Id>,
     pub confirmation_required: bool,
@@ -386,6 +394,14 @@ pub struct MintTerminalRendererResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MoveTabResult {
+    PlacementResult(PlacementResult),
+    EmptyResult(EmptyResult),
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MoveTerminalResult {
     pub changed: bool,
     pub generation: String,
@@ -449,6 +465,15 @@ pub enum PaneDirection {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PaneKind {
+    #[serde(rename = "pty")]
+    Pty,
+    #[serde(rename = "browser")]
+    Browser,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaneNeighborResult {
     pub pane: Nullable<Id>,
@@ -464,6 +489,15 @@ pub struct PingResult {
     pub ok: bool,
     pub protocol: u32,
     pub version: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlacementResult {
+    pub pane: Id,
+    pub screen: Id,
+    pub surface: Id,
+    pub workspace: Id,
 }
 
 #[rustfmt::skip]
@@ -589,12 +623,18 @@ pub struct RunResult {
 pub struct Screen {
     pub active: bool,
     pub active_pane: Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub columns: Option<Vec<LayoutColumn>>,
     pub id: Id,
     pub layout: Layout,
     pub name: Nullable<String>,
     pub panes: Vec<Pane>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub viewport_base_width: Option<f32>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub viewport_splits: Option<Vec<ViewportSplit>>,
     pub zoomed_pane: Nullable<Id>,
 }
 
@@ -640,11 +680,17 @@ pub enum SplitDirection {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SurfaceResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub pane: Option<Id>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub screen: Option<Id>,
     pub surface: Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_incarnation: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<Id>,
 }
 
 #[rustfmt::skip]
@@ -1075,6 +1121,13 @@ pub struct Tree {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub workspace_revision: Option<u64>,
     pub workspaces: Vec<Workspace>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewportSplit {
+    pub split: Id,
+    pub width: f32,
 }
 
 #[rustfmt::skip]

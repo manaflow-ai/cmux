@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 10
-IR_SHA256 = 'c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd'
+IR_SHA256 = '05f952383037543fc9083005dd4d45e44b362e9624d80cd37f563c12c1e83c88'
 
 
 @dataclass(frozen=True)
@@ -364,6 +364,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'activate': CommandFieldMetadata(10, 'independent-client-selection-v1'),
             'argv': CommandFieldMetadata(None, None),
             'cols': CommandFieldMetadata(None, None),
             'command': CommandFieldMetadata(None, None),
@@ -374,6 +375,7 @@ COMMANDS = {
             'mutation_id': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(10, 'independent-client-selection-v1'),
             'rows': CommandFieldMetadata(None, None),
             'terminal_id': CommandFieldMetadata(9, None),
             'workspace': CommandFieldMetadata(None, None),
@@ -387,6 +389,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'activate': CommandFieldMetadata(10, 'independent-client-selection-v1'),
             'expected_generation': CommandFieldMetadata(None, None),
             'expected_revision': CommandFieldMetadata(None, None),
             'key': CommandFieldMetadata(None, None),
@@ -527,6 +530,20 @@ COMMANDS = {
             'authority': CommandFieldMetadata(None, None),
         },
     ),
+    'merge-pane': CommandMetadata(
+        'merge-pane',
+        'control',
+        10,
+        'canonical-layout-relocation-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'activate': CommandFieldMetadata(None, 'independent-client-selection-v1'),
+            'index': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'target': CommandFieldMetadata(None, None),
+        },
+    ),
     'mint-terminal-renderer': CommandMetadata(
         'mint-terminal-renderer',
         'frontend',
@@ -539,6 +556,35 @@ COMMANDS = {
             'ttl_ms': CommandFieldMetadata(None, None),
         },
     ),
+    'move-pane-to-new-column': CommandMetadata(
+        'move-pane-to-new-column',
+        'control',
+        10,
+        'canonical-layout-relocation-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'activate': CommandFieldMetadata(None, 'independent-client-selection-v1'),
+            'index': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'width': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-pane-to-split': CommandMetadata(
+        'move-pane-to-split',
+        'control',
+        10,
+        'canonical-layout-relocation-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'activate': CommandFieldMetadata(None, 'independent-client-selection-v1'),
+            'dir': CommandFieldMetadata(None, None),
+            'insert_first': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'target': CommandFieldMetadata(None, None),
+        },
+    ),
     'move-tab': CommandMetadata(
         'move-tab',
         'control',
@@ -547,7 +593,37 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'activate': CommandFieldMetadata(10, 'independent-client-selection-v1'),
             'index': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-tab-to-new-column': CommandMetadata(
+        'move-tab-to-new-column',
+        'control',
+        10,
+        'canonical-layout-relocation-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'activate': CommandFieldMetadata(None, 'independent-client-selection-v1'),
+            'index': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'width': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-tab-to-split': CommandMetadata(
+        'move-tab-to-split',
+        'control',
+        10,
+        'canonical-layout-relocation-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'activate': CommandFieldMetadata(None, 'independent-client-selection-v1'),
+            'dir': CommandFieldMetadata(None, None),
+            'insert_first': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
         },
@@ -594,7 +670,9 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'activate': CommandFieldMetadata(10, 'independent-client-selection-v1'),
             'cols': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(10, 'independent-client-selection-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
             'url': CommandFieldMetadata(None, None),
@@ -608,6 +686,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'activate': CommandFieldMetadata(10, 'independent-client-selection-v1'),
             'cols': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
@@ -621,9 +700,12 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'activate': CommandFieldMetadata(10, 'independent-client-selection-v1'),
             'cols': CommandFieldMetadata(None, None),
+            'kind': CommandFieldMetadata(10, 'independent-client-selection-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(10, 'independent-client-selection-v1'),
             'width': CommandFieldMetadata(None, None),
         },
     ),
@@ -635,6 +717,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'activate': CommandFieldMetadata(10, 'independent-client-selection-v1'),
             'cols': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
             'workspace': CommandFieldMetadata(None, None),
@@ -1106,6 +1189,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'force': CommandFieldMetadata(10, 'daemon-handoff-force-v1'),
             'generation': CommandFieldMetadata(None, None),
             'pid': CommandFieldMetadata(None, None),
         },
@@ -1131,10 +1215,13 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'activate': CommandFieldMetadata(10, 'independent-client-selection-v1'),
             'cols': CommandFieldMetadata(None, None),
             'dir': CommandFieldMetadata(None, None),
+            'kind': CommandFieldMetadata(10, 'independent-client-selection-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(10, 'independent-client-selection-v1'),
         },
     ),
     'subscribe': CommandMetadata(

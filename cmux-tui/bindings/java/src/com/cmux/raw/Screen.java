@@ -13,11 +13,14 @@ import java.util.Objects;
 public final class Screen implements WireValue {
     private final boolean active;
     private final UInt64 activePane;
+    private final Field<List<LayoutColumn>> columns;
     private final UInt64 id;
     private final Layout layout;
     private final String name;
     private final List<Pane> panes;
     private final Field<String> shortId;
+    private final Field<Double> viewportBaseWidth;
+    private final Field<List<ViewportSplit>> viewportSplits;
     private final UInt64 zoomedPane;
 
     private Screen(Builder builder) {
@@ -25,6 +28,7 @@ public final class Screen implements WireValue {
         this.active = builder.active;
         if (!builder.activePaneSet) throw new IllegalArgumentException("active_pane is required");
         this.activePane = Wire.nonNull(builder.activePane, "active_pane");
+        this.columns = builder.columns.map(value -> List.copyOf(value));
         if (!builder.idSet) throw new IllegalArgumentException("id is required");
         this.id = Wire.nonNull(builder.id, "id");
         if (!builder.layoutSet) throw new IllegalArgumentException("layout is required");
@@ -34,6 +38,8 @@ public final class Screen implements WireValue {
         if (!builder.panesSet) throw new IllegalArgumentException("panes is required");
         this.panes = List.copyOf(Wire.nonNull(builder.panes, "panes"));
         this.shortId = builder.shortId;
+        this.viewportBaseWidth = builder.viewportBaseWidth;
+        this.viewportSplits = builder.viewportSplits.map(value -> List.copyOf(value));
         if (!builder.zoomedPaneSet) throw new IllegalArgumentException("zoomed_pane is required");
         this.zoomedPane = builder.zoomedPane;
     }
@@ -42,11 +48,14 @@ public final class Screen implements WireValue {
 
     public boolean active() { return active; }
     public UInt64 activePane() { return activePane; }
+    public Field<List<LayoutColumn>> columns() { return columns; }
     public UInt64 id() { return id; }
     public Layout layout() { return layout; }
     public String name() { return name; }
     public List<Pane> panes() { return panes; }
     public Field<String> shortId() { return shortId; }
+    public Field<Double> viewportBaseWidth() { return viewportBaseWidth; }
+    public Field<List<ViewportSplit>> viewportSplits() { return viewportSplits; }
     public UInt64 zoomedPane() { return zoomedPane; }
 
     public static Screen fromWire(Object value) {
@@ -56,6 +65,10 @@ public final class Screen implements WireValue {
         builder.active(Wire.bool(rawActive, "Screen.active"));
         Object rawActivePane = Wire.required(object, "active_pane");
         builder.activePane(Wire.uint64(rawActivePane, "Screen.active_pane"));
+        Object rawColumns = Wire.optional(object, "columns");
+        if (!Wire.isMissing(rawColumns)) {
+            builder.columns(Wire.array(rawColumns, "Screen.columns", item -> LayoutColumn.fromWire(item)));
+        }
         Object rawId = Wire.required(object, "id");
         builder.id(Wire.uint64(rawId, "Screen.id"));
         Object rawLayout = Wire.required(object, "layout");
@@ -68,6 +81,14 @@ public final class Screen implements WireValue {
         if (!Wire.isMissing(rawShortId)) {
             builder.shortId(Wire.string(rawShortId, "Screen.short_id"));
         }
+        Object rawViewportBaseWidth = Wire.optional(object, "viewport_base_width");
+        if (!Wire.isMissing(rawViewportBaseWidth)) {
+            builder.viewportBaseWidth(Wire.float64(rawViewportBaseWidth, "Screen.viewport_base_width"));
+        }
+        Object rawViewportSplits = Wire.optional(object, "viewport_splits");
+        if (!Wire.isMissing(rawViewportSplits)) {
+            builder.viewportSplits(Wire.array(rawViewportSplits, "Screen.viewport_splits", item -> ViewportSplit.fromWire(item)));
+        }
         Object rawZoomedPane = Wire.required(object, "zoomed_pane");
         builder.zoomedPane(rawZoomedPane == null ? null : Wire.uint64(rawZoomedPane, "Screen.zoomed_pane"));
         return builder.build();
@@ -78,11 +99,14 @@ public final class Screen implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "active", active);
         Wire.put(object, "active_pane", activePane);
+        Wire.put(object, "columns", columns);
         Wire.put(object, "id", id);
         Wire.put(object, "layout", layout);
         Wire.put(object, "name", name);
         Wire.put(object, "panes", panes);
         Wire.put(object, "short_id", shortId);
+        Wire.put(object, "viewport_base_width", viewportBaseWidth);
+        Wire.put(object, "viewport_splits", viewportSplits);
         Wire.put(object, "zoomed_pane", zoomedPane);
         return Collections.unmodifiableMap(object);
     }
@@ -90,11 +114,11 @@ public final class Screen implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof Screen that)) return false;
-        return Objects.equals(active, that.active) && Objects.equals(activePane, that.activePane) && Objects.equals(id, that.id) && Objects.equals(layout, that.layout) && Objects.equals(name, that.name) && Objects.equals(panes, that.panes) && Objects.equals(shortId, that.shortId) && Objects.equals(zoomedPane, that.zoomedPane);
+        return Objects.equals(active, that.active) && Objects.equals(activePane, that.activePane) && Objects.equals(columns, that.columns) && Objects.equals(id, that.id) && Objects.equals(layout, that.layout) && Objects.equals(name, that.name) && Objects.equals(panes, that.panes) && Objects.equals(shortId, that.shortId) && Objects.equals(viewportBaseWidth, that.viewportBaseWidth) && Objects.equals(viewportSplits, that.viewportSplits) && Objects.equals(zoomedPane, that.zoomedPane);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(active, activePane, id, layout, name, panes, shortId, zoomedPane); }
+    public int hashCode() { return Objects.hash(active, activePane, columns, id, layout, name, panes, shortId, viewportBaseWidth, viewportSplits, zoomedPane); }
 
     @Override
     public String toString() { return "Screen" + toWire(); }
@@ -104,6 +128,7 @@ public final class Screen implements WireValue {
         private boolean activeSet;
         private UInt64 activePane;
         private boolean activePaneSet;
+        private Field<List<LayoutColumn>> columns = Field.omitted();
         private UInt64 id;
         private boolean idSet;
         private Layout layout;
@@ -113,6 +138,8 @@ public final class Screen implements WireValue {
         private List<Pane> panes;
         private boolean panesSet;
         private Field<String> shortId = Field.omitted();
+        private Field<Double> viewportBaseWidth = Field.omitted();
+        private Field<List<ViewportSplit>> viewportSplits = Field.omitted();
         private UInt64 zoomedPane;
         private boolean zoomedPaneSet;
 
@@ -124,6 +151,10 @@ public final class Screen implements WireValue {
         public Builder activePane(UInt64 value) {
             this.activePane = value;
             this.activePaneSet = true;
+            return this;
+        }
+        public Builder columns(List<LayoutColumn> value) {
+            this.columns = Field.of(value);
             return this;
         }
         public Builder id(UInt64 value) {
@@ -148,6 +179,14 @@ public final class Screen implements WireValue {
         }
         public Builder shortId(String value) {
             this.shortId = Field.of(value);
+            return this;
+        }
+        public Builder viewportBaseWidth(Double value) {
+            this.viewportBaseWidth = Field.of(value);
+            return this;
+        }
+        public Builder viewportSplits(List<ViewportSplit> value) {
+            this.viewportSplits = Field.of(value);
             return this;
         }
         public Builder zoomedPane(UInt64 value) {

@@ -4,6 +4,7 @@ import {
 } from "./client.js";
 import type { CmuxAuthority } from "./generated/metadata.js";
 import { defaultSocketPath, envSocketPath, UnixSocketTransport } from "../node-transport.js";
+import { validateRequestTimeout } from "../internal/request-timeout.js";
 import type { Transport } from "../transport.js";
 
 /** Node.js client configuration, including Unix-socket defaults. */
@@ -36,12 +37,13 @@ export class CmuxClient extends TransportCmuxClient {
   readonly socketPath: string;
 
   constructor(options: ClientOptions = {}) {
+    const timeoutMs = validateRequestTimeout(options.timeoutMs ?? 10_000);
     const socketPath = options.socketPath ?? envSocketPath() ?? defaultSocketPath(options.session ?? "main");
     const shared: CmuxClientOptions = {
       transport: options.transport ?? new UnixSocketTransport(socketPath),
       authorities: options.authorities ?? ["control", "frontend", "local-admin"],
       enableProviderAuthority: options.enableProviderAuthority,
-      timeoutMs: options.timeoutMs,
+      timeoutMs,
       streamIdleTimeoutMs: options.streamIdleTimeoutMs,
       allowProtocolV6Attach: options.allowProtocolV6Attach,
       maxBufferedEvents: options.maxBufferedEvents,

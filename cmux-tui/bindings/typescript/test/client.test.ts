@@ -45,6 +45,27 @@ class ScriptedTransport implements Transport {
   }
 }
 
+class SubscriptionTrackingTransport implements Transport {
+  messageSubscriptions = 0;
+  closeSubscriptions = 0;
+  errorSubscriptions = 0;
+
+  send(): void {}
+  onMessage(): Unsubscribe {
+    this.messageSubscriptions += 1;
+    return () => undefined;
+  }
+  onClose(): Unsubscribe {
+    this.closeSubscriptions += 1;
+    return () => undefined;
+  }
+  onError(): Unsubscribe {
+    this.errorSubscriptions += 1;
+    return () => undefined;
+  }
+  close(): void {}
+}
+
 function completeIdentifyResult(
   data: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -80,6 +101,26 @@ function identifyResult(
     capabilities: [...capabilities],
   });
 }
+
+test("client constructor rejects invalid command timeouts before subscribing", () => {
+  for (const timeoutMs of [-1, Number.NaN, Number.POSITIVE_INFINITY, 0x8000_0000]) {
+    const transport = new SubscriptionTrackingTransport();
+
+    assert.throws(
+      () => new CmuxClient({ transport, timeoutMs }),
+      (error: unknown) => {
+        assert.ok(error instanceof TypeError);
+        assert.equal(error.message, "timeoutMs must be between 0 and 2147483647");
+        return true;
+      },
+    );
+    assert.deepEqual({
+      message: transport.messageSubscriptions,
+      close: transport.closeSubscriptions,
+      error: transport.errorSubscriptions,
+    }, { message: 0, close: 0, error: 0 });
+  }
+});
 
 class TrackingAbortSignal {
   aborted = false;

@@ -35,9 +35,9 @@ mod ui;
 #[cfg(target_os = "linux")]
 use std::ffi::CStr;
 use std::ffi::OsString;
-use std::io::{self, IsTerminal};
+use std::io::{self, BufRead, BufReader, IsTerminal, Read, Write};
 use std::net::Shutdown;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -474,6 +474,149 @@ fn version_string() -> String {
         (Some(commit), None) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
         (None, _) => env!("CARGO_PKG_VERSION").to_string(),
     }
+}
+
+#[cfg(unix)]
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+#[cfg(windows)]
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+#[cfg(unix)]
+fn shell_prompt() -> &'static str {
+    ""
+}
+
+#[cfg(windows)]
+fn shell_prompt() -> &'static str {
+    "PowerShell> "
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum SchemaSocketOwner {
+    Absent,
+    Matching { pid: u32, generation: String },
+    ForcedHandoffUnsupported,
+    Different,
+    Unverified,
+}
+
+fn schema_socket_owner(
+    socket_path: &Path,
+    expected_session: &str,
+    expected_registry_id: Option<&str>,
+) -> SchemaSocketOwner {
+    let stream = match cmux_tui_core::platform::transport::connect(socket_path) {
+        Ok(stream) => stream,
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+            ) =>
+        {
+            return SchemaSocketOwner::Absent;
+        }
+        Err(_) => return SchemaSocketOwner::Unverified,
+    };
+    let timeout = Some(std::time::Duration::from_millis(500));
+    if stream.set_read_timeout(timeout).is_err() || stream.set_write_timeout(timeout).is_err() {
+        return SchemaSocketOwner::Unverified;
+    }
+    let Ok(mut writer) = stream.try_clone_box() else {
+        return SchemaSocketOwner::Unverified;
+    };
+    if writer.write_all(b"{\"id\":0,\"cmd\":\"identify\"}\n").and_then(|()| writer.flush()).is_err()
+    {
+        return SchemaSocketOwner::Unverified;
+    }
+    let mut reader = BufReader::new(stream).take(64 * 1024);
+    let mut line = String::new();
+    if reader.read_line(&mut line).is_err() || !line.ends_with('\n') {
+        return SchemaSocketOwner::Unverified;
+    }
+    let Ok(response) = serde_json::from_str::<serde_json::Value>(&line) else {
+        return SchemaSocketOwner::Unverified;
+    };
+    let data = &response["data"];
+    if response["id"] != 0 || response["ok"] != true || data["app"] != "cmux-tui" {
+        return SchemaSocketOwner::Unverified;
+    }
+    let Some(expected_registry_id) = expected_registry_id else {
+        return SchemaSocketOwner::Unverified;
+    };
+    if data["session"] != expected_session || data["registry_id"] != expected_registry_id {
+        return SchemaSocketOwner::Different;
+    }
+    if !data["capabilities"].as_array().is_some_and(|capabilities| {
+        capabilities
+            .iter()
+            .any(|capability| capability == cmux_tui_core::server::DAEMON_HANDOFF_FORCE_CAPABILITY)
+    }) {
+        return SchemaSocketOwner::ForcedHandoffUnsupported;
+    }
+    let Some(pid) = data["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok()) else {
+        return SchemaSocketOwner::Unverified;
+    };
+    let Some(generation) = data["generation"].as_str().filter(|generation| !generation.is_empty())
+    else {
+        return SchemaSocketOwner::Unverified;
+    };
+    SchemaSocketOwner::Matching { pid, generation: generation.to_string() }
+}
+
+fn workspace_schema_startup_error(
+    error: anyhow::Error,
+    session: &str,
+    socket_path: &Path,
+) -> anyhow::Error {
+    let Some(schema) = error.downcast_ref::<cmux_tui_core::UnsupportedWorkspaceRegistrySchema>()
+    else {
+        return error;
+    };
+    let messages = &localization::catalog().startup;
+    let socket = socket_path.display().to_string();
+    let socket_recovery = match schema_socket_owner(socket_path, session, schema.registry_id()) {
+        SchemaSocketOwner::Matching { pid, generation } => {
+            let request = serde_json::to_string(&serde_json::json!({
+                "cmd": "shutdown-daemon",
+                "force": true,
+                "generation": generation,
+                "id": 1,
+                "pid": pid,
+            }))
+            .expect("daemon shutdown request is serializable");
+            let stop_command = format!(
+                "{}cmux --socket {} raw command --request-json {}",
+                shell_prompt(),
+                shell_quote(&socket),
+                shell_quote(&request),
+            );
+            format!("{}\n  {stop_command}", messages.stop_newer_server)
+        }
+        SchemaSocketOwner::Absent => messages.no_server_listening.to_string(),
+        SchemaSocketOwner::ForcedHandoffUnsupported => {
+            messages.forced_handoff_unsupported.to_string()
+        }
+        SchemaSocketOwner::Different => messages.different_server.to_string(),
+        SchemaSocketOwner::Unverified => messages.server_not_verified.to_string(),
+    };
+    let separate_session = format!("{session}-separate");
+    let separate_command =
+        format!("{}cmux --session {}", shell_prompt(), shell_quote(&separate_session));
+    anyhow::anyhow!(format!(
+        "{}\n{}: {}\n{}\n{}\n{}\n  {}",
+        messages.schema_too_new(session, &version_string()),
+        messages.session_socket,
+        socket,
+        socket_recovery,
+        messages.saved_state_requires_newer,
+        messages.start_separate_session,
+        separate_command,
+    ))
 }
 
 impl Args {
@@ -980,7 +1123,8 @@ fn run_server(
             (_, Some(_), true) => {
                 unreachable!("conflicting provider authority inputs rejected above")
             }
-        }?;
+        }
+        .map_err(|error| workspace_schema_startup_error(error, &args.session, &socket_path))?;
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.
     mux.seed_default_colors_if_no_durable_override(config.terminal_defaults);
@@ -1251,7 +1395,7 @@ fn run_tui_once(
     )
 }
 
-fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result<()> {
+fn run_headless(mux: &Arc<Mux>, socket_path: &Path) -> anyhow::Result<()> {
     eprintln!("cmux-tui: headless, control socket at {}", socket_path.display());
     // Keep the process alive; the control socket drives everything and
     // the mux reaps exited surfaces itself.
@@ -1281,6 +1425,13 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn recovery_commands_identify_the_powershell_dialect() {
+        assert_eq!(shell_prompt(), "PowerShell> ");
+        assert_eq!(shell_quote(r"C:\future session.sock"), r"'C:\future session.sock'");
     }
 
     #[test]

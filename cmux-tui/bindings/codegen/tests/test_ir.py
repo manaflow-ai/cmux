@@ -137,6 +137,36 @@ class IrTests(unittest.TestCase):
                         None,
                         None,
                     ),
+                    "kind": (
+                        "ref",
+                        "PaneKind",
+                        "optional",
+                        True,
+                        True,
+                        None,
+                        10,
+                        "independent-client-selection-v1",
+                    ),
+                    "url": (
+                        "scalar",
+                        "string",
+                        "optional",
+                        True,
+                        True,
+                        None,
+                        10,
+                        "independent-client-selection-v1",
+                    ),
+                    "activate": (
+                        "scalar",
+                        "boolean",
+                        "optional",
+                        True,
+                        True,
+                        None,
+                        10,
+                        "independent-client-selection-v1",
+                    ),
                 },
             },
             "set-viewport-pane-width": {
@@ -240,6 +270,46 @@ class IrTests(unittest.TestCase):
                 {"kind": "ref", "name": "LayoutUndoUndone"},
                 {"kind": "ref", "name": "LayoutUndoConfirmationRequired"},
             ),
+        )
+
+    def test_live_raw_v10_canonical_layout_relocation_contracts_are_exact(self) -> None:
+        ir = load_ir(LIVE_SCHEMA)
+
+        expected_fields = {
+            "move-tab-to-split": {"surface", "pane", "dir", "insert_first", "activate"},
+            "move-tab-to-new-column": {"surface", "index", "width", "activate"},
+            "merge-pane": {"pane", "target", "index", "activate"},
+            "move-pane-to-split": {"pane", "target", "dir", "insert_first", "activate"},
+            "move-pane-to-new-column": {"pane", "index", "width", "activate"},
+        }
+        for wire_name, fields in expected_fields.items():
+            with self.subTest(command=wire_name):
+                command = ir.command(wire_name)
+                self.assertEqual(command["since"], 10)
+                self.assertEqual(command["capability"], "canonical-layout-relocation-v1")
+                self.assertEqual(
+                    dict(command["result"]),
+                    {"kind": "ref", "name": "PlacementResult"},
+                )
+                self.assertEqual(set(command["request"]["fields"]), fields)
+                activate = command["request"]["fields"]["activate"]
+                self.assertEqual(
+                    activate["capability"],
+                    "independent-client-selection-v1",
+                )
+
+        screen_fields = ir.type("Screen")["fields"]
+        self.assertEqual(
+            screen_fields["columns"]["capability"],
+            "canonical-layout-columns-v1",
+        )
+        self.assertEqual(
+            screen_fields["columns"]["type"]["items"],
+            {"kind": "ref", "name": "LayoutColumn"},
+        )
+        self.assertEqual(
+            set(ir.type("PlacementResult")["fields"]),
+            {"surface", "pane", "screen", "workspace"},
         )
 
     def test_live_raw_v10_tab_exposes_clear_history_key_fallback_support(self) -> None:

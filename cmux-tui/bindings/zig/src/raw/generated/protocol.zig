@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 10;
-pub const ir_sha256 = "c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd";
+pub const ir_sha256 = "05f952383037543fc9083005dd4d45e44b362e9624d80cd37f563c12c1e83c88";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -406,6 +406,12 @@ pub const Layout = union(enum) {
     }
 };
 
+pub const LayoutColumn = struct {
+    id: Id,
+    layout: Layout,
+    width: f32,
+};
+
 pub const LayoutUndoConfirmationRequired = struct {
     closes_panes: []const Id,
     confirmation_required: bool,
@@ -477,6 +483,26 @@ pub const MintTerminalRendererResult = struct {
     terminal_id: []const u8,
     token: []const u8,
     ttl_ms: u64,
+};
+
+pub const MoveTabResult = union(enum) {
+    placement_result: PlacementResult,
+    empty_result: EmptyResult,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .placement_result => |payload| try wire.encodeValue(allocator, payload),
+            .empty_result => |payload| try wire.encodeValue(allocator, payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        _ = allocator;
+        _ = value;
+        return error.AmbiguousUnion;
+    }
 };
 
 pub const MoveTerminalResult = struct {
@@ -571,6 +597,24 @@ pub const PaneDirection = enum {
     }
 };
 
+pub const PaneKind = enum {
+    pty,
+    browser,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "pty")) return .pty;
+        if (std.mem.eql(u8, value, "browser")) return .browser;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .pty => "pty",
+            .browser => "browser",
+        };
+    }
+};
+
 pub const PaneNeighborResult = struct {
     pane: wire.Nullable(Id),
 };
@@ -581,6 +625,13 @@ pub const PingResult = struct {
     ok: bool,
     protocol: u32,
     version: []const u8,
+};
+
+pub const PlacementResult = struct {
+    pane: Id,
+    screen: Id,
+    surface: Id,
+    workspace: Id,
 };
 
 pub const ProcessInfoResult = struct {
@@ -697,15 +748,21 @@ pub const RunResult = struct {
 pub const Screen = struct {
     active: bool,
     active_pane: Id,
+    columns: ?[]const LayoutColumn = null,
     id: Id,
     layout: Layout,
     name: wire.Nullable([]const u8),
     panes: []const Pane,
     short_id: ?[]const u8 = null,
+    viewport_base_width: ?f32 = null,
+    viewport_splits: ?[]const ViewportSplit = null,
     zoomed_pane: wire.Nullable(Id),
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "columns",
         "short_id",
+        "viewport_base_width",
+        "viewport_splits",
     };
 };
 
@@ -750,9 +807,18 @@ pub const SplitDirection = enum {
 };
 
 pub const SurfaceResult = struct {
+    pane: ?Id = null,
+    screen: ?Id = null,
     surface: Id,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
+    workspace: ?Id = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "pane",
+        "screen",
+        "workspace",
+    };
 };
 
 pub const TabBrowserSource = enum {
@@ -1332,6 +1398,11 @@ pub const Tree = struct {
         "terminal_revision",
         "workspace_revision",
     };
+};
+
+pub const ViewportSplit = struct {
+    split: Id,
+    width: f32,
 };
 
 pub const VtStateResult = struct {
@@ -1999,6 +2070,7 @@ pub fn copy(client: anytype, request: CopyRequest) !wire.Decoded(CopyResult) {
 }
 
 pub const CreateTerminalRequest = struct {
+    activate: wire.Field(bool) = .absent,
     argv: wire.Field([]const []const u8) = .absent,
     cols: wire.Field(u16) = .absent,
     command: wire.Field([]const u8) = .absent,
@@ -2009,6 +2081,7 @@ pub const CreateTerminalRequest = struct {
     mutation_id: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
+    pane: wire.Field(Id) = .absent,
     rows: wire.Field(u16) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
@@ -2025,6 +2098,8 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
             .since = 7,
             .capability = "workspace-registry-v1",
             .fields = &.{
+                .{ .name = "activate", .since = 10, .capability = "independent-client-selection-v1" },
+                .{ .name = "pane", .since = 10, .capability = "independent-client-selection-v1" },
                 .{ .name = "terminal_id", .since = 9, .capability = null },
             },
         },
@@ -2033,6 +2108,7 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
 }
 
 pub const CreateWorkspaceRequest = struct {
+    activate: wire.Field(bool) = .absent,
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
     key: wire.Field([]const u8) = .absent,
@@ -2051,6 +2127,9 @@ pub fn createWorkspace(client: anytype, request: CreateWorkspaceRequest) !wire.D
             .authority = "control",
             .since = 7,
             .capability = "workspace-registry-v1",
+            .fields = &.{
+                .{ .name = "activate", .since = 10, .capability = "independent-client-selection-v1" },
+            },
         },
         request,
     );
@@ -2292,6 +2371,31 @@ pub fn markWorkspacesProviderManaged(client: anytype, request: MarkWorkspacesPro
     );
 }
 
+pub const MergePaneRequest = struct {
+    activate: wire.Field(bool) = .absent,
+    index: u64,
+    pane: Id,
+    target: Id,
+};
+
+pub const MergePaneResult = PlacementResult;
+
+pub fn mergePane(client: anytype, request: MergePaneRequest) !wire.Decoded(MergePaneResult) {
+    return client.callTyped(
+        MergePaneResult,
+        .{
+            .name = "merge-pane",
+            .authority = "control",
+            .since = 10,
+            .capability = "canonical-layout-relocation-v1",
+            .fields = &.{
+                .{ .name = "activate", .since = null, .capability = "independent-client-selection-v1" },
+            },
+        },
+        request,
+    );
+}
+
 pub const MintTerminalRendererRequest = struct {
     surface: Id,
     ttl_ms: ?u64 = null,
@@ -2314,13 +2418,67 @@ pub fn mintTerminalRenderer(client: anytype, request: MintTerminalRendererReques
     );
 }
 
+pub const MovePaneToNewColumnRequest = struct {
+    activate: wire.Field(bool) = .absent,
+    index: u64,
+    pane: Id,
+    width: f32,
+};
+
+pub const MovePaneToNewColumnResult = PlacementResult;
+
+pub fn movePaneToNewColumn(client: anytype, request: MovePaneToNewColumnRequest) !wire.Decoded(MovePaneToNewColumnResult) {
+    return client.callTyped(
+        MovePaneToNewColumnResult,
+        .{
+            .name = "move-pane-to-new-column",
+            .authority = "control",
+            .since = 10,
+            .capability = "canonical-layout-relocation-v1",
+            .fields = &.{
+                .{ .name = "activate", .since = null, .capability = "independent-client-selection-v1" },
+            },
+        },
+        request,
+    );
+}
+
+pub const MovePaneToSplitRequest = struct {
+    activate: wire.Field(bool) = .absent,
+    dir: SplitDirection,
+    insert_first: ?bool = null,
+    pane: Id,
+    target: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "insert_first",
+    };
+};
+
+pub const MovePaneToSplitResult = PlacementResult;
+
+pub fn movePaneToSplit(client: anytype, request: MovePaneToSplitRequest) !wire.Decoded(MovePaneToSplitResult) {
+    return client.callTyped(
+        MovePaneToSplitResult,
+        .{
+            .name = "move-pane-to-split",
+            .authority = "control",
+            .since = 10,
+            .capability = "canonical-layout-relocation-v1",
+            .fields = &.{
+                .{ .name = "activate", .since = null, .capability = "independent-client-selection-v1" },
+            },
+        },
+        request,
+    );
+}
+
 pub const MoveTabRequest = struct {
+    activate: wire.Field(bool) = .absent,
     index: u64,
     pane: Id,
     surface: Id,
 };
-
-pub const MoveTabResult = EmptyResult;
 
 pub fn moveTab(client: anytype, request: MoveTabRequest) !wire.Decoded(MoveTabResult) {
     return client.callTyped(
@@ -2330,6 +2488,64 @@ pub fn moveTab(client: anytype, request: MoveTabRequest) !wire.Decoded(MoveTabRe
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "activate", .since = 10, .capability = "independent-client-selection-v1" },
+            },
+        },
+        request,
+    );
+}
+
+pub const MoveTabToNewColumnRequest = struct {
+    activate: wire.Field(bool) = .absent,
+    index: u64,
+    surface: Id,
+    width: f32,
+};
+
+pub const MoveTabToNewColumnResult = PlacementResult;
+
+pub fn moveTabToNewColumn(client: anytype, request: MoveTabToNewColumnRequest) !wire.Decoded(MoveTabToNewColumnResult) {
+    return client.callTyped(
+        MoveTabToNewColumnResult,
+        .{
+            .name = "move-tab-to-new-column",
+            .authority = "control",
+            .since = 10,
+            .capability = "canonical-layout-relocation-v1",
+            .fields = &.{
+                .{ .name = "activate", .since = null, .capability = "independent-client-selection-v1" },
+            },
+        },
+        request,
+    );
+}
+
+pub const MoveTabToSplitRequest = struct {
+    activate: wire.Field(bool) = .absent,
+    dir: SplitDirection,
+    insert_first: ?bool = null,
+    pane: Id,
+    surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "insert_first",
+    };
+};
+
+pub const MoveTabToSplitResult = PlacementResult;
+
+pub fn moveTabToSplit(client: anytype, request: MoveTabToSplitRequest) !wire.Decoded(MoveTabToSplitResult) {
+    return client.callTyped(
+        MoveTabToSplitResult,
+        .{
+            .name = "move-tab-to-split",
+            .authority = "control",
+            .since = 10,
+            .capability = "canonical-layout-relocation-v1",
+            .fields = &.{
+                .{ .name = "activate", .since = null, .capability = "independent-client-selection-v1" },
+            },
         },
         request,
     );
@@ -2391,7 +2607,9 @@ pub fn moveWorkspace(client: anytype, request: MoveWorkspaceRequest) !wire.Decod
 }
 
 pub const NewBrowserTabRequest = struct {
+    activate: wire.Field(bool) = .absent,
     cols: wire.Field(u16) = .absent,
+    index: wire.Field(u64) = .absent,
     pane: wire.Field(Id) = .absent,
     rows: wire.Field(u16) = .absent,
     url: []const u8,
@@ -2407,12 +2625,17 @@ pub fn newBrowserTab(client: anytype, request: NewBrowserTabRequest) !wire.Decod
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "activate", .since = 10, .capability = "independent-client-selection-v1" },
+                .{ .name = "index", .since = 10, .capability = "independent-client-selection-v1" },
+            },
         },
         request,
     );
 }
 
 pub const NewPaneRequest = struct {
+    activate: wire.Field(bool) = .absent,
     cols: wire.Field(u16) = .absent,
     pane: Id,
     rows: wire.Field(u16) = .absent,
@@ -2428,15 +2651,21 @@ pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneRe
             .authority = "control",
             .since = 9,
             .capability = null,
+            .fields = &.{
+                .{ .name = "activate", .since = 10, .capability = "independent-client-selection-v1" },
+            },
         },
         request,
     );
 }
 
 pub const NewPaneRightRequest = struct {
+    activate: wire.Field(bool) = .absent,
     cols: wire.Field(u16) = .absent,
+    kind: wire.Field(PaneKind) = .absent,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    url: wire.Field([]const u8) = .absent,
     width: wire.Field(f32) = .absent,
 };
 
@@ -2450,12 +2679,18 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
             .authority = "control",
             .since = 9,
             .capability = "viewport-splits-v1",
+            .fields = &.{
+                .{ .name = "activate", .since = 10, .capability = "independent-client-selection-v1" },
+                .{ .name = "kind", .since = 10, .capability = "independent-client-selection-v1" },
+                .{ .name = "url", .since = 10, .capability = "independent-client-selection-v1" },
+            },
         },
         request,
     );
 }
 
 pub const NewScreenRequest = struct {
+    activate: wire.Field(bool) = .absent,
     cols: wire.Field(u16) = .absent,
     rows: wire.Field(u16) = .absent,
     workspace: wire.Field(Id) = .absent,
@@ -2471,6 +2706,9 @@ pub fn newScreen(client: anytype, request: NewScreenRequest) !wire.Decoded(NewSc
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "activate", .since = 10, .capability = "independent-client-selection-v1" },
+            },
         },
         request,
     );
@@ -3240,8 +3478,13 @@ pub fn setWindowTitle(client: anytype, request: SetWindowTitleRequest) !wire.Dec
 }
 
 pub const ShutdownDaemonRequest = struct {
+    force: ?bool = null,
     generation: []const u8,
     pid: u32,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "force",
+    };
 };
 
 pub fn shutdownDaemon(client: anytype, request: ShutdownDaemonRequest) !wire.Decoded(ShutdownDaemonResult) {
@@ -3252,6 +3495,9 @@ pub fn shutdownDaemon(client: anytype, request: ShutdownDaemonRequest) !wire.Dec
             .authority = "local-admin",
             .since = 9,
             .capability = null,
+            .fields = &.{
+                .{ .name = "force", .since = 10, .capability = "daemon-handoff-force-v1" },
+            },
         },
         request,
     );
@@ -3281,10 +3527,13 @@ pub fn sidebarPlugin(client: anytype, request: SidebarPluginRequest) !wire.Decod
 }
 
 pub const SplitRequest = struct {
+    activate: wire.Field(bool) = .absent,
     cols: wire.Field(u16) = .absent,
     dir: SplitDirection,
+    kind: wire.Field(PaneKind) = .absent,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    url: wire.Field([]const u8) = .absent,
 };
 
 pub const SplitResult = SurfaceResult;
@@ -3297,6 +3546,11 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "activate", .since = 10, .capability = "independent-client-selection-v1" },
+                .{ .name = "kind", .since = 10, .capability = "independent-client-selection-v1" },
+                .{ .name = "url", .since = 10, .capability = "independent-client-selection-v1" },
+            },
         },
         request,
     );
@@ -4251,7 +4505,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 91;
+pub const command_count: usize = 96;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -4291,8 +4545,13 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "list-terminals", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "list-workspaces", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "mark-workspaces-provider-managed", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
+    .{ .name = "merge-pane", .authority = "control", .since = 10, .capability = "canonical-layout-relocation-v1", .stream = null },
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
+    .{ .name = "move-pane-to-new-column", .authority = "control", .since = 10, .capability = "canonical-layout-relocation-v1", .stream = null },
+    .{ .name = "move-pane-to-split", .authority = "control", .since = 10, .capability = "canonical-layout-relocation-v1", .stream = null },
     .{ .name = "move-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "move-tab-to-new-column", .authority = "control", .since = 10, .capability = "canonical-layout-relocation-v1", .stream = null },
+    .{ .name = "move-tab-to-split", .authority = "control", .since = 10, .capability = "canonical-layout-relocation-v1", .stream = null },
     .{ .name = "move-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "move-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-browser-tab", .authority = "control", .since = 5, .capability = null, .stream = null },

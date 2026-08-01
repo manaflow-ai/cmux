@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd. */
+/* cmux-tui mux protocol 10, IR 05f952383037543fc9083005dd4d45e44b362e9624d80cd37f563c12c1e83c88. */
 
 
 import type * as T from "./types.js";
@@ -245,6 +245,7 @@ export interface CopyRequest extends CmuxRequestBase {
 /** Protocol v7; authority: control. */
 export interface CreateTerminalRequest extends CmuxRequestBase {
   cmd: "create-terminal";
+  "activate"?: (boolean) | null;
   "argv"?: (Array<string>) | null;
   "cols"?: (number) | null;
   "command"?: (string) | null;
@@ -255,6 +256,7 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "mutation_id"?: (string) | null;
   "name"?: (string) | null;
   "origin"?: (string) | null;
+  "pane"?: (T.Id) | null;
   "rows"?: (number) | null;
   "terminal_id"?: (string) | null;
   "workspace"?: (T.Id) | null;
@@ -264,6 +266,7 @@ export type CreateTerminalResult = T.TerminalPlacement;
 /** Protocol v7; authority: control. */
 export interface CreateWorkspaceRequest extends CmuxRequestBase {
   cmd: "create-workspace";
+  "activate"?: (boolean) | null;
   "expected_generation"?: (string) | null;
   "expected_revision"?: (bigint) | null;
   "key"?: (string) | null;
@@ -351,6 +354,16 @@ export interface MarkWorkspacesProviderManagedRequest extends CmuxRequestBase {
 }
 export type MarkWorkspacesProviderManagedResult = T.EmptyResult;
 
+/** Protocol v10; authority: control. */
+export interface MergePaneRequest extends CmuxRequestBase {
+  cmd: "merge-pane";
+  "activate"?: (boolean) | null;
+  "index": bigint;
+  "pane": T.Id;
+  "target": T.Id;
+}
+export type MergePaneResult = T.PlacementResult;
+
 /** Protocol v9; authority: frontend. */
 export interface MintTerminalRendererRequest extends CmuxRequestBase {
   cmd: "mint-terminal-renderer";
@@ -358,14 +371,56 @@ export interface MintTerminalRendererRequest extends CmuxRequestBase {
   "ttl_ms"?: bigint;
 }
 
+/** Protocol v10; authority: control. */
+export interface MovePaneToNewColumnRequest extends CmuxRequestBase {
+  cmd: "move-pane-to-new-column";
+  "activate"?: (boolean) | null;
+  "index": bigint;
+  "pane": T.Id;
+  "width": number;
+}
+export type MovePaneToNewColumnResult = T.PlacementResult;
+
+/** Protocol v10; authority: control. */
+export interface MovePaneToSplitRequest extends CmuxRequestBase {
+  cmd: "move-pane-to-split";
+  "activate"?: (boolean) | null;
+  "dir": T.SplitDirection;
+  "insert_first"?: boolean;
+  "pane": T.Id;
+  "target": T.Id;
+}
+export type MovePaneToSplitResult = T.PlacementResult;
+
 /** Protocol v5; authority: control. */
 export interface MoveTabRequest extends CmuxRequestBase {
   cmd: "move-tab";
+  "activate"?: (boolean) | null;
   "index": bigint;
   "pane": T.Id;
   "surface": T.Id;
 }
-export type MoveTabResult = T.EmptyResult;
+
+/** Protocol v10; authority: control. */
+export interface MoveTabToNewColumnRequest extends CmuxRequestBase {
+  cmd: "move-tab-to-new-column";
+  "activate"?: (boolean) | null;
+  "index": bigint;
+  "surface": T.Id;
+  "width": number;
+}
+export type MoveTabToNewColumnResult = T.PlacementResult;
+
+/** Protocol v10; authority: control. */
+export interface MoveTabToSplitRequest extends CmuxRequestBase {
+  cmd: "move-tab-to-split";
+  "activate"?: (boolean) | null;
+  "dir": T.SplitDirection;
+  "insert_first"?: boolean;
+  "pane": T.Id;
+  "surface": T.Id;
+}
+export type MoveTabToSplitResult = T.PlacementResult;
 
 /** Protocol v9; authority: control. */
 export interface MoveTerminalRequest extends CmuxRequestBase {
@@ -395,7 +450,9 @@ export type MoveWorkspaceResult = T.WorkspaceMutationResult;
 /** Protocol v5; authority: control. */
 export interface NewBrowserTabRequest extends CmuxRequestBase {
   cmd: "new-browser-tab";
+  "activate"?: (boolean) | null;
   "cols"?: (number) | null;
+  "index"?: (bigint) | null;
   "pane"?: (T.Id) | null;
   "rows"?: (number) | null;
   "url": string;
@@ -405,6 +462,7 @@ export type NewBrowserTabResult = T.SurfaceResult;
 /** Protocol v9; authority: control. */
 export interface NewPaneRequest extends CmuxRequestBase {
   cmd: "new-pane";
+  "activate"?: (boolean) | null;
   "cols"?: (number) | null;
   "pane": T.Id;
   "rows"?: (number) | null;
@@ -414,9 +472,12 @@ export type NewPaneResult = T.SurfaceResult;
 /** Protocol v9; authority: control. */
 export interface NewPaneRightRequest extends CmuxRequestBase {
   cmd: "new-pane-right";
+  "activate"?: (boolean) | null;
   "cols"?: (number) | null;
+  "kind"?: (T.PaneKind) | null;
   "pane": T.Id;
   "rows"?: (number) | null;
+  "url"?: (string) | null;
   "width"?: (number) | null;
 }
 export type NewPaneRightResult = T.SurfaceResult;
@@ -424,6 +485,7 @@ export type NewPaneRightResult = T.SurfaceResult;
 /** Protocol v5; authority: control. */
 export interface NewScreenRequest extends CmuxRequestBase {
   cmd: "new-screen";
+  "activate"?: (boolean) | null;
   "cols"?: (number) | null;
   "rows"?: (number) | null;
   "workspace"?: (T.Id) | null;
@@ -745,6 +807,7 @@ export type SetWindowTitleResult = T.EmptyResult;
 /** Protocol v9; authority: local-admin. */
 export interface ShutdownDaemonRequest extends CmuxRequestBase {
   cmd: "shutdown-daemon";
+  "force"?: boolean;
   "generation": string;
   "pid": number;
 }
@@ -760,10 +823,13 @@ export interface SidebarPluginRequest extends CmuxRequestBase {
 /** Protocol v5; authority: control. */
 export interface SplitRequest extends CmuxRequestBase {
   cmd: "split";
+  "activate"?: (boolean) | null;
   "cols"?: (number) | null;
   "dir": T.SplitDirection;
+  "kind"?: (T.PaneKind) | null;
   "pane": T.Id;
   "rows"?: (number) | null;
+  "url"?: (string) | null;
 }
 export type SplitResult = T.SurfaceResult;
 
@@ -861,8 +927,13 @@ export type CmuxRequest =
   | ListTerminalsRequest
   | ListWorkspacesRequest
   | MarkWorkspacesProviderManagedRequest
+  | MergePaneRequest
   | MintTerminalRendererRequest
+  | MovePaneToNewColumnRequest
+  | MovePaneToSplitRequest
   | MoveTabRequest
+  | MoveTabToNewColumnRequest
+  | MoveTabToSplitRequest
   | MoveTerminalRequest
   | MoveWorkspaceRequest
   | NewBrowserTabRequest
@@ -1221,6 +1292,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "provider-managed-workspace-authority-v2";
     stream: null;
   };
+  "merge-pane": {
+    request: MergePaneRequest;
+    result: MergePaneResult;
+    authority: "control";
+    since: 10;
+    capability: "canonical-layout-relocation-v1";
+    stream: null;
+  };
   "mint-terminal-renderer": {
     request: MintTerminalRendererRequest;
     result: T.MintTerminalRendererResult;
@@ -1229,12 +1308,44 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "move-pane-to-new-column": {
+    request: MovePaneToNewColumnRequest;
+    result: MovePaneToNewColumnResult;
+    authority: "control";
+    since: 10;
+    capability: "canonical-layout-relocation-v1";
+    stream: null;
+  };
+  "move-pane-to-split": {
+    request: MovePaneToSplitRequest;
+    result: MovePaneToSplitResult;
+    authority: "control";
+    since: 10;
+    capability: "canonical-layout-relocation-v1";
+    stream: null;
+  };
   "move-tab": {
     request: MoveTabRequest;
-    result: MoveTabResult;
+    result: T.MoveTabResult;
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "move-tab-to-new-column": {
+    request: MoveTabToNewColumnRequest;
+    result: MoveTabToNewColumnResult;
+    authority: "control";
+    since: 10;
+    capability: "canonical-layout-relocation-v1";
+    stream: null;
+  };
+  "move-tab-to-split": {
+    request: MoveTabToSplitRequest;
+    result: MoveTabToSplitResult;
+    authority: "control";
+    since: 10;
+    capability: "canonical-layout-relocation-v1";
     stream: null;
   };
   "move-terminal": {
