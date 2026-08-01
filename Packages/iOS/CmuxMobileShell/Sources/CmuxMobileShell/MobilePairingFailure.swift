@@ -413,7 +413,7 @@ extension MobilePairingFailureCategory {
 
         if let connectionError = error as? MobileShellConnectionError {
             switch connectionError {
-            case .requestTimedOut:
+            case .requestTimedOut, .connectAttemptGated:
                 return .handshakeTimedOut(host: host, port: port)
             case .insecureManualRoute:
                 return .unsupportedRoute

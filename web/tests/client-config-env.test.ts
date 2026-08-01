@@ -50,6 +50,18 @@ describe("client config env validation", () => {
     expect(result.stderr).not.toContain("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID is required");
   });
 
+  test("rejects the retired annual Pro price override at startup", () => {
+    const result = importEnv({
+      ...requiredEnv,
+      STRIPE_PRO_YEARLY_PRICE_ID: "price_grandfathered_240",
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "STRIPE_PRO_YEARLY_PRICE_ID is retired; use STRIPE_PRO_YEARLY_288_PRICE_ID",
+    );
+  });
+
   test("allows explicit Vercel production deployments with all rate-limit ids unset", () => {
     // Rate limiting is opt-in: production deploys must survive every
     // rate-limit id being deleted from the environment.

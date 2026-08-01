@@ -192,7 +192,7 @@ struct CmxIrohRelayPolicyServiceTests {
         let tcpState = RelayPolicyServiceTCPState()
         var activation: Task<Void, Never>?
 
-        CmxIrohTCPFirstActivation.start(
+        CmxIrohTCPFirstActivation().start(
             startTCP: { tcpState.markStarted() },
             scheduleIroh: {
                 activation = Task {

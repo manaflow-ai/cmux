@@ -302,6 +302,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         scope: MobileShellScopeSnapshot,
         instances: [MobilePresenceReconnectEvidence]
     )?
+    var presencePushRecoveryThrottle = MobilePresencePushRecoveryThrottle()
     /// Whether the current attach ticket has a non-empty auth token and has not expired.
     public var hasActiveUnexpiredAttachTicket: Bool {
         guard let activeTicket,
@@ -1589,6 +1590,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // projections.
         resetStateSyncForAccountBoundary()
         lastPresenceReconnectEvidence = nil
+        presencePushRecoveryThrottle.reset()
+        pendingInactiveRecoveryTrigger = nil
         connectionRecoveryOwner.cancel()
         applyConnectionRecoveryOwnerState()
         invalidatePairingAttempt()
@@ -1972,6 +1975,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var networkPathObservationTask: Task<Void, Never>?
     let connectionRecoveryOwner = MobileConnectionRecoveryOwner()
     var lastReconnectStackUserID: String?
+    /// Whether the scene is in the active phase. Set by
+    /// `resumeForegroundRefresh()` / `suspendForegroundRefresh()`. Recovery
+    /// triggers that arrive while false park in
+    /// `pendingInactiveRecoveryTrigger` instead of dialing: a dial launched
+    /// during the backgrounding bounce suspends with the process (field
+    /// traces showed ~9.5s stalls) and then competes with the foreground
+    /// recovery pass.
+    var foregroundRefreshIsActive = true
+    /// The most recent recovery trigger parked while inactive, replayed once
+    /// by `recoverPendingInactiveRecoveryIfNeeded()` on foreground.
+    var pendingInactiveRecoveryTrigger: RecoveryTrigger?
 
     enum RecoveryTrigger: CustomStringConvertible {
         case networkChange
@@ -8957,7 +8971,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ticket probe has succeeded and a foreground replacement can proceed.
     private func preparePairingConnectionAttempt() {
         // Any explicit connect supersedes launch/network recovery, including a
-        // recovery suspended in a registry refresh for the same device id.
+        // recovery parked while the scene was inactive.
+        pendingInactiveRecoveryTrigger = nil
         connectionRecoveryOwner.cancel()
         applyConnectionRecoveryOwnerState()
         invalidateStoredMacReconnectAttempt()
@@ -11976,7 +11991,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 || normalizedMessage.contains("expired token")
                 || normalizedMessage.contains("token expired")
         case .invalidResponse, .connectionClosed, .requestTimedOut,
-             .transportWriteTimedOut, .routeCleanupBlocked,
+             .transportWriteTimedOut, .routeCleanupBlocked, .connectAttemptGated,
              .insecureManualRoute:
             return false
         }
