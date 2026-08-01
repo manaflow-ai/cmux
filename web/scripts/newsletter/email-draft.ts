@@ -47,6 +47,16 @@ if (!topic) {
       "`bun run newsletter:sync --apply` first to create it.",
   );
 }
+// Same fail-closed gate as the sync: this tooling never subscribes contacts
+// to topics, so drafting against an opt-out-by-default topic would suppress
+// the broadcast for nearly the whole segment.
+if (topic.defaultSubscription !== "opt_in") {
+  throw new Error(
+    `Topic "${topicName}" has default_subscription ` +
+      `"${topic.defaultSubscription}" but broadcasts require "opt_in" (the ` +
+      "setting is immutable). Recreate the topic in the Resend dashboard.",
+  );
+}
 
 const rendered = await renderTemplate(args.template, {
   subject: args.subject,

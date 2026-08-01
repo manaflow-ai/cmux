@@ -546,11 +546,10 @@ describe("ResendClient error handling", () => {
       writeSpacingMs: 0,
       maxRetryAfterMs: 10,
     });
-    const startedAt = Date.now();
+    // The hostile 3600s Retry-After is capped by maxRetryAfterMs; if the
+    // cap were ignored this test would blow the per-test timeout (4 waits
+    // of an hour each) instead of completing in milliseconds.
     await expect(limited.listSegments()).rejects.toThrow(/429/);
-    // The hostile 3600s Retry-After is capped (here to 10ms for the test),
-    // so all retries complete almost immediately instead of hanging hours.
-    expect(Date.now() - startedAt).toBeLessThan(2_000);
     expect(calls).toBe(5);
   });
 });

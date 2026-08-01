@@ -30,8 +30,12 @@ describe("product-update template", () => {
 
   test("always renders the CAN-SPAM physical postal address in the footer", async () => {
     const { html } = await renderTemplate("product-update");
+    // Assert every address component (street, locality, region, zip) so a
+    // partial footer cannot pass; the separator glyph may be HTML-escaped.
     expect(COMPANY_POSTAL_ADDRESS).toContain("Rowland Heights");
     expect(html).toContain("18428 Vantage Pointe Dr");
+    expect(html).toContain("Rowland Heights, CA 91748-5142");
+    expect(html).toContain("Manaflow, Inc.");
   });
 
   test("greeting override renders a concrete name and never 'undefined'", async () => {

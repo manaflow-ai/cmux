@@ -220,6 +220,7 @@ export class ResendClient {
   private async listAll<T extends { id: string }>(path: string): Promise<T[]> {
     const items: T[] = [];
     let after: string | null = null;
+    const seenCursors = new Set<string>();
     for (;;) {
       const separator = path.includes("?") ? "&" : "?";
       const pagedPath: string = after
@@ -236,13 +237,16 @@ export class ResendClient {
       }
       const nextAfter: string | null =
         data.length > 0 ? data[data.length - 1].id : null;
-      if (!nextAfter || nextAfter === after) {
+      // Guard against cursor cycles of any length, not just an immediately
+      // repeated cursor.
+      if (!nextAfter || seenCursors.has(nextAfter)) {
         throw new ResendApiError(
           `Resend reported more results for ${path} but pagination made no ` +
             "progress; refusing to continue with a truncated listing.",
           0,
         );
       }
+      seenCursors.add(nextAfter);
       after = nextAfter;
     }
   }

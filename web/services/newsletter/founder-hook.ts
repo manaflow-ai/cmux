@@ -20,13 +20,15 @@ import { normalizeEmail, splitDisplayName } from "./contacts";
 import type { ResendClient } from "./resend-client";
 import { FOUNDERS_SEGMENT_NAME, USERS_SEGMENT_NAME } from "./sync";
 
+// "added_to_segment" also covers re-adding an existing member: Resend
+// treats that as a no-op and reporting it separately would require an extra
+// membership read per webhook for telemetry-only value.
 export type FounderContactUpsertResult = {
   segmentName: string;
   outcome:
     | "created"
     | "added_to_segment"
     | "name_backfilled"
-    | "already_present"
     | "skipped_unsubscribed"
     | "skipped_missing_segment";
 };

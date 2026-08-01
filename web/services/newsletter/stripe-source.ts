@@ -22,6 +22,8 @@ import type { FetchLike } from "./resend-client";
 
 const STRIPE_API_BASE = "https://api.stripe.com";
 const PAGE_LIMIT = 100;
+// Per-request deadline so a stalled Stripe API cannot hang the sync.
+const REQUEST_TIMEOUT_MS = 30_000;
 
 type StripeCheckoutSession = {
   id: string;
@@ -69,17 +71,34 @@ export async function listFounderContacts(options: {
     if (startingAfter) {
       query.set("starting_after", startingAfter);
     }
-    const response = await fetchImpl(
-      `${STRIPE_API_BASE}/v1/checkout/sessions?${query.toString()}`,
-      {
-        method: "GET",
-        headers: { Authorization: `Bearer ${options.stripeSecretKey}` },
-      },
-    );
-    const text = await response.text();
-    if (response.status >= 400) {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS);
+    let text: string;
+    let status: number;
+    try {
+      const response = await fetchImpl(
+        `${STRIPE_API_BASE}/v1/checkout/sessions?${query.toString()}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${options.stripeSecretKey}` },
+          signal: abort.signal,
+        },
+      );
+      status = response.status;
+      text = await response.text();
+    } catch (cause) {
+      if (abort.signal.aborted) {
+        throw new Error(
+          `Stripe checkout session listing timed out after ${REQUEST_TIMEOUT_MS}ms`,
+        );
+      }
+      throw cause;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (status >= 400) {
       throw new Error(
-        `Stripe checkout session listing failed with ${response.status}: ${text.slice(0, 200)}`,
+        `Stripe checkout session listing failed with ${status}: ${text.slice(0, 200)}`,
       );
     }
     const page = JSON.parse(text) as StripeListPage;
@@ -106,14 +125,20 @@ export async function listFounderContacts(options: {
         skippedMissingEmail += 1;
         continue;
       }
-      if (byEmail.has(email)) {
+      const name = splitDisplayName(session.customer_details?.name);
+      const existing = byEmail.get(email);
+      if (!existing) {
+        byEmail.set(email, { email, ...name, sources: ["stripe"] });
         continue;
       }
-      byEmail.set(email, {
-        email,
-        ...splitDisplayName(session.customer_details?.name),
-        sources: ["stripe"],
-      });
+      // A founder can have several checkout sessions; keep the most
+      // complete name across them rather than whichever came first.
+      const completeness = (n: { firstName?: string; lastName?: string }) =>
+        (n.firstName ? 1 : 0) + (n.lastName ? 1 : 0);
+      if (completeness(name) > completeness(existing)) {
+        existing.firstName = name.firstName;
+        existing.lastName = name.lastName;
+      }
     }
     if (!page.has_more) {
       break;
