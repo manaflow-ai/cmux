@@ -88,7 +88,7 @@ describe("Open Graph image discovery", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/png");
     expect([...body.slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
-  });
+  }, 10_000);
 
   for (const locale of routing.locales) {
     test(

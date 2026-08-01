@@ -682,6 +682,34 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         (10, 5),
         "popup must inherit the opener's size, not the pane's active (non-opener) tab"
     );
+    let popup_snapshot = wait_for(
+        || {
+            let snapshot = rpc(
+                &socket_path,
+                json!({
+                    "protocol": "cmux.protocol/1",
+                    "type": "request",
+                    "id": "popup-public-snapshot",
+                    "operation": "session.snapshot",
+                    "params": {
+                        "machine": "current",
+                        "session": "current"
+                    }
+                }),
+            );
+            if snapshot["ok"] != true {
+                return None;
+            }
+            snapshot["result"]["browsers"]
+                .as_array()?
+                .iter()
+                .any(|browser| browser["url"] == "https://popup.test")
+                .then_some(snapshot)
+        },
+        Duration::from_secs(10),
+    )
+    .expect("adopted popup entered the durable public projection");
+    assert_eq!(popup_snapshot["result"]["browsers"].as_array().unwrap().len(), 2);
     let popup_start = recv_method_where(&seen_rx, "Page.startScreencast", |value| {
         value["sessionId"] == "session-popup"
     });
