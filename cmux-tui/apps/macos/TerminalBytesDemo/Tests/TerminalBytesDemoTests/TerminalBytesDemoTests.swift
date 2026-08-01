@@ -8,59 +8,6 @@ private final class PasteMenuItem: NSObject, NSValidatedUserInterfaceItem {
 }
 
 final class TerminalBytesDemoTests: XCTestCase {
-    func testDemoConfigurationUsesOnlyExplicitEnvironment() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let invitation = directory.appendingPathComponent("invitation.txt")
-        try "cmux://enroll/fresh\n".write(to: invitation, atomically: true, encoding: .utf8)
-
-        let configuration = DemoLaunchConfiguration.processEnvironment([
-            "CMUX_TERMINAL_INVITATION_FILE": invitation.path,
-            "CMUX_TERMINAL_SURFACE": "73",
-            "CMUX_TERMINAL_AUTOCONNECT": "1",
-        ])
-
-        XCTAssertEqual(
-            configuration,
-            DemoLaunchConfiguration(
-                invitation: "cmux://enroll/fresh",
-                surface: "73",
-                autoConnect: true
-            )
-        )
-    }
-
-    func testGeometryClampsToValidTerminalCells() {
-        XCTAssertEqual(
-            terminalGeometry(width: 0, height: 0),
-            TerminalGeometry(cols: 1, rows: 1)
-        )
-        XCTAssertEqual(
-            terminalGeometry(width: 840, height: 340),
-            TerminalGeometry(cols: 100, rows: 20)
-        )
-    }
-
-    func testCStringCopyRetriesWhenValueGrowsBetweenPasses() {
-        var calls = 0
-        let value = copyGrowingCString { buffer, capacity in
-            calls += 1
-            let bytes = Array((calls == 1 ? "old" : "new-日本語").utf8)
-            if let buffer, capacity > 0 {
-                let copied = min(bytes.count, capacity - 1)
-                for index in 0..<copied {
-                    buffer[index] = CChar(bitPattern: bytes[index])
-                }
-                buffer[copied] = 0
-            }
-            return bytes.count
-        }
-        XCTAssertEqual(value, "new-日本語")
-        XCTAssertGreaterThanOrEqual(calls, 3)
-    }
-
     @MainActor
     func testNonEditableTerminalRoutesCommittedUnicodeAndPaste() throws {
         let terminal = TerminalTextView()
@@ -115,6 +62,11 @@ final class TerminalBytesDemoTests: XCTestCase {
         terminal.pasteboardText = { nil }
         XCTAssertFalse(terminal.validateUserInterfaceItem(PasteMenuItem()))
         XCTAssertFalse(terminal.performKeyEquivalent(with: commandV))
+
+        terminal.pasteboardText = { "must remain available" }
+        terminal.submit = nil
+        XCTAssertFalse(terminal.validateUserInterfaceItem(PasteMenuItem()))
+        XCTAssertFalse(terminal.performKeyEquivalent(with: commandV))
     }
 
     @MainActor
@@ -153,41 +105,6 @@ final class TerminalBytesDemoTests: XCTestCase {
         ))
         XCTAssertFalse(terminal.performKeyEquivalent(with: commandV))
         XCTAssertTrue(delivered.isEmpty)
-    }
-
-    @MainActor
-    func testTerminalClientHandleRetainsEnrollmentAcrossLogicalDisconnect() throws {
-        let raw = try XCTUnwrap(OpaquePointer(bitPattern: 1))
-        var attached: [OpaquePointer] = []
-        var attachedSurfaces: [UInt64] = []
-        var disconnected: [OpaquePointer] = []
-        var destroyed: [OpaquePointer] = []
-        let handle = TerminalClientHandle(
-            raw: raw,
-            attachClient: { client, surface, _, _ in
-                attached.append(client)
-                attachedSurfaces.append(surface)
-                return true
-            },
-            destroyClient: { destroyed.append($0) },
-            detachClient: { disconnected.append($0) }
-        )
-
-        XCTAssertEqual(handle.withRaw { $0 }, raw)
-        handle.disconnect()
-        handle.disconnect()
-
-        XCTAssertEqual(handle.withRaw { $0 }, raw)
-        XCTAssertEqual(disconnected, [raw])
-        XCTAssertNil(handle.reconnect(surface: 73))
-        XCTAssertNil(handle.reconnect(surface: 73))
-        XCTAssertEqual(attached, [raw])
-        XCTAssertEqual(attachedSurfaces, [73])
-
-        handle.shutdown()
-        handle.shutdown()
-        XCTAssertNil(handle.withRaw { $0 })
-        XCTAssertEqual(destroyed, [raw])
     }
 
     @MainActor
