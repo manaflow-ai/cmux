@@ -293,6 +293,52 @@ struct CmxIrohRelayPolicyTests {
     }
 
     @Test
+    func historicalPublicationHandlesRepresentableExtremeTimestamps() async throws {
+        let fixture = try Fixture()
+        let store = TestSecureCredentialStore()
+        let cache = CmxIrohRelayPolicyCache(secureStore: store)
+        let issuedAt = Int64.max - 120
+        let expiresAt = Int64.max - 1
+        let token = try fixture.token(
+            sequence: 7,
+            issuedAt: issuedAt,
+            notBefore: issuedAt,
+            expiresAt: expiresAt
+        )
+        let catalog: [[String: Any]] = [
+            [
+                "id": "cmux-us",
+                "provider": "cmux",
+                "region": "us-central1",
+                "url": fixture.relayURLs[0],
+            ],
+            [
+                "id": "cmux-eu",
+                "provider": "cmux",
+                "region": "europe-west4",
+                "url": fixture.relayURLs[1],
+            ],
+        ]
+        await store.seed(
+            try JSONSerialization.data(withJSONObject: [
+                "version": 1,
+                "highestSequence": 7,
+                "signedPolicy": token,
+                "catalog": catalog,
+                "issuedAt": issuedAt,
+                "expiresAt": expiresAt,
+            ]),
+            account: "managed-relay-policy"
+        )
+
+        let historical = try #require(
+            try await cache.rollbackPolicy(trustRoot: fixture.trustRoot)
+        )
+        #expect(historical.issuedAt == issuedAt)
+        #expect(historical.expiresAt == expiresAt)
+    }
+
+    @Test
     func corruptPolicyCacheCannotEraseTheRollbackFloor() async throws {
         let fixture = try Fixture()
         let store = TestSecureCredentialStore()

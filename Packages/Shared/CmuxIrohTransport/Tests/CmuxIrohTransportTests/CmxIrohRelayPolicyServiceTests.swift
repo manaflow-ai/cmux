@@ -328,6 +328,7 @@ struct CmxIrohRelayPolicyServiceTests {
             legacyEnvelope["preference"] as? [String: Any]
         )
         legacyPreference.removeValue(forKey: "policyID")
+        legacyPreference.removeValue(forKey: "policySequence")
         legacyPreference.removeValue(forKey: "policyIssuedAt")
         legacyEnvelope["preference"] = legacyPreference
         await stores.preferenceSecureStore.seed(
