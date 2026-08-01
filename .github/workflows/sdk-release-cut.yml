@@ -203,6 +203,7 @@ jobs:
       - cut-tags
       - verify-go-tag
     permissions:
+      actions: read
       contents: read
       id-token: write
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -215,6 +216,12 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
           fetch-depth: 0
+
+      - name: Download the validated cmux-client crate
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-rust-client-crate
+          path: validated-client
 
       - name: Require the coordinated release source
         env:
@@ -248,9 +255,21 @@ jobs:
           cargo --version
           rustc --version
 
-      - name: Build the exact cmux-client crate artifact
+      - name: Reproduce the validated cmux-client crate without executing it
         working-directory: cmux-tui
-        run: cargo package -p cmux-client --locked
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          cargo package -p cmux-client --locked --no-verify
+          validated="$GITHUB_WORKSPACE/validated-client/cmux-client-$CMUX_SDK_VERSION.crate"
+          reproduced="target/package/cmux-client-$CMUX_SDK_VERSION.crate"
+          expected_digest="$(sha256sum "$validated" | awk '{print $1}')"
+          actual_digest="$(sha256sum "$reproduced" | awk '{print $1}')"
+          [[ "$actual_digest" == "$expected_digest" ]] || {
+            echo "validated crate digest mismatch for cmux-client@$CMUX_SDK_VERSION" >&2
+            exit 1
+          }
 
       - name: Authenticate cmux-client with crates.io trusted publishing
         id: auth_client
@@ -266,9 +285,9 @@ jobs:
             --registry crates \
             --package cmux-client \
             --version "$CMUX_SDK_VERSION" \
-            --artifact "target/package/cmux-client-$CMUX_SDK_VERSION.crate" \
+            --artifact "$GITHUB_WORKSPACE/validated-client/cmux-client-$CMUX_SDK_VERSION.crate" \
             --wait-seconds 120 \
-            -- cargo publish -p cmux-client --locked
+            -- cargo publish -p cmux-client --locked --no-verify
 
   publish-crate-sidebar:
     needs:
@@ -277,6 +296,7 @@ jobs:
       - verify-go-tag
       - publish-crate-client
     permissions:
+      actions: read
       contents: read
       id-token: write
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -289,6 +309,18 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
           fetch-depth: 0
+
+      - name: Download the validated cmux-sidebar crate
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-rust-sidebar-crate
+          path: validated-sidebar
+
+      - name: Download the validated cmux-client crate
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-rust-client-crate
+          path: validated-client
 
       - name: Require the coordinated release source
         env:
@@ -322,23 +354,40 @@ jobs:
           cargo --version
           rustc --version
 
-      - name: Wait for cmux-client to reach the crates.io index
+      - name: Confirm the validated cmux-client crate reached crates.io
+        working-directory: cmux-tui
         env:
           CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
         run: |
           set -euo pipefail
-          for _ in $(seq 1 30); do
-            if cargo info "cmux-client@$CMUX_SDK_VERSION" >/dev/null 2>&1; then
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "cmux-client@$CMUX_SDK_VERSION did not reach the crates.io index" >&2
-          exit 1
+          python3 bindings/reconcile_registry_artifact.py check \
+            --registry crates \
+            --package cmux-client \
+            --version "$CMUX_SDK_VERSION" \
+            --artifact "$GITHUB_WORKSPACE/validated-client/cmux-client-$CMUX_SDK_VERSION.crate" \
+            --wait-seconds 300 \
+            --require-match
 
-      - name: Build the exact cmux-sidebar crate artifact
+      - name: Reproduce the validated cmux-sidebar crate without executing it
         working-directory: cmux-tui
-        run: cargo package -p cmux-sidebar --locked
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          cargo package \
+            -p cmux-sidebar \
+            --locked \
+            --no-verify \
+            --config \
+              "patch.crates-io.cmux-client.path='$GITHUB_WORKSPACE/cmux-tui/bindings/rust'"
+          validated="$GITHUB_WORKSPACE/validated-sidebar/cmux-sidebar-$CMUX_SDK_VERSION.crate"
+          reproduced="target/package/cmux-sidebar-$CMUX_SDK_VERSION.crate"
+          expected_digest="$(sha256sum "$validated" | awk '{print $1}')"
+          actual_digest="$(sha256sum "$reproduced" | awk '{print $1}')"
+          [[ "$actual_digest" == "$expected_digest" ]] || {
+            echo "validated crate digest mismatch for cmux-sidebar@$CMUX_SDK_VERSION" >&2
+            exit 1
+          }
 
       - name: Authenticate cmux-sidebar with crates.io trusted publishing
         id: auth_sidebar
@@ -354,9 +403,14 @@ jobs:
             --registry crates \
             --package cmux-sidebar \
             --version "$CMUX_SDK_VERSION" \
-            --artifact "target/package/cmux-sidebar-$CMUX_SDK_VERSION.crate" \
+            --artifact "$GITHUB_WORKSPACE/validated-sidebar/cmux-sidebar-$CMUX_SDK_VERSION.crate" \
             --wait-seconds 120 \
-            -- cargo publish -p cmux-sidebar --locked
+            -- cargo publish \
+              -p cmux-sidebar \
+              --locked \
+              --no-verify \
+              --config \
+                "patch.crates-io.cmux-client.path='$GITHUB_WORKSPACE/cmux-tui/bindings/rust'"
 
   publish-npm:
     needs:
@@ -512,6 +566,8 @@ jobs:
             --package cmux-sdk \
             --version "$CMUX_SDK_VERSION" \
             --artifact upload/*.whl \
+            --allowed-artifact dist/*.whl \
+            --allowed-artifact dist/*.tar.gz \
             --write-github-output
 
       - name: Publish wheel to PyPI
@@ -535,6 +591,8 @@ jobs:
             --package cmux-sdk \
             --version "$CMUX_SDK_VERSION" \
             --artifact upload/*.whl \
+            --allowed-artifact dist/*.whl \
+            --allowed-artifact dist/*.tar.gz \
             --wait-seconds 120 \
             --require-match
 
@@ -613,6 +671,8 @@ jobs:
             --package cmux-sdk \
             --version "$CMUX_SDK_VERSION" \
             --artifact upload/*.tar.gz \
+            --allowed-artifact dist/*.whl \
+            --allowed-artifact dist/*.tar.gz \
             --write-github-output
 
       - name: Publish source distribution to PyPI
@@ -636,6 +696,8 @@ jobs:
             --package cmux-sdk \
             --version "$CMUX_SDK_VERSION" \
             --artifact upload/*.tar.gz \
+            --allowed-artifact dist/*.whl \
+            --allowed-artifact dist/*.tar.gz \
             --wait-seconds 120 \
             --require-match
 

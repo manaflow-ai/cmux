@@ -68,13 +68,21 @@ and crates.io require the interactive bootstrap above.
 The cut workflow verifies current protected `main`, then runs Rust, Go,
 TypeScript, and Python package and live-conformance preflights in parallel
 against that exact commit. The TypeScript and Python preflights retain the
-validated registry artifacts. Only after all four preflights pass does the
+validated registry artifacts, and the Rust preflight retains both verified
+crate archives. Only after all four preflights pass does the
 workflow create `cmux-sdk-vX.Y.Z` and `cmux-tui/bindings/go/vX.Y.Z` atomically
 on the same commit.
 
 The Rust preflight uses the same pinned Cargo version as publishing. It packages
 both crates and tests the extracted `cmux-sidebar` archive with the extracted
 unpublished `cmux-client` archive patched in locally before any tag is created.
+The OIDC-enabled jobs package with `--no-verify`, require an exact digest match
+with those archives, and publish with `--no-verify`, so package and dependency
+code runs only in the credential-free preflight.
+
+The Python build pins `build`, `setuptools`, and `wheel`, disables build
+isolation, and installs both the exact wheel and source distribution as clean
+consumers before either artifact is uploaded.
 
 The workflow next resolves the public Go module from a clean consumer. It then
 publishes npm, the PyPI wheel, and the PyPI source distribution in separate
@@ -84,7 +92,9 @@ tag, verifies that its commit is on protected `main`, and binds provenance to
 that commit. Manual publisher dispatches validate only and cannot write to a
 registry. Before publishing or recovering a failed publish, the workflow checks
 the registry digest and skips only an artifact whose bytes exactly match the
-validated local package.
+validated local package. PyPI reconciliation also rejects unexpected or yanked
+files while allowing the expected wheel and source distribution to arrive in
+either order.
 
 The cut workflow holds one cross-version concurrency lock until the Go check and
 all registry jobs finish. If one publish job fails, use GitHub's **Re-run failed

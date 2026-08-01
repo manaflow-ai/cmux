@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import os
 from pathlib import Path
 import shutil
@@ -34,7 +35,17 @@ def _project_version() -> str:
         elif in_project and line.startswith("version"):
             key, separator, value = line.partition("=")
             if separator and key.strip() == "version":
-                return value.strip().strip('"')
+                try:
+                    parsed = ast.literal_eval(value.strip())
+                except (SyntaxError, ValueError) as error:
+                    raise RuntimeError(
+                        "pyproject.toml project version is not a static string"
+                    ) from error
+                if isinstance(parsed, str):
+                    return parsed
+                raise RuntimeError(
+                    "pyproject.toml project version is not a static string"
+                )
     raise RuntimeError("pyproject.toml has no project version")
 
 
@@ -61,7 +72,7 @@ class ProjectVersionTests(unittest.TestCase):
 
 
 class PackagedConsumerTests(unittest.TestCase):
-    def test_wheel_installs_resource_root_and_raw_legacy_namespace(self) -> None:
+    def test_distributions_install_resource_root_and_raw_legacy_namespace(self) -> None:
         builder = next(
             (
                 executable
@@ -89,83 +100,98 @@ class PackagedConsumerTests(unittest.TestCase):
             self.skipTest("no Python interpreter has the setuptools build backend")
         with tempfile.TemporaryDirectory(prefix="cmux-python-wheel-") as root:
             scratch = Path(root)
-            wheels = scratch / "wheels"
-            installed = scratch / "installed"
-            wheels.mkdir()
-            subprocess.run(
-                [
-                    builder,
-                    "-m",
-                    "pip",
-                    "wheel",
-                    "--no-deps",
-                    "--no-build-isolation",
-                    "--wheel-dir",
-                    str(wheels),
-                    str(PROJECT),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            wheel = next(wheels.glob("cmux_sdk-*.whl"))
-            subprocess.run(
-                [
-                    builder,
-                    "-m",
-                    "pip",
-                    "install",
-                    "--no-deps",
-                    "--target",
-                    str(installed),
-                    str(wheel),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            environment = dict(os.environ)
-            environment["PYTHONPATH"] = str(installed)
-            environment["CMUX_EXPECTED_SDK_VERSION"] = PROJECT_VERSION
-            subprocess.run(
-                [
-                    builder,
-                    "-c",
-                    (
-                        "import cmux, cmux.raw, cmux.raw._generated, os;"
-                        "from importlib.metadata import version;"
-                        "assert version('cmux-sdk') == "
-                        "os.environ['CMUX_EXPECTED_SDK_VERSION'];"
-                        "assert hasattr(cmux, 'Client');"
-                        "assert hasattr(cmux, 'ConfirmationRequiredDetails');"
-                        "assert hasattr(cmux, 'ConfirmationRequiredError');"
-                        "assert hasattr(cmux.Session, 'report_agent');"
-                        "assert not hasattr(cmux.Agent, 'report');"
-                        "report = cmux.AgentReportOptions("
-                        "terminal_id=cmux.TerminalId("
-                        "'term_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'"
-                        "), state='working', source='socket');"
-                        "assert report.terminal_id == cmux.TerminalId("
-                        "'term_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'"
-                        ");"
-                        "assert cmux.CreateScreenOptions("
-                        "correlation_key='consumer-key'"
-                        ").correlation_key == 'consumer-key';"
-                        "assert not hasattr(cmux, 'ProviderScope');"
-                        "assert not hasattr(cmux, 'CmuxClient');"
-                        "assert hasattr(cmux.raw, 'CmuxClient');"
-                        "assert hasattr(cmux.raw, 'COMMANDS');"
-                        "\ntry:\n import cmux._generated\n"
-                        "except ModuleNotFoundError:\n pass\n"
-                        "else:\n raise AssertionError('cmux._generated leaked')"
-                    ),
-                ],
-                cwd=scratch,
-                env=environment,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+            distribution_root = os.environ.get("CMUX_PYTHON_DIST_DIR")
+            if distribution_root:
+                distribution_directory = Path(distribution_root).resolve()
+                wheels = sorted(distribution_directory.glob("*.whl"))
+                sdists = sorted(distribution_directory.glob("*.tar.gz"))
+                self.assertEqual(len(wheels), 1)
+                self.assertEqual(len(sdists), 1)
+                distributions = (*wheels, *sdists)
+            else:
+                wheels = scratch / "wheels"
+                wheels.mkdir()
+                subprocess.run(
+                    [
+                        builder,
+                        "-m",
+                        "pip",
+                        "wheel",
+                        "--no-deps",
+                        "--no-build-isolation",
+                        "--wheel-dir",
+                        str(wheels),
+                        str(PROJECT),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                distributions = (next(wheels.glob("cmux_sdk-*.whl")),)
+
+            for index, distribution in enumerate(distributions):
+                with self.subTest(distribution=distribution.name):
+                    installed = scratch / f"installed-{index}"
+                    install_command = [
+                        builder,
+                        "-m",
+                        "pip",
+                        "install",
+                        "--no-deps",
+                    ]
+                    if distribution.name.endswith(".tar.gz"):
+                        install_command.append("--no-build-isolation")
+                    install_command.extend(
+                        ["--target", str(installed), str(distribution)]
+                    )
+                    subprocess.run(
+                        install_command,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                    environment = dict(os.environ)
+                    environment["PYTHONPATH"] = str(installed)
+                    environment["CMUX_EXPECTED_SDK_VERSION"] = PROJECT_VERSION
+                    subprocess.run(
+                        [
+                            builder,
+                            "-c",
+                            (
+                                "import cmux, cmux.raw, cmux.raw._generated, os;"
+                                "from importlib.metadata import version;"
+                                "assert version('cmux-sdk') == "
+                                "os.environ['CMUX_EXPECTED_SDK_VERSION'];"
+                                "assert hasattr(cmux, 'Client');"
+                                "assert hasattr(cmux, 'ConfirmationRequiredDetails');"
+                                "assert hasattr(cmux, 'ConfirmationRequiredError');"
+                                "assert hasattr(cmux.Session, 'report_agent');"
+                                "assert not hasattr(cmux.Agent, 'report');"
+                                "report = cmux.AgentReportOptions("
+                                "terminal_id=cmux.TerminalId("
+                                "'term_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'"
+                                "), state='working', source='socket');"
+                                "assert report.terminal_id == cmux.TerminalId("
+                                "'term_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'"
+                                ");"
+                                "assert cmux.CreateScreenOptions("
+                                "correlation_key='consumer-key'"
+                                ").correlation_key == 'consumer-key';"
+                                "assert not hasattr(cmux, 'ProviderScope');"
+                                "assert not hasattr(cmux, 'CmuxClient');"
+                                "assert hasattr(cmux.raw, 'CmuxClient');"
+                                "assert hasattr(cmux.raw, 'COMMANDS');"
+                                "\ntry:\n import cmux._generated\n"
+                                "except ModuleNotFoundError:\n pass\n"
+                                "else:\n raise AssertionError('cmux._generated leaked')"
+                            ),
+                        ],
+                        cwd=scratch,
+                        env=environment,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
 
 
 if __name__ == "__main__":

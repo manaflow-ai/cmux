@@ -102,11 +102,8 @@ class RegistryArtifactTests(unittest.TestCase):
         metadata["urls"][0]["filename"] = "other.whl"
         with mock.patch.object(
             reconcile, "urlopen", return_value=self.response(metadata)
-        ):
-            self.assertEqual(
-                reconcile.registry_status("pypi", "cmux-sdk", "1.0.0", self.artifact),
-                reconcile.MISSING,
-            )
+        ), self.assertRaises(reconcile.ArtifactMismatch):
+            reconcile.registry_status("pypi", "cmux-sdk", "1.0.0", self.artifact)
 
     def test_pypi_rejects_unexpected_release_files(self) -> None:
         metadata = {
@@ -145,6 +142,34 @@ class RegistryArtifactTests(unittest.TestCase):
         ), self.assertRaises(reconcile.ArtifactMismatch):
             reconcile.registry_status("pypi", "cmux-sdk", "1.0.0", self.artifact)
 
+    def test_pypi_accepts_an_exact_allowed_sibling(self) -> None:
+        sibling = Path(self.temporary_directory.name) / "cmux_sdk-1.0.0.tar.gz"
+        sibling.write_bytes(b"validated source distribution")
+        metadata = {
+            "urls": [
+                {
+                    "filename": sibling.name,
+                    "digests": {
+                        "sha256": hashlib.sha256(sibling.read_bytes()).hexdigest()
+                    },
+                    "yanked": False,
+                }
+            ]
+        }
+        with mock.patch.object(
+            reconcile, "urlopen", return_value=self.response(metadata)
+        ):
+            self.assertEqual(
+                reconcile.registry_status(
+                    "pypi",
+                    "cmux-sdk",
+                    "1.0.0",
+                    self.artifact,
+                    (self.artifact, sibling),
+                ),
+                reconcile.MISSING,
+            )
+
     def test_registry_wait_can_be_cancelled(self) -> None:
         cancelled = threading.Event()
         cancelled.set()
@@ -159,6 +184,35 @@ class RegistryArtifactTests(unittest.TestCase):
                     cancel_event=cancelled,
                 )
         status.assert_not_called()
+
+    def test_registry_wait_honors_its_deadline_without_wall_clock_sleep(self) -> None:
+        clock = [10.0]
+        cancellation = mock.Mock()
+        cancellation.is_set.return_value = False
+
+        def advance(timeout: float) -> bool:
+            clock[0] += timeout
+            return False
+
+        cancellation.wait.side_effect = advance
+        with mock.patch.object(
+            reconcile.time, "monotonic", side_effect=lambda: clock[0]
+        ), mock.patch.object(
+            reconcile, "registry_status", return_value=reconcile.MISSING
+        ) as status:
+            self.assertEqual(
+                reconcile.wait_for_status(
+                    "pypi",
+                    "cmux-sdk",
+                    "1.0.0",
+                    self.artifact,
+                    6,
+                    cancel_event=cancellation,
+                ),
+                reconcile.MISSING,
+            )
+        self.assertEqual(cancellation.wait.call_args_list, [mock.call(5), mock.call(1)])
+        self.assertEqual(status.call_count, 3)
 
     def test_failed_publish_is_success_when_exact_bytes_appear(self) -> None:
         with mock.patch.object(

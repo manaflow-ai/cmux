@@ -206,7 +206,7 @@ def test_registry_publishers_reuse_preflight_artifacts() -> None:
 
     for artifact in ("cmux-rust-client-crate", "cmux-rust-sidebar-crate"):
         assert rust.count(f"name: {artifact}") == 1
-        assert release.count(f"name: {artifact}") == 1
+        assert release.count(f"name: {artifact}") >= 1
 
     assert npm.count("name: cmux-npm-dist") == 1
     assert release.count("name: cmux-npm-dist") == 1
@@ -235,10 +235,10 @@ def test_irreversible_registry_writes_are_independently_rerunnable() -> None:
 
     wheel = workflow_job(release, "publish-python-wheel")
     sdist = workflow_job(release, "publish-python-sdist")
-    assert "*.whl" in wheel
-    assert "*.tar.gz" not in wheel
-    assert "*.tar.gz" in sdist
-    assert "*.whl" not in sdist
+    assert "--artifact upload/*.whl" in wheel
+    assert "--artifact upload/*.tar.gz" not in wheel
+    assert "--artifact upload/*.tar.gz" in sdist
+    assert "--artifact upload/*.whl" not in sdist
     assert "gh-action-pypi-publish" in wheel
     assert "gh-action-pypi-publish" in sdist
 
@@ -285,6 +285,7 @@ def test_rust_release_uses_pinned_cargo_and_verifies_packaged_sidebar() -> None:
         assert "cargo package" in block
         assert "cargo publish" in block
         assert block.count("--no-verify") >= 2
+        assert "sleep " not in block
 
 
 def test_python_preflight_tests_the_exact_pinned_distributions() -> None:

@@ -9,8 +9,10 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
+import threading
 import time
 from typing import Any, Callable, Optional, Sequence
 from urllib.error import HTTPError, URLError
@@ -33,6 +35,10 @@ class RegistryLookupError(RegistryError):
 
 class ArtifactMismatch(RegistryError):
     """Raised when an immutable registry version contains different bytes."""
+
+
+class RegistryCancellation(RegistryError):
+    """Raised when registry reconciliation is cancelled."""
 
 
 def _digest(path: Path, algorithm: str) -> str:
@@ -145,7 +151,12 @@ def _npm_status(package: str, version: str, artifact: Path) -> str:
     return MATCH
 
 
-def _pypi_status(package: str, version: str, artifact: Path) -> str:
+def _pypi_status(
+    package: str,
+    version: str,
+    artifact: Path,
+    allowed_artifacts: Sequence[Path],
+) -> str:
     url = (
         "https://pypi.org/pypi/"
         f"{quote(package, safe='')}/{quote(version, safe='')}/json"
@@ -156,29 +167,58 @@ def _pypi_status(package: str, version: str, artifact: Path) -> str:
     files = metadata.get("urls")
     if not isinstance(files, list):
         raise RegistryError(f"PyPI metadata has no file list for {package}=={version}")
-    published = next(
-        (
-            item
-            for item in files
-            if isinstance(item, dict) and item.get("filename") == artifact.name
-        ),
-        None,
-    )
-    if published is None:
-        return MISSING
-    digests = published.get("digests")
-    remote = digests.get("sha256") if isinstance(digests, dict) else None
-    if not isinstance(remote, str):
+
+    allowed_by_name: dict[str, Path] = {}
+    for allowed in allowed_artifacts:
+        existing = allowed_by_name.get(allowed.name)
+        if existing is not None and existing != allowed:
+            raise RegistryError(
+                f"multiple allowed PyPI artifacts use filename {allowed.name}"
+            )
+        allowed_by_name[allowed.name] = allowed
+    if artifact.name not in allowed_by_name:
         raise RegistryError(
-            f"PyPI metadata has no sha256 for {package}=={version} file {artifact.name}"
+            f"target PyPI artifact {artifact.name} is absent from the allowed release set"
         )
-    local = _digest(artifact, "sha256")
-    if local != remote:
-        raise ArtifactMismatch(
-            f"PyPI already has different bytes for {package}=={version} file "
-            f"{artifact.name}: local sha256={local}, remote sha256={remote}"
-        )
-    return MATCH
+
+    published_names: set[str] = set()
+    for published in files:
+        if not isinstance(published, dict):
+            raise RegistryError(
+                f"PyPI returned malformed file metadata for {package}=={version}"
+            )
+        filename = published.get("filename")
+        if not isinstance(filename, str):
+            raise RegistryError(
+                f"PyPI returned a file without a filename for {package}=={version}"
+            )
+        if filename in published_names:
+            raise RegistryError(
+                f"PyPI returned duplicate metadata for {package}=={version} file {filename}"
+            )
+        published_names.add(filename)
+        expected = allowed_by_name.get(filename)
+        if expected is None:
+            raise ArtifactMismatch(
+                f"PyPI release {package}=={version} contains unexpected file {filename}"
+            )
+        if published.get("yanked") is True:
+            raise ArtifactMismatch(
+                f"PyPI release {package}=={version} contains yanked file {filename}"
+            )
+        digests = published.get("digests")
+        remote = digests.get("sha256") if isinstance(digests, dict) else None
+        if not isinstance(remote, str):
+            raise RegistryError(
+                f"PyPI metadata has no sha256 for {package}=={version} file {filename}"
+            )
+        local = _digest(expected, "sha256")
+        if local != remote:
+            raise ArtifactMismatch(
+                f"PyPI already has different bytes for {package}=={version} file "
+                f"{filename}: local sha256={local}, remote sha256={remote}"
+            )
+    return MATCH if artifact.name in published_names else MISSING
 
 
 def registry_status(
@@ -186,13 +226,23 @@ def registry_status(
     package: str,
     version: str,
     artifact: Path,
+    allowed_artifacts: Optional[Sequence[Path]] = None,
 ) -> str:
     if not artifact.is_file():
         raise RegistryError(f"local artifact does not exist: {artifact}")
+    allowed = tuple(allowed_artifacts or (artifact,))
+    for allowed_artifact in allowed:
+        if not allowed_artifact.is_file():
+            raise RegistryError(
+                f"allowed local artifact does not exist: {allowed_artifact}"
+            )
+    if registry == "pypi":
+        return _pypi_status(package, version, artifact, allowed)
+    if allowed_artifacts is not None:
+        raise RegistryError("--allowed-artifact is supported only for PyPI")
     handlers: dict[str, Callable[[str, str, Path], str]] = {
         "crates": _crates_status,
         "npm": _npm_status,
-        "pypi": _pypi_status,
     }
     return handlers[registry](package, version, artifact)
 
@@ -203,12 +253,24 @@ def wait_for_status(
     version: str,
     artifact: Path,
     wait_seconds: int,
+    *,
+    allowed_artifacts: Optional[Sequence[Path]] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> str:
+    cancellation = cancel_event or threading.Event()
     deadline = time.monotonic() + wait_seconds
     last_error: Optional[RegistryError] = None
     while True:
+        if cancellation.is_set():
+            raise RegistryCancellation("registry reconciliation was cancelled")
         try:
-            status = registry_status(registry, package, version, artifact)
+            status = registry_status(
+                registry,
+                package,
+                version,
+                artifact,
+                allowed_artifacts,
+            )
             last_error = None
             if status == MATCH:
                 return MATCH
@@ -219,7 +281,8 @@ def wait_for_status(
             if last_error is not None:
                 raise last_error
             return MISSING
-        time.sleep(min(5, remaining))
+        if cancellation.wait(min(5, remaining)):
+            raise RegistryCancellation("registry reconciliation was cancelled")
 
 
 def _write_github_output(status: str) -> None:
@@ -237,13 +300,18 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--package", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--artifact", required=True, type=Path)
+    parser.add_argument("--allowed-artifact", action="append", type=Path)
     parser.add_argument("--wait-seconds", type=int, default=0)
     parser.add_argument("--require-match", action="store_true")
     parser.add_argument("--write-github-output", action="store_true")
     return parser
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(
+    argv: Optional[Sequence[str]] = None,
+    *,
+    cancel_event: Optional[threading.Event] = None,
+) -> int:
     arguments = list(argv if argv is not None else sys.argv[1:])
     if "--" in arguments:
         separator = arguments.index("--")
@@ -266,6 +334,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             args.version,
             args.artifact,
             args.wait_seconds if args.mode == "check" else 0,
+            allowed_artifacts=args.allowed_artifact,
+            cancel_event=cancel_event,
         )
         if args.write_github_output:
             _write_github_output(status)
@@ -291,6 +361,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             args.version,
             args.artifact,
             args.wait_seconds,
+            allowed_artifacts=args.allowed_artifact,
+            cancel_event=cancel_event,
         )
         if status == MATCH:
             print(
@@ -303,5 +375,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
 
 
+def _run_cli() -> int:
+    cancellation = threading.Event()
+
+    def cancel(_signum: int, _frame: object) -> None:
+        cancellation.set()
+        raise KeyboardInterrupt
+
+    previous_handlers = {
+        signum: signal.signal(signum, cancel)
+        for signum in (signal.SIGINT, signal.SIGTERM)
+    }
+    try:
+        return main(cancel_event=cancellation)
+    except KeyboardInterrupt:
+        print("registry reconciliation cancelled", file=sys.stderr)
+        return 130
+    finally:
+        for signum, previous in previous_handlers.items():
+            signal.signal(signum, previous)
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(_run_cli())

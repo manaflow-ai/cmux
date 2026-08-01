@@ -150,6 +150,22 @@ jobs:
               "patch.crates-io.cmux-client.path='$verify_root/cmux-client-$CMUX_SDK_VERSION'" \
             --all-targets
 
+      - name: Upload validated cmux-client crate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-rust-client-crate
+          path: cmux-tui/target/package/cmux-client-${{ needs.version.outputs.version }}.crate
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Upload validated cmux-sidebar crate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-rust-sidebar-crate
+          path: cmux-tui/target/package/cmux-sidebar-${{ needs.version.outputs.version }}.crate
+          if-no-files-found: error
+          overwrite: true
+
       - name: Rust SDK conformance
         run: |
           report="$RUNNER_TEMP/cmux-sdk-conformance-rust.txt"
