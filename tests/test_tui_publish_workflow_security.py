@@ -301,6 +301,7 @@ def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
         "NPM_RESULT",
         "PYTHON_WHEEL_RESULT",
         "PYTHON_SDIST_RESULT",
+        "STABLE_PROVENANCE_RESULT",
     ):
         assert result in release
     assert "sdk-publish-java.yml" not in release
@@ -328,6 +329,42 @@ def test_registry_state_is_validated_before_irreversible_tags() -> None:
     assert "id-token: write" not in registry
     assert "registry-preflight" in cut_tags
     assert release.index("registry-preflight:") < release.index("cut-tags:")
+
+
+def test_stable_registry_provenance_gates_recovery_and_completion() -> None:
+    release = workflow("sdk-release-cut.yml")
+    registry = workflow_job(release, "registry-preflight")
+    stable = workflow_job(release, "verify-stable-provenance")
+    summary = workflow_job(release, "summarize")
+
+    assert "id: registry_state" in registry
+    for output in ("npm", "python_wheel", "python_sdist"):
+        assert f"--github-output-name {output}" in registry
+    before_tags = release.index("Verify any existing stable provenance")
+    assert before_tags < release.index("  cut-tags:")
+    assert "--publisher github-actions" in registry
+    assert "--dist-tag latest" in registry
+    assert "--workflow .github/workflows/sdk-release-cut.yml" in registry
+    assert "--workflow sdk-release-cut.yml" in registry
+    assert "--environment pypi" in registry
+
+    for dependency in (
+        "publish-npm",
+        "publish-python-wheel",
+        "publish-python-sdist",
+    ):
+        assert dependency in stable
+    assert "name: cmux-npm-dist" in stable
+    assert "name: cmux-python-dist" in stable
+    assert "verify_npm_provenance.py" in stable
+    assert "verify_pypi_provenance.py" in stable
+    assert "--publisher github-actions" in stable
+    assert "--dist-tag latest" in stable
+    assert "--workflow .github/workflows/sdk-release-cut.yml" in stable
+    assert "--workflow sdk-release-cut.yml" in stable
+    assert "--environment pypi" in stable
+    assert "verify-stable-provenance" in summary
+    assert "STABLE_PROVENANCE_RESULT" in summary
 
 
 def test_tag_cut_revalidates_release_order_after_its_final_fetch() -> None:
@@ -433,14 +470,14 @@ def test_registry_publishers_reuse_preflight_artifacts() -> None:
         assert release.count(f"name: {artifact}") >= 1
 
     assert npm.count("name: cmux-npm-dist") == 1
-    assert release.count("name: cmux-npm-dist") == 2
+    assert release.count("name: cmux-npm-dist") == 3
     assert "npm pack --pack-destination" in npm
     npm_publish = workflow_job(release, "publish-npm")
     assert "Download the validated npm artifact" in npm_publish
     assert "npm test" not in npm_publish
 
     assert python.count("name: cmux-python-dist") == 1
-    assert release.count("name: cmux-python-dist") == 3
+    assert release.count("name: cmux-python-dist") == 4
     for job in ("publish-python-wheel", "publish-python-sdist"):
         python_publish = workflow_job(release, job)
         assert "Download distributions" in python_publish

@@ -38,10 +38,27 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
         digest = hashlib.sha512(self.artifact.read_bytes()).digest()
         return "sha512-" + base64.b64encode(digest).decode("ascii")
 
-    def metadata(self) -> dict[str, object]:
+    def metadata(
+        self,
+        *,
+        dist_tag: str = "bootstrap",
+        publisher: str = "owner",
+    ) -> dict[str, object]:
+        npm_user: dict[str, object]
+        if publisher == "github-actions":
+            npm_user = {
+                "name": "GitHub Actions",
+                "email": "npm-oidc-no-reply@github.com",
+                "trustedPublisher": {
+                    "id": "github",
+                    "oidcConfigId": "oidc:expected-configuration",
+                },
+            }
+        else:
+            npm_user = {"name": self.owner}
         return {
             "name": self.package,
-            "dist-tags": {"bootstrap": self.version},
+            "dist-tags": {dist_tag: self.version},
             "maintainers": [{"name": self.owner}],
             "versions": {
                 self.version: {
@@ -52,7 +69,7 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                         "url": self.repository_url,
                         "directory": self.repository_directory,
                     },
-                    "_npmUser": {"name": self.owner},
+                    "_npmUser": npm_user,
                     "dist": {
                         "integrity": self.integrity(),
                         "attestations": {
@@ -144,6 +161,20 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
 
         return response
 
+    def verification_options(
+        self,
+        *,
+        dist_tag: str = "bootstrap",
+        publisher: str = "owner",
+    ) -> dict[str, str]:
+        return {
+            "owner": self.owner,
+            "workflow": self.workflow,
+            "workflow_ref": "refs/heads/main",
+            "dist_tag": dist_tag,
+            "publisher": publisher,
+        }
+
     def test_verifies_exact_repository_provenance_with_pinned_npm(self) -> None:
         completed = (
             subprocess.CompletedProcess([], 0, stdout="", stderr=""),
@@ -169,8 +200,7 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                 self.repository_url,
                 self.repository_directory,
                 self.artifact,
-                owner=self.owner,
-                workflow=self.workflow,
+                **self.verification_options(),
             )
 
         self.assertEqual(run.call_count, 2)
@@ -186,6 +216,43 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
         )
         for name in environment:
             self.assertNotIn("TOKEN", name.upper())
+
+    def test_verifies_a_stable_github_actions_publisher(self) -> None:
+        self.version = "1.0.0"
+        self.workflow = ".github/workflows/sdk-release-cut.yml"
+        completed = (
+            subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+            subprocess.CompletedProcess(
+                [],
+                0,
+                stdout=json.dumps({"invalid": [], "missing": []}),
+                stderr="",
+            ),
+        )
+        metadata = self.metadata(
+            dist_tag="latest",
+            publisher="github-actions",
+        )
+        with mock.patch.object(
+            provenance,
+            "urlopen",
+            side_effect=self.registry_response(metadata=metadata),
+        ), mock.patch.object(
+            provenance.subprocess,
+            "run",
+            side_effect=completed,
+        ):
+            provenance.verify(
+                self.package,
+                self.version,
+                self.repository_url,
+                self.repository_directory,
+                self.artifact,
+                **self.verification_options(
+                    dist_tag="latest",
+                    publisher="github-actions",
+                ),
+            )
 
     def test_rejects_the_wrong_repository_before_running_npm(self) -> None:
         metadata = self.metadata()
@@ -204,8 +271,7 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                 self.repository_url,
                 self.repository_directory,
                 self.artifact,
-                owner=self.owner,
-                workflow=self.workflow,
+                **self.verification_options(),
             )
         run.assert_not_called()
 
@@ -224,8 +290,7 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                 self.repository_url,
                 self.repository_directory,
                 self.artifact,
-                owner=self.owner,
-                workflow=self.workflow,
+                **self.verification_options(),
             )
         run.assert_not_called()
 
@@ -250,8 +315,7 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                 self.repository_url,
                 self.repository_directory,
                 self.artifact,
-                owner=self.owner,
-                workflow=self.workflow,
+                **self.verification_options(),
             )
         self.assertNotIn(secret, str(failure.exception))
 
@@ -272,8 +336,7 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                 self.repository_url,
                 self.repository_directory,
                 self.artifact,
-                owner=self.owner,
-                workflow=self.workflow,
+                **self.verification_options(),
             )
         run.assert_not_called()
 
@@ -292,8 +355,7 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                 self.repository_url,
                 self.repository_directory,
                 self.artifact,
-                owner=self.owner,
-                workflow=self.workflow,
+                **self.verification_options(),
             )
         run.assert_not_called()
 

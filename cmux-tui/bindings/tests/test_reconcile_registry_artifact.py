@@ -65,6 +65,27 @@ class RegistryArtifactTests(unittest.TestCase):
                 "crates", "cmux-client", "1.0.0", self.artifact
             )
 
+    def test_crates_rejects_exact_old_bytes_behind_registry_history(self) -> None:
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            url = str(getattr(request, "full_url", ""))
+            if url.endswith("/download"):
+                return self.response(self.artifact.read_bytes())
+            if url.endswith("/1.0.0"):
+                return self.response({"version": {"yanked": False}})
+            return self.response({
+                "crate": {"name": "cmux-client"},
+                "versions": [
+                    {"num": "1.0.0", "yanked": False},
+                    {"num": "1.1.0", "yanked": False},
+                ],
+            })
+
+        with mock.patch.object(reconcile, "urlopen", side_effect=response), \
+            self.assertRaises(reconcile.ReleaseStateMismatch):
+            reconcile.registry_status(
+                "crates", "cmux-client", "1.0.0", self.artifact
+            )
+
     def test_crates_rejects_a_yanked_exact_archive(self) -> None:
         def response(request: object, **_kwargs: object) -> io.BytesIO:
             if str(getattr(request, "full_url", "")).endswith("/download"):
@@ -165,6 +186,22 @@ class RegistryArtifactTests(unittest.TestCase):
         ), self.assertRaises(reconcile.ArtifactMismatch):
             reconcile.registry_status("npm", "cmux-sdk", "1.0.0", self.artifact)
 
+    def test_npm_rejects_exact_old_bytes_behind_registry_history(self) -> None:
+        dist = {"integrity": reconcile._integrity(self.artifact, "sha512")}
+        metadata = {
+            "dist-tags": {"latest": "1.0.0"},
+            "versions": {
+                "1.0.0": {"dist": dist},
+                "1.1.0-beta.1": {"dist": {}},
+            },
+        }
+        with mock.patch.object(
+            reconcile,
+            "urlopen",
+            return_value=self.response(metadata),
+        ), self.assertRaises(reconcile.ReleaseStateMismatch):
+            reconcile.registry_status("npm", "cmux-sdk", "1.0.0", self.artifact)
+
     def test_npm_rejects_a_missing_project(self) -> None:
         missing = HTTPError("https://registry.example", 404, "missing", None, None)
         with mock.patch.object(reconcile, "urlopen", side_effect=missing), \
@@ -229,6 +266,34 @@ class RegistryArtifactTests(unittest.TestCase):
         with mock.patch.object(
             reconcile, "urlopen", return_value=self.response(metadata)
         ), self.assertRaises(reconcile.ArtifactMismatch):
+            reconcile.registry_status("pypi", "cmux-sdk", "1.0.0", self.artifact)
+
+    def test_pypi_rejects_exact_old_bytes_behind_registry_history(self) -> None:
+        exact = {
+            "urls": [{
+                "filename": self.artifact.name,
+                "digests": {
+                    "sha256": hashlib.sha256(
+                        self.artifact.read_bytes()
+                    ).hexdigest()
+                },
+                "yanked": False,
+            }]
+        }
+        project = {
+            "info": {"name": "cmux-sdk"},
+            "releases": {
+                "1.0.0": [{"yanked": False}],
+                "1.1.0": [{"yanked": False}],
+            },
+        }
+
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            url = str(getattr(request, "full_url", ""))
+            return self.response(exact if url.endswith("/1.0.0/json") else project)
+
+        with mock.patch.object(reconcile, "urlopen", side_effect=response), \
+            self.assertRaises(reconcile.ReleaseStateMismatch):
             reconcile.registry_status("pypi", "cmux-sdk", "1.0.0", self.artifact)
 
     def test_pypi_rejects_a_missing_project(self) -> None:
@@ -618,6 +683,34 @@ class RegistryArtifactTests(unittest.TestCase):
             )
         self.assertEqual(result, 0)
         self.assertEqual(output.read_text(), "status=missing\n")
+
+    def test_check_can_name_multiple_workflow_outputs(self) -> None:
+        output = Path(self.temporary_directory.name) / "github-output"
+        with mock.patch.dict(
+            os.environ, {"GITHUB_OUTPUT": str(output)}
+        ), mock.patch.object(
+            reconcile,
+            "registry_status",
+            return_value=reconcile.MATCH,
+        ):
+            result = reconcile.main(
+                [
+                    "check",
+                    "--registry",
+                    "npm",
+                    "--package",
+                    "cmux-sdk",
+                    "--version",
+                    "1.0.0",
+                    "--artifact",
+                    str(self.artifact),
+                    "--write-github-output",
+                    "--github-output-name",
+                    "npm",
+                ]
+            )
+        self.assertEqual(result, 0)
+        self.assertEqual(output.read_text(), "npm=match\n")
 
 
 if __name__ == "__main__":
