@@ -339,6 +339,12 @@ pub(crate) struct RemoteClientMessages {
     enroll_arity: &'static str,
     option_create_only: &'static str,
     pub inline_invitation_rejected: &'static str,
+    pub invitation_path_invalid: &'static str,
+    pub invitation_input_read_failed: &'static str,
+    pub invitation_input_empty: &'static str,
+    invitation_input_too_large: &'static str,
+    pub invitation_input_multiline: &'static str,
+    pub invitation_input_invalid_utf8: &'static str,
     pub inline_relay_ticket_rejected: &'static str,
     pub inline_enroll_relay_ticket_rejected: &'static str,
     pub relay_command_arg_order: &'static str,
@@ -423,6 +429,10 @@ impl RemoteClientMessages {
 
     pub(crate) fn option_create_only(&self, option: &str) -> String {
         self.option_create_only.replace("{option}", option)
+    }
+
+    pub(crate) fn invitation_input_too_large(&self, maximum: usize) -> String {
+        self.invitation_input_too_large.replace("{maximum}", &maximum.to_string())
     }
 
     pub(crate) fn relay_shorthand_requires_relay_route(&self, route: &str) -> String {
@@ -1116,6 +1126,12 @@ OPTIONS:
         enroll_arity: "enroll {action} expects exactly {expected} positional arguments",
         option_create_only: "{option} is only valid for enroll create",
         inline_invitation_rejected: "inline invitations are not accepted; use --invite-file or stdin",
+        invitation_path_invalid: "invitation path must be an owner-only regular file or - for stdin",
+        invitation_input_read_failed: "could not read invitation input",
+        invitation_input_empty: "invitation input is empty",
+        invitation_input_too_large: "invitation input exceeds {maximum} bytes",
+        invitation_input_multiline: "invitation input must contain exactly one URI",
+        invitation_input_invalid_utf8: "invitation input is not valid UTF-8",
         inline_relay_ticket_rejected: "inline relay tickets are not accepted; use --relay-ticket-file or --relay-ticket-command",
         inline_enroll_relay_ticket_rejected: "inline relay tickets are not accepted; use --relay-ticket-file",
         relay_command_arg_order: "--relay-ticket-command-arg must follow --relay-ticket-command",
@@ -1587,6 +1603,12 @@ ID とセッション:
         enroll_arity: "enroll {action} には位置引数をちょうど {expected} 個指定してください",
         option_create_only: "{option} は enroll create でのみ使用できます",
         inline_invitation_rejected: "招待を引数へ直接指定できません。--invite-file または標準入力を使用してください",
+        invitation_path_invalid: "招待パスには所有者専用の通常ファイル、または標準入力を表す - を指定してください",
+        invitation_input_read_failed: "招待入力を読み取れませんでした",
+        invitation_input_empty: "招待入力が空です",
+        invitation_input_too_large: "招待入力が {maximum} バイトの上限を超えています",
+        invitation_input_multiline: "招待入力には URI を 1 つだけ含めてください",
+        invitation_input_invalid_utf8: "招待入力が有効な UTF-8 ではありません",
         inline_relay_ticket_rejected: "リレーチケットを引数へ直接指定できません。--relay-ticket-file または --relay-ticket-command を使用してください",
         inline_enroll_relay_ticket_rejected: "リレーチケットを引数へ直接指定できません。--relay-ticket-file を使用してください",
         relay_command_arg_order: "--relay-ticket-command-arg は --relay-ticket-command の後に指定してください",

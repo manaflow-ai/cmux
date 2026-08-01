@@ -160,10 +160,10 @@ fn mark_inherited_descriptors_close_on_exec(cleanup: &DescriptorCleanup) -> io::
             unsafe { libc::close(directory_fd) };
             return result;
         }
-        const MAX_BOUNDED_DESCRIPTOR_SCAN: RawFd = 65_536;
-        if cleanup.descriptor_limit > MAX_BOUNDED_DESCRIPTOR_SCAN {
-            return Err(error);
-        }
+        // The configured table limit is finite even when it is large. An
+        // allocation-free scan is slower than the two fast paths, but it is
+        // async-signal-safe and cannot leak inherited descriptors merely
+        // because a hardened or minimal environment denies both fast paths.
     }
     mark_descriptors_close_on_exec_individually(cleanup.descriptor_limit)
 }

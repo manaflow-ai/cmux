@@ -1520,9 +1520,7 @@ fn read_invitation_uri(path: &Path) -> anyhow::Result<Zeroizing<String>> {
     }
 
     let bytes = cmux_remote::secret_file::read_owner_only(path, MAX_INVITATION_URI_BYTES + 2)
-        .map_err(|_| {
-            anyhow!("invitation path must be an owner-only regular file or - for stdin")
-        })?;
+        .map_err(|_| anyhow!(catalog().remote_client.invitation_path_invalid))?;
     normalize_invitation_uri(bytes)
 }
 
@@ -1532,7 +1530,7 @@ fn read_invitation_uri_to_end(reader: &mut impl Read) -> anyhow::Result<Zeroizin
     reader
         .take((MAX_INVITATION_URI_BYTES + 3) as u64)
         .read_to_end(&mut bytes)
-        .context("could not read invitation input")?;
+        .context(catalog().remote_client.invitation_input_read_failed)?;
     normalize_invitation_uri(bytes)
 }
 
@@ -1540,7 +1538,10 @@ fn read_invitation_uri_line(reader: &mut impl Read) -> anyhow::Result<Zeroizing<
     let mut bytes = Zeroizing::new(Vec::with_capacity(1024));
     loop {
         let mut byte = [0_u8; 1];
-        match reader.read(&mut byte).context("could not read invitation input")? {
+        match reader
+            .read(&mut byte)
+            .context(catalog().remote_client.invitation_input_read_failed)?
+        {
             0 => break,
             _ => {
                 bytes.push(byte[0]);
@@ -1549,7 +1550,9 @@ fn read_invitation_uri_line(reader: &mut impl Read) -> anyhow::Result<Zeroizing<
                 }
                 if bytes.len() > MAX_INVITATION_URI_BYTES + 2 {
                     return Err(anyhow!(
-                        "invitation input exceeds {MAX_INVITATION_URI_BYTES} bytes"
+                        catalog()
+                            .remote_client
+                            .invitation_input_too_large(MAX_INVITATION_URI_BYTES)
                     ));
                 }
             }
@@ -1566,20 +1569,22 @@ fn normalize_invitation_uri(mut bytes: Zeroizing<Vec<u8>>) -> anyhow::Result<Zer
         }
     }
     if bytes.is_empty() {
-        return Err(anyhow!("invitation input is empty"));
+        return Err(anyhow!(catalog().remote_client.invitation_input_empty));
     }
     if bytes.len() > MAX_INVITATION_URI_BYTES {
-        return Err(anyhow!("invitation input exceeds {MAX_INVITATION_URI_BYTES} bytes"));
+        return Err(anyhow!(
+            catalog().remote_client.invitation_input_too_large(MAX_INVITATION_URI_BYTES)
+        ));
     }
     if bytes.iter().any(|byte| matches!(byte, b'\r' | b'\n')) {
-        return Err(anyhow!("invitation input must contain exactly one URI"));
+        return Err(anyhow!(catalog().remote_client.invitation_input_multiline));
     }
     let bytes = std::mem::take(&mut *bytes);
     match String::from_utf8(bytes) {
         Ok(uri) => Ok(Zeroizing::new(uri)),
         Err(error) => {
             let _invalid_bytes = Zeroizing::new(error.into_bytes());
-            Err(anyhow!("invitation input is not valid UTF-8"))
+            Err(anyhow!(catalog().remote_client.invitation_input_invalid_utf8))
         }
     }
 }
