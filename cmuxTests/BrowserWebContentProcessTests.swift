@@ -65,6 +65,13 @@ struct BrowserWebContentProcessTests {
         case .block, .deliverInApp:
             Issue.record("Ordinary web navigation should pass through")
         }
+
+        #expect(BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(callbackURL))
+        #expect(
+            !BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(
+                URL(string: "https://cmux.test/app-pricing")!
+            )
+        )
     }
 
     @Test

@@ -3523,7 +3523,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "La facturación no está disponible ahora. Inténtalo de nuevo más tarde."
+    "billingUnavailable": "La facturación no está disponible ahora. Inténtalo de nuevo más tarde.",
+    "signedOutNotice": "No has iniciado sesión. Inicia sesión para ver tu plan actual o restaurar una compra existente.",
+    "signedOutSignIn": "Iniciar sesión"
   },
   "platforms": {
     "macos": "macOS",

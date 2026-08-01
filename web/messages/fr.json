@@ -3526,7 +3526,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard."
+    "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard.",
+    "signedOutNotice": "Vous n'êtes pas connecté. Connectez-vous pour voir votre forfait actuel ou restaurer un achat existant.",
+    "signedOutSignIn": "Se connecter"
   },
   "platforms": {
     "macos": "macOS",

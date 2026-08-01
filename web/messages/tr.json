@@ -3522,7 +3522,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin."
+    "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
+    "signedOutNotice": "Oturum açmadınız. Mevcut planınızı görmek veya önceki bir satın almayı geri yüklemek için oturum açın.",
+    "signedOutSignIn": "Oturum aç"
   },
   "platforms": {
     "macos": "macOS",

@@ -3521,7 +3521,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere."
+    "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere.",
+    "signedOutNotice": "Du er ikke logget inn. Logg inn for å se gjeldende abonnement eller gjenopprette et eksisterende kjøp.",
+    "signedOutSignIn": "Logg inn"
   },
   "platforms": {
     "macos": "macOS",

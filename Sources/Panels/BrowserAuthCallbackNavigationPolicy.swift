@@ -7,7 +7,7 @@ import WebKit
 /// scheme URLs (`cmux://auth-callback`, `cmux-dev-<tag>://auth-callback`, ...)
 /// delivered by the hosted after-sign-in page. WKWebView cannot open native
 /// schemes itself, so the navigation delegate consumes the URL and hands it to
-/// the app's own URL entrypoint (the stateless-callback fallback in
+/// the app's shared native callback entrypoint (the stateless-callback fallback in
 /// HostBrowserSignInFlow accepts it, without a state check).
 ///
 /// Because the stateless path accepts token-bearing callbacks, the automatic
@@ -27,7 +27,7 @@ import WebKit
 ///   app. Popup/new-window paths apply the same rule via
 ///   ``shouldBlockExternalNavigation(_:)``.
 /// - An accepted callback is delivered in-process through the app delegate's
-///   `application(_:open:)`, never through `NSWorkspace`/LaunchServices, so
+///   auth handler, never through `NSWorkspace`/LaunchServices, so
 ///   the token-bearing URL cannot be routed to whatever app currently claims
 ///   the scheme.
 /// - After delivery, the embedded flow returns the webview to the page the
@@ -61,12 +61,30 @@ struct BrowserAuthCallbackNavigationPolicy {
     }
 
     func disposition(for navigationAction: WKNavigationAction, url: URL) -> Disposition {
+        disposition(
+            for: url,
+            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame != false,
+            isLinkActivated: navigationAction.navigationType == .linkActivated,
+            sourceOriginMatches: trustedSourceOrigin?.matches(
+                navigationAction.sourceFrame.securityOrigin
+            ) == true
+        )
+    }
+
+    /// Pure policy seam used by the WebKit adapter and unit tests. Keeping
+    /// WebKit object access outside the decision makes every trust check
+    /// independently testable without fabricating WKNavigationAction values.
+    func disposition(
+        for url: URL,
+        targetFrameIsMainFrame: Bool,
+        isLinkActivated: Bool,
+        sourceOriginMatches: Bool
+    ) -> Disposition {
         guard Self.isAuthCallbackShapedURL(url) else { return .passThrough }
-        guard navigationAction.targetFrame?.isMainFrame != false,
-              navigationAction.navigationType == .linkActivated,
+        guard targetFrameIsMainFrame,
+              isLinkActivated,
+              sourceOriginMatches,
               url.scheme?.lowercased() == ownCallbackScheme,
-              let trustedSourceOrigin,
-              trustedSourceOrigin.matches(navigationAction.sourceFrame.securityOrigin),
               router.isAuthCallbackURL(url) else {
             return .block
         }
@@ -97,13 +115,12 @@ struct BrowserAuthCallbackNavigationPolicy {
         return URL(string: value, relativeTo: pageURL)?.absoluteURL
     }
 
-    /// Delivers an accepted callback to the app's canonical URL entrypoint
-    /// in-process, exactly as LaunchServices would, without the token-bearing
-    /// URL ever leaving this process.
-    func deliverAuthCallbackInApp(_ url: URL) -> Bool {
-        guard let delegate = NSApp.delegate else { return false }
-        guard delegate.application?(NSApp, open: [url]) != nil else { return false }
-        return true
+    /// Delivers an accepted callback through the app's shared auth entrypoint
+    /// without sending the token-bearing URL through LaunchServices. Success
+    /// means the account flow completed, not merely that dispatch started.
+    func deliverAuthCallbackInApp(_ url: URL) async -> Bool {
+        guard let delegate = NSApp.delegate as? AppDelegate else { return false }
+        return await delegate.handleAuthCallbackURLInProcess(url)
     }
 
     /// Any cmux-family scheme pointing at the auth-callback target, including
@@ -134,19 +151,26 @@ extension BrowserNavigationDelegate {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             let sourcePageURL = webView.url
-            let delivered = authCallbackNavigationPolicy.deliverAuthCallbackInApp(url)
-#if DEBUG
-            cmuxDebugLog(
-                "browser.nav.decidePolicy.action kind=deliverNativeAuthCallbackInApp " +
-                "delivered=\(delivered ? 1 : 0) scheme=\(url.scheme ?? "nil")"
-            )
-#endif
-            if delivered { reportTerminalCancellation() }
-            // Cancel even when delivery fails: WKWebView cannot render a
-            // native scheme URL, so allowing it only produces an error page.
+            // Cancel immediately because WebKit cannot render the native
+            // callback scheme. Account completion continues on MainActor.
             decisionHandler(.cancel)
-            if delivered,
-               let returnURL = BrowserAuthCallbackNavigationPolicy.webReturnURL(fromPageURL: sourcePageURL) {
+            Task { @MainActor [weak self, weak webView] in
+                guard let self else { return }
+                let delivered = await authCallbackNavigationPolicy.deliverAuthCallbackInApp(url)
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.nav.decidePolicy.action kind=deliverNativeAuthCallbackInApp " +
+                    "delivered=\(delivered ? 1 : 0) scheme=\(url.scheme ?? "nil")"
+                )
+#endif
+                guard delivered else { return }
+                reportTerminalCancellation()
+                guard let webView,
+                      let returnURL = BrowserAuthCallbackNavigationPolicy.webReturnURL(
+                          fromPageURL: sourcePageURL
+                      ) else {
+                    return
+                }
                 recordAttemptedRequest(URLRequest(url: returnURL))
                 _ = browserLoadRequest(URLRequest(url: returnURL), in: webView)
             }

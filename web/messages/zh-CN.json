@@ -3524,7 +3524,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "目前无法使用结算功能。请稍后再试。"
+    "billingUnavailable": "目前无法使用结算功能。请稍后再试。",
+    "signedOutNotice": "你尚未登录。登录后可查看当前方案或恢复已有购买。",
+    "signedOutSignIn": "登录"
   },
   "platforms": {
     "macos": "macOS",

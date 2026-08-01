@@ -3524,7 +3524,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później."
+    "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później.",
+    "signedOutNotice": "Nie jesteś zalogowany. Zaloguj się, aby zobaczyć bieżący plan lub przywrócić istniejący zakup.",
+    "signedOutSignIn": "Zaloguj się"
   },
   "platforms": {
     "macos": "macOS",

@@ -425,6 +425,16 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url,
+           BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(url) {
+#if DEBUG
+            cmuxDebugLog(
+                "popup.createWebView kind=blockUntrustedAuthCallback scheme=\(url.scheme ?? "nil")"
+            )
+#endif
+            return nil
+        }
+
+        if let url = navigationAction.request.url,
            browserShouldRouteExternalNavigation(url) {
             browserHandleExternalNavigation(
                 url,
@@ -649,6 +659,17 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
 
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
+            return
+        }
+
+        if BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(url) {
+            clearAttemptedRequest(discardPendingBypasses: true)
+#if DEBUG
+            cmuxDebugLog(
+                "popup.nav kind=blockUntrustedAuthCallback scheme=\(url.scheme ?? "nil")"
+            )
+#endif
+            decisionHandler(.cancel)
             return
         }
 
