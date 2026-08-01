@@ -1037,6 +1037,50 @@ mod tests {
         ))));
     }
 
+    #[test]
+    fn reconnect_classifier_excludes_terminal_transport_failures() {
+        for error in [
+            ConnectionError::Provider(ProviderError::Transport("wrong Unix peer owner".into())),
+            ConnectionError::Crypto(CryptoError::Link("Noise frame limit is too small".into())),
+            ConnectionError::Crypto(CryptoError::LinkError(LinkError::Protocol(
+                "invalid handshake frame".into(),
+            ))),
+            ConnectionError::Link(LinkError::FrameTooLarge { actual: 2, maximum: 1 }),
+            ConnectionError::Session(SessionError::Link(LinkError::Protocol(
+                "invalid session frame".into(),
+            ))),
+        ] {
+            assert!(!retryable_connection_error(&error), "terminal failure was retryable: {error}");
+        }
+
+        for error in [
+            ConnectionError::Crypto(CryptoError::LinkError(LinkError::Closed)),
+            ConnectionError::Link(LinkError::Transport("carrier disappeared".into())),
+            ConnectionError::Session(SessionError::Link(LinkError::Closed)),
+        ] {
+            assert!(retryable_connection_error(&error), "carrier failure became terminal: {error}");
+        }
+    }
+
+    #[test]
+    fn session_recovery_classifier_excludes_terminal_link_failures() {
+        for error in [
+            SessionError::Link(LinkError::Protocol("invalid session frame".into())),
+            SessionError::Link(LinkError::FrameTooLarge { actual: 2, maximum: 1 }),
+        ] {
+            assert!(!reconnectable_session_error(&error), "terminal failure was recoverable");
+        }
+
+        for error in [
+            SessionError::Link(LinkError::Closed),
+            SessionError::Link(LinkError::Transport("carrier disappeared".into())),
+            SessionError::LinkMessage("carrier sender stopped".into()),
+            SessionError::SchedulerClosed,
+        ] {
+            assert!(reconnectable_session_error(&error), "carrier failure became terminal");
+        }
+    }
+
     struct DelayedReconnectGroupSource {
         delay: Duration,
         resolution_timeout: Option<Duration>,

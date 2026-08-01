@@ -198,6 +198,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn permanent_dial_failures_are_terminal() {
+        let directory = tempdir().unwrap();
+        let non_directory = directory.path().join("ordinary-file");
+        std::fs::write(&non_directory, b"not a directory").unwrap();
+        let socket = non_directory.join("carrier.sock");
+        let group = UnixProvider::new(1024).connect(request(&socket)).await.unwrap();
+        let error = match group.open(LinkRequest { lane: Lane::Interactive, generation: 1 }).await {
+            Ok(_) => panic!("invalid Unix socket path was accepted"),
+            Err(error) => error,
+        };
+
+        assert!(!error.is_retryable_carrier_failure(), "permanent dial failure was retryable");
+    }
+
+    #[tokio::test]
     async fn rejects_responder_owned_by_another_uid() {
         let directory = tempdir().unwrap();
         let socket = directory.path().join("carrier.sock");
