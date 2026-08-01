@@ -19027,6 +19027,74 @@ mod tests {
         assert_eq!(terminal.launch_spec, serde_json::json!({"command_present":true}));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn pending_topology_accepts_current_host_reconnect_without_advancing_lifecycle() {
+        const TERMINAL: &str = "00000000000040008000000000000012";
+        const INCARNATION: &str = "10000000000040008000000000000012";
+        const PENDING_SURFACE: SurfaceId = 4242;
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001112".into()), None)
+            .unwrap();
+        let identity = TerminalHostIdentity {
+            terminal_id: TERMINAL.into(),
+            incarnation: INCARNATION.into(),
+        };
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "reserve-terminal",
+                &RegistryTerminal {
+                    terminal_id: TERMINAL.into(),
+                    workspace_key: workspace.key,
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+        }
+
+        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+        assert!(mux.terminal_host_reconnected(PENDING_SURFACE, &identity));
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Launching
+        );
+
+        mux.transition_terminal_lifecycle(
+            "terminal-adopting",
+            "test-adoption",
+            TERMINAL,
+            TerminalLifecycle::Adopting,
+            Some(INCARNATION),
+            None,
+        )
+        .unwrap();
+        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+        assert!(mux.terminal_host_reconnected(PENDING_SURFACE, &identity));
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Adopting
+        );
+    }
+
     #[test]
     fn stale_move_replay_projects_the_latest_canonical_workspace() {
         const TERMINAL: &str = "00000000000040008000000000000003";
