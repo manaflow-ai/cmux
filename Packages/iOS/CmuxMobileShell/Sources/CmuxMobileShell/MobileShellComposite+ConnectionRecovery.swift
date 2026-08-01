@@ -286,12 +286,26 @@ extension MobileShellComposite {
                 // shared reconnect entry owns the hard deadline after claiming
                 // its generation synchronously, so every lifecycle caller gets
                 // the same wedge protection without a second race here.
-                let reconnectOutcome = await self.reconnectActiveMacOutcome(
+                var reconnectOutcome = await self.reconnectActiveMacOutcome(
                     stackUserID: stackUserID,
                     refreshBackupBeforeDial: false
                 )
                 guard !Task.isCancelled,
                       self.connectionRecoveryOwner.isCurrent(attempt) else { return }
+                if expectedClient == nil,
+                   case .failed(.routeGated) = reconnectOutcome {
+                    // A disconnected foreground resume can race the old
+                    // fire-and-forget client teardown. The first dial may be
+                    // refused before it reaches the host; one immediate retry
+                    // lets the scheduled teardown transfer its route lease.
+                    await Task.yield()
+                    reconnectOutcome = await self.reconnectActiveMacOutcome(
+                        stackUserID: stackUserID,
+                        refreshBackupBeforeDial: false
+                    )
+                    guard !Task.isCancelled,
+                          self.connectionRecoveryOwner.isCurrent(attempt) else { return }
+                }
                 guard self.settleConnectionRecovery(
                     attempt,
                     outcome: reconnectOutcome,
