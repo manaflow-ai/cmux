@@ -313,26 +313,42 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         )
         await fixture.broker.waitForBootstrapRequest()
 
+        let publicRequest = try fixture.requestWithDirectPath(privacyScope: .publicInternet)
+        let privateRequest = try fixture.requestWithDirectPath(privacyScope: .privateNetwork)
+        #expect(!MobileIrohRuntimeComposition.requiresInitialRelayPolicy(
+            request: publicRequest,
+            now: fixture.clock.now
+        ))
+        #expect(MobileIrohRuntimeComposition.requiresInitialRelayPolicy(
+            request: privateRequest,
+            now: fixture.clock.now
+        ))
+
         // A route with an explicit public direct address remains available
         // while relay bootstrap is suspended.
-        _ = try await fixture.composition.transport(
-            for: try fixture.requestWithPublicDirectPath()
-        )
+        _ = try await fixture.composition.transport(for: publicRequest)
 
         // The identity-only attach barrier must stay pending until the first
         // relay-policy attempt settles. Otherwise a cold launch consumes its
         // one-shot pairing URL against an empty relay allowlist.
         let completion = MobileIrohCooldownCompletionProbe()
         let preparation = Task { @MainActor in
+            await completion.markStarted()
             await fixture.composition.prepareForConnection()
             await completion.markComplete()
         }
-        try await Task.sleep(for: .milliseconds(50))
+        await completion.waitUntilStarted()
+        for _ in 0 ..< 100 where !(await completion.isComplete()) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(!(await completion.isComplete()))
 
         await fixture.broker.resumeRelayBootstrap()
-        await preparation.value
+        for _ in 0 ..< 500 where !(await completion.isComplete()) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(await completion.isComplete())
+        preparation.cancel()
     }
 
     @Test
@@ -397,7 +413,23 @@ struct MobileIrohRuntimeCompositionCooldownTests {
 }
 
 private actor MobileIrohCooldownCompletionProbe {
+    private var started = false
     private var complete = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func markStarted() {
+        started = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
 
     func markComplete() {
         complete = true
@@ -666,7 +698,9 @@ private struct MobileIrohCooldownFixture {
         )
     }
 
-    func requestWithPublicDirectPath() throws -> CmxByteTransportRequest {
+    func requestWithDirectPath(
+        privacyScope: CmxIrohPathPrivacyScope
+    ) throws -> CmxByteTransportRequest {
         guard case let .peer(identity, _) = request.route.endpoint else {
             throw MobileIrohCooldownTestError.unavailable
         }
@@ -681,7 +715,7 @@ private struct MobileIrohCooldownFixture {
                             kind: .directAddress,
                             value: "203.0.113.10:443",
                             source: .native,
-                            privacyScope: .publicInternet
+                            privacyScope: privacyScope
                         ),
                     ]
                 ),
