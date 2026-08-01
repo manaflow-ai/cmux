@@ -893,6 +893,7 @@ fn computer_feature_name(feature: ComputerUseFeature) -> &'static str {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use cmux_remote_protocol::{
         ByteString, FilePrecondition, ProcessDescriptor, ProcessEnvironment, ProcessIo,
@@ -941,6 +942,109 @@ mod tests {
         let WorkspaceResponse::File { data, eof, .. } = response else { panic!() };
         assert!(eof);
         assert_eq!(data.decode().unwrap(), b"pub fn answer() -> u8 { 42 }\n");
+    }
+
+    #[tokio::test]
+    async fn timed_out_directory_page_keeps_its_cursor_retryable() {
+        let directory = tempdir().unwrap();
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(directory.path().join(name), name).unwrap();
+        }
+        let calls = Arc::new(AtomicUsize::new(0));
+        let gate = Arc::new((StdMutex::new(false), std::sync::Condvar::new()));
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let entered_tx = Arc::new(StdMutex::new(Some(entered_tx)));
+        let hook = {
+            let calls = Arc::clone(&calls);
+            let gate = Arc::clone(&gate);
+            let entered_tx = Arc::clone(&entered_tx);
+            Arc::new(move || {
+                if calls.fetch_add(1, Ordering::SeqCst) != 1 {
+                    return;
+                }
+                if let Some(entered_tx) =
+                    entered_tx.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+                {
+                    let _ = entered_tx.send(());
+                }
+                let (released, changed) = &*gate;
+                let released = released.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                drop(
+                    changed
+                        .wait_while(released, |released| !*released)
+                        .unwrap_or_else(std::sync::PoisonError::into_inner),
+                );
+            }) as Arc<dyn Fn() + Send + Sync>
+        };
+        let service = WorkspaceService::with_blocking_hook(1, hook);
+        let opened = service
+            .handle_request(WorkspaceRequest::OpenWorkspace {
+                root: directory.path().to_string_lossy().into_owned(),
+            })
+            .await
+            .unwrap();
+        let WorkspaceResponse::Workspace { id: workspace, .. } = opened else { panic!() };
+        let first = service
+            .handle_request(WorkspaceRequest::ListDirectory {
+                workspace: workspace.clone(),
+                path: String::new(),
+                include_hidden: false,
+                limit: 1,
+                cursor: None,
+            })
+            .await
+            .unwrap();
+        let WorkspaceResponse::Directory { next_cursor: Some(cursor), .. } = first else {
+            panic!()
+        };
+
+        let timed = tokio::spawn({
+            let service = service.clone();
+            let workspace = workspace.clone();
+            let cursor = cursor.clone();
+            async move {
+                service
+                    .handle_rpc(RpcRequest {
+                        id: RequestId::from_u128(2),
+                        timeout_ms: Some(10),
+                        request: WorkspaceRequest::ListDirectory {
+                            workspace,
+                            path: String::new(),
+                            include_hidden: false,
+                            limit: 1,
+                            cursor: Some(cursor),
+                        },
+                    })
+                    .await
+            }
+        });
+        entered_rx.await.unwrap();
+        let timed = tokio::time::timeout(std::time::Duration::from_secs(2), timed)
+            .await
+            .expect("directory page did not reach its deadline")
+            .unwrap();
+        assert_eq!(timed.result.unwrap_err().code, "deadline-exceeded");
+        let (released, changed) = &*gate;
+        *released.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        changed.notify_all();
+
+        let retried = service
+            .handle_rpc(RpcRequest {
+                id: RequestId::from_u128(3),
+                timeout_ms: None,
+                request: WorkspaceRequest::ListDirectory {
+                    workspace,
+                    path: String::new(),
+                    include_hidden: false,
+                    limit: 1,
+                    cursor: Some(cursor),
+                },
+            })
+            .await;
+        let WorkspaceResponse::Directory { entries, .. } = retried.result.unwrap() else {
+            panic!()
+        };
+        assert_eq!(entries[0].name, "b.txt");
     }
 
     #[tokio::test]
