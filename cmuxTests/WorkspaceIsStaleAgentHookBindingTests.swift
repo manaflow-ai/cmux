@@ -20,6 +20,7 @@ struct WorkspaceIsStaleAgentHookBindingTests {
         launchFlavor: SurfaceResumeLaunchFlavor
     ) -> SurfaceResumeBindingSnapshot {
         SurfaceResumeBindingSnapshot(
+            kind: "claude",
             command: "claude --resume session-1",
             checkpointId: "session-1",
             source: "agent-hook",
@@ -51,5 +52,23 @@ struct WorkspaceIsStaleAgentHookBindingTests {
         // NOT be reported as stale (that would delete a still-live remote
         // binding on the next reconciliation).
         #expect(workspace.isStaleAgentHookBinding(binding, panelId: panelId) == false)
+    }
+
+    @Test
+    func staleAgentHookBindingIsRetainedForManualRestore() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = Self.agentHookBinding(launchFlavor: .local)
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+
+        workspace.reconcileSurfaceResumeBindings(
+            using: .empty,
+            restorableAgentIndex: .empty
+        )
+
+        let retainedBinding = try #require(workspace.surfaceResumeBinding(panelId: panelId))
+        #expect(retainedBinding.checkpointId == binding.checkpointId)
+        #expect(retainedBinding.autoResume == false)
     }
 }
