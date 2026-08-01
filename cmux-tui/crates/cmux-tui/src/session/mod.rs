@@ -30,8 +30,10 @@ use ghostty_vt::{
 use serde::Deserialize;
 use serde_json::json;
 
+pub(crate) use remote::{REMOTE_CONTROL_MESSAGE_MAX_BYTES, read_bounded_json_line};
 pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
+    RemoteTransportAbort,
 };
 pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
@@ -684,9 +686,7 @@ impl Session {
 
     pub fn surface_cwd(&self, surface: SurfaceId) -> Option<String> {
         match self {
-            Session::Local(mux) => mux
-                .surface(surface)
-                .and_then(|surface| surface.pwd().or_else(|| surface.spawn_cwd())),
+            Session::Local(mux) => mux.surface(surface).and_then(|surface| surface.local_cwd()),
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "process-info", "surface": surface})).ok().and_then(
                     |data| data.get("cwd").and_then(serde_json::Value::as_str).map(str::to_owned),

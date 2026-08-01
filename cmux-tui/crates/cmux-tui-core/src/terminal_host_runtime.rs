@@ -357,6 +357,7 @@ mod unix {
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
     const HOST_LAUNCH_TIMEOUT: Duration = Duration::from_secs(10);
     const HOST_LAUNCH_CANCEL_POLL: Duration = Duration::from_millis(25);
+    const HOST_LAUNCH_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
     const HOST_PROCESS_REAPER_CAPACITY: usize = 4_096;
     const HOST_PROCESS_REAPER_POLL: Duration = Duration::from_millis(25);
     const HOST_PROCESS_REAPER_RETRY_MAX: Duration = Duration::from_secs(1);
@@ -2686,6 +2687,7 @@ mod unix {
         listener_fd: RawFd,
         exit_waiter: &mut UnixStream,
         dead: &AtomicBool,
+        deadline: Option<Instant>,
     ) -> std::io::Result<bool> {
         loop {
             if dead.load(Ordering::Acquire) {
@@ -2703,16 +2705,30 @@ mod unix {
                     revents: 0,
                 },
             ];
+            let timeout = deadline
+                .map(|deadline| {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        0
+                    } else {
+                        remaining.as_millis().clamp(1, i32::MAX as u128) as i32
+                    }
+                })
+                .unwrap_or(-1);
             // SAFETY: poll_fds contains two initialized descriptors that
             // remain owned by the service loop for the duration of this call.
-            let ready =
-                unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as libc::nfds_t, -1) };
+            let ready = unsafe {
+                libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as libc::nfds_t, timeout)
+            };
             if ready < 0 {
                 let error = std::io::Error::last_os_error();
                 if error.kind() == std::io::ErrorKind::Interrupted {
                     continue;
                 }
                 return Err(error);
+            }
+            if ready == 0 {
+                return Ok(true);
             }
             if poll_fds[0].revents & libc::POLLNVAL != 0 {
                 return Err(std::io::Error::other("terminal host listener became invalid"));
@@ -2779,6 +2795,9 @@ mod unix {
         next_client: AtomicU64,
         active_clients: Arc<AtomicUsize>,
         dead: AtomicBool,
+        launch_owner_claimed: AtomicBool,
+        launch_owner_stream_ready: AtomicBool,
+        launch_owner_completed: AtomicBool,
         child_exit: (Mutex<Option<TerminalExit>>, Condvar),
         child_waitable: AtomicBool,
         pty_drained: AtomicBool,
@@ -2798,6 +2817,45 @@ mod unix {
         normal_cleanup_failures: AtomicUsize,
         #[cfg(test)]
         normal_cleanup_attempts: AtomicUsize,
+    }
+
+    struct LaunchOwnerConnection {
+        host: Arc<HostShared>,
+        claimed: bool,
+    }
+
+    impl LaunchOwnerConnection {
+        fn claim(host: Arc<HostShared>, granted_rights: CapabilityRights) -> Self {
+            let claimed = granted_rights.contains(CapabilityRights::ADMIN)
+                && host
+                    .launch_owner_claimed
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok();
+            Self { host, claimed }
+        }
+
+        fn stream_ready(&self) {
+            if !self.claimed {
+                return;
+            }
+            self.host.launch_owner_stream_ready.store(true, Ordering::Release);
+            let _ = self.host.publish_exit_if_drained();
+        }
+    }
+
+    impl Drop for LaunchOwnerConnection {
+        fn drop(&mut self) {
+            if !self.claimed {
+                return;
+            }
+            // A failed initial stream must release the same launch barrier as
+            // a successful one. The launching daemon reports the handshake
+            // failure, while the independently hosted process can still
+            // publish or clean up its terminal exit.
+            self.host.launch_owner_stream_ready.store(true, Ordering::Release);
+            self.host.launch_owner_completed.store(true, Ordering::Release);
+            let _ = self.host.publish_exit_if_drained();
+        }
     }
 
     fn publish_host_frames(
@@ -3301,6 +3359,13 @@ mod unix {
         }
 
         fn publish_exit_if_drained(&self) -> anyhow::Result<()> {
+            // A command may exit before its launching daemon reaches the host
+            // socket. Keep the final parser snapshot and canonical Exit
+            // available until that first authenticated owner stream has been
+            // inserted into the broadcast set.
+            if !self.launch_owner_stream_ready.load(Ordering::Acquire) {
+                return Ok(());
+            }
             let _publish = self.exit_publish_lock.lock().unwrap();
             if let Some(exit) = persist_and_claim_host_exit_after_drain(
                 &self.child_exit.0,
@@ -3719,11 +3784,30 @@ mod unix {
         // record and connects through the already-listening Unix socket.
         let _ = write_frame(writer, &response);
 
+        let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
         let mut service_waiter =
             shared.service_exit_waiter.lock().unwrap().take().ok_or_else(|| {
                 anyhow::anyhow!("terminal host service waiter was already claimed")
             })?;
-        while !shared.dead.load(Ordering::Acquire) {
+        loop {
+            let now = Instant::now();
+            if !shared.launch_owner_claimed.load(Ordering::Acquire)
+                && now >= launch_owner_deadline
+                && shared
+                    .launch_owner_claimed
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+            {
+                // A launcher that vanished before authenticating must not
+                // retain an already-exited host forever. A live PTY remains
+                // adoptable; only its eventual exit is now unblocked.
+                shared.launch_owner_stream_ready.store(true, Ordering::Release);
+                shared.launch_owner_completed.store(true, Ordering::Release);
+                shared.publish_exit_if_drained()?;
+            }
+            if shared.dead.load(Ordering::Acquire) {
+                break;
+            }
             match cmux_tui_process::unix::accept_stream(&listener) {
                 Ok((stream, _)) => {
                     // Accepted sockets inherit O_NONBLOCK from the listener
@@ -3746,10 +3830,13 @@ mod unix {
                     );
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    let deadline = (!shared.launch_owner_claimed.load(Ordering::Acquire))
+                        .then_some(launch_owner_deadline);
                     if !wait_for_host_service_activity(
                         listener.as_raw_fd(),
                         &mut service_waiter,
                         &shared.dead,
+                        deadline,
                     )? {
                         break;
                     }
@@ -3860,6 +3947,9 @@ mod unix {
             next_client: AtomicU64::new(1),
             active_clients: Arc::new(AtomicUsize::new(0)),
             dead: AtomicBool::new(false),
+            launch_owner_claimed: AtomicBool::new(false),
+            launch_owner_stream_ready: AtomicBool::new(false),
+            launch_owner_completed: AtomicBool::new(false),
             child_exit: (Mutex::new(None), Condvar::new()),
             child_waitable: AtomicBool::new(false),
             pty_drained: AtomicBool::new(false),
@@ -4091,6 +4181,7 @@ mod unix {
             anyhow::bail!("terminal-host capability denied");
         }
         let granted_rights = response.granted_rights;
+        let launch_owner = LaunchOwnerConnection::claim(host.clone(), granted_rights);
         let viewer_size_acks = hello_frame.flags & FLAG_VIEWER_SIZE_ACKS != 0
             && granted_rights.contains(CapabilityRights::RESIZE);
         let mut hello_response = Frame::new(MessageKind::HostHello, response.encode());
@@ -4168,6 +4259,10 @@ mod unix {
                 host.sequence.load(Ordering::Acquire),
             )
         };
+        // The tap and snapshot boundary are now atomic members of the live
+        // stream. Releasing a deferred fast-exit event here places Exit after
+        // that boundary even if the PTY finished before this connection.
+        launch_owner.stream_ready();
         let mut snapshot_frame = Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
         snapshot_frame.sequence = snapshot_sequence;
         if let Err(error) = write_frame(&mut stream, &snapshot_frame) {
@@ -4745,6 +4840,7 @@ mod unix {
                         listener_fd,
                         &mut service_waiter,
                         &waiter_dead,
+                        None,
                     ))
                     .unwrap();
             });
@@ -4786,7 +4882,7 @@ mod unix {
             let dead = AtomicBool::new(false);
             let listener_fd = listener.as_raw_fd();
             let worker = thread::spawn(move || {
-                wait_for_host_service_activity(listener_fd, &mut service_waiter, &dead)
+                wait_for_host_service_activity(listener_fd, &mut service_waiter, &dead, None)
             });
 
             let client = UnixStream::connect(&endpoint).unwrap();

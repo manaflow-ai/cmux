@@ -69,6 +69,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         coordinator.isAuthenticated
     }
 
+    var isRestoringSession: Bool {
+        coordinator.isRestoringSession
+    }
+
     var isPresentingSignIn: Bool {
         browserSignIn.isPresentingSignIn
     }

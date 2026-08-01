@@ -1267,7 +1267,7 @@ func (r *streamRoute) markOpenAcknowledged() {
 	r.mu.Unlock()
 }
 
-func (r *streamRoute) hasServerEnd() bool {
+func (r *streamRoute) endedByServer() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.serverEnded
