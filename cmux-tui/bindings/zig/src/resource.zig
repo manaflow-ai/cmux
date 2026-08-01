@@ -4572,6 +4572,8 @@ const RawStream = struct {
         }
     }
 
+    /// Takes ownership of `message` on entry. Success stores it in `pending`;
+    /// every error path deinitializes it before returning.
     fn queuePending(
         self: *RawStream,
         message: raw.wire.OwnedValue,
@@ -4673,7 +4675,8 @@ const RawStream = struct {
         errdefer if (close_on_error) self.client.close();
         while (true) {
             var message = try self.client.readMessageWithDeadline(&deadline);
-            errdefer message.deinit();
+            var message_owned = true;
+            errdefer if (message_owned) message.deinit();
             const object = switch (message.value) {
                 .object => |item| item,
                 else => return error.ExpectedObject,
@@ -4700,6 +4703,7 @@ const RawStream = struct {
             }
             if (std.mem.eql(u8, envelope_type, "stream_item")) {
                 _ = try self.parseItemEnvelope(object);
+                message_owned = false;
                 try self.queuePending(message);
                 continue;
             }
