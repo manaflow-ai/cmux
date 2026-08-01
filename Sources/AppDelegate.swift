@@ -20,12 +20,14 @@ import CMUXAgentLaunch
 import CoreServices
 import CoreGraphics
 import UserNotifications
+import CMUXMobileCore
 import Sentry
 import WebKit
 import Combine
 import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
+import CmuxSentryReporting
 import CmuxSidebar
 import CmuxGit
 
@@ -556,7 +558,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
     }
+    /// Bridges the Mac host's transport diagnostic ring into Sentry
+    /// (breadcrumbs, structured logs, throttled failure events with the ring
+    /// export attached). Created after `SentrySDK.start`; delivery no-ops when
+    /// the SDK is off.
+    private var transportSentryReporter: TransportSentryReporter?
     private let cmuxThemePreviewReloadScheduler = MainActorDeferredActionScheduler()
+    private let connectivityInvalidationSubscriberCoordinator =
+        ConnectivityInvalidationSubscriberCoordinator()
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
         // On some macOS/Xcode setups, the app-under-test process doesn't get
@@ -1439,13 +1448,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 options.attachStacktrace = true
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
+                // Structured logs power the transport diagnostics bridge
+                // (TransportSentryReporter on the host diagnostic ring below).
+                options.enableLogs = true
                 // Redact file paths, emails, and secrets from every outgoing
-                // event, breadcrumb, and (belt-and-suspenders, if tracing is ever
-                // re-enabled) child performance span before it leaves the device.
+                // event, breadcrumb, structured log, and (belt-and-suspenders,
+                // if tracing is ever re-enabled) child performance span before
+                // it leaves the device.
                 let scrubber = SentryEventScrubber()
                 options.beforeSend = { event in scrubber.scrub(event) }
                 options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
                 options.beforeSendSpan = { span in scrubber.scrub(span) }
+                options.beforeSendLog = { log in scrubber.scrub(log) }
+            }
+            // Bridge the Mac host's transport diagnostic ring into Sentry:
+            // every retained event becomes a breadcrumb + budget-limited log
+            // line, and gated failures become events carrying the ring export.
+            // The tap delivers on the ring's drain task, off the main thread.
+            let transportReporter = TransportSentryReporter(
+                role: .macHost,
+                exportRing: { await MobileHostIrohRuntime.hostDiagnosticLog.export() }
+            )
+            transportSentryReporter = transportReporter
+            MobileHostIrohRuntime.hostDiagnosticLog.setEventTap { event in
+                transportReporter.ingest(event)
             }
             StartupBreadcrumbLog.append("appDelegate.didFinish.sentry.complete")
         }
@@ -2112,7 +2138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Best-effort presence goodbye; unclean exits are covered by the
         // service's missed-heartbeat timeout.
         PresenceHeartbeatClient.shared.appWillTerminate()
-        PresenceNudgeSubscriber.shared.appWillTerminate()
+        connectivityInvalidationSubscriberCoordinator.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
@@ -2168,7 +2194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
-        PresenceNudgeSubscriber.shared.configure(auth: auth.coordinator)
+        connectivityInvalidationSubscriberCoordinator.configure(auth: auth.coordinator)
         // DEV-only: auto-publish this Mac's attach route to the signed-in user's
         // pairedMacs backup so a fresh dev iOS build restores it (no manual host
         // entry). No-op on Release / when the flag is off.

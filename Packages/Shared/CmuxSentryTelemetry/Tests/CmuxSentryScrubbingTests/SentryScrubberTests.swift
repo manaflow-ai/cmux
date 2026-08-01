@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import CmuxFoundation
+@testable import CmuxSentryScrubbing
 
 @Suite struct SentryScrubberTests {
     /// A scrubber with a fixed home directory so path redaction is deterministic.
