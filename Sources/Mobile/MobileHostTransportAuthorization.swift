@@ -259,33 +259,24 @@ enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    static func update(irohBinding binding: CmxIrohBrokerBinding?) {
+    static func update(
+        irohIdentity identity: CmxIrohPeerIdentity?,
+        pathHints: [CmxIrohPathHint] = []
+    ) {
         lock.lock()
-        if let binding {
+        if let identity {
             irohRoute = try? CmxAttachRoute(
                 id: CmxAttachTransportKind.iroh.rawValue,
                 kind: .iroh,
                 endpoint: .peer(
-                    identity: binding.endpointID,
-                    pathHints: binding.pathHints
+                    identity: identity,
+                    pathHints: pathHints
                 ),
                 priority: 0
             )
         } else {
             irohRoute = nil
         }
-        lock.unlock()
-        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
-    }
-
-    static func update(irohBinding binding: CmxIrohBrokerBindingMetadata) {
-        lock.lock()
-        irohRoute = try? CmxAttachRoute(
-            id: CmxAttachTransportKind.iroh.rawValue,
-            kind: .iroh,
-            endpoint: .peer(identity: binding.endpointID, pathHints: []),
-            priority: 0
-        )
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }

@@ -358,12 +358,14 @@ final class MobileHostService {
         MobileHostIrohRuntime.shared.configure(auth: auth)
     }
 
-    func updateIrohBinding(_ binding: CmxIrohBrokerBinding?) {
-        MobileHostPublicStatusCache.update(irohBinding: binding)
-    }
-
-    func updateIrohBinding(_ binding: CmxIrohBrokerBindingMetadata) {
-        MobileHostPublicStatusCache.update(irohBinding: binding)
+    func updateIrohRoute(
+        identity: CmxIrohPeerIdentity?,
+        pathHints: [CmxIrohPathHint] = []
+    ) {
+        MobileHostPublicStatusCache.update(
+            irohIdentity: identity,
+            pathHints: pathHints
+        )
     }
 
     func closeIrohConnections(bindingID: String) {

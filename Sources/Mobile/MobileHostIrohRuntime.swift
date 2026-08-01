@@ -118,7 +118,11 @@ final class MobileHostIrohRuntime {
     var lastKnownAccountID: String?
     var lastKnownTag: String?
     var lastKnownBindingID: String?
-    var pendingIrohRouteBinding: (revision: UInt64, binding: CmxIrohBrokerBindingMetadata)?
+    var pendingIrohRouteBinding: (
+        revision: UInt64,
+        binding: CmxIrohBrokerBindingMetadata,
+        pathHints: [CmxIrohPathHint]
+    )?
     var routePublicationPhase: RoutePublicationPhase = .unavailable
     var preparedSignOut: CmxIrohHostSignOutPreparation?
     var signOutIntentActive = false
@@ -132,10 +136,10 @@ final class MobileHostIrohRuntime {
     var failureRecoveryFailureCount = 0
     var failureRecoveryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     var failureRecoverySchedule = CmxIrohRetrySchedule()
-    /// Single-flight owner for nudge-triggered refreshes: one task in flight,
-    /// later signals coalesce into one replay through the pending bit.
+    /// Single-flight owner for revision reconciliation: one task in flight,
+    /// later signals coalesce at the greatest observed revision.
     var serverSignalRefreshTask: Task<Void, Never>?
-    var serverSignalRefreshPending = false
+    var serverSignalPendingRevision: UInt64?
 
     private init() {
         let installState = CmxIrohUserDefaultsInstallStateStore()
@@ -327,18 +331,16 @@ final class MobileHostIrohRuntime {
         DiagnosticFailureKind.classify(error)
     }
 
-    /// A server-directed presence nudge said broker-side state for this
-    /// device changed (its binding was revoked or replaced). One owned task
-    /// runs the refresh; a burst of nudge frames while it is in flight
-    /// coalesces into a single follow-up round instead of fanning out one
-    /// main-actor waiter per frame. When the refresh discovers the binding is
-    /// gone (a replacement returns a different binding id, which the runtime
-    /// rejects and fails closed on), rebuild through the shared reconcile
-    /// path so a fresh activation re-registers under the new server state.
-    /// An absent runtime goes through the standard retry evaluation.
-    func refreshRegistrationFromServerSignal() {
+    /// An account-scoped invalidation says a newer authoritative route
+    /// revision exists. One owned task performs a read-only v2 reconciliation;
+    /// bursts coalesce at the greatest revision instead of creating one waiter
+    /// per frame. Terminal evidence rebuilds through the shared lifecycle path.
+    func reconcileConnectivityFromServerSignal(revision: UInt64) {
         if serverSignalRefreshTask != nil {
-            serverSignalRefreshPending = true
+            serverSignalPendingRevision = max(
+                serverSignalPendingRevision ?? revision,
+                revision
+            )
             return
         }
         guard let signalRuntime = runtime else {
@@ -346,11 +348,11 @@ final class MobileHostIrohRuntime {
             return
         }
         serverSignalRefreshTask = Task { @MainActor [weak self] in
-            await signalRuntime.requestRegistrationRefresh()
+            _ = await signalRuntime.reconcileConnectivityRevision(revision)
             guard let self else { return }
             self.serverSignalRefreshTask = nil
-            let replayPending = self.serverSignalRefreshPending
-            self.serverSignalRefreshPending = false
+            let replayRevision = self.serverSignalPendingRevision
+            self.serverSignalPendingRevision = nil
             guard self.runtime === signalRuntime,
                   self.desiredActive,
                   !self.signOutIntentActive,
@@ -366,8 +368,10 @@ final class MobileHostIrohRuntime {
                 )
                 return
             }
-            if replayPending {
-                self.refreshRegistrationFromServerSignal()
+            if let replayRevision {
+                self.reconcileConnectivityFromServerSignal(
+                    revision: replayRevision
+                )
             }
         }
     }

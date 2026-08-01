@@ -143,6 +143,7 @@ extension MobileHostIrohRuntime {
         let resolvedPolicyService: CmxIrohRelayPolicyService?
         let resolvedEffectivePolicy: CmxIrohEffectiveRelayPolicy?
         var freshRelayCredential: CmxIrohRelayTokenResponse?
+        var relayPolicyNeedsImmediateRefresh = false
         if let relayPolicyTrustRoot {
             let service = CmxIrohRelayPolicyService(
                 policyCache: relayPolicyCache,
@@ -151,31 +152,45 @@ extension MobileHostIrohRuntime {
                 broker: relayPolicyBroker
             )
             let effective: CmxIrohEffectiveRelayPolicy
-            diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
-            do {
-                let outcome = try await service.refreshWithCredential(
-                    endpointID: derivedEndpointID,
-                    accountID: accountID,
-                    trustRoot: relayPolicyTrustRoot,
-                    now: Date()
-                )
-                effective = outcome.effective
-                freshRelayCredential = outcome.relayCredential
-                diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
-            } catch {
-                diagnosticLog.record(DiagnosticEvent(
-                    .relayPolicyRefreshFailed,
-                    b: Self.diagnosticFailureKind(for: error).rawValue
-                ))
+            if protocolConfiguration.allowsNATTraversalAfterAdmission {
+                // A verified cached policy is sufficient to bind, register,
+                // and discover. Refresh it immediately after activation so
+                // broker latency never gates direct-path availability.
                 effective = await service.restore(
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
                     relayCredential: cachedRelay,
                     now: Date()
                 )
-                mobileHostIrohLog.error(
-                    "Signed relay policy refresh failed; restored verified cache: \(String(describing: error), privacy: .private)"
-                )
+                relayPolicyNeedsImmediateRefresh = true
+            } else {
+                // Relay-only verification cannot become active without the
+                // current signed fleet and credential, so keep its explicit
+                // readiness barrier.
+                diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
+                do {
+                    let outcome = try await service.refreshWithCredential(
+                        endpointID: derivedEndpointID,
+                        accountID: accountID,
+                        trustRoot: relayPolicyTrustRoot,
+                        now: Date()
+                    )
+                    effective = outcome.effective
+                    freshRelayCredential = outcome.relayCredential
+                    diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
+                } catch {
+                    diagnosticLog.record(DiagnosticEvent(
+                        .relayPolicyRefreshFailed,
+                        b: Self.diagnosticFailureKind(for: error).rawValue
+                    ))
+                    effective = await service.restore(
+                        accountID: accountID,
+                        trustRoot: relayPolicyTrustRoot,
+                        relayCredential: cachedRelay,
+                        now: Date()
+                    )
+                    relayPolicyNeedsImmediateRefresh = true
+                }
             }
             endpointRelayProfile = effective.endpointRelayProfile
             managedRelayURLs = Set(effective.managedPolicy?.relays.map(\.url) ?? [])
@@ -373,9 +388,14 @@ extension MobileHostIrohRuntime {
                     }
                 )
             },
-            handleResolvedBinding: { [weak self] binding in
-                await self?.recordResolvedBinding(
+            handleRoute: { [weak self] binding, pathHints in
+                guard await self?.allowsPersistence(
+                    accountID: accountID,
+                    revision: revision
+                ) == true else { return }
+                await self?.recordActiveRoute(
                     binding,
+                    pathHints: pathHints,
                     accountID: accountID,
                     tag: tag,
                     revision: revision
@@ -484,7 +504,8 @@ extension MobileHostIrohRuntime {
             accountID: accountID,
             endpointID: derivedEndpointID,
             trustRoot: relayPolicyTrustRoot,
-            revision: revision
+            revision: revision,
+            refreshImmediately: relayPolicyNeedsImmediateRefresh
         )
         publishIrohSettingsUpdate()
         if preparedSignOut?.pendingRevocation?.accountID == accountID {
@@ -498,24 +519,21 @@ extension MobileHostIrohRuntime {
         tag: String,
         revision: UInt64
     ) {
-        guard revision == lifecycleRevision else { return }
+        guard allowsPersistence(
+            accountID: accountID,
+            revision: revision
+        ) else { return }
         lastKnownBindingID = binding.bindingID
         lastKnownAccountID = accountID
         lastKnownTag = tag
         if preparedSignOut?.pendingRevocation?.accountID == accountID {
             preparedSignOut = nil
         }
-        stageIrohRoute(
-            CmxIrohBrokerBindingMetadata(binding: binding),
-            revision: revision
-        )
-        if runtime != nil, activeAccountID == accountID {
-            _ = publishIrohRouteIfActive(revision: revision)
-        }
     }
 
-    private func recordResolvedBinding(
+    private func recordActiveRoute(
         _ binding: CmxIrohBrokerBindingMetadata,
+        pathHints: [CmxIrohPathHint],
         accountID: String,
         tag: String,
         revision: UInt64
@@ -524,7 +542,10 @@ extension MobileHostIrohRuntime {
         lastKnownBindingID = binding.bindingID
         lastKnownAccountID = accountID
         lastKnownTag = tag
-        stageIrohRoute(binding, revision: revision)
+        if preparedSignOut?.pendingRevocation?.accountID == accountID {
+            preparedSignOut = nil
+        }
+        stageIrohRoute(binding, pathHints: pathHints, revision: revision)
         if runtime != nil, activeAccountID == accountID {
             _ = publishIrohRouteIfActive(revision: revision)
         }
@@ -536,15 +557,20 @@ extension MobileHostIrohRuntime {
         guard revision == lifecycleRevision else { return }
         pendingIrohRouteBinding = nil
         routePublicationPhase = .starting(revision: revision)
-        MobileHostService.shared.updateIrohBinding(nil)
+        MobileHostService.shared.updateIrohRoute(identity: nil)
     }
 
     func stageIrohRoute(
         _ binding: CmxIrohBrokerBindingMetadata,
+        pathHints: [CmxIrohPathHint],
         revision: UInt64
     ) {
         guard revision == lifecycleRevision else { return }
-        pendingIrohRouteBinding = (revision: revision, binding: binding)
+        pendingIrohRouteBinding = (
+            revision: revision,
+            binding: binding,
+            pathHints: pathHints
+        )
     }
 
     /// Publishes only the binding staged by the activation generation whose
@@ -559,8 +585,9 @@ extension MobileHostIrohRuntime {
             revision: revision,
             binding: pendingIrohRouteBinding.binding
         )
-        MobileHostService.shared.updateIrohBinding(
-            pendingIrohRouteBinding.binding
+        MobileHostService.shared.updateIrohRoute(
+            identity: pendingIrohRouteBinding.binding.endpointID,
+            pathHints: pendingIrohRouteBinding.pathHints
         )
         return true
     }
@@ -569,7 +596,7 @@ extension MobileHostIrohRuntime {
         if let revision, revision != lifecycleRevision { return }
         pendingIrohRouteBinding = nil
         routePublicationPhase = .unavailable
-        MobileHostService.shared.updateIrohBinding(nil)
+        MobileHostService.shared.updateIrohRoute(identity: nil)
     }
 
     private func allowsPersistence(

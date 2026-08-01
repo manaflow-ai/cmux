@@ -10,6 +10,7 @@ import CmuxTerminal
 import CmuxTerminalCore
 import SwiftUI
 import AppKit
+import WebKit
 import CmuxFoundation
 import Bonsplit
 import CMUXAgentLaunch
@@ -24,6 +25,18 @@ import CryptoKit
 import Darwin
 import Network
 import CoreText
+
+private func externalBrowserFallbackURL(
+    url: URL?,
+    initialRequest: URLRequest?
+) -> URL? {
+    if let url { return url }
+    guard let initialRequest,
+          (initialRequest.httpMethod ?? "GET").uppercased() == "GET" else {
+        return nil
+    }
+    return initialRequest.url
+}
 
 #if DEBUG
 func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
@@ -149,7 +162,6 @@ extension Workspace {
             customTitleSource: effectiveCustomTitleSource,
             customDescription: customDescription,
             customColor: customColor,
-            customizationDirectory: customizationDirectory, usesWorkspaceDirectoryCustomization: customizationDirectory != nil,
             isPinned: isPinned,
             groupId: groupId,
             isManuallyUnread: isWorkspaceManuallyUnread,
@@ -679,6 +691,10 @@ extension Workspace {
         case .extensionBrowser:
             return nil
         case .cloudVMLoading:
+            return nil
+        case .mobilePairing:
+            return nil
+        case .accountSignIn:
             return nil
         }
         return SessionPanelSnapshot(
@@ -1804,6 +1820,10 @@ extension Workspace {
             return nil
         case .cloudVMLoading:
             return nil
+        case .mobilePairing:
+            return nil
+        case .accountSignIn:
+            return nil
         }
     }
 
@@ -2070,6 +2090,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Durable idempotency key for task-composer workspace creation.
     var taskCreateOperationID: UUID?
     private var forkAgentConversationInFlightPanelIds: Set<UUID> = []
+    let appLinkHandoffCoordinator = BrowserAppLinkHandoffCoordinator()
+    let appLinkPlacementPolicy = BrowserAppLinkPlacementPolicy()
 
     func beginForkAgentConversationAction(panelId: UUID) -> Bool {
         guard !forkAgentConversationInFlightPanelIds.contains(panelId) else {
@@ -2108,8 +2130,6 @@ final class Workspace: Identifiable, ObservableObject {
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
-    /// Stable directory key used for sticky user-owned title and color updates.
-    var customizationDirectory: String?
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every
     /// surface recreated on session restore. Managed `CMUX_*` and terminal-identity
@@ -3884,6 +3904,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureBrowserPanel(_ browserPanel: BrowserPanel) {
+        AppDelegate.shared?.auth?.browserAppSession.register(browserPanel)
         browserPanel.webViewDidRequestClose = { [weak self, weak browserPanel] in
             guard let self, let browserPanel else { return }
             guard self.panels[browserPanel.id] is BrowserPanel else { return }
@@ -3895,6 +3916,148 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
             _ = self.closePanel(browserPanel.id, force: true)
         }
+        browserPanel.openAppLinkInBrowserSplit = { [weak self, weak browserPanel] url in
+            guard let self, let browserPanel else { return false }
+            return self.openAppLinkInBrowserSplit(url, from: browserPanel)
+        }
+    }
+
+    private func openAppLinkInBrowserSplit(
+        _ destinationURL: URL,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(),
+              let mountedSource = panels[sourcePanel.id] as? BrowserPanel,
+              mountedSource === sourcePanel else {
+            return false
+        }
+
+        return appLinkHandoffCoordinator.start(
+            sourcePanelID: sourcePanel.id,
+            destinationURL: destinationURL,
+            isCurrent: { [weak self, weak sourcePanel] in
+                guard let self, let sourcePanel else { return false }
+                return self.currentBrowserPanel(sourcePanel)
+            },
+            openNavigation: { [weak self, weak sourcePanel] navigation in
+                guard let self, let sourcePanel else { return false }
+                return self.openAppLinkNavigation(
+                    navigation,
+                    from: sourcePanel
+                )
+            },
+            openRecovery: { [weak self, weak sourcePanel] in
+                guard let self, let sourcePanel else { return false }
+                return self.recoverAppLinkNavigation(
+                    destinationURL,
+                    from: sourcePanel
+                )
+            }
+        )
+    }
+
+    private func openAppLinkNavigation(
+        _ navigation: BrowserAppSessionNavigation,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        guard currentBrowserPanel(sourcePanel) else { return false }
+        return appLinkPlacementPolicy.openNavigation(
+            navigation,
+            openInPreferredPane: { request, websiteDataStore in
+                guard let targetPane = self.preferredRightSideTargetPane(
+                    fromPanelId: sourcePanel.id
+                ) else {
+                    return false
+                }
+                return self.newBrowserSurface(
+                    inPane: targetPane,
+                    initialRequest: request,
+                    focus: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openHorizontalSplit: { request, websiteDataStore in
+                self.newBrowserSplit(
+                    from: sourcePanel.id,
+                    orientation: .horizontal,
+                    initialRequest: request,
+                    preferredProfileID: sourcePanel.profileID,
+                    focus: true,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openInSourcePane: { request, websiteDataStore in
+                guard let sourcePane = self.paneId(
+                    forPanelId: sourcePanel.id
+                ) else {
+                    return false
+                }
+                return self.newBrowserSurface(
+                    inPane: sourcePane,
+                    initialRequest: request,
+                    focus: true,
+                    insertAtEnd: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            }
+        )
+    }
+
+    private func currentBrowserPanel(_ sourcePanel: BrowserPanel) -> Bool {
+        (panels[sourcePanel.id] as? BrowserPanel) === sourcePanel
+    }
+
+    /// Preserves a cancelled app-link click without placing credentials in a
+    /// shared browser profile. The system browser is the last-resort path when
+    /// the workspace can no longer create a browser surface.
+    private func recoverAppLinkNavigation(
+        _ destinationURL: URL,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        appLinkPlacementPolicy.recover(
+            destinationURL,
+            openInPreferredPane: { url, websiteDataStore in
+                guard let targetPane = self.preferredRightSideTargetPane(
+                    fromPanelId: sourcePanel.id
+                ) else {
+                    return false
+                }
+                return self.newBrowserSurface(
+                    inPane: targetPane,
+                    url: url,
+                    focus: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openHorizontalSplit: { url, websiteDataStore in
+                self.newBrowserSplit(
+                    from: sourcePanel.id,
+                    orientation: .horizontal,
+                    url: url,
+                    preferredProfileID: sourcePanel.profileID,
+                    focus: true,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openInSourcePane: { url, websiteDataStore in
+                guard let sourcePane = self.paneId(
+                    forPanelId: sourcePanel.id
+                ) else {
+                    return false
+                }
+                return self.newBrowserSurface(
+                    inPane: sourcePane,
+                    url: url,
+                    focus: true,
+                    insertAtEnd: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            }
+        )
     }
 
     private func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
@@ -5333,7 +5496,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     var isRestorableInSessionSnapshot: Bool {
         if isRemoteTmuxMirror { return false }
-        if panels.values.contains(where: { $0.panelType == .cloudVMLoading }) {
+        if panels.values.contains(where: {
+            switch $0.panelType {
+            case .cloudVMLoading, .mobilePairing, .accountSignIn:
+                true
+            default:
+                false
+            }
+        }) {
             return false
         }
         guard let remoteConfiguration else { return true }
@@ -8177,21 +8347,26 @@ final class Workspace: Identifiable, ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool = false,
         url: URL? = nil,
+        initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
-        initialDividerPosition: CGFloat? = nil
+        initialDividerPosition: CGFloat? = nil,
+        websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
         // No local browser surfaces in a remote tmux mirror workspace (it is a
         // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let url {
-                _ = NSWorkspace.shared.open(url)
+            if let externalURL = externalBrowserFallbackURL(
+                url: url,
+                initialRequest: initialRequest
+            ) {
+                _ = NSWorkspace.shared.open(externalURL)
             }
             return nil
         }
@@ -8217,6 +8392,7 @@ final class Workspace: Identifiable, ObservableObject {
                 sourcePanelId: panelId
             ),
             initialURL: url,
+            initialRequest: initialRequest,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             omnibarVisible: omnibarVisible,
@@ -8224,7 +8400,8 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -8297,7 +8474,8 @@ final class Workspace: Identifiable, ObservableObject {
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
-        bypassRemoteProxy: Bool = false
+        bypassRemoteProxy: Bool = false,
+        websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept). A local browser tab here would be an orphan
@@ -8306,7 +8484,10 @@ final class Workspace: Identifiable, ObservableObject {
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let externalURL = url ?? initialRequest?.url {
+            if let externalURL = externalBrowserFallbackURL(
+                url: url,
+                initialRequest: initialRequest
+            ) {
                 _ = NSWorkspace.shared.open(externalURL)
             }
             return nil
@@ -8333,7 +8514,8 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -9192,6 +9374,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard let panelId = panelIdFromSurfaceId(tab.id),
               let browserPanel = browserPanel(for: panelId),
+              browserPanel.shouldPersistSessionSnapshot(),
               let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tab.id }) else {
             pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
             return
@@ -10921,12 +11104,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func createBrowserToRight(of anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        let preferredProfileID = panelIdFromSurfaceId(anchorTabId).flatMap { browserPanel(for: $0)?.profileID }
+        let sourceBrowser = panelIdFromSurfaceId(anchorTabId).flatMap { browserPanel(for: $0) }
         guard let newPanel = newBrowserSurface(
             inPane: paneId,
             url: url,
             focus: true,
-            preferredProfileID: preferredProfileID
+            preferredProfileID: sourceBrowser?.profileID,
+            websiteDataStore: sourceBrowser?.explicitEphemeralWebsiteDataStoreForSibling
         ) else { return }
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }
@@ -10943,7 +11127,8 @@ final class Workspace: Identifiable, ObservableObject {
             focus: focus,
             preferredProfileID: browser.profileID,
             omnibarVisible: browser.isOmnibarVisible,
-            bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication
+            bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
+            websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling
         ) else { return nil }
         newPanel.setMuted(browser.isMuted)
         syncBrowserAudioMuteStateForPanel(newPanel.id, browserPanel: newPanel)
@@ -12805,7 +12990,11 @@ extension Workspace: BonsplitDelegate {
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
             case .mobileConnect:
-                MobilePairingWindowController.shared.show()
+                _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+                    tabManager: owningTabManager,
+                    preferredWindow: presentingWindow,
+                    debugSource: "surfaceTabBar.mobileConnect"
+                )
             case .newSimulator:
                 _ = newSimulatorSurface(inPane: pane, focus: true)
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
