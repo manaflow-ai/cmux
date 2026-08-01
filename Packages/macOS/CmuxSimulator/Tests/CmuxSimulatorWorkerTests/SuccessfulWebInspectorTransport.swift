@@ -3,7 +3,10 @@ import Foundation
 
 @MainActor
 final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransport {
-    nonisolated let messages = SimulatorWebInspectorMessageStream.finished()
+    nonisolated let messages = SimulatorWebInspectorMessageStream(
+        maximumBufferedBytes: 0,
+        initiallyFinished: true
+    )
     weak var service: SimulatorWebInspectorService?
     let respondsToCensus: Bool
     let respondsToListings: Bool

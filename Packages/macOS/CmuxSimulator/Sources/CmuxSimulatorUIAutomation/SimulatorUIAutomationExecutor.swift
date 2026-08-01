@@ -10,11 +10,6 @@ public struct SimulatorUIAutomationExecutor {
     public static let postMutationAccessibilityQuiescenceMilliseconds = 750
     private static let accessibilityCaptureTimeoutMilliseconds: Int64 = 30_000
 
-    private struct ActionPreflight {
-        let sourceRecord: SimulatorUIAutomationSnapshotRecord?
-        let previousScreenHash: String?
-    }
-
     private let scheduler: any SimulatorUIAutomationScheduling
 
     /// Creates an executor with an injectable event scheduler for deterministic tests.
@@ -566,12 +561,12 @@ public struct SimulatorUIAutomationExecutor {
     private func preflightSimulatorUIAction(
         _ action: ControlSimulatorUIAction,
         coordinator: SimulatorPaneCoordinator
-    ) async throws -> ActionPreflight {
+    ) async throws -> SimulatorUIAutomationActionPreflight {
         try await simulatorUIDelay(simulatorUIPreActionDelayMilliseconds(action))
         if case let .touch(elementRef, down, up, _) = action,
            !down, up,
            coordinator.heldUIAutomationTouch(elementRef: elementRef) != nil {
-            return ActionPreflight(
+            return SimulatorUIAutomationActionPreflight(
                 sourceRecord: nil,
                 previousScreenHash: try? coordinator.currentUIAutomationSnapshot(
                     nowMilliseconds: simulatorUIWallTimeNowMilliseconds()
@@ -580,7 +575,7 @@ public struct SimulatorUIAutomationExecutor {
         }
         let elementRefs = simulatorUIElementRefs(in: action)
         guard !elementRefs.isEmpty else {
-            return ActionPreflight(
+            return SimulatorUIAutomationActionPreflight(
                 sourceRecord: nil,
                 previousScreenHash: try? coordinator.currentUIAutomationSnapshot(
                     nowMilliseconds: simulatorUIWallTimeNowMilliseconds()
@@ -595,7 +590,7 @@ public struct SimulatorUIAutomationExecutor {
             )
         }
         if case .batch = action {
-            return ActionPreflight(
+            return SimulatorUIAutomationActionPreflight(
                 sourceRecord: current,
                 previousScreenHash: current.snapshot.screenHash
             )
@@ -605,7 +600,7 @@ public struct SimulatorUIAutomationExecutor {
             elementRef: elementRefs.first,
             coordinator: coordinator
         )
-        return ActionPreflight(
+        return SimulatorUIAutomationActionPreflight(
             sourceRecord: current,
             previousScreenHash: current.snapshot.screenHash
         )
@@ -640,7 +635,7 @@ public struct SimulatorUIAutomationExecutor {
     }
 
     private func simulatorUIActionSourceRecord(
-        _ preflight: ActionPreflight
+        _ preflight: SimulatorUIAutomationActionPreflight
     ) throws -> SimulatorUIAutomationSnapshotRecord {
         guard let sourceRecord = preflight.sourceRecord else {
             throw simulatorUIReferenceFailure(

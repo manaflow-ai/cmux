@@ -1,27 +1,15 @@
 import CmuxSimulator
 import Foundation
 
-/// One semantic touch-down target retained across snapshot replacement.
-public struct SimulatorUIAutomationHeldTouch: Equatable, Sendable {
-    public let elementRef: String
-    public let point: SimulatorPoint
-    public let display: SimulatorDisplayMetadata?
-}
-
 /// Stores pane-scoped refs and serializes Simulator UI mutations.
 @MainActor
 final class SimulatorUIAutomationSession {
-    private struct Waiter {
-        let id: UUID
-        let continuation: CheckedContinuation<Void, any Error>
-    }
-
     private var record: SimulatorUIAutomationSnapshotRecord?
     private var nextSequence: UInt64 = 1
     private(set) var mutationGeneration: UInt64 = 0
     private var retainedTouch: SimulatorUIAutomationHeldTouch?
     private var transactionIsActive = false
-    private var waiters: [Waiter] = []
+    private var waiters: [SimulatorUIAutomationTransactionWaiter] = []
 
     func withTransaction<T>(
         _ operation: @MainActor () async throws -> T
@@ -168,7 +156,10 @@ final class SimulatorUIAutomationSession {
                 if Task.isCancelled {
                     continuation.resume(throwing: CancellationError())
                 } else {
-                    waiters.append(Waiter(id: id, continuation: continuation))
+                    waiters.append(SimulatorUIAutomationTransactionWaiter(
+                        id: id,
+                        continuation: continuation
+                    ))
                 }
             }
         } onCancel: {

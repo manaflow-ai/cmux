@@ -1,18 +1,6 @@
 import CmuxSimulator
 import Foundation
 
-protocol SimulatorAccessibilityBridging: Sendable {
-    func attach(device: NSObject) -> Bool
-    func detach()
-    func resetAccessibilityConnection()
-    func foregroundApplication() throws -> SimulatorApplicationInfo?
-    func accessibilitySnapshot(
-        display: SimulatorDisplayMetadata
-    ) throws -> SimulatorAccessibilitySnapshot
-}
-
-extension SimulatorAccessibilityBridge: SimulatorAccessibilityBridging {}
-
 /// Owns every private accessibility translator call on one serial executor.
 /// Blocking delegate callbacks cannot hold the worker's main actor or race a
 /// detach, camera lookup, or accessibility-tree traversal.

@@ -1,19 +1,17 @@
 import Foundation
 @testable import CmuxSimulatorUIAutomation
 
-// The lock serializes every read and mutation of the timing fixture's state.
-final class RollingBackSimulatorUIAutomationTiming:
+// The lock serializes every read and mutation of the two integer fields.
+final class AdvancingSimulatorUIAutomationTiming:
     SimulatorUIAutomationScheduling,
     @unchecked Sendable
 {
     private let lock = NSLock()
-    private var monotonicMilliseconds: Int64
-    private var wallTimeMilliseconds: Int64
+    private var currentMilliseconds: Int64
     private var recordedSleepCount = 0
 
     init(nowMilliseconds: Int64) {
-        monotonicMilliseconds = nowMilliseconds
-        wallTimeMilliseconds = nowMilliseconds
+        currentMilliseconds = nowMilliseconds
     }
 
     var sleepCount: Int {
@@ -21,11 +19,11 @@ final class RollingBackSimulatorUIAutomationTiming:
     }
 
     func monotonicNowMilliseconds() -> Int64 {
-        lock.withLock { monotonicMilliseconds }
+        lock.withLock { currentMilliseconds }
     }
 
     func wallTimeNowMilliseconds() -> Int64 {
-        lock.withLock { wallTimeMilliseconds }
+        lock.withLock { currentMilliseconds }
     }
 
     func nextEvent(after duration: Duration) async throws {
@@ -33,8 +31,7 @@ final class RollingBackSimulatorUIAutomationTiming:
         let milliseconds = components.seconds * 1_000
             + components.attoseconds / 1_000_000_000_000_000
         lock.withLock {
-            monotonicMilliseconds += milliseconds
-            wallTimeMilliseconds += milliseconds - 5_000
+            currentMilliseconds += milliseconds
             recordedSleepCount += 1
         }
     }

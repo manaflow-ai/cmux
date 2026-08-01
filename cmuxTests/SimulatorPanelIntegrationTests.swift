@@ -1539,6 +1539,7 @@ private actor SimulatorSemanticAutomationPaneClient: SimulatorPaneClient {
     }
 }
 
+// The lock serializes every read and mutation of the timing fixture's state.
 private final class InstantSimulatorUIAutomationTiming:
     SimulatorUIAutomationScheduling,
     @unchecked Sendable
@@ -1840,6 +1841,7 @@ private actor SimulatorDelayedAccessibilityPaneClient: SimulatorPaneClient {
     }
 }
 
+// The lock serializes timing state; the client is an actor-safe immutable reference.
 private final class SimulatorPreActionMutationTiming:
     SimulatorUIAutomationScheduling,
     @unchecked Sendable

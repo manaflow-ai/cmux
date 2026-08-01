@@ -14,16 +14,19 @@ public struct ContinuousSimulatorUIAutomationScheduler:
         origin = clock.now
     }
 
+    /// Returns elapsed monotonic milliseconds since this scheduler was created.
     public func monotonicNowMilliseconds() -> Int64 {
         let components = origin.duration(to: clock.now).components
         return components.seconds * 1_000
             + components.attoseconds / 1_000_000_000_000_000
     }
 
+    /// Returns the current Unix epoch time in milliseconds.
     public func wallTimeNowMilliseconds() -> Int64 {
         Int64((Date().timeIntervalSince1970 * 1_000).rounded())
     }
 
+    /// Sleeps on the monotonic clock until the next sampling event.
     public func nextEvent(after duration: Duration) async throws {
         try await clock.sleep(for: duration)
     }

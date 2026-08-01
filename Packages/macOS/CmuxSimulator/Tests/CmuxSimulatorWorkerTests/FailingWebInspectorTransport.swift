@@ -10,7 +10,10 @@ final class FailingWebInspectorTransport: SimulatorWebInspectorTransport {
 
     init(failAtSend: Int = 1) {
         self.failAtSend = failAtSend
-        messages = .finished()
+        messages = SimulatorWebInspectorMessageStream(
+            maximumBufferedBytes: 0,
+            initiallyFinished: true
+        )
     }
 
     var sendCount: Int { sends }

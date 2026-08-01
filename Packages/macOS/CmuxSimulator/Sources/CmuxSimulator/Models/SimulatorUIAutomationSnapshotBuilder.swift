@@ -5,25 +5,6 @@ import Foundation
 struct SimulatorUIAutomationSnapshotBuilder {
     private static let hexDigits = Array("0123456789abcdef".utf8)
 
-    private struct FlattenedNode {
-        let node: SimulatorAccessibilityNode
-        let path: String
-        var descendantFrameBounds: SimulatorRect?
-    }
-
-    private struct PendingNode {
-        let node: SimulatorAccessibilityNode
-        let path: String
-        let parentIndex: Int?
-    }
-
-    private struct ScreenHashPayload: Encodable {
-        let `protocol`: String
-        let elements: [SimulatorUIAutomationElement]
-        let actions: [SimulatorUIAutomationActionHint]
-        let isTruncated: Bool
-    }
-
     private let source: SimulatorAccessibilitySnapshot
     private let simulatorID: String
     private let sequence: UInt64
@@ -93,28 +74,28 @@ struct SimulatorUIAutomationSnapshotBuilder {
 
     private func flattenedNodes(
         _ roots: [SimulatorAccessibilityNode]
-    ) -> [FlattenedNode] {
+    ) -> [SimulatorUIAutomationFlattenedNode] {
         var pending = roots.enumerated().reversed().map {
-            PendingNode(
+            SimulatorUIAutomationPendingNode(
                 node: $0.element,
                 path: String($0.offset),
                 parentIndex: nil
             )
         }
-        var result: [FlattenedNode] = []
+        var result: [SimulatorUIAutomationFlattenedNode] = []
         var parentIndices: [Int?] = []
         result.reserveCapacity(roots.reduce(0) { $0 + $1.subtreeNodeCount })
         parentIndices.reserveCapacity(result.capacity)
         while let current = pending.popLast() {
             let currentIndex = result.count
-            result.append(FlattenedNode(
+            result.append(SimulatorUIAutomationFlattenedNode(
                 node: current.node,
                 path: current.path,
                 descendantFrameBounds: nil
             ))
             parentIndices.append(current.parentIndex)
             for (index, child) in current.node.children.enumerated().reversed() {
-                pending.append(PendingNode(
+                pending.append(SimulatorUIAutomationPendingNode(
                     node: child,
                     path: "\(current.path).\(index)",
                     parentIndex: currentIndex
@@ -381,7 +362,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
                 )
             }
         }
-        let payload = ScreenHashPayload(
+        let payload = SimulatorUIAutomationScreenHashPayload(
             protocol: simulatorUIAutomationProtocol,
             elements: stableElements,
             actions: stableActions,

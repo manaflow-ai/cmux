@@ -1,11 +1,12 @@
 import Darwin
 import Foundation
 
-/// Full-duplex Unix socket whose blocking reader is confined to one thread.
+/// Full-duplex Unix socket whose blocking I/O is confined to serial queues.
 ///
-/// The immutable descriptor stays open until deinitialization, so shutdown can
-/// safely race a read without descriptor reuse. Writes are isolated to the
-/// worker's main actor, which is the safety argument for unchecked Sendable.
+/// Safety: the immutable descriptor stays open until deinitialization, shutdown
+/// can safely race a read without descriptor reuse, and the reader and writer
+/// queues serialize their respective blocking operations. Main-actor state
+/// bounds queued writes. These invariants make unchecked Sendable safe.
 final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchecked Sendable {
     /// Decoded plist bodies share one aggregate byte budget. This accepts
     /// inspectord's small census burst without admitting multiple 64 MiB frames.
@@ -17,6 +18,7 @@ final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchec
 
     private let frameCodec: SimulatorWebInspectorPlistFrameCodec
     private let descriptor: Int32
+    private let readerQueue = DispatchQueue(label: "com.cmux.simulator.web-inspector-reader")
     private let writerQueue = DispatchQueue(label: "com.cmux.simulator.web-inspector-writer")
     @MainActor private var pendingWriteBytes = 0
     @MainActor private var writesClosed = false
@@ -59,36 +61,44 @@ final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchec
     }
 
     private func startReader() {
-        let thread = Thread { [weak self] in
-            self?.readLoop()
+        Task { [weak self] in
+            await self?.readLoop()
         }
-        thread.name = "cmux-simulator-web-inspector"
-        thread.stackSize = 1 << 20
-        thread.start()
     }
 
-    private func readLoop() {
-        while let header = readExactly(4) {
+    private func readLoop() async {
+        while let header = await readExactly(4) {
             let length: Int
             do {
                 length = try frameCodec.bodyLength(header: header)
             } catch {
                 break
             }
-            guard let body = readExactly(length) else { break }
-            switch messages.yield(body) {
+            guard let body = await readExactly(length) else { break }
+            switch await messages.yield(body) {
             case .enqueued:
                 continue
             case .overflow, .terminated:
                 requestClose()
-                finishReader()
                 return
             }
         }
-        finishReader()
+        await finishReader()
     }
 
-    private func readExactly(_ count: Int) -> Data? {
+    private func readExactly(_ count: Int) async -> Data? {
+        await withCheckedContinuation { continuation in
+            readerQueue.async { [weak self] in
+                guard let self else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: self.readExactlyBlocking(count))
+            }
+        }
+    }
+
+    private func readExactlyBlocking(_ count: Int) -> Data? {
         guard count > 0 else { return Data() }
         var bytes = [UInt8](repeating: 0, count: count)
         var offset = 0
@@ -159,14 +169,16 @@ final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchec
 
     private nonisolated func requestClose() {
         Darwin.shutdown(descriptor, SHUT_RDWR)
-        messages.finish()
+        Task { [messages] in
+            await messages.finish()
+        }
         Task { @MainActor [weak self] in
             self?.writesClosed = true
         }
     }
 
-    private nonisolated func finishReader() {
+    private func finishReader() async {
         Darwin.shutdown(descriptor, SHUT_RDWR)
-        messages.finish()
+        await messages.finish()
     }
 }

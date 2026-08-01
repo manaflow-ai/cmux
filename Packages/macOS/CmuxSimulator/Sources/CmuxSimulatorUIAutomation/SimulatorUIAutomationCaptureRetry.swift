@@ -1,5 +1,3 @@
-struct SimulatorUIAutomationCaptureDeadlineExceeded: Error {}
-
 /// Retries transient snapshots from bounded scheduler events.
 @MainActor
 struct SimulatorUIAutomationCaptureRetry {

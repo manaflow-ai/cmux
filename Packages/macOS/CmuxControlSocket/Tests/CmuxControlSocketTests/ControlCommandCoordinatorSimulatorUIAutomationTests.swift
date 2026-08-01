@@ -318,7 +318,7 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
             context: context
         ) else {
             Issue.record("Expected \(method) to route")
-            throw TestFailure()
+            throw ControlCommandCoordinatorSimulatorUIAutomationTestFailure()
         }
         return try #require(context.lastOperation)
     }
@@ -329,6 +329,4 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
     ) -> ControlRequest {
         ControlRequest(id: .int(1), method: method, params: params)
     }
-
-    private struct TestFailure: Error {}
 }

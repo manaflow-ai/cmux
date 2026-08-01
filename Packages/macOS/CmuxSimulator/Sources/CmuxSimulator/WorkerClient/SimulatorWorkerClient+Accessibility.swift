@@ -66,6 +66,7 @@ extension SimulatorWorkerClient {
         }
     }
 
+    /// Reads one bounded accessibility snapshot from the attached Simulator.
     public func readAccessibility(
         timeout: Duration
     ) async throws -> SimulatorControlResult {

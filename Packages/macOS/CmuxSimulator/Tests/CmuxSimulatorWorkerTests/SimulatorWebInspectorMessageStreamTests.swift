@@ -11,12 +11,13 @@ struct SimulatorWebInspectorMessageStreamTests {
             maximumBufferedBytes: 1_024 * 1_024
         )
         let body = Data(repeating: 0x41, count: 1_024 * 1_024)
-        #expect(stream.yield(body) == .enqueued)
-        #expect(stream.retainedBufferedBytesForTesting == body.count)
+        let result = await stream.yield(body)
+        #expect(result == .enqueued)
+        #expect(await stream.storage.retainedBufferedBytes == body.count)
 
         var iterator = stream.makeAsyncIterator()
         #expect(await iterator.next() == body)
-        #expect(stream.retainedBufferedBytesForTesting == 0)
+        #expect(await stream.storage.retainedBufferedBytes == 0)
     }
 
     @Test("Consuming a large body releases it while a later message stays queued")
@@ -26,12 +27,14 @@ struct SimulatorWebInspectorMessageStreamTests {
         )
         let largeBody = Data(repeating: 0x41, count: 1_024 * 1_024)
         let trailingBody = Data([0x42])
-        #expect(stream.yield(largeBody) == .enqueued)
-        #expect(stream.yield(trailingBody) == .enqueued)
+        let largeResult = await stream.yield(largeBody)
+        let trailingResult = await stream.yield(trailingBody)
+        #expect(largeResult == .enqueued)
+        #expect(trailingResult == .enqueued)
 
         var iterator = stream.makeAsyncIterator()
         #expect(await iterator.next() == largeBody)
-        #expect(stream.retainedBufferedBytesForTesting == trailingBody.count)
+        #expect(await stream.storage.retainedBufferedBytes == trailingBody.count)
         #expect(await iterator.next() == trailingBody)
     }
 }
