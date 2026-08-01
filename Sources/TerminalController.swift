@@ -69,18 +69,33 @@ enum WindowScreenshotCaptureAction: Equatable, Sendable {
 }
 
 func windowScreenshotCaptureAction(
-    for attempt: WindowScreenshotCaptureAttempt
+    for attempt: WindowScreenshotCaptureAttempt,
+    appKitFallback: Data? = nil
 ) -> WindowScreenshotCaptureAction {
     switch attempt {
     case .captured(let data):
         return .useCaptured(data)
     case .unavailable:
+        if let appKitFallback {
+            return .useCaptured(appKitFallback)
+        }
         return .captureWithAppKit
     case .busy:
+        if let appKitFallback {
+            return .useCaptured(appKitFallback)
+        }
         return .fail("screenshot capture already in progress")
     case .timedOut:
+        if let appKitFallback {
+            return .useCaptured(appKitFallback)
+        }
         return .fail("screenshot capture timed out")
     }
+}
+
+struct WindowAppKitCapture: Sendable {
+    let pngData: Data
+    let capturedAllExternalContent: Bool
 }
 
 func windowScreenshotCGWindowID(exactly windowNumber: Int) -> CGWindowID? {
@@ -13127,69 +13142,54 @@ class TerminalController {
         let filename = label.isEmpty ? "\(screenshotId).png" : "\(label)_\(screenshotId).png"
         let outputPath = outputDir.appendingPathComponent(filename)
 
-        let captureTarget: (windowID: CGWindowID, needsCompositedCapture: Bool)? = v2MainSync {
-            let candidateWindows = NSApp.windows.filter { window in
+        let captureTarget: CGWindowID? = v2MainSync {
+            let candidateWindows = NSApp.orderedWindows.filter { window in
                 window.isVisible &&
                 !window.isMiniaturized &&
                 window.contentView != nil &&
-                !window.frame.isEmpty
+                !window.frame.isEmpty &&
+                (AppDelegate.shared?.isMainTerminalWindow(window) ?? false)
             }
-            let preferredWindow = [NSApp.keyWindow, NSApp.mainWindow]
+            let preferredWindow = [self.tabManager?.window, NSApp.keyWindow, NSApp.mainWindow]
                 .compactMap { $0 }
                 .first { candidateWindows.contains($0) }
-            let window = preferredWindow ?? candidateWindows.max { lhs, rhs in
-                (lhs.frame.width * lhs.frame.height) < (rhs.frame.width * rhs.frame.height)
-            } ?? NSApp.mainWindow ?? NSApp.windows.first
+            let window = preferredWindow ?? candidateWindows.first
 
             guard let window,
                   let windowID = windowScreenshotCGWindowID(exactly: window.windowNumber) else {
                 return nil
             }
-            return (
-                windowID: windowID,
-                needsCompositedCapture: window.contentView.map(self.viewHierarchyContainsWebView) ?? false
-            )
+            return windowID
         }
 
         guard let captureTarget else {
             return "ERROR: No window available"
         }
 
-        let captureWithAppKit: () -> Data? = {
-            self.v2MainSync {
-                guard let window = NSApp.windows.first(where: {
-                    guard let windowID = windowScreenshotCGWindowID(exactly: $0.windowNumber) else {
-                        return false
-                    }
-                    return windowID == captureTarget.windowID
-                }) else {
-                    return nil
-                }
-                return self.captureAppKitWindowPNGData(window)
-            }
+        guard let appKitCapture = captureAppKitWindowPNGData(captureTarget) else {
+            return "ERROR: Failed to create PNG data"
         }
-        // Ghostty's terminal IOSurface participates in this AppKit cache path
-        // (pinned by terminal-only UI regression coverage). WKWebView pixels do
-        // not, so only windows with visible browser-backed content need the
-        // current-process compositor.
-        let pngData: Data?
-        if captureTarget.needsCompositedCapture {
+
+        // AppKit does not include every layer-backed child in cacheDisplay.
+        // The permission-free capture above fills those gaps from cmux's own
+        // Ghostty IOSurfaces and WKWebView snapshots. Only ask the system
+        // compositor when one of those own-process snapshots was unavailable,
+        // and retain the AppKit result as the no-permission fallback.
+        let pngData: Data
+        if appKitCapture.capturedAllExternalContent {
+            pngData = appKitCapture.pngData
+        } else {
             switch windowScreenshotCaptureAction(
-                for: captureScreenCaptureKitWindowPNGData(captureTarget.windowID)
+                for: captureScreenCaptureKitWindowPNGData(captureTarget),
+                appKitFallback: appKitCapture.pngData
             ) {
             case .useCaptured(let data):
                 pngData = data
             case .captureWithAppKit:
-                pngData = captureWithAppKit()
+                pngData = appKitCapture.pngData
             case .fail(let message):
                 return "ERROR: \(message)"
             }
-        } else {
-            pngData = captureWithAppKit()
-        }
-
-        guard let pngData else {
-            return "ERROR: Failed to create PNG data"
         }
 
         do {
@@ -13287,7 +13287,31 @@ class TerminalController {
         }
     }
 
-    private func captureAppKitWindowPNGData(_ window: NSWindow) -> Data? {
+    private nonisolated func captureAppKitWindowPNGData(
+        _ windowID: CGWindowID
+    ) -> WindowAppKitCapture? {
+        var captureTask: Task<Void, Never>?
+        let capture: WindowAppKitCapture?? = socketAwaitCallback(timeout: 5) { completion in
+            captureTask = Task { @MainActor in
+                guard let window = NSApp.windows.first(where: {
+                    guard let candidateID = windowScreenshotCGWindowID(exactly: $0.windowNumber) else {
+                        return false
+                    }
+                    return candidateID == windowID
+                }) else {
+                    completion(nil)
+                    return
+                }
+                completion(await self.captureAppKitWindowPNGData(window))
+            }
+        }
+        if capture == nil {
+            captureTask?.cancel()
+        }
+        return capture ?? nil
+    }
+
+    private func captureAppKitWindowPNGData(_ window: NSWindow) async -> WindowAppKitCapture? {
         guard let contentView = window.contentView else {
             return nil
         }
@@ -13302,11 +13326,113 @@ class TerminalController {
         contentView.displayIfNeeded()
         contentView.cacheDisplay(in: bounds, to: bitmap)
 
-        return bitmap.representation(using: .png, properties: [:])
+        var overlays: [(image: CGImage, rect: NSRect)] = []
+        var capturedAllExternalContent = true
+
+        for terminalView in visibleDescendants(of: contentView, as: GhosttySurfaceScrollView.self) {
+            guard let image = terminalView.debugCopyIOSurfaceCGImage() else {
+                capturedAllExternalContent = false
+                continue
+            }
+            let rect = terminalView.surfaceView.convert(
+                terminalView.surfaceView.bounds,
+                to: contentView
+            )
+            guard !rect.isEmpty else {
+                capturedAllExternalContent = false
+                continue
+            }
+            overlays.append((image, rect))
+        }
+
+        for webView in visibleDescendants(of: contentView, as: WKWebView.self) {
+            do {
+                let image = try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
+                    from: webView,
+                    timeout: 2
+                )
+                var proposedRect = NSRect(origin: .zero, size: image.size)
+                guard let cgImage = image.cgImage(
+                    forProposedRect: &proposedRect,
+                    context: nil,
+                    hints: nil
+                ) else {
+                    capturedAllExternalContent = false
+                    continue
+                }
+                let rect = webView.convert(webView.bounds, to: contentView)
+                guard !rect.isEmpty else {
+                    capturedAllExternalContent = false
+                    continue
+                }
+                overlays.append((cgImage, rect))
+            } catch {
+                capturedAllExternalContent = false
+            }
+        }
+
+        guard let graphicsContext = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            return nil
+        }
+        let context = graphicsContext.cgContext
+        context.saveGState()
+        context.interpolationQuality = .high
+        context.clip(
+            to: NSRect(
+                x: 0,
+                y: 0,
+                width: bounds.width,
+                height: bounds.height
+            )
+        )
+        for overlay in overlays {
+            guard overlay.rect.intersects(bounds) else { continue }
+            let destinationRect: NSRect
+            if contentView.isFlipped {
+                destinationRect = NSRect(
+                    x: overlay.rect.minX - bounds.minX,
+                    y: bounds.maxY - overlay.rect.maxY,
+                    width: overlay.rect.width,
+                    height: overlay.rect.height
+                )
+            } else {
+                destinationRect = NSRect(
+                    x: overlay.rect.minX - bounds.minX,
+                    y: overlay.rect.minY - bounds.minY,
+                    width: overlay.rect.width,
+                    height: overlay.rect.height
+                )
+            }
+            context.draw(overlay.image, in: destinationRect)
+        }
+        context.restoreGState()
+
+        guard let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            return nil
+        }
+        return WindowAppKitCapture(
+            pngData: pngData,
+            capturedAllExternalContent: capturedAllExternalContent
+        )
     }
 
-    private func viewHierarchyContainsWebView(_ view: NSView) -> Bool {
-        view is WKWebView || view.subviews.contains(where: viewHierarchyContainsWebView)
+    private func visibleDescendants<T: NSView>(
+        of root: NSView,
+        as type: T.Type
+    ) -> [T] {
+        var matches: [T] = []
+        var pending = root.subviews
+        while let view = pending.popLast() {
+            guard !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0 else {
+                continue
+            }
+            if let match = view as? T {
+                matches.append(match)
+                continue
+            }
+            pending.append(contentsOf: view.subviews)
+        }
+        return matches
     }
 #endif
 

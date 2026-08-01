@@ -123,4 +123,27 @@ import Testing
                 == .fail("screenshot capture timed out")
         )
     }
+
+    @Test func completedAppKitCaptureRemainsFallbackForEveryCompositorFailure() {
+        let fallback = Data([0x89, 0x50, 0x4E, 0x47])
+
+        #expect(
+            windowScreenshotCaptureAction(
+                for: .unavailable,
+                appKitFallback: fallback
+            ) == .useCaptured(fallback)
+        )
+        #expect(
+            windowScreenshotCaptureAction(
+                for: .busy,
+                appKitFallback: fallback
+            ) == .useCaptured(fallback)
+        )
+        #expect(
+            windowScreenshotCaptureAction(
+                for: .timedOut,
+                appKitFallback: fallback
+            ) == .useCaptured(fallback)
+        )
+    }
 }
