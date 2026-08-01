@@ -3599,5 +3599,36 @@
       "requirements": "Debian eller Ubuntu · x64",
       "installBody": "Last ned Debian-pakken og installer den med pakkebehandleren. Velg den portable ZIP-filen for installasjon per bruker og oppdateringer i appen."
     }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Velkommen til cmux Pro 🎉",
+      "fallbackName": "der",
+      "greeting": "Hei {name},",
+      "thanks": "Takk for at du ble med i cmux Pro! Vi jobber fortsatt med hele Pro-opplevelsen, og skytilgang er på vei.",
+      "cloudStatus": "Når skytilgangen lanseres, legger vi til brukskreditter på kontoen din basert på hvor mange måneder du har abonnert.",
+      "currentBenefit": "I mellomtiden får du tidlig tilgang til cmux på iOS som Pro-fordel. Registrer deg via lenken nedenfor, så sender Apple TestFlight-invitasjonen når registreringen er fullført.",
+      "testflightLink": "Registrer deg for TestFlight: {url}",
+      "testflightLinkLabel": "Registrer deg for TestFlight",
+      "signoff": "Hyggelig å ha deg med!\ncmux-teamet"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro er aktiv",
+    "title": "Velkommen til cmux Pro",
+    "body": "Pro-funksjonene er fortsatt under utvikling. Skytilgang kommer snart, med brukskreditter som opptjenes for hver måned du abonnerer. Akkurat nå inkluderer Pro tilgang til cmux på iOS via TestFlight.",
+    "done": "Gå til kontrollpanelet",
+    "steps": {
+      "iosApp": {
+        "title": "cmux for iOS",
+        "body": "Bruk cmux på telefonen din.",
+        "action": "Bli med i iOS-betaen"
+      },
+      "billing": {
+        "title": "Administrer abonnementet",
+        "body": "Se abonnementet, fakturaene og alternativene for oppsigelse.",
+        "action": "Administrer abonnement"
+      }
+    }
   }
 }
