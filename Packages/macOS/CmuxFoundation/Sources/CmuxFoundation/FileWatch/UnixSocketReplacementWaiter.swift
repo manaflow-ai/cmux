@@ -1,5 +1,5 @@
 import Darwin
-import Foundation
+public import Foundation
 
 /// Synchronously waits for one Unix-domain socket path to name a new inode.
 ///
