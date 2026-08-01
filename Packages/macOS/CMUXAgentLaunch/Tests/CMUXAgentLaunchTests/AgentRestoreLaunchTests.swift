@@ -202,7 +202,9 @@ import Testing
             preparedArguments: ["/usr/bin/printf"] + hazards,
             observedPermissionMode: nil
         )
-        let invocation = try #require(AgentRestorePlanner().invocation(
+        let invocation = try #require(AgentRestorePlanner(
+            executableFileResolver: AgentRestoreExecutableFileResolver()
+        ).invocation(
             for: request,
             ambientEnvironment: ["PATH": "/usr/bin:/bin"]
         ))
@@ -240,7 +242,9 @@ import Testing
             preparedArgumentsWorkingDirectory: persistedWorkingDirectory,
             observedPermissionMode: nil
         )
-        let invocation = try #require(AgentRestorePlanner().invocation(
+        let invocation = try #require(AgentRestorePlanner(
+            executableFileResolver: AgentRestoreExecutableFileResolver()
+        ).invocation(
             for: request,
             ambientEnvironment: ["PATH": "/usr/bin:/bin"]
         ))
@@ -279,7 +283,9 @@ import Testing
             preparedArguments: nil,
             observedPermissionMode: nil
         )
-        let invocation = try #require(AgentRestorePlanner().invocation(
+        let invocation = try #require(AgentRestorePlanner(
+            executableFileResolver: AgentRestoreExecutableFileResolver()
+        ).invocation(
             for: request,
             ambientEnvironment: ["PATH": "/usr/bin:/bin"]
         ))
@@ -327,7 +333,9 @@ import Testing
             preparedArguments: nil,
             observedPermissionMode: nil
         )
-        let invocation = try #require(AgentRestorePlanner().invocation(
+        let invocation = try #require(AgentRestorePlanner(
+            executableFileResolver: AgentRestoreExecutableFileResolver()
+        ).invocation(
             for: request,
             ambientEnvironment: [
                 "CODEX_HOME": codexHome.path,
@@ -367,7 +375,9 @@ import Testing
             preparedArguments: nil,
             observedPermissionMode: nil
         )
-        let invocation = try #require(AgentRestorePlanner().invocation(
+        let invocation = try #require(AgentRestorePlanner(
+            executableFileResolver: AgentRestoreExecutableFileResolver()
+        ).invocation(
             for: request,
             ambientEnvironment: ["PATH": "/usr/bin:/bin"]
         ))

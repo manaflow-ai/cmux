@@ -75,10 +75,7 @@ extension SurfaceResumeBindingSnapshot {
               !value.isEmpty else {
             return nil
         }
-        if AgentRestoreLaunch.isSafeRestoreCLIArgument(value) {
-            return value
-        }
-        return nil
+        AgentRestoreCLIArgument(rawValue: value)?.rawValue
     }
 
     private func resolvedStartupCommand(repairPortableAgentExecutable: Bool) -> String {

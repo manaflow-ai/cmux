@@ -17,14 +17,16 @@ public struct AgentRestorePlanner: Sendable {
 
     /// Creates a restore planner.
     ///
-    /// - Parameter isExecutableFile: Testable executable-path lookup used for
-    ///   optional wrapper shims.
-    public init(
-        isExecutableFile: @escaping @Sendable (String) -> Bool = {
-            FileManager.default.isExecutableFile(atPath: $0)
-        }
-    ) {
+    /// - Parameter isExecutableFile: Executable-path lookup used for optional wrapper shims.
+    public init(isExecutableFile: @escaping @Sendable (String) -> Bool) {
         self.isExecutableFile = isExecutableFile
+    }
+
+    /// Creates a restore planner backed by an injected executable-file resolver.
+    ///
+    /// - Parameter executableFileResolver: The filesystem dependency used to resolve wrapper shims.
+    public init(executableFileResolver: AgentRestoreExecutableFileResolver) {
+        self.init(isExecutableFile: executableFileResolver.isExecutableFile(atPath:))
     }
 
     /// Produces the final direct process invocation for a persisted restore request.

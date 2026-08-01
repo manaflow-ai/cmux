@@ -64,7 +64,9 @@ struct ResumeLauncherCwdConsistencyTests {
                 observedPermissionMode: nil
             )
         )
-        let invocation = try #require(AgentRestorePlanner().invocation(
+        let invocation = try #require(AgentRestorePlanner(
+            executableFileResolver: AgentRestoreExecutableFileResolver()
+        ).invocation(
             for: AgentRestoreRequest(
                 mode: .resumeAgent,
                 kind: snapshot.kind.rawValue,

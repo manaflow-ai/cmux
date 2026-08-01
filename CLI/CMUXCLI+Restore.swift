@@ -148,7 +148,9 @@ extension CMUXCLI {
             ),
             observedPermissionMode: record.permissionMode
         )
-        guard let invocation = AgentRestorePlanner().invocation(
+        guard let invocation = AgentRestorePlanner(
+            executableFileResolver: AgentRestoreExecutableFileResolver()
+        ).invocation(
             for: request,
             ambientEnvironment: processEnvironment
         ) else {
@@ -177,27 +179,6 @@ extension CMUXCLI {
             invocation,
             appliedWorkingDirectory: effectiveWorkingDirectory
         )
-    }
-
-    private struct RestoreSelector {
-        let surface: String?
-        let usesCurrentSurface: Bool
-        let kind: String?
-        let checkpointID: String?
-    }
-
-    private struct RestoreRecord {
-        let mode: String
-        let kind: String
-        let checkpointID: String?
-        let source: String?
-        let workingDirectory: String?
-        let environment: [String: String]
-        let launchCommand: AgentLaunchCommand?
-        let preparedArguments: [String]?
-        let preparedArgumentsWorkingDirectory: String?
-        let permissionMode: String?
-        let legacyCommand: String?
     }
 
     private func restoreSelector(_ arguments: [String]) throws -> RestoreSelector {

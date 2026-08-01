@@ -19,21 +19,6 @@ public struct AgentRestoreLaunch: Sendable {
     /// this resolves to the same build while keeping restored scrollback useful.
     public static let cliStartupExecutableToken = "cmux"
 
-    /// Returns whether a persisted identifier can be typed as one restore CLI argument.
-    ///
-    /// This deliberately excludes leading hyphens and every character that
-    /// requires shell quoting, so startup input cannot be reinterpreted as an
-    /// option or multiple shell tokens.
-    ///
-    /// - Parameter value: The already-trimmed binding kind or checkpoint identifier.
-    /// - Returns: `true` when the value is safe to emit without quoting.
-    public static func isSafeRestoreCLIArgument(_ value: String) -> Bool {
-        value.range(
-            of: "^[A-Za-z0-9._:+][A-Za-z0-9._:+-]*$",
-            options: .regularExpression
-        ) != nil
-    }
-
     private enum Provider: String, Sendable {
         case claude
         case codex
