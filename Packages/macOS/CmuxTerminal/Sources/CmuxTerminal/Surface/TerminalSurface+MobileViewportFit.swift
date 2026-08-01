@@ -65,7 +65,7 @@ extension TerminalSurface {
             paneHost.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
             return nil
         }
-        if manualIO {
+        if ioMode.usesManualIO {
             // Remote/tmux mirrors keep legacy capping; their remote grid is
             // authoritative and font fitting is intentionally out of v1 scope.
             return legacyApplyMobileViewportLimit(surface: surface, columns: columns, rows: rows, reason: reason)
@@ -110,7 +110,12 @@ extension TerminalSurface {
             }
             return (fit.columns, fit.rows)
         }
-        ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
+        applySurfaceSize(
+            surface,
+            width: appliedWidth,
+            height: appliedHeight,
+            caller: "mobile.viewport.apply"
+        )
         lastPixelWidth = appliedWidth
         lastPixelHeight = appliedHeight
         ghostty_surface_refresh(surface)
@@ -159,7 +164,12 @@ extension TerminalSurface {
         #endif
 
         guard sizeChanged else { return (appliedColumns, appliedRows) }
-        ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
+        applySurfaceSize(
+            surface,
+            width: appliedWidth,
+            height: appliedHeight,
+            caller: "mobile.viewport.legacy"
+        )
         lastPixelWidth = appliedWidth
         lastPixelHeight = appliedHeight
         ghostty_surface_refresh(surface)
@@ -204,7 +214,12 @@ extension TerminalSurface {
             ghostty_surface_refresh(surface)
             return fontRestored
         }
-        ghostty_surface_set_size(surface, uncappedWidth, uncappedHeight)
+        applySurfaceSize(
+            surface,
+            width: uncappedWidth,
+            height: uncappedHeight,
+            caller: "mobile.viewport.clear"
+        )
         lastPixelWidth = uncappedWidth
         lastPixelHeight = uncappedHeight
         ghostty_surface_refresh(surface)
@@ -220,7 +235,7 @@ extension TerminalSurface {
     ) -> MobileViewportFitResult {
         guard width > 0, height > 0 else { return .passthrough(width: width, height: height) }
         guard let mobileViewportCellLimit else { return .passthrough(width: width, height: height) }
-        if manualIO {
+        if ioMode.usesManualIO {
             guard let limit = mobileViewportPixelLimit(for: surface) else { return .passthrough(width: width, height: height) }
             return .passthrough(width: min(width, limit.width), height: min(height, limit.height), grantWidth: limit.width, grantHeight: limit.height)
         }

@@ -56,11 +56,6 @@ export async function SiteFooter() {
     {
       heading: t("legal"),
       links: [
-        {
-          label: t("companyInformation"),
-          href: "/company-information",
-          unlocalized: true,
-        },
         { label: t("privacy"), href: "/privacy-policy" },
         { label: t("terms"), href: "/terms-of-service", unlocalized: true },
         { label: t("eula"), href: "/eula", unlocalized: true },

@@ -37,9 +37,17 @@ struct MobileMacConnectionStatusPill: View {
 
     private var pill: some View {
         HStack(spacing: 7) {
-            Circle()
-                .fill(status.tintColor)
-                .frame(width: 8, height: 8)
+            if status == .reconnecting {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(.white)
+                    .frame(width: 10, height: 10)
+                    .accessibilityHidden(true)
+            } else {
+                Circle()
+                    .fill(status.tintColor)
+                    .frame(width: 8, height: 8)
+            }
 
             Text(status.label)
                 .font(.caption.weight(.semibold))
