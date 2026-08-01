@@ -144,6 +144,15 @@ function readinessCursor(snapshot) {
   );
 }
 
+function monotonicMilliseconds() {
+  return run("bash", [
+    "-c",
+    'source "$1"; cmux_attach_monotonic_milliseconds',
+    "mobile-monotonic-clock-test",
+    validator,
+  ]);
+}
+
 function extractShellFunction(source, name) {
   const start = source.indexOf(`${name}() {`);
   assert.notEqual(start, -1, `missing shell function ${name}`);
@@ -485,6 +494,15 @@ test("dogfood readiness captures the Mac event sequence before launch", () => {
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "842");
+});
+
+test("dogfood readiness clock is stable across helper processes", () => {
+  const result = monotonicMilliseconds();
+
+  assert.equal(result.status, 0, result.stderr);
+  const milliseconds = Number.parseInt(result.stdout.trim(), 10);
+  assert.ok(Number.isSafeInteger(milliseconds));
+  assert.ok(milliseconds > 60_000, `expected system uptime, got ${milliseconds}ms`);
 });
 
 test("dogfood readiness blocks on the post-launch usable RPC event", () => {
