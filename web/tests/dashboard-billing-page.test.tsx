@@ -107,6 +107,9 @@ describe("dashboard billing page", () => {
     );
     expect(html).toContain("Get Pro");
     expect(html).toContain("Get Teams");
+    expect(html).toContain("/mo.");
+    expect(html).toContain("/user/mo.");
+    expect(html).not.toContain('style="min-height:4rem"');
     expect(html).toContain('href="/dashboard/testflight"');
     expect(html).toContain("Join the iOS beta");
     expect(html).toContain("active personal Pro subscribers");

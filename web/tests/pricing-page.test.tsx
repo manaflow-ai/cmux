@@ -79,11 +79,14 @@ describe("localized pricing page", () => {
 
     expect(html).not.toContain("/api/billing/portal");
     expect(html).not.toContain("Manage billing");
+    expect(html).toContain("/mo.");
+    expect(html).toContain("/user/mo.");
     expect(html).toContain("$35/user/month");
     expect(html).toContain(
       "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=month",
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
+    expect(html).not.toContain('style="min-height:4rem"');
   });
 
   test("renders Stack metadata-only Pro snapshots as Free", async () => {

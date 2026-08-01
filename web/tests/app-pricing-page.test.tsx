@@ -96,8 +96,11 @@ describe("app pricing page", () => {
     expect(html).toContain(
       "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test",
     );
+    expect(html).toContain("/mo.");
+    expect(html).toContain("/user/mo.");
     expect(html).toContain("$35/user/month");
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
+    expect(html).not.toContain('style="min-height:4rem"');
     expect(html).toContain("sm:grid-cols-2 min-[1800px]:grid-cols-4");
     expect(html.split("api/billing/checkout?plan=pro")).toHaveLength(2);
     expect(html.split("api/billing/checkout?plan=team")).toHaveLength(2);
