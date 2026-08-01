@@ -2035,6 +2035,7 @@ impl Mux {
         fingerprint: &Value,
         resolve_slots: impl FnOnce(&State) -> anyhow::Result<EffectSlots>,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        let terminal_host_root = self.surface_options.lock().unwrap().terminal_host_root.clone();
         let lifecycle = self.workspace_lifecycle(workspace);
         let workspace_lifecycle = lifecycle.lock().unwrap();
         let notifications = self.surface_notifications();
@@ -2047,6 +2048,22 @@ impl Mux {
         );
         let mut plan =
             self.resource_close_plan_locked(operation, slots, &registry, &state, &notifications)?;
+        let workspace_host_identities =
+            if let Some(workspace_key) = plan.closed_workspace_key.as_deref() {
+                registry.terminal_host_identities_in_workspace(workspace_key)?
+            } else {
+                Vec::new()
+            };
+        if let Some(workspace_close) = plan.workspace_close.as_mut() {
+            workspace_close
+                .legacy_result
+                .as_object_mut()
+                .expect("workspace close result is an object")
+                .insert(
+                    TERMINAL_HOST_CLEANUP_RECEIPT_FIELD.to_string(),
+                    terminal_host_cleanup_receipt(&workspace_host_identities),
+                );
+        }
         let projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
         let closed_public_ids = if let Some(workspace_key) = plan.closed_workspace_key.as_deref() {
@@ -2054,6 +2071,10 @@ impl Mux {
         } else {
             Self::terminal_public_ids_for_hosted(&registry, &plan.terminals)?
         };
+        let workspace_host_cleanup = self.prepare_terminal_host_cleanup_at_root(
+            terminal_host_root.as_deref(),
+            &workspace_host_identities,
+        )?;
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
@@ -2098,12 +2119,7 @@ impl Mux {
             self.purge_surface_side_tables(surface.id);
         }
         self.retire_surface_runtimes(plan.removed);
-        let workspace_termination =
-            if let Some(workspace_key) = plan.closed_workspace_key.as_deref() {
-                self.terminate_tombstoned_workspace_hosts(workspace_key)
-            } else {
-                Ok(())
-            };
+        let workspace_termination = self.terminate_prepared_terminal_hosts(workspace_host_cleanup);
         self.emit_tree_delta(plan.delta, plan.selection_resync);
         for screen in plan.changed_screens {
             self.emit(MuxEvent::LayoutChanged(screen));

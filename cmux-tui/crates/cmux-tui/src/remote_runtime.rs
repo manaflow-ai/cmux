@@ -176,7 +176,7 @@ impl DaemonRuntimeHandle {
         let shutdown_marker = std::env::var_os("CMUX_TUI_TEST_REMOTE_SHUTDOWN_MARKER");
         #[cfg(debug_assertions)]
         if let Some(marker) = shutdown_marker.as_ref() {
-            fs::write(marker, b"started")?;
+            let _ = fs::write(marker, b"started");
         }
         #[cfg(debug_assertions)]
         if let Some(milliseconds) = std::env::var("CMUX_TUI_TEST_REMOTE_SHUTDOWN_DELAY_MS")
@@ -192,7 +192,7 @@ impl DaemonRuntimeHandle {
         };
         #[cfg(debug_assertions)]
         if let Some(marker) = shutdown_marker {
-            fs::write(marker, b"complete")?;
+            let _ = fs::write(marker, b"complete");
         }
         result
     }

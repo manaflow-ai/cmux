@@ -72,6 +72,10 @@ type ShutdownAttemptHook = Arc<dyn Fn(usize) + Send + Sync>;
 #[cfg(unix)]
 type TerminalHostRecords =
     Vec<(std::path::PathBuf, crate::terminal_host_runtime::TerminalHostRecord)>;
+#[cfg(not(unix))]
+type TerminalHostRecords = ();
+const TERMINAL_HOST_CLEANUP_RECEIPT_FIELD: &str = "terminal_host_cleanup";
+const MAX_TERMINAL_HOST_CLEANUP_IDENTITIES: usize = 4_096;
 #[cfg(all(test, unix))]
 type TerminalAdoptionSurfaceFactory =
     Arc<dyn Fn(SurfaceId) -> anyhow::Result<Arc<Surface>> + Send + Sync>;
@@ -7680,48 +7684,77 @@ impl Mux {
         std::mem::take(&mut *self.discovered_terminal_termination_requests.lock().unwrap())
     }
 
-    fn terminate_tombstoned_workspace_hosts(&self, workspace_key: &str) -> anyhow::Result<()> {
+    fn prepare_terminal_host_cleanup(
+        &self,
+        terminals: &[(String, Option<String>)],
+    ) -> anyhow::Result<TerminalHostRecords> {
+        let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
+        self.prepare_terminal_host_cleanup_at_root(root.as_deref(), terminals)
+    }
+
+    fn prepare_terminal_host_cleanup_at_root(
+        &self,
+        root: Option<&Path>,
+        terminals: &[(String, Option<String>)],
+    ) -> anyhow::Result<TerminalHostRecords> {
+        anyhow::ensure!(
+            terminals.len() <= MAX_TERMINAL_HOST_CLEANUP_IDENTITIES,
+            "terminal-host cleanup target exceeds capacity"
+        );
+        let mut seen = HashSet::with_capacity(terminals.len());
+        for (terminal_id, incarnation) in terminals {
+            validate_terminal_hex(terminal_id, "terminal-host cleanup id is invalid")?;
+            anyhow::ensure!(
+                seen.insert(terminal_id.as_str()),
+                "terminal-host cleanup target contains a duplicate id"
+            );
+            if let Some(incarnation) = incarnation {
+                validate_terminal_hex(incarnation, "terminal-host cleanup incarnation is invalid")?;
+            }
+        }
         #[cfg(unix)]
         {
-            let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
-            let Some(root) = root else { return Ok(()) };
-            let records =
-                crate::terminal_host_runtime::load_terminal_host_records_for_cleanup(&root)
-                    .context("load bounded terminal-host records for workspace close")?;
-            let records = {
-                let registry = self.workspace_registry.lock().unwrap();
-                let mut matching = Vec::new();
-                for (path, record) in records {
-                    let Some(terminal) =
-                        registry.terminal_record(&record.terminal_id).with_context(|| {
-                            format!("load terminal lifecycle for {}", record.terminal_id)
+            let Some(root) = root else { return Ok(Vec::new()) };
+            let mut records = Vec::new();
+            for (terminal_id, expected_incarnation) in terminals {
+                let Some((path, record)) =
+                    crate::terminal_host_runtime::load_terminal_host_record(root, terminal_id)
+                        .with_context(|| {
+                            format!("load exact terminal-host record for {terminal_id}")
                         })?
-                    else {
-                        continue;
-                    };
-                    if terminal.workspace_key != workspace_key
-                        || terminal.lifecycle != TerminalLifecycle::Tombstoned
-                    {
-                        continue;
-                    }
-                    anyhow::ensure!(
-                        terminal
-                            .incarnation
-                            .as_deref()
-                            .is_some_and(|expected| expected == record.incarnation),
-                        "terminal-host incarnation changed while closing {}",
-                        record.terminal_id
-                    );
-                    matching.push((path, record));
-                }
-                matching
-            };
+                else {
+                    continue;
+                };
+                anyhow::ensure!(
+                    expected_incarnation
+                        .as_deref()
+                        .is_none_or(|expected| record.incarnation == expected),
+                    "terminal-host incarnation changed while closing {terminal_id}"
+                );
+                records.push((path, record));
+            }
             #[cfg(test)]
             self.discovered_terminal_termination_requests.lock().unwrap().extend(
                 records.iter().map(|(_, record)| {
                     (record.terminal_id.clone(), Some(record.incarnation.clone()))
                 }),
             );
+            Ok(records)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = root;
+            let _ = terminals;
+            Ok(())
+        }
+    }
+
+    fn terminate_prepared_terminal_hosts(
+        &self,
+        records: TerminalHostRecords,
+    ) -> anyhow::Result<()> {
+        #[cfg(unix)]
+        {
             for (path, record) in records {
                 anyhow::ensure!(
                     cleanup_terminal_host_record(&record, &path),
@@ -7733,9 +7766,15 @@ impl Mux {
         }
         #[cfg(not(unix))]
         {
-            let _ = workspace_key;
+            let _ = records;
             Ok(())
         }
+    }
+
+    fn terminate_workspace_hosts_from_receipt(&self, result: &Value) -> anyhow::Result<()> {
+        let identities = terminal_host_cleanup_identities(result)?;
+        let records = self.prepare_terminal_host_cleanup(&identities)?;
+        self.terminate_prepared_terminal_hosts(records)
     }
 
     /// Run `f` with the session state.
@@ -12185,9 +12224,8 @@ impl Mux {
             let registry = self.workspace_registry.lock().unwrap();
             if let Some(commit) = registry.replay(mutation, &fingerprint)? {
                 let result = workspace_mutation_result(&commit)?;
-                let key = result.key.clone();
                 drop(registry);
-                self.terminate_tombstoned_workspace_hosts(&key)?;
+                self.terminate_workspace_hosts_from_receipt(&commit.result)?;
                 return Ok(result);
             }
         }
@@ -12244,12 +12282,12 @@ impl Mux {
         project_resource: bool,
     ) -> anyhow::Result<WorkspaceMutationResult> {
         let notifications = self.surface_notifications();
+        let terminal_host_root = self.surface_options.lock().unwrap().terminal_host_root.clone();
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, fingerprint)? {
             let result = workspace_mutation_result(&commit)?;
-            let key = result.key.clone();
             drop(registry);
-            self.terminate_tombstoned_workspace_hosts(&key)?;
+            self.terminate_workspace_hosts_from_receipt(&commit.result)?;
             return Ok(result);
         }
         let terminal_revision_before = registry.terminal_snapshot()?.revision;
@@ -12259,8 +12297,8 @@ impl Mux {
             empty_revision,
             selection_resync,
             result,
-            closed_workspace_key,
             closed_public_ids,
+            host_cleanup,
         ) = {
             let mut state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
@@ -12272,6 +12310,11 @@ impl Mux {
             let previous_active = state.active_pane();
             let key = state.workspaces[index].key.clone();
             let closed_public_ids = registry.terminal_resource_ids_in_workspace(&key)?;
+            let host_identities = registry.terminal_host_identities_in_workspace(&key)?;
+            let host_cleanup = self.prepare_terminal_host_cleanup_at_root(
+                terminal_host_root.as_deref(),
+                &host_identities,
+            )?;
             let mut desired = self.registry_projection(&state);
             desired.remove(index);
             let desired_active_workspace = if state.active_workspace == index {
@@ -12284,6 +12327,8 @@ impl Mux {
                 "key": key,
                 "index": index,
                 "changed": true,
+                (TERMINAL_HOST_CLEANUP_RECEIPT_FIELD):
+                    terminal_host_cleanup_receipt(&host_identities),
             });
             let commit = if project_resource {
                 registry.commit_with_active_workspace(
@@ -12348,7 +12393,15 @@ impl Mux {
             let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
             let selection_resync = was_active && empty_revision.is_none();
             let result = workspace_mutation_result(&commit)?;
-            (removed, delta, empty_revision, selection_resync, result, key, closed_public_ids)
+            (
+                removed,
+                delta,
+                empty_revision,
+                selection_resync,
+                result,
+                closed_public_ids,
+                host_cleanup,
+            )
         };
         let terminal_revision_after = registry.terminal_snapshot()?.revision;
         if terminal_revision_after != terminal_revision_before {
@@ -12363,7 +12416,7 @@ impl Mux {
             self.purge_surface_side_tables(surface.id);
         }
         self.retire_surface_runtimes(removed);
-        let host_termination = self.terminate_tombstoned_workspace_hosts(&closed_workspace_key);
+        let host_termination = self.terminate_prepared_terminal_hosts(host_cleanup);
         self.emit_tree_delta(delta, selection_resync);
         self.emit_empty_if_current(empty_revision);
         host_termination?;
@@ -15827,6 +15880,62 @@ fn workspace_mutation_result(commit: &RegistryCommit) -> anyhow::Result<Workspac
         replayed: commit.replayed,
         changed,
     })
+}
+
+fn terminal_host_cleanup_receipt(terminals: &[(String, Option<String>)]) -> Value {
+    Value::Array(
+        terminals
+            .iter()
+            .map(|(terminal_id, incarnation)| {
+                serde_json::json!({
+                    "terminal_id": terminal_id,
+                    "incarnation": incarnation,
+                })
+            })
+            .collect(),
+    )
+}
+
+fn terminal_host_cleanup_identities(
+    result: &Value,
+) -> anyhow::Result<Vec<(String, Option<String>)>> {
+    let Some(receipt) = result.get(TERMINAL_HOST_CLEANUP_RECEIPT_FIELD) else {
+        return Ok(Vec::new());
+    };
+    let entries = receipt
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("stored terminal-host cleanup receipt is invalid"))?;
+    anyhow::ensure!(
+        entries.len() <= MAX_TERMINAL_HOST_CLEANUP_IDENTITIES,
+        "stored terminal-host cleanup receipt exceeds capacity"
+    );
+    let mut seen = HashSet::with_capacity(entries.len());
+    let mut identities = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let terminal_id = entry["terminal_id"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("stored terminal-host cleanup id is missing"))?;
+        validate_terminal_hex(terminal_id, "stored terminal-host cleanup id is invalid")?;
+        anyhow::ensure!(
+            seen.insert(terminal_id.to_string()),
+            "stored terminal-host cleanup receipt contains a duplicate id"
+        );
+        let incarnation = match entry.get("incarnation") {
+            None | Some(Value::Null) => None,
+            Some(value) => {
+                let incarnation = value.as_str().ok_or_else(|| {
+                    anyhow::anyhow!("stored terminal-host cleanup incarnation is invalid")
+                })?;
+                validate_terminal_hex(
+                    incarnation,
+                    "stored terminal-host cleanup incarnation is invalid",
+                )?;
+                Some(incarnation.to_string())
+            }
+        };
+        identities.push((terminal_id.to_string(), incarnation));
+    }
+    Ok(identities)
 }
 
 fn close_surface_delta(

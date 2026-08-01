@@ -8,7 +8,9 @@ use std::io::{self, Read, Write};
 #[cfg(target_os = "linux")]
 use std::path::Path;
 #[cfg(target_os = "linux")]
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(target_os = "linux")]
+use std::sync::{Arc, Mutex};
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 
@@ -216,40 +218,103 @@ fn peer_uid(stream: &std::os::unix::net::UnixStream) -> io::Result<u32> {
     Ok(credentials.uid)
 }
 
-/// Serves the systemd-provided listener in a detached thread. Each peer is
-/// credential-checked before any request bytes are read.
+/// Owns the systemd-provided listener and its credential-checked peers.
+#[cfg(target_os = "linux")]
+pub struct ProviderManagementServer {
+    shutdown: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for ProviderManagementServer {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// Serve the systemd-provided listener until the returned owner is dropped.
+/// Dropping the owner closes every active peer and joins all management
+/// threads before returning.
 #[cfg(target_os = "linux")]
 pub fn serve(
     listener: std::os::unix::net::UnixListener,
     mux: Arc<Mux>,
-) -> io::Result<std::thread::JoinHandle<()>> {
+) -> io::Result<ProviderManagementServer> {
     let result = unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
     if result != 0 {
         return Err(io::Error::last_os_error());
     }
-    std::thread::Builder::new().name("provider-management".into()).spawn(move || {
-        for connection in listener.incoming() {
-            let Ok(stream) = connection else { continue };
-            let mux = mux.clone();
-            let _ = std::thread::Builder::new().name("provider-management-peer".into()).spawn(
-                move || {
-                    let Ok(uid) = peer_uid(&stream) else { return };
-                    if uid != 0 {
-                        let _ = write_response(
-                            &stream,
-                            &Response::error("access_denied", "provider management requires root"),
-                        );
-                        return;
+    listener.set_nonblocking(true)?;
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let thread_shutdown = shutdown.clone();
+    let thread =
+        std::thread::Builder::new().name("provider-management".into()).spawn(move || {
+            let active = Arc::new(Mutex::new(std::collections::HashMap::new()));
+            let next_peer = AtomicU64::new(1);
+            let mut peers = Vec::new();
+            while !thread_shutdown.load(Ordering::Acquire) {
+                let stream = match listener.accept() {
+                    Ok((stream, _)) => stream,
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(10));
+                        continue;
                     }
-                    let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
-                    let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
-                    let Ok(bytes) = read_message(&stream) else { return };
-                    let response = handle_request(&mux, uid, &bytes.0);
-                    let _ = write_response(&stream, &response);
-                },
-            );
-        }
-    })
+                    Err(_) => {
+                        if thread_shutdown.load(Ordering::Acquire) {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                        continue;
+                    }
+                };
+                let peer = next_peer.fetch_add(1, Ordering::Relaxed);
+                let tracked = match stream.try_clone() {
+                    Ok(tracked) => tracked,
+                    Err(_) => continue,
+                };
+                active.lock().unwrap().insert(peer, tracked);
+                let mux = mux.clone();
+                let peer_active = active.clone();
+                match std::thread::Builder::new().name("provider-management-peer".into()).spawn(
+                    move || {
+                        let result = (|| {
+                            let uid = peer_uid(&stream)?;
+                            if uid != 0 {
+                                return write_response(
+                                    &stream,
+                                    &Response::error(
+                                        "access_denied",
+                                        "provider management requires root",
+                                    ),
+                                );
+                            }
+                            stream.set_read_timeout(Some(IO_TIMEOUT))?;
+                            stream.set_write_timeout(Some(IO_TIMEOUT))?;
+                            let bytes = read_message(&stream)?;
+                            let response = handle_request(&mux, uid, &bytes.0);
+                            write_response(&stream, &response)
+                        })();
+                        peer_active.lock().unwrap().remove(&peer);
+                        let _ = result;
+                    },
+                ) {
+                    Ok(handle) => peers.push(handle),
+                    Err(_) => {
+                        active.lock().unwrap().remove(&peer);
+                    }
+                }
+            }
+            for stream in active.lock().unwrap().values() {
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+            }
+            for peer in peers {
+                let _ = peer.join();
+            }
+        })?;
+    Ok(ProviderManagementServer { shutdown, thread: Some(thread) })
 }
 
 #[derive(Debug)]

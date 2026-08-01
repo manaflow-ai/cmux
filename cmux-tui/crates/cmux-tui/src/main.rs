@@ -1307,17 +1307,154 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
     Ok(value)
 }
 
+#[derive(Default)]
+struct ServerProcessOwners {
+    websocket: Option<cmux_tui_core::server::WebSocketServer>,
+    #[cfg(unix)]
+    remote: Option<remote_runtime::DaemonRuntimeHandle>,
+    #[cfg(target_os = "linux")]
+    provider_management: Option<cmux_tui_core::provider_management::ProviderManagementServer>,
+}
+
+impl ServerProcessOwners {
+    fn shutdown(mut self) -> anyhow::Result<()> {
+        #[cfg(target_os = "linux")]
+        drop(self.provider_management.take());
+        drop(self.websocket.take());
+        #[cfg(unix)]
+        if let Some(remote) = self.remote.take() {
+            remote.shutdown()?;
+        }
+        Ok(())
+    }
+}
+
+enum ServerProcessOwnersState {
+    Registering(ServerProcessOwners),
+    Ready(ServerProcessOwners),
+    Running,
+    Complete(Option<String>),
+}
+
+struct ServerProcessOwnersCleanup {
+    state: std::sync::Mutex<ServerProcessOwnersState>,
+    changed: std::sync::Condvar,
+}
+
+impl ServerProcessOwnersCleanup {
+    fn new() -> Self {
+        Self {
+            state: std::sync::Mutex::new(ServerProcessOwnersState::Registering(
+                ServerProcessOwners::default(),
+            )),
+            changed: std::sync::Condvar::new(),
+        }
+    }
+
+    fn register_websocket(&self, server: cmux_tui_core::server::WebSocketServer) {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let ServerProcessOwnersState::Registering(owners) = &mut *state else {
+            panic!("server process owners were sealed before WebSocket registration");
+        };
+        assert!(owners.websocket.replace(server).is_none(), "WebSocket owner registered twice");
+    }
+
+    #[cfg(unix)]
+    fn register_remote(&self, runtime: remote_runtime::DaemonRuntimeHandle) {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let ServerProcessOwnersState::Registering(owners) = &mut *state else {
+            panic!("server process owners were sealed before remote registration");
+        };
+        assert!(owners.remote.replace(runtime).is_none(), "remote owner registered twice");
+    }
+
+    #[cfg(target_os = "linux")]
+    fn register_provider_management(
+        &self,
+        server: cmux_tui_core::provider_management::ProviderManagementServer,
+    ) {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let ServerProcessOwnersState::Registering(owners) = &mut *state else {
+            panic!("server process owners were sealed before provider registration");
+        };
+        assert!(
+            owners.provider_management.replace(server).is_none(),
+            "provider owner registered twice"
+        );
+    }
+
+    fn seal(&self) {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if matches!(&*state, ServerProcessOwnersState::Registering(_)) {
+            let ServerProcessOwnersState::Registering(owners) =
+                std::mem::replace(&mut *state, ServerProcessOwnersState::Running)
+            else {
+                unreachable!()
+            };
+            *state = ServerProcessOwnersState::Ready(owners);
+            self.changed.notify_all();
+        }
+    }
+
+    #[cfg(unix)]
+    fn remote_is_finished(&self) -> bool {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match &*state {
+            ServerProcessOwnersState::Registering(owners)
+            | ServerProcessOwnersState::Ready(owners) => {
+                owners.remote.as_ref().is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
+            }
+            ServerProcessOwnersState::Running | ServerProcessOwnersState::Complete(_) => true,
+        }
+    }
+
+    fn run_once(&self) -> anyhow::Result<()> {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let owners = loop {
+            match &*state {
+                ServerProcessOwnersState::Registering(_) | ServerProcessOwnersState::Running => {
+                    state =
+                        self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+                }
+                ServerProcessOwnersState::Ready(_) => {
+                    let ServerProcessOwnersState::Ready(owners) =
+                        std::mem::replace(&mut *state, ServerProcessOwnersState::Running)
+                    else {
+                        unreachable!()
+                    };
+                    break owners;
+                }
+                ServerProcessOwnersState::Complete(error) => {
+                    return error
+                        .as_ref()
+                        .map(|message| Err(anyhow::anyhow!(message.clone())))
+                        .unwrap_or(Ok(()));
+                }
+            }
+        };
+        drop(state);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| owners.shutdown()))
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("server process owner cleanup panicked")));
+        let error = result.as_ref().err().map(|error| format!("{error:#}"));
+        state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *state = ServerProcessOwnersState::Complete(error);
+        self.changed.notify_all();
+        result
+    }
+}
+
 enum ServerShutdownCleanupState {
     Pending(u64),
     Running(u64),
-    Complete,
+    Complete { error: Option<String> },
     Degraded { attempt: u64, message: String, retry: cmux_tui_core::ShutdownRequestWatch },
     Abandoned,
 }
 
 #[derive(Clone)]
 enum ServerShutdownCleanupOutcome {
-    Complete,
+    Complete { error: Option<String> },
     Degraded { attempt: u64, message: String, retry: cmux_tui_core::ShutdownRequestWatch },
     Abandoned,
 }
@@ -1340,6 +1477,7 @@ fn set_server_shutdown_attempt_for_run(attempt: Option<ServerShutdownAttempt>) {
 
 struct ServerShutdownCleanup {
     mux: Arc<Mux>,
+    process_owners: Arc<ServerProcessOwnersCleanup>,
     state: std::sync::Mutex<ServerShutdownCleanupState>,
     changed: std::sync::Condvar,
     #[cfg(test)]
@@ -1347,9 +1485,20 @@ struct ServerShutdownCleanup {
 }
 
 impl ServerShutdownCleanup {
+    #[cfg(test)]
     fn new(mux: Arc<Mux>) -> Self {
+        let process_owners = Arc::new(ServerProcessOwnersCleanup::new());
+        process_owners.seal();
+        Self::new_with_process_owners(mux, process_owners)
+    }
+
+    fn new_with_process_owners(
+        mux: Arc<Mux>,
+        process_owners: Arc<ServerProcessOwnersCleanup>,
+    ) -> Self {
         Self {
             mux,
+            process_owners,
             state: std::sync::Mutex::new(ServerShutdownCleanupState::Pending(0)),
             changed: std::sync::Condvar::new(),
             #[cfg(test)]
@@ -1359,7 +1508,7 @@ impl ServerShutdownCleanup {
         }
     }
 
-    fn attempt_shutdown(&self) -> anyhow::Result<()> {
+    fn attempt_mux_shutdown(&self) -> anyhow::Result<()> {
         #[cfg(test)]
         if let Some(attempt) =
             self.shutdown_attempt.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
@@ -1382,8 +1531,8 @@ impl ServerShutdownCleanup {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let (attempt, retry) = loop {
             match &*state {
-                ServerShutdownCleanupState::Complete => {
-                    return ServerShutdownCleanupOutcome::Complete;
+                ServerShutdownCleanupState::Complete { error } => {
+                    return ServerShutdownCleanupOutcome::Complete { error: error.clone() };
                 }
                 ServerShutdownCleanupState::Degraded { attempt, message, retry } => {
                     return ServerShutdownCleanupOutcome::Degraded {
@@ -1409,29 +1558,44 @@ impl ServerShutdownCleanup {
         };
         drop(state);
 
-        // Mux::shutdown owns one bounded attempt. A failure retains the mux,
-        // socket, and exact process owners until another explicit request
-        // authorizes the next attempt.
+        // Runtime and listener owners join exactly once before Mux::shutdown.
+        // A mux failure retains the socket until another explicit request,
+        // while a joined runtime error is terminal and remains reportable.
+        let process_owner_error =
+            self.process_owners.run_once().err().map(|error| format!("{error:#}"));
         let result =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.attempt_shutdown()));
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.attempt_mux_shutdown()));
         let outcome = match result {
-            Ok(Ok(())) => ServerShutdownCleanupOutcome::Complete,
+            Ok(Ok(())) => ServerShutdownCleanupOutcome::Complete { error: process_owner_error },
             Ok(Err(error)) => ServerShutdownCleanupOutcome::Degraded {
                 attempt,
                 message: format!(
-                    "{}: {error:#}",
-                    localization::catalog().server.shutdown_cleanup_incomplete
+                    "{}: {error:#}{}",
+                    localization::catalog().server.shutdown_cleanup_incomplete,
+                    process_owner_error
+                        .as_deref()
+                        .map(|owner| format!("; process owner cleanup: {owner}"))
+                        .unwrap_or_default()
                 ),
                 retry,
             },
             Err(_) => ServerShutdownCleanupOutcome::Degraded {
                 attempt,
-                message: localization::catalog().server.shutdown_cleanup_incomplete.to_string(),
+                message: format!(
+                    "{}{}",
+                    localization::catalog().server.shutdown_cleanup_incomplete,
+                    process_owner_error
+                        .as_deref()
+                        .map(|owner| format!("; process owner cleanup: {owner}"))
+                        .unwrap_or_default()
+                ),
                 retry,
             },
         };
         let next_state = match &outcome {
-            ServerShutdownCleanupOutcome::Complete => ServerShutdownCleanupState::Complete,
+            ServerShutdownCleanupOutcome::Complete { error } => {
+                ServerShutdownCleanupState::Complete { error: error.clone() }
+            }
             ServerShutdownCleanupOutcome::Degraded { attempt, message, retry } => {
                 ServerShutdownCleanupState::Degraded {
                     attempt: *attempt,
@@ -1452,7 +1616,10 @@ impl ServerShutdownCleanup {
 
     fn run_until_complete(&self) -> anyhow::Result<()> {
         match self.run_once() {
-            ServerShutdownCleanupOutcome::Complete => Ok(()),
+            ServerShutdownCleanupOutcome::Complete { error: Some(error) } => {
+                Err(anyhow::anyhow!(error))
+            }
+            ServerShutdownCleanupOutcome::Complete { error: None } => Ok(()),
             ServerShutdownCleanupOutcome::Degraded { message, .. } => Err(anyhow::anyhow!(message)),
             ServerShutdownCleanupOutcome::Abandoned => {
                 Err(anyhow::anyhow!("server shutdown cleanup was abandoned"))
@@ -1483,11 +1650,14 @@ impl ServerShutdownCleanup {
         }
     }
 
-    fn wait_for_complete(&self) {
+    fn wait_for_complete(&self) -> anyhow::Result<()> {
         let mut reported_attempt = None;
         loop {
             match self.run_once() {
-                ServerShutdownCleanupOutcome::Complete => return,
+                ServerShutdownCleanupOutcome::Complete { error: Some(error) } => {
+                    return Err(anyhow::anyhow!(error));
+                }
+                ServerShutdownCleanupOutcome::Complete { error: None } => return Ok(()),
                 ServerShutdownCleanupOutcome::Degraded { attempt, message, retry } => {
                     if reported_attempt != Some(attempt) {
                         eprintln!("cmux-tui: {message}; retry with `cmux-tui server stop`");
@@ -1512,7 +1682,9 @@ impl ServerShutdownCleanup {
                             .unwrap_or_else(std::sync::PoisonError::into_inner);
                     }
                 }
-                ServerShutdownCleanupOutcome::Abandoned => return,
+                ServerShutdownCleanupOutcome::Abandoned => {
+                    return Err(anyhow::anyhow!("server shutdown cleanup was abandoned"));
+                }
             }
         }
     }
@@ -1520,7 +1692,7 @@ impl ServerShutdownCleanup {
     fn is_complete(&self) -> bool {
         matches!(
             *self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
-            ServerShutdownCleanupState::Complete
+            ServerShutdownCleanupState::Complete { .. }
         )
     }
 }
@@ -1528,6 +1700,7 @@ impl ServerShutdownCleanup {
 struct ServerProcessShutdownGuard {
     published_socket: Arc<std::sync::Mutex<Option<cmux_tui_core::server::PublishedSocket>>>,
     shutdown_watch: cmux_tui_core::ShutdownRequestWatch,
+    process_owners: Arc<ServerProcessOwnersCleanup>,
     cleanup: Arc<ServerShutdownCleanup>,
     completion: Option<std::sync::mpsc::Sender<()>>,
     worker: Option<std::thread::JoinHandle<()>>,
@@ -1545,7 +1718,11 @@ impl ServerProcessShutdownGuard {
         let worker_watch = shutdown_watch.clone();
         let published_socket = Arc::new(std::sync::Mutex::new(None));
         let worker_published_socket = published_socket.clone();
-        let cleanup = Arc::new(ServerShutdownCleanup::new(mux.clone()));
+        let process_owners = Arc::new(ServerProcessOwnersCleanup::new());
+        let cleanup = Arc::new(ServerShutdownCleanup::new_with_process_owners(
+            mux.clone(),
+            process_owners.clone(),
+        ));
         let worker_cleanup = cleanup.clone();
         let (completion, completed) = std::sync::mpsc::channel();
         let worker = std::thread::Builder::new().name("cmux-server-exit-watchdog".into()).spawn(
@@ -1558,7 +1735,7 @@ impl ServerProcessShutdownGuard {
                 // same bounded cleanup path that run_server joins below.
                 // Failed attempts keep serving the control socket and require
                 // another explicit stop request before retrying.
-                worker_cleanup.wait_for_complete();
+                let cleanup_result = worker_cleanup.wait_for_complete();
                 if matches!(
                     completed.recv_timeout(server_shutdown_exit_grace()),
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout)
@@ -1567,6 +1744,10 @@ impl ServerProcessShutdownGuard {
                     // remains. The frontend alone is stuck, so the old
                     // process can now release its control socket.
                     cleanup_published_socket(&worker_published_socket);
+                    if let Err(error) = cleanup_result {
+                        eprintln!("cmux-tui: server shutdown cleanup failed: {error:#}");
+                        std::process::exit(1);
+                    }
                     std::process::exit(0);
                 }
             },
@@ -1574,6 +1755,7 @@ impl ServerProcessShutdownGuard {
         Ok(Self {
             published_socket,
             shutdown_watch,
+            process_owners,
             cleanup,
             completion: Some(completion),
             worker: Some(worker),
@@ -1598,16 +1780,42 @@ impl ServerProcessShutdownGuard {
         self.published_socket.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
     }
 
+    fn register_websocket(&self, server: cmux_tui_core::server::WebSocketServer) {
+        self.process_owners.register_websocket(server);
+    }
+
+    #[cfg(unix)]
+    fn register_remote(&self, runtime: remote_runtime::DaemonRuntimeHandle) {
+        self.process_owners.register_remote(runtime);
+    }
+
+    #[cfg(target_os = "linux")]
+    fn register_provider_management(
+        &self,
+        server: cmux_tui_core::provider_management::ProviderManagementServer,
+    ) {
+        self.process_owners.register_provider_management(server);
+    }
+
+    fn seal_process_owners(&self) {
+        self.process_owners.seal();
+    }
+
+    #[cfg(unix)]
+    fn remote_is_finished(&self) -> bool {
+        self.process_owners.remote_is_finished()
+    }
+
     fn shutdown(&self) -> anyhow::Result<()> {
         self.cleanup.run_until_complete()
     }
 
-    fn wait_for_shutdown(&self) {
+    fn wait_for_shutdown(&self) -> anyhow::Result<()> {
         // `wait_for_complete` runs the first bounded cleanup attempt
         // synchronously. It waits for another mux request only after that
         // attempt fails, while the published socket remains available for an
         // explicit `server stop` retry.
-        self.cleanup.wait_for_complete();
+        self.cleanup.wait_for_complete()
     }
 
     fn complete(mut self) {
@@ -1661,28 +1869,24 @@ fn finish_server_process(
     server_process: ServerProcessShutdownGuard,
     result: anyhow::Result<()>,
 ) -> anyhow::Result<()> {
+    server_process.seal_process_owners();
     let has_published_socket = server_process.has_published_socket();
-    if !has_published_socket || result.is_err() {
-        let shutdown_result = server_process.shutdown();
-        if has_published_socket {
-            if shutdown_result.is_err() {
-                // A failed cleanup retains the published socket and exact
-                // process owners until an explicit stop retries it.
-                server_process.wait_for_shutdown();
-            }
-            server_process.complete();
-        } else {
-            server_process.abandon_unpublished();
-        }
-        return match (result, shutdown_result) {
-            (result, Ok(())) => result,
-            (Ok(()), Err(shutdown_error)) => Err(shutdown_error),
-            (Err(error), Err(shutdown_error)) => Err(error.context(shutdown_error.to_string())),
-        };
+    let mut shutdown_result = if !has_published_socket || result.is_err() {
+        server_process.shutdown()
+    } else {
+        server_process.wait_for_shutdown()
+    };
+    if has_published_socket && shutdown_result.is_err() && !server_process.cleanup.is_complete() {
+        // A retryable mux failure retains the published socket until another
+        // explicit stop request authorizes the next bounded attempt.
+        shutdown_result = server_process.wait_for_shutdown();
     }
-    server_process.wait_for_shutdown();
-    server_process.complete();
-    result
+    if has_published_socket || server_process.cleanup.is_complete() {
+        server_process.complete();
+    } else {
+        server_process.abandon_unpublished();
+    }
+    combine_server_and_remote_shutdown_results(result, shutdown_result)
 }
 
 #[cfg(unix)]
@@ -1856,7 +2060,7 @@ fn run_server(
     }
 
     #[cfg(target_os = "linux")]
-    let _provider_management = match provider_management_listener
+    let provider_management = match provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
         .transpose()
     {
@@ -1865,13 +2069,15 @@ fn run_server(
             return finish_server_process(server_process, Err(error.into()));
         }
     };
+    #[cfg(target_os = "linux")]
+    if let Some(provider_management) = provider_management {
+        server_process.register_provider_management(provider_management);
+    }
     let websocket_server = match ws_addr {
         Some(addr) => {
             let addr = match addr.parse() {
                 Ok(addr) => addr,
                 Err(error) => {
-                    #[cfg(target_os = "linux")]
-                    drop(_provider_management);
                     return finish_server_process(
                         server_process,
                         Err(anyhow::anyhow!("invalid WebSocket address {addr:?}: {error}")),
@@ -1886,8 +2092,6 @@ fn run_server(
             ) {
                 Ok(server) => Some(server),
                 Err(error) => {
-                    #[cfg(target_os = "linux")]
-                    drop(_provider_management);
                     return finish_server_process(server_process, Err(error));
                 }
             }
@@ -1897,9 +2101,12 @@ fn run_server(
     if let Some(server) = &websocket_server {
         eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
     }
+    if let Some(websocket_server) = websocket_server {
+        server_process.register_websocket(websocket_server);
+    }
 
     #[cfg(unix)]
-    let remote_runtime = if args.remote {
+    if args.remote {
         let runtime = match remote_runtime::start_daemon_runtime(
             socket_path.clone(),
             remote_runtime::DaemonRuntimeOptions {
@@ -1919,9 +2126,6 @@ fn run_server(
         ) {
             Ok(runtime) => runtime,
             Err(error) => {
-                drop(websocket_server);
-                #[cfg(target_os = "linux")]
-                drop(_provider_management);
                 return finish_server_process(server_process, Err(error));
             }
         };
@@ -1934,14 +2138,15 @@ fn run_server(
         for route in &runtime.info().routes {
             eprintln!("cmux-tui: remote route {route}");
         }
+        server_process.register_remote(runtime);
         #[cfg(debug_assertions)]
-        if let Some(marker) = std::env::var_os("CMUX_TUI_TEST_REMOTE_RUNTIME_STARTED_MARKER") {
-            std::fs::write(marker, b"started")?;
+        if let Some(marker) = std::env::var_os("CMUX_TUI_TEST_REMOTE_RUNTIME_STARTED_MARKER")
+            && let Err(error) = std::fs::write(marker, b"started")
+        {
+            return finish_server_process(server_process, Err(error.into()));
         }
-        Some(runtime)
-    } else {
-        None
-    };
+    }
+    server_process.seal_process_owners();
 
     #[cfg(debug_assertions)]
     if !args.headless && std::env::var_os("CMUX_TUI_TEST_BLOCK_INTERACTIVE_DRIVER").is_some() {
@@ -1955,11 +2160,7 @@ fn run_server(
     let result = if args.headless {
         #[cfg(unix)]
         {
-            run_headless(&mux, &socket_path, || {
-                remote_runtime
-                    .as_ref()
-                    .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
-            })
+            run_headless(&mux, &socket_path, || server_process.remote_is_finished())
         }
         #[cfg(not(unix))]
         {
@@ -1970,14 +2171,6 @@ fn run_server(
     } else {
         run_tui(Session::Local(mux), args.session, None)
     };
-    #[cfg(unix)]
-    let result = match remote_runtime {
-        Some(runtime) => combine_server_and_remote_shutdown_results(result, runtime.shutdown()),
-        None => result,
-    };
-    drop(websocket_server);
-    #[cfg(target_os = "linux")]
-    drop(_provider_management);
     finish_server_process(server_process, result)
 }
 
@@ -2621,12 +2814,14 @@ mod tests {
         let mux = Mux::new("server-guard-test", SurfaceOptions::default());
         let shutdown_watch = mux.watch_shutdown_request();
         let cleanup = Arc::new(ServerShutdownCleanup::new(mux));
-        *cleanup.state.lock().unwrap() = ServerShutdownCleanupState::Complete;
+        *cleanup.state.lock().unwrap() = ServerShutdownCleanupState::Complete { error: None };
+        let process_owners = cleanup.process_owners.clone();
         let (completion, completed) = std::sync::mpsc::channel();
         let worker = std::thread::spawn(move || completed.recv().unwrap());
         let guard = ServerProcessShutdownGuard {
             published_socket: Arc::new(std::sync::Mutex::new(Some(published))),
             shutdown_watch,
+            process_owners,
             cleanup,
             completion: Some(completion),
             worker: Some(worker),
@@ -2658,6 +2853,7 @@ mod tests {
         let mux = Mux::new("incomplete-server-guard-test", SurfaceOptions::default());
         let shutdown_watch = mux.watch_shutdown_request();
         let cleanup = Arc::new(ServerShutdownCleanup::new(mux));
+        let process_owners = cleanup.process_owners.clone();
         let (completion, completed) = std::sync::mpsc::channel();
         let worker = std::thread::spawn(move || {
             let _ = completed.recv();
@@ -2665,6 +2861,7 @@ mod tests {
         let guard = ServerProcessShutdownGuard {
             published_socket: Arc::new(std::sync::Mutex::new(Some(published))),
             shutdown_watch,
+            process_owners,
             cleanup,
             completion: Some(completion),
             worker: Some(worker),
