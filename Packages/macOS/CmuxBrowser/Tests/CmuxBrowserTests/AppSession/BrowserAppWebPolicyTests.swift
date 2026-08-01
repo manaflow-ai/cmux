@@ -18,6 +18,12 @@ struct BrowserAppWebPolicyTests {
             try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=1"))
         ))
         #expect(!policy.shouldOpenInSystemBrowser(
+            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser"))
+        ))
+        #expect(!policy.shouldOpenInSystemBrowser(
+            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=yes"))
+        ))
+        #expect(!policy.shouldOpenInSystemBrowser(
             try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=0"))
         ))
         #expect(!policy.shouldOpenInSystemBrowser(
@@ -71,6 +77,14 @@ struct BrowserAppWebPolicyTests {
         ))
         #expect(theme.supports(
             url: URL(string: "https://cmux.com/app-pro-welcome"),
+            trustedOrigin: trustedOrigin
+        ))
+        #expect(theme.supports(
+            url: URL(string: "https://cmux.com/app-pricing/"),
+            trustedOrigin: trustedOrigin
+        ))
+        #expect(theme.supports(
+            url: URL(string: "https://cmux.com/app-pro-welcome/"),
             trustedOrigin: trustedOrigin
         ))
         #expect(!theme.supports(

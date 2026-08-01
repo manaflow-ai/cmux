@@ -175,13 +175,13 @@ describe("billing checkout route", () => {
 
     const response = await GET(
       new NextRequest(
-        "https://cmux.test/api/billing/checkout?plan=pro&cmux_distribution=appstore&cmux_scheme=cmux",
+        "https://cmux.test/api/billing/checkout?plan=pro&interval=year&cmux_distribution=appstore&cmux_scheme=cmux",
       ),
     );
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(
-      "https://cmux.test/app-pricing?cmux_app=1&cmux_distribution=appstore&billing=unavailable",
+      "https://cmux.test/app-pricing?cmux_app=1&cmux_distribution=appstore&billing=unavailable&interval=year",
     );
     expect(getUser).not.toHaveBeenCalled();
     expect(createStripeSession).not.toHaveBeenCalled();

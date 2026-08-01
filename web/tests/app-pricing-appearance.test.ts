@@ -50,4 +50,15 @@ describe("app pricing contrast-adjusted accent", () => {
     expect(theme.accentOnBackground).toBe("#123456");
     expect(theme.accentOnForeground).toBe("#abcdef");
   });
+
+  test("rejects translucent backgrounds that cannot be contrast-checked", () => {
+    const theme = appPricingTheme({
+      appearance: "dark",
+      background: "#FFFFFF00",
+      accent: "#0088ff",
+    });
+
+    expect(theme.background).toBe("#272822");
+    expect(theme.accentOnBackground).toBe("#0088ff");
+  });
 });
