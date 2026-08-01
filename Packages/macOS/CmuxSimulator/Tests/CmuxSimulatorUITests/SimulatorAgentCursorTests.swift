@@ -194,4 +194,50 @@ struct SimulatorAgentCursorTests {
 
         #expect(coordinator.agentCursorPresentation?.destination == point)
     }
+
+    @Test("Selecting a different device resets the workspace cursor")
+    func deviceSwitchResetsCursor() async throws {
+        let first = SimulatorDevice(
+            id: "phone-1",
+            name: "Phone 1",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS",
+            deviceTypeIdentifier: "type",
+            family: .iPhone,
+            state: .booted,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let second = SimulatorDevice(
+            id: "phone-2",
+            name: "Phone 2",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS",
+            deviceTypeIdentifier: "type",
+            family: .iPhone,
+            state: .shutdown,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let client = SimulatorPaneClientSpy(devices: [first, second])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        try await coordinator.selectDeviceAndWait(id: first.id)
+        let point = SimulatorPoint(x: 0.25, y: 0.75)
+        _ = try await coordinator.perform(.interactive(.gesture([
+            SimulatorPointerEvent(phase: .began, primary: point),
+            SimulatorPointerEvent(phase: .ended, primary: point),
+        ])))
+
+        try await coordinator.selectDeviceAndWait(id: second.id)
+
+        #expect(coordinator.agentCursorPresentation == nil)
+        coordinator.receive(.message(.display(SimulatorDisplayMetadata(
+            width: 1_200,
+            height: 2_400,
+            orientation: .portrait,
+            scale: 3
+        ))))
+        #expect(coordinator.agentCursorPresentation?.destination == SimulatorPoint(x: 0.5, y: 0.5))
+    }
 }
