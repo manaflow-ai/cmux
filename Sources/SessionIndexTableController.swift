@@ -17,8 +17,8 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
         applyFlush: { [weak self] in self?.flushApply($0) }
     )
 
-    init(popoverPresenter: SessionIndexTablePopoverPresenter = SessionIndexTablePopoverPresenter()) {
-        self.popoverPresenter = popoverPresenter
+    init(popoverPresenter: SessionIndexTablePopoverPresenter? = nil) {
+        self.popoverPresenter = popoverPresenter ?? SessionIndexTablePopoverPresenter()
         super.init()
     }
 
