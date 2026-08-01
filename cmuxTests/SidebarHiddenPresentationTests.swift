@@ -215,7 +215,6 @@ struct SidebarHiddenPresentationTests {
         )
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
-            .environmentObject(notificationStore.sidebarUnread)
             .environmentObject(sidebarState)
             .environmentObject(SidebarSelectionState())
             .environmentObject(FileExplorerState())

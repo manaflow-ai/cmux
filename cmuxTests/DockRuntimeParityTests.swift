@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import Combine
 import CmuxControlSocket
+import CmuxNotifications
 import CmuxTerminal
 import Foundation
 import Testing

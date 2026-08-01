@@ -1,3 +1,4 @@
+import CmuxNotifications
 import SwiftUI
 
 /// Container-level bridge mounting the AppKit-owned default workspace list once.

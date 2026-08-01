@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxNotifications
 @_spi(CmuxHostTransport) import CmuxSidebar
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import AppKit
@@ -132,12 +133,50 @@ private struct CMUXSidebarExtensionLimitedChoiceStore {
     }
 }
 
+@MainActor
+private final class CMUXSidebarSnapshotCache {
+    private(set) var snapshot: CmuxSidebarSnapshot?
+
+    func replace(with next: CmuxSidebarSnapshot) -> CmuxSidebarSnapshot {
+        guard let current = snapshot else {
+            snapshot = next
+            return next
+        }
+        guard current != next else { return current }
+        var updated = next
+        updated.sequence = max(next.sequence, current.sequence &+ 1)
+        snapshot = updated
+        return updated
+    }
+
+    func applyUnread(_ unread: SidebarUnreadSnapshot) -> CmuxSidebarSnapshot? {
+        guard var next = snapshot else { return nil }
+        var changed = false
+        for index in next.workspaces.indices {
+            let summary = unread.summary(forWorkspaceId: next.workspaces[index].id)
+            if next.workspaces[index].unreadCount != summary.unreadCount {
+                next.workspaces[index].unreadCount = summary.unreadCount
+                changed = true
+            }
+            if next.workspaces[index].latestNotification != summary.latestNotificationText {
+                next.workspaces[index].latestNotification = summary.latestNotificationText
+                changed = true
+            }
+        }
+        guard changed else { return nil }
+        next.sequence &+= 1
+        snapshot = next
+        return next
+    }
+}
+
 struct CMUXInstalledExtensionSidebarHostView: View {
     private static let selectedExtensionBundleIDDefaultsKey = "cmuxExtensionSidebar.selectedExtensionBundleId"
     private static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
 
     var snapshotProvider: @MainActor () -> CmuxSidebarSnapshot
     var snapshotUpdateToken: UInt64 = 0
+    let unreadSource: SidebarUnreadModel
     var actionHandler: @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult
     var onUseDefaultSidebar: @MainActor () -> Void = {}
 
@@ -158,6 +197,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     @State private var isShowingAccessReview = false
     @State private var keptLimitedManifestKeys = CMUXSidebarExtensionLimitedChoiceStore().choices()
     @State private var hostReloadToken: UInt64 = 0
+    @State private var snapshotCache = CMUXSidebarSnapshotCache()
 
     var body: some View {
         Group {
@@ -173,7 +213,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                             xpcHost.attach(
                                 connection: connection,
                                 bundleIdentifier: identity.bundleIdentifier,
-                                snapshotProvider: snapshotProvider,
+                                snapshotProvider: {
+                                    snapshotCache.snapshot ?? snapshotProvider()
+                                },
                                 actionHandler: actionHandler,
                                 onGrantChanged: { grant in
                                     effectiveGrant = grant
@@ -253,14 +295,26 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             }
         }
         .task {
-            xpcHost.update(snapshotProvider: snapshotProvider, actionHandler: actionHandler)
+            _ = snapshotCache.replace(with: snapshotProvider())
+            xpcHost.update(
+                snapshotProvider: { snapshotCache.snapshot ?? snapshotProvider() },
+                actionHandler: actionHandler
+            )
             await observeExtensionAvailability()
         }
-        .onChange(of: snapshotProvider().sequence) { _, _ in
-            xpcHost.sendSnapshotDidChange()
+        .task {
+            for await unreadSnapshot in unreadSource.snapshotChanges() {
+                guard !Task.isCancelled else { return }
+                if snapshotCache.snapshot == nil {
+                    _ = snapshotCache.replace(with: snapshotProvider())
+                }
+                guard let snapshot = snapshotCache.applyUnread(unreadSnapshot) else { continue }
+                xpcHost.sendSnapshotDidChange(snapshot)
+            }
         }
         .onChange(of: snapshotUpdateToken) { _, _ in
-            xpcHost.sendSnapshotDidChange()
+            let snapshot = snapshotCache.replace(with: snapshotProvider())
+            xpcHost.sendSnapshotDidChange(snapshot)
         }
         .onDisappear {
             xpcHost.invalidate()
@@ -1122,8 +1176,17 @@ private final class CMUXSidebarExtensionHostXPC {
 
     func sendSnapshotDidChange() {
         guard let extensionProxy, let snapshotProvider else { return }
+        sendSnapshotDidChange(snapshotProvider())
+    }
+
+    func sendSnapshotDidChange(_ snapshot: CmuxSidebarSnapshot) {
+        guard let extensionProxy else { return }
         do {
-            extensionProxy.sidebarSnapshotDidChange(try CmuxSidebarXPCCodec.encodeSnapshot(filteredSnapshot(from: snapshotProvider)))
+            extensionProxy.sidebarSnapshotDidChange(
+                try CmuxSidebarXPCCodec.encodeSnapshot(
+                    snapshot.filtered(for: allowedScopes, actionScopes: allowedActionScopes)
+                )
+            )
         } catch {
 #if DEBUG
             cmuxDebugLog("extension.sidebar.xpc.snapshot.encode.failed error=\(error.localizedDescription)")

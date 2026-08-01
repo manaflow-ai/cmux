@@ -4,6 +4,7 @@ import SwiftUI
 import Testing
 import WebKit
 import CmuxUpdater
+import CmuxNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -20,12 +21,6 @@ struct FileDropOverlayViewTests {
         let root = ContentView(updateViewModel: UpdateStateModel(), windowId: windowId)
             .environmentObject(TabManager())
             .environmentObject(TerminalNotificationStore.shared)
-            // The sidebar reads SidebarUnreadModel from the environment. A missing
-            // @EnvironmentObject is a SwiftUI fatalError rather than a nil, so leaving it out does
-            // not fail this test, it kills the app host and discards every verdict still pending in
-            // it. The model belongs to the notification store, so hand over that store's instance
-            // rather than a detached one.
-            .environmentObject(TerminalNotificationStore.shared.sidebarUnread)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
             .environmentObject(FileExplorerState())

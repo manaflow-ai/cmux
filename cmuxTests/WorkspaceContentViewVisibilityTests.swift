@@ -1,8 +1,9 @@
 import Testing
 import AppKit
-import Combine
+import CmuxNotifications
 import CmuxUpdater
 import CoreGraphics
+import Observation
 import SwiftUI
 import Bonsplit
 
@@ -205,7 +206,6 @@ final class WorkspaceContentViewVisibilityTests {
         let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
-            .environmentObject(notificationStore.sidebarUnread)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
             .environmentObject(FileExplorerState())
@@ -285,7 +285,6 @@ final class WorkspaceContentViewVisibilityTests {
         )
             .environmentObject(tabManager)
             .environmentObject(TerminalNotificationStore.shared)
-            .environmentObject(unread)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
             .environmentObject(FileExplorerState())
@@ -368,7 +367,9 @@ final class WorkspaceContentViewVisibilityTests {
         let surfaceId = UUID()
         let unread = SidebarUnreadModel()
         var publicationCount = 0
-        let cancellable = unread.objectWillChange.sink {
+        withObservationTracking {
+            _ = unread.snapshot
+        } onChange: {
             publicationCount += 1
         }
         let summaries = [
@@ -392,6 +393,11 @@ final class WorkspaceContentViewVisibilityTests {
         )
         #expect(publicationCount == 1)
 
+        withObservationTracking {
+            _ = unread.snapshot
+        } onChange: {
+            publicationCount += 1
+        }
         unread.apply(
             totalUnreadCount: 1,
             summaries: summaries,
@@ -400,7 +406,6 @@ final class WorkspaceContentViewVisibilityTests {
             manualUnreadWorkspaceIds: manualUnreadWorkspaceIds
         )
         #expect(publicationCount == 1, "Applying an equivalent snapshot must stay silent.")
-        withExtendedLifetime(cancellable) {}
     }
 
     @Test

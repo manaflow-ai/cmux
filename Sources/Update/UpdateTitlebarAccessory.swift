@@ -2,9 +2,11 @@ import AppKit
 import Bonsplit
 import Combine
 import CmuxFoundation
+import CmuxNotifications
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxTestSupport
+import Observation
 import SwiftUI
 
 enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
@@ -149,17 +151,18 @@ struct TitlebarControlsLayoutModelSnapshot: Equatable {
 /// titlebar surface. Unrelated defaults and notification activity must not
 /// invalidate titlebar geometry.
 @MainActor
-final class TitlebarControlsLayoutModel: ObservableObject {
+@Observable
+final class TitlebarControlsLayoutModel {
     typealias ContentSizeProvider = (TitlebarControlsStyleConfig) -> NSSize
 
-    static let shared = TitlebarControlsLayoutModel()
-
-    @Published private(set) var snapshot: TitlebarControlsLayoutModelSnapshot
+    private(set) var snapshot: TitlebarControlsLayoutModelSnapshot
 
     private let defaults: UserDefaults
-    private let notificationCenter: NotificationCenter
+    @ObservationIgnored
+    private nonisolated(unsafe) let notificationCenter: NotificationCenter
     private let contentSizeProvider: ContentSizeProvider
-    private var observers: [NSObjectProtocol] = []
+    @ObservationIgnored
+    private nonisolated(unsafe) var observers: [NSObjectProtocol] = []
 
     init(
         defaults: UserDefaults = .standard,
@@ -208,9 +211,14 @@ final class TitlebarControlsLayoutModel: ObservableObject {
     }
 
     deinit {
+        removeObservers()
+    }
+
+    private nonisolated func removeObservers() {
         for observer in observers {
             notificationCenter.removeObserver(observer)
         }
+        observers.removeAll()
     }
 
     private func refreshStyleIfNeeded() {
@@ -960,7 +968,7 @@ private final class TitlebarControlRightClickNSView: NSView {
 }
 
 private struct TitlebarNotificationBadge: View {
-    @ObservedObject var unreadModel: SidebarUnreadModel
+    let unreadModel: SidebarUnreadModel
     let config: TitlebarControlsStyleConfig
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
@@ -983,7 +991,7 @@ private struct TitlebarNotificationBadge: View {
 
 struct TitlebarControlsView: View {
     let unreadModel: SidebarUnreadModel
-    @ObservedObject var layoutModel: TitlebarControlsLayoutModel
+    let layoutModel: TitlebarControlsLayoutModel
     @ObservedObject var viewModel: TitlebarControlsViewModel
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
@@ -1478,6 +1486,7 @@ private struct MinimalModeTitlebarButtonHitRegionView: NSViewRepresentable {
 
 struct HiddenTitlebarSidebarControlsView: View {
     let unreadModel: SidebarUnreadModel
+    let layoutModel: TitlebarControlsLayoutModel
     let onToggleSidebar: () -> Void
     let onToggleNotifications: (NSView?) -> Void
     let onNewTab: () -> Void
@@ -1488,8 +1497,6 @@ struct HiddenTitlebarSidebarControlsView: View {
     @State private var isHoveringHost = false
     @State private var isHoveringWindowChrome = false
     @State private var hostWindowNumber: Int?
-    @ObservedObject private var layoutModel = TitlebarControlsLayoutModel.shared
-
     private var shouldPinControls: Bool {
         isHoveringHost || isHoveringWindowChrome || popoverVisibilityState.isShown(in: hostWindowNumber)
     }
@@ -1894,14 +1901,16 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var windowGeometryObservers: [NSObjectProtocol] = []
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
-    private var layoutModelCancellable: AnyCancellable?
     private var lastShowsWorkspaceTitlebar = !WorkspacePresentationModeSettings.isMinimal()
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
-    init(notificationStore: TerminalNotificationStore, settingsRuntime: SettingsRuntime?) {
+    init(
+        notificationStore: TerminalNotificationStore,
+        settingsRuntime: SettingsRuntime?,
+        layoutModel: TitlebarControlsLayoutModel
+    ) {
         let containerView = TitlebarAccessoryContainerView()
-        let layoutModel = TitlebarControlsLayoutModel.shared
         self.containerView = containerView
         self.notificationStore = notificationStore
         self.layoutModel = layoutModel
@@ -1969,17 +1978,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 self.restoreSizeAfterMinimalMode()
             }
         }
-        layoutModelCancellable = layoutModel.$snapshot
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.scheduleSizeUpdate(
-                        invalidateIntrinsicSize: true,
-                        invalidateLayout: true
-                    )
-                }
-            }
+        observeLayoutModel()
 
         applyWorkspaceTitlebarVisibility()
         scheduleSizeUpdate(invalidateIntrinsicSize: true)
@@ -2000,6 +1999,21 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         super.viewDidAppear()
         updateObservedWindowIfNeeded()
         scheduleSizeUpdate(invalidateIntrinsicSize: true)
+    }
+
+    private func observeLayoutModel() {
+        withObservationTracking {
+            _ = layoutModel.snapshot
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.scheduleSizeUpdate(
+                    invalidateIntrinsicSize: true,
+                    invalidateLayout: true
+                )
+                self.observeLayoutModel()
+            }
+        }
     }
 
     override func viewDidLayout() {
@@ -2598,6 +2612,7 @@ private struct NotificationsPopoverView: View {
 final class UpdateTitlebarAccessoryController {
     private let updateLog: UpdateLogStore
     private let settingsRuntime: SettingsRuntime?
+    private let layoutModel: TitlebarControlsLayoutModel
     private var didStart = false
     private let attachedWindows = NSHashTable<NSWindow>.weakObjects()
     private var observers: [NSObjectProtocol] = []
@@ -2609,9 +2624,14 @@ final class UpdateTitlebarAccessoryController {
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
 
-    init(updateLog: UpdateLogStore, settingsRuntime: SettingsRuntime?) {
+    init(
+        updateLog: UpdateLogStore,
+        settingsRuntime: SettingsRuntime?,
+        layoutModel: TitlebarControlsLayoutModel
+    ) {
         self.updateLog = updateLog
         self.settingsRuntime = settingsRuntime
+        self.layoutModel = layoutModel
     }
 
     deinit {
@@ -2757,7 +2777,8 @@ final class UpdateTitlebarAccessoryController {
         if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
             let controls = TitlebarControlsAccessoryViewController(
                 notificationStore: TerminalNotificationStore.shared,
-                settingsRuntime: settingsRuntime
+                settingsRuntime: settingsRuntime,
+                layoutModel: layoutModel
             )
             controls.layoutAttribute = .left
             controls.view.identifier = controlsIdentifier

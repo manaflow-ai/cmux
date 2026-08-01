@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxNotifications
 import SwiftUI
 import CmuxSettings
 import CmuxWorkspaces

@@ -1,6 +1,7 @@
 import Testing
 import AppKit
 import CmuxSidebar
+import CmuxNotifications
 import CmuxUpdater
 import SwiftUI
 
@@ -159,7 +160,6 @@ final class SidebarLazyLayoutScaleTests {
         )
         .frame(width: 280)
         .environmentObject(tabManager)
-        .environmentObject(unread)
         .environmentObject(CmuxConfigStore())
         .environmentObject(TerminalNotificationStore.shared)
         .environmentObject(SidebarState())

@@ -4,6 +4,7 @@ import CmuxCommandPalette
 import CmuxCore
 import CmuxFeedback
 import CmuxFoundation
+import CmuxNotifications
 import CmuxPanes
 import CmuxSettings
 import CmuxWorkspaces
@@ -803,23 +804,46 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
     }
 }
 
+/// Restricts unread Observation invalidation to the subtree that reads the
+/// snapshot instead of making `ContentView` or `VerticalTabsSidebar` observers.
+private struct SidebarUnreadSnapshotReader<Content: View>: View {
+    let source: SidebarUnreadModel
+    let content: (SidebarUnreadSnapshot) -> Content
+
+    init(
+        source: SidebarUnreadModel,
+        @ViewBuilder content: @escaping (SidebarUnreadSnapshot) -> Content
+    ) {
+        self.source = source
+        self.content = content
+    }
+
+    var body: some View {
+        content(source.snapshot)
+    }
+}
+
 struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
     let featureFlags: CmuxFeatureFlags
     let sidebarUnread: SidebarUnreadModel
+    let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
 
     @MainActor
     init(
         updateViewModel: UpdateStateModel,
         windowId: UUID,
         featureFlags: CmuxFeatureFlags? = nil,
-        sidebarUnread: SidebarUnreadModel? = nil
+        sidebarUnread: SidebarUnreadModel? = nil,
+        titlebarControlsLayoutModel: TitlebarControlsLayoutModel? = nil
     ) {
         self.updateViewModel = updateViewModel
         self.windowId = windowId
         self.featureFlags = featureFlags ?? .shared
         self.sidebarUnread = sidebarUnread ?? TerminalNotificationStore.shared.sidebarUnread
+        self.titlebarControlsLayoutModel = titlebarControlsLayoutModel
+            ?? TitlebarControlsLayoutModel()
     }
 
     @EnvironmentObject var tabManager: TabManager
@@ -827,7 +851,6 @@ struct ContentView: View {
     // ContentView itself must not observe it: one agent notification would
     // otherwise rebuild the terminal, sidebar, and window chrome together.
     var notificationStore: TerminalNotificationStore { .shared }
-    @ObservedObject private var titlebarControlsLayoutModel = TitlebarControlsLayoutModel.shared
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
@@ -1698,6 +1721,7 @@ struct ContentView: View {
             featureFlags: featureFlags,
             isPresented: sidebarState.isVisible,
             sidebarUnread: sidebarUnread,
+            titlebarControlsLayoutModel: titlebarControlsLayoutModel,
             windowId: windowId,
             onSendFeedback: presentFeedbackComposer,
             onToggleSidebar: { sidebarState.toggle() },
@@ -2850,14 +2874,17 @@ struct ContentView: View {
             scheduleTitlebarTextRefresh()
         })
 
-        view = AnyView(view.onReceive(sidebarUnread.$snapshot.dropFirst()) { snapshot in
+        view = AnyView(view.task {
             // Update the AppKit-owned pane overlay directly. The titlebar badge
             // and sidebar rows observe their own leaves, so no ContentView state
             // mutation is needed for unread changes.
-            refreshTmuxWorkspacePaneWindowOverlay(
-                in: observedWindow,
-                unreadSnapshot: snapshot
-            )
+            for await snapshot in sidebarUnread.snapshotChanges() {
+                guard !Task.isCancelled else { return }
+                refreshTmuxWorkspacePaneWindowOverlay(
+                    in: observedWindow,
+                    unreadSnapshot: snapshot
+                )
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspacePaneGeometryDidChange)) { notification in
@@ -10490,6 +10517,7 @@ struct VerticalTabsSidebar: View, Equatable {
             && lhs.fileExplorerState === rhs.fileExplorerState
             && lhs.featureFlags === rhs.featureFlags
             && lhs.sidebarUnread === rhs.sidebarUnread
+            && lhs.titlebarControlsLayoutModel === rhs.titlebarControlsLayoutModel
             && lhs.isPresented == rhs.isPresented
     }
 
@@ -10498,6 +10526,7 @@ struct VerticalTabsSidebar: View, Equatable {
     var featureFlags: CmuxFeatureFlags = .shared
     var isPresented: Bool = true
     let sidebarUnread: SidebarUnreadModel
+    let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
     let windowId: UUID
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
@@ -10563,9 +10592,6 @@ struct VerticalTabsSidebar: View, Equatable {
     /// notifications) would otherwise stay unrendered until the next
     /// unrelated sidebar change. The bump forces one fresh rebuild.
     @State private var appKitPostResizeRefreshToken: UInt64 = 0
-    /// The legacy SwiftUI list still consumes unread state at its container
-    /// boundary. Kept separate so the default AppKit list never subscribes.
-    @State private var legacyUnreadRefreshToken: UInt64 = 0
     @State private var workspaceScrollContentMinHeight: CGFloat = 0
     @State private var checklistPopoverWorkspaceId: UUID?
     // Pending keyed refresh ids are intentionally non-observed. Workspace
@@ -10639,13 +10665,16 @@ struct VerticalTabsSidebar: View, Equatable {
     /// `ForEach(workspaces) { w in Text(w.title) }`) and re-render when it
     /// changes. A value snapshot built fresh each render, never the store
     /// itself, so it respects the sidebar snapshot-boundary rule.
-    private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
+    private func customSidebarDataContext(
+        now: Date,
+        unreadSnapshot: SidebarUnreadSnapshot
+    ) -> [String: SwiftValue] {
         let selectedId = tabManager.selectedTabId
         let workspaces = tabManager.tabs.enumerated().map { index, workspace in
             workspace.customSidebarWorkspaceSnapshot(
                 index: index,
                 selectedId: selectedId,
-                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
+                unreadCount: unreadSnapshot.unreadCount(forWorkspaceId: workspace.id)
             )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
@@ -10653,7 +10682,7 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaces: workspaces,
             selectedWorkspaceId: selectedId,
             selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
-            totalUnreadCount: sidebarUnread.totalUnreadCount,
+            totalUnreadCount: unreadSnapshot.totalUnreadCount,
             now: now
         )
         return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
@@ -10800,6 +10829,7 @@ struct VerticalTabsSidebar: View, Equatable {
     private func minimalModeSidebarTitlebarControlsOverlay() -> some View {
         MinimalModeSidebarTitlebarControlsOverlay(
             unreadModel: sidebarUnread,
+            layoutModel: titlebarControlsLayoutModel,
             leadingInset: CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset),
             topPadding: minimalModeSidebarTitlebarControlsTopPadding,
             onToggleSidebar: onToggleSidebar,
@@ -11127,11 +11157,13 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             } else {
                 AnyView(
-                    legacyWorkspaceScrollArea(renderContext: renderContext)
-                        .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = false }
-                        .onReceive(sidebarUnread.$snapshot.dropFirst()) { _ in
-                            legacyUnreadRefreshToken &+= 1
-                        }
+                    SidebarUnreadSnapshotReader(source: sidebarUnread) { unreadSnapshot in
+                        legacyWorkspaceScrollArea(
+                            renderContext: renderContext,
+                            unreadSnapshot: unreadSnapshot
+                        )
+                    }
+                    .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = false }
                 )
             }
         }
@@ -11195,8 +11227,10 @@ struct VerticalTabsSidebar: View, Equatable {
         }
     }
 
-    private func legacyWorkspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        let _ = legacyUnreadRefreshToken
+    private func legacyWorkspaceScrollArea(
+        renderContext: WorkspaceListRenderContext,
+        unreadSnapshot: SidebarUnreadSnapshot
+    ) -> some View {
         let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
         return GeometryReader { viewport in
             // Keep viewport geometry as a downward-only layout input. Writing
@@ -11209,7 +11243,11 @@ struct VerticalTabsSidebar: View, Equatable {
             )
             ScrollViewReader { scrollProxy in
                 ScrollView(.vertical) {
-                    workspaceScrollContent(renderContext: renderContext, minHeight: contentMinHeight)
+                    workspaceScrollContent(
+                        renderContext: renderContext,
+                        minHeight: contentMinHeight,
+                        unreadSnapshot: unreadSnapshot
+                    )
                 }
             .coordinateSpace(name: SidebarPointerInteractionMonitor.coordinateSpaceName)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -11922,9 +11960,6 @@ struct VerticalTabsSidebar: View, Equatable {
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         extensionSidebarScrollAreaContent(renderContext: renderContext)
             .sidebarProcessTitleObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarProcessTitleObservation)) { refreshExtensionSidebarSnapshot() }
-            .onReceive(sidebarUnread.$snapshot.dropFirst()) { _ in
-                refreshExtensionSidebarSnapshot()
-            }
             .onAppear { refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs) }
             .onChange(of: renderContext.workspaceIds) { _, _ in
                 refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
@@ -11940,6 +11975,7 @@ struct VerticalTabsSidebar: View, Equatable {
             CMUXInstalledExtensionSidebarHostView(
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
                 snapshotUpdateToken: extensionSidebarUpdateToken,
+                unreadSource: sidebarUnread,
                 actionHandler: { handleCMUXSidebarExtensionAction($0) },
                 onUseDefaultSidebar: {
                     CmuxExtensionSidebarSelection.setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID)
@@ -11975,18 +12011,23 @@ struct VerticalTabsSidebar: View, Equatable {
             // can mount the other renderer for one tick before flipping;
             // harmless (the host shuts the short-lived client down on
             // unmount).
-            TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                CustomSidebarSurface(
-                    fileURL: customSidebarURL,
-                    dataContext: customSidebarDataContext(now: timeline.date),
-                    dispatch: makeCmuxSidebarActionDispatch(),
-                    contentInsets: CustomSidebarContentInsets(
-                        top: SidebarWorkspaceScrollInsets.workspaceList.top,
-                        bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
-                    ),
-                    rendersInProcess: customSidebarRenderer == .inProcess,
-                    client: $sidebarRenderWorkerClient
-                )
+            SidebarUnreadSnapshotReader(source: sidebarUnread) { unreadSnapshot in
+                TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                    CustomSidebarSurface(
+                        fileURL: customSidebarURL,
+                        dataContext: customSidebarDataContext(
+                            now: timeline.date,
+                            unreadSnapshot: unreadSnapshot
+                        ),
+                        dispatch: makeCmuxSidebarActionDispatch(),
+                        contentInsets: CustomSidebarContentInsets(
+                            top: SidebarWorkspaceScrollInsets.workspaceList.top,
+                            bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
+                        ),
+                        rendersInProcess: customSidebarRenderer == .inProcess,
+                        client: $sidebarRenderWorkerClient
+                    )
+                }
             }
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
@@ -11995,9 +12036,19 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             )
         } else {
-            TimelineView(.periodic(from: .now, by: 30)) { timeline in
-                let model = extensionSidebarRenderModel(renderContext: renderContext, now: timeline.date)
-                extensionSidebarTimelineContent(renderContext: renderContext, model: model, now: timeline.date)
+            SidebarUnreadSnapshotReader(source: sidebarUnread) { unreadSnapshot in
+                TimelineView(.periodic(from: .now, by: 30)) { timeline in
+                    let model = extensionSidebarRenderModel(
+                        renderContext: renderContext,
+                        unreadSnapshot: unreadSnapshot,
+                        now: timeline.date
+                    )
+                    extensionSidebarTimelineContent(
+                        renderContext: renderContext,
+                        model: model,
+                        now: timeline.date
+                    )
+                }
             }
         }
     }
@@ -12209,10 +12260,14 @@ struct VerticalTabsSidebar: View, Equatable {
 
     private func extensionSidebarRenderModel(
         renderContext: WorkspaceListRenderContext,
+        unreadSnapshot: SidebarUnreadSnapshot,
         now: Date
     ) -> CmuxSidebarProviderRenderModel {
         let _ = extensionSidebarUpdateToken
-        let snapshot = extensionSidebarSnapshot(renderContext: renderContext)
+        let snapshot = extensionSidebarSnapshot(
+            renderContext: renderContext,
+            unreadSnapshot: unreadSnapshot
+        )
         return extensionSidebarRenderModel(snapshot: snapshot, now: now)
     }
 
@@ -12240,13 +12295,20 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func extensionSidebarSnapshot(
-        renderContext: WorkspaceListRenderContext
+        renderContext: WorkspaceListRenderContext,
+        unreadSnapshot: SidebarUnreadSnapshot
     ) -> CmuxSidebarProviderSnapshot {
-        extensionSidebarSnapshot(workspaces: renderContext.tabs)
+        extensionSidebarSnapshot(
+            workspaces: renderContext.tabs,
+            unreadSnapshot: unreadSnapshot
+        )
     }
 
     private func extensionSidebarSnapshotForCurrentTabs() -> CmuxSidebarProviderSnapshot {
-        extensionSidebarSnapshot(workspaces: tabManager.tabs)
+        extensionSidebarSnapshot(
+            workspaces: tabManager.tabs,
+            unreadSnapshot: sidebarUnread.snapshot
+        )
     }
 
     private func cmuxSidebarSnapshotForCurrentTabs() -> CmuxSidebarSnapshot {
@@ -12465,16 +12527,24 @@ struct VerticalTabsSidebar: View, Equatable {
         }
     }
 
-    private func extensionSidebarSnapshot(workspaces: [Workspace]) -> CmuxSidebarProviderSnapshot {
+    private func extensionSidebarSnapshot(
+        workspaces: [Workspace],
+        unreadSnapshot: SidebarUnreadSnapshot
+    ) -> CmuxSidebarProviderSnapshot {
         CmuxSidebarProviderSnapshot(
             sequence: UInt64(max(0, CmuxEventBus.shared.latestSequence)),
             selectedWorkspaceId: tabManager.selectedTabId,
-            workspaces: workspaces.map(extensionWorkspaceSnapshot(for:)),
+            workspaces: workspaces.map {
+                extensionWorkspaceSnapshot(for: $0, unreadSnapshot: unreadSnapshot)
+            },
             windowId: windowId
         )
     }
 
-    private func extensionWorkspaceSnapshot(for workspace: Workspace) -> CmuxSidebarProviderWorkspace {
+    private func extensionWorkspaceSnapshot(
+        for workspace: Workspace,
+        unreadSnapshot: SidebarUnreadSnapshot
+    ) -> CmuxSidebarProviderWorkspace {
         let rootPath = extensionSidebarRootPath(for: workspace)
         return CmuxSidebarProviderWorkspace(
             id: workspace.id,
@@ -12486,8 +12556,8 @@ struct VerticalTabsSidebar: View, Equatable {
             branchSummary: workspace.sidebarGitBranchesInDisplayOrder().first?.branch,
             remoteDisplayTarget: workspace.remoteDisplayTarget,
             remoteConnectionState: workspace.remoteConnectionState.rawValue,
-            unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
-            latestNotificationText: sidebarUnread.latestNotificationText(forWorkspaceId: workspace.id),
+            unreadCount: unreadSnapshot.unreadCount(forWorkspaceId: workspace.id),
+            latestNotificationText: unreadSnapshot.latestNotificationText(forWorkspaceId: workspace.id),
             latestSubmittedMessage: workspace.latestSubmittedMessage,
             latestSubmittedAt: workspace.latestSubmittedAt,
             listeningPorts: workspace.listeningPorts,
@@ -13009,7 +13079,13 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func extensionWorkspaceSnapshot(for workspaceId: UUID) -> CmuxSidebarProviderWorkspace? {
-        tabManager.tabs.first { $0.id == workspaceId }.map(extensionWorkspaceSnapshot(for:))
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            return nil
+        }
+        return extensionWorkspaceSnapshot(
+            for: workspace,
+            unreadSnapshot: sidebarUnread.snapshot
+        )
     }
 
     private func extensionSidebarTreeSectionTitle(_ section: CmuxSidebarProviderTreeSection) -> String {
@@ -13059,7 +13135,8 @@ struct VerticalTabsSidebar: View, Equatable {
 
     private func workspaceScrollContent(
         renderContext: WorkspaceListRenderContext,
-        minHeight: CGFloat
+        minHeight: CGFloat,
+        unreadSnapshot: SidebarUnreadSnapshot
     ) -> some View {
         let signpost = SidebarProfilingSignposts.begin("sidebar-scroll-content", "workspaces=\(renderContext.workspaceCount) renderItems=\(renderContext.workspaceRenderItems.count) minHeight=\(minHeight)"); defer { SidebarProfilingSignposts.end(signpost) }
         let shouldCollectWorkspaceDropTargets = SidebarDropPlanner().shouldCollectWorkspaceDropTargets(
@@ -13074,7 +13151,8 @@ struct VerticalTabsSidebar: View, Equatable {
         // #5845; regressed by #6033). Drop/tap = background; indicator on rows.
         let content = workspaceRows(
             renderContext: renderContext,
-            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
+            unreadSnapshot: unreadSnapshot
         )
             .overlay(alignment: .bottom) {
                 if emptyAreaTopDropIndicatorVisible() {
@@ -13135,14 +13213,15 @@ struct VerticalTabsSidebar: View, Equatable {
     @ViewBuilder
     private func workspaceRows(
         renderContext: WorkspaceListRenderContext,
-        shouldCollectWorkspaceDropTargets: Bool
+        shouldCollectWorkspaceDropTargets: Bool,
+        unreadSnapshot: SidebarUnreadSnapshot
     ) -> some View {
         let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-rows", "renderItems=\(renderContext.workspaceRenderItems.count) collectDropTargets=\(shouldCollectWorkspaceDropTargets)")
         let renderItems = renderContext.workspaceRenderItems
         // Reduce live models to cheap immutable values above the LazyVStack.
         // Shared notification/selection projections are built once here; full
         // row trees and row-specific closure binding remain lazy.
-        let unreadSummariesByWorkspaceId = sidebarUnread.summaryByWorkspaceId
+        let unreadSummariesByWorkspaceId = unreadSnapshot.summaryByWorkspaceId
         let notificationIndex = SidebarWorkspaceNotificationIndex(
             notifications: notificationStore.notifications
         )

@@ -1,4 +1,4 @@
-import Combine
+import CmuxNotifications
 import Foundation
 import Observation
 
@@ -14,7 +14,7 @@ final class DockUnreadPanelProjection {
     @ObservationIgnored private var isActive = false
     @ObservationIgnored private var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>
     @ObservationIgnored private var focusedReadIndicatorByWorkspaceID: [UUID: UUID]
-    @ObservationIgnored private var unreadSubscription: AnyCancellable?
+    @ObservationIgnored private nonisolated(unsafe) var unreadTask: Task<Void, Never>?
 
     init(
         source: SidebarUnreadModel,
@@ -28,16 +28,20 @@ final class DockUnreadPanelProjection {
         unreadSurfaceKeys = source.snapshot.unreadSurfaceKeys
         focusedReadIndicatorByWorkspaceID = source.snapshot.focusedReadIndicatorByWorkspaceId
         refresh()
-        unreadSubscription = source.$snapshot.sink { [weak self] snapshot in
-            // The publisher is main-actor-owned and emits one complete value
-            // from SidebarUnreadModel.apply().
-            MainActor.assumeIsolated {
-                self?.receive(
+        let changes = source.snapshotChanges()
+        unreadTask = Task { @MainActor [weak self] in
+            for await snapshot in changes {
+                guard let self, !Task.isCancelled else { return }
+                self.receive(
                     unreadSurfaceKeys: snapshot.unreadSurfaceKeys,
                     focusedReadIndicatorByWorkspaceID: snapshot.focusedReadIndicatorByWorkspaceId
                 )
             }
         }
+    }
+
+    deinit {
+        unreadTask?.cancel()
     }
 
     func updateContext(panelIDs: Set<UUID>, isActive: Bool) {
