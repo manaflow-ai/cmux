@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 
 import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
 import {
+  appPricingCheckoutRelayURL,
   appStorePricingUnavailableURL,
   isAppStoreDistributionMode,
 } from "../../../lib/billing";
@@ -52,6 +53,11 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
     })
   ) {
     return NextResponse.redirect(appStorePricingUnavailableURL(request.nextUrl));
+  }
+
+  const configuredRelayURL = appPricingCheckoutRelayURL(request.nextUrl);
+  if (configuredRelayURL) {
+    return NextResponse.redirect(configuredRelayURL);
   }
 
   const stackServerApp = await checkoutStackServerApp();

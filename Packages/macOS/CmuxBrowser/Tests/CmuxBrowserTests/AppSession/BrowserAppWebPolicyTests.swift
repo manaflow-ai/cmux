@@ -8,10 +8,7 @@ struct BrowserAppWebPolicyTests {
     @Test("external intent requires the trusted origin and an enabled marker")
     func externalIntentRequiresTrustedOriginAndEnabledMarker() throws {
         let policy = BrowserExternalNavigationPolicy(
-            trustedOrigin: try #require(URL(string: "https://cmux.com")),
-            billingCheckoutURL: URL(
-                string: "https://billing.example/api/billing/checkout"
-            )
+            trustedOrigin: try #require(URL(string: "https://cmux.com"))
         )
         let trustedSource = try #require(
             URL(string: "https://cmux.com/app-pricing")
@@ -31,7 +28,7 @@ struct BrowserAppWebPolicyTests {
             try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=1")),
             sourceURL: trustedSource
         ))
-        #expect(policy.shouldOpenInSystemBrowser(
+        #expect(!policy.shouldOpenInSystemBrowser(
             try #require(
                 URL(
                     string: "https://billing.example/api/billing/checkout?cmux_external_browser=1"
@@ -43,14 +40,6 @@ struct BrowserAppWebPolicyTests {
             try #require(
                 URL(
                     string: "https://attacker.example/checkout?cmux_external_browser=1"
-                )
-            ),
-            sourceURL: trustedSource
-        ))
-        #expect(!policy.shouldOpenInSystemBrowser(
-            try #require(
-                URL(
-                    string: "https://billing.example/other?cmux_external_browser=1"
                 )
             ),
             sourceURL: trustedSource
