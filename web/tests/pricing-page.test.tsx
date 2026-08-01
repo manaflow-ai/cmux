@@ -127,6 +127,8 @@ describe("localized pricing page", () => {
     expect(html).toContain("$24/mo");
     expect(html).toContain("$28");
     expect(html).toContain("/user/mo");
+    expect(html).toContain("/mo, billed yearly");
+    expect(html).toContain("/user/mo, billed yearly");
     expect(html).toContain("$28/user/mo");
     expect(html).not.toContain("$288/year");
     expect(html).not.toContain("$336/user/year");
