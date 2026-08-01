@@ -1383,6 +1383,9 @@ func (r *streamRoute) deliver(message streamMessage) bool {
 	if r.terminated {
 		return false
 	}
+	if message.envelope.Type == "stream_end" {
+		r.serverEnded = true
+	}
 	if r.cancelItem != nil {
 		if r.cancelEnd != nil {
 			var err error
@@ -1432,9 +1435,6 @@ func (r *streamRoute) deliver(message streamMessage) bool {
 	}
 	select {
 	case r.messages <- message:
-		if message.envelope.Type == "stream_end" {
-			r.serverEnded = true
-		}
 		r.queuedBytes += message.size
 		return true
 	default:

@@ -108,13 +108,13 @@ pub mod transport {
             Ok(descriptor)
         }
 
-        #[cfg(target_os = "macos")]
+        #[cfg(not(target_os = "linux"))]
         fn create_close_on_exec_socket(deadline: Instant) -> io::Result<OwnedFd> {
             let _process_creation =
                 cmux_tui_process::ProcessCreationGuard::acquire_until(deadline)?;
-            // macOS has no SOCK_CLOEXEC socket flag. Every cmux-tui process
-            // launch shares this barrier, so no child can start until fcntl
-            // marks the fresh descriptor close-on-exec.
+            // Unix platforms without the Linux atomic socket flag share this
+            // barrier with every cmux-tui process launch, so no child can start
+            // until fcntl marks the fresh descriptor close-on-exec.
             // SAFETY: socket has no pointer arguments and returns a new owned
             // descriptor on success.
             let descriptor = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
@@ -148,14 +148,6 @@ pub mod transport {
                 return Err(io::Error::last_os_error());
             }
             Ok(descriptor)
-        }
-
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        fn create_close_on_exec_socket(_deadline: Instant) -> io::Result<OwnedFd> {
-            Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "deadline sockets require atomic close-on-exec setup",
-            ))
         }
 
         pub(super) fn listen(path: &Path) -> io::Result<Listener> {
@@ -764,7 +756,7 @@ pub mod transport {
             );
         }
 
-        #[cfg(target_os = "macos")]
+        #[cfg(not(target_os = "linux"))]
         #[test]
         fn deadline_connect_confines_inheritable_descriptor_to_process_barrier() {
             use std::os::fd::AsRawFd as _;

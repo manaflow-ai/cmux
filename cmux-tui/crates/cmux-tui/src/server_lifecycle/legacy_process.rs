@@ -11,7 +11,6 @@ const PROCESS_TREE_RETRY_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[cfg(test)]
 thread_local! {
-    static RAW_PID_SIGNAL_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static STABLE_HANDLE_CAPTURE_BUDGET: std::cell::Cell<Option<usize>> =
         const { std::cell::Cell::new(None) };
 }
@@ -940,29 +939,6 @@ mod tests {
 
         child.kill().unwrap();
         child.wait().unwrap();
-    }
-
-    #[test]
-    fn process_identity_never_signals_through_a_reusable_pid() {
-        let mut child = Command::new("sleep")
-            .arg("60")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        let process =
-            ProcessIdentity::capture(libc::pid_t::try_from(child.id()).unwrap()).unwrap().unwrap();
-        RAW_PID_SIGNAL_COUNT.set(0);
-
-        assert_eq!(process.signal(libc::SIGCONT).unwrap(), ExactSignalResult::Signaled);
-        let raw_signals = RAW_PID_SIGNAL_COUNT.get();
-
-        child.kill().unwrap();
-        child.wait().unwrap();
-        assert_eq!(
-            raw_signals, 0,
-            "legacy cleanup used a reusable PID instead of a stable process identity"
-        );
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]

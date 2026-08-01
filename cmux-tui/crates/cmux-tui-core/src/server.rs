@@ -1974,6 +1974,7 @@ struct BoundedOutbound {
 #[derive(Default)]
 struct BoundedOutboundState {
     initial: VecDeque<RegularOutbound>,
+    confirmed: VecDeque<ControlOutbound>,
     control: VecDeque<ControlOutbound>,
     regular: VecDeque<RegularOutbound>,
     stream_usage: HashMap<u64, StreamOutboundUsage>,
@@ -2145,7 +2146,7 @@ impl BoundedOutbound {
 
     fn push_control(&self, text: String) -> std::io::Result<()> {
         let mut state = self.state.lock().unwrap();
-        Self::push_control_locked(&mut state, text, None)?;
+        Self::push_control_locked(&mut state, text, None, false)?;
         self.changed.notify_one();
         Ok(())
     }
@@ -2154,7 +2155,7 @@ impl BoundedOutbound {
         let (completion, written) = std::sync::mpsc::sync_channel(1);
         {
             let mut state = self.state.lock().unwrap();
-            Self::push_control_locked(&mut state, text, Some(completion))?;
+            Self::push_control_locked(&mut state, text, Some(completion), true)?;
             self.changed.notify_one();
         }
         match written.recv_timeout(timeout) {
@@ -2175,7 +2176,7 @@ impl BoundedOutbound {
         if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
-        Self::push_control_locked(&mut state, text, None)?;
+        Self::push_control_locked(&mut state, text, None, false)?;
         self.changed.notify_one();
         Ok(())
     }
@@ -2190,7 +2191,7 @@ impl BoundedOutbound {
             return Ok(());
         }
         let overflow_text = stream.overflow_text.lock().unwrap().clone();
-        if let Err(error) = Self::push_control_locked(state, overflow_text, None) {
+        if let Err(error) = Self::push_control_locked(state, overflow_text, None, false) {
             state.closed = true;
             return Err(std::io::Error::new(
                 std::io::ErrorKind::BrokenPipe,
@@ -2220,12 +2221,13 @@ impl BoundedOutbound {
         state: &mut BoundedOutboundState,
         text: String,
         completion: Option<std::sync::mpsc::SyncSender<bool>>,
+        confirmed: bool,
     ) -> std::io::Result<()> {
         if state.closed {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let bytes = text.len();
-        if state.control.len() >= OUTBOUND_CONTROL_RESERVE
+        if state.confirmed.len() + state.control.len() >= OUTBOUND_CONTROL_RESERVE
             || bytes > OUTBOUND_CONTROL_BYTE_RESERVE.saturating_sub(state.control_bytes)
         {
             return Err(std::io::Error::new(
@@ -2234,7 +2236,12 @@ impl BoundedOutbound {
             ));
         }
         state.control_bytes += bytes;
-        state.control.push_back(ControlOutbound { text, completion });
+        let message = ControlOutbound { text, completion };
+        if confirmed {
+            state.confirmed.push_back(message);
+        } else {
+            state.control.push_back(message);
+        }
         Ok(())
     }
 
@@ -2258,6 +2265,10 @@ impl BoundedOutbound {
     }
 
     fn pop_locked(state: &mut BoundedOutboundState) -> Option<OutboundMessage> {
+        if let Some(message) = state.confirmed.pop_front() {
+            state.control_bytes -= message.text.len();
+            return Some(OutboundMessage { text: message.text, completion: message.completion });
+        }
         if let Some(message) = state.initial.pop_front() {
             Self::record_stream_pop(state, &message);
             return Some(OutboundMessage { text: message.text, completion: None });
@@ -2291,6 +2302,11 @@ impl BoundedOutbound {
     fn close(&self) {
         let mut state = self.state.lock().unwrap();
         state.closed = true;
+        for message in &mut state.confirmed {
+            if let Some(completion) = message.completion.take() {
+                let _ = completion.send(false);
+            }
+        }
         for message in &mut state.control {
             if let Some(completion) = message.completion.take() {
                 let _ = completion.send(false);

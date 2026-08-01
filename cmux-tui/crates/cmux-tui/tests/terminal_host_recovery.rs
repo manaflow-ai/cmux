@@ -2836,18 +2836,31 @@ fn wait_for_screen(path: &Path, surface: u64, marker: &str) -> String {
 
 fn wait_for_stream_disconnect(stream: &mut UnixStream, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
-    loop {
+    let previous_timeout = stream.write_timeout().ok().flatten();
+    let disconnected = loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break false;
+        }
+        if stream.set_write_timeout(Some(remaining.min(Duration::from_millis(50)))).is_err() {
+            break true;
+        }
         // ReleaseViewer is valid and idempotent for this renderer but produces
         // no host-to-client frame, so it probes only the input half of the
         // connection while output remains deliberately unread.
-        if write_frame(stream, &Frame::new(MessageKind::ReleaseViewer, Vec::new())).is_err() {
-            return true;
+        match write_frame(stream, &Frame::new(MessageKind::ReleaseViewer, Vec::new())) {
+            Ok(()) => {}
+            Err(ProtocolError::Io(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => break true,
         }
-        if Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
+        std::thread::sleep(remaining.min(Duration::from_millis(10)));
+    };
+    let _ = stream.set_write_timeout(previous_timeout);
+    disconnected
 }
 
 fn wait_for_adopted_terminal(

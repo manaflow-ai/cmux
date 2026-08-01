@@ -2006,9 +2006,23 @@ mod tests {
         }
         let mut leader = command.spawn().unwrap();
         let session = libc::pid_t::try_from(leader.id()).unwrap();
-        let mut descendant = String::new();
-        io::BufReader::new(leader.stdout.take().unwrap()).read_line(&mut descendant).unwrap();
-        let descendant = descendant.trim().parse::<libc::pid_t>().unwrap();
+        let stdout = leader.stdout.take().unwrap();
+        let (descendant_sender, descendant_receiver) = mpsc::sync_channel(1);
+        let descendant_reader = std::thread::spawn(move || {
+            let mut line = String::new();
+            let result = io::BufReader::new(stdout).read_line(&mut line).map(|_| line);
+            let _ = descendant_sender.send(result);
+        });
+        let descendant = match descendant_receiver.recv_timeout(Duration::from_secs(1)) {
+            Ok(Ok(line)) => line.trim().parse::<libc::pid_t>().unwrap(),
+            result => {
+                let _ = leader.kill();
+                let _ = leader.wait();
+                let _ = descendant_reader.join();
+                panic!("session descendant PID was not published within one second: {result:?}");
+            }
+        };
+        descendant_reader.join().unwrap();
         let leader_handle = StableProcessHandle::capture(session).unwrap().unwrap();
         assert!(leader_handle.signal(libc::SIGSTOP).unwrap());
         let mut status = 0;

@@ -205,6 +205,7 @@ def main() -> None:
     import tempfile
 
     test_pypi_fixture_targets_match_packager()
+    test_pypi_fixture_wheel_tags_match_packager()
     with tempfile.TemporaryDirectory() as directory:
         test_identity_verifier_executes_artifact_and_rejects_mismatch(
             Path(directory)

@@ -1686,6 +1686,26 @@ fn wait_for_disconnect_until(
 }
 
 fn shell_quote(path: &Path) -> String {
+    #[cfg(unix)]
+    {
+        use std::fmt::Write as _;
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let bytes = path.as_os_str().as_bytes();
+        if std::str::from_utf8(bytes).is_err() {
+            let mut quoted = String::from("$'");
+            for byte in bytes.iter().copied() {
+                match byte {
+                    b'\'' => quoted.push_str("\\'"),
+                    b'\\' => quoted.push_str("\\\\"),
+                    b' '..=b'~' => quoted.push(char::from(byte)),
+                    _ => write!(quoted, "\\{byte:03o}").expect("writing to String cannot fail"),
+                }
+            }
+            quoted.push('\'');
+            return quoted;
+        }
+    }
     let value = path.display().to_string();
     if !value.is_empty()
         && value.chars().all(|character| {

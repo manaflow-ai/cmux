@@ -280,7 +280,11 @@ object{
   running:true,
   compatible:boolean,
   mismatch_reasons:array<"distribution-version"|"source-build"|"terminal-engine"|"protocol">,
-  server:object{version:string,protocol:uint32},
+  server:object{
+    version:string,
+    protocol:uint32,
+    shutdown_cleanup:object{pending:uint64,retrying:boolean,degraded:boolean}
+  },
   client:object{version:string,protocol:uint32}
 }
 ```

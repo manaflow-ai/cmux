@@ -29,7 +29,6 @@ static REAPER_TEST_LOCK: Mutex<()> = Mutex::new(());
 thread_local! {
     static FORCE_KILL_TIMEOUT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static FORCE_REAPER_SPAWN_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    static REAP_CHILD_CALLED_ON_THREAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 #[derive(Debug, Clone)]
@@ -53,7 +52,7 @@ pub struct Chrome {
     profile_dir: PathBuf,
     profile_ephemeral: bool,
     web_socket_url: String,
-    reaper: Option<ChromeReaperLease>,
+    reaper: Mutex<Option<ChromeReaperLease>>,
 }
 
 impl Chrome {
@@ -149,7 +148,7 @@ impl Chrome {
             profile_dir,
             profile_ephemeral,
             web_socket_url,
-            reaper: Some(reaper),
+            reaper: Mutex::new(Some(reaper)),
         })
     }
 
@@ -166,6 +165,7 @@ impl Chrome {
         let Some(mut child) = slot.take() else { return true };
         drop(slot);
         if kill_child_until(&mut child, deadline) {
+            drop(self.reaper.lock().unwrap().take());
             return true;
         }
         *self.child.lock().unwrap() = Some(child);
@@ -184,7 +184,11 @@ impl Drop for Chrome {
         let child = self.child.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
         if let Some(child) = child {
             reap_child_detached(
-                self.reaper.take().expect("live Chrome retains its reaper lease"),
+                self.reaper
+                    .get_mut()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .take()
+                    .expect("live Chrome retains its reaper lease"),
                 child,
                 self.profile_ephemeral.then(|| self.profile_dir.clone()),
             );
@@ -321,8 +325,6 @@ fn run_reaper(receiver: mpsc::Receiver<ReapRequest>) {
 }
 
 fn poll_reap_request(request: &mut ReapRequest) -> bool {
-    #[cfg(test)]
-    REAP_CHILD_CALLED_ON_THREAD.set(true);
     #[cfg(test)]
     {
         REAPER_POLL_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
@@ -515,7 +517,7 @@ mod tests {
             profile_dir,
             profile_ephemeral: true,
             web_socket_url: "ws://127.0.0.1/unused".to_string(),
-            reaper: Some(chrome_reaper_lease().unwrap()),
+            reaper: Mutex::new(Some(chrome_reaper_lease().unwrap())),
         };
 
         assert!(chrome.kill_until(Instant::now() + Duration::from_secs(1)));
@@ -540,7 +542,7 @@ mod tests {
             profile_dir: make_profile_dir().unwrap(),
             profile_ephemeral: true,
             web_socket_url: "ws://127.0.0.1/unused".to_string(),
-            reaper: Some(reaper),
+            reaper: Mutex::new(Some(reaper)),
         };
 
         assert!(chrome.kill_until(Instant::now() + Duration::from_secs(1)));
@@ -573,7 +575,7 @@ mod tests {
             profile_dir: make_profile_dir().unwrap(),
             profile_ephemeral: true,
             web_socket_url: "ws://127.0.0.1/unused".to_string(),
-            reaper: Some(chrome_reaper_lease().unwrap()),
+            reaper: Mutex::new(Some(chrome_reaper_lease().unwrap())),
         };
 
         FORCE_KILL_TIMEOUT.set(true);
@@ -603,34 +605,16 @@ mod tests {
     #[test]
     fn reaper_spawn_failure_never_waits_on_the_caller_thread() {
         let _guard = REAPER_TEST_LOCK.lock().unwrap();
-        let child = Command::new("sleep")
-            .arg("60")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        let reaper = chrome_reaper_lease().unwrap();
-        let chrome = Chrome {
-            child: Mutex::new(Some(child)),
-            profile_dir: make_profile_dir().unwrap(),
-            profile_ephemeral: true,
-            web_socket_url: "ws://127.0.0.1/unused".to_string(),
-            reaper: Some(reaper),
-        };
-
-        REAP_CHILD_CALLED_ON_THREAD.set(false);
-        FORCE_KILL_TIMEOUT.set(true);
         FORCE_REAPER_SPAWN_FAILURE.set(true);
-        drop(chrome);
+        let started = Instant::now();
+        let result = ChromeReaper::start();
         FORCE_REAPER_SPAWN_FAILURE.set(false);
-        FORCE_KILL_TIMEOUT.set(false);
-        let reaped_inline = REAP_CHILD_CALLED_ON_THREAD.get();
 
-        let cleanup = Command::new("true").spawn().unwrap();
-        reap_child_detached(chrome_reaper_lease().unwrap(), cleanup, None);
-
-        assert!(!reaped_inline, "reaper spawn failure fell back to an unbounded caller wait");
+        assert!(result.is_err(), "the forced reaper spawn failure was not exercised");
+        assert!(
+            started.elapsed() < Duration::from_millis(250),
+            "reaper spawn failure waited on caller-thread cleanup"
+        );
     }
 
     #[cfg(unix)]

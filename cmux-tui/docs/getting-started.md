@@ -46,8 +46,8 @@ Detach from an attached TUI with prefix `d`. With default keys, that is `Ctrl-b 
 Local clients require the running server to have the same release identity. Inspect a session without attaching, or stop it before starting an upgraded binary:
 
 ```bash
-cmux-tui server status --session agents
-cmux-tui server stop --session agents
+cargo run -p cmux-tui -- server status --session agents
+cargo run -p cmux-tui -- server stop --session agents
 ```
 
 Stopping the server exits its pane processes. `identify`, `server status`, and `server stop` remain available when client and server releases differ.

@@ -502,22 +502,25 @@ fn run_server_lifecycle(global: &GlobalArgs, actions: &[String]) -> i32 {
     };
     match action {
         "status" => print_server_status(global.output, lifecycle.probe()),
-        "stop" => match lifecycle.stop() {
-            Ok(()) => {
-                match global.output {
-                    OutputMode::Json | OutputMode::JsonLines => {
-                        println!("{}", json!({"stopped": true}));
+        "stop" => {
+            eprintln!("cmux: {}", messages.stopping_exits_panes);
+            match lifecycle.stop() {
+                Ok(()) => {
+                    match global.output {
+                        OutputMode::Json | OutputMode::JsonLines => {
+                            println!("{}", json!({"stopped": true}));
+                        }
+                        OutputMode::Human => println!("{}", messages.stopped),
+                        OutputMode::Quiet => {}
                     }
-                    OutputMode::Human => println!("{}", messages.stopped),
-                    OutputMode::Quiet => {}
+                    0
                 }
-                0
+                Err(error) => {
+                    eprintln!("{error}");
+                    1
+                }
             }
-            Err(error) => {
-                eprintln!("{error}");
-                1
-            }
-        },
+        }
         _ => unreachable!("server action was validated before connecting"),
     }
 }

@@ -904,7 +904,6 @@ enum ServerShutdownCleanupState {
     Running(u64),
     Complete,
     Degraded { attempt: u64, message: String, retry: cmux_tui_core::ShutdownRequestWatch },
-    Poisoned(String),
     Abandoned,
 }
 
@@ -912,7 +911,6 @@ enum ServerShutdownCleanupState {
 enum ServerShutdownCleanupOutcome {
     Complete,
     Degraded { attempt: u64, message: String, retry: cmux_tui_core::ShutdownRequestWatch },
-    Poisoned(String),
     Abandoned,
 }
 
@@ -971,9 +969,6 @@ impl ServerShutdownCleanup {
                         retry: retry.clone(),
                     };
                 }
-                ServerShutdownCleanupState::Poisoned(message) => {
-                    return ServerShutdownCleanupOutcome::Poisoned(message.clone());
-                }
                 ServerShutdownCleanupState::Abandoned => {
                     return ServerShutdownCleanupOutcome::Abandoned;
                 }
@@ -1006,9 +1001,11 @@ impl ServerShutdownCleanup {
                 ),
                 retry,
             },
-            Err(_) => ServerShutdownCleanupOutcome::Poisoned(
-                localization::catalog().server.shutdown_cleanup_incomplete.to_string(),
-            ),
+            Err(_) => ServerShutdownCleanupOutcome::Degraded {
+                attempt,
+                message: localization::catalog().server.shutdown_cleanup_incomplete.to_string(),
+                retry,
+            },
         };
         let next_state = match &outcome {
             ServerShutdownCleanupOutcome::Complete => ServerShutdownCleanupState::Complete,
@@ -1018,9 +1015,6 @@ impl ServerShutdownCleanup {
                     message: message.clone(),
                     retry: retry.clone(),
                 }
-            }
-            ServerShutdownCleanupOutcome::Poisoned(message) => {
-                ServerShutdownCleanupState::Poisoned(message.clone())
             }
             ServerShutdownCleanupOutcome::Abandoned => ServerShutdownCleanupState::Abandoned,
         };
@@ -1036,8 +1030,7 @@ impl ServerShutdownCleanup {
     fn run_until_complete(&self) -> anyhow::Result<()> {
         match self.run_once() {
             ServerShutdownCleanupOutcome::Complete => Ok(()),
-            ServerShutdownCleanupOutcome::Degraded { message, .. }
-            | ServerShutdownCleanupOutcome::Poisoned(message) => Err(anyhow::anyhow!(message)),
+            ServerShutdownCleanupOutcome::Degraded { message, .. } => Err(anyhow::anyhow!(message)),
             ServerShutdownCleanupOutcome::Abandoned => {
                 Err(anyhow::anyhow!("server shutdown cleanup was abandoned"))
             }
@@ -1069,7 +1062,6 @@ impl ServerShutdownCleanup {
 
     fn wait_for_complete(&self) {
         let mut reported_attempt = None;
-        let mut reported_poison = false;
         loop {
             match self.run_once() {
                 ServerShutdownCleanupOutcome::Complete => return,
@@ -1096,22 +1088,6 @@ impl ServerShutdownCleanup {
                             })
                             .unwrap_or_else(std::sync::PoisonError::into_inner);
                     }
-                }
-                ServerShutdownCleanupOutcome::Poisoned(message) => {
-                    if !reported_poison {
-                        eprintln!(
-                            "cmux-tui: {message}; retaining the server because cleanup panicked"
-                        );
-                        reported_poison = true;
-                    }
-                    let state =
-                        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                    let _state = self
-                        .changed
-                        .wait_while(state, |state| {
-                            matches!(state, ServerShutdownCleanupState::Poisoned(_))
-                        })
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                 }
                 ServerShutdownCleanupOutcome::Abandoned => return,
             }
