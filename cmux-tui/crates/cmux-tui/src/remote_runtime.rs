@@ -57,7 +57,7 @@ pub const MAX_CARRIER_FRAME_BYTES: usize = 65_535;
 const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
 const MAX_REMOTE_RUNTIME_WORKERS: usize = 4;
 const INITIAL_GROUP_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
-const CLIENT_SOCKET_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
+const UNIX_SOCKET_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
 const CLIENT_SOCKET_LOCK_RETRY: Duration = Duration::from_millis(10);
 const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const DAEMON_AUTH_LEASE_RETRY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -1478,7 +1478,7 @@ async fn prepare_client_socket_with_shutdown(
                 ));
             }
             match tokio::time::timeout(
-                CLIENT_SOCKET_PROBE_TIMEOUT,
+                UNIX_SOCKET_PROBE_TIMEOUT,
                 tokio::net::UnixStream::connect(path),
             )
             .await
@@ -2529,7 +2529,8 @@ pub(crate) async fn acknowledge_failed_shutdown_outcome(
         link_socket,
         admin_socket,
         catalog().remote.failed_finalization_label,
-    )?;
+    )
+    .await?;
 
     let auth = AuthDatabase::load_or_migrate_legacy(state_dir.join("auth"), daemon_name, true)
         .context(catalog().remote.acquire_recovery_authorization_lease)?;
@@ -2547,7 +2548,8 @@ pub(crate) async fn acknowledge_failed_shutdown_outcome(
         link_socket,
         admin_socket,
         catalog().remote.failed_finalization_label,
-    )?;
+    )
+    .await?;
 
     let cleanup_state_dir = state_dir.to_path_buf();
     auth.shutdown_with_cleanup(move |finalization| {
@@ -2619,7 +2621,8 @@ pub(crate) async fn acknowledge_legacy_shutdown_state(
         link_socket,
         admin_socket,
         catalog().remote.legacy_finalization_label,
-    )?;
+    )
+    .await?;
 
     let auth = AuthDatabase::load_or_migrate_legacy(&auth_state_dir, daemon_name, true)
         .context(catalog().remote.acquire_legacy_recovery_authorization_lease)?;
@@ -2636,7 +2639,8 @@ pub(crate) async fn acknowledge_legacy_shutdown_state(
         link_socket,
         admin_socket,
         catalog().remote.legacy_finalization_label,
-    )?;
+    )
+    .await?;
 
     let cleanup_state_dir = state_dir.to_path_buf();
     auth.shutdown_with_cleanup(move |finalization| {
@@ -2650,14 +2654,12 @@ pub(crate) async fn acknowledge_legacy_shutdown_state(
 }
 
 #[cfg(unix)]
-fn verify_recovery_sockets_inactive(
+async fn verify_recovery_sockets_inactive(
     runtime: Option<&DaemonRuntimeInfo>,
     link_socket: &Path,
     admin_socket: &Path,
     finalization: &str,
 ) -> anyhow::Result<()> {
-    use std::os::unix::net::UnixStream;
-
     let mut sockets = Vec::with_capacity(4);
     if let Some(runtime) = runtime {
         sockets.push(runtime.link_socket.as_path());
@@ -2669,7 +2671,7 @@ fn verify_recovery_sockets_inactive(
         }
     }
     for socket in sockets {
-        match UnixStream::connect(socket) {
+        match bounded_unix_socket_connect(tokio::net::UnixStream::connect(socket)).await {
             Ok(_) => {
                 return Err(anyhow!(
                     catalog()
@@ -2690,6 +2692,19 @@ fn verify_recovery_sockets_inactive(
         }
     }
     Ok(())
+}
+
+#[cfg(unix)]
+async fn bounded_unix_socket_connect<F, T>(connect: F) -> std::io::Result<T>
+where
+    F: Future<Output = std::io::Result<T>>,
+{
+    tokio::time::timeout(UNIX_SOCKET_PROBE_TIMEOUT, connect).await.map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "daemon Unix socket probe exceeded its deadline",
+        )
+    })?
 }
 
 fn validate_legacy_shutdown_evidence(

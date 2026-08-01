@@ -18,6 +18,7 @@ pub enum DirectoryAccess {
 ///
 /// On Unix, every component is opened relative to the preceding directory
 /// descriptor with `O_NOFOLLOW`. Missing components are created as mode `0700`.
+/// An existing final directory is validated without changing its permissions.
 /// Root-owned symlinks in root-owned, non-writable directories are expanded
 /// component by component so standard system aliases such as macOS `/var` and
 /// `/tmp` remain usable without permitting user-controlled aliases.
@@ -57,6 +58,7 @@ mod unix {
         let (absolute, mut pending) = validated_components(path)?;
         let mut directory = open_anchor(absolute)?;
         let mut trusted_symlinks = 0_usize;
+        let mut final_component_created = false;
         if !pending.is_empty() {
             validate_ancestor(&directory, path)?;
         }
@@ -66,6 +68,7 @@ mod unix {
                 Ok(next) => {
                     validate_ancestor(&next, path)?;
                     directory = next;
+                    final_component_created = false;
                 }
                 Err(open_error) => {
                     let status = metadata_at(directory.as_raw_fd(), &component)?;
@@ -89,16 +92,17 @@ mod unix {
                     if open_error.raw_os_error() != Some(libc::ENOENT) {
                         return Err(with_component_context(path, &component, open_error));
                     }
-                    create_directory_at(directory.as_raw_fd(), &component)?;
+                    let created = create_directory_at(directory.as_raw_fd(), &component)?;
                     let next = open_directory_at(directory.as_raw_fd(), &component)
                         .map_err(|error| with_component_context(path, &component, error))?;
                     validate_ancestor(&next, path)?;
                     directory = next;
+                    final_component_created = created;
                 }
             }
         }
 
-        validate_final(&directory, path, access)
+        validate_final(&directory, path, access, final_component_created)
     }
 
     fn validated_components(path: &Path) -> io::Result<(bool, VecDeque<OsString>)> {
@@ -157,16 +161,16 @@ mod unix {
         Ok(unsafe { File::from_raw_fd(descriptor) })
     }
 
-    fn create_directory_at(parent: RawFd, component: &OsStr) -> io::Result<()> {
+    fn create_directory_at(parent: RawFd, component: &OsStr) -> io::Result<bool> {
         let encoded = component_cstring(component)?;
         // SAFETY: `encoded` is live and NUL-terminated, `parent` is an open
         // directory, and `mkdirat` does not retain either argument.
         if unsafe { libc::mkdirat(parent, encoded.as_ptr(), 0o700) } == 0 {
-            return Ok(());
+            return Ok(true);
         }
         let error = io::Error::last_os_error();
         if error.raw_os_error() == Some(libc::EEXIST) {
-            return Ok(());
+            return Ok(false);
         }
         Err(error)
     }
@@ -268,7 +272,12 @@ mod unix {
         Ok(())
     }
 
-    fn validate_final(directory: &File, path: &Path, access: DirectoryAccess) -> io::Result<()> {
+    fn validate_final(
+        directory: &File,
+        path: &Path,
+        access: DirectoryAccess,
+        created: bool,
+    ) -> io::Result<()> {
         let mut metadata = directory.metadata()?;
         if metadata.uid() != effective_uid() {
             return Err(invalid_path(path, "must be owned by the effective user"));
@@ -282,11 +291,15 @@ mod unix {
                     "is a shared sticky directory and cannot be made owner-only",
                 ));
             }
-            // SAFETY: `directory` is a live descriptor opened by this process.
-            if unsafe { libc::fchmod(directory.as_raw_fd(), 0o700) } != 0 {
-                return Err(io::Error::last_os_error());
+            if created {
+                // SAFETY: `directory` is a live descriptor for the directory
+                // this call created. Existing caller-owned directories are
+                // validated below and never have their permissions changed.
+                if unsafe { libc::fchmod(directory.as_raw_fd(), 0o700) } != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                metadata = directory.metadata()?;
             }
-            metadata = directory.metadata()?;
         }
         if metadata.permissions().mode() & 0o022 != 0 {
             return Err(invalid_path(path, "must not be writable by group or other users"));

@@ -97,10 +97,11 @@ impl OwnedUnixListener {
                 format!("could not secure Unix socket directory {}", parent.display()),
             )
         })?;
-        // The descriptor-based path walk verifies every ancestor and leaves
-        // this final directory owned by the effective user at mode 0700. A
-        // pathname swap after this point therefore requires the same OS
-        // identity (which already has full daemon authority) or root.
+        // The descriptor-based path walk verifies every ancestor and requires
+        // this final directory to be owned by the effective user at mode 0700.
+        // It creates missing directories but never chmods an existing caller-
+        // owned directory. A pathname swap after this point therefore requires
+        // the same OS identity (which already has full daemon authority) or root.
         validate_socket_directory_for_uid(parent, unsafe { libc::geteuid() })?;
 
         let lock_path = sibling_lock_path(&path).map_err(UnixSocketError::Io)?;
