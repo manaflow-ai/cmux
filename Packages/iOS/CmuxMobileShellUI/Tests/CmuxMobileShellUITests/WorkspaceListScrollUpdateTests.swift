@@ -309,6 +309,8 @@ import UIKit
             initialConnectionTitle: nil,
             initialConnectionDescription: nil,
             enablesReorder: false,
+            reorderWorkspaces: workspaces,
+            reorderGroups: [],
             moveRows: nil,
             canDropIntoGroup: nil,
             dropIntoGroup: nil,

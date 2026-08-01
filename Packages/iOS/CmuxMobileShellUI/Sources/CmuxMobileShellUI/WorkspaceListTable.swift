@@ -32,6 +32,10 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let initialConnectionTitle: String?
     let initialConnectionDescription: String?
     let enablesReorder: Bool
+    /// Immutable semantic order used to preview the exact host-normalized
+    /// result while a drag is still in flight.
+    let reorderWorkspaces: [MobileWorkspacePreview]
+    let reorderGroups: [MobileWorkspaceGroupPreview]
     let moveRows: ((IndexSet, Int) -> Void)?
     let canDropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Bool)?
     let dropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Void)?

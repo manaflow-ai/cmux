@@ -879,6 +879,144 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceListDragReordersRowsWithoutLosingTheirIdentity() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "8"
+        ])
+        defer { app.terminate() }
+
+        let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+
+        let source = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-seed-2"]
+        let crossedRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-seed-3"]
+        let destination = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-seed-5"]
+        XCTAssertTrue(waitForHittable(source, timeout: 3))
+        XCTAssertTrue(waitForHittable(crossedRow, timeout: 3))
+        XCTAssertTrue(waitForHittable(destination, timeout: 3))
+        XCTAssertLessThan(source.frame.midY, crossedRow.frame.midY)
+
+        source.press(
+            forDuration: 0.5,
+            thenDragTo: destination,
+            withVelocity: .slow,
+            thenHoldForDuration: 0.35
+        )
+
+        let reordered = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                crossedRow.exists
+                    && source.exists
+                    && crossedRow.frame.midY < source.frame.midY
+            },
+            object: app
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [reordered], timeout: 4),
+            .completed,
+            "The dragged workspace must settle after every row it crossed."
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-list-drag-reordered"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testWorkspaceListCancelledDragRestoresTheExactRowOrder() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "8"
+        ])
+        defer { app.terminate() }
+
+        let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+
+        let source = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-seed-2"]
+        let nextRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-seed-3"]
+        XCTAssertTrue(waitForHittable(source, timeout: 3))
+        XCTAssertTrue(waitForHittable(nextRow, timeout: 3))
+        let sourceY = source.frame.midY
+        let nextRowY = nextRow.frame.midY
+
+        source.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(
+            forDuration: 0.5,
+            thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.35
+        )
+
+        XCTAssertTrue(waitForHittable(source, timeout: 3))
+        XCTAssertTrue(waitForHittable(nextRow, timeout: 3))
+        let restored = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                abs(source.frame.midY - sourceY) <= 1
+                    && abs(nextRow.frame.midY - nextRowY) <= 1
+            },
+            object: app
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [restored], timeout: 4),
+            .completed,
+            "Cancelling the drag must restore the exact pre-drag row positions."
+        )
+    }
+
+    @MainActor
+    func testWorkspaceListGroupDragMovesItsWholeRenderedBlock() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2"
+        ])
+        defer { app.terminate() }
+
+        let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+
+        let secondGroup = app.descendants(matching: .any)[
+            "MobileWorkspaceGroupHeader-seed-group-1"
+        ]
+        let secondGroupMember = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-5"
+        ]
+        let destination = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-8"
+        ]
+        XCTAssertTrue(waitForHittable(secondGroup, timeout: 3))
+        XCTAssertTrue(waitForHittable(secondGroupMember, timeout: 3))
+        XCTAssertTrue(waitForHittable(destination, timeout: 3))
+        XCTAssertLessThan(secondGroup.frame.midY, secondGroupMember.frame.midY)
+        XCTAssertLessThan(secondGroupMember.frame.midY, destination.frame.midY)
+
+        secondGroup.press(
+            forDuration: 0.5,
+            thenDragTo: destination,
+            withVelocity: .slow,
+            thenHoldForDuration: 0.35
+        )
+
+        let groupMovedAsBlock = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                destination.frame.midY < secondGroup.frame.midY
+                    && secondGroup.frame.midY < secondGroupMember.frame.midY
+            },
+            object: app
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [groupMovedAsBlock], timeout: 4),
+            .completed,
+            "The group header and its member must settle together after the destination."
+        )
+    }
+
+    @MainActor
     func testWorkspaceListDragIntoExpandedGroupMovesTheRowWithoutScrolling() throws {
         let app = launchWorkspaceDragFixture(groupCount: 1)
         defer { app.terminate() }

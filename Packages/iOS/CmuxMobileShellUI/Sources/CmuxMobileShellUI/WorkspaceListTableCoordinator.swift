@@ -50,8 +50,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private var previousConfiguration: WorkspaceListTable?
     private var dataSource: WorkspaceListTableDataSource?
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
+    private let dragPreviewFactory: WorkspaceListDragPreviewFactory
     private var heightCache = WorkspaceListRowHeightCache<HeightCacheKey>()
     private var configuredItemsByID: [String: WorkspaceListTableItem]
+    var workspaceDragSession: WorkspaceListDragSession?
+    private var isLiftPreviewActive = false
     private var isDragSessionActive = false
     private var deferredConfigurationDuringDrag: WorkspaceListTable?
     private var dropIntoTarget: (
@@ -69,8 +72,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         sourceView: UIView
     )?
 
-    init(configuration: WorkspaceListTable) {
+    init(
+        configuration: WorkspaceListTable,
+        dragPreviewFactory: WorkspaceListDragPreviewFactory = .init()
+    ) {
         self.configuration = configuration
+        self.dragPreviewFactory = dragPreviewFactory
         self.configuredItemsByID = Dictionary(
             configuration.items.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -82,6 +89,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         to tableView: WorkspaceListUITableView,
         viewController: WorkspaceListTableViewController? = nil
     ) {
+        workspaceDragSession = nil
+        isLiftPreviewActive = false
+        isDragSessionActive = false
+        deferredConfigurationDuringDrag = nil
+        dropIntoTarget = nil
         tableViewController = viewController
         tableView.delegate = self
         tableView.dragDelegate = self
@@ -117,17 +129,26 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
     func detach() {
         pendingContextMenuWorkspaceClose = nil
+        workspaceDragSession = nil
+        isLiftPreviewActive = false
+        isDragSessionActive = false
+        deferredConfigurationDuringDrag = nil
+        dropIntoTarget = nil
         tableViewController = nil
     }
 
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {
-        guard !isDragSessionActive else {
+        guard !isDragSessionActive, workspaceDragSession == nil else {
             // UIKit owns the lifted source cell until its drop animator
             // completes. Reloading or structurally updating the table during
             // that interval invalidates the source index path and can leave the
-            // animator waiting forever on a removed cell. Keep only the latest
-            // model value and reconcile it when the native drag session closes.
-            deferredConfigurationDuringDrag = next
+            // animator waiting forever on a removed cell. Payload-compatible
+            // updates flow into the live preview in place; anything structural
+            // keeps only the latest model value and reconciles it when the
+            // native drag session closes.
+            if !preserveActiveDrag(through: next, in: tableView) {
+                deferredConfigurationDuringDrag = next
+            }
             return
         }
         apply(configuration: next, in: tableView)
@@ -169,6 +190,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     }
                 }
             }
+        }
+        // update(configuration:in:) preserves or defers around an active drag,
+        // so a surviving session here is stale; drop it before restructuring.
+        if workspaceDragSession != nil {
+            workspaceDragSession = nil
+            isLiftPreviewActive = false
+            setDraggedItemVisibility(in: tableView)
         }
         if structureChanged {
             heightCache.retainRowIDs(Set(next.items.map(\.id)))
@@ -241,6 +269,76 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
     }
 
+    /// Threads a drag-compatible configuration update through the live
+    /// preview without disturbing the native drag lifecycle: payloads
+    /// re-configure in place while the previewed row order stays authored by
+    /// the drag session.
+    ///
+    /// - Returns: `false` when the update is structural (or reorder turned
+    ///   off), in which case the caller defers it until the session closes.
+    private func preserveActiveDrag(
+        through next: WorkspaceListTable,
+        in tableView: UITableView
+    ) -> Bool {
+        guard
+            let dataSource,
+            let workspaceDragSession,
+            next.enablesReorder,
+            next.moveRows != nil,
+            workspaceDragSession.isCompatible(
+                with: next.items,
+                workspaces: next.reorderWorkspaces,
+                groups: next.reorderGroups
+            )
+        else { return false }
+
+        var changedItems: [WorkspaceListTableItem] = []
+        if let previous = previousConfiguration {
+            for item in next.items {
+                guard let oldItem = configuredItemsByID[item.id] else { continue }
+                if itemPayloadChanged(
+                    item,
+                    oldItem: oldItem,
+                    previous: previous,
+                    next: next
+                ) {
+                    changedItems.append(item)
+                }
+            }
+        }
+
+        configuration = next
+        configuredItemsByID = Dictionary(
+            next.items.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var transientPayloadChanges: [WorkspaceListTableItem] = []
+        for item in workspaceDragSession.visualItems {
+            if configuredItemsByID[item.id]?.isIndentedWorkspace
+                != item.isIndentedWorkspace {
+                transientPayloadChanges.append(item)
+            }
+            configuredItemsByID[item.id] = item
+        }
+        previousConfiguration = next
+
+        let currentIDs = Set(dataSource.items.map(\.id))
+        let reconfigured = Dictionary(
+            (changedItems + transientPayloadChanges)
+                .filter { currentIDs.contains($0.id) }
+                .map { ($0.id, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        ).map(\.value)
+        for item in reconfigured {
+            guard
+                let indexPath = dataSource.indexPath(where: { $0.id == item.id }),
+                let cell = tableView.cellForRow(at: indexPath)
+            else { continue }
+            configure(cell, for: configuredItemsByID[item.id] ?? item)
+        }
+        return true
+    }
+
     func tableView(
         _ tableView: UITableView,
         itemsForBeginning session: UIDragSession,
@@ -255,6 +353,18 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
         let dragItem = UIDragItem(itemProvider: NSItemProvider())
         dragItem.localObject = item
+        guard let workspaceDragSession = WorkspaceListDragSession(
+            items: configuration.items,
+            workspaces: configuration.reorderWorkspaces,
+            groups: configuration.reorderGroups,
+            groupHasUnreadByID: configuration.groupHasUnreadByID,
+            sourceTableRow: indexPath.row
+        ) else {
+            return []
+        }
+        self.workspaceDragSession = workspaceDragSession
+        let liftPreview = liftPreview(for: indexPath, in: tableView)
+        dragItem.previewProvider = { liftPreview }
         return [dragItem]
     }
 
@@ -262,24 +372,27 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         _ tableView: UITableView,
         dragPreviewParametersForRowAt indexPath: IndexPath
     ) -> UIDragPreviewParameters? {
-        workspacePreviewParameters(in: tableView, at: indexPath)
+        previewParameters(for: indexPath, in: tableView)
     }
 
     func tableView(
         _ tableView: UITableView,
         dropPreviewParametersForRowAt indexPath: IndexPath
     ) -> UIDragPreviewParameters? {
-        workspacePreviewParameters(in: tableView, at: indexPath)
+        previewParameters(for: indexPath, in: tableView)
     }
 
     func tableView(_ tableView: UITableView, dragSessionWillBegin session: UIDragSession) {
         dropIntoTarget = nil
         deferredConfigurationDuringDrag = nil
+        isLiftPreviewActive = workspaceDragSession != nil
         setDragSessionActive(true, in: tableView)
+        setDraggedItemVisibility(in: tableView)
     }
 
     func tableView(_ tableView: UITableView, dragSessionDidEnd session: UIDragSession) {
         dropIntoTarget = nil
+        endDragSession(in: tableView)
         setDragSessionActive(false, in: tableView)
         if let deferredConfigurationDuringDrag {
             self.deferredConfigurationDuringDrag = nil
@@ -327,30 +440,45 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         )
         switch decision {
         case .into:
-            guard
-                let hitIndexPath,
-                case .groupHeader(let groupID) = hitItem,
-                case .workspace(let workspaceID, _) = draggedItem
-            else {
-                return UITableViewDropProposal(
-                    operation: .move,
-                    intent: .insertAtDestinationIndexPath
-                )
+            if case .groupHeader(let groupID) = hitItem,
+               case .workspace(let workspaceID, _) = draggedItem {
+                // The into signifier highlights the header row itself, so
+                // retract any open insertion gap before targeting the header;
+                // its index path is recomputed after that reset settles the
+                // rows back into baseline order.
+                resetDragPreview(in: tableView, animated: true)
+                if let headerIndexPath = dataSource?.indexPath(
+                    for: .groupHeader(groupID)
+                ) {
+                    dropIntoTarget = (
+                        sessionIdentifier: ObjectIdentifier(session),
+                        headerIndexPath: headerIndexPath,
+                        groupID: groupID,
+                        workspaceID: workspaceID
+                    )
+                    return UITableViewDropProposal(
+                        operation: .move,
+                        intent: .insertIntoDestinationIndexPath
+                    )
+                }
             }
-            dropIntoTarget = (
-                sessionIdentifier: ObjectIdentifier(session),
-                headerIndexPath: hitIndexPath,
-                groupID: groupID,
-                workspaceID: workspaceID
-            )
-            return UITableViewDropProposal(
-                operation: .move,
-                intent: .insertIntoDestinationIndexPath
-            )
         case .insertAt:
             break
         case .forbidden:
             return UITableViewDropProposal(operation: .forbidden)
+        }
+        if let destinationIndexPath,
+           var workspaceDragSession {
+            if workspaceDragSession.update(
+                destinationTableRow: destinationIndexPath.row
+            ) {
+                self.workspaceDragSession = workspaceDragSession
+                applyDragPreview(
+                    workspaceDragSession.visualItems,
+                    animated: true,
+                    in: tableView
+                )
+            }
         }
         return UITableViewDropProposal(
             operation: .move,
@@ -360,6 +488,21 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
     func tableView(_ tableView: UITableView, dropSessionDidEnd session: UIDropSession) {
         dropIntoTarget = nil
+        endDragSession(in: tableView)
+    }
+
+    /// Closes out an uncommitted reorder session. With no deferred model
+    /// update, the preview animates back to the drag-start baseline; with one
+    /// pending, the stale baseline is skipped so the deferred apply in
+    /// `dragSessionDidEnd` reconciles straight to the authoritative order.
+    private func endDragSession(in tableView: UITableView) {
+        if deferredConfigurationDuringDrag == nil {
+            cancelDragIfNeeded(in: tableView)
+        } else {
+            workspaceDragSession = nil
+        }
+        isLiftPreviewActive = false
+        setDraggedItemVisibility(in: tableView)
     }
 
     func tableView(
@@ -389,6 +532,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                == .groupHeader(intoTarget.groupID),
            configuration.canDropIntoGroup?(workspaceID, intoTarget.groupID) == true,
            isMovable(draggedItem) {
+            // The into landing is authored locally, not by the live preview;
+            // release the reorder session first so its cancellation path
+            // cannot re-apply the baseline order over the landed layout.
+            workspaceDragSession = nil
+            isLiftPreviewActive = false
+            setDraggedItemVisibility(in: tableView)
             guard let landing = applyLocalGroupDrop(
                 workspaceID: workspaceID,
                 groupID: intoTarget.groupID,
@@ -420,13 +569,52 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             let moveRows = configuration.moveRows,
             coordinator.items.count == 1,
             let dropItem = coordinator.items.first,
+            let draggedItem = dropItem.dragItem.localObject as? WorkspaceListTableItem
+        else {
+            MobileDebugLog.anchormux(
+                "move.performDrop REJECTED reorder=\(configuration.enablesReorder) items=\(coordinator.items.count) dest=\(String(describing: coordinator.destinationIndexPath?.row)) dragged=\((coordinator.items.first?.dragItem.localObject as? WorkspaceListTableItem)?.id ?? "nil")"
+            )
+            return
+        }
+
+        // A live session already renders the exact predicted order, so the
+        // drop lands at the dragged row's previewed position and the commit
+        // carries the semantic move.
+        if let workspaceDragSession,
+           workspaceDragSession.draggedItemID == draggedItem.id,
+           let destinationRow = workspaceDragSession.visualItems.firstIndex(
+               where: { $0.id == draggedItem.id }
+           ) {
+            coordinator.drop(
+                dropItem.dragItem,
+                toRowAt: IndexPath(
+                    row: destinationRow,
+                    section: Self.section
+                )
+            )
+            self.workspaceDragSession = nil
+            isLiftPreviewActive = false
+            setDraggedItemVisibility(in: tableView)
+            if let commit = workspaceDragSession.commit {
+                moveRows(
+                    IndexSet(integer: commit.sourceOffset),
+                    commit.destination
+                )
+            }
+            return
+        }
+
+        // Session-less fallback: the table was rebound or the session was
+        // discarded mid-drag (UIKit can also nil sourceIndexPath then), so
+        // recover through the dragged item's identity and index math instead
+        // of silently cancelling the drop.
+        guard
             let destinationIndexPath = coordinator.destinationIndexPath,
-            let draggedItem = dropItem.dragItem.localObject as? WorkspaceListTableItem,
             let sourceIndexPath = dataSource?.indexPath(for: draggedItem),
             isMovable(draggedItem)
         else {
             MobileDebugLog.anchormux(
-                "move.performDrop REJECTED reorder=\(configuration.enablesReorder) items=\(coordinator.items.count) dest=\(String(describing: coordinator.destinationIndexPath?.row)) dragged=\((coordinator.items.first?.dragItem.localObject as? WorkspaceListTableItem)?.id ?? "nil")"
+                "move.performDrop REJECTED-NO-SESSION dest=\(String(describing: coordinator.destinationIndexPath?.row)) dragged=\(draggedItem.id)"
             )
             return
         }
@@ -470,31 +658,25 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         moveRows(IndexSet(integer: source), swiftUIDestination)
     }
 
-    private func workspacePreviewParameters(
-        in tableView: UITableView,
-        at indexPath: IndexPath
-    ) -> UIDragPreviewParameters? {
-        guard
-            let item = dataSource?.itemIdentifier(for: indexPath),
-            case .workspace = item,
-            let cell = tableView.cellForRow(at: indexPath)
-        else { return nil }
+    func tableView(
+        _ tableView: UITableView,
+        dropSessionDidExit session: UIDropSession
+    ) {
+        resetDragPreview(in: tableView, animated: true)
+    }
 
-        let parameters = UIDragPreviewParameters()
-        let contentRect = cell.bounds.inset(
-            by: UIEdgeInsets(
-                top: 4,
-                left: item.isIndentedWorkspace ? 32 : 12,
-                bottom: 4,
-                right: 12
-            )
-        )
-        parameters.visiblePath = UIBezierPath(
-            roundedRect: contentRect,
-            cornerRadius: 14
-        )
-        parameters.backgroundColor = .systemBackground
-        return parameters
+    func tableView(
+        _ tableView: UITableView,
+        dragSessionAllowsMoveOperation session: UIDragSession
+    ) -> Bool {
+        true
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        dragSessionIsRestrictedToDraggingApplication session: UIDragSession
+    ) -> Bool {
+        true
     }
 
     private func applyLocalGroupDrop(
@@ -770,6 +952,83 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
     }
 
+    private func applyDragPreview(
+        _ items: [WorkspaceListTableItem],
+        animated: Bool,
+        in tableView: UITableView
+    ) {
+        guard let dataSource else { return }
+
+        var payloadChanges: [WorkspaceListTableItem] = []
+        for item in items {
+            if configuredItemsByID[item.id]?.isIndentedWorkspace
+                != item.isIndentedWorkspace {
+                payloadChanges.append(item)
+            }
+            configuredItemsByID[item.id] = item
+        }
+
+        dataSource.applyItems(items, in: tableView, animated: animated)
+        appliedItems = items
+        // Moved rows keep their cells across a batch update, so indentation
+        // flips must re-configure the visible cell in place; offscreen rows
+        // dequeue against the refreshed configuredItemsByID.
+        for item in payloadChanges {
+            guard
+                let indexPath = dataSource.indexPath(where: { $0.id == item.id }),
+                let cell = tableView.cellForRow(at: indexPath)
+            else { continue }
+            configure(cell, for: item)
+        }
+    }
+
+    private func resetDragPreview(in tableView: UITableView, animated: Bool) {
+        guard var workspaceDragSession else { return }
+        guard workspaceDragSession.resetPreview() else { return }
+        self.workspaceDragSession = workspaceDragSession
+        applyDragPreview(
+            workspaceDragSession.visualItems,
+            animated: animated,
+            in: tableView
+        )
+    }
+
+    private func cancelDragIfNeeded(in tableView: UITableView) {
+        guard workspaceDragSession != nil else { return }
+        workspaceDragSession = nil
+        isLiftPreviewActive = false
+        applyDragPreview(configuration.items, animated: true, in: tableView)
+        setDraggedItemVisibility(in: tableView)
+    }
+
+    private func previewParameters(
+        for indexPath: IndexPath,
+        in tableView: UITableView
+    ) -> UIDragPreviewParameters? {
+        guard
+            let item = dataSource?.itemIdentifier(for: indexPath),
+            let cell = tableView.cellForRow(at: indexPath)
+        else { return nil }
+        return dragPreviewFactory.parameters(
+            for: item,
+            cell: cell
+        )
+    }
+
+    private func liftPreview(
+        for indexPath: IndexPath,
+        in tableView: UITableView
+    ) -> UIDragPreview? {
+        guard
+            let item = dataSource?.itemIdentifier(for: indexPath),
+            let cell = tableView.cellForRow(at: indexPath)
+        else { return nil }
+        return dragPreviewFactory.preview(
+            for: item,
+            cell: cell
+        )
+    }
+
     fileprivate func canEditRow(at indexPath: IndexPath) -> Bool {
         guard let workspace = workspace(at: indexPath) else { return false }
         return (workspace.actionCapabilities.supportsReadStateActions && configuration.setUnread != nil)
@@ -777,9 +1036,15 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 && configuration.closeWorkspace != nil)
     }
 
+    fileprivate func canMoveRow(at indexPath: IndexPath) -> Bool {
+        guard let item = dataSource?.itemIdentifier(for: indexPath) else { return false }
+        return configuration.enablesReorder && configuration.moveRows != nil && isMovable(item)
+    }
+
     private func configure(_ cell: UITableViewCell, for item: WorkspaceListTableItem) {
         cell.backgroundColor = .clear
         cell.contentView.backgroundColor = .clear
+        cell.contentView.alpha = draggedItemIDToHide == item.id ? 0 : 1
         cell.selectionStyle = .none
         cell.isAccessibilityElement = false
         cell.accessibilityIdentifier = nil
@@ -789,21 +1054,23 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             .margins(.all, 0)
         switch item {
         case .workspace:
+            let insets = dragPreviewFactory.metrics(for: item)?.insets ?? .zero
             hosting = hosting
-                .margins(.top, 4)
-                .margins(.bottom, 4)
-                .margins(.leading, item.isIndentedWorkspace ? 32 : 12)
-                .margins(.trailing, 12)
+                .margins(.top, insets.top)
+                .margins(.bottom, insets.bottom)
+                .margins(.leading, insets.left)
+                .margins(.trailing, insets.right)
         case .groupHeader:
             // Zero the hosting configuration's default minimum content size:
             // it would clamp this compact header to ~42pt where the List
             // rendered 32pt content (44pt row). The 44pt tap target comes from
             // the row height (32 + 12 margins), matching the List exactly.
+            let insets = dragPreviewFactory.metrics(for: item)?.insets ?? .zero
             hosting = hosting
-                .margins(.top, 6)
-                .margins(.bottom, 6)
-                .margins(.leading, 12)
-                .margins(.trailing, 12)
+                .margins(.top, insets.top)
+                .margins(.bottom, insets.bottom)
+                .margins(.leading, insets.left)
+                .margins(.trailing, insets.right)
                 .minSize(width: 0, height: 0)
         case .groupFooter(let groupID):
             let boundaryState = isDragSessionActive ? "active" : "inactive"
@@ -823,6 +1090,21 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             break
         }
         cell.contentConfiguration = hosting
+    }
+
+    private func setDraggedItemVisibility(in tableView: UITableView) {
+        for indexPath in tableView.indexPathsForVisibleRows ?? [] {
+            guard
+                let item = dataSource?.itemIdentifier(for: indexPath),
+                let cell = tableView.cellForRow(at: indexPath)
+            else { continue }
+            cell.contentView.alpha = draggedItemIDToHide == item.id ? 0 : 1
+        }
+    }
+
+    private var draggedItemIDToHide: String? {
+        guard isLiftPreviewActive else { return nil }
+        return workspaceDragSession?.draggedItemID
     }
 
     private func hostedView(for item: WorkspaceListTableItem) -> AnyView {
@@ -1251,6 +1533,65 @@ private final class WorkspaceListTableDataSource: NSObject, UITableViewDataSourc
         tableView.reloadData()
     }
 
+    /// Transitions to `newItems` with animated row moves, inserting and
+    /// deleting the difference (a predicted reorder can add or remove a
+    /// synthetic group footer). Falls back to a reload when identities
+    /// collide or animation is off, since only a well-formed permutation can
+    /// be expressed as a batch update.
+    func applyItems(
+        _ newItems: [WorkspaceListTableItem],
+        in tableView: UITableView,
+        animated: Bool
+    ) {
+        let oldItems = items
+        items = newItems
+
+        let oldIndexByID = Dictionary(
+            oldItems.enumerated().map { ($0.element.id, $0.offset) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let newIndexByID = Dictionary(
+            newItems.enumerated().map { ($0.element.id, $0.offset) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        guard
+            animated,
+            oldIndexByID.count == oldItems.count,
+            newIndexByID.count == newItems.count
+        else {
+            tableView.reloadData()
+            return
+        }
+
+        var deletes: [IndexPath] = []
+        var inserts: [IndexPath] = []
+        var moves: [(from: IndexPath, to: IndexPath)] = []
+        for (oldIndex, item) in oldItems.enumerated()
+        where newIndexByID[item.id] == nil {
+            deletes.append(IndexPath(row: oldIndex, section: 0))
+        }
+        for (newIndex, item) in newItems.enumerated() {
+            if let oldIndex = oldIndexByID[item.id] {
+                if oldIndex != newIndex {
+                    moves.append((
+                        from: IndexPath(row: oldIndex, section: 0),
+                        to: IndexPath(row: newIndex, section: 0)
+                    ))
+                }
+            } else {
+                inserts.append(IndexPath(row: newIndex, section: 0))
+            }
+        }
+        guard !(deletes.isEmpty && inserts.isEmpty && moves.isEmpty) else { return }
+        tableView.performBatchUpdates {
+            tableView.deleteRows(at: deletes, with: .fade)
+            tableView.insertRows(at: inserts, with: .fade)
+            for move in moves {
+                tableView.moveRow(at: move.from, to: move.to)
+            }
+        }
+    }
+
     func moveItem(
         from sourceIndexPath: IndexPath,
         to destinationIndexPath: IndexPath,
@@ -1275,6 +1616,10 @@ private final class WorkspaceListTableDataSource: NSObject, UITableViewDataSourc
 
     func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
         coordinator?.canEditRow(at: indexPath) ?? false
+    }
+
+    func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
+        coordinator?.canMoveRow(at: indexPath) ?? false
     }
 
 }
