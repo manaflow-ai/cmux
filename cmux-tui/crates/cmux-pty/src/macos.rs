@@ -517,12 +517,12 @@ mod linux_tests {
     use super::{DescriptorCleanup, mark_inherited_descriptors_close_on_exec};
 
     #[test]
-    fn high_descriptor_limit_falls_back_when_close_range_and_procfs_are_unavailable() {
+    fn oversized_descriptor_limit_fails_without_scanning_when_fast_paths_are_unavailable() {
         const CHILD_ENV: &str = "CMUX_PTY_HIGH_FD_FALLBACK_CHILD";
         if std::env::var_os(CHILD_ENV).is_none() {
             let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .arg(
-                    "macos::linux_tests::high_descriptor_limit_falls_back_when_close_range_and_procfs_are_unavailable",
+                    "macos::linux_tests::oversized_descriptor_limit_fails_without_scanning_when_fast_paths_are_unavailable",
                 )
                 .arg("--exact")
                 .arg("--nocapture")
@@ -531,7 +531,7 @@ mod linux_tests {
                 .unwrap();
             assert!(
                 output.status.success(),
-                "PTY fallback rejected a valid high descriptor limit:\nstdout:\n{}\nstderr:\n{}",
+                "PTY fallback scanned an oversized descriptor table:\nstdout:\n{}\nstderr:\n{}",
                 String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr)
             );
@@ -541,15 +541,13 @@ mod linux_tests {
         let source = File::open("/dev/null").unwrap();
         let descriptor = unsafe { libc::fcntl(source.as_raw_fd(), libc::F_DUPFD, 200) };
         assert!(descriptor >= 200);
-        let inherited = unsafe { File::from_raw_fd(descriptor) };
-        install_close_range_and_openat_eperm_filter();
+        let _inherited = unsafe { File::from_raw_fd(descriptor) };
+        install_close_range_openat_and_fcntl_eperm_filter();
 
-        let cleanup = DescriptorCleanup::new(65_537);
-        mark_inherited_descriptors_close_on_exec(&cleanup)
-            .expect("high descriptor limit should use the bounded individual scan");
-        let flags = unsafe { libc::fcntl(inherited.as_raw_fd(), libc::F_GETFD) };
-        assert_ne!(flags, -1);
-        assert_ne!(flags & libc::FD_CLOEXEC, 0);
+        let cleanup = DescriptorCleanup::new(1_048_576);
+        let error = mark_inherited_descriptors_close_on_exec(&cleanup)
+            .expect_err("oversized descriptor table should fail before an individual scan");
+        assert_eq!(error.raw_os_error(), Some(libc::EOVERFLOW));
     }
 
     #[test]
@@ -683,7 +681,7 @@ mod linux_tests {
         );
     }
 
-    fn install_close_range_and_openat_eperm_filter() {
+    fn install_close_range_openat_and_fcntl_eperm_filter() {
         let mut filter = [
             libc::sock_filter {
                 code: (libc::BPF_LD | libc::BPF_W | libc::BPF_ABS) as u16,
@@ -693,15 +691,21 @@ mod linux_tests {
             },
             libc::sock_filter {
                 code: (libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K) as u16,
-                jt: 1,
+                jt: 2,
                 jf: 0,
                 k: libc::SYS_close_range as u32,
             },
             libc::sock_filter {
                 code: (libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K) as u16,
+                jt: 1,
+                jf: 0,
+                k: libc::SYS_openat as u32,
+            },
+            libc::sock_filter {
+                code: (libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K) as u16,
                 jt: 0,
                 jf: 1,
-                k: libc::SYS_openat as u32,
+                k: libc::SYS_fcntl as u32,
             },
             libc::sock_filter {
                 code: (libc::BPF_RET | libc::BPF_K) as u16,
