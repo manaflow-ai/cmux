@@ -339,6 +339,8 @@ pub(crate) struct RemoteClientMessages {
     pub inline_relay_ticket_rejected: &'static str,
     pub inline_enroll_relay_ticket_rejected: &'static str,
     pub relay_command_arg_order: &'static str,
+    pub relay_credentials_require_explicit_route: &'static str,
+    relay_shorthand_requires_relay_route: &'static str,
     pub positional_invitation_rejected: &'static str,
     pub connect_one_route: &'static str,
     pub reconnect_policy_invalid: &'static str,
@@ -401,6 +403,10 @@ impl RemoteClientMessages {
 
     pub(crate) fn option_create_only(&self, option: &str) -> String {
         self.option_create_only.replace("{option}", option)
+    }
+
+    pub(crate) fn relay_shorthand_requires_relay_route(&self, route: &str) -> String {
+        self.relay_shorthand_requires_relay_route.replace("{route}", route)
     }
 
     pub(crate) fn rpc_stdin_too_large(&self, maximum: usize) -> String {
@@ -1050,6 +1056,8 @@ OPTIONS:
         inline_relay_ticket_rejected: "inline relay tickets are not accepted; use --relay-ticket-file or --relay-ticket-command",
         inline_enroll_relay_ticket_rejected: "inline relay tickets are not accepted; use --relay-ticket-file",
         relay_command_arg_order: "--relay-ticket-command-arg must follow --relay-ticket-command",
+        relay_credentials_require_explicit_route: "relay credentials without --relay-route require one explicit relay connection route",
+        relay_shorthand_requires_relay_route: "relay credential shorthand requires an explicit relay route, got {route}",
         positional_invitation_rejected: "positional invitations are not accepted; use --invite-file or stdin",
         connect_one_route: "connect accepts one route",
         reconnect_policy_invalid: "reconnect delays, attempt timeout, and enabled heartbeat timeout must be positive; max delay must be at least initial",
@@ -1499,6 +1507,8 @@ ID とセッション:
         inline_relay_ticket_rejected: "リレーチケットを引数へ直接指定できません。--relay-ticket-file または --relay-ticket-command を使用してください",
         inline_enroll_relay_ticket_rejected: "リレーチケットを引数へ直接指定できません。--relay-ticket-file を使用してください",
         relay_command_arg_order: "--relay-ticket-command-arg は --relay-ticket-command の後に指定してください",
+        relay_credentials_require_explicit_route: "--relay-route を指定しないリレー認証情報には、明示的なリレー接続ルートを 1 つ指定してください",
+        relay_shorthand_requires_relay_route: "リレー認証情報の短縮形式には明示的なリレールートが必要です。指定されたルート: {route}",
         positional_invitation_rejected: "招待を位置引数へ指定できません。--invite-file または標準入力を使用してください",
         connect_one_route: "connect に指定できるルートは 1 つです",
         reconnect_policy_invalid: "再接続遅延、試行タイムアウト、有効なハートビートタイムアウトには正の値が必要です。最大遅延は初期遅延以上にしてください",
@@ -1728,6 +1738,18 @@ mod tests {
         assert_eq!(JAPANESE.remote_client.known_daemon_auth_enrolled, "登録済み");
         assert_eq!(ENGLISH.remote_client.known_daemon_auth_carrier, "carrier");
         assert_eq!(JAPANESE.remote_client.known_daemon_auth_carrier, "信頼済み搬送路");
+        assert_eq!(
+            ENGLISH.remote_client.relay_credentials_require_explicit_route,
+            "relay credentials without --relay-route require one explicit relay connection route"
+        );
+        assert_eq!(
+            JAPANESE.remote_client.relay_credentials_require_explicit_route,
+            "--relay-route を指定しないリレー認証情報には、明示的なリレー接続ルートを 1 つ指定してください"
+        );
+        assert_eq!(
+            JAPANESE.remote_client.relay_shorthand_requires_relay_route("wss://example.test/"),
+            "リレー認証情報の短縮形式には明示的なリレールートが必要です。指定されたルート: wss://example.test/"
+        );
         assert_eq!(
             JAPANESE.remote_client.known_daemon_forgotten("fingerprint"),
             "デーモン fingerprint を削除しました。"

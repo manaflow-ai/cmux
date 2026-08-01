@@ -431,19 +431,81 @@ fn resolved_shell(command: &PtyCommand) -> OsString {
         return shell;
     }
 
-    let password_entry = unsafe { libc::getpwuid(libc::getuid()) };
-    if !password_entry.is_null() {
-        let shell = unsafe { CStr::from_ptr((*password_entry).pw_shell) };
-        if !shell.to_bytes().is_empty() {
-            return OsString::from_vec(shell.to_bytes().to_vec());
-        }
+    if let Some(shell) = account_shell(unsafe { libc::getuid() }) {
+        return shell;
     }
     OsString::from("/bin/sh")
+}
+
+fn account_shell(uid: libc::uid_t) -> Option<OsString> {
+    const DEFAULT_BUFFER_SIZE: usize = 1_024;
+    const MAX_BUFFER_SIZE: usize = 64 * 1_024;
+
+    let suggested_size = unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) };
+    let initial_size = usize::try_from(suggested_size)
+        .unwrap_or(DEFAULT_BUFFER_SIZE)
+        .clamp(DEFAULT_BUFFER_SIZE, MAX_BUFFER_SIZE);
+    let mut buffer = vec![0_u8; initial_size];
+
+    loop {
+        let mut password_entry = std::mem::MaybeUninit::<libc::passwd>::uninit();
+        let mut result = std::ptr::null_mut();
+        let status = unsafe {
+            libc::getpwuid_r(
+                uid,
+                password_entry.as_mut_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut result,
+            )
+        };
+        if status == 0 {
+            if result.is_null() {
+                return None;
+            }
+            let shell_pointer = unsafe { (*result).pw_shell };
+            if shell_pointer.is_null() {
+                return None;
+            }
+            let shell = unsafe { CStr::from_ptr(shell_pointer) };
+            return (!shell.to_bytes().is_empty())
+                .then(|| OsString::from_vec(shell.to_bytes().to_vec()));
+        }
+        if status != libc::ERANGE || buffer.len() == MAX_BUFFER_SIZE {
+            return None;
+        }
+        buffer.resize((buffer.len() * 2).min(MAX_BUFFER_SIZE), 0);
+    }
 }
 
 fn is_executable(path: &OsStr) -> bool {
     let Ok(path) = CString::new(path.as_bytes()) else { return false };
     unsafe { libc::access(path.as_ptr(), libc::X_OK) == 0 }
+}
+
+#[cfg(test)]
+mod shell_tests {
+    use super::account_shell;
+
+    #[test]
+    fn account_shell_lookup_is_owned_and_safe_to_run_concurrently() {
+        let uid = unsafe { libc::getuid() };
+        let expected = account_shell(uid);
+        let workers = (0..16)
+            .map(|_| {
+                let expected = expected.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..64 {
+                        assert_eq!(account_shell(uid), expected);
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for worker in workers {
+            worker.join().unwrap();
+        }
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]

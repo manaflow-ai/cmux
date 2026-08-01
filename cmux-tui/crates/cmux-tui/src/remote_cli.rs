@@ -814,6 +814,7 @@ fn client_relay_options(
     credentials: Vec<ClientRelayCredentialArg>,
 ) -> anyhow::Result<BTreeMap<String, RelayClientOptions>> {
     const MAX_CLIENT_RELAYS: usize = 4;
+    let messages = &catalog().remote_client;
     if slots.len() != credentials.len() {
         return Err(anyhow!(
             "each relay credential needs one --relay-slot and one relay credential source"
@@ -824,17 +825,11 @@ fn client_relay_options(
             0 => Ok(BTreeMap::new()),
             1 => {
                 let endpoint = explicit_route
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "relay credentials without --relay-route require one explicit relay connection route"
-                        )
-                    })
+                    .ok_or_else(|| anyhow!(messages.relay_credentials_require_explicit_route))
                     .and_then(|route| parse_route(route, "relay connection route"))?;
                 let display = sanitized_route(&endpoint);
                 if !is_relay_route(&endpoint) {
-                    return Err(anyhow!(
-                        "relay credential shorthand requires an explicit relay route, got {display}"
-                    ));
+                    return Err(anyhow!(messages.relay_shorthand_requires_relay_route(&display)));
                 }
                 Ok(BTreeMap::from([(
                     endpoint.to_string(),
@@ -3274,6 +3269,26 @@ mod tests {
         assert_japanese(&run_rpc(&["--request".into()]).unwrap_err().to_string());
         let mut oversized = io::Cursor::new(vec![b'x'; 128]);
         assert_japanese(&read_rpc_stdin_line(&mut oversized, 8).unwrap_err().to_string());
+        assert_japanese(
+            &client_relay_options(
+                None,
+                vec![],
+                vec!["slot".into()],
+                vec![ClientRelayCredentialArg::File("ticket".into())],
+            )
+            .unwrap_err()
+            .to_string(),
+        );
+        assert_japanese(
+            &client_relay_options(
+                Some("wss://not-a-relay.example/v1/link"),
+                vec![],
+                vec!["slot".into()],
+                vec![ClientRelayCredentialArg::File("ticket".into())],
+            )
+            .unwrap_err()
+            .to_string(),
+        );
 
         for args in [
             vec!["unknown"],
