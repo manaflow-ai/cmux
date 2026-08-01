@@ -460,6 +460,28 @@ test("raw WebSocket cancels a mutation aborted before pairing", async () => {
   await client.close();
 });
 
+test("raw WebSocket vetoes a mutation whose timer was synchronously starved", async () => {
+  const transport = new WebSocketTransport("ws://localhost/cmux", {
+    WebSocket: Constructor,
+  });
+  const client = new RawClient({ transport, timeoutMs: 5 });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  const request = client.sendRaw(rawMutation(103) as never);
+  const outcome = request.then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+
+  socket.open();
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+  socket.message('{"paired":{"credential":"resource-secret"}}');
+  const failure = await outcome;
+
+  assert.ok(failure instanceof RawCmuxTimeoutError);
+  assert.deepEqual(socket.sent, ['{"pair":{"request":true}}']);
+  await client.close();
+});
+
 test("WebSocketTransport reports a rejected credential", () => {
   let rejected = 0;
   const transport = new WebSocketTransport("ws://localhost/cmux", {

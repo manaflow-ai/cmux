@@ -223,6 +223,29 @@ test("raw Unix transport cancels a mutation aborted before connect", async () =>
   }
 });
 
+test("raw Unix transport vetoes a mutation whose timer was synchronously starved", async () => {
+  const fixture = await delayedUnixFixture();
+  const client = new CmuxClient({ transport: fixture.transport, timeoutMs: 5 });
+  try {
+    await fixture.ready();
+    const request = client.sendRaw(rawMutation(203) as never);
+    const outcome = request.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    await fixture.release();
+    const failure = await outcome;
+
+    assert.ok(failure instanceof RawCmuxTimeoutError);
+    assert.deepEqual(fixture.received, []);
+  } finally {
+    await client.close();
+    await fixture.close();
+  }
+});
+
 test("Unix resource transport vetoes a mutation whose timer was synchronously starved", async () => {
   const fixture = await delayedUnixFixture();
   const client = new Client({
