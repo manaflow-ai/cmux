@@ -780,6 +780,23 @@ struct ApplicationSurfaceTests {
     }
 
     @Test func staleRepresentableTeardownPreservesTheReplacementMount() {
+        let firstClickSettingKey = PaneFirstClickFocusSettings.enabledKey
+        let previousFirstClickSetting = UserDefaults.standard.object(
+            forKey: firstClickSettingKey
+        )
+        UserDefaults.standard.set(true, forKey: firstClickSettingKey)
+        defer {
+            if let previousFirstClickSetting {
+                UserDefaults.standard.set(
+                    previousFirstClickSetting,
+                    forKey: firstClickSettingKey
+                )
+            } else {
+                UserDefaults.standard.removeObject(
+                    forKey: firstClickSettingKey
+                )
+            }
+        }
         let panel = ApplicationPanel(
             workspaceId: UUID(),
             windowID: 42,
@@ -802,7 +819,9 @@ struct ApplicationSurfaceTests {
             view: replacementView,
             mountID: replacementMountID
         )
+        replacementView.setInputOwnership(true)
         #expect(staleView === replacementView)
+        #expect(replacementView.acceptsFirstMouse(for: nil))
 
         ApplicationCaptureRepresentable.dismantleNSView(
             staleView,
@@ -810,6 +829,7 @@ struct ApplicationSurfaceTests {
         )
 
         #expect(panel.captureEligibleForCurrentVisibility)
+        #expect(replacementView.acceptsFirstMouse(for: nil))
         panel.close()
     }
 
