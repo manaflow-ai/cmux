@@ -1786,7 +1786,9 @@ impl Mux {
         };
         match preparation {
             ResourceEffectPreparation::Committed { outcome, revision } => match outcome {
-                ResourceEffectOutcome::Success(result) => {
+                ResourceEffectOutcome::Success(mut result) => {
+                    self.terminate_workspace_hosts_from_receipt(&result)?;
+                    remove_terminal_host_cleanup_receipt(&mut result);
                     Ok(ResourcePatchCommit { revision, result, replayed: true })
                 }
                 ResourceEffectOutcome::Failure(error) => Err(anyhow::Error::new(error)),
@@ -2064,22 +2066,35 @@ impl Mux {
                     terminal_host_cleanup_receipt(&workspace_host_identities),
                 );
         }
-        let projection =
+        let cleanup_identities = if plan.closed_workspace_key.is_some() {
+            workspace_host_identities
+        } else {
+            std::mem::take(&mut plan.unmaterialized_terminals)
+        };
+        let host_cleanup = self.prepare_terminal_host_cleanup_at_root(
+            terminal_host_root.as_deref(),
+            &cleanup_identities,
+        )?;
+        let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        projection
+            .result
+            .as_object_mut()
+            .context("resource close result is not an object")?
+            .insert(
+                TERMINAL_HOST_CLEANUP_RECEIPT_FIELD.to_string(),
+                terminal_host_cleanup_receipt(&cleanup_identities),
+            );
         let closed_public_ids = if let Some(workspace_key) = plan.closed_workspace_key.as_deref() {
             registry.terminal_resource_ids_in_workspace(workspace_key)?
         } else {
             Self::terminal_public_ids_for_hosted(&registry, &plan.terminals)?
         };
-        let workspace_host_cleanup = self.prepare_terminal_host_cleanup_at_root(
-            terminal_host_root.as_deref(),
-            &workspace_host_identities,
-        )?;
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
         }
-        let close = registry.commit_resource_close_patch(
+        let mut close = registry.commit_resource_close_patch(
             idempotency_key,
             operation_name,
             fingerprint,
@@ -2108,25 +2123,20 @@ impl Mux {
         drop(registry);
         drop(workspace_lifecycle);
 
-        let unmaterialized_termination = if plan.closed_workspace_key.is_none() {
-            self.terminate_discovered_terminal_hosts(&plan.unmaterialized_terminals)
-        } else {
-            Ok(())
-        };
         self.notify_terminal_exit_waiters(closed_public_ids);
         self.publish_resource_event();
         for surface in &plan.removed {
             self.purge_surface_side_tables(surface.id);
         }
         self.retire_surface_runtimes(plan.removed);
-        let workspace_termination = self.terminate_prepared_terminal_hosts(workspace_host_cleanup);
+        let host_termination = self.terminate_prepared_terminal_hosts(host_cleanup);
         self.emit_tree_delta(plan.delta, plan.selection_resync);
         for screen in plan.changed_screens {
             self.emit(MuxEvent::LayoutChanged(screen));
         }
         self.emit_empty_if_current(empty_revision);
-        unmaterialized_termination?;
-        workspace_termination?;
+        host_termination?;
+        remove_terminal_host_cleanup_receipt(&mut close.resource.result);
         Ok(close.resource)
     }
 

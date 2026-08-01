@@ -225,6 +225,19 @@ pub struct ProviderManagementServer {
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
+#[cfg(any(target_os = "linux", test))]
+fn reap_finished_peer_threads(peers: &mut Vec<std::thread::JoinHandle<()>>) {
+    let mut index = 0;
+    while index < peers.len() {
+        if peers[index].is_finished() {
+            let peer = peers.swap_remove(index);
+            let _ = peer.join();
+        } else {
+            index += 1;
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 impl Drop for ProviderManagementServer {
     fn drop(&mut self) {
@@ -256,6 +269,7 @@ pub fn serve(
             let next_peer = AtomicU64::new(1);
             let mut peers = Vec::new();
             while !thread_shutdown.load(Ordering::Acquire) {
+                reap_finished_peer_threads(&mut peers);
                 let stream = match listener.accept() {
                     Ok((stream, _)) => stream,
                     Err(error) if error.kind() == io::ErrorKind::WouldBlock => {

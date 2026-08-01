@@ -12192,6 +12192,21 @@ impl Mux {
         let _creation_fence =
             project_resource.then(|| self.resource_creation_execution.lock().unwrap());
         let authority = self.authorize_workspace_lifecycle_mutation(authorization, "close")?;
+        let mutation = local_workspace_close_mutation(id, key, project_resource);
+        let fingerprint = workspace_close_fingerprint(id, key);
+        {
+            let registry = self.workspace_registry.lock().unwrap();
+            if let Some(commit) = registry.replay(&mutation, &fingerprint)? {
+                let result = workspace_mutation_result(&commit)?;
+                let workspace = result
+                    .workspace
+                    .context("stored local workspace close result is missing its workspace")?;
+                drop(registry);
+                self.terminate_workspace_hosts_from_receipt(&commit.result)?;
+                drop(authority);
+                return Ok(Some((workspace, result.key, result.revision)));
+            }
+        }
         let resolved = {
             let state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
@@ -12200,7 +12215,6 @@ impl Mux {
         let Some((resolved_target, _)) = resolved else {
             return Ok(None);
         };
-        let mutation = WorkspaceMutation::local("cmux-tui");
         let result = self.close_workspace_with_mutation_inner(
             id,
             key,
@@ -12223,11 +12237,7 @@ impl Mux {
         mutation: &WorkspaceMutation,
         project_resource: bool,
     ) -> anyhow::Result<WorkspaceMutationResult> {
-        let fingerprint = serde_json::json!({
-            "op": "close-workspace",
-            "workspace": target,
-            "key": requested_key,
-        });
+        let fingerprint = workspace_close_fingerprint(target, requested_key);
         {
             let registry = self.workspace_registry.lock().unwrap();
             if let Some(commit) = registry.replay(mutation, &fingerprint)? {
@@ -15890,6 +15900,45 @@ fn workspace_mutation_result(commit: &RegistryCommit) -> anyhow::Result<Workspac
     })
 }
 
+fn workspace_close_fingerprint(target: Option<WorkspaceId>, key: Option<&str>) -> Value {
+    serde_json::json!({
+        "op": "close-workspace",
+        "workspace": target,
+        "key": key,
+    })
+}
+
+fn local_workspace_close_mutation(
+    target: Option<WorkspaceId>,
+    key: Option<&str>,
+    project_resource: bool,
+) -> WorkspaceMutation {
+    let mut digest = Sha256::new();
+    digest.update(b"cmux-tui/local-workspace-close/1\0");
+    digest.update([u8::from(project_resource)]);
+    match target {
+        Some(target) => {
+            digest.update([1]);
+            digest.update(target.to_be_bytes());
+        }
+        None => digest.update([0]),
+    }
+    match key {
+        Some(key) => {
+            digest.update([1]);
+            digest.update(
+                u64::try_from(key.len()).expect("workspace key length fits u64").to_be_bytes(),
+            );
+            digest.update(key.as_bytes());
+        }
+        None => digest.update([0]),
+    }
+    let payload =
+        digest.finalize()[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    WorkspaceMutation::new(format!("local-workspace-close-{payload}"), "cmux-tui")
+        .expect("derived local workspace close mutation is valid")
+}
+
 fn terminal_host_cleanup_receipt(terminals: &[(String, Option<String>)]) -> Value {
     Value::Array(
         terminals
@@ -15944,6 +15993,12 @@ fn terminal_host_cleanup_identities(
         identities.push((terminal_id.to_string(), incarnation));
     }
     Ok(identities)
+}
+
+fn remove_terminal_host_cleanup_receipt(result: &mut Value) {
+    if let Some(result) = result.as_object_mut() {
+        result.remove(TERMINAL_HOST_CLEANUP_RECEIPT_FIELD);
+    }
 }
 
 fn close_surface_delta(
@@ -17627,7 +17682,8 @@ mod tests {
         let error = mux.close_workspace_at_revision(workspace, None).unwrap_err();
         assert!(error.to_string().contains("forced terminal-host cleanup failure"));
         assert!(mux.with_state(|state| state.workspaces.is_empty()));
-        let committed_revision = mux.workspace_registry.lock().unwrap().snapshot().unwrap().revision;
+        let committed_revision =
+            mux.workspace_registry.lock().unwrap().snapshot().unwrap().revision;
 
         assert_eq!(
             mux.close_workspace_at_revision(workspace, None).unwrap(),
@@ -17643,7 +17699,10 @@ mod tests {
     fn resource_workspace_close_retries_cleanup_before_committed_success() {
         let mux = test_mux();
         let surface = mux.new_workspace(Some("resource-cleanup-retry".into()), None).unwrap();
-        let workspace = mux.with_state(|state| state.workspaces[0].public_id.to_string());
+        let (workspace_id, workspace) = mux.with_state(|state| {
+            (state.workspaces[0].id, state.workspaces[0].public_id.to_string())
+        });
+        let selectors = mux.ordinary_workspace_selectors(workspace_id).unwrap();
         let attempts = Arc::new(AtomicUsize::new(0));
         *mux.terminal_host_cleanup_hook.lock().unwrap() = Some(Arc::new({
             let attempts = attempts.clone();
@@ -17664,6 +17723,26 @@ mod tests {
         );
         assert!(first.get("error").is_some(), "postcommit cleanup failure was acknowledged");
         assert!(mux.with_state(|state| state.workspaces.is_empty()));
+        let fingerprint = serde_json::json!({
+            "operation":"workspace.close",
+            "selectors":selectors,
+            "fields":{},
+        });
+        let preparation = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .lookup_resource_effect("cleanup-retry-effect", "workspace.close", &fingerprint)
+            .unwrap()
+            .unwrap();
+        let ResourceEffectPreparation::Committed {
+            outcome: ResourceEffectOutcome::Success(stored_result),
+            ..
+        } = preparation
+        else {
+            panic!("postcommit cleanup failure lost its committed success receipt");
+        };
+        assert_eq!(terminal_host_cleanup_identities(&stored_result).unwrap().len(), 1);
 
         let replay = public_request(
             &mux,
@@ -17673,6 +17752,10 @@ mod tests {
             Some("cleanup-retry-effect"),
         );
         assert_eq!(replay["result"]["replayed"], true);
+        assert!(
+            !replay.to_string().contains(TERMINAL_HOST_CLEANUP_RECEIPT_FIELD),
+            "public replay leaked its internal cleanup receipt"
+        );
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
         *mux.terminal_host_cleanup_hook.lock().unwrap() = None;
         surface.kill();
