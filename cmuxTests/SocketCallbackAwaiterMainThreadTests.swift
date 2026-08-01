@@ -93,14 +93,33 @@ import Testing
         #expect(windowScreenshotCGWindowID(exactly: Int(UInt32.max) + 1) == nil)
     }
 
-    @Test func timeoutLatchPermanentlyDisablesCompositorCapture() {
-        var latch = WindowScreenshotCaptureTimeoutLatch()
+    @Test func coordinatorSerializesCaptureAndDisablesTimedOutCompositor() async throws {
+        let coordinator = WindowScreenshotCaptureCoordinator()
 
-        #expect(latch.allowsCapture)
-        latch.recordTimeout()
-        #expect(!latch.allowsCapture)
-        latch.recordTimeout()
-        #expect(!latch.allowsCapture)
+        let firstClaim = await coordinator.claim()
+        let first = try #require(firstClaim)
+        #expect(first.allowsScreenCaptureKit)
+        let contendedClaim = await coordinator.claim()
+        #expect(contendedClaim == nil)
+
+        await coordinator.finish(first, screenCaptureKitDidTimeOut: true)
+
+        let secondClaim = await coordinator.claim()
+        let second = try #require(secondClaim)
+        #expect(!second.allowsScreenCaptureKit)
+        await coordinator.finish(second, screenCaptureKitDidTimeOut: false)
+        let third = await coordinator.claim()
+        #expect(third != nil)
+        if let third {
+            await coordinator.finish(third, screenCaptureKitDidTimeOut: false)
+        }
+    }
+
+    @Test func screenshotLabelsCannotCreatePathComponents() {
+        #expect(windowScreenshotSafeLabel("") == "")
+        #expect(windowScreenshotSafeLabel("issue-9065.window") == "issue-9065.window")
+        #expect(windowScreenshotSafeLabel("../../outside/file") == "outside-file")
+        #expect(windowScreenshotSafeLabel("///") == "capture")
     }
 
     @Test func onlyUnavailableCaptureFallsBackToAppKit() {

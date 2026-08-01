@@ -50,15 +50,34 @@ enum WindowScreenshotCaptureAttempt: Sendable {
     case timedOut
 }
 
-struct WindowScreenshotCaptureTimeoutLatch: Sendable {
-    private(set) var isDisabled = false
+struct WindowScreenshotCaptureAdmission: Sendable, Equatable {
+    fileprivate let id: UUID
+    let allowsScreenCaptureKit: Bool
+}
 
-    var allowsCapture: Bool {
-        !isDisabled
+actor WindowScreenshotCaptureCoordinator {
+    private var activeCaptureID: UUID?
+    private var screenCaptureKitTimedOut = false
+
+    func claim() -> WindowScreenshotCaptureAdmission? {
+        guard activeCaptureID == nil else { return nil }
+        let id = UUID()
+        activeCaptureID = id
+        return WindowScreenshotCaptureAdmission(
+            id: id,
+            allowsScreenCaptureKit: !screenCaptureKitTimedOut
+        )
     }
 
-    mutating func recordTimeout() {
-        isDisabled = true
+    func finish(
+        _ admission: WindowScreenshotCaptureAdmission,
+        screenCaptureKitDidTimeOut: Bool
+    ) {
+        guard activeCaptureID == admission.id else { return }
+        if screenCaptureKitDidTimeOut {
+            screenCaptureKitTimedOut = true
+        }
+        activeCaptureID = nil
     }
 }
 
@@ -121,6 +140,21 @@ final class WindowAppKitCaptureDeliveryGate: @unchecked Sendable {
 
 func windowScreenshotCGWindowID(exactly windowNumber: Int) -> CGWindowID? {
     CGWindowID(exactly: windowNumber)
+}
+
+func windowScreenshotSafeLabel(_ label: String) -> String {
+    let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "" }
+
+    let allowed = CharacterSet.alphanumerics.union(
+        CharacterSet(charactersIn: "-_.")
+    )
+    let scalars = trimmed.unicodeScalars.map {
+        allowed.contains($0) ? Character($0) : "-"
+    }
+    let cleaned = String(scalars)
+        .trimmingCharacters(in: CharacterSet(charactersIn: "-_."))
+    return cleaned.isEmpty ? "capture" : String(cleaned.prefix(80))
 }
 
 /// Accumulated worker→main `v2MainSync` hop time for the socket command
@@ -199,10 +233,8 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 class TerminalController {
     static let shared = TerminalController()
 #if DEBUG
-    private nonisolated static let windowScreenshotCaptureAdmission = DispatchSemaphore(value: 1)
-    private nonisolated static let windowScreenshotCaptureTimeoutLatch = OSAllocatedUnfairLock(
-        initialState: WindowScreenshotCaptureTimeoutLatch()
-    )
+    private nonisolated static let windowScreenshotCaptureCoordinator =
+        WindowScreenshotCaptureCoordinator()
 #endif
     private nonisolated static let maximumConcurrentReloadConfigurationWaiters =
         4
@@ -13146,7 +13178,7 @@ class TerminalController {
         }
 
         // Parse optional label from args
-        let label = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let label = windowScreenshotSafeLabel(args)
 
         // Generate unique ID for this screenshot
         let timestamp = ISO8601DateFormatter().string(from: Date())
@@ -13162,6 +13194,31 @@ class TerminalController {
 
         let filename = label.isEmpty ? "\(screenshotId).png" : "\(label)_\(screenshotId).png"
         let outputPath = outputDir.appendingPathComponent(filename)
+
+        let admissionResult: WindowScreenshotCaptureAdmission?? = socketAwaitCallback(
+            timeout: 1
+        ) { completion in
+            Task {
+                completion(await Self.windowScreenshotCaptureCoordinator.claim())
+            }
+        }
+        guard let admissionResult else {
+            return "ERROR: screenshot capture admission timed out"
+        }
+        guard let admission = admissionResult else {
+            return "ERROR: screenshot capture already in progress"
+        }
+
+        var screenCaptureKitDidTimeOut = false
+        defer {
+            let timedOut = screenCaptureKitDidTimeOut
+            Task {
+                await Self.windowScreenshotCaptureCoordinator.finish(
+                    admission,
+                    screenCaptureKitDidTimeOut: timedOut
+                )
+            }
+        }
 
         let captureTarget: CGWindowID? = v2MainSync {
             let candidateWindows = NSApp.orderedWindows.filter { window in
@@ -13197,8 +13254,15 @@ class TerminalController {
         if let appKitCapture, appKitCapture.capturedAllExternalContent {
             pngData = appKitCapture.pngData
         } else {
+            let screenCaptureKitAttempt = captureScreenCaptureKitWindowPNGData(
+                captureTarget,
+                isAllowed: admission.allowsScreenCaptureKit
+            )
+            if case .timedOut = screenCaptureKitAttempt {
+                screenCaptureKitDidTimeOut = true
+            }
             switch windowScreenshotCaptureAction(
-                for: captureScreenCaptureKitWindowPNGData(captureTarget),
+                for: screenCaptureKitAttempt,
                 appKitFallback: appKitCapture?.pngData
             ) {
             case .useCaptured(let data):
@@ -13224,19 +13288,10 @@ class TerminalController {
     }
 
     private nonisolated func captureScreenCaptureKitWindowPNGData(
-        _ windowID: CGWindowID
+        _ windowID: CGWindowID,
+        isAllowed: Bool
     ) -> WindowScreenshotCaptureAttempt {
-        guard Self.windowScreenshotCaptureAdmission.wait(timeout: .now()) == .success else {
-            return .busy
-        }
-        // Keep the admission release in this synchronous waiter so a stuck
-        // ScreenCaptureKit continuation cannot wedge the semaphore. A timeout
-        // also disables this backend for the process lifetime, bounding any
-        // non-cancellable compositor work to one orphaned attempt.
-        defer { Self.windowScreenshotCaptureAdmission.signal() }
-        guard Self.windowScreenshotCaptureTimeoutLatch.withLock({
-            $0.allowsCapture
-        }) else {
+        guard isAllowed else {
             return .timedOut
         }
 
@@ -13250,9 +13305,6 @@ class TerminalController {
         }
         guard let captured else {
             captureTask.cancel()
-            Self.windowScreenshotCaptureTimeoutLatch.withLock {
-                $0.recordTimeout()
-            }
             return .timedOut
         }
         guard let captured else {

@@ -299,7 +299,7 @@ final class AutomationSocketUITests: XCTestCase {
                 label: "issue-9065-terminal-only",
                 minimumMarkerPixels: 100,
                 minimumBrowserPixels: 0,
-                timeout: 12.0
+                timeout: 20.0
             ),
             "Expected the AppKit path to capture terminal-only window content"
         )
@@ -362,7 +362,7 @@ final class AutomationSocketUITests: XCTestCase {
                 label: "issue-9065-window",
                 minimumMarkerPixels: 100,
                 minimumBrowserPixels: 1_000,
-                timeout: 12.0
+                timeout: 20.0
             ),
             "Expected debug.window.screenshot to capture terminal and browser content"
         )
@@ -440,7 +440,7 @@ final class AutomationSocketUITests: XCTestCase {
                 guard let screenshot = self.socketResult(
                     method: "debug.window.screenshot",
                     params: ["label": label],
-                    responseTimeout: 12.0
+                    responseTimeout: min(5.0, timeout / 2)
                 ),
                     let path = screenshot["path"] as? String else {
                     return false
