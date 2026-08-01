@@ -18,7 +18,6 @@ import AppKit
 #endif
 
 struct WorkspaceDetailView: View {
-    let host: String
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
     @Bindable var store: CMUXMobileShellStore
@@ -237,6 +236,7 @@ struct WorkspaceDetailView: View {
             canToggleReadState: setWorkspaceUnread != nil,
             canCloseWorkspace: closeWorkspace != nil,
             labelToken: toolbarTitleLabelToken,
+            connectionStatusLine: detailConnectionChrome.statusLine,
             terminalTheme: store.activeTerminalTheme
         )
         return WorkspaceTitleMenu(
@@ -249,38 +249,20 @@ struct WorkspaceDetailView: View {
                     canRenameWorkspace: value.canRenameWorkspace,
                     canToggleReadState: value.canToggleReadState,
                     canCloseWorkspace: value.canCloseWorkspace,
+                    canReconnect: detailConnectionChrome.allowsManualReconnect,
                     presentCustomization: presentCustomizationFromMenu,
                     presentRename: presentRenameFromMenu,
                     toggleReadState: toggleWorkspaceReadStateFromMenu,
-                    requestClose: requestCloseWorkspaceFromMenu
+                    requestClose: requestCloseWorkspaceFromMenu,
+                    reconnect: reconnectToWorkspaceMac
                 )
             },
             label: {
-                switch value.labelToken {
-                case .chat(
-                    let descriptor,
-                    let agentState,
-                    let isConnected,
-                    let titleOverride,
-                    let subtitle
-                ):
-                    ChatSessionHeaderView(
-                        descriptor: descriptor,
-                        agentState: agentState,
-                        isConnected: isConnected,
-                        titleOverride: titleOverride,
-                        subtitle: subtitle,
-                        style: .toolbarCompact
-                    )
-                case .browser(let title):
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .foregroundStyle(value.terminalTheme.terminalChromeForegroundColor)
-                case .standard(let title, let subtitle):
-                    WorkspaceToolbarTitleView(title: title, subtitle: subtitle)
-                }
+                WorkspaceDetailTitleLabel(
+                    labelToken: value.labelToken,
+                    connectionStatusLine: value.connectionStatusLine,
+                    terminalTheme: value.terminalTheme
+                )
             }
         )
         .equatable()
@@ -325,7 +307,7 @@ struct WorkspaceDetailView: View {
         }
         // The disconnected terminal stays visible; block interaction so
         // keystrokes aren't silently dropped by the disconnected drain path.
-        // The status pill attaches after this modifier and stays tappable.
+        // Recovery remains available from the title menu outside this surface.
         .allowsHitTesting(!terminalInputIsBlocked)
         #if os(iOS)
         // Hit-testing only blocks new touches: a terminal focused before the
@@ -343,18 +325,6 @@ struct WorkspaceDetailView: View {
         }
         #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .overlay(alignment: .topLeading) {
-            // The terminal's only connection chrome: last-known content stays
-            // visible and scrollable underneath while the pill shows the
-            // reconnect progress (or offers Reconnect once attempts stop).
-            MobileMacConnectionStatusPill(
-                host: host,
-                status: effectiveConnectionStatus,
-                reconnect: { reconnectToWorkspaceMac() }
-            )
-                .padding(.top, 10)
-                .padding(.leading, 10)
-        }
         #if os(iOS) && DEBUG
         // DEBUG/UI-test-only store-side composer probe.
         .overlay {
@@ -415,13 +385,13 @@ struct WorkspaceDetailView: View {
     }
 
     /// Same-client foreground recovery flips the store's recovery flags while
-    /// `workspace.macConnectionStatus` stays `.connected`; the pill reflects
-    /// the recovery. Input gating deliberately does NOT use this (see
+    /// `workspace.macConnectionStatus` stays `.connected`; the title status
+    /// line reflects the recovery. Input gating deliberately does NOT use this (see
     /// `terminalInputIsBlocked`): a probe's "Reconnecting" display coexists
     /// with a working keyboard. Hidden retained details keep their raw
     /// status: the guard only applies to the selected workspace on the
     /// foreground connection.
-    private var effectiveConnectionStatus: MobileMacConnectionStatus {
+    var effectiveConnectionStatus: MobileMacConnectionStatus {
         if store.selectedWorkspaceID == workspace.id,
            store.selectedWorkspaceUsesForegroundConnection {
             if store.connectionRecoveryFailed {
@@ -432,6 +402,13 @@ struct WorkspaceDetailView: View {
             }
         }
         return connectionStatus
+    }
+
+    var detailConnectionChrome: WorkspaceDetailConnectionChrome {
+        WorkspaceDetailConnectionChrome(
+            connectionRequiresReauth: store.connectionRequiresReauth,
+            connectionStatus: effectiveConnectionStatus
+        )
     }
 
     /// Input viability is narrower than the displayed status: a same-client

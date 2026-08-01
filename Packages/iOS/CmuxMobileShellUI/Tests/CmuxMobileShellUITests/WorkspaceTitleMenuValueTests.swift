@@ -45,9 +45,22 @@ import Testing
         #expect(available != unavailable)
     }
 
+    @Test func connectionStatusLineInvalidatesTheMenuValue() {
+        let connected = menuValue(
+            labelToken: .standard(title: "Workspace", subtitle: "Terminal")
+        )
+        let reconnecting = menuValue(
+            labelToken: connected.labelToken,
+            connectionStatusLine: .reconnecting
+        )
+
+        #expect(connected != reconnecting)
+    }
+
     private func menuValue(
         labelToken: WorkspaceTitleMenuLabelToken,
-        canCustomizeWorkspace: Bool = true
+        canCustomizeWorkspace: Bool = true,
+        connectionStatusLine: WorkspaceConnectionStatusLine? = nil
     ) -> WorkspaceTitleMenuValue {
         WorkspaceTitleMenuValue(
             contentWidth: 390,
@@ -62,6 +75,7 @@ import Testing
             canToggleReadState: true,
             canCloseWorkspace: true,
             labelToken: labelToken,
+            connectionStatusLine: connectionStatusLine,
             terminalTheme: .monokai
         )
     }

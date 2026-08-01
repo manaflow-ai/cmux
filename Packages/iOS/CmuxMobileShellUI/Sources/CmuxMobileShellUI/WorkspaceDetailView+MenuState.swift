@@ -71,5 +71,6 @@ extension WorkspaceDetailView {
             || workspace.actionCapabilities.supportsWorkspaceActions
             || workspace.actionCapabilities.supportsReadStateActions
             || closeWorkspace != nil
+            || detailConnectionChrome.allowsManualReconnect
     }
 }

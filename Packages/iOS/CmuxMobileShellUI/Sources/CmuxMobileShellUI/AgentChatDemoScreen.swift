@@ -79,6 +79,7 @@ struct AgentChatDemoScreen: View {
                     titleOverride: inlineWorkspaceTitle,
                     subtitle: inlineWorkspaceSubtitle
                 ),
+                connectionStatusLine: nil,
                 terminalTheme: .monokai
             )
             baseChatScreen(for: stack)
