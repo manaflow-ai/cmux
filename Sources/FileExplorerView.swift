@@ -83,6 +83,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
     // MARK: - Coordinator
 
+    @MainActor
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
         var store: FileExplorerStore
         var state: FileExplorerState
@@ -116,14 +117,16 @@ struct FileExplorerPanelView: NSViewRepresentable {
             styleObserver = NotificationCenter.default.addObserver(
                 forName: .fileExplorerStyleDidChange, object: nil, queue: .main
             ) { [weak self] _ in
-                guard let self, let outlineView = self.outlineView else { return }
-                let style = FileExplorerStyle.current
-                self.withProgrammaticOutlineUpdate {
-                    outlineView.indentationPerLevel = style.indentation
-                    outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
-                    outlineView.reloadData()
-                    self.restoreExpansionState(self.store.expandedPaths, in: outlineView)
-                    self.applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
+                MainActor.assumeIsolated {
+                    guard let self, let outlineView = self.outlineView else { return }
+                    let style = FileExplorerStyle.current
+                    self.withProgrammaticOutlineUpdate {
+                        outlineView.indentationPerLevel = style.indentation
+                        outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
+                        outlineView.reloadData()
+                        self.restoreExpansionState(self.store.expandedPaths, in: outlineView)
+                        self.applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
+                    }
                 }
             }
         }

@@ -957,7 +957,6 @@
         "terminal": {
           "sessionContentMaxWidth": "Opcionalna maksimalna širina, u tačkama, za sadržaj terminala i ugrađenog razgovora s agentom. Postavite false za korištenje pune širine okna.",
           "sessionContentAlignment": "Horizontalni položaj sadržaja terminala i ugrađenog razgovora s agentom kada je sessionContentMaxWidth omogućen.",
-          "autoRetryAgentSessions": "Automatski nastavlja upravljanu agentsku sesiju kada se njena aktivna naredba završi statusom greške različitim od nule koji nije uzrokovan signalom. Broj ponovnih pokušaja je ograničen i koristi eksponencijalno odgađanje; normalan završetak i izričit prekid korisnika nikada se ne ponavljaju.",
           "copyOnSelect": "Kada je true, odabrani tekst terminala kopira se u sistemski međuspremnik kada se odabir potvrdi. Kada je false, cmux ne emitira Ghostty copy-on-select nadjačavanje; Ghostty konfiguracija i zadane vrijednosti kontrolišu ponašanje međuspremnika odabira.",
           "scrollSpeed": "Množitelj koji se primjenjuje na pomak točkića miša i dodirne plohe u terminalu. Veće vrijednosti pomiču brže, a manje sporije.",
           "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
@@ -3602,6 +3601,37 @@
       "primaryCta": "Preuzmite .deb",
       "requirements": "Debian ili Ubuntu · x64",
       "installBody": "Preuzmite Debian paket i instalirajte ga pomoću upravitelja paketa. Odaberite prijenosni ZIP za instalaciju po korisniku i ažuriranja unutar aplikacije."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Dobro došli u cmux Pro 🎉",
+      "fallbackName": "prijatelju",
+      "greeting": "Zdravo {name},",
+      "thanks": "Hvala što ste se pridružili cmux Pro! Još uvijek dovršavamo cijelo Pro iskustvo, a pristup oblaku stiže uskoro.",
+      "cloudStatus": "Kada pokrenemo pristup oblaku, dodat ćemo na vaš račun kredite za korištenje prema broju mjeseci pretplate.",
+      "currentBenefit": "Do tada je vaša Pro pogodnost rani pristup cmuxu na iOS-u. Prijavite se putem poveznice ispod, a Apple će vam poslati TestFlight pozivnicu nakon registracije.",
+      "testflightLink": "Prijavite se za TestFlight: {url}",
+      "testflightLinkLabel": "Prijavite se za TestFlight",
+      "signoff": "Drago nam je što ste ovdje!\ncmux tim"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro je aktivan",
+    "title": "Dobro došli u cmux Pro",
+    "body": "Pro funkcije su još u razvoju. Pristup oblaku stiže uskoro, uz kredite za korištenje koji se prikupljaju za svaki mjesec pretplate. Pro trenutno uključuje pristup cmux iOS aplikaciji putem TestFlighta.",
+    "done": "Idi na kontrolnu ploču",
+    "steps": {
+      "iosApp": {
+        "title": "cmux iOS aplikacija",
+        "body": "Koristite cmux na svom telefonu.",
+        "action": "Pridružite se iOS beti"
+      },
+      "billing": {
+        "title": "Upravljajte planom",
+        "body": "Pregledajte plan, račune i mogućnosti otkazivanja.",
+        "action": "Upravljaj planom"
+      }
     }
   }
 }
