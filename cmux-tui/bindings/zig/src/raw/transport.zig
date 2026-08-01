@@ -113,12 +113,16 @@ const UnixWaitTestHook = struct {
     entered_poll: std.Thread.ResetEvent = .{},
     returned_from_poll: std.Thread.ResetEvent = .{},
     continue_wait: std.Thread.ResetEvent = .{},
+    poll_fd_override: ?std.posix.fd_t = null,
 };
 
 const UnixCloseTestHook = struct {
     shutdown_complete: std.Thread.ResetEvent = .{},
     continue_close: std.Thread.ResetEvent = .{},
 };
+
+var unix_connect_test_hook: if (builtin.is_test) ?*UnixWaitTestHook else void =
+    if (builtin.is_test) null else {};
 
 const UnixConnection = struct {
     allocator: std.mem.Allocator,
@@ -361,6 +365,11 @@ fn connectUnixStream(
             .events = std.posix.POLL.OUT,
             .revents = 0,
         }};
+        if (builtin.is_test) {
+            if (unix_connect_test_hook) |hook| {
+                poll_fds[0].fd = hook.poll_fd_override orelse socket;
+            }
+        }
         const remaining_ms = try deadline.remainingMs();
         const poll_timeout: i32 = if (remaining_ms) |milliseconds|
             @intCast(@min(
@@ -369,7 +378,17 @@ fn connectUnixStream(
             ))
         else
             -1;
-        if (try std.posix.poll(&poll_fds, poll_timeout) == 0) {
+        if (builtin.is_test) {
+            if (unix_connect_test_hook) |hook| hook.entered_poll.set();
+        }
+        const ready = try std.posix.poll(&poll_fds, poll_timeout);
+        if (builtin.is_test) {
+            if (unix_connect_test_hook) |hook| {
+                hook.returned_from_poll.set();
+                hook.continue_wait.wait();
+            }
+        }
+        if (ready == 0) {
             return error.Timeout;
         }
         std.posix.getsockoptError(socket) catch |failure| switch (failure) {
@@ -514,6 +533,304 @@ test "read retries readiness races instead of surfacing WouldBlock" {
     try std.testing.expectEqual(@as(usize, 2), reader.wait_calls);
     try std.testing.expectEqual(@as(usize, 2), reader.read_calls);
     try std.testing.expectEqual(@as(u8, 'x'), buffer[0]);
+}
+
+fn testSignalHandler(_: i32) callconv(.c) void {}
+
+fn installTestSignalHandler() std.posix.Sigaction {
+    const action = std.posix.Sigaction{
+        .handler = .{ .handler = testSignalHandler },
+        .mask = std.posix.sigemptyset(),
+        .flags = 0,
+    };
+    var previous: std.posix.Sigaction = undefined;
+    std.posix.sigaction(std.posix.SIG.USR1, &action, &previous);
+    return previous;
+}
+
+fn interruptTestThread(thread_id: std.Thread.Id) !bool {
+    const result = std.os.linux.tkill(
+        @intCast(thread_id),
+        std.posix.SIG.USR1,
+    );
+    return switch (std.posix.errno(result)) {
+        .SUCCESS => true,
+        .SRCH => false,
+        else => |failure| std.posix.unexpectedErrno(failure),
+    };
+}
+
+fn interruptTestThreadUntilExit(thread_id: std.Thread.Id) !usize {
+    var delivered: usize = 0;
+    for (0..20) |_| {
+        std.Thread.sleep(5 * std.time.ns_per_ms);
+        if (!try interruptTestThread(thread_id)) break;
+        delivered += 1;
+    }
+    return delivered;
+}
+
+fn expectInterruptedDeadline(
+    failure: ?anyerror,
+    elapsed_ns: u64,
+    delivered: usize,
+) !void {
+    try std.testing.expectEqual(
+        error.Timeout,
+        failure orelse return error.ExpectedTimeout,
+    );
+    try std.testing.expect(elapsed_ns < 70 * std.time.ns_per_ms);
+    try std.testing.expect(delivered >= 2);
+}
+
+test "Unix read deadline survives repeated signal interruptions" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    const previous_action = installTestSignalHandler();
+    defer std.posix.sigaction(
+        std.posix.SIG.USR1,
+        &previous_action,
+        null,
+    );
+
+    var temp = std.testing.tmpDir(.{});
+    defer temp.cleanup();
+    const path = try std.fmt.allocPrint(
+        std.testing.allocator,
+        ".zig-cache/tmp/{s}/interrupted-read.sock",
+        .{&temp.sub_path},
+    );
+    defer std.testing.allocator.free(path);
+    const address = try std.net.Address.initUnix(path);
+    var server = try address.listen(.{});
+    defer server.deinit();
+    var connection = try connectUnixWithTimeout(
+        std.testing.allocator,
+        path,
+        1_000,
+    );
+    defer connection.deinit();
+    const peer = try server.accept();
+    defer peer.stream.close();
+
+    const state: *UnixConnection = @ptrCast(@alignCast(connection.context));
+    var hook = UnixWaitTestHook{};
+    hook.continue_wait.set();
+    state.test_wait_hook = &hook;
+    const PendingRead = struct {
+        connection: *Connection,
+        thread_id: std.Thread.Id = 0,
+        id_ready: std.Thread.ResetEvent = .{},
+        failure: ?anyerror = null,
+        elapsed_ns: u64 = 0,
+
+        fn run(self: *@This()) void {
+            self.thread_id = std.Thread.getCurrentId();
+            self.id_ready.set();
+            var timer = std.time.Timer.start() catch |failure| {
+                self.failure = failure;
+                return;
+            };
+            var bytes: [1]u8 = undefined;
+            _ = self.connection.read(&bytes, 20) catch |failure| {
+                self.failure = failure;
+                self.elapsed_ns = timer.read();
+                return;
+            };
+            self.elapsed_ns = timer.read();
+        }
+    };
+    var pending = PendingRead{ .connection = &connection };
+    const thread = try std.Thread.spawn(.{}, PendingRead.run, .{&pending});
+    var joined = false;
+    defer if (!joined) thread.join();
+    try pending.id_ready.timedWait(std.time.ns_per_s);
+    try hook.entered_poll.timedWait(std.time.ns_per_s);
+    const delivered = try interruptTestThreadUntilExit(pending.thread_id);
+    thread.join();
+    joined = true;
+
+    try expectInterruptedDeadline(
+        pending.failure,
+        pending.elapsed_ns,
+        delivered,
+    );
+}
+
+test "Unix write deadline survives repeated signal interruptions" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    const previous_action = installTestSignalHandler();
+    defer std.posix.sigaction(
+        std.posix.SIG.USR1,
+        &previous_action,
+        null,
+    );
+
+    var temp = std.testing.tmpDir(.{});
+    defer temp.cleanup();
+    const path = try std.fmt.allocPrint(
+        std.testing.allocator,
+        ".zig-cache/tmp/{s}/interrupted-write.sock",
+        .{&temp.sub_path},
+    );
+    defer std.testing.allocator.free(path);
+    const address = try std.net.Address.initUnix(path);
+    var server = try address.listen(.{});
+    defer server.deinit();
+    var connection = try connectUnixWithTimeout(
+        std.testing.allocator,
+        path,
+        1_000,
+    );
+    defer connection.deinit();
+    const peer = try server.accept();
+    defer peer.stream.close();
+
+    const state: *UnixConnection = @ptrCast(@alignCast(connection.context));
+    var buffer_size: c_int = 4 * 1024;
+    try std.posix.setsockopt(
+        state.stream.handle,
+        std.posix.SOL.SOCKET,
+        std.posix.SO.SNDBUF,
+        std.mem.asBytes(&buffer_size),
+    );
+    try std.posix.setsockopt(
+        peer.stream.handle,
+        std.posix.SOL.SOCKET,
+        std.posix.SO.RCVBUF,
+        std.mem.asBytes(&buffer_size),
+    );
+    var fill: [64 * 1024]u8 = undefined;
+    @memset(&fill, 0x5a);
+    while (true) {
+        _ = state.stream.write(&fill) catch |failure| switch (failure) {
+            error.WouldBlock => break,
+            else => return failure,
+        };
+    }
+
+    var hook = UnixWaitTestHook{};
+    hook.continue_wait.set();
+    state.test_wait_hook = &hook;
+    const PendingWrite = struct {
+        connection: *Connection,
+        thread_id: std.Thread.Id = 0,
+        id_ready: std.Thread.ResetEvent = .{},
+        failure: ?anyerror = null,
+        elapsed_ns: u64 = 0,
+
+        fn run(self: *@This()) void {
+            self.thread_id = std.Thread.getCurrentId();
+            self.id_ready.set();
+            var timer = std.time.Timer.start() catch |failure| {
+                self.failure = failure;
+                return;
+            };
+            self.connection.writeAll("x", 20) catch |failure| {
+                self.failure = failure;
+                self.elapsed_ns = timer.read();
+                return;
+            };
+            self.elapsed_ns = timer.read();
+        }
+    };
+    var pending = PendingWrite{ .connection = &connection };
+    const thread = try std.Thread.spawn(.{}, PendingWrite.run, .{&pending});
+    var joined = false;
+    defer if (!joined) thread.join();
+    try pending.id_ready.timedWait(std.time.ns_per_s);
+    try hook.entered_poll.timedWait(std.time.ns_per_s);
+    const delivered = try interruptTestThreadUntilExit(pending.thread_id);
+    thread.join();
+    joined = true;
+
+    try expectInterruptedDeadline(
+        pending.failure,
+        pending.elapsed_ns,
+        delivered,
+    );
+}
+
+test "connect deadline survives repeated signal interruptions" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    const previous_action = installTestSignalHandler();
+    defer std.posix.sigaction(
+        std.posix.SIG.USR1,
+        &previous_action,
+        null,
+    );
+
+    var temp = std.testing.tmpDir(.{});
+    defer temp.cleanup();
+    const path = try std.fmt.allocPrint(
+        std.testing.allocator,
+        ".zig-cache/tmp/{s}/interrupted-connect.sock",
+        .{&temp.sub_path},
+    );
+    defer std.testing.allocator.free(path);
+    const address = try std.net.Address.initUnix(path);
+    var server = try address.listen(.{ .kernel_backlog = 0 });
+    defer server.deinit();
+    const blocker = try connectUnixStream(path, 1_000);
+    defer blocker.close();
+
+    const pipe_fds = try std.posix.pipe2(.{
+        .CLOEXEC = true,
+        .NONBLOCK = true,
+    });
+    defer std.posix.close(pipe_fds[0]);
+    defer std.posix.close(pipe_fds[1]);
+    var fill: [64 * 1024]u8 = undefined;
+    @memset(&fill, 0x5a);
+    while (true) {
+        _ = std.posix.write(pipe_fds[1], &fill) catch |failure| switch (failure) {
+            error.WouldBlock => break,
+            else => return failure,
+        };
+    }
+
+    var hook = UnixWaitTestHook{ .poll_fd_override = pipe_fds[1] };
+    hook.continue_wait.set();
+    unix_connect_test_hook = &hook;
+    defer unix_connect_test_hook = null;
+    const PendingConnect = struct {
+        path: []const u8,
+        thread_id: std.Thread.Id = 0,
+        id_ready: std.Thread.ResetEvent = .{},
+        stream: ?std.net.Stream = null,
+        failure: ?anyerror = null,
+        elapsed_ns: u64 = 0,
+
+        fn run(self: *@This()) void {
+            self.thread_id = std.Thread.getCurrentId();
+            self.id_ready.set();
+            var timer = std.time.Timer.start() catch |failure| {
+                self.failure = failure;
+                return;
+            };
+            self.stream = connectUnixStream(self.path, 20) catch |failure| {
+                self.failure = failure;
+                self.elapsed_ns = timer.read();
+                return;
+            };
+            self.elapsed_ns = timer.read();
+        }
+    };
+    var pending = PendingConnect{ .path = path };
+    const thread = try std.Thread.spawn(.{}, PendingConnect.run, .{&pending});
+    var joined = false;
+    defer if (!joined) thread.join();
+    try pending.id_ready.timedWait(std.time.ns_per_s);
+    try hook.entered_poll.timedWait(std.time.ns_per_s);
+    const delivered = try interruptTestThreadUntilExit(pending.thread_id);
+    thread.join();
+    joined = true;
+    defer if (pending.stream) |stream| stream.close();
+
+    try expectInterruptedDeadline(
+        pending.failure,
+        pending.elapsed_ns,
+        delivered,
+    );
 }
 
 test "large Unix write to a nonreading peer honors its deadline" {
