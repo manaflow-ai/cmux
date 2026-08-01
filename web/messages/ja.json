@@ -1705,7 +1705,7 @@
       "automationCallout": "共有マシンでは「オフ」または「cmuxプロセスのみ」モードの使用を検討してください。",
       "browserLinkBehavior": "ブラウザリンクの動作",
       "browserLinkDesc": "設定 > ブラウザで、cmuxは異なる目的の2つのホストリストを提供します：",
-      "browserHostsEmbed": "組み込みブラウザで開くホスト：ターミナル出力からクリックしたリンクに適用されます。このリストのホストはcmuxで開き、それ以外はデフォルトブラウザで開きます。1行に1つのホストまたはワイルドカードを指定できます（例：example.com、*.internal.example）。",
+      "browserHostsEmbed": "組み込みブラウザで開くホスト：ターミナルの Web リンクと、インターセプトされた open http(s) コマンドに適用する任意のホスト許可リストです。各ルートでは対応する切り替えが有効な場合にのみ適用され、リスト自体が組み込みルーティングを有効にすることはありません。空のリストはすべてのホストを許可します。1 行に 1 つのホストまたはワイルドカードを指定できます（例：example.com、*.internal.example）。",
       "browserHostsHttp": "組み込みブラウザで許可するHTTPホスト：HTTP（非HTTPS）URLのみに適用されます。このリストのホストは警告プロンプトなしでcmuxで開けます。デフォルトはlocalhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.meです。",
       "settingsFile": "cmux.json",
       "settingsFileDesc": "cmux.json には cmux 管理のアプリ設定、ショートカット、アクション、コマンド、ワークスペースレイアウトを保存します。",

@@ -932,7 +932,7 @@
       "automationCallout": "Em máquinas compartilhadas, considere usar o modo \"Desligado\" ou \"Apenas processos cmux\".",
       "browserLinkBehavior": "Comportamento de links do navegador",
       "browserLinkDesc": "Em Configurações > Navegador, o cmux expõe duas listas de hosts com propósitos diferentes:",
-      "browserHostsEmbed": "Hosts para abrir no navegador integrado: aplica-se a links clicados na saída do terminal. Hosts nesta lista abrem no cmux; outros hosts abrem no seu navegador padrão. Suporta um host ou wildcard por linha (por exemplo: example.com, *.internal.example).",
+      "browserHostsEmbed": "Hosts para abrir no navegador integrado: lista de permissões opcional de hosts para links da web do terminal e comandos open http(s) interceptados. Cada rota só a aplica quando sua própria opção está ativada; uma lista vazia permite todos os hosts e a lista não ativa o roteamento integrado por si só. Aceita um host ou curinga por linha (por exemplo: example.com, *.internal.example).",
       "browserHostsHttp": "Hosts HTTP permitidos no navegador integrado: aplica-se apenas a URLs HTTP (não HTTPS). Hosts nesta lista podem abrir no cmux sem aviso. Os padrões incluem localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me.",
       "exampleConfig": "Exemplo de configuração",
       "metaTitle": "Configuração",
