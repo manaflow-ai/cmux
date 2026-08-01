@@ -201,8 +201,7 @@ public enum DiagnosticSessionLifecycleKind: Int, Sendable, Codable, CaseIterable
     case runtimeReconfigured = 9
     /// A caller explicitly invalidated one exact peer session.
     case explicitlyInvalidated = 10
-    /// The pool evicted a session that reported no usable network path for a
-    /// full bounded grace window while its closure callback never fired.
+    /// Every usable transport path disappeared from an admitted session.
     case allPathsClosed = 11
 }
 

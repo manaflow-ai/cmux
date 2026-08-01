@@ -3285,6 +3285,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        XCTAssertFalse(
+            window.titlebarAccessoryViewControllers.contains {
+                $0.view.identifier?.rawValue == "cmux.titlebarMobileConnect"
+            },
+            "Account, Upgrade, and Mobile controls belong exclusively in the sidebar footer"
+        )
+
         let titlebarAccessory: () -> NSTitlebarAccessoryViewController? = {
             window.titlebarAccessoryViewControllers.first {
                 $0.view.identifier?.rawValue == "cmux.titlebarControls"

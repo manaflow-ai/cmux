@@ -191,10 +191,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public private(set) var focusPlacement: TerminalSurfaceFocusPlacement
     var additionalEnvironment: [String: String]
 
-    /// When true, the surface is created in libghostty MANUAL I/O mode: no
-    /// process is spawned, output is injected via `processRemoteOutput(_:)`,
-    /// and typed input is delivered to `manualInputHandler`.
-    let manualIO: Bool
+    /// Identifies who owns the process, PTY, and terminal protocol.
+    public let ioMode: TerminalSurfaceIOMode
     let manualInputHandler: (@Sendable (Data) -> Void)?
 
     /// Remote tmux manual-I/O resize and runtime-readiness hooks.
@@ -491,7 +489,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
-        manualIO: Bool = false,
+        ioMode: TerminalSurfaceIOMode = .exec,
         manualInputHandler: (@Sendable (Data) -> Void)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
@@ -523,7 +521,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)
         self.focusPlacement = focusPlacement
-        self.manualIO = manualIO
+        self.ioMode = ioMode
         self.manualInputHandler = manualInputHandler
         self.registry = dependencies.registry
         self.engine = dependencies.engine
@@ -561,7 +559,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             // MANUAL-I/O remote-tmux display surfaces have no command but must
             // start eagerly so they can receive injected output while their
             // workspace is still in the background.
-            || manualIO
+            || ioMode.usesManualIO
 
         // Surfaces with startup work must spawn before the user focuses their workspace.
         // Ghostty's embedded surface creation still expects a view with a window, so use
