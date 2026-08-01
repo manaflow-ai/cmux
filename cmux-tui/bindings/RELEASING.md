@@ -78,7 +78,9 @@ jobs while publishing `cmux-client` before `cmux-sidebar`. Each irreversible
 write has its own rerunnable job. Every job requires the exact latest release
 tag, verifies that its commit is on protected `main`, and binds provenance to
 that commit. Manual publisher dispatches validate only and cannot write to a
-registry.
+registry. Before publishing or recovering a failed publish, the workflow checks
+the registry digest and skips only an artifact whose bytes exactly match the
+validated local package.
 
 The cut workflow holds one cross-version concurrency lock until the Go check and
 all registry jobs finish. If one publish job fails, use GitHub's **Re-run failed
