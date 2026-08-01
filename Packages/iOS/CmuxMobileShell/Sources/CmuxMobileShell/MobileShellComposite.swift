@@ -2370,10 +2370,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return .failed(.authorizationFailed)
         }
-        await awaitPendingClientTeardownRegistration()
-        if let result = storedMacReconnectInterruptionResult(generation: generation) {
-            return result ? .connected : .superseded
-        }
         // Pull the authoritative per-user backup first so saved-Mac routes are
         // current before we dial: a Mac that relaunched on a new port republishes
         // to the backup, and LWW by lastSeenAt keeps any live local edit. Without
@@ -8684,13 +8680,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clientDisconnectTasks[id] = Task { @MainActor [weak self] in
             await client.disconnect()
             self?.clientDisconnectTasks[id] = nil
-        }
-    }
-
-    private func awaitPendingClientTeardownRegistration() async {
-        let tasks = Array(clientDisconnectTasks.values)
-        for task in tasks {
-            await task.value
         }
     }
 
