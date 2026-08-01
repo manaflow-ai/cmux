@@ -120,7 +120,10 @@ struct WorkspaceDetailView: View {
         #if os(iOS)
         Group {
             if let layout = workspace.layout {
-                PaneZoomNavigationStack(presentation: $paneZoomPresentation) {
+                PaneZoomNavigationStack(
+                    presentation: $paneZoomPresentation,
+                    terminalTheme: store.activeTerminalTheme
+                ) {
                     paneMapRoot(layout: layout)
                         .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
                         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
@@ -142,6 +145,27 @@ struct WorkspaceDetailView: View {
                 terminalWorkspaceEndpoint
             }
         }
+        .background {
+            store.activeTerminalTheme.terminalBackgroundColor
+                .ignoresSafeArea()
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if shouldShowSurfaceDeck {
+                SurfaceDeckBar(
+                    value: surfaceDeckValue,
+                    actions: surfaceDeckActions,
+                    terminalTheme: store.activeTerminalTheme
+                )
+                .equatable()
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        // The terminal owns keyboard geometry. Ignoring keyboard avoidance
+        // while the deck shows keeps the deck at the physical bottom so the
+        // keyboard covers it instead of lifting it; chat/browser modes keep
+        // normal avoidance.
+        .ignoresSafeArea(shouldShowSurfaceDeck ? .keyboard : [], edges: .bottom)
+        .animation(.snappy(duration: 0.18), value: shouldShowSurfaceDeck)
         .onChange(of: workspace.layout != nil) { _, hasLayout in
             paneZoomPresentation.layoutAvailabilityDidChange(hasLayout: hasLayout)
         }
@@ -156,33 +180,16 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    private var terminalWorkspaceEndpoint: some View {
-        let deckValue = surfaceDeckValue
-        let content = Group { detailSurfaceContent }
-        // Deck visibility must not change the content subtree's structural
-        // identity: branching around `content` would remount the terminal
-        // surface (and the chat/browser ZStack) every time the deck toggles.
-        // The branch lives inside the inset builder instead, and the
-        // keyboard-region parameter is data, not structure.
-        let showDeck = activeSurface == .terminal && deckValue.shouldShow
-        let contentWithSurfaceDeck = content
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if showDeck {
-                    SurfaceDeckBar(
-                        value: deckValue,
-                        actions: surfaceDeckActions,
-                        terminalTheme: store.activeTerminalTheme
-                    )
-                    .equatable()
-                }
-            }
-            // The terminal owns keyboard geometry. Ignoring keyboard avoidance
-            // while the deck shows keeps the deck at the physical bottom so the
-            // keyboard covers it instead of lifting it; chat/browser modes keep
-            // normal avoidance.
-            .ignoresSafeArea(showDeck ? .keyboard : [], edges: .bottom)
+    private var shouldShowSurfaceDeck: Bool {
+        activeSurface == .terminal
+            && paneZoomPresentation.isTerminalPresented
+            && surfaceDeckValue.shouldShow
+    }
 
-        return contentWithSurfaceDeck
+    private var terminalWorkspaceEndpoint: some View {
+        let content = Group { detailSurfaceContent }
+
+        return content
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)

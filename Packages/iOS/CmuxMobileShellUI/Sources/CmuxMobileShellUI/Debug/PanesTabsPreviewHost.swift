@@ -2,10 +2,13 @@
 import CMUXMobileCore
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import os
 import SwiftUI
+import UIKit
 
 /// Fixture-driven host for exercising the production panes-and-tabs UI without a paired Mac.
 struct PanesTabsPreviewHost: View {
+    private static let logger = Logger(subsystem: "dev.cmux.ios", category: "PanesTabsPreviewHost")
     private static let claudeSurfaceID = "preview-claude"
     private static let zshSurfaceID = "preview-zsh"
     private static let testsSurfaceID = "preview-bun-tests"
@@ -26,6 +29,7 @@ struct PanesTabsPreviewHost: View {
     @State private var fixtureLayoutRevision = 0
     @State private var isPaneMapRefreshing = false
     @State private var contentWidth: CGFloat = 0
+    @State private var autoplayStep = 0
     private let terminalTheme = TerminalTheme.monokai
 
     private let workspace = MobileWorkspacePreview(
@@ -149,44 +153,63 @@ struct PanesTabsPreviewHost: View {
     ]
 
     var body: some View {
-        if let layout = fixtureLayout {
-            PaneZoomNavigationStack(presentation: $paneZoomPresentation) {
-                PaneMapOverlay(
-                    value: PaneMapValue(
-                        workspaceName: workspace.name,
-                        layout: layout,
-                        phoneSelectedSurfaceID: selectedSurfaceID,
-                        agentStateKindsBySurfaceID: agentStateKindsBySurfaceID
-                    ),
-                    terminalTheme: terminalTheme,
-                    zoomNamespace: paneZoomNamespace,
-                    isVisible: !paneZoomPresentation.isTerminalPresented,
-                    allowsReordering: true,
-                    refreshTrigger: paneMapRefreshTrigger,
-                    fetchPreviews: Self.fetchFixturePreviews,
-                    selectTerminal: presentTerminalFromPaneMap,
-                    reorderPanes: reorderFixturePanes,
-                    refreshingChanged: { isPaneMapRefreshing = $0 }
-                )
-                .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
-                .navigationTitle(workspace.name)
-                .mobileTerminalNavigationChrome(theme: terminalTheme)
-                .toolbar { previewToolbar(mode: .paneMap) }
-                .navigationBarBackButtonHidden(true)
-            } terminal: {
-                terminalPreviewEndpoint
-                    .navigationBarBackButtonHidden(true)
-                    .navigationTransition(
-                        .zoom(
-                            sourceID: paneZoomSourceSurfaceID,
-                            in: paneZoomNamespace
-                        )
+        Group {
+            if let layout = fixtureLayout {
+                PaneZoomNavigationStack(
+                    presentation: $paneZoomPresentation,
+                    terminalTheme: terminalTheme
+                ) {
+                    PaneMapOverlay(
+                        value: PaneMapValue(
+                            workspaceName: workspace.name,
+                            layout: layout,
+                            phoneSelectedSurfaceID: selectedSurfaceID,
+                            agentStateKindsBySurfaceID: agentStateKindsBySurfaceID
+                        ),
+                        terminalTheme: terminalTheme,
+                        zoomNamespace: paneZoomNamespace,
+                        isVisible: !paneZoomPresentation.isTerminalPresented,
+                        allowsReordering: true,
+                        refreshTrigger: paneMapRefreshTrigger,
+                        fetchPreviews: Self.fetchFixturePreviews,
+                        selectTerminal: presentTerminalFromPaneMap,
+                        reorderPanes: reorderFixturePanes,
+                        refreshingChanged: { isPaneMapRefreshing = $0 }
                     )
+                    .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+                    .navigationTitle(workspace.name)
+                    .mobileTerminalNavigationChrome(theme: terminalTheme)
+                    .toolbar { previewToolbar(mode: .paneMap) }
+                    .navigationBarBackButtonHidden(true)
+                    .background { autoplayDriver(for: .paneMap) }
+                } terminal: {
+                    terminalPreviewEndpoint
+                        .navigationBarBackButtonHidden(true)
+                        .navigationTransition(
+                            .zoom(
+                                sourceID: paneZoomSourceSurfaceID,
+                                in: paneZoomNamespace
+                            )
+                        )
+                }
+            } else {
+                terminalPreviewEndpoint
             }
-        } else {
-            terminalPreviewEndpoint
         }
+        .background {
+            terminalTheme.terminalBackgroundColor
+                .ignoresSafeArea()
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if paneZoomPresentation.isTerminalPresented {
+                SurfaceDeckBar(value: deckValue, actions: deckActions, terminalTheme: terminalTheme)
+                    .equatable()
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .ignoresSafeArea(paneZoomPresentation.isTerminalPresented ? .keyboard : [], edges: .bottom)
+        .animation(.snappy(duration: 0.18), value: paneZoomPresentation.isTerminalPresented)
     }
 
     private var terminalPreviewEndpoint: some View {
@@ -194,15 +217,15 @@ struct PanesTabsPreviewHost: View {
             terminalTheme.terminalBackgroundColor
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            SurfaceDeckBar(value: deckValue, actions: deckActions, terminalTheme: terminalTheme)
-                .equatable()
+        .background {
+            terminalTheme.terminalBackgroundColor
+                .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
         .navigationTitle(workspace.name)
         .mobileTerminalNavigationChrome(theme: terminalTheme)
         .toolbar { previewToolbar(mode: .terminal) }
+        .background { autoplayDriver(for: .terminal) }
         .accessibilityIdentifier("PanesTabsPreviewHost")
     }
 
@@ -236,6 +259,156 @@ struct PanesTabsPreviewHost: View {
 
     private func returnToTerminalFromPaneMap() {
         paneZoomPresentation.presentTerminal(surfaceID: paneZoomSourceSurfaceID)
+    }
+
+    private enum AutoplayLocation {
+        case terminal
+        case paneMap
+    }
+
+    private func autoplayDriver(for location: AutoplayLocation) -> some View {
+        PanesTabsAutoplayDriver(
+            isEnabled: ProcessInfo.processInfo.environment["CMUX_UITEST_PANES_PREVIEW_AUTOPLAY"] == "1"
+                && fixtureLayout != nil,
+            location: location,
+            isTerminalPresented: paneZoomPresentation.isTerminalPresented,
+            step: $autoplayStep,
+            presentPaneMap: presentPaneMap,
+            presentTerminal: {
+                presentTerminalFromPaneMap(MobileTerminalPreview.ID(rawValue: Self.claudeSurfaceID))
+            },
+            returnToTerminal: returnToTerminalFromPaneMap
+        )
+        .frame(width: 1, height: 1)
+        .opacity(0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    @MainActor
+    private struct PanesTabsAutoplayDriver: UIViewRepresentable {
+        let isEnabled: Bool
+        let location: AutoplayLocation
+        let isTerminalPresented: Bool
+        @Binding var step: Int
+        let presentPaneMap: () -> Void
+        let presentTerminal: () -> Void
+        let returnToTerminal: () -> Void
+
+        func makeCoordinator() -> Coordinator {
+            Coordinator()
+        }
+
+        func makeUIView(context: Context) -> UIView {
+            let view = UIView(frame: .zero)
+            view.isUserInteractionEnabled = false
+            context.coordinator.update(self)
+            return view
+        }
+
+        func updateUIView(_ uiView: UIView, context: Context) {
+            context.coordinator.update(self)
+        }
+
+        static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+            coordinator.cancel()
+        }
+
+        @MainActor
+        final class Coordinator {
+            private var timer: Timer?
+            private var scheduledKey: String?
+
+            func update(_ parent: PanesTabsAutoplayDriver) {
+                guard parent.isEnabled else {
+                    cancel()
+                    return
+                }
+                guard let plan = Plan(
+                    step: parent.step,
+                    location: parent.location,
+                    isTerminalPresented: parent.isTerminalPresented
+                ) else {
+                    cancel()
+                    return
+                }
+                let nextKey = [
+                    "\(parent.step)",
+                    String(describing: parent.location),
+                    parent.isTerminalPresented ? "terminal" : "paneMap",
+                ].joined(separator: ":")
+                guard scheduledKey != nextKey else { return }
+                cancel()
+                scheduledKey = nextKey
+                PanesTabsPreviewHost.logger.notice("autoplay: schedule \(nextKey, privacy: .public)")
+                timer = Timer.scheduledTimer(withTimeInterval: plan.delay, repeats: false) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        guard parent.step == plan.expectedStep else { return }
+                        PanesTabsPreviewHost.logger.notice("autoplay: fire \(nextKey, privacy: .public)")
+                        parent.step = plan.nextStep
+                        parent.run(plan.action)
+                        self?.cancel()
+                    }
+                }
+            }
+
+            func cancel() {
+                timer?.invalidate()
+                timer = nil
+                scheduledKey = nil
+            }
+        }
+
+        private enum Action: Sendable {
+            case presentPaneMap
+            case presentTerminal
+            case returnToTerminal
+        }
+
+        private func run(_ action: Action) {
+            switch action {
+            case .presentPaneMap:
+                presentPaneMap()
+            case .presentTerminal:
+                presentTerminal()
+            case .returnToTerminal:
+                returnToTerminal()
+            }
+        }
+
+        private struct Plan: Sendable {
+            let expectedStep: Int
+            let nextStep: Int
+            let delay: TimeInterval
+            let action: Action
+
+            init?(step: Int, location: AutoplayLocation, isTerminalPresented: Bool) {
+                switch (step, location, isTerminalPresented) {
+                case (0, .terminal, true):
+                    expectedStep = 0
+                    nextStep = 1
+                    delay = 5
+                    action = .presentPaneMap
+                case (1, .paneMap, false):
+                    expectedStep = 1
+                    nextStep = 2
+                    delay = 1.1
+                    action = .presentTerminal
+                case (2, .terminal, true):
+                    expectedStep = 2
+                    nextStep = 3
+                    delay = 1.1
+                    action = .presentPaneMap
+                case (3, .paneMap, false):
+                    expectedStep = 3
+                    nextStep = 4
+                    delay = 1.1
+                    action = .returnToTerminal
+                default:
+                    return nil
+                }
+            }
+        }
     }
 
     private var paneZoomSourceSurfaceID: String {
