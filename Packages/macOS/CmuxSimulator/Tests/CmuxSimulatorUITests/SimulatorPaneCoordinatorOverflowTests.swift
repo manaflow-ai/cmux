@@ -106,6 +106,68 @@ struct SimulatorPaneCoordinatorOverflowTests {
         )
     }
 
+    @Test("External worker input waits for the active semantic transaction")
+    @MainActor
+    func workerInputWaitsForSemanticTransaction() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        let record = try await coordinator.recordUIAutomationSnapshot(
+            Self.snapshot(),
+            simulatorID: "DEVICE",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+        let key = SimulatorWorkerInbound.key(
+            SimulatorKeyEvent(usage: 4, phase: .down)
+        )
+
+        try await coordinator.withUIAutomationTransaction {
+            let accepted = await Task.detached {
+                await MainActor.run { coordinator.enqueue(key) }
+            }.value
+
+            #expect(accepted)
+            let current = try coordinator.currentUIAutomationSnapshot(
+                nowMilliseconds: 1_001
+            )
+            #expect(current.snapshot.sequence == record.snapshot.sequence)
+            #expect(!(await client.messages().contains(key)))
+        }
+
+        for _ in 0..<1_000 where !(await client.messages().contains(key)) {
+            await Task.yield()
+        }
+        #expect(await client.messages().contains(key))
+        #expect(throws: SimulatorUIAutomationReferenceError.snapshotMissing) {
+            _ = try coordinator.currentUIAutomationSnapshot(
+                nowMilliseconds: 1_001
+            )
+        }
+    }
+
+    @Test("External control input waits for the active semantic transaction")
+    @MainActor
+    func controlInputWaitsForSemanticTransaction() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        let action = SimulatorControlAction.interactive(.hardwareButton(.home))
+
+        let deferred = try await coordinator.withUIAutomationTransaction {
+            let task = Task.detached {
+                try await coordinator.perform(action)
+            }
+            for _ in 0..<100 where await client.actions().isEmpty {
+                await Task.yield()
+            }
+            #expect(await client.actions().isEmpty)
+            return task
+        }
+
+        _ = try await deferred.value
+        #expect(await client.actions().count == 1)
+    }
+
     @Test("Outgoing overflow releases held input and stops the worker")
     @MainActor
     func outgoingOverflow() async {

@@ -131,6 +131,8 @@ struct SimulatorUIAutomationSnapshotTests {
             direction: .right,
             distance: 0.5
         ))
+        let dragTarget = try #require(record.element(ref: "e1_2"))
+        #expect(drag.from == dragTarget.activationPoint)
         #expect(drag.from.x < drag.to.x)
         #expect((0...1).contains(drag.from.x))
         #expect((0...1).contains(drag.to.x))
