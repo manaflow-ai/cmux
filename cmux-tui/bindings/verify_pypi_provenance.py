@@ -142,14 +142,24 @@ def _verify_publisher(
         raise ProvenanceError("PyPI provenance bundle set is malformed")
     bundle = bundles[0]
     publisher = bundle.get("publisher") if isinstance(bundle, dict) else None
-    expected_publisher = {
+    if not isinstance(publisher, dict):
+        raise ProvenanceError("PyPI trusted publisher identity is malformed")
+    expected_identity = {
         "environment": environment,
         "kind": "GitHub",
         "repository": _repository_slug(repository),
         "workflow": workflow,
     }
-    if publisher != expected_publisher:
+    if any(
+        publisher.get(key) != value
+        for key, value in expected_identity.items()
+    ):
         raise ProvenanceError("PyPI trusted publisher identity does not match")
+    claims = publisher.get("claims")
+    if "claims" not in publisher or not (
+        claims is None or isinstance(claims, dict)
+    ):
+        raise ProvenanceError("PyPI trusted publisher claims are malformed")
     attestations = bundle.get("attestations")
     if not isinstance(attestations, list) or not attestations:
         raise ProvenanceError("PyPI provenance attestation set is malformed")

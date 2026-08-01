@@ -655,6 +655,7 @@ class RegistryArtifactTests(unittest.TestCase):
             side_effect=(
                 reconcile.RegistryLookupError("temporary registry failure"),
                 reconcile.MISSING,
+                reconcile.MATCH,
             ),
         ) as status, mock.patch.object(
             reconcile.subprocess,
@@ -681,7 +682,7 @@ class RegistryArtifactTests(unittest.TestCase):
                 cancel_event=cancellation,
             )
         self.assertEqual(result, 0)
-        self.assertEqual(status.call_count, 2)
+        self.assertEqual(status.call_count, 3)
         cancellation.wait.assert_called_once()
         publish.assert_called_once()
 

@@ -198,6 +198,38 @@ class VerifyPyPIProvenanceTests(unittest.TestCase):
             )
         run.assert_not_called()
 
+    def test_rejects_malformed_publisher_claims(self) -> None:
+        metadata = self.metadata(self.filenames)
+        provenance_payload = self.provenance_payload()
+        bundles = provenance_payload["attestation_bundles"]
+        assert isinstance(bundles, list)
+        publisher = bundles[0]["publisher"]
+        assert isinstance(publisher, dict)
+        publisher["claims"] = []
+
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            url = str(getattr(request, "full_url", ""))
+            return self.response(
+                provenance_payload if "/integrity/" in url else metadata
+            )
+
+        with mock.patch.object(
+            provenance,
+            "urlopen",
+            side_effect=response,
+        ), mock.patch.object(provenance.subprocess, "run") as run, \
+            self.assertRaisesRegex(provenance.ProvenanceError, "claims"):
+            provenance.verify(
+                self.package,
+                self.version,
+                self.filenames,
+                self.repository,
+                self.owners,
+                self.workflow,
+                self.environment,
+            )
+        run.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

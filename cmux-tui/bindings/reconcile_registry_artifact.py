@@ -667,12 +667,12 @@ def main(
             return 0
 
         result = subprocess.run(command, check=False)
-        if result.returncode == 0:
-            return 0
-        print(
-            f"publish command exited {result.returncode}; reconciling registry state",
-            file=sys.stderr,
-        )
+        if result.returncode != 0:
+            print(
+                f"publish command exited {result.returncode}; "
+                "reconciling registry state",
+                file=sys.stderr,
+            )
         status = wait_for_status(
             args.registry,
             args.package,
@@ -687,6 +687,12 @@ def main(
                 "registry accepted the exact local artifact; treating publish as successful"
             )
             return 0
+        if result.returncode == 0:
+            print(
+                "publish command succeeded but the registry did not expose the exact "
+                "local artifact",
+                file=sys.stderr,
+            )
         return result.returncode or 1
     except RegistryError as error:
         print(f"registry reconciliation failed: {error}", file=sys.stderr)
