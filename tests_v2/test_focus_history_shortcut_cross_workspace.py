@@ -48,6 +48,24 @@ def _press_and_wait(c: cmux, combo: str, expected_ws: str, timeout: float = 5.0)
     return current
 
 
+def _wait_selected(c: cmux, wsid: str, timeout: float = 5.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _selected_workspace(c) == wsid:
+            return
+        time.sleep(0.1)
+    raise cmuxError(f"workspace {wsid} never became selected")
+
+
+def _wait_closed(c: cmux, wsid: str, timeout: float = 5.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if all(listed != wsid for _i, listed, _t, _s in c.list_workspaces()):
+            return
+        time.sleep(0.1)
+    raise cmuxError(f"workspace {wsid} still listed after close")
+
+
 def main() -> int:
     c = cmux()
     c.connect()
@@ -61,12 +79,12 @@ def main() -> int:
         c.select_workspace(wsid)
         c.rename_workspace(f"fhist-ws{index + 1}", wsid)
         created.append(wsid)
-        time.sleep(0.15)
+        _wait_selected(c, wsid)
 
     # Visit ws1 -> ws2 -> ws3 so the focus-history stack is deterministic.
     for wsid in created:
         c.select_workspace(wsid)
-        time.sleep(0.15)
+        _wait_selected(c, wsid)
     _must(_selected_workspace(c) == created[2], "expected focus on ws3 before navigating")
 
     # Back across workspaces: ws3 -> ws2 -> ws1.
@@ -83,7 +101,7 @@ def main() -> int:
 
     # Closed workspaces are skipped, matching the arrow buttons' pruning.
     c.close_workspace(created[1])
-    time.sleep(0.3)
+    _wait_closed(c, created[1])
     got = _press_and_wait(c, "cmd+[", created[0])
     _must(got == created[0], f"cmd+[ should skip closed ws2 and land on ws1, got {got}")
 
