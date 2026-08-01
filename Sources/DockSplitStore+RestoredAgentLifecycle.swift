@@ -244,16 +244,10 @@ extension DockSplitStore {
     ) -> Bool {
         let statusKey = agentStatusKey(forAgentPIDKey: key, runtime: runtime)
         var didChange = false
-        var removedPIDState = false
-        if runtime.agentPIDs.removeValue(forKey: key) != nil { removedPIDState = true }
-        if runtime.agentPIDProcessIdentities.removeValue(forKey: key) != nil { removedPIDState = true }
-        if runtime.agentPIDKeys.remove(key) != nil { removedPIDState = true }
-        if removedPIDState { didChange = true }
-        // Lifecycle follows PID ownership: a key that never recorded PID state
-        // (a bare `clear_status` for a display key) must not drop the agent's
-        // lifecycle and make a live pane hibernatable (#9295).
-        if removedPIDState,
-           runtime.agentLifecycleStates.removeValue(forKey: statusKey) != nil {
+        if runtime.agentPIDs.removeValue(forKey: key) != nil { didChange = true }
+        if runtime.agentPIDProcessIdentities.removeValue(forKey: key) != nil { didChange = true }
+        if runtime.agentPIDKeys.remove(key) != nil { didChange = true }
+        if runtime.agentLifecycleStates.removeValue(forKey: statusKey) != nil {
             didChange = true
         }
         if clearStatus,
