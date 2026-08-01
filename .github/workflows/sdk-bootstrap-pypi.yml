@@ -1,13 +1,8 @@
 name: sdk bootstrap pypi
 
 on:
-  workflow_dispatch:
-    inputs:
-      confirm_bootstrap:
-        description: "Reserve cmux-sdk with an attested prerelease"
-        required: true
-        default: false
-        type: boolean
+  repository_dispatch:
+    types: [sdk-bootstrap-pypi]
 
 permissions: {}
 
@@ -25,7 +20,7 @@ jobs:
       contents: read
     steps:
       - name: Require explicit bootstrap confirmation
-        if: inputs.confirm_bootstrap != true
+        if: github.event.client_payload.confirm_bootstrap != true
         run: |
           echo "Refusing to reserve cmux-sdk without confirm_bootstrap=true." >&2
           exit 1

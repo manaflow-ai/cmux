@@ -319,8 +319,8 @@ def test_privileged_sdk_workflows_use_external_release_authority() -> None:
         assert "github.event.client_payload" in text
 
     cut_tags = workflow_job(release, "cut-tags")
-    assert "contents: write" not in cut_tags
-    assert "contents: read" in cut_tags
+    assert "    permissions:\n      contents: write" not in cut_tags
+    assert "    permissions:\n      contents: read" in cut_tags
     assert "name: sdk-release" in cut_tags
     assert (
         "actions/create-github-app-token@"

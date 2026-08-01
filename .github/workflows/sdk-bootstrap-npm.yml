@@ -1,13 +1,8 @@
 name: sdk bootstrap npm
 
 on:
-  workflow_dispatch:
-    inputs:
-      confirm_bootstrap:
-        description: "Claim cmux-sdk with a tested prerelease artifact"
-        required: true
-        default: false
-        type: boolean
+  repository_dispatch:
+    types: [sdk-bootstrap-npm]
 
 permissions: {}
 
@@ -20,7 +15,7 @@ env:
 
 jobs:
   bootstrap:
-    if: inputs.confirm_bootstrap == true
+    if: github.event.client_payload.confirm_bootstrap == true
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

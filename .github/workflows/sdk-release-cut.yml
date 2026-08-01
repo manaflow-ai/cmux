@@ -1,17 +1,8 @@
 name: sdk release cut
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Four-language SDK version to publish, for example 1.0.0"
-        required: true
-        type: string
-      confirm_publish:
-        description: "Create release tags and publish all four SDKs"
-        required: true
-        default: false
-        type: boolean
+  repository_dispatch:
+    types: [sdk-release-cut]
 
 permissions: {}
 
@@ -33,7 +24,7 @@ jobs:
       go_tag: ${{ steps.release.outputs.go_tag }}
     steps:
       - name: Require explicit publish confirmation
-        if: inputs.confirm_publish != true
+        if: github.event.client_payload.confirm_publish != true
         run: |
           echo "Refusing to publish SDKs without confirm_publish=true." >&2
           exit 1
@@ -47,7 +38,7 @@ jobs:
       - name: Validate protected main and release metadata
         id: release
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ github.event.client_payload.version }}
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
@@ -346,10 +337,21 @@ jobs:
       - registry-preflight
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
-      contents: write
+      contents: read
+    environment:
+      name: sdk-release
     steps:
+      - name: Mint the SDK release GitHub App token
+        id: release_app_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.SDK_RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SDK_RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          token: ${{ steps.release_app_token.outputs.token }}
           persist-credentials: true
           ref: ${{ github.sha }}
           fetch-depth: 0

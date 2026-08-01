@@ -32,10 +32,41 @@ wire-behavior conformance suite.
 
 ## One-time registry setup
 
+Establish release authority before adding registry credentials:
+
+1. Create a dedicated SDK release GitHub App with repository Contents
+   read/write permission and install it only on `manaflow-ai/cmux`.
+2. Create the `sdk-release` environment. Store the App client ID as
+   `SDK_RELEASE_APP_CLIENT_ID` and its private key as
+   `SDK_RELEASE_APP_PRIVATE_KEY`. Configure protected branches only, require a
+   reviewer other than the dispatcher, prevent self-review, and
+   disable administrator bypass.
+3. Apply the same protected-branch, reviewer, self-review, and bypass policy to
+   `crates-io`, `npm`, `pypi`, `npm-bootstrap`, and `pypi-bootstrap`. A branch
+   workflow must never obtain a registry credential or trusted-publisher OIDC
+   identity.
+4. Add an active tag ruleset that restricts creation, update, and deletion of
+   `refs/tags/cmux-sdk-v*` and
+   `refs/tags/cmux-tui/bindings/go/v*`. Grant bypass only to the SDK release
+   GitHub App. The repository workflow token and repository writers must not
+   bypass this ruleset.
+
+The privileged workflows use `repository_dispatch`, so GitHub loads their
+definitions and source revision from the default branch. Environment approval
+then gates credentials, and the dedicated App mints the short-lived token used
+for the atomic tag push.
+
 - npm: the package must exist before npm allows a trusted publisher. Create the
   `npm-bootstrap` GitHub environment with a temporary `NPM_BOOTSTRAP_TOKEN`
-  secret, then run `sdk-bootstrap-npm.yml` once from current `main` with
-  `confirm_bootstrap=true`. The workflow tests and packs `0.0.0-bootstrap.0` on
+  secret, then dispatch `sdk-bootstrap-npm` once:
+
+  ```bash
+  gh api --method POST repos/manaflow-ai/cmux/dispatches \
+    -f event_type=sdk-bootstrap-npm \
+    -F 'client_payload[confirm_bootstrap]=true'
+  ```
+
+  The workflow tests and packs `0.0.0-bootstrap.0` on
   a GitHub-hosted runner, publishes that exact artifact with provenance under
   the `bootstrap` tag, and refuses to claim `latest`. Configure repository
   `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, and the `npm` environment
@@ -47,8 +78,16 @@ wire-behavior conformance suite.
   exact tested archive with matching provenance.
 - PyPI: create the `pypi-bootstrap` GitHub environment, then add a pending
   trusted publisher for project `cmux-sdk`, repository `manaflow-ai/cmux`,
-  workflow `sdk-bootstrap-pypi.yml`, environment `pypi-bootstrap`. Run that
-  workflow once from current `main` with `confirm_bootstrap=true`. It tests and
+  workflow `sdk-bootstrap-pypi.yml`, environment `pypi-bootstrap`. Dispatch it
+  once:
+
+  ```bash
+  gh api --method POST repos/manaflow-ai/cmux/dispatches \
+    -f event_type=sdk-bootstrap-pypi \
+    -F 'client_payload[confirm_bootstrap]=true'
+  ```
+
+  It tests and
   publishes the attested prerelease `0.0.0a0`, which creates the project and
   reserves its name before release tags can exist. Then add repository
   `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, environment `pypi` as a
@@ -89,8 +128,14 @@ requires the interactive bootstrap above.
    ```
 
 3. Merge the version and release-path changes to `main`.
-4. Run `.github/workflows/sdk-release-cut.yml` from `main` with `version=X.Y.Z`
-   and `confirm_publish=true`.
+4. Dispatch the release from a checkout with repository write access:
+
+   ```bash
+   gh api --method POST repos/manaflow-ai/cmux/dispatches \
+     -f event_type=sdk-release-cut \
+     -F 'client_payload[version]=X.Y.Z' \
+     -F 'client_payload[confirm_publish]=true'
+   ```
 
 The cut workflow verifies current protected `main`, then runs Rust, Go,
 TypeScript, and Python package and live-conformance preflights in parallel
