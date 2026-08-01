@@ -138,7 +138,8 @@ if (args.json) {
         `addToSegment=${summary.addedToSegment} ` +
         `backfillName=${summary.nameBackfilled} ` +
         `alreadyPresent=${summary.alreadyPresent} ` +
-        `skippedUnsubscribed=${summary.skippedUnsubscribed}` +
+        `skippedUnsubscribed=${summary.skippedUnsubscribed} ` +
+        `staleMembers=${summary.staleSegmentMembers}` +
         (summary.segmentCreated ? " (segment created)" : ""),
     );
   }

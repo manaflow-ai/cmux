@@ -79,3 +79,7 @@ console.log(`Review and send it here: https://resend.com/broadcasts/${draft.id}`
 console.log(
   "This tooling never sends broadcasts; the send button in the dashboard is the only send path.",
 );
+console.log(
+  "If the dashboard cannot send an API-created draft on your plan, duplicate " +
+    "it in the dashboard editor and send the copy; do not add a send flag here.",
+);

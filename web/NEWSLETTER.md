@@ -136,3 +136,15 @@ dashboard. That dashboard button is the only send path: the repo tooling
 never sets the broadcast `send` flag, has no command that sends a
 broadcast, and the draft script rejects unknown flags before making any
 API call.
+
+If the dashboard ever refuses to send an API-created draft (older Resend
+plans restricted API-created broadcasts to API sending), duplicate the
+draft in the dashboard editor and send the copy from there. Do not add a
+send flag to the tooling; the human-review-then-click design is
+deliberate.
+
+Note on removals: the sync is additive by design and never removes
+contacts or segment memberships (an upstream source glitch must not be
+able to evacuate an audience). The per-segment summary reports
+`staleMembers`, the count of members whose email no longer appears in the
+sources; prune them by hand in the Resend dashboard when it matters.

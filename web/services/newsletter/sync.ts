@@ -60,6 +60,13 @@ export type SegmentSyncSummary = {
   nameBackfilled: number;
   alreadyPresent: number;
   skippedUnsubscribed: number;
+  // Members of the segment whose email no longer appears in the sources
+  // (deleted account, changed primary email, lost verification). Reported
+  // for visibility only: the sync is deliberately additive and never
+  // removes memberships, because an upstream source glitch must not be
+  // able to evacuate an audience. Stale members are pruned by hand in the
+  // Resend dashboard when it matters.
+  staleSegmentMembers: number;
 };
 
 export async function syncSegment(options: {
@@ -149,6 +156,16 @@ export async function syncSegment(options: {
     }
   }
 
+  const desiredEmails = new Set(
+    desired.map((contact) => contact.email.trim().toLowerCase()),
+  );
+  let staleSegmentMembers = 0;
+  for (const memberEmail of memberEmails) {
+    if (!desiredEmails.has(memberEmail)) {
+      staleSegmentMembers += 1;
+    }
+  }
+
   return {
     ...base,
     segmentId: segment?.id ?? null,
@@ -160,5 +177,6 @@ export async function syncSegment(options: {
     nameBackfilled: plan.toBackfillName.length,
     alreadyPresent: plan.alreadyPresent,
     skippedUnsubscribed: plan.skippedUnsubscribed,
+    staleSegmentMembers,
   };
 }

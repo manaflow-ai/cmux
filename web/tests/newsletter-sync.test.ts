@@ -372,6 +372,40 @@ describe("syncSegment", () => {
     expect(fake.writes[2]).toStartWith("create-contact:founder@example.com");
   });
 
+  test("reports stale segment members without removing them", async () => {
+    const fake = fakeResend();
+    fake.segments.push({ id: "seg_users", name: USERS_SEGMENT_NAME });
+    fake.topics.push({
+      id: "top_updates",
+      name: USERS_TOPIC.name,
+      default_subscription: "opt_in",
+    });
+    fake.contacts.push({
+      id: "con_stale",
+      email: "left@example.com",
+      unsubscribed: false,
+      segmentIds: new Set(["seg_users"]),
+    });
+
+    const summary = await syncSegment({
+      client: client(fake),
+      segmentName: USERS_SEGMENT_NAME,
+      topic: USERS_TOPIC,
+      // The member no longer appears in any source.
+      desired: [],
+      existingContacts: await listContactsOf(fake),
+      apply: true,
+    });
+
+    // Additive by design: visibility, never removal.
+    expect(summary.staleSegmentMembers).toBe(1);
+    expect(fake.writes).toEqual([]);
+    expect(
+      fake.contacts.find((c) => c.email === "left@example.com")?.segmentIds
+        .size,
+    ).toBe(1);
+  });
+
   test("fails closed on a same-name topic whose immutable default is opt_out", async () => {
     const fake = fakeResend();
     fake.segments.push({ id: "seg_users", name: USERS_SEGMENT_NAME });

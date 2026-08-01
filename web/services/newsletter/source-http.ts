@@ -39,10 +39,12 @@ export async function fetchSourceJson<T>(options: {
       status = response.status;
       text = await response.text();
     } catch (cause) {
-      if (!abort.signal.aborted) {
-        throw cause;
-      }
-      transientFailure = `${options.label} timed out after ${timeoutMs}ms`;
+      // Timeouts and transport failures (DNS, TLS, connection reset) are
+      // all transient from the caller's perspective; both go through the
+      // same bounded retry path instead of aborting the reconciliation.
+      transientFailure = abort.signal.aborted
+        ? `${options.label} timed out after ${timeoutMs}ms`
+        : `${options.label} network error: ${String(cause).slice(0, 200)}`;
     } finally {
       clearTimeout(timer);
     }
