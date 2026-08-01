@@ -69,38 +69,42 @@ struct MobilePushSettingsContent: View {
     }
 
     var body: some View {
-        statusRow
+        Group {
+            statusRow
 
-        Toggle(
-            L10n.string(
-                "mobile.notifications.phoneEnabled",
-                defaultValue: "Allow Push Alerts on This iPhone"
-            ),
-            isOn: phoneEnabledBinding
-        )
-        .accessibilityIdentifier("MobileSettingsNotifications")
-        .disabled(isMutatingPhone)
+            Toggle(
+                L10n.string(
+                    "mobile.notifications.phoneEnabled",
+                    defaultValue: "Allow Push Alerts on This iPhone"
+                ),
+                isOn: phoneEnabledBinding
+            )
+            .accessibilityIdentifier("MobileSettingsNotifications")
+            .disabled(isMutatingPhone)
 
-        if let repair = readiness.repair,
-           let repairPresentation = repairPresentation(for: repair) {
-            Button {
-                Task {
-                    let succeeded = await onRepair(repair)
-                    if repair == .enableOnPhone {
-                        phoneEnabled = succeeded
+            if let repair = readiness.repair,
+               let repairPresentation = repairPresentation(for: repair) {
+                Button {
+                    guard !isMutatingPhone else { return }
+                    isMutatingPhone = true
+                    Task {
+                        defer { isMutatingPhone = false }
+                        let succeeded = await onRepair(repair)
+                        if repair == .enableOnPhone {
+                            phoneEnabled = succeeded
+                        }
                     }
+                } label: {
+                    Label(
+                        repairPresentation.title,
+                        systemImage: repairPresentation.systemImage
+                    )
                 }
-            } label: {
-                Label(
-                    repairPresentation.title,
-                    systemImage: repairPresentation.systemImage
-                )
+                .accessibilityIdentifier(repairPresentation.identifier)
+                .disabled(isMutatingPhone || isMutatingMac)
             }
-            .accessibilityIdentifier(repairPresentation.identifier)
-            .disabled(isMutatingPhone || isMutatingMac)
-        }
 
-        if let macStatus {
+            if let macStatus {
             Toggle(
                 L10n.string(
                     "mobile.notifications.macForwarding",
@@ -195,12 +199,21 @@ struct MobilePushSettingsContent: View {
             .disabled(!supportsMacTest || isSendingTest || isMutatingMac)
             .accessibilityIdentifier("MobileSettingsPushSendTest")
 
-            if let testStage {
-                Text(testStageText(testStage))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("MobileSettingsPushTestResult")
+                if let testStage {
+                    Text(testStageText(testStage))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("MobileSettingsPushTestResult")
+                }
             }
+        }
+        .onChange(of: macStatus) { _, confirmed in
+            confirmedMacStatus = confirmed
+            guard let confirmed else { return }
+            macForwardingEnabled = confirmed.forwardingEnabled
+            macMode = confirmed.mode
+            macHideContent = confirmed.hideContent
+            mutationFailed = false
         }
     }
 
@@ -222,14 +235,6 @@ struct MobilePushSettingsContent: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(readinessText)
         .accessibilityIdentifier("MobileSettingsPushReadinessStatus")
-        .onChange(of: macStatus) { _, confirmed in
-            guard let confirmed else { return }
-            confirmedMacStatus = confirmed
-            macForwardingEnabled = confirmed.forwardingEnabled
-            macMode = confirmed.mode
-            macHideContent = confirmed.hideContent
-            mutationFailed = false
-        }
     }
 
     private var phoneEnabledBinding: Binding<Bool> {
@@ -255,6 +260,7 @@ struct MobilePushSettingsContent: View {
         Binding(
             get: { macForwardingEnabled },
             set: { requested in
+                guard !isMutatingMac else { return }
                 macForwardingEnabled = requested
                 performMacMutation(.forwardingEnabled(requested))
             }
@@ -265,6 +271,7 @@ struct MobilePushSettingsContent: View {
         Binding(
             get: { macHideContent },
             set: { requested in
+                guard !isMutatingMac else { return }
                 macHideContent = requested
                 performMacMutation(.hideContent(requested))
             }
@@ -277,7 +284,7 @@ struct MobilePushSettingsContent: View {
         identifier: String
     ) -> some View {
         Button {
-            guard macMode != mode else { return }
+            guard !isMutatingMac, macMode != mode else { return }
             macMode = mode
             performMacMutation(.mode(mode))
         } label: {
@@ -354,12 +361,12 @@ private extension MobilePushSettingsContent {
             case .unknown:
                 return L10n.string(
                     "mobile.notifications.status.queueUnconfirmed",
-                    defaultValue: "Limited, Mac Retry Storage Unconfirmed"
+                    defaultValue: "Limited, Delivery Recovery Unconfirmed"
                 )
             case .loadFailed, .saveFailed, .clearFailed:
                 return L10n.string(
                     "mobile.notifications.status.queueFailed",
-                    defaultValue: "Limited, Mac Retry Storage Failed"
+                    defaultValue: "Limited, Delivery Recovery Unavailable"
                 )
             case .healthy:
                 return L10n.string(
@@ -417,12 +424,12 @@ private extension MobilePushSettingsContent {
         case .awaitingDeviceToken:
             L10n.string(
                 "mobile.notifications.status.awaitingToken",
-                defaultValue: "Blocked, Waiting for APNs Token"
+                defaultValue: "Blocked, Waiting for Notification Setup"
             )
         case .deviceTokenRegistrationFailed:
             L10n.string(
                 "mobile.notifications.status.tokenFailed",
-                defaultValue: "Blocked, APNs Registration Failed"
+                defaultValue: "Blocked, Notification Setup Failed"
             )
         default:
             assertionFailure("Expected a phone-side push blocker")
@@ -442,7 +449,7 @@ private extension MobilePushSettingsContent {
         case .backendRegistrationRequired:
             L10n.string(
                 "mobile.notifications.status.backendRequired",
-                defaultValue: "Blocked, Backend Registration Required"
+                defaultValue: "Blocked, Finishing Notification Setup"
             )
         case .authenticationRequired:
             L10n.string(
@@ -544,10 +551,15 @@ private extension MobilePushSettingsContent {
                 "mobile.notifications.test.authentication",
                 defaultValue: "Not queued because the Mac is not signed in."
             )
+        case .encodingFailed:
+            L10n.string(
+                "mobile.notifications.test.encodingFailed",
+                defaultValue: "The alert could not be prepared for delivery."
+            )
         case .queueFull:
             L10n.string(
                 "mobile.notifications.test.queueFull",
-                defaultValue: "Not queued because the Mac retry queue is full."
+                defaultValue: "Delivery is busy. Try again shortly."
             )
         case .unavailable:
             L10n.string(
@@ -609,7 +621,7 @@ private extension MobilePushSettingsContent {
             RepairPresentation(
                 title: L10n.string(
                     "mobile.notifications.repair.retryAPNs",
-                    defaultValue: "Retry APNs Registration"
+                    defaultValue: "Retry Notification Setup"
                 ),
                 systemImage: "arrow.clockwise",
                 identifier: "MobileSettingsPushRepairRetryAPNs"

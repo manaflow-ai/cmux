@@ -75,8 +75,6 @@ final class PushRedirectURLProtocol: URLProtocol, @unchecked Sendable {
                 var proposed = URLRequest(url: target)
                 proposed.httpMethod = [307, 308].contains(status) ? request.httpMethod : "GET"
                 client?.urlProtocol(self, wasRedirectedTo: proposed, redirectResponse: response)
-                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-                client?.urlProtocolDidFinishLoading(self)
                 return
             }
 

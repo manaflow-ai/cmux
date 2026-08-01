@@ -14109,6 +14109,11 @@ class TerminalController {
             result = v2MobileSyncFetch(params: request.params)
         case "phone_push.settings.update":
             result = v2MobilePhonePushSettingsUpdate(params: request.params)
+        case "phone_push.status.get":
+            // The payload is intentionally content-free. This authenticated
+            // request supplies the same-account token that the client's paired
+            // host-status exchange reuses for the private readiness block.
+            result = .ok(["ok": true])
         case "phone_push.test":
             result = v2MobilePhonePushTest()
         default:

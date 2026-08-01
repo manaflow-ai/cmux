@@ -16,6 +16,7 @@ import Testing
         #expect(PhonePushForwardAdmission.disabled.testStageRawValue == "forwarding_disabled")
         #expect(PhonePushForwardAdmission.presenceSuppressed.testStageRawValue == "suppressed_mac_active")
         #expect(PhonePushForwardAdmission.authenticationUnavailable.testStageRawValue == "authentication_unavailable")
+        #expect(PhonePushForwardAdmission.encodingFailed.testStageRawValue == "encoding_failed")
         #expect(PhonePushForwardAdmission.queueFull.testStageRawValue == "queue_full")
         #expect(PhonePushForwardAdmission.queued.testStageRawValue == "queued")
     }
@@ -471,6 +472,95 @@ import Testing
         #expect(!encoded.contains("secret terminal output"))
     }
 
+    @Test func requestEnvelopeBoundsVisibleTextWithoutSplittingCharacters() throws {
+        let longCharacter = "👩🏽‍💻"
+        let payload = PhonePushPayload(
+            kind: .notify,
+            title: "  \(String(repeating: longCharacter, count: 100))  ",
+            subtitle: String(repeating: longCharacter, count: 100),
+            body: String(repeating: longCharacter, count: 300),
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            retargetsToLiveSurfaceOwner: true,
+            macDeviceId: UUID().uuidString,
+            notificationId: UUID().uuidString,
+            notificationIds: [],
+            badgeCount: 1,
+            hideContent: false
+        )
+
+        let envelope = try PhonePushRequestEnvelope(
+            payload: payload,
+            expirationEpochSeconds: 1_750_000_120
+        )
+        let body = try #require(
+            JSONSerialization.jsonObject(with: envelope.body)
+                as? [String: Any]
+        )
+        let title = try #require(body["title"] as? String)
+        let subtitle = try #require(body["subtitle"] as? String)
+        let text = try #require(body["body"] as? String)
+
+        #expect(title.utf16.count <= 120)
+        #expect(subtitle.utf16.count <= 120)
+        #expect(text.utf16.count <= 500)
+        #expect(title.allSatisfy { String($0) == longCharacter })
+        #expect(subtitle.allSatisfy { String($0) == longCharacter })
+        #expect(text.allSatisfy { String($0) == longCharacter })
+        #expect(envelope.body.count <= 8 * 1_024)
+    }
+
+    @Test func requestEnvelopeRejectsUnboundedOpaqueIdentifiers() {
+        let payload = PhonePushPayload(
+            kind: .notify,
+            title: "agent",
+            subtitle: "",
+            body: "done",
+            workspaceId: String(repeating: "a", count: 201),
+            surfaceId: nil,
+            retargetsToLiveSurfaceOwner: false,
+            macDeviceId: nil,
+            notificationId: nil,
+            notificationIds: [],
+            badgeCount: 1,
+            hideContent: false
+        )
+
+        #expect(throws: (any Error).self) {
+            try PhonePushRequestEnvelope(
+                payload: payload,
+                expirationEpochSeconds: 1_750_000_120
+            )
+        }
+    }
+
+    @Test func worstCaseDismissBatchFitsTheRouteRequestLimit() throws {
+        let maximumEscapedIdentifier = String(repeating: "\u{0000}", count: 200)
+        let payload = PhonePushPayload(
+            kind: .dismiss,
+            title: "",
+            subtitle: "",
+            body: "",
+            workspaceId: nil,
+            surfaceId: nil,
+            retargetsToLiveSurfaceOwner: false,
+            macDeviceId: nil,
+            notificationId: nil,
+            notificationIds: Array(
+                repeating: maximumEscapedIdentifier,
+                count: 4
+            ),
+            badgeCount: 0,
+            hideContent: false
+        )
+
+        let envelope = try PhonePushRequestEnvelope(
+            payload: payload,
+            expirationEpochSeconds: 1_750_000_120
+        )
+        #expect(envelope.body.count <= 8 * 1_024)
+    }
+
     @Test func retryPolicyHonorsServerDelayWithoutRefreshingEventTTL() {
         #expect(
             PhonePushRetryPolicy.delaySeconds(
@@ -497,6 +587,15 @@ import Testing
                 retryAfterSeconds: 900,
                 nowEpochSeconds: 1_000,
                 expirationEpochSeconds: 1_120
+            ) == nil
+        )
+        #expect(
+            PhonePushRetryPolicy.delaySeconds(
+                afterAttempt: 1,
+                result: .retryableFailure,
+                retryAfterSeconds: 10,
+                nowEpochSeconds: Int.max - 1,
+                expirationEpochSeconds: Int.max
             ) == nil
         )
         #expect(

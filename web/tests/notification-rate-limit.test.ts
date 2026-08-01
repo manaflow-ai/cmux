@@ -183,6 +183,84 @@ describe("notification rate limit", () => {
     expect(stored).toEqual({ sent: 1, transient: 0 });
   });
 
+  dbTest("persists provider backoff across same-correlation retries", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate notification_send_events restart identity cascade`;
+
+    const { cloudDb } = await import("../db/client");
+    const db = cloudDb();
+    const startedAt = new Date("2026-06-02T12:00:00Z");
+    const correlationId = "provider-backoff";
+    const target = {
+      targetId: "00000000-0000-4000-8000-000000000001",
+      deviceToken: "a".repeat(64),
+      bundleId: "com.cmux.app",
+      environment: "production",
+    };
+    const first = await recordPushSendOrThrow(
+      db,
+      "push-user-1",
+      1,
+      correlationId,
+      startedAt,
+      new Date(startedAt.getTime() + 30 * 60 * 1_000),
+      "notify",
+      [target],
+    );
+    expect(first.kind).toBe("claimed");
+    if (first.kind !== "claimed") throw new Error("expected first claim");
+
+    await completePushSend(
+      db,
+      "push-user-1",
+      correlationId,
+      first.leaseToken,
+      {
+        sent: 0,
+        devices: 1,
+        pruned: 0,
+        transientFailures: 1,
+        permanentFailures: 0,
+        retryAfterSeconds: 900,
+      },
+      [{
+        ...target,
+        status: 503,
+        reason: "ServiceUnavailable",
+        retryAfterSeconds: 900,
+        prune: false,
+      }],
+      startedAt,
+    );
+
+    const deferred = await recordPushSendOrThrow(
+      db,
+      "push-user-1",
+      1,
+      correlationId,
+      new Date(startedAt.getTime() + 60_000),
+      new Date(startedAt.getTime() + 30 * 60 * 1_000),
+      "notify",
+      [target],
+    );
+    expect(deferred).toMatchObject({
+      kind: "busy",
+      retryAfterSeconds: 840,
+    });
+
+    const resumed = await recordPushSendOrThrow(
+      db,
+      "push-user-1",
+      1,
+      correlationId,
+      new Date(startedAt.getTime() + 900_001),
+      new Date(startedAt.getTime() + 30 * 60 * 1_000),
+      "notify",
+      [target],
+    );
+    expect(resumed).toMatchObject({ kind: "claimed" });
+  });
+
   dbTest("keeps dismiss reconciliation available after the visible-alert budget", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate notification_send_events restart identity cascade`;

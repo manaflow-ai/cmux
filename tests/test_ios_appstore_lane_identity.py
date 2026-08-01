@@ -410,7 +410,7 @@ if args[:3] == ["find-identity", "-v", "-p"]:
     print(f'  1) ABCDEF "{{IDENTITY}}"')
     sys.exit(0)
 if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
-    profile = APPSTORE_PROFILE
+    profile = profile_for_bundle(APPSTORE_BUNDLE_ID)
     if "-i" in args:
         source = Path(args[args.index("-i") + 1])
         if source.exists():
@@ -418,7 +418,7 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
             if b"legacy profile" in body:
                 profile = LEGACY_PROFILE
             elif b"beta profile" in body:
-                profile = BETA_PROFILE
+                profile = profile_for_bundle(BETA_BUNDLE_ID)
     sys.stdout.buffer.write(plist_bytes(profile))
     sys.exit(0)
 if args and args[0] == "find-certificate":

@@ -83,6 +83,53 @@ import Testing
     }
 
     @MainActor
+    @Test func saturatedQueueEvictsAStaleNotifyToPreserveDismissal() async {
+        let probe = RecordingDeliveryProbe()
+        let queue = PhonePushSerialDeliveryQueue(
+            capacity: 2,
+            startsImmediately: false,
+            sender: { await probe.deliver($0) }
+        )
+        let oldNotify = requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000001",
+            coalescingID: "notification-a"
+        )
+        let currentNotify = requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000002",
+            coalescingID: "notification-b"
+        )
+        let dismiss = requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000003"
+        )
+
+        #expect(queue.enqueue(oldNotify))
+        #expect(queue.enqueue(currentNotify))
+        #expect(queue.enqueuePrioritizingDismiss(dismiss))
+        queue.start()
+        await probe.waitForCount(2)
+
+        #expect(await probe.correlationIDs == [
+            currentNotify.correlationID,
+            dismiss.correlationID,
+        ])
+    }
+
+    @MainActor
+    @Test func saturatedDismissQueueNeverEvictsAnEarlierDismissal() {
+        let queue = PhonePushSerialDeliveryQueue(
+            capacity: 1,
+            startsImmediately: false,
+            sender: { _ in .accepted(sent: 1, devices: 1, pruned: 0) }
+        )
+        #expect(queue.enqueuePrioritizingDismiss(requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000001"
+        )))
+        #expect(!queue.enqueuePrioritizingDismiss(requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000002"
+        )))
+    }
+
+    @MainActor
     @Test func cancellationClearsQueuedWorkAndStopsAfterTheInFlightEvent() async {
         let probe = FirstDeliveryGate()
         let queue = PhonePushSerialDeliveryQueue {
@@ -191,6 +238,19 @@ import Testing
         )
         try await store.save([oldA, distinctB, latestA])
 
+        let directoryMode = try #require(
+            FileManager.default.attributesOfItem(atPath: directory.path)[
+                .posixPermissions
+            ] as? NSNumber
+        ).intValue
+        let fileMode = try #require(
+            FileManager.default.attributesOfItem(
+                atPath: directory.appendingPathComponent("queue.json").path
+            )[.posixPermissions] as? NSNumber
+        ).intValue
+        #expect(directoryMode & 0o777 == 0o700)
+        #expect(fileMode & 0o777 == 0o600)
+
         let restored = try await store.load(nowEpochSeconds: 1_750_000_000)
         let probe = RecordingDeliveryProbe()
         let queue = PhonePushSerialDeliveryQueue(
@@ -232,6 +292,28 @@ import Testing
         #expect(try await store.load(nowEpochSeconds: 1_000).isEmpty)
     }
 
+    @Test func corruptQueueIsRemovedAfterTheFirstFailedLoad() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "phone-push-corrupt-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("queue.json")
+        try Data("not-json".utf8).write(to: fileURL)
+        let store = PhonePushQueueStore(fileURL: fileURL)
+
+        await #expect(throws: (any Error).self) {
+            try await store.load(nowEpochSeconds: 1_000)
+        }
+        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+        #expect(try await store.load(nowEpochSeconds: 1_000).isEmpty)
+    }
+
     @Test func queuedEventCannotRebindToTheNextSignedInAccount() {
         let envelope = PhonePushRequestEnvelope(
             correlationID: "00000000-0000-4000-8000-000000000001",
@@ -254,12 +336,12 @@ import Testing
 
         #expect(envelope.belongs(to: original))
         #expect(!envelope.belongs(to: replacement))
-        #expect(PhonePushDeliveryAuthorization.permits(
+        #expect(PhonePushDeliveryAuthorization().permits(
             envelope: envelope,
             session: original,
             sessionIsCurrent: true
         ))
-        #expect(!PhonePushDeliveryAuthorization.permits(
+        #expect(!PhonePushDeliveryAuthorization().permits(
             envelope: envelope,
             session: original,
             sessionIsCurrent: false

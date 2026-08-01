@@ -1,8 +1,8 @@
 import CmuxAuthRuntime
 import Foundation
 
-enum PhonePushDeliveryAuthorization {
-    static func permits(
+struct PhonePushDeliveryAuthorization {
+    func permits(
         envelope: PhonePushRequestEnvelope,
         session: AuthenticatedSessionSnapshot,
         sessionIsCurrent: Bool

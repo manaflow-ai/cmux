@@ -95,7 +95,10 @@ export async function POST(request: Request): Promise<Response> {
     request,
     "/api/notifications/push",
     "send",
-    async () => sendPush(request, { send: sendApnsNotificationReliably }),
+    async () => sendPush(request, {
+      send: sendApnsNotificationReliably,
+      config: apnsConfig(),
+    }),
   );
 }
 
@@ -103,13 +106,17 @@ export async function POST(request: Request): Promise<Response> {
 export async function sendPushWithTransport(
   request: Request,
   send: typeof sendApnsNotificationReliably,
+  config: ApnsConfig | null = apnsConfig(),
 ): Promise<Response> {
-  return sendPush(request, { send });
+  return sendPush(request, { send, config });
 }
 
 async function sendPush(
   request: Request,
-  dependencies: { send: typeof sendApnsNotificationReliably },
+  dependencies: {
+    send: typeof sendApnsNotificationReliably;
+    config: ApnsConfig | null;
+  },
 ): Promise<Response> {
   const user = await verifyRequest(request, { allowCookie: false });
   if (!user) return unauthorized();
@@ -149,7 +156,7 @@ async function sendPush(
   try {
     const service = makePushDeliveryService({
       db: cloudDb(),
-      config: apnsConfig(),
+      config: dependencies.config,
       send: dependencies.send,
       recordOutcome: recordApnsRouteOutcome,
     });
@@ -162,6 +169,7 @@ async function sendPush(
         nowEpochSeconds,
         expirationEpochSeconds,
         payload: deliveryPayload,
+        signal: request.signal,
       });
     }).pipe(
       Effect.provide(Layer.succeed(PushDeliveryService, service)),
@@ -203,7 +211,7 @@ function deliveryErrorResponse(
           status: 409,
           headers: {
             "content-type": "application/json",
-            "retry-after": "1",
+            "retry-after": String(error.retryAfterSeconds),
             "x-cmux-push-correlation-id": correlationId,
           },
         },

@@ -223,6 +223,7 @@ public final class MobilePushCoordinator {
         }
         analytics.capture("ios_push_optin_granted", ["trigger": .string("settings_toggle")])
         enabledMirror = true
+        defaults.set(true, forKey: Self.enabledKey)
         registrationSnapshot = PushRegistrationSnapshot(
             isEnabled: true,
             hasDeviceToken: registrationSnapshot.hasDeviceToken,
@@ -239,6 +240,7 @@ public final class MobilePushCoordinator {
     /// Opt out: stop receiving pushes and remove the token server-side.
     public func disable() async {
         enabledMirror = false
+        defaults.set(false, forKey: Self.enabledKey)
         registrationSnapshot = .disabled
         unregisterForRemoteNotifications()
         await registration.setEnabled(false)

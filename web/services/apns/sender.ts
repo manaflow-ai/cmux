@@ -19,12 +19,16 @@ export interface ApnsConfig {
 }
 
 export interface ApnsTarget {
+  /** Stable database identity used for retry persistence; never sent to APNs. */
+  readonly targetId?: string;
   readonly deviceToken: string;
   readonly bundleId: string;
   readonly environment: string; // "sandbox" | "production"
 }
 
 export interface ApnsSendResult {
+  /** Stable database identity used for retry persistence; never sent to APNs. */
+  readonly targetId?: string;
   readonly deviceToken: string;
   readonly status: number; // 0 = transport error / timeout
   readonly reason?: string;
@@ -42,7 +46,10 @@ export interface ApnsRetryOptions {
   readonly retryDelay?: (
     attempt: number,
     retryAfterSeconds: number | undefined,
+    signal?: AbortSignal,
   ) => Promise<void>;
+  /** Cancels owner-controlled retry backoff when the request is abandoned. */
+  readonly signal?: AbortSignal;
 }
 
 export interface ApnsHttp2Session {
@@ -76,6 +83,13 @@ interface ApnsSessionEntry {
   idleTimer: ReturnType<typeof setTimeout> | null;
 }
 
+class ApnsSessionAcquisitionDeadlineError extends Error {
+  constructor() {
+    super("APNs session acquisition deadline exceeded");
+    this.name = "ApnsSessionAcquisitionDeadlineError";
+  }
+}
+
 /**
  * Reuses authenticated APNs HTTP/2 connections and serializes logical groups
  * per host/credential. Serializing groups lets one shared stream scheduler
@@ -96,6 +110,7 @@ export class ApnsSessionPool {
       client: ApnsHttp2Session,
       connectionError: Promise<null>,
     ) => Promise<T>,
+    acquisitionDeadlineMs = Number.POSITIVE_INFINITY,
   ): Promise<T> {
     const key = `${host}\0${credentialIdentity}`;
 
@@ -103,9 +118,18 @@ export class ApnsSessionPool {
     // once so it moves to the replacement connection instead of failing before
     // issuing a stream.
     for (let acquisition = 0; acquisition < 2; acquisition += 1) {
+      if (Date.now() >= acquisitionDeadlineMs) {
+        throw new ApnsSessionAcquisitionDeadlineError();
+      }
       const entry = this.acquire(key, host);
+      let abandoned = false;
+      let markStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
       const execute = async (): Promise<T | null> => {
-        if (entry.invalid) return null;
+        markStarted();
+        if (abandoned || entry.invalid) return null;
         if (entry.idleTimer) {
           clearTimeout(entry.idleTimer);
           entry.idleTimer = null;
@@ -126,6 +150,26 @@ export class ApnsSessionPool {
       void completion.then(() => {
         if (entry.tail === completion) entry.tail = null;
       });
+      if (predecessor && Number.isFinite(acquisitionDeadlineMs)) {
+        const remainingMs = acquisitionDeadlineMs - Date.now();
+        if (remainingMs <= 0) {
+          abandoned = true;
+          throw new ApnsSessionAcquisitionDeadlineError();
+        }
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const didStart = await Promise.race([
+          started.then(() => true),
+          new Promise<boolean>((resolve) => {
+            timer = setTimeout(() => resolve(false), remainingMs);
+            timer.unref?.();
+          }),
+        ]);
+        if (timer) clearTimeout(timer);
+        if (!didStart) {
+          abandoned = true;
+          throw new ApnsSessionAcquisitionDeadlineError();
+        }
+      }
       const result = await run;
       if (result !== null) return result;
     }
@@ -433,7 +477,7 @@ export async function sendApnsNotificationReliably(
   targets: readonly ApnsTarget[],
   input: ApnsNotificationInput,
   options: ApnsRetryOptions = {},
-  timeoutMs = 8000,
+  timeoutMs = APNS_DEFAULT_TIMEOUT_MS,
   transport: ApnsTransport = nodeApnsTransport,
 ): Promise<ApnsSendResult[]> {
   const maxAttempts = Math.max(
@@ -449,6 +493,9 @@ export async function sendApnsNotificationReliably(
   let didRefreshProviderToken = false;
 
   for (let attempt = 1; attempt <= maxAttempts && unresolved.length > 0; attempt += 1) {
+    if (options.signal?.aborted) {
+      throw options.signal.reason ?? new DOMException("Aborted", "AbortError");
+    }
     if (
       typeof input.expirationEpochSeconds === "number"
       && nowEpochSeconds() >= input.expirationEpochSeconds
@@ -508,7 +555,7 @@ export async function sendApnsNotificationReliably(
     unresolved = retryTargets;
     if (unresolved.length === 0 || attempt === maxAttempts) break;
     if (!forceProviderTokenRefresh) {
-      await retryDelay(attempt, undefined);
+      await retryDelay(attempt, undefined, options.signal);
     }
   }
 
@@ -566,6 +613,7 @@ function withDeferredRetryPolicy(
 async function defaultRetryDelay(
   attempt: number,
   retryAfterSeconds: number | undefined,
+  signal?: AbortSignal,
 ): Promise<void> {
   const serverDelayMs =
     retryAfterSeconds == null ? 0 : retryAfterSeconds * 1000;
@@ -573,7 +621,21 @@ async function defaultRetryDelay(
     Math.max(serverDelayMs, 250 * 2 ** (attempt - 1)),
     APNS_MAX_RETRY_DELAY_MS,
   );
-  await new Promise((resolve) => setTimeout(resolve, delayMs));
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException("Aborted", "AbortError");
+  }
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, delayMs);
+    const abort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+  });
 }
 
 /** A valid (≤64-byte) apns-collapse-id for the notification id, or undefined. */
@@ -607,6 +669,17 @@ function connectionErrorResults(hostTargets: readonly ApnsTarget[]): ApnsSendRes
   }));
 }
 
+function deadlineExceededResults(
+  hostTargets: readonly ApnsTarget[],
+): ApnsSendResult[] {
+  return hostTargets.map((target) => ({
+    deviceToken: target.deviceToken,
+    status: 0,
+    reason: "delivery_deadline_exceeded",
+    prune: false,
+  }));
+}
+
 async function sendHostGroup(
   transport: ApnsTransport,
   host: string,
@@ -623,6 +696,7 @@ async function sendHostGroup(
 ): Promise<ApnsSendResult[]> {
   const ownsPool = sessionPool == null;
   const pool = sessionPool ?? createApnsSessionPool(transport);
+  const deadlineMs = Date.now() + Math.max(1, timeoutMs);
   try {
     return await pool.withSession(
       host,
@@ -634,14 +708,18 @@ async function sendHostGroup(
           hostTargets,
           jwt,
           body,
-          timeoutMs,
+          deadlineMs,
           collapseId,
           priority,
           expiration,
           apnsId,
         ),
+      deadlineMs,
     );
-  } catch {
+  } catch (error) {
+    if (error instanceof ApnsSessionAcquisitionDeadlineError) {
+      return deadlineExceededResults(hostTargets);
+    }
     return connectionErrorResults(hostTargets);
   } finally {
     if (ownsPool) pool.closeAll();
@@ -654,14 +732,13 @@ async function sendHostTargets(
   hostTargets: readonly ApnsTarget[],
   jwt: string,
   body: Buffer,
-  timeoutMs: number,
+  deadlineMs: number,
   collapseId: string | undefined,
   priority: string | undefined,
   expiration: string | undefined,
   apnsId: string | undefined,
 ): Promise<ApnsSendResult[]> {
   if (hostTargets.length === 0) return [];
-  const deadlineMs = Date.now() + Math.max(1, timeoutMs);
   const results = new Array<ApnsSendResult>(hostTargets.length);
 
   // APNs token authentication permits only one stream on a new connection
@@ -845,6 +922,7 @@ function sendOne(
 function parseRetryAfter(value: unknown): number | undefined {
   const raw = Array.isArray(value) ? value[0] : value;
   if (typeof raw !== "string" && typeof raw !== "number") return undefined;
+  if (typeof raw === "string" && raw.trim() === "") return undefined;
   const seconds = Number(raw);
   if (Number.isFinite(seconds) && seconds >= 0) {
     return Math.min(Math.ceil(seconds), APNS_MAX_RETRY_AFTER_SECONDS);

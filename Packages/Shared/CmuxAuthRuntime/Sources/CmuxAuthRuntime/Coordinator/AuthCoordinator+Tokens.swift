@@ -380,7 +380,8 @@ public extension AuthCoordinator {
     var authenticatedSessionIdentity: AuthenticatedSessionIdentity? {
         guard isAuthenticated,
               !sessionTokenTransitionIsActive,
-              let accountID = currentUser?.id else { return nil }
+              let accountID = currentUser?.id,
+              !accountID.isEmpty else { return nil }
         return AuthenticatedSessionIdentity(
             generation: authSessionGeneration,
             accountID: accountID
@@ -423,7 +424,8 @@ extension AuthCoordinator {
         AuthenticatedSessionIdentity? {
         guard isAuthenticated,
               !isCapturingSignOutCredentials,
-              let accountID = currentUser?.id else { return nil }
+              let accountID = currentUser?.id,
+              !accountID.isEmpty else { return nil }
         return AuthenticatedSessionIdentity(
             generation: authSessionGeneration,
             accountID: accountID

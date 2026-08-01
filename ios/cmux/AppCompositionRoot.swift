@@ -156,6 +156,10 @@ final class AppCompositionRoot {
         }
     }
 
+    deinit {
+        pushReachabilityTask?.cancel()
+    }
+
     /// Bundle-owned build identity used in explicit diagnostic exports.
     /// Values come only from signed app metadata, never user input.
     static var diagnosticBuildStamp: String {

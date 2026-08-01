@@ -50,16 +50,3 @@ public protocol PushRegistering: Sendable {
         refreshToken: String?
     ) async
 }
-
-public extension PushRegistering {
-    func unregisterFromServer(
-        accountID: String?,
-        accessToken: String?,
-        refreshToken: String?
-    ) async {
-        await unregisterFromServer(
-            accessToken: accessToken,
-            refreshToken: refreshToken
-        )
-    }
-}

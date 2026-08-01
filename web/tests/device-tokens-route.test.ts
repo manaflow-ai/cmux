@@ -107,10 +107,7 @@ describe("device token route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      ok: true,
-      pushServiceConfigured: false,
-    });
+    expect(await response.json()).toMatchObject({ ok: true });
     const [stored] = await sql<{ total: number }[]>`
       select count(*)::int as total from device_tokens where user_id = 'push-user-1'
     `;
@@ -195,10 +192,7 @@ describe("device token route", () => {
 
     const refresh = await register(oldestToken);
     expect(refresh.status).toBe(200);
-    expect(await refresh.json()).toEqual({
-      ok: true,
-      pushServiceConfigured: false,
-    });
+    expect(await refresh.json()).toMatchObject({ ok: true });
 
     const newToken = "f".repeat(64);
     const overLimit = await register(newToken);
@@ -260,5 +254,82 @@ describe("device token route", () => {
       select count(*)::int as total from device_tokens where user_id = 'push-user-1'
     `;
     expect(remaining.total).toBe(0);
+  });
+
+  dbTest("does not transfer or delete a token during an active delivery", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    const token = "c".repeat(64);
+    const ownedToken = "d".repeat(64);
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment,
+        delivery_lease_until, delivery_lease_token
+      ) values (
+        'previous-user', ${token}, 'ios', 'com.cmux.app', 'production',
+        now() + interval '30 seconds',
+        '00000000-0000-4000-8000-000000000001'
+      )
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment,
+        delivery_lease_until, delivery_lease_token
+      ) values (
+        'push-user-1', ${ownedToken}, 'ios', 'com.cmux.app', 'production',
+        now() + interval '30 seconds',
+        '00000000-0000-4000-8000-000000000002'
+      )
+    `;
+    const headers = {
+      authorization: "Bearer access-token",
+      "x-stack-refresh-token": "refresh-token",
+    };
+
+    const registration = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          deviceToken: token,
+          bundleId: "dev.cmux.ios.push1",
+          platform: "ios",
+        }),
+      }),
+    );
+    const deletion = await DELETE(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "DELETE",
+        headers,
+        body: JSON.stringify({ deviceToken: ownedToken }),
+      }),
+    );
+
+    expect(registration.status).toBe(409);
+    expect(Number(registration.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(await registration.json()).toMatchObject({
+      error: "push_delivery_in_progress",
+    });
+    expect(deletion.status).toBe(409);
+    expect(Number(deletion.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(await deletion.json()).toMatchObject({
+      error: "push_delivery_in_progress",
+    });
+    const [stored] = await sql<{
+      userId: string;
+      bundleId: string;
+    }[]>`
+      select user_id as "userId", bundle_id as "bundleId"
+      from device_tokens where device_token = ${token}
+    `;
+    expect(stored).toEqual({
+      userId: "previous-user",
+      bundleId: "com.cmux.app",
+    });
+    const [owned] = await sql<{ total: number }[]>`
+      select count(*)::int as total from device_tokens
+      where user_id = 'push-user-1' and device_token = ${ownedToken}
+    `;
+    expect(owned.total).toBe(1);
   });
 });

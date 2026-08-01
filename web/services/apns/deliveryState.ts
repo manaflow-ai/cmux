@@ -11,10 +11,10 @@ export function mergePushDeliveryOutcomes(
   latest: readonly ApnsSendResult[],
 ): ApnsSendResult[] {
   const byToken = new Map(
-    previous.map((result) => [result.deviceToken, result]),
+    previous.map((result) => [deliveryIdentity(result), result]),
   );
   for (const result of latest) {
-    byToken.set(result.deviceToken, result);
+    byToken.set(deliveryIdentity(result), result);
   }
   return [...byToken.values()];
 }
@@ -25,10 +25,14 @@ export function unresolvedPushTargets(
   outcomes: readonly ApnsSendResult[],
 ): ApnsTarget[] {
   const byToken = new Map(
-    outcomes.map((result) => [result.deviceToken, result]),
+    outcomes.map((result) => [deliveryIdentity(result), result]),
   );
   return currentTargets.filter((target) => {
-    const result = byToken.get(target.deviceToken);
+    const result = byToken.get(deliveryIdentity(target));
     return result == null || isTransientApnsResult(result);
   });
+}
+
+function deliveryIdentity(value: ApnsTarget | ApnsSendResult): string {
+  return value.targetId ?? value.deviceToken;
 }

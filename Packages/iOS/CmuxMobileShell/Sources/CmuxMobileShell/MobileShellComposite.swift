@@ -10311,15 +10311,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         client: MobileCoreRPCClient,
         generation: UUID
     ) async {
-        guard let data = try? await client.sendRequest(
+        let exchange = try? await client.sendRequestAndAuthenticatedHostStatus(
             MobileCoreRPCClient.requestData(
-                method: "mobile.host.status",
+                method: "phone_push.status.get",
                 params: [:]
             ),
-            timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
-        ), let status = try? MobileHostStatusResponse.decode(data),
-        isCurrentRemoteConnection(client: client, generation: generation)
-        else { return }
+            timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds,
+            hostStatusTimeoutNanoseconds: {
+                Self.terminalOutputCapabilityTimeoutNanoseconds
+            }
+        )
+        guard isCurrentRemoteConnection(
+            client: client,
+            generation: generation
+        ) else { return }
+        guard let exchange,
+              let status = try? MobileHostStatusResponse.decode(
+                  exchange.hostStatusResponse
+              ) else {
+            phonePushMacStatus = nil
+            return
+        }
         phonePushMacStatus = status.phonePush
     }
 
@@ -10353,30 +10365,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         let generation = connectionGeneration
         do {
-            _ = try await client.sendRequest(
+            let exchange = try await client.sendRequestAndAuthenticatedHostStatus(
                 MobileCoreRPCClient.requestData(
                     method: "phone_push.settings.update",
                     params: params
-                )
+                ),
+                hostStatusTimeoutNanoseconds: {
+                    Self.terminalOutputCapabilityTimeoutNanoseconds
+                }
+            )
+            let status = try MobileHostStatusResponse.decode(
+                exchange.hostStatusResponse
             )
             guard isCurrentRemoteConnection(
                 client: client,
                 generation: generation
             ) else { return false }
-
-            let data = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(
-                    method: "mobile.host.status",
-                    params: [:]
-                ),
-                timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
-            )
-            let status = try MobileHostStatusResponse.decode(data)
-            guard isCurrentRemoteConnection(
-                client: client,
-                generation: generation
-            ), let phonePush = status.phonePush else { return false }
-            phonePushMacStatus = phonePush
+            phonePushMacStatus = status.phonePush
             return true
         } catch {
             guard generation == connectionGeneration else { return false }

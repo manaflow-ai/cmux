@@ -1347,7 +1347,8 @@ final class TerminalNotificationStore: ObservableObject {
         let shouldAttemptPhone = !shouldSuppressExternalDelivery
             && Self.shouldAttemptPhoneForward(
                 effects: effects,
-                phoneForwardingEnabled: PhonePushClient.isForwardingEnabled,
+                phoneForwardingEnabled: PhonePushClient.shared
+                    .configuration().forwardingEnabled,
                 categoryAllowsDelivery: true
             )
         let admission = shouldAttemptPhone

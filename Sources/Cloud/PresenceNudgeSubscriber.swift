@@ -24,8 +24,6 @@ import Foundation
 /// parsing team-sized traffic on the main actor (see `StreamOutcome`).
 @MainActor
 final class PresenceNudgeSubscriber {
-    static let shared = PresenceNudgeSubscriber()
-
     private var auth: AuthCoordinator?
     private var loopTask: Task<Void, Never>?
     private var defaultsObserver: NSObjectProtocol?
@@ -35,7 +33,7 @@ final class PresenceNudgeSubscriber {
     /// socket to the service's 15-minute deadline.
     private var activeScopeKey: String?
 
-    private init() {}
+    init() {}
 
     /// Inject the auth dependency and start (or arm) the subscription. Call
     /// once at the composition root, alongside ``PresenceHeartbeatClient``.
@@ -48,9 +46,9 @@ final class PresenceNudgeSubscriber {
                 forName: UserDefaults.didChangeNotification,
                 object: UserDefaults.standard,
                 queue: .main
-            ) { _ in
+            ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    PresenceNudgeSubscriber.shared.evaluate()
+                    self?.evaluate()
                 }
             }
         }
@@ -69,9 +67,9 @@ final class PresenceNudgeSubscriber {
             _ = auth.currentUser?.id
             _ = auth.resolvedTeamID
         } onChange: {
-            Task { @MainActor in
-                PresenceNudgeSubscriber.shared.evaluate()
-                PresenceNudgeSubscriber.shared.armAuthScopeObservation()
+            Task { @MainActor [weak self] in
+                self?.evaluate()
+                self?.armAuthScopeObservation()
             }
         }
     }

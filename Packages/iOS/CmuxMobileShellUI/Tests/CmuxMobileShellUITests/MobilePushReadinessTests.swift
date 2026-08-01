@@ -162,7 +162,9 @@ import Testing
         #expect(readiness.repair == .openSystemSettings)
     }
 
-    @Test(arguments: MobilePushPresentationLimitation.allCases)
+    @Test(arguments: MobilePushPresentationLimitation.allCases.filter {
+        $0 != .scheduledDeliveryEnabled
+    })
     func eachSystemPresentationPolicyIsReportedIndividually(
         limitation: MobilePushPresentationLimitation
     ) {
@@ -175,8 +177,7 @@ import Testing
             notificationCenterEnabled:
                 limitation != .notificationCenterDisabled,
             timeSensitiveEnabled: limitation != .timeSensitiveDisabled,
-            scheduledDeliveryEnabled:
-                limitation == .scheduledDeliveryEnabled
+            scheduledDeliveryEnabled: false
         )
         let readiness = MobilePushReadiness.resolve(
             authorization: .authorized,
@@ -198,6 +199,65 @@ import Testing
             )
         )
         #expect(readiness.repair == .openSystemSettings)
+    }
+
+    @Test func scheduledDeliveryIsAWarningWhenTimeSensitiveIsDisabled() {
+        let settings = MobilePushSystemSettings(
+            authorization: .authorized,
+            alertsEnabled: true,
+            soundsEnabled: true,
+            badgesEnabled: true,
+            lockScreenEnabled: true,
+            notificationCenterEnabled: true,
+            timeSensitiveEnabled: false,
+            scheduledDeliveryEnabled: true
+        )
+        let readiness = MobilePushReadiness.resolve(
+            authorization: .authorized,
+            registration: registered,
+            mac: .init(
+                forwardingEnabled: true,
+                mode: .always,
+                apiOrigin: "https://cmux.com",
+                accountVerified: true
+            ),
+            systemSettings: settings,
+            phoneAPIOrigin: "https://cmux.com"
+        )
+
+        #expect(
+            readiness == .presentationLimited(
+                mode: .always,
+                limitations: [.timeSensitiveDisabled, .scheduledDeliveryEnabled]
+            )
+        )
+    }
+
+    @Test func timeSensitiveDeliveryBypassesScheduledSummary() {
+        let settings = MobilePushSystemSettings(
+            authorization: .authorized,
+            alertsEnabled: true,
+            soundsEnabled: true,
+            badgesEnabled: true,
+            lockScreenEnabled: true,
+            notificationCenterEnabled: true,
+            timeSensitiveEnabled: true,
+            scheduledDeliveryEnabled: true
+        )
+        let readiness = MobilePushReadiness.resolve(
+            authorization: .authorized,
+            registration: registered,
+            mac: .init(
+                forwardingEnabled: true,
+                mode: .always,
+                apiOrigin: "https://cmux.com",
+                accountVerified: true
+            ),
+            systemSettings: settings,
+            phoneAPIOrigin: "https://cmux.com"
+        )
+
+        #expect(readiness == .ready(mode: .always))
     }
 
     @Test(arguments: [

@@ -1,7 +1,7 @@
 public import Foundation
 import OSLog
 
-private let pushRedirectLog = Logger(
+nonisolated private let pushRedirectLog = Logger(
     subsystem: "ai.manaflow.cmux",
     category: "push.redirect"
 )
@@ -23,6 +23,9 @@ public final class RedirectMethodPreservingDelegate:
     URLSessionTaskDelegate,
     @unchecked Sendable
 {
+    // URLSession's redirect delegate callback and the public refusal read are
+    // both synchronous on different executors, so an actor cannot own this
+    // single-bit handoff without changing either API to async.
     private let refusalLock = NSLock()
     private var refusedRedirectValue = false
 
@@ -68,7 +71,7 @@ public final class RedirectMethodPreservingDelegate:
             completionHandler(proposedRequest)
             return
         }
-        guard original.httpBodyStream == nil, let body = original.httpBody else {
+        guard original.httpBodyStream == nil else {
             markRefused()
             pushRedirectLog.error("Refused non-replayable push redirect body")
             completionHandler(nil)
@@ -77,7 +80,7 @@ public final class RedirectMethodPreservingDelegate:
 
         var preserved = proposedRequest
         preserved.httpMethod = originalMethod
-        preserved.httpBody = body
+        preserved.httpBody = original.httpBody
         for (field, value) in original.allHTTPHeaderFields ?? [:] {
             preserved.setValue(value, forHTTPHeaderField: field)
         }

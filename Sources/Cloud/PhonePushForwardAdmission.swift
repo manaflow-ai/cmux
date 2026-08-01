@@ -5,6 +5,7 @@ enum PhonePushForwardAdmission: Equatable, Sendable {
     case disabled
     case presenceSuppressed
     case authenticationUnavailable
+    case encodingFailed
     case queueFull
     case queued
 
@@ -16,6 +17,7 @@ enum PhonePushForwardAdmission: Equatable, Sendable {
         case .disabled: "forwarding_disabled"
         case .presenceSuppressed: "suppressed_mac_active"
         case .authenticationUnavailable: "authentication_unavailable"
+        case .encodingFailed: "encoding_failed"
         case .queueFull: "queue_full"
         case .queued: "queued"
         }

@@ -82,7 +82,9 @@ public struct MobilePushSystemSettings: Equatable, Sendable {
             result.insert(.notificationCenterDisabled)
         }
         if !timeSensitiveEnabled { result.insert(.timeSensitiveDisabled) }
-        if scheduledDeliveryEnabled { result.insert(.scheduledDeliveryEnabled) }
+        if scheduledDeliveryEnabled && !timeSensitiveEnabled {
+            result.insert(.scheduledDeliveryEnabled)
+        }
         return result
     }
 }

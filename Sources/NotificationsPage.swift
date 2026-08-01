@@ -1,6 +1,5 @@
 import CmuxFoundation
 import Bonsplit
-import Combine
 import SwiftUI
 
 struct NotificationsPage: View {
@@ -9,9 +8,12 @@ struct NotificationsPage: View {
     @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @State private var phonePushConfiguration = PhonePushConfiguration(
-        defaults: .standard
-    )
+    @State private var phonePushConfigurationState =
+        PhonePushClient.shared.configurationState
+
+    private var phonePushConfiguration: PhonePushConfiguration {
+        phonePushConfigurationState.configuration
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,13 +35,6 @@ struct NotificationsPage: View {
         .onAppear(perform: setInitialFocus)
         .onChange(of: notificationStore.notifications.first?.id) { _ in
             setInitialFocus()
-        }
-        .onReceive(
-            NotificationCenter.default.publisher(
-                for: .mobileHostStatusDidChange
-            )
-        ) { _ in
-            phonePushConfiguration = PhonePushClient.shared.configuration()
         }
     }
 

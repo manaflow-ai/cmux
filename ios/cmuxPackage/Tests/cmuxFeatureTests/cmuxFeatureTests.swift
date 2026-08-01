@@ -4120,6 +4120,11 @@ struct InertPushRegistration: PushRegistering {
     func syncTokenIfPossible() async {}
     func unregisterFromServer() async {}
     func unregisterFromServer(accessToken: String?, refreshToken: String?) async {}
+    func unregisterFromServer(
+        accountID: String?,
+        accessToken: String?,
+        refreshToken: String?
+    ) async {}
 }
 
 @MainActor func deeplinkTestStore() -> CMUXMobileShellStore {

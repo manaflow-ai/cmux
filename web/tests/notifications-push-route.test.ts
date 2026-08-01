@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import postgres, { type Sql } from "postgres";
+import { DEVICE_DELIVERY_LEASE_MS } from "../services/apns/deviceDeliveryLease";
 import { PUSH_SEND_LEASE_MS } from "../services/apns/rateLimit";
 import { APNS_DEFAULT_MAX_DELIVERY_DURATION_MS } from "../services/apns/sender";
 
@@ -41,9 +42,11 @@ const cloudDb = mock(() => {
 let useStubDb = false;
 let sql: Sql | null = null;
 let scriptedSendOutcomes: Array<Array<{
+  targetId?: string;
   deviceToken: string;
   status: number;
   reason?: string;
+  retryAfterSeconds?: number;
   prune: boolean;
 }>> = [];
 let beforeNextSend: (() => Promise<void>) | null = null;
@@ -115,6 +118,9 @@ beforeEach(() => {
   // the route skip rate-limiting and flaked this suite in CI.
   process.env.SKIP_ENV_VALIDATION = "1";
   process.env.VERCEL = "1";
+  process.env.CMUX_APNS_KEY_P8 = "test-key";
+  process.env.CMUX_APNS_KEY_ID = "test-key-id";
+  process.env.CMUX_APNS_TEAM_ID = "test-team-id";
   getUser.mockClear();
   checkRateLimit.mockClear();
   checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
@@ -130,6 +136,8 @@ describe("notifications push route", () => {
     expect(pushRoute.maxDuration * 1_000)
       .toBeGreaterThan(APNS_DEFAULT_MAX_DELIVERY_DURATION_MS);
     expect(PUSH_SEND_LEASE_MS)
+      .toBeGreaterThan(pushRoute.maxDuration * 1_000);
+    expect(DEVICE_DELIVERY_LEASE_MS)
       .toBeGreaterThan(pushRoute.maxDuration * 1_000);
     expect(pushRoute.DEFAULT_PUSH_TTL_SECONDS * 1_000)
       .toBeGreaterThan(PUSH_SEND_LEASE_MS);
@@ -345,13 +353,7 @@ describe("notifications push route", () => {
         'production'
       )
     `;
-    const previousKey = process.env.CMUX_APNS_KEY_P8;
-    const previousKeyID = process.env.CMUX_APNS_KEY_ID;
-    const previousTeamID = process.env.CMUX_APNS_TEAM_ID;
-    delete process.env.CMUX_APNS_KEY_P8;
-    delete process.env.CMUX_APNS_KEY_ID;
-    delete process.env.CMUX_APNS_TEAM_ID;
-    const correlationId = "provider-configuration-retry";
+    const correlationId = "d0c5aeef-950a-477e-bbd2-a656229f44be";
     const request = () => new Request(
       "https://cmux.test/api/notifications/push",
       {
@@ -367,37 +369,99 @@ describe("notifications push route", () => {
         }),
       },
     );
+    const first = await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+      null,
+    );
+    const second = await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+      null,
+    );
 
-    try {
-      const first = await pushRoute.sendPushWithTransport(
-        request(),
-        sendApnsNotificationReliably as Parameters<
-          typeof pushRoute.sendPushWithTransport
-        >[1],
-      );
-      const second = await pushRoute.sendPushWithTransport(
-        request(),
-        sendApnsNotificationReliably as Parameters<
-          typeof pushRoute.sendPushWithTransport
-        >[1],
-      );
+    expect(first.status).toBe(503);
+    expect(second.status).toBe(503);
+    expect(await first.json()).toMatchObject({
+      error: "push_service_not_configured",
+    });
+    expect(await second.json()).toMatchObject({
+      error: "push_service_not_configured",
+    });
+  });
 
-      expect(first.status).toBe(503);
-      expect(second.status).toBe(503);
-      expect(await first.json()).toMatchObject({
-        error: "push_service_not_configured",
-      });
-      expect(await second.json()).toMatchObject({
-        error: "push_service_not_configured",
-      });
-    } finally {
-      if (previousKey == null) delete process.env.CMUX_APNS_KEY_P8;
-      else process.env.CMUX_APNS_KEY_P8 = previousKey;
-      if (previousKeyID == null) delete process.env.CMUX_APNS_KEY_ID;
-      else process.env.CMUX_APNS_KEY_ID = previousKeyID;
-      if (previousTeamID == null) delete process.env.CMUX_APNS_TEAM_ID;
-      else process.env.CMUX_APNS_TEAM_ID = previousTeamID;
-    }
+  dbTest("persists provider backoff and returns its remaining Retry-After", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values (
+        'user-1',
+        ${"a".repeat(64)},
+        'ios',
+        'com.cmux.app',
+        'production'
+      )
+    `;
+    scriptedSendOutcomes = [[{
+      deviceToken: "a".repeat(64),
+      status: 503,
+      reason: "ServiceUnavailable",
+      retryAfterSeconds: 900,
+      prune: false,
+    }]];
+    const correlationId = "2103504c-c64e-4017-941f-7703033da85c";
+    const expirationEpochSeconds = Math.floor(Date.now() / 1_000) + 1_800;
+    const request = () => new Request(
+      "https://cmux.test/api/notifications/push",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          correlationId,
+          expirationEpochSeconds,
+        }),
+      },
+    );
+
+    const first = await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({
+      transientFailures: 1,
+      retryAfterSeconds: 900,
+    });
+
+    const deferred = await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    expect(deferred.status).toBe(409);
+    expect(Number(deferred.headers.get("retry-after"))).toBeGreaterThan(895);
+    expect(await deferred.json()).toEqual({
+      error: "push_event_in_progress",
+      correlationId,
+    });
+    expect(sendApnsNotificationReliably).toHaveBeenCalledTimes(1);
   });
 
   dbTest("takes over a stale retry lease without resending a recorded success", async () => {
@@ -860,20 +924,30 @@ describe("notifications push route", () => {
     expect(sendApnsNotificationReliably).toHaveBeenCalledTimes(1);
 
     const [stored] = await sql<{
-      outcomes: Array<{ deviceToken: string; reason?: string }>;
+      outcomes: Array<{
+        targetId: string;
+        status: number;
+        reason?: string;
+        prune: boolean;
+      }>;
     }[]>`
       select result_outcomes as outcomes
       from notification_send_events
       where user_id = 'user-1' and correlation_id = ${correlationId}
     `;
-    expect(stored?.outcomes).toContainEqual({
-      deviceToken: "b".repeat(64),
+    const removed = stored?.outcomes.find(
+      (result) => result.reason === "target_no_longer_registered",
+    );
+    expect(removed).toMatchObject({
       status: 404,
       reason: "target_no_longer_registered",
       prune: false,
     });
-    expect(stored?.outcomes.some((result) => result.deviceToken === "c".repeat(64)))
-      .toBe(false);
+    expect(removed?.targetId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(JSON.stringify(stored?.outcomes)).not.toContain("b".repeat(64));
+    expect(JSON.stringify(stored?.outcomes)).not.toContain("c".repeat(64));
   });
 
   dbTest("binds a correlation id to one content-safe logical payload fingerprint", async () => {
@@ -1022,5 +1096,69 @@ describe("notifications push route", () => {
       where user_id = 'user-1'
     `;
     expect(registered).toEqual([{ deviceToken: "a".repeat(64) }]);
+  });
+
+  dbTest("does not prune a token whose routing identity changed during delivery", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values (
+        'user-1',
+        ${"a".repeat(64)},
+        'ios',
+        'com.cmux.app',
+        'production'
+      )
+    `;
+    scriptedSendOutcomes = [[{
+      deviceToken: "a".repeat(64),
+      status: 410,
+      reason: "Unregistered",
+      prune: true,
+    }]];
+    beforeNextSend = async () => {
+      await sql!`
+        update device_tokens
+        set bundle_id = 'dev.cmux.ios.push1', environment = 'sandbox'
+        where user_id = 'user-1' and device_token = ${"a".repeat(64)}
+      `;
+    };
+
+    const response = await pushRoute.sendPushWithTransport(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          correlationId: "faef4983-0ce5-4543-822b-0af2f4495386",
+        }),
+      }),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ pruned: 1 });
+    const [registered] = await sql<{
+      bundleId: string;
+      environment: string;
+    }[]>`
+      select bundle_id as "bundleId", environment
+      from device_tokens
+      where user_id = 'user-1' and device_token = ${"a".repeat(64)}
+    `;
+    expect(registered).toEqual({
+      bundleId: "dev.cmux.ios.push1",
+      environment: "sandbox",
+    });
   });
 });

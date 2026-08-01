@@ -267,14 +267,16 @@ final class MobileHostService {
     ) -> [String: Any] {
         var payload = publicStatusPayload(routes: [], now: now)
         payload["routes"] = routes.mobileHostJSONObjects(for: .authenticated, at: now)
-        payload["capabilities"] = mobileHostCapabilities
-            + additionalCapabilities
-                .union([
-                    phonePushStatusCapability,
-                    phonePushSettingsCapability,
-                    phonePushTestCapability,
-                ])
-                .sorted()
+        payload["capabilities"] = applyingDebugCapabilitySuppressions(
+            mobileHostCapabilities
+                + additionalCapabilities
+                    .union([
+                        phonePushStatusCapability,
+                        phonePushSettingsCapability,
+                        phonePushTestCapability,
+                    ])
+                    .sorted()
+        )
         payload["terminal_theme_revision_epoch"] = terminalThemeRevisionEpoch
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
         payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()

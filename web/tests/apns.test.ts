@@ -1507,6 +1507,60 @@ describe("apns sender transport", () => {
     expect(closes).toBe(1);
   });
 
+  test("abandons a pooled operation whose queue wait exceeds its deadline", async () => {
+    class FakeSession extends EventEmitter {
+      request(): never {
+        throw new Error("request should not be reached");
+      }
+
+      close() {}
+    }
+
+    const transport = {
+      connect: () => new FakeSession(),
+    } as unknown as Parameters<typeof createApnsSessionPool>[0];
+    const pool = createApnsSessionPool(transport, 60_000);
+    let releaseFirst!: () => void;
+    let markFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const first = pool.withSession(
+      "api.push.apple.com",
+      "credential",
+      async () => {
+        markFirstStarted();
+        await firstGate;
+        return "first";
+      },
+      Date.now() + 1_000,
+    );
+    await firstStarted;
+
+    let secondExecuted = false;
+    const second = pool.withSession(
+      "api.push.apple.com",
+      "credential",
+      async () => {
+        secondExecuted = true;
+        return "second";
+      },
+      Date.now() + 10,
+    );
+
+    await expect(second).rejects.toThrow(
+      "APNs session acquisition deadline exceeded",
+    );
+    releaseFirst();
+    await first;
+    await Promise.resolve();
+    expect(secondExecuted).toBe(false);
+    pool.closeAll();
+  });
+
   test("replaces a pooled APNs connection after GOAWAY", async () => {
     const sessions: FakeSession[] = [];
     let requests = 0;

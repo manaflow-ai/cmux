@@ -89,6 +89,12 @@ extension MobileHostService {
         if !includingWorkspaceChanges {
             capabilities.removeAll { $0 == Self.workspaceChangesCapability }
         }
+        return applyingDebugCapabilitySuppressions(capabilities)
+    }
+
+    nonisolated static func applyingDebugCapabilitySuppressions(
+        _ capabilities: [String]
+    ) -> [String] {
         #if DEBUG
         // Lets a dev Mac impersonate an older host while dogfooding the iOS update hint.
         let suppressed = Set(

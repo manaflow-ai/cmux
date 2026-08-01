@@ -4,18 +4,15 @@ import Testing
 
 /// Records every URLRequest the push service performs, returning 200.
 final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
-    // Mutations are serialized by the URL loading system; a lock-free actor
-    // box keeps captured requests for assertions.
+    // URLProtocol's synchronous callback must record before it reports
+    // completion, so the recorder uses a documented synchronous lock.
     static let recorder = RequestRecorder()
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        let capturedRequest = request
-        Task {
-            await RecordingURLProtocol.recorder.record(capturedRequest)
-        }
+        RecordingURLProtocol.recorder.record(request)
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: 200,
@@ -30,16 +27,25 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-actor RequestRecorder {
-    private(set) var methods: [String] = []
-    private(set) var requests: [URLRequest] = []
+final class RequestRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedMethods: [String] = []
+    private var storedRequests: [URLRequest] = []
+
+    var methods: [String] { lock.withLock { storedMethods } }
+    var requests: [URLRequest] { lock.withLock { storedRequests } }
+
     func record(_ request: URLRequest) {
-        methods.append(request.httpMethod ?? "?")
-        requests.append(request)
+        lock.withLock {
+            storedMethods.append(request.httpMethod ?? "?")
+            storedRequests.append(request)
+        }
     }
     func reset() {
-        methods = []
-        requests = []
+        lock.withLock {
+            storedMethods = []
+            storedRequests = []
+        }
     }
 }
 
@@ -176,11 +182,13 @@ actor RetryDelayRecorder {
         retryDelays: [Duration] = [],
         suite: String = "push-scripted-\(UUID().uuidString)",
         accountID: String? = "push-user-1",
+        seedDefaults: (UserDefaults) -> Void = { _ in },
         retrySleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
         }
     ) -> (PushRegistrationService, UserDefaults) {
         let defaults = UserDefaults(suiteName: suite)!
+        seedDefaults(defaults)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PushRegistrationURLProtocol.self]
         let provider: any TokenProviding
@@ -445,7 +453,7 @@ actor RetryDelayRecorder {
                 json: #"{"ok":true,"pushServiceConfigured":false}"#
             ),
         ])
-        let (service, _) = makeScriptedService(retryDelays: [])
+        let (service, defaults) = makeScriptedService(retryDelays: [])
 
         await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
         await service.setEnabled(true)
@@ -453,6 +461,35 @@ actor RetryDelayRecorder {
         #expect(
             await service.snapshot.backendState
                 == .failed(.serviceUnavailable)
+        )
+        #expect(
+            defaults.string(
+                forKey: "cmux.notifications.registeredAccountID"
+            ) == "push-user-1"
+        )
+    }
+
+    @Test func unconfiguredProviderRetriesWithoutLosingCommittedOwnership() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .response(
+                200,
+                json: #"{"ok":true,"pushServiceConfigured":false}"#
+            ),
+            .response(200),
+        ])
+        let (service, defaults) = makeScriptedService(retryDelays: [.zero])
+
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+
+        #expect(
+            await PushRegistrationURLProtocol.script.waitForRequestCount(2)
+        )
+        #expect(await wait(for: .registered, from: service))
+        #expect(
+            defaults.string(
+                forKey: "cmux.notifications.registeredAccountID"
+            ) == "push-user-1"
         )
     }
 
@@ -1252,14 +1289,22 @@ actor RetryDelayRecorder {
                 refresh: "new-refresh"
             ),
             suite: suite,
-            accountID: "new-user"
-        )
-        defaults.set("ab", forKey: "cmux.notifications.deviceTokenHex")
-        defaults.set("old-user", forKey: "cmux.notifications.registeredAccountID")
-        defaults.set("ab", forKey: "cmux.notifications.pendingUnregisterToken")
-        defaults.set(
-            "old-user",
-            forKey: "cmux.notifications.pendingUnregisterAccountID"
+            accountID: "new-user",
+            seedDefaults: { defaults in
+                defaults.set("ab", forKey: "cmux.notifications.deviceTokenHex")
+                defaults.set(
+                    "old-user",
+                    forKey: "cmux.notifications.registeredAccountID"
+                )
+                defaults.set(
+                    "ab",
+                    forKey: "cmux.notifications.pendingUnregisterToken"
+                )
+                defaults.set(
+                    "old-user",
+                    forKey: "cmux.notifications.pendingUnregisterAccountID"
+                )
+            }
         )
 
         await service.setEnabled(true)
@@ -1287,12 +1332,17 @@ actor RetryDelayRecorder {
                 refresh: "returned-refresh"
             ),
             suite: suite,
-            accountID: "old-user"
-        )
-        defaults.set("ab", forKey: "cmux.notifications.pendingUnregisterToken")
-        defaults.set(
-            "old-user",
-            forKey: "cmux.notifications.pendingUnregisterAccountID"
+            accountID: "old-user",
+            seedDefaults: { defaults in
+                defaults.set(
+                    "ab",
+                    forKey: "cmux.notifications.pendingUnregisterToken"
+                )
+                defaults.set(
+                    "old-user",
+                    forKey: "cmux.notifications.pendingUnregisterAccountID"
+                )
+            }
         )
 
         await service.syncTokenIfPossible()

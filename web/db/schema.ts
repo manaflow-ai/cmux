@@ -371,6 +371,8 @@ export const deviceTokens = pgTable(
     // "sandbox" for development builds, "production" for TestFlight/App Store —
     // selects which APNs host the sender uses.
     environment: text("environment").notNull().default("production"),
+    deliveryLeaseUntil: timestamp("delivery_lease_until", { withTimezone: true }),
+    deliveryLeaseToken: uuid("delivery_lease_token"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -395,7 +397,7 @@ export const notificationSendEvents = pgTable(
     payloadFingerprint: text("payload_fingerprint"),
     eventKind: text("event_kind").notNull().default("notify"),
     initialTargets: jsonb("initial_targets").$type<Array<{
-      deviceToken: string;
+      targetId: string;
       bundleId: string;
       environment: string;
     }>>(),
@@ -408,7 +410,7 @@ export const notificationSendEvents = pgTable(
       retryAfterSeconds?: number;
     }>(),
     resultOutcomes: jsonb("result_outcomes").$type<Array<{
-      deviceToken: string;
+      targetId: string;
       status: number;
       reason?: string;
       retryAfterSeconds?: number;
@@ -416,13 +418,12 @@ export const notificationSendEvents = pgTable(
     }>>(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    leaseToken: uuid("lease_token"),
+    retryNotBefore: timestamp("retry_not_before", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("notification_send_events_user_created_idx").on(table.userId, table.createdAt),
-    uniqueIndex("notification_send_events_user_correlation_unique")
-      .on(table.userId, table.correlationId)
-      .where(sql`${table.correlationId} is not null`),
   ],
 );
 

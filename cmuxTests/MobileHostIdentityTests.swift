@@ -106,6 +106,32 @@ struct MobileHostIdentityTests {
         #expect(!String(describing: payload).contains("api_origin"))
     }
 
+    #if DEBUG
+    @Test func debugSuppressionAlsoHidesAuthenticatedPhoneCapabilities() throws {
+        let previous = ProcessInfo.processInfo.environment[
+            "CMUX_DEBUG_SUPPRESS_MOBILE_CAPS"
+        ]
+        setenv(
+            "CMUX_DEBUG_SUPPRESS_MOBILE_CAPS",
+            MobileHostService.phonePushStatusCapability,
+            1
+        )
+        defer {
+            if let previous {
+                setenv("CMUX_DEBUG_SUPPRESS_MOBILE_CAPS", previous, 1)
+            } else {
+                unsetenv("CMUX_DEBUG_SUPPRESS_MOBILE_CAPS")
+            }
+        }
+
+        let payload = MobileHostService.identityStatusPayload(routes: [])
+        let capabilities = try #require(payload["capabilities"] as? [String])
+        #expect(!capabilities.contains(
+            MobileHostService.phonePushStatusCapability
+        ))
+    }
+    #endif
+
     @Test func authenticatedPhoneSettingsMutationUpdatesTheSharedStatusSource() throws {
         let suiteName = "mobile-host-push-mutation-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -155,6 +181,31 @@ struct MobileHostIdentityTests {
 
         guard case let .failure(error) = denied else {
             Issue.record("Expected unauthenticated mutation to fail")
+            return
+        }
+        #expect(error.code == "unauthorized")
+    }
+
+    @Test func phoneStatusReadUsesTheSameAccountAuthorizationGate() async {
+        let request = MobileHostRPCRequest(
+            id: "push-status",
+            method: "phone_push.status.get",
+            params: [:],
+            auth: nil
+        )
+        let denied = await MobileHostService.connectionAuthorizationError(
+            for: request,
+            authorization: .stackBearer,
+            stackAuthorization: { _ in
+                .failure(MobileHostRPCError(
+                    code: "unauthorized",
+                    message: "Mobile sync authorization failed."
+                ))
+            }
+        )
+
+        guard case let .failure(error) = denied else {
+            Issue.record("Expected unauthenticated status read to fail")
             return
         }
         #expect(error.code == "unauthorized")

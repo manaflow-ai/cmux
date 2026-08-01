@@ -8,6 +8,7 @@ public enum MobilePhonePushTestStage: String, Equatable, Sendable {
     case forwardingDisabled = "forwarding_disabled"
     case macActive = "suppressed_mac_active"
     case authenticationUnavailable = "authentication_unavailable"
+    case encodingFailed = "encoding_failed"
     case queueFull = "queue_full"
     case unavailable
 }

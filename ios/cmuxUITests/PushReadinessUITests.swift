@@ -62,12 +62,12 @@ final class PushReadinessUITests: XCTestCase {
         XCTAssertEqual(hideContent.value as? String, "0")
 
         forwarding.tap()
-        XCTAssertEqual(forwarding.value as? String, "0")
+        waitForValue(forwarding, "0")
         always.tap()
-        XCTAssertEqual(always.value as? String, "selected")
-        XCTAssertEqual(away.value as? String, "not selected")
+        waitForValue(always, "selected")
+        waitForValue(away, "not selected")
         hideContent.tap()
-        XCTAssertEqual(hideContent.value as? String, "1")
+        waitForValue(hideContent, "1")
     }
 
     @MainActor
@@ -138,6 +138,24 @@ final class PushReadinessUITests: XCTestCase {
                 "Missing repair \(repairIdentifier) for \(state)"
             )
         }
+    }
+
+    @MainActor
+    private func waitForValue(
+        _ element: XCUIElement,
+        _ expected: String,
+        timeout: TimeInterval = 4
+    ) {
+        let predicate = NSPredicate(format: "value == %@", expected)
+        let expectation = XCTNSPredicateExpectation(
+            predicate: predicate,
+            object: element
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [expectation], timeout: timeout),
+            .completed,
+            "Expected '\(expected)', got '\(String(describing: element.value))'"
+        )
     }
 
     @MainActor

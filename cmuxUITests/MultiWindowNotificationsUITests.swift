@@ -209,12 +209,17 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             "Expected a discoverable phone-forwarding entrypoint in the notifications popover"
         )
 
-        phoneForwardingButton.click()
         let forwardingToggle = app.descendants(matching: .any)["notificationsPage.forwardToPhone"]
-        XCTAssertTrue(
-            forwardingToggle.waitForExistence(timeout: 6.0),
-            "Expected the popover entrypoint to reveal the actual phone-forwarding controls"
-        )
+        phoneForwardingButton.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        ).click()
+        if !forwardingToggle.waitForExistence(timeout: 3.0) {
+            phoneForwardingButton.click()
+            XCTAssertTrue(
+                forwardingToggle.waitForExistence(timeout: 6.0),
+                "Expected the popover entrypoint to reveal the actual phone-forwarding controls"
+            )
+        }
     }
 
     func testEmptyNotificationsPopoverBlocksTerminalTyping() throws {

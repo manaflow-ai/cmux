@@ -56,6 +56,25 @@ final class PhonePushSerialDeliveryQueue {
         return true
     }
 
+    /// Preserves dismiss synchronization under a saturated notification queue.
+    /// A stale queued banner update is the only safe eviction candidate: the
+    /// in-flight request remains untouched, and dismiss envelopes are never
+    /// displaced by later bursts.
+    @discardableResult
+    func enqueuePrioritizingDismiss(_ envelope: PhonePushRequestEnvelope) -> Bool {
+        if enqueue(envelope) { return true }
+        guard envelope.coalescingID == nil,
+              let index = pending.firstIndex(where: {
+                  $0.coalescingID != nil
+                      && $0.correlationID != inFlightCorrelationID
+              }) else { return false }
+        pending.remove(at: index)
+        pending.append(envelope)
+        publishPending()
+        beginDrainIfNeeded()
+        return true
+    }
+
     func restore(_ envelopes: [PhonePushRequestEnvelope]) {
         let restored = Self.normalized(envelopes + pending)
         pending = Array(restored.suffix(capacity))
@@ -71,6 +90,7 @@ final class PhonePushSerialDeliveryQueue {
     func cancelAll() {
         drainGeneration = UUID()
         drainTask?.cancel()
+        inFlightCorrelationID = nil
         pending.removeAll(keepingCapacity: true)
         publishPending()
         finishIfIdle()
@@ -86,6 +106,7 @@ final class PhonePushSerialDeliveryQueue {
         guard retained.count != pending.count else { return }
         drainGeneration = UUID()
         drainTask?.cancel()
+        inFlightCorrelationID = nil
         pending = retained
         publishPending()
         beginDrainIfNeeded()
@@ -102,17 +123,16 @@ final class PhonePushSerialDeliveryQueue {
         _ envelopes: [PhonePushRequestEnvelope]
     ) -> [PhonePushRequestEnvelope] {
         var result: [PhonePushRequestEnvelope] = []
+        var seenCoalescingIDs = Set<String>()
         result.reserveCapacity(envelopes.count)
-        for envelope in envelopes {
+        for envelope in envelopes.reversed() {
             if let key = envelope.coalescingID,
-               let index = result.lastIndex(where: {
-                   $0.coalescingID == key
-               }) {
-                result.remove(at: index)
+               !seenCoalescingIDs.insert(key).inserted {
+                continue
             }
             result.append(envelope)
         }
-        return result
+        return Array(result.reversed())
     }
 
     private func beginDrainIfNeeded() {

@@ -81,6 +81,7 @@ public actor PushRegistrationService: PushRegistering {
         } else {
             self.defaults = .standard
         }
+        Self.migrateLegacyPendingUnregisters(in: self.defaults)
         self.session = session
         self.retryDelays = retryDelays
         self.retryJitter = retryJitter
@@ -346,7 +347,7 @@ public actor PushRegistrationService: PushRegistering {
             return
         }
         switch result {
-        case .success:
+        case let .success(pushServiceConfigured):
             if let requestSession {
                 defaults.set(
                     requestSession.accountID,
@@ -363,37 +364,72 @@ public actor PushRegistrationService: PushRegistering {
                     accountID: pending.accountID
                 )
             }
-            publish(PushRegistrationSnapshot(
-                isEnabled: true,
-                hasDeviceToken: true,
-                backendState: .registered
-            ))
+            if pushServiceConfigured {
+                publish(PushRegistrationSnapshot(
+                    isEnabled: true,
+                    hasDeviceToken: true,
+                    backendState: .registered
+                ))
+            } else {
+                // The API committed ownership before reporting its provider
+                // readiness. Retain that cleanup identity while failing the
+                // user-facing readiness check closed and retrying recovery.
+                let failure = PushRegistrationFailure.serviceUnavailable
+                publish(PushRegistrationSnapshot(
+                    isEnabled: true,
+                    hasDeviceToken: true,
+                    backendState: .failed(failure)
+                ))
+                scheduleUploadRetry(
+                    failure: failure,
+                    retryAfter: nil,
+                    tokenHex: tokenHex,
+                    generation: generation,
+                    remainingDelays: remainingDelays
+                )
+            }
         case let .failure(failure, retryAfter):
             publish(PushRegistrationSnapshot(
                 isEnabled: true,
                 hasDeviceToken: true,
                 backendState: .failed(failure)
             ))
-            guard failure.isRecoverable, !remainingDelays.isEmpty else { return }
-            let fallbackDelay = remainingDelays[0]
-            let delay = retryAfter ?? Self.jittered(
-                fallbackDelay,
-                multiplier: retryJitter(0.8...1.2)
+            scheduleUploadRetry(
+                failure: failure,
+                retryAfter: retryAfter,
+                tokenHex: tokenHex,
+                generation: generation,
+                remainingDelays: remainingDelays
             )
-            let laterDelays = Array(remainingDelays.dropFirst())
-            retryTask = Task { [weak self, retrySleep] in
-                do {
-                    try await retrySleep(delay)
-                } catch {
-                    return
-                }
-                guard !Task.isCancelled else { return }
-                await self?.attemptUpload(
-                    tokenHex: tokenHex,
-                    generation: generation,
-                    remainingDelays: laterDelays
-                )
+        }
+    }
+
+    private func scheduleUploadRetry(
+        failure: PushRegistrationFailure,
+        retryAfter: Duration?,
+        tokenHex: String,
+        generation: UUID,
+        remainingDelays: [Duration]
+    ) {
+        guard failure.isRecoverable, !remainingDelays.isEmpty else { return }
+        let fallbackDelay = remainingDelays[0]
+        let delay = retryAfter ?? Self.jittered(
+            fallbackDelay,
+            multiplier: retryJitter(0.8...1.2)
+        )
+        let laterDelays = Array(remainingDelays.dropFirst())
+        retryTask = Task { [weak self, retrySleep] in
+            do {
+                try await retrySleep(delay)
+            } catch {
+                return
             }
+            guard !Task.isCancelled else { return }
+            await self?.attemptUpload(
+                tokenHex: tokenHex,
+                generation: generation,
+                remainingDelays: laterDelays
+            )
         }
     }
 
@@ -533,10 +569,10 @@ public actor PushRegistrationService: PushRegistering {
             ), acknowledgement.ok else {
                 return .failure(.invalidServerResponse, retryAfter: nil)
             }
-            if acknowledgement.pushServiceConfigured == false {
-                return .failure(.serviceUnavailable, retryAfter: nil)
-            }
-            return .success
+            return .success(
+                pushServiceConfigured:
+                    acknowledgement.pushServiceConfigured != false
+            )
         } catch {
             if redirectDelegate.refusedRedirect {
                 return .failure(.invalidServerResponse, retryAfter: nil)
@@ -651,51 +687,53 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     private func clearPendingUnregister(
-        tokenHex: String? = nil,
-        accountID: String? = nil
+        tokenHex: String,
+        accountID: String
     ) {
         let filtered = pendingUnregisters.filter { entry in
-            if let tokenHex, entry.tokenHex != tokenHex { return true }
-            if let accountID, entry.accountID != accountID { return true }
-            return false
+            entry.tokenHex != tokenHex || entry.accountID != accountID
         }
         storePendingUnregisters(filtered)
     }
 
     private var pendingUnregisters: [PendingUnregister] {
-        var entries: [PendingUnregister] = []
+        let entries: [PendingUnregister]
         if let data = defaults.data(forKey: Self.pendingUnregisterQueueKey),
            let decoded = try? JSONDecoder().decode(
                [PendingUnregister].self,
                from: data
            ) {
             entries = decoded
-        }
-        var importedLegacy = false
-        if let tokenHex = defaults.string(
-            forKey: Self.pendingUnregisterTokenKey
-        ), let accountID = defaults.string(
-            forKey: Self.pendingUnregisterAccountIDKey
-        ), !tokenHex.isEmpty, !accountID.isEmpty {
-            let legacy = PendingUnregister(
-                tokenHex: tokenHex,
-                accountID: accountID
-            )
-            if !entries.contains(legacy) {
-                entries.append(legacy)
-            }
-            importedLegacy = true
+        } else {
+            entries = []
         }
         var seen = Set<PendingUnregister>()
-        let deduplicated = entries.filter { seen.insert($0).inserted }
-        if importedLegacy {
-            if let data = try? JSONEncoder().encode(deduplicated) {
-                defaults.set(data, forKey: Self.pendingUnregisterQueueKey)
-            }
-            defaults.removeObject(forKey: Self.pendingUnregisterTokenKey)
-            defaults.removeObject(forKey: Self.pendingUnregisterAccountIDKey)
+        return entries.filter { seen.insert($0).inserted }
+    }
+
+    private static func migrateLegacyPendingUnregisters(
+        in defaults: UserDefaults
+    ) {
+        guard let tokenHex = defaults.string(
+            forKey: pendingUnregisterTokenKey
+        ), let accountID = defaults.string(
+            forKey: pendingUnregisterAccountIDKey
+        ), !tokenHex.isEmpty, !accountID.isEmpty else { return }
+        var entries = (defaults.data(forKey: pendingUnregisterQueueKey)
+            .flatMap { try? JSONDecoder().decode(
+                [PendingUnregister].self,
+                from: $0
+            ) }) ?? []
+        let legacy = PendingUnregister(
+            tokenHex: tokenHex,
+            accountID: accountID
+        )
+        if !entries.contains(legacy) { entries.append(legacy) }
+        if let data = try? JSONEncoder().encode(entries) {
+            defaults.set(data, forKey: pendingUnregisterQueueKey)
         }
-        return deduplicated
+        defaults.removeObject(forKey: pendingUnregisterTokenKey)
+        defaults.removeObject(forKey: pendingUnregisterAccountIDKey)
     }
 
     private func storePendingUnregisters(_ entries: [PendingUnregister]) {
@@ -773,6 +811,20 @@ public actor PushRegistrationService: PushRegistering {
         case 401:
             return .failure(.authenticationRequired, retryAfter: nil)
         case 409:
+            let body = try? JSONDecoder().decode(
+                RegistrationErrorResponse.self,
+                from: data
+            )
+            if body?.error == "push_delivery_in_progress" {
+                let seconds = retryAfterSeconds(
+                    response: response,
+                    body: data
+                )
+                return .failure(
+                    .serviceUnavailable,
+                    retryAfter: seconds.map(Duration.seconds)
+                )
+            }
             return .failure(.accountDeletionInProgress, retryAfter: nil)
         case 429:
             let body = try? JSONDecoder().decode(
@@ -818,12 +870,24 @@ public actor PushRegistrationService: PushRegistering {
         let components = duration.components
         let seconds = Double(components.seconds)
             + Double(components.attoseconds) / 1_000_000_000_000_000_000
-        return .nanoseconds(Int64(seconds * multiplier * 1_000_000_000))
+        let nanoseconds = seconds * multiplier * 1_000_000_000
+        guard nanoseconds.isFinite else {
+            return .nanoseconds(nanoseconds.sign == .minus
+                ? Int64.min
+                : Int64.max)
+        }
+        if nanoseconds >= Double(Int64.max) {
+            return .nanoseconds(Int64.max)
+        }
+        if nanoseconds <= Double(Int64.min) {
+            return .nanoseconds(Int64.min)
+        }
+        return .nanoseconds(Int64(nanoseconds))
     }
 }
 
 private enum RegistrationResult {
-    case success
+    case success(pushServiceConfigured: Bool)
     case failure(PushRegistrationFailure, retryAfter: Duration?)
 }
 

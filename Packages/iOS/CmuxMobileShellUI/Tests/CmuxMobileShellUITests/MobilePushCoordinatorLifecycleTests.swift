@@ -76,6 +76,11 @@ private actor LifecyclePushRegistration: PushRegistering {
     }
     func unregisterFromServer() {}
     func unregisterFromServer(accessToken: String?, refreshToken: String?) {}
+    func unregisterFromServer(
+        accountID: String?,
+        accessToken: String?,
+        refreshToken: String?
+    ) {}
 }
 
 private actor LifecycleSetEnabledGate {
@@ -224,7 +229,11 @@ private actor LifecycleSyncGate {
         )
 
         #expect(await enabled.enable())
-        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+        #expect(
+            defaults.object(
+                forKey: "cmux.notifications.pushEnabled"
+            ) as? Bool == true
+        )
         #expect(MobilePushCoordinator(
             registration: registration,
             defaults: defaults,
@@ -232,7 +241,11 @@ private actor LifecycleSyncGate {
         ).isEnabled)
 
         await enabled.disable()
-        #expect(!defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+        #expect(
+            defaults.object(
+                forKey: "cmux.notifications.pushEnabled"
+            ) as? Bool == false
+        )
         #expect(!MobilePushCoordinator(
             registration: registration,
             defaults: defaults,

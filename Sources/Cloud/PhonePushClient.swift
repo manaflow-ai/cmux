@@ -1,5 +1,12 @@
 import CmuxAuthRuntime
 import Foundation
+import Observation
+import OSLog
+
+nonisolated private let phonePushLog = Logger(
+    subsystem: "ai.manaflow.cmux",
+    category: "phone-push"
+)
 
 /// UserDefaults keys for the phone-forwarding feature. Default OFF: the Mac
 /// uploads nothing unless the user explicitly turns it on.
@@ -20,6 +27,17 @@ struct PhonePushConfiguration: Equatable, Sendable {
         )
         mode = PhoneForwardingMode.fromDefaults(defaults)
         hideContent = defaults.bool(forKey: PhonePushSettings.hideContentKey)
+    }
+}
+
+/// Observable projection of the Mac-owned forwarding settings.
+@MainActor
+@Observable
+final class PhonePushConfigurationState {
+    fileprivate(set) var configuration: PhonePushConfiguration
+
+    init(configuration: PhonePushConfiguration) {
+        self.configuration = configuration
     }
 }
 
@@ -45,12 +63,18 @@ final class PhonePushClient {
     static let shared = PhonePushClient()
 
     private static let eventTTLSeconds = 120
-    private static let maxDismissIDsPerPush = 64
+    // The route permits 64 ids, but each opaque id may be 200 UTF-16 units and
+    // JSON control-character escaping can expand each unit to six bytes. Four
+    // keeps every valid batch under the shared 8 KiB request bound.
+    private static let maxDismissIDsPerPush = 4
+    nonisolated static let requestTimeoutInterval: TimeInterval = 35
 
     private let session: URLSession
     private let defaults: UserDefaults
     private let clock: PhonePushClock
     private let queueStore: PhonePushQueueStore
+    private let deliveryAuthorization: PhonePushDeliveryAuthorization
+    let configurationState: PhonePushConfigurationState
     private var auth: AuthCoordinator?
     var presenceMonitor: MacPresenceMonitor = .live()
     private var presenceCache = MacPresenceDecisionCache()
@@ -82,12 +106,17 @@ final class PhonePushClient {
         session: URLSession = .shared,
         defaults: UserDefaults = .standard,
         clock: PhonePushClock = .live,
-        queueStore: PhonePushQueueStore = .live()
+        queueStore: PhonePushQueueStore = .live(),
+        deliveryAuthorization: PhonePushDeliveryAuthorization = .init()
     ) {
         self.session = session
         self.defaults = defaults
         self.clock = clock
         self.queueStore = queueStore
+        self.deliveryAuthorization = deliveryAuthorization
+        self.configurationState = PhonePushConfigurationState(
+            configuration: PhonePushConfiguration(defaults: defaults)
+        )
     }
 
     func configure(auth: AuthCoordinator) {
@@ -99,10 +128,6 @@ final class PhonePushClient {
             guard let self, let auth else { return }
             await self.bootstrapQueueAndObserve(auth: auth)
         }
-    }
-
-    static var isForwardingEnabled: Bool {
-        UserDefaults.standard.bool(forKey: PhonePushSettings.forwardEnabledKey)
     }
 
     func configuration(
@@ -140,6 +165,9 @@ final class PhonePushClient {
             )
         }
         let configuration = PhonePushConfiguration(defaults: settingsDefaults)
+        if settingsDefaults === defaults {
+            configurationState.configuration = configuration
+        }
         if !configuration.forwardingEnabled {
             cancelPendingDeliveries()
         }
@@ -171,12 +199,15 @@ final class PhonePushClient {
     }
 
     func currentAdmission(
-        defaults: UserDefaults = .standard
+        defaults settingsDefaults: UserDefaults? = nil
     ) -> PhonePushAdmission {
-        guard defaults.bool(forKey: PhonePushSettings.forwardEnabledKey) else {
+        let settingsDefaults = settingsDefaults ?? defaults
+        guard settingsDefaults.bool(
+            forKey: PhonePushSettings.forwardEnabledKey
+        ) else {
             return .forwardingDisabled
         }
-        let mode = PhoneForwardingMode.fromDefaults(defaults)
+        let mode = PhoneForwardingMode.fromDefaults(settingsDefaults)
         guard mode != .always else { return .allowed }
         let presence = presenceCache.decision(from: presenceMonitor)
         return Self.shouldForward(mode: mode, presence: presence)
@@ -210,12 +241,12 @@ final class PhonePushClient {
             kind: .notify,
             title: String(
                 localized: "push.test.title",
-                defaultValue: "cmux Push Test"
+                defaultValue: "cmux Notification Test"
             ),
             subtitle: "",
             body: String(
                 localized: "push.test.body",
-                defaultValue: "Your Mac reached the cmux push queue."
+                defaultValue: "Your Mac sent a test alert to cmux."
             ),
             workspaceId: nil,
             surfaceId: nil,
@@ -254,15 +285,26 @@ final class PhonePushClient {
             accountID: identity.accountID,
             generation: identity.generation
         )
-        guard let envelope = try? PhonePushRequestEnvelope(
-            payload: payload,
-            expirationEpochSeconds:
-                clock.nowEpochSeconds + Self.eventTTLSeconds,
-            expectedAccountID: identity.accountID,
-            expectedSessionGeneration: identity.generation
-        ) else { return .queueFull }
+        let correlationID = UUID()
+        let envelope: PhonePushRequestEnvelope
+        do {
+            envelope = try PhonePushRequestEnvelope(
+                payload: payload,
+                correlationID: correlationID,
+                expirationEpochSeconds:
+                    clock.nowEpochSeconds + Self.eventTTLSeconds,
+                expectedAccountID: identity.accountID,
+                expectedSessionGeneration: identity.generation
+            )
+        } catch {
+            logQueueStage(
+                "encoding_failed",
+                correlationID: correlationID.uuidString.lowercased()
+            )
+            return .encodingFailed
+        }
         guard deliveryQueue.enqueue(envelope) else {
-            log(result: .retryExhausted, correlationID: envelope.correlationID)
+            logQueueStage("queue_overflow", correlationID: envelope.correlationID)
             return .queueFull
         }
         return .queued
@@ -296,15 +338,29 @@ final class PhonePushClient {
                 badgeCount: badgeCount,
                 hideContent: false
             )
-            guard let envelope = try? PhonePushRequestEnvelope(
-                payload: payload,
-                expirationEpochSeconds:
-                    clock.nowEpochSeconds + Self.eventTTLSeconds,
-                expectedAccountID: identity.accountID,
-                expectedSessionGeneration: identity.generation
-            ) else { continue }
-            if !deliveryQueue.enqueue(envelope) {
-                log(result: .retryExhausted, correlationID: envelope.correlationID)
+            let correlationID = UUID()
+            let envelope: PhonePushRequestEnvelope
+            do {
+                envelope = try PhonePushRequestEnvelope(
+                    payload: payload,
+                    correlationID: correlationID,
+                    expirationEpochSeconds:
+                        clock.nowEpochSeconds + Self.eventTTLSeconds,
+                    expectedAccountID: identity.accountID,
+                    expectedSessionGeneration: identity.generation
+                )
+            } catch {
+                logQueueStage(
+                    "dismiss_encoding_failed",
+                    correlationID: correlationID.uuidString.lowercased()
+                )
+                continue
+            }
+            if !deliveryQueue.enqueuePrioritizingDismiss(envelope) {
+                logQueueStage(
+                    "dismiss_queue_overflow",
+                    correlationID: envelope.correlationID
+                )
             }
         }
     }
@@ -445,15 +501,13 @@ final class PhonePushClient {
     ) {
         guard queuePersistenceStatus != status else { return }
         queuePersistenceStatus = status
-        NSLog("cmux.phonepush queue_persistence=%@", status.rawValue)
+        phonePushLog.info(
+            "queue_persistence=\(status.rawValue, privacy: .public)"
+        )
         publishStatusChanged()
     }
 
     private func publishStatusChanged() {
-        NotificationCenter.default.post(
-            name: .mobileHostStatusDidChange,
-            object: nil
-        )
         MobileHostService.emitEvent(
             topic: "phone_push.status.changed",
             payload: [:]
@@ -485,7 +539,7 @@ final class PhonePushClient {
                 do {
                     let captured = try await auth
                         .authenticatedSessionSnapshot()
-                    guard PhonePushDeliveryAuthorization.permits(
+                    guard deliveryAuthorization.permits(
                         envelope: envelope,
                         session: captured,
                         sessionIsCurrent: await auth
@@ -493,7 +547,7 @@ final class PhonePushClient {
                     ) else { return .staleSession }
                     initialSnapshot = captured
                     sessionSnapshot = captured
-                } catch {
+                } catch AuthError.networkError {
                     guard let delay = PhonePushRetryPolicy.delaySeconds(
                         afterAttempt: attempt,
                         result: .authenticationUnavailable,
@@ -513,16 +567,19 @@ final class PhonePushClient {
                     }
                     attempt += 1
                     continue
+                } catch {
+                    return .authenticationRequired
                 }
             }
             guard let currentSessionSnapshot = sessionSnapshot,
                   let initialSnapshot else {
                 return .authenticationUnavailable
             }
-            let response = await performRequest(
+            let response = await Self.performRequest(
                 envelope,
                 sessionSnapshot: currentSessionSnapshot,
-                allowRefreshedGeneration: refreshedAuthentication
+                auth: auth,
+                session: session
             )
             if response.result == .authenticationRequired,
                !refreshedAuthentication {
@@ -535,6 +592,25 @@ final class PhonePushClient {
                     else { return .staleSession }
                     sessionSnapshot = refreshed
                     refreshedAuthentication = true
+                    continue
+                } catch AuthError.networkError {
+                    guard let delay = PhonePushRetryPolicy.delaySeconds(
+                        afterAttempt: attempt,
+                        result: .authenticationUnavailable,
+                        retryAfterSeconds: nil,
+                        nowEpochSeconds: clock.nowEpochSeconds,
+                        expirationEpochSeconds: envelope.expirationEpochSeconds
+                    ) else {
+                        return envelope.isExpired(at: clock.nowEpochSeconds)
+                            ? .expired
+                            : .retryExhausted
+                    }
+                    do {
+                        try await clock.sleep(for: .seconds(delay))
+                    } catch {
+                        return .cancelled
+                    }
+                    attempt += 1
                     continue
                 } catch {
                     return .authenticationRequired
@@ -562,26 +638,32 @@ final class PhonePushClient {
         return .retryExhausted
     }
 
-    private func performRequest(
+    /// Explicit executor hop for URL loading. Queue ownership remains on the
+    /// main actor, while request construction, I/O, and response decoding do
+    /// not consume its executor.
+#if compiler(>=6.2)
+    @concurrent
+#endif
+    nonisolated private static func performRequest(
         _ envelope: PhonePushRequestEnvelope,
         sessionSnapshot: AuthenticatedSessionSnapshot,
-        allowRefreshedGeneration: Bool
+        auth: AuthCoordinator,
+        session: URLSession
     ) async -> (
         result: PhonePushHTTPResult,
         retryAfterSeconds: Int?
     ) {
-        guard let auth else { return (.authenticationUnavailable, nil) }
         let current = await auth.isAuthenticatedSessionCurrent(sessionSnapshot)
         let accountMatches = envelope.expectedAccountID == sessionSnapshot.accountID
-        let generationMatches = allowRefreshedGeneration
-            || envelope.expectedSessionGeneration == sessionSnapshot.generation
+        let generationMatches =
+            envelope.expectedSessionGeneration == sessionSnapshot.generation
         guard current, accountMatches, generationMatches else {
             return (.staleSession, nil)
         }
-        guard let url = Self.pushURL() else { return (.invalidResponse, nil) }
+        guard let url = pushURL() else { return (.invalidResponse, nil) }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 10
+        request.timeoutInterval = requestTimeoutInterval
         request.httpBody = envelope.body
         request.setValue(
             "Bearer \(sessionSnapshot.accessToken)",
@@ -625,7 +707,7 @@ final class PhonePushClient {
         }
     }
 
-    private static func pushURL() -> URL? {
+    nonisolated private static func pushURL() -> URL? {
         guard var components = URLComponents(
             url: AuthEnvironment.vmAPIBaseURL,
             resolvingAgainstBaseURL: false
@@ -642,10 +724,14 @@ final class PhonePushClient {
         result: PhonePushHTTPResult,
         correlationID: String
     ) {
-        NSLog(
-            "cmux.phonepush correlation=%@ outcome=%@",
-            correlationID,
-            Self.logValue(result)
+        phonePushLog.info(
+            "correlation=\(correlationID, privacy: .public) outcome=\(Self.logValue(result), privacy: .public)"
+        )
+    }
+
+    private func logQueueStage(_ stage: String, correlationID: String) {
+        phonePushLog.info(
+            "correlation=\(correlationID, privacy: .public) outcome=\(stage, privacy: .public)"
         )
     }
 
