@@ -187,7 +187,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
               node.isRegistered,
               node.surface === surface else { return }
         surfaceFocusPlacementsByIdentity[identity] = placement
-        if canonicalSurfaceNodes[surface.id]?.identity == identity {
+        if canonicalSurfaceNode(surfaceID: surface.id)?.identity == identity {
             surfaceFocusPlacements[surface.id] = placement
         }
     }
