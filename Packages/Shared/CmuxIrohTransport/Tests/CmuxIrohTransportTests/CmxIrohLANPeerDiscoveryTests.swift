@@ -21,6 +21,9 @@ struct CmxIrohLANPeerDiscoveryTests {
         }
         await fixture.browser.waitUntilStarted()
         #expect(await fixture.factory.callCount() == 1)
+        let allowedServiceNames = await fixture.browser.serviceNameAllowlist()
+        #expect(allowedServiceNames.count == 3)
+        #expect(allowedServiceNames.contains(fixture.serviceID.serviceName))
         await fixture.browser.emit(.resolved(fixture.serviceID, fixture.service))
 
         guard case let .found(peers) = await discoveryTask.value else {
@@ -157,6 +160,30 @@ struct CmxIrohLANPeerDiscoveryTests {
     }
 
     @Test
+    func pathChangeDuringAllowlistInstallationCannotResurrectBrowser() async throws {
+        let fixture = try Fixture()
+        await fixture.browser.blockNextAllowlistReplacement()
+        let discoveryTask = Task {
+            await fixture.discovery.discover(
+                rendezvous: fixture.rendezvous,
+                authenticatedBindings: [fixture.binding],
+                expectedMacDeviceID: fixture.binding.deviceID,
+                expectedEndpointID: fixture.binding.endpointID,
+                timeout: 5
+            )
+        }
+        await fixture.browser.waitUntilAllowlistReplacementIsBlocked()
+
+        await fixture.path.advanceGeneration()
+        await fixture.discovery.pathDidChange()
+        await fixture.browser.resumeAllowlistReplacement()
+
+        #expect(await discoveryTask.value == .notFound)
+        #expect(await fixture.browser.wasStopped())
+        #expect(!(await fixture.browser.hasStartedEventStream()))
+    }
+
+    @Test
     func policyDeniedIsDistinctAndDoesNotThrowOrAuthorize() async throws {
         let fixture = try Fixture()
         let discoveryTask = Task {
@@ -259,6 +286,8 @@ struct CmxIrohLANPeerDiscoveryTests {
 private struct PreloadedLANBrowser: CmxIrohBonjourBrowsing {
     let event: CmxIrohBonjourBrowserEvent
 
+    func replaceServiceNameAllowlist(_: Set<String>) async {}
+
     func events() async -> AsyncStream<CmxIrohBonjourBrowserEvent> {
         AsyncStream { continuation in
             continuation.yield(event)
@@ -278,6 +307,25 @@ private actor TestLANBrowser: CmxIrohBonjourBrowsing {
     private var continuation: AsyncStream<CmxIrohBonjourBrowserEvent>.Continuation?
     private var startWaiters: [CheckedContinuation<Void, Never>] = []
     private var stopped = false
+    private var allowedServiceNames: Set<String> = []
+    private var shouldBlockNextAllowlistReplacement = false
+    private var allowlistReplacementIsBlocked = false
+    private var allowlistStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var allowlistResume: CheckedContinuation<Void, Never>?
+
+    func replaceServiceNameAllowlist(_ serviceNames: Set<String>) async {
+        allowedServiceNames = serviceNames
+        guard shouldBlockNextAllowlistReplacement else { return }
+        shouldBlockNextAllowlistReplacement = false
+        allowlistReplacementIsBlocked = true
+        let waiters = allowlistStartWaiters
+        allowlistStartWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { continuation in
+            allowlistResume = continuation
+        }
+        allowlistReplacementIsBlocked = false
+    }
 
     func events() -> AsyncStream<CmxIrohBonjourBrowserEvent> {
         AsyncStream { continuation in
@@ -304,6 +352,22 @@ private actor TestLANBrowser: CmxIrohBonjourBrowsing {
     }
 
     func wasStopped() -> Bool { stopped }
+    func serviceNameAllowlist() -> Set<String> { allowedServiceNames }
+    func hasStartedEventStream() -> Bool { continuation != nil }
+
+    func blockNextAllowlistReplacement() {
+        shouldBlockNextAllowlistReplacement = true
+    }
+
+    func waitUntilAllowlistReplacementIsBlocked() async {
+        if allowlistReplacementIsBlocked { return }
+        await withCheckedContinuation { allowlistStartWaiters.append($0) }
+    }
+
+    func resumeAllowlistReplacement() {
+        allowlistResume?.resume()
+        allowlistResume = nil
+    }
 }
 
 private actor TestLANBrowserFactoryRecorder {

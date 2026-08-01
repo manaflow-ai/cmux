@@ -171,7 +171,7 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(readiness.complete(revision: 2))
         #expect(readiness.isPending == false)
 
-        #expect(await readiness.wait(now: { Date(timeIntervalSince1970: 100) }) == .ready)
+        #expect(await readiness.wait() == .ready)
     }
 
     @Test
@@ -179,13 +179,13 @@ struct MobileIrohRuntimeCompositionTests {
         let readiness = MobileIrohConnectionReadinessOwner()
         readiness.begin(revision: 1)
         let first = Task {
-            await readiness.wait(now: { Date(timeIntervalSince1970: 100) })
+            await readiness.wait()
         }
         await Task.yield()
 
         readiness.begin(revision: 2)
         let second = Task {
-            await readiness.wait(now: { Date(timeIntervalSince1970: 100) })
+            await readiness.wait()
         }
         await Task.yield()
 
@@ -197,38 +197,24 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
-    func connectionReadinessReadsClockAfterActivationSettles() async throws {
-        let start = Date(timeIntervalSince1970: 100)
-        var observedNow = start
-        let readiness = MobileIrohConnectionReadinessOwner(
-            retrySchedule: CmxIrohRetrySchedule(
-                initialDelay: 30,
-                maximumDelay: 3_600,
-                jitterFraction: 0
-            ),
-            jitterUnitInterval: { 0 }
-        )
+    func connectionReadinessForwardsSettledFailure() async {
+        let readiness = MobileIrohConnectionReadinessOwner()
         readiness.begin(revision: 1)
         let waiter = Task {
-            await readiness.wait(now: { observedNow })
+            await readiness.wait()
         }
         await Task.yield()
 
-        observedNow = start.addingTimeInterval(45)
-        _ = try #require(readiness.completeFailure(
+        let failure = MobileIrohRuntimePreparationError(
+            diagnosticFailureKind: .offline,
+            retryAfterSeconds: 7
+        )
+        #expect(readiness.complete(
             revision: 1,
-            accountID: "account-a",
-            error: CmxIrohTrustBrokerClientError.connectivity,
-            retryAfterSeconds: nil,
-            now: start
+            outcome: .failed(failure)
         ))
 
-        let outcome = await waiter.value
-        guard case let .failed(failure) = outcome else {
-            Issue.record("Expected failed readiness outcome")
-            return
-        }
-        #expect(failure.retryAfterSeconds == 1)
+        #expect(await waiter.value == .failed(failure))
     }
 
     @Test
@@ -534,40 +520,6 @@ struct MobileIrohRuntimeCompositionTests {
             policyExpiresAt: nil,
             now: expiresAt
         ))
-    }
-
-    @Test
-    func relayPolicyRetryScheduleShortensAuthorizationFailures() {
-        // An authorization failure already survived the broker client's single
-        // force-refresh retry; it resolves on token-store timescales. The
-        // default 30s-plus-jitter first delay turned every wake-time rotation
-        // race into a visible half-minute connectivity gap.
-        let authSchedule = MobileIrohRuntimeComposition.relayPolicyRetrySchedule(
-            for: CmxIrohTrustBrokerClientError.rejected(
-                statusCode: 401,
-                code: "unauthorized"
-            )
-        )
-        #expect(authSchedule.delay(
-            failureCount: 0,
-            retryAfterSeconds: nil,
-            jitterUnitInterval: 0
-        ) == 2)
-        #expect(authSchedule.delay(
-            failureCount: 20,
-            retryAfterSeconds: nil,
-            jitterUnitInterval: 0
-        ) == 120)
-
-        let connectivitySchedule =
-            MobileIrohRuntimeComposition.relayPolicyRetrySchedule(
-                for: CmxIrohTrustBrokerClientError.connectivity
-            )
-        #expect(connectivitySchedule.delay(
-            failureCount: 0,
-            retryAfterSeconds: nil,
-            jitterUnitInterval: 0
-        ) == 30)
     }
 
     @Test

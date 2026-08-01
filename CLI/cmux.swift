@@ -3954,6 +3954,10 @@ struct CMUXCLI {
         let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command) // Backwards compatibility aliases stay hidden from help.
         do {
         switch command {
+        case "__sidebar_footer_icon_balance":
+            let response = try sendV1Command("__sidebar_footer_icon_balance", client: client)
+            print(response)
+
         case "__internal_flags":
             let response = try sendV1Command("__internal_flags", client: client)
             print(response)
