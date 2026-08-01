@@ -15,6 +15,7 @@ struct SidebarAgentStatusRow: Equatable, Identifiable {
     let lifecycle: AgentHibernationLifecycleState?
     let paneLabel: String?
     let surfaceName: String?
+    let presentation: SidebarAgentRowPresentation
     let priority: Int
     let timestamp: Date
 
@@ -272,8 +273,11 @@ extension Workspace {
 
     /// The row's automatic identity fallback, kept separate from an explicit
     /// surface rename so presentation can append only user-authored names.
+    /// Auto-generated custom titles remain the primary label, matching the
+    /// behavior before custom-title provenance was split out.
     func agentStatusRowPaneLabel(panelId: UUID) -> String? {
         let candidates = [
+            panelCustomTitleSources[panelId] == .auto ? panelCustomTitles[panelId] : nil,
             panelTitles[panelId],
             panelDirectoryDisplayLabels[panelId],
         ]

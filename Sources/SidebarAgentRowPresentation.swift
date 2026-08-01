@@ -1,3 +1,4 @@
+import CmuxSidebar
 import Foundation
 
 /// Pure display text for one immutable agent-row snapshot.
@@ -9,14 +10,6 @@ struct SidebarAgentRowPresentation: Equatable {
 
     let primaryText: String
     let fullPrimaryText: String
-
-    init(row: SidebarAgentStatusRow) {
-        self.init(
-            paneLabel: row.paneLabel,
-            agentDisplayName: Self.agentDisplayName(statusKey: row.statusKey),
-            surfaceName: row.surfaceName
-        )
-    }
 
     init(paneLabel: String?, agentDisplayName: String, surfaceName: String?) {
         let base = Self.normalized(paneLabel) ?? agentDisplayName
@@ -45,18 +38,52 @@ struct SidebarAgentRowPresentation: Equatable {
     }
 
     private static func boundedSurfaceName(_ value: String) -> String {
-        let characters = Array(value)
-        guard characters.count > maximumSurfaceNameLength else { return value }
+        guard let firstOmittedIndex = value.index(
+            value.startIndex,
+            offsetBy: maximumSurfaceNameLength,
+            limitedBy: value.endIndex
+        ), firstOmittedIndex != value.endIndex else { return value }
         let leadingCount = maximumSurfaceNameLength / 2
         let trailingCount = maximumSurfaceNameLength - leadingCount - 1
-        return String(characters.prefix(leadingCount))
+        let leadingEnd = value.index(value.startIndex, offsetBy: leadingCount)
+        let trailingStart = value.index(value.endIndex, offsetBy: -trailingCount)
+        return String(value[..<leadingEnd])
             + "…"
-            + String(characters.suffix(trailingCount))
+            + String(value[trailingStart...])
     }
 }
 
 extension SidebarAgentStatusRow {
-    var presentation: SidebarAgentRowPresentation {
-        SidebarAgentRowPresentation(row: self)
+    init(
+        panelId: UUID,
+        statusKey: String,
+        value: String?,
+        icon: String?,
+        color: String?,
+        url: URL?,
+        format: SidebarMetadataFormat,
+        lifecycle: AgentHibernationLifecycleState?,
+        paneLabel: String?,
+        surfaceName: String?,
+        priority: Int,
+        timestamp: Date
+    ) {
+        self.panelId = panelId
+        self.statusKey = statusKey
+        self.value = value
+        self.icon = icon
+        self.color = color
+        self.url = url
+        self.format = format
+        self.lifecycle = lifecycle
+        self.paneLabel = paneLabel
+        self.surfaceName = surfaceName
+        presentation = SidebarAgentRowPresentation(
+            paneLabel: paneLabel,
+            agentDisplayName: SidebarAgentRowPresentation.agentDisplayName(statusKey: statusKey),
+            surfaceName: surfaceName
+        )
+        self.priority = priority
+        self.timestamp = timestamp
     }
 }
