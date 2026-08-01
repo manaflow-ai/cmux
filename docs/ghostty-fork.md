@@ -12,11 +12,13 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `88357634c`, the fork-main merge of
-https://github.com/manaflow-ai/ghostty/pull/175. It combines the initial cmux
-theme-picker render fix at `5068b3a37` with terminal-owned semantic-prompt row
-lifecycle enforcement through `2d6e944e3` from
-https://github.com/manaflow-ai/ghostty/pull/176.
+The submodule pinned by this branch is `f0af83afe`, the tip of
+https://github.com/manaflow-ai/ghostty/tree/feat-unmodified-link-previews. It
+combines the initial cmux theme-picker render fix from
+https://github.com/manaflow-ai/ghostty/pull/175, terminal-owned semantic-prompt
+row lifecycle enforcement from https://github.com/manaflow-ai/ghostty/pull/176,
+and an embedder-only unmodified link-preview path. It descends from the
+previously documented `36a46414a` renderer/font integration.
 The earlier integration combines the hidden-renderer reclamation and
 retry-deadline line through `4d6f0014f` with the resolved font-binding action
 callbacks originally ending at `80d7fb35a`.
@@ -42,6 +44,32 @@ The seven PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
 `2fc66ed15`, `3c1b75d25`, `c467d389c`, `64d7fca66`, and `4d6f0014f`.
 The final font integration landed in merge commits `23003282d` and
 `36a46414a`.
+
+### Unmodified embedder link previews
+
+- Branch:
+  - https://github.com/manaflow-ai/ghostty/tree/feat-unmodified-link-previews
+- Commit:
+  - `aade8166b` (feat: expose unmodified link previews to embedders)
+  - `f0af83afe` (merge current fork main into the preview branch)
+- Release:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f0af83afe3c806b756f4aa0847507969f873b9ae-crashsubdir-cmux-crash-v1
+  - Archive SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Adds an opt-in embedded-surface API that resolves link-preview callbacks
+    under an unmodified pointer.
+  - Keeps preview notification state separate from modifier-gated link
+    highlighting and click activation, so plain clicks retain terminal text
+    selection behavior.
+  - Preserves `link-previews=false`, `link-previews=osc8`, mouse-reporting,
+    drag cancellation, and the existing Command-click or Control-click rules.
+  - Conflict note: preserve separate preview and activation state when
+    changing mouse hover resolution. The embedder flag may bypass matcher
+    modifiers only for preview callbacks, never for link activation.
 
 ### Initial cmux theme-picker render
 

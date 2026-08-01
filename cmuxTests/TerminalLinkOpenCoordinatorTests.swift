@@ -9,6 +9,28 @@ import struct CmuxSettings.AppCatalogSection
 @testable import cmux
 #endif
 
+@MainActor
+private final class TerminalLinkPreviewContainerStub: TerminalLinkOpenContainer {
+    let isRemote: Bool
+    let profileID: UUID
+
+    init(isRemote: Bool, profileID: UUID = UUID()) {
+        self.isRemote = isRemote
+        self.profileID = profileID
+    }
+
+    var terminalLinkContainerDebugName: String { "preview-test" }
+    func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? { nil }
+    func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool { isRemote }
+    func terminalLinkBrowserProfileID(for sourcePanelId: UUID) -> UUID? { profileID }
+    func deferTerminalFileLinkOpen(
+        sourcePanelId: UUID,
+        filePath: String,
+        fallback: @escaping @MainActor @Sendable () -> Void
+    ) -> Bool { false }
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool { false }
+}
+
 @Suite("Terminal link open coordinator", .serialized)
 struct TerminalLinkOpenCoordinatorTests {
     private func makeDefaults() -> UserDefaults {
@@ -22,6 +44,72 @@ struct TerminalLinkOpenCoordinatorTests {
             forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
         )
         return defaults
+    }
+
+    @Test("Preview resolves only links eligible for the local embedded-browser click route")
+    @MainActor
+    func previewTargetMatchesEmbeddedBrowserPolicy() throws {
+        let defaults = makeDefaults()
+        let panelID = UUID()
+        let container = TerminalLinkPreviewContainerStub(isRemote: false)
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, resolvedPanelID in
+                resolvedPanelID == panelID ? container : nil
+            }
+        )
+        let url = try #require(URL(string: "https://example.com/docs"))
+        let request = TerminalLinkOpenRequest(
+            rawValue: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: panelID,
+            workingDirectory: nil
+        )
+
+        #expect(
+            coordinator.previewTarget(for: request)
+                == TerminalLinkOpenCoordinator.PreviewTarget(
+                    url: url,
+                    profileID: container.profileID
+                )
+        )
+
+        defaults.set(
+            "example.com/docs",
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        #expect(coordinator.previewTarget(for: request) == nil)
+
+        defaults.removeObject(forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        defaults.set(
+            "internal.example",
+            forKey: BrowserLinkOpenSettings.browserHostWhitelistKey
+        )
+        #expect(coordinator.previewTarget(for: request) == nil)
+
+        defaults.removeObject(forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        defaults.set(true, forKey: BrowserAvailabilitySettings.disabledKey)
+        #expect(coordinator.previewTarget(for: request) == nil)
+    }
+
+    @Test("Preview never preloads a remote terminal link on the local machine")
+    @MainActor
+    func previewTargetRejectsRemoteTerminal() throws {
+        let defaults = makeDefaults()
+        let panelID = UUID()
+        let container = TerminalLinkPreviewContainerStub(isRemote: true)
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, _ in container }
+        )
+        let url = try #require(URL(string: "https://example.com/private"))
+
+        #expect(coordinator.previewTarget(for: TerminalLinkOpenRequest(
+            rawValue: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: panelID,
+            workingDirectory: nil
+        )) == nil)
     }
 
     @Test("Embedded URL without an owning container falls back externally")

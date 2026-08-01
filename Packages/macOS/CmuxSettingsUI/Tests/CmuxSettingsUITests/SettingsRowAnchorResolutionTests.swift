@@ -74,6 +74,7 @@ struct SettingsRowAnchorResolutionTests {
         "browser.hostsToOpenInEmbeddedBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
         "browser.openTerminalLinksInCmuxBrowser",
+        "browser.terminalLinkPreviewHoverDelayMilliseconds",
         "browser.reactGrabVersion",
         "browser.showSearchSuggestions",
         "browser.theme",

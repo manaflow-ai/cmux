@@ -4,27 +4,41 @@ import WebKit
 
 /// Single-slot pool of a hidden, pre-navigated browser webview.
 ///
-/// Upgrade entrypoints call ``prewarm(url:profileID:)`` on hover so the
-/// pricing page is already loaded by the time the user clicks. The
-/// ``BrowserPanel`` initializer claims a matching entry via
-/// ``claim(url:profileID:websiteDataStore:)`` and adopts the webview instead
-/// of starting a cold WebKit process launch plus network load, so the panel
-/// shows the finished page immediately.
+/// Callers use ``prewarm(url:profileID:)`` so a page is already loading by the
+/// time the user opens it. The ``BrowserPanel`` initializer claims a matching
+/// entry via ``claim(url:profileID:websiteDataStore:)`` and adopts the webview
+/// instead of starting a cold WebKit process launch plus network load, so the
+/// panel shows the finished page immediately.
 ///
-/// The pool never renders on screen: the webview lives in an offscreen,
-/// non-activating borderless window (the same hosting recipe as
-/// `BrowserPanel.ensureBackgroundPreloadHostIfNeeded`). The entry expires
-/// `timeToLive` after the last prewarm request and is discarded on load
-/// failure or web-content process termination, so a hover that never becomes
-/// a click costs one background page load and is reclaimed.
+/// The webview normally lives in an offscreen, non-activating borderless
+/// window (the same hosting recipe as
+/// `BrowserPanel.ensureBackgroundPreloadHostIfNeeded`). A terminal link
+/// preview may temporarily attach that exact webview to an on-screen preview
+/// host without consuming it. A matching ``BrowserPanel`` can then claim the
+/// view, including while navigation is still in flight, so opening a previewed
+/// link never starts a second WebKit process or network load.
+///
+/// The entry expires `timeToLive` after the last prewarm request and is
+/// discarded on load failure or web-content process termination, so a hover
+/// that never becomes a click costs one background page load and is reclaimed.
 @MainActor
 final class BrowserPrewarmedWebViewPool: NSObject {
     static let shared = BrowserPrewarmedWebViewPool()
 
-    private enum LoadState {
+    enum LoadState: Equatable {
         case loading
         case finished
         case failed
+    }
+
+    struct Claim {
+        let webView: CmuxWebView
+        let loadState: LoadState
+    }
+
+    struct PreviewAttachment: Equatable {
+        let id: UUID
+        let loadState: LoadState
     }
 
     private struct Entry {
@@ -33,6 +47,9 @@ final class BrowserPrewarmedWebViewPool: NSObject {
         let profileID: UUID
         let hostWindow: NSWindow
         var loadState: LoadState
+        var previewAttachmentID: UUID?
+        var previewStateDidChange: (@MainActor (LoadState) -> Void)?
+        var previewDidDismiss: (@MainActor () -> Void)?
     }
 
     private var entry: Entry?
@@ -88,6 +105,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
         discard(reason: "replaced")
 
         let webView = makeWebView(profileID)
+        _ = webView.cmuxSetPageAudioMuted(true)
         webView.navigationDelegate = self
         let hostWindow = Self.makeHiddenHostWindow(for: webView)
         entry = Entry(
@@ -95,7 +113,10 @@ final class BrowserPrewarmedWebViewPool: NSObject {
             url: url,
             profileID: profileID,
             hostWindow: hostWindow,
-            loadState: .loading
+            loadState: .loading,
+            previewAttachmentID: nil,
+            previewStateDidChange: nil,
+            previewDidDismiss: nil
         )
         startLoad(webView, URLRequest(url: url))
         scheduleExpiry()
@@ -104,44 +125,95 @@ final class BrowserPrewarmedWebViewPool: NSObject {
 #endif
     }
 
+    /// Temporarily renders a matching entry inside an interactive preview
+    /// host. The entry remains claimable by a real browser panel.
+    func attachPreview(
+        url: URL,
+        profileID: UUID,
+        to hostView: NSView,
+        stateDidChange: @escaping @MainActor (LoadState) -> Void,
+        didDismiss: @escaping @MainActor () -> Void
+    ) -> PreviewAttachment? {
+        guard var entry,
+              entry.url.absoluteString == url.absoluteString,
+              entry.profileID == profileID,
+              entry.loadState != .failed else {
+            return nil
+        }
+
+        entry.previewDidDismiss?()
+        let attachmentID = UUID()
+        entry.previewAttachmentID = attachmentID
+        entry.previewStateDidChange = stateDidChange
+        entry.previewDidDismiss = didDismiss
+        Self.host(entry.webView, in: hostView)
+        self.entry = entry
+        scheduleExpiry()
+        stateDidChange(entry.loadState)
+#if DEBUG
+        cmuxDebugLog("browser.prewarmPool.preview.attach url=\(url.absoluteString)")
+#endif
+        return PreviewAttachment(id: attachmentID, loadState: entry.loadState)
+    }
+
+    /// Returns a previewed view to its hidden host without discarding the
+    /// loaded page. A later click may still claim it until the TTL expires.
+    func detachPreview(_ attachment: PreviewAttachment) {
+        guard var entry, entry.previewAttachmentID == attachment.id else { return }
+        entry.previewAttachmentID = nil
+        entry.previewStateDidChange = nil
+        entry.previewDidDismiss = nil
+        if let hiddenHost = entry.hostWindow.contentView {
+            Self.host(entry.webView, in: hiddenHost)
+            entry.hostWindow.orderFrontRegardless()
+        }
+        self.entry = entry
+#if DEBUG
+        cmuxDebugLog("browser.prewarmPool.preview.detach url=\(entry.url.absoluteString)")
+#endif
+    }
+
     /// Hands the prewarmed webview to a panel when it matches the requested
-    /// navigation, or returns nil for a normal cold load. The entry is
-    /// consumed either way: once a matching panel is being created, a
-    /// still-loading or failed entry is useless and would otherwise linger.
-    func claim(url: URL, profileID: UUID, websiteDataStore: WKWebsiteDataStore) -> CmuxWebView? {
+    /// navigation, or returns nil for a normal cold load. Both finished and
+    /// in-flight navigations are adopted so a click during preview loading does
+    /// not start over.
+    func claim(url: URL, profileID: UUID, websiteDataStore: WKWebsiteDataStore) -> Claim? {
         guard let entry,
               entry.url.absoluteString == url.absoluteString,
               entry.profileID == profileID else {
             return nil
         }
-        guard entry.loadState == .finished,
+        guard entry.loadState != .failed,
               entry.webView.configuration.websiteDataStore === websiteDataStore else {
-            discard(reason: entry.loadState == .finished ? "datastore-mismatch" : "not-finished")
+            discard(reason: entry.loadState == .failed ? "failed" : "datastore-mismatch")
             return nil
         }
         let webView = entry.webView
-        webView.navigationDelegate = nil
-        webView.removeFromSuperview()
-        webView.browserPortalPrepareForHiddenHostAdoption()
-        entry.hostWindow.close()
         self.entry = nil
         expiryTask?.cancel()
         expiryTask = nil
+        entry.previewDidDismiss?()
+        webView.navigationDelegate = nil
+        _ = webView.cmuxSetPageAudioMuted(false)
+        webView.removeFromSuperview()
+        webView.browserPortalPrepareForHiddenHostAdoption()
+        entry.hostWindow.close()
 #if DEBUG
-        cmuxDebugLog("browser.prewarmPool.claim url=\(url.absoluteString)")
+        cmuxDebugLog("browser.prewarmPool.claim url=\(url.absoluteString) state=\(entry.loadState)")
 #endif
-        return webView
+        return Claim(webView: webView, loadState: entry.loadState)
     }
 
     func discard(reason: String) {
         expiryTask?.cancel()
         expiryTask = nil
         guard let entry else { return }
+        self.entry = nil
+        entry.previewDidDismiss?()
         entry.webView.navigationDelegate = nil
         entry.webView.stopLoading()
         entry.webView.removeFromSuperview()
         entry.hostWindow.close()
-        self.entry = nil
 #if DEBUG
         cmuxDebugLog("browser.prewarmPool.discard reason=\(reason)")
 #endif
@@ -188,18 +260,24 @@ final class BrowserPrewarmedWebViewPool: NSObject {
         window.isExcludedFromWindowsMenu = true
 
         let contentView = NSView(frame: frame)
-        webView.frame = contentView.bounds
-        webView.autoresizingMask = [.width, .height]
-        contentView.addSubview(webView)
+        host(webView, in: contentView)
         window.contentView = contentView
         window.orderFrontRegardless()
         return window
+    }
+
+    private static func host(_ webView: WKWebView, in hostView: NSView) {
+        webView.removeFromSuperview()
+        webView.frame = hostView.bounds
+        webView.autoresizingMask = [.width, .height]
+        hostView.addSubview(webView)
     }
 
     private func updateLoadState(for webView: WKWebView, to state: LoadState) {
         guard var entry, entry.webView === webView else { return }
         entry.loadState = state
         self.entry = entry
+        entry.previewStateDidChange?(state)
     }
 }
 

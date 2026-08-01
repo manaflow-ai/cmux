@@ -4161,7 +4161,7 @@ final class Workspace: Identifiable, ObservableObject {
         preferredBrowserProfileID = profileID
     }
 
-    private func resolvedNewBrowserProfileID(
+    func resolvedNewBrowserProfileID(
         preferredProfileID: UUID? = nil,
         sourcePanelId: UUID? = nil
     ) -> UUID {

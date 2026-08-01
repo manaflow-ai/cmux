@@ -288,6 +288,13 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: String(localized: "settings.search.alias.setting.browser.ask-where-to-save-downloads", defaultValue: "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail")
             ),
             .init(section: .browser, id: "terminal-links", title: "Open Terminal Links in cmux Browser", synonyms: "browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),
+            .init(
+                section: .browser,
+                id: "terminal-link-preview-delay",
+                title: String(localized: "settings.browser.terminalLinkPreviewDelay", defaultValue: "Terminal Link Preview Delay"),
+                detailText: String(localized: "settings.browser.terminalLinkPreviewDelay.subtitle", defaultValue: "How long the pointer must rest on a terminal link before its live page preview appears."),
+                synonyms: String(localized: "settings.search.alias.setting.browser.terminal-link-preview-delay", defaultValue: "browser.terminalLinkPreviewHoverDelayMilliseconds terminal url link hover preview dwell delay milliseconds thumbnail web page")
+            ),
             .init(section: .browser, id: "intercept-open", title: "Intercept open http(s) in Terminal", synonyms: "browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept"),
             .init(section: .browser, id: "host-whitelist", title: "Hosts to Open in Embedded Browser", synonyms: "browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"),
             .init(section: .browser, id: "external-patterns", title: "URLs to Always Open Externally", synonyms: "browser.urlsToAlwaysOpenExternally denylist blocklist regex rules external default browser"),

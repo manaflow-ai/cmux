@@ -7,7 +7,7 @@ import SwiftUI
 /// row-for-row inside a single `SettingsCard`: Enable cmux Browser,
 /// Default Search Engine, conditional Custom Search Engine fields,
 /// Show Search Suggestions, Browser Theme, Browser Memory Saver +
-/// Memory Saver Delay, Open Terminal Links / Intercept open,
+/// Memory Saver Delay, Open Terminal Links + preview delay / Intercept open,
 /// conditional Hosts / External Patterns text editors, HTTP Hosts
 /// Allowed in Embedded Browser editor, Import Browser Data
 /// subsection, React Grab Version, Browsing History.
@@ -27,6 +27,7 @@ public struct BrowserSection: View {
     @State private var discardDelay: DefaultsValueModel<Double>
     @State private var askWhereToSaveDownloads: DefaultsValueModel<Bool>
     @State private var openTermLinks: DefaultsValueModel<Bool>
+    @State private var terminalLinkPreviewDelay: DefaultsValueModel<Int>
     @State private var interceptOpen: DefaultsValueModel<Bool>
     @State private var hosts: DefaultsValueModel<String>
     @State private var external: DefaultsValueModel<String>
@@ -58,6 +59,7 @@ public struct BrowserSection: View {
         _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
         _askWhereToSaveDownloads = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.askWhereToSaveDownloads))
         _openTermLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.openTerminalLinksInCmuxBrowser))
+        _terminalLinkPreviewDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.terminalLinkPreviewHoverDelayMilliseconds))
         _interceptOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.interceptTerminalOpenCommandInCmuxBrowser))
         _hosts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hostsToOpenInEmbeddedBrowser))
         _external = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.urlsToAlwaysOpenExternally))
@@ -85,7 +87,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, terminalLinkPreviewDelay, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
     }
 
     @ViewBuilder
@@ -238,6 +240,34 @@ public struct BrowserSection: View {
                 Toggle("", isOn: Binding(get: { openTermLinks.current }, set: { openTermLinks.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Terminal Link Preview Delay
+            SettingsCardRow(
+                configurationReview: .json("browser.terminalLinkPreviewHoverDelayMilliseconds"),
+                String(localized: "settings.browser.terminalLinkPreviewDelay", defaultValue: "Terminal Link Preview Delay"),
+                subtitle: String(localized: "settings.browser.terminalLinkPreviewDelay.subtitle", defaultValue: "How long the pointer must rest on a terminal link before its live page preview appears."),
+                controlWidth: Self.columnWidth
+            ) {
+                HStack(spacing: 8) {
+                    Text(formatTerminalLinkPreviewDelay(terminalLinkPreviewDelay.current))
+                        .cmuxFont(.body, design: .monospaced)
+                        .monospacedDigit()
+                        .frame(width: 64, alignment: .trailing)
+                    Stepper(
+                        "",
+                        value: Binding(
+                            get: { terminalLinkPreviewDelay.current },
+                            set: { terminalLinkPreviewDelay.set($0) }
+                        ),
+                        in: BrowserCatalogSection.terminalLinkPreviewHoverDelayMillisecondsRange,
+                        step: 50
+                    )
+                    .labelsHidden()
+                }
+                .disabled(disabled.current || !openTermLinks.current)
+                .accessibilityIdentifier("SettingsBrowserTerminalLinkPreviewDelayStepper")
             }
             SettingsCardDivider()
 
@@ -563,5 +593,13 @@ public struct BrowserSection: View {
         }
         let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.minutesSeconds", defaultValue: "%lldm %llds")
         return String.localizedStringWithFormat(format, Int64(total / 60), Int64(total % 60))
+    }
+
+    private func formatTerminalLinkPreviewDelay(_ milliseconds: Int) -> String {
+        let format = String(
+            localized: "settings.browser.terminalLinkPreviewDelay.milliseconds",
+            defaultValue: "%lld ms"
+        )
+        return String.localizedStringWithFormat(format, Int64(milliseconds))
     }
 }

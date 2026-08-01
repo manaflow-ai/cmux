@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import WebKit
@@ -46,6 +47,23 @@ private let pricingURL = URL(string: "https://cmux.com/app-pricing?appearance=da
 private let otherURL = URL(string: "https://cmux.com/docs")!
 private let profileID = UUID()
 
+private final class TerminalLinkPreviewSleepCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+
+    func value() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+}
+
 @MainActor
 struct BrowserPrewarmedWebViewPoolTests {
     @Test func prewarmLoadsURLInHiddenHostedWebView() {
@@ -83,9 +101,10 @@ struct BrowserPrewarmedWebViewPoolTests {
         harness.pool.discard(reason: "test-teardown")
     }
 
-    @Test func claimBeforeLoadFinishesReturnsNilAndConsumesEntry() {
+    @Test func claimBeforeLoadFinishesTransfersTheInFlightWebView() {
         let harness = PrewarmPoolHarness()
         harness.pool.prewarm(url: pricingURL, profileID: profileID)
+        let webView = harness.madeWebViews[0]
 
         let claimed = harness.pool.claim(
             url: pricingURL,
@@ -93,7 +112,9 @@ struct BrowserPrewarmedWebViewPoolTests {
             websiteDataStore: harness.dataStore
         )
 
-        #expect(claimed == nil)
+        #expect(claimed?.webView === webView)
+        #expect(claimed?.loadState == .loading)
+        #expect(claimed?.webView.window == nil)
         #expect(!harness.pool.hasEntry(url: pricingURL, profileID: profileID))
     }
 
@@ -109,15 +130,449 @@ struct BrowserPrewarmedWebViewPoolTests {
             websiteDataStore: harness.dataStore
         )
 
-        #expect(claimed === webView)
-        #expect(claimed?.window == nil)
-        #expect(claimed?.superview == nil)
-        #expect(claimed?.navigationDelegate == nil)
+        #expect(claimed?.webView === webView)
+        #expect(claimed?.loadState == .finished)
+        #expect(claimed?.webView.window == nil)
+        #expect(claimed?.webView.superview == nil)
+        #expect(claimed?.webView.navigationDelegate == nil)
         // The portal's first-attach refresh only fires the WebKit reattach
         // selectors for webviews marked hidden; without this the adopted view
         // keeps the prewarm-sized layer tree (#7554 dogfood round 1).
-        #expect(claimed?.browserPortalRequiresRenderingStateReattach == true)
+        #expect(claimed?.webView.browserPortalRequiresRenderingStateReattach == true)
         #expect(!harness.pool.hasEntry(url: pricingURL, profileID: profileID))
+    }
+
+    @Test func previewAttachmentHostsAndThenClaimsTheExactInFlightWebView() {
+        let harness = PrewarmPoolHarness()
+        harness.pool.prewarm(url: pricingURL, profileID: profileID)
+        let webView = harness.madeWebViews[0]
+        let previewHost = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 252))
+        var observedStates: [BrowserPrewarmedWebViewPool.LoadState] = []
+        var dismissCount = 0
+
+        let attachment = harness.pool.attachPreview(
+            url: pricingURL,
+            profileID: profileID,
+            to: previewHost,
+            stateDidChange: { observedStates.append($0) },
+            didDismiss: { dismissCount += 1 }
+        )
+
+        #expect(attachment?.loadState == .loading)
+        #expect(webView.superview === previewHost)
+        #expect(webView.frame == previewHost.bounds)
+        #expect(observedStates == [.loading])
+
+        let claimed = harness.pool.claim(
+            url: pricingURL,
+            profileID: profileID,
+            websiteDataStore: harness.dataStore
+        )
+
+        #expect(claimed?.webView === webView)
+        #expect(claimed?.loadState == .loading)
+        #expect(dismissCount == 1)
+        #expect(webView.superview == nil)
+    }
+
+    @Test func detachingPreviewReturnsWebViewToHiddenHostAndKeepsItClaimable() throws {
+        let harness = PrewarmPoolHarness()
+        harness.pool.prewarm(url: pricingURL, profileID: profileID)
+        let webView = harness.madeWebViews[0]
+        let previewHost = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 252))
+        let attachment = try #require(harness.pool.attachPreview(
+            url: pricingURL,
+            profileID: profileID,
+            to: previewHost,
+            stateDidChange: { _ in },
+            didDismiss: {}
+        ))
+
+        harness.pool.detachPreview(attachment)
+
+        #expect(webView.superview !== previewHost)
+        #expect(webView.window != nil)
+        #expect(harness.pool.hasEntry(url: pricingURL, profileID: profileID))
+        let claimed = harness.pool.claim(
+            url: pricingURL,
+            profileID: profileID,
+            websiteDataStore: harness.dataStore
+        )
+        #expect(claimed?.webView === webView)
+    }
+
+    @Test func previewReceivesFinishedLoadStateWithoutReplacingItsWebView() {
+        let harness = PrewarmPoolHarness()
+        harness.pool.prewarm(url: pricingURL, profileID: profileID)
+        let webView = harness.madeWebViews[0]
+        let previewHost = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 252))
+        var observedStates: [BrowserPrewarmedWebViewPool.LoadState] = []
+        let attachment = harness.pool.attachPreview(
+            url: pricingURL,
+            profileID: profileID,
+            to: previewHost,
+            stateDidChange: { observedStates.append($0) },
+            didDismiss: {}
+        )
+
+        harness.pool.webView(webView, didFinish: nil)
+
+        #expect(observedStates == [.loading, .finished])
+        #expect(webView.superview === previewHost)
+        if let attachment {
+            harness.pool.detachPreview(attachment)
+        }
+        harness.pool.discard(reason: "test-teardown")
+    }
+
+    @Test func previewCardRoutesHitsToWebContentWhileBackgroundStaysPassthrough() throws {
+        let url = try #require(URL(string: "https://example.com/interactive-preview"))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 650))
+        let view = TerminalLinkHoverIndicatorView(frame: root.bounds)
+        root.addSubview(view)
+        #expect(view.preparePreview(url: url, at: NSPoint(x: 450, y: 325)))
+        view.setPreviewLoadState(.finished)
+
+        let webContent = NSButton(frame: view.previewWebViewHost.bounds)
+        view.previewWebViewHost.addSubview(webContent)
+        let webContentPoint = webContent.convert(
+            NSPoint(x: webContent.bounds.midX, y: webContent.bounds.midY),
+            to: root
+        )
+
+        #expect(view.hitTest(webContentPoint) === webContent)
+        #expect(view.hitTest(NSPoint(x: 20, y: 20)) == nil)
+    }
+
+    @Test func previewCardOpensBesidePointerWithPassthroughHoverBridge() throws {
+        let url = try #require(URL(string: "https://example.com/menu-style-preview"))
+        let anchor = NSPoint(x: 450, y: 325)
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 650))
+        let view = TerminalLinkHoverIndicatorView(frame: root.bounds)
+        root.addSubview(view)
+        #expect(view.preparePreview(url: url, at: anchor))
+
+        let card = try #require(view.previewWebViewHost.superview?.superview)
+        let cardFrame = card.convert(card.bounds, to: view)
+        let nearestCardPoint = NSPoint(
+            x: min(max(anchor.x, cardFrame.minX), cardFrame.maxX),
+            y: min(max(anchor.y, cardFrame.minY), cardFrame.maxY)
+        )
+        let pointerDistance = hypot(
+            nearestCardPoint.x - anchor.x,
+            nearestCardPoint.y - anchor.y
+        )
+        let bridgePoint = NSPoint(
+            x: (anchor.x + nearestCardPoint.x) / 2,
+            y: (anchor.y + nearestCardPoint.y) / 2
+        )
+
+        #expect(pointerDistance <= 8)
+        #expect(view.trackingAreas.contains { $0.rect.contains(bridgePoint) })
+        #expect(!cardFrame.contains(bridgePoint))
+        #expect(view.hitTest(bridgePoint) == nil)
+    }
+
+    @Test func previewAnchorUsesTheTerminalSourceEventPoint() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 650),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        let root = try #require(window.contentView)
+        let surface = GhosttyNSView(frame: NSRect(x: 80, y: 60, width: 700, height: 500))
+        let preview = TerminalLinkHoverIndicatorView(
+            frame: NSRect(x: 20, y: 10, width: 800, height: 600)
+        )
+        root.addSubview(surface)
+        root.addSubview(preview)
+        surface.setTerminalLinkPreviewPointerPointForTesting(NSPoint(x: 140, y: 410))
+
+        let anchor = try #require(surface.terminalLinkPreviewAnchor(in: preview))
+
+        #expect(anchor == NSPoint(x: 200, y: 460))
+    }
+
+    @Test func delayedPreviewStartsAfterDwellAndLeavingFirstCancelsIt() async throws {
+        let url = try #require(URL(string: "https://example.com/preview"))
+        let target = TerminalLinkOpenCoordinator.PreviewTarget(url: url, profileID: profileID)
+        let view = TerminalLinkHoverIndicatorView(
+            frame: NSRect(x: 0, y: 0, width: 900, height: 650)
+        )
+        var prewarmedURLs: [URL] = []
+        let controller = TerminalLinkPreviewController(
+            view: view,
+            targetResolver: { _ in target },
+            prewarm: { url, _ in prewarmedURLs.append(url) },
+            attach: { _, _, _, stateDidChange, _ in
+                stateDidChange(.loading)
+                return .init(id: UUID(), loadState: .loading)
+            },
+            detach: { _ in },
+            delayMilliseconds: { 650 },
+            animateDismissal: false,
+            sleep: { _ in }
+        )
+
+        controller.update(
+            rawURL: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            anchorPoint: NSPoint(x: 450, y: 325)
+        )
+        #expect(prewarmedURLs.isEmpty)
+        #expect(!view.isPreviewVisible)
+        await Task.yield()
+        await Task.yield()
+        #expect(prewarmedURLs == [url])
+        #expect(view.previewURL == url)
+
+        controller.update(
+            rawURL: nil,
+            sourceWorkspaceId: nil,
+            sourcePanelId: nil,
+            anchorPoint: .zero
+        )
+        #expect(view.isPreviewVisible)
+        await Task.yield()
+        await Task.yield()
+        #expect(!view.isPreviewVisible)
+
+        let cancelledView = TerminalLinkHoverIndicatorView(
+            frame: NSRect(x: 0, y: 0, width: 900, height: 650)
+        )
+        var cancelledPrewarms = 0
+        let cancelledController = TerminalLinkPreviewController(
+            view: cancelledView,
+            targetResolver: { _ in target },
+            prewarm: { _, _ in cancelledPrewarms += 1 },
+            attach: { _, _, _, _, _ in nil },
+            detach: { _ in },
+            delayMilliseconds: { 650 },
+            sleep: { _ in }
+        )
+        cancelledController.update(
+            rawURL: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            anchorPoint: NSPoint(x: 450, y: 325)
+        )
+        cancelledController.update(
+            rawURL: nil,
+            sourceWorkspaceId: nil,
+            sourcePanelId: nil,
+            anchorPoint: .zero
+        )
+        await Task.yield()
+        await Task.yield()
+        #expect(cancelledPrewarms == 0)
+        #expect(!cancelledView.isPreviewVisible)
+    }
+
+    @Test func enteringPreviewDuringExitGraceKeepsAttachmentUntilPointerLeaves() async throws {
+        let url = try #require(URL(string: "https://example.com/crossing-gap"))
+        let target = TerminalLinkOpenCoordinator.PreviewTarget(url: url, profileID: profileID)
+        let view = TerminalLinkHoverIndicatorView(
+            frame: NSRect(x: 0, y: 0, width: 900, height: 650)
+        )
+        var detachCount = 0
+        let controller = TerminalLinkPreviewController(
+            view: view,
+            targetResolver: { _ in target },
+            prewarm: { _, _ in },
+            attach: { _, _, _, _, _ in
+                .init(id: UUID(), loadState: .finished)
+            },
+            detach: { _ in detachCount += 1 },
+            delayMilliseconds: { 650 },
+            animateDismissal: false,
+            sleep: { _ in }
+        )
+
+        controller.update(
+            rawURL: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            anchorPoint: NSPoint(x: 450, y: 325)
+        )
+        await Task.yield()
+        await Task.yield()
+        #expect(view.isPreviewVisible)
+
+        controller.update(
+            rawURL: nil,
+            sourceWorkspaceId: nil,
+            sourcePanelId: nil,
+            anchorPoint: .zero
+        )
+        controller.previewPointerDidChange(isInside: true)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(view.isPreviewVisible)
+        #expect(detachCount == 0)
+
+        controller.previewPointerDidChange(isInside: false)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(!view.isPreviewVisible)
+        #expect(detachCount == 1)
+    }
+
+    @Test func interactingWithPreviewPinsItUntilAnOutsidePress() async throws {
+        let url = try #require(URL(string: "https://example.com/pinned-preview"))
+        let target = TerminalLinkOpenCoordinator.PreviewTarget(url: url, profileID: profileID)
+        let view = TerminalLinkHoverIndicatorView(
+            frame: NSRect(x: 0, y: 0, width: 900, height: 650)
+        )
+        var detachCount = 0
+        let controller = TerminalLinkPreviewController(
+            view: view,
+            targetResolver: { _ in target },
+            prewarm: { _, _ in },
+            attach: { _, _, _, _, _ in
+                .init(id: UUID(), loadState: .finished)
+            },
+            detach: { _ in detachCount += 1 },
+            delayMilliseconds: { 650 },
+            animateDismissal: false,
+            sleep: { _ in }
+        )
+
+        controller.update(
+            rawURL: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            anchorPoint: NSPoint(x: 450, y: 325)
+        )
+        await Task.yield()
+        await Task.yield()
+        controller.previewPointerDidPress(isInside: true)
+        controller.update(
+            rawURL: nil,
+            sourceWorkspaceId: nil,
+            sourcePanelId: nil,
+            anchorPoint: .zero
+        )
+        controller.previewPointerDidChange(isInside: false)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(view.isPreviewVisible)
+        #expect(detachCount == 0)
+
+        controller.previewPointerDidPress(isInside: false)
+
+        #expect(!view.isPreviewVisible)
+        #expect(detachCount == 1)
+    }
+
+    @Test func focusedPreviewSurvivesPointerExitAndReleasesFocusOnOutsidePress() async throws {
+        let url = try #require(URL(string: "https://example.com/focused-preview"))
+        let target = TerminalLinkOpenCoordinator.PreviewTarget(url: url, profileID: profileID)
+        let view = TerminalLinkHoverIndicatorView(
+            frame: NSRect(x: 0, y: 0, width: 900, height: 650)
+        )
+        var detachCount = 0
+        var ownsPreviewFocus = true
+        var releaseFocusCount = 0
+        let controller = TerminalLinkPreviewController(
+            view: view,
+            targetResolver: { _ in target },
+            prewarm: { _, _ in },
+            attach: { _, _, _, _, _ in
+                .init(id: UUID(), loadState: .finished)
+            },
+            detach: { _ in detachCount += 1 },
+            delayMilliseconds: { 650 },
+            animateDismissal: false,
+            previewOwnsFocus: { ownsPreviewFocus },
+            releasePreviewFocus: {
+                ownsPreviewFocus = false
+                releaseFocusCount += 1
+            },
+            sleep: { _ in }
+        )
+
+        controller.update(
+            rawURL: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            anchorPoint: NSPoint(x: 450, y: 325)
+        )
+        await Task.yield()
+        await Task.yield()
+
+        controller.update(
+            rawURL: nil,
+            sourceWorkspaceId: nil,
+            sourcePanelId: nil,
+            anchorPoint: .zero
+        )
+        controller.previewPointerDidChange(isInside: false)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(view.isPreviewVisible)
+        #expect(detachCount == 0)
+
+        controller.previewPointerDidPress(isInside: false)
+
+        #expect(!view.isPreviewVisible)
+        #expect(!ownsPreviewFocus)
+        #expect(releaseFocusCount == 1)
+        #expect(detachCount == 1)
+    }
+
+    @Test func movingWithinTheSameURLDoesNotRestartDwell() async throws {
+        let url = try #require(URL(string: "https://example.com/steady-hover"))
+        let target = TerminalLinkOpenCoordinator.PreviewTarget(url: url, profileID: profileID)
+        let view = TerminalLinkHoverIndicatorView(
+            frame: NSRect(x: 0, y: 0, width: 900, height: 650)
+        )
+        let sleepCounter = TerminalLinkPreviewSleepCounter()
+        var prewarmCount = 0
+        let controller = TerminalLinkPreviewController(
+            view: view,
+            targetResolver: { _ in target },
+            prewarm: { _, _ in prewarmCount += 1 },
+            attach: { _, _, _, _, _ in
+                .init(id: UUID(), loadState: .loading)
+            },
+            detach: { _ in },
+            delayMilliseconds: { 650 },
+            sleep: { _ in
+                sleepCounter.increment()
+                try await Task.sleep(for: .milliseconds(30))
+            }
+        )
+
+        controller.update(
+            rawURL: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            anchorPoint: NSPoint(x: 300, y: 300)
+        )
+        var remainingYields = 1_000
+        while sleepCounter.value() == 0, remainingYields > 0 {
+            remainingYields -= 1
+            await Task.yield()
+        }
+        #expect(sleepCounter.value() == 1)
+
+        controller.update(
+            rawURL: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            anchorPoint: NSPoint(x: 340, y: 300)
+        )
+        try await Task.sleep(for: .milliseconds(60))
+
+        #expect(sleepCounter.value() == 1)
+        #expect(prewarmCount == 1)
+        #expect(view.previewURL == url)
     }
 
     @Test func claimForDifferentURLKeepsEntry() {
@@ -141,7 +596,7 @@ struct BrowserPrewarmedWebViewPoolTests {
             profileID: profileID,
             websiteDataStore: harness.dataStore
         )
-        #expect(match === webView)
+        #expect(match?.webView === webView)
     }
 
     @Test func claimForDifferentProfileKeepsEntry() {

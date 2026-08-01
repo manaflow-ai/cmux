@@ -1407,6 +1407,14 @@
           "default": true,
           "description": "Open clicked terminal links in the embedded browser."
         },
+        "terminalLinkPreviewHoverDelayMilliseconds": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 2000,
+          "default": 650,
+          "descriptionKey": "schemaDescriptions.browser.terminalLinkPreviewHoverDelayMilliseconds",
+          "description": "Milliseconds the pointer must remain over a terminal link before its live page preview appears."
+        },
         "interceptTerminalOpenCommandInCmuxBrowser": {
           "type": "boolean",
           "default": true,

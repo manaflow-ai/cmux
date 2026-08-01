@@ -908,6 +908,15 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey] = .double(delay)
         }
+        if let value = jsonInt(section["terminalLinkPreviewHoverDelayMilliseconds"]) {
+            guard BrowserCatalogSection.terminalLinkPreviewHoverDelayMillisecondsRange.contains(value) else {
+                logInvalid("browser.terminalLinkPreviewHoverDelayMilliseconds", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[
+                BrowserCatalogSection().terminalLinkPreviewHoverDelayMilliseconds.userDefaultsKey
+            ] = .int(value)
+        }
         applyNormalizedStringArraySettings(BrowserSettingsFileMapping.stringArraySettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
     }
 

@@ -443,6 +443,10 @@ final class BrowserProfileStore: ObservableObject {
 enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
+    static let terminalLinkPreviewHoverDelayMillisecondsKey =
+        BrowserCatalogSection().terminalLinkPreviewHoverDelayMilliseconds.userDefaultsKey
+    static let defaultTerminalLinkPreviewHoverDelayMilliseconds =
+        BrowserCatalogSection.defaultTerminalLinkPreviewHoverDelayMilliseconds
 
     static let openSidebarPullRequestLinksInCmuxBrowserKey = "browserOpenSidebarPullRequestLinksInCmuxBrowser"
     static let defaultOpenSidebarPullRequestLinksInCmuxBrowser: Bool = true
@@ -464,6 +468,20 @@ enum BrowserLinkOpenSettings {
             return defaultOpenTerminalLinksInCmuxBrowser
         }
         return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
+    }
+
+    static func terminalLinkPreviewHoverDelayMilliseconds(
+        defaults: UserDefaults = .standard
+    ) -> Int {
+        guard let stored = defaults.object(
+            forKey: terminalLinkPreviewHoverDelayMillisecondsKey
+        ) as? NSNumber else {
+            return defaultTerminalLinkPreviewHoverDelayMilliseconds
+        }
+        let value = stored.intValue
+        return BrowserCatalogSection.terminalLinkPreviewHoverDelayMillisecondsRange.contains(value)
+            ? value
+            : defaultTerminalLinkPreviewHoverDelayMilliseconds
     }
 
     static func openSidebarPullRequestLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
@@ -4142,7 +4160,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.preservesExplicitEphemeralWebsiteDataStore =
             preservesExplicitEphemeralWebsiteDataStore
         let webView: CmuxWebView
-        var adoptedPrewarmedWebView = false
+        let adoptedPrewarmedLoadState: BrowserPrewarmedWebViewPool.LoadState?
         if let prewarmed = Self.claimedPrewarmedWebView(
             isRemoteWorkspace: isRemoteWorkspace,
             initialRequest: initialRequest,
@@ -4151,13 +4169,14 @@ final class BrowserPanel: Panel, ObservableObject {
             profileID: resolvedProfileID,
             websiteDataStore: websiteDataStore
         ) {
-            webView = prewarmed
-            adoptedPrewarmedWebView = true
+            webView = prewarmed.webView
+            adoptedPrewarmedLoadState = prewarmed.loadState
         } else {
             webView = Self.makeWebView(
                 profileID: resolvedProfileID,
                 websiteDataStore: websiteDataStore
             )
+            adoptedPrewarmedLoadState = nil
         }
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
@@ -4405,12 +4424,13 @@ final class BrowserPanel: Panel, ObservableObject {
             currentURL = url
             shouldRenderWebView = renderInitialNavigation
             guard renderInitialNavigation else { return }
-            if adoptedPrewarmedWebView {
-                // Already navigated while hidden; record for recovery paths.
+            if let adoptedPrewarmedLoadState {
+                // Navigation already started while hidden or in the terminal
+                // preview. Record it for recovery paths and let the newly bound
+                // panel delegate receive the remaining navigation callbacks.
                 navigationDelegate?.recordAttemptedRequest(URLRequest(url: url), displayURL: url)
-                // The pool only vends finished loads; seed the committed flag so
-                // blank-shell healing never reloads the adopted page on reveal.
-                hasCommittedDocumentSinceWebViewReplacement = true
+                hasCommittedDocumentSinceWebViewReplacement =
+                    adoptedPrewarmedLoadState == .finished || webView.url != nil
                 refreshBackgroundAppearance()
             } else {
                 navigate(to: url)

@@ -14,6 +14,11 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         detachedSurfaceTransfersByPanelId[sourcePanelId]?.isRemoteTerminal == true
     }
 
+    func terminalLinkBrowserProfileID(for sourcePanelId: UUID) -> UUID? {
+        guard paneId(forPanelId: sourcePanelId) != nil else { return nil }
+        return BrowserPanel.resolvedProfileID(requested: nil)
+    }
+
     func deferTerminalFileLinkOpen(
         sourcePanelId _: UUID,
         filePath _: String,
@@ -26,6 +31,12 @@ extension DockSplitStore: TerminalLinkOpenContainer {
 
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
         guard let sourcePane = paneId(forPanelId: sourcePanelId) else { return false }
+        let intendedProfileID = terminalLinkBrowserProfileID(for: sourcePanelId)
+        let preferredProfileID = intendedProfileID.flatMap { profileID in
+            BrowserPrewarmedWebViewPool.shared.hasEntry(url: url, profileID: profileID)
+                ? profileID
+                : nil
+        }
         if let targetPane = BrowserRightSidePaneResolver().preferredPane(
             from: sourcePane,
             in: bonsplitController
@@ -34,7 +45,8 @@ extension DockSplitStore: TerminalLinkOpenContainer {
                 kind: .browser,
                 inPane: targetPane,
                 url: url,
-                focus: true
+                focus: true,
+                preferredProfileID: preferredProfileID
             ) != nil
         }
         return newSplit(
@@ -43,6 +55,7 @@ extension DockSplitStore: TerminalLinkOpenContainer {
             insertFirst: false,
             sourcePanelId: sourcePanelId,
             url: url,
+            preferredProfileID: preferredProfileID,
             focus: true
         ) != nil
     }

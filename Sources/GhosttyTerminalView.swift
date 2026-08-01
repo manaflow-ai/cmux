@@ -4120,6 +4120,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         } else {
             surface.reconcileAttachedWindowIfNeeded(for: self)
         }
+        if let ghosttySurface = surface.surface {
+            ghostty_surface_set_unmodified_link_previews(ghosttySurface, true)
+        }
         surface.setKeyboardCopyModeActive(keyboardCopyModeActive)
         if !isAlreadyAttached {
             updateSurfaceSize()
@@ -6765,6 +6768,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         lastKnownMousePointInView = point
     }
 
+    /// Ghostty reports link hover asynchronously, so use the point captured
+    /// from the source mouse event instead of resampling the window afterward.
+    func terminalLinkPreviewAnchor(in previewView: NSView) -> NSPoint? {
+        guard let point = lastKnownMousePointInView,
+              let window,
+              previewView.window === window else { return nil }
+        return previewView.convert(point, from: self)
+    }
+
+#if DEBUG
+    func setTerminalLinkPreviewPointerPointForTesting(_ point: NSPoint?) {
+        lastKnownMousePointInView = point
+    }
+#endif
+
     private func preferredPointerPoint(from eventPoint: NSPoint? = nil) -> NSPoint? {
         if let eventPoint, pointIsUsableForWordResolution(eventPoint) {
             lastKnownMousePointInView = eventPoint
@@ -8231,6 +8249,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
     let linkHoverIndicatorView: TerminalLinkHoverIndicatorView
+    var terminalLinkPreviewController: TerminalLinkPreviewController?
     private let imageTransferIndicatorContainerView: NSView
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
@@ -8496,6 +8515,7 @@ final class GhosttySurfaceScrollView: NSView {
         documentView.addSubview(surfaceView)
 
         super.init(frame: .zero)
+        terminalLinkPreviewController = TerminalLinkPreviewController(view: linkHoverIndicatorView)
         wantsLayer = true
         layer?.masksToBounds = true
 
@@ -8836,6 +8856,9 @@ final class GhosttySurfaceScrollView: NSView {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         dropZoneOverlayView.removeFromSuperview()
+        MainActor.assumeIsolated {
+            terminalLinkPreviewController?.invalidate()
+        }
         cancelFocusRequest()
     }
 

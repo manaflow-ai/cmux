@@ -170589,6 +170589,57 @@
         }
       }
     },
+    "settings.browser.terminalLinkPreviewDelay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Link Preview Delay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルリンクのプレビュー遅延"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalLinkPreviewDelay.milliseconds": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld ms"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldミリ秒"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalLinkPreviewDelay.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How long the pointer must rest on a terminal link before its live page preview appears."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルリンクにポインタを置いてからライブページのプレビューが表示されるまでの時間です。"
+          }
+        }
+      }
+    },
     "settings.browser.theme": {
       "extractionState": "manual",
       "localizations": {
@@ -188031,6 +188082,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "browser.showSearchSuggestions suggest autocomplete address bar search suggestions 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 瀏覽器 網頁 WebView 位址列 連結 URL 內嵌 頁面 分頁 搜尋 建議 自動完成 提供者 搜尋引擎 網址列建議 • %@"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.browser.terminal-link-preview-delay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkPreviewHoverDelayMilliseconds terminal url link hover preview dwell delay milliseconds thumbnail web page"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkPreviewHoverDelayMilliseconds ターミナル URL リンク ホバー プレビュー 待機 遅延 ミリ秒 サムネイル ウェブページ"
           }
         }
       }

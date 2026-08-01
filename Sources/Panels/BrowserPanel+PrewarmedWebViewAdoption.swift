@@ -16,8 +16,9 @@ extension BrowserPanel {
     }
 
     /// A prewarmed webview matching this panel's initial navigation exactly,
-    /// or nil for a normal cold load. Remote workspaces, request-based
-    /// navigations, and render-deferred panels never adopt.
+    /// including its current load state, or nil for a normal cold load. Remote
+    /// workspaces, request-based navigations, and render-deferred panels never
+    /// adopt.
     static func claimedPrewarmedWebView(
         isRemoteWorkspace: Bool,
         initialRequest: URLRequest?,
@@ -25,7 +26,7 @@ extension BrowserPanel {
         initialURL: URL?,
         profileID: UUID,
         websiteDataStore: WKWebsiteDataStore
-    ) -> CmuxWebView? {
+    ) -> BrowserPrewarmedWebViewPool.Claim? {
         guard !isRemoteWorkspace,
               initialRequest == nil,
               renderInitialNavigation,
