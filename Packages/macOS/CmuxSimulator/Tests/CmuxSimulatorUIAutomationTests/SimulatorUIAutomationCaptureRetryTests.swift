@@ -48,7 +48,7 @@ struct SimulatorUIAutomationCaptureRetryTests {
         #expect(timing.sleepCount == 0)
     }
 
-    @Test("The last transient failure escapes when the deadline expires")
+    @Test("Deadline exhaustion is distinct from a transient capture failure")
     func deadlineStopsRetrying() async throws {
         let timing = AdvancingSimulatorUIAutomationTiming(nowMilliseconds: 1_000)
         let retry = SimulatorUIAutomationCaptureRetry(scheduler: timing)
@@ -59,9 +59,12 @@ struct SimulatorUIAutomationCaptureRetryTests {
                 attempts += 1
                 throw simulatorSnapshotFailure()
             } as Int
-            Issue.record("Expected snapshot failure")
-        } catch let failure as SimulatorUIAutomationFailure {
-            #expect(failure.code == "snapshot_capture_failed")
+            Issue.record("Expected capture deadline exhaustion")
+        } catch is SimulatorUIAutomationCaptureDeadlineExceeded {
+            // Wait callers can translate this into wait_timeout without
+            // confusing it with a broken accessibility worker.
+        } catch {
+            Issue.record("Expected capture deadline exhaustion, got \(error)")
         }
 
         #expect(attempts == 1)

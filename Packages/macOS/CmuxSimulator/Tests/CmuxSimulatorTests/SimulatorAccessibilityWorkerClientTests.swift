@@ -132,6 +132,41 @@ struct SimulatorAccessibilityWorkerClientTests {
         await client.stop()
     }
 
+    @Test("A caller-owned accessibility deadline preserves the healthy worker")
+    func callerOwnedAccessibilityTimeoutPreservesWorker() async throws {
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(
+            launcher: launcher,
+            sleeper: AccessibilityTimeoutSleeper()
+        )
+        let events = await client.subscribe()
+        var iterator = events.makeAsyncIterator()
+        await client.send(.attach(udid: "DEVICE", geometry: nil))
+        let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.status(.streaming))
+        endpoint.emit(.capabilities([.accessibility]))
+        endpoint.emit(.frameTransport(simulatorFrameTransportDescriptor(15)))
+        _ = await iterator.next()
+        _ = await iterator.next()
+        _ = await iterator.next()
+        endpoint.setResponder { message in
+            guard case let .ping(sequence) = message else { return nil }
+            return .ack(sequence)
+        }
+        endpoint.acknowledgeRecordedPings()
+
+        do {
+            _ = try await client.readAccessibility(timeout: .milliseconds(100))
+            Issue.record("Expected the caller-owned accessibility timeout")
+        } catch let error as SimulatorControlError {
+            #expect(error.code == "worker_response_timed_out")
+        }
+
+        #expect(endpoint.terminationCountValue() == 0)
+        #expect(launcher.endpoint(at: 1) == nil)
+        await client.stop()
+    }
+
     @Test("A foreground telemetry timeout restarts the isolated worker")
     func foregroundTimeoutRestartsWorker() async throws {
         let launcher = TestWorkerLauncher()
@@ -189,4 +224,11 @@ struct SimulatorAccessibilityWorkerClientTests {
         orientation: .portrait,
         scale: 3
     )
+}
+
+private struct AccessibilityTimeoutSleeper: SimulatorWorkerSleeping {
+    func sleep(for duration: Duration) async throws {
+        if duration == .milliseconds(100) { return }
+        try await ContinuousClock().sleep(for: .seconds(3_600))
+    }
 }
