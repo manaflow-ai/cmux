@@ -118,34 +118,17 @@ extension SimulatorPaneCoordinator {
         }
     }
 
-    /// Reads accessibility using the caller's remaining end-to-end deadline.
+    /// Reads accessibility for automation without publishing pane presentation state.
     public func readAccessibility(
         timeout: Duration
     ) async throws -> SimulatorControlResult {
         try Task.checkCancellation()
         guard !closed else { throw CancellationError() }
         let generation = selectionGeneration
-        activeControlActions += 1
-        isPerformingControlAction = true
-        defer {
-            activeControlActions -= 1
-            isPerformingControlAction = activeControlActions > 0
-        }
-        do {
-            let result = try await client.readAccessibility(timeout: timeout)
-            guard !Task.isCancelled else { return result }
-            guard generation == selectionGeneration, !closed else { return result }
-            controlFailure = nil
-            apply(result, for: .readAccessibility)
-            appendCoordinatorAction(for: .readAccessibility, succeeded: true)
-            return result
-        } catch {
-            guard generation == selectionGeneration, !closed else { throw error }
-            let failure = simulatorPaneFailure(from: error, code: "control_action_failed")
-            controlFailure = failure
-            appendCoordinatorAction(for: .readAccessibility, succeeded: false)
-            throw failure
-        }
+        let result = try await client.readAccessibility(timeout: timeout)
+        try Task.checkCancellation()
+        guard generation == selectionGeneration, !closed else { throw CancellationError() }
+        return result
     }
 
     /// Refreshes the installed application list.
