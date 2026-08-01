@@ -77,6 +77,19 @@ struct UnixLinkGroup {
     expected_uid: Option<u32>,
 }
 
+fn retryable_dial_error(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::NotFound
+            | std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::TimedOut
+            | std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::WouldBlock
+    )
+}
+
 #[async_trait]
 impl LinkGroup for UnixLinkGroup {
     fn description(&self) -> &str {
@@ -107,9 +120,13 @@ impl LinkGroup for UnixLinkGroup {
         if self.closed.load(Ordering::Acquire) {
             return Err(ProviderError::Transport("Unix connection group is closed".into()));
         }
-        let stream = UnixStream::connect(&self.path)
-            .await
-            .map_err(|error| ProviderError::Link(LinkError::Transport(error.to_string())))?;
+        let stream = UnixStream::connect(&self.path).await.map_err(|error| {
+            if retryable_dial_error(&error) {
+                ProviderError::Link(LinkError::Transport(error.to_string()))
+            } else {
+                ProviderError::Transport(error.to_string())
+            }
+        })?;
         #[cfg(test)]
         let peer_validation = match self.expected_uid {
             Some(expected_uid) => verify_unix_peer_uid(&stream, expected_uid),

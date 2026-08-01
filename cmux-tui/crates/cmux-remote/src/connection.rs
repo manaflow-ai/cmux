@@ -967,20 +967,14 @@ impl fmt::Display for ConnectionError {
 fn reconnectable_session_error(error: &SessionError) -> bool {
     matches!(
         error,
-        SessionError::Link(_) | SessionError::LinkMessage(_) | SessionError::SchedulerClosed
+        SessionError::Link(LinkError::Closed | LinkError::Transport(_))
+            | SessionError::LinkMessage(_)
+            | SessionError::SchedulerClosed
     )
 }
 
 fn retryable_connection_error(error: &ConnectionError) -> bool {
     error.is_retryable_carrier_failure()
-        || matches!(
-            error,
-            ConnectionError::Provider(ProviderError::Transport(_))
-                | ConnectionError::Crypto(CryptoError::LinkError(_))
-                | ConnectionError::Crypto(CryptoError::Link(_))
-                | ConnectionError::Link(_)
-                | ConnectionError::Session(SessionError::Link(_))
-        )
 }
 
 impl std::error::Error for ConnectionError {}
@@ -1516,7 +1510,9 @@ mod tests {
 
         async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
             if self.opens.fetch_add(1, Ordering::AcqRel) != 0 {
-                return Err(ProviderError::Transport("replacement carrier unavailable".into()));
+                return Err(ProviderError::Link(LinkError::Transport(
+                    "replacement carrier unavailable".into(),
+                )));
             }
             let (client, daemon, epoch) = fault_pair();
             *self.epoch.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(epoch);
