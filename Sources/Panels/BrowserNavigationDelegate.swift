@@ -541,7 +541,11 @@ import WebKit
     private func shouldOpenInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {
         guard navigationAction.targetFrame?.isMainFrame != false else { return false }
         guard navigationAction.navigationType == .linkActivated else { return false }
-        return externalNavigationPolicy.shouldOpenInSystemBrowser(url)
+        return externalNavigationPolicy.shouldOpenInSystemBrowser(
+            url,
+            sourceURL: navigationAction.sourceFrame.request.url
+                ?? owner?.webView.url
+        )
     }
 
     func canHandleSSLTrustBypassToken(_ token: String) -> Bool {

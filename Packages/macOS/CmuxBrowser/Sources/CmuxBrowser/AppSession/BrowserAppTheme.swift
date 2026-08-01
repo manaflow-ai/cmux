@@ -86,13 +86,10 @@ public struct BrowserAppTheme: Equatable, Sendable {
         guard let url,
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
-              BrowserAppWebOrigin(trustedOrigin).contains(url) else {
+              BrowserAppWebOrigin(trustedOrigin).containsAppSurface(url) else {
             return false
         }
-        let normalizedPath = url.path.count > 1 && url.path.hasSuffix("/")
-            ? String(url.path.dropLast())
-            : url.path
-        return normalizedPath == "/app-pricing" || normalizedPath == "/app-pro-welcome"
+        return true
     }
 
     private struct JavaScriptPayload: Encodable {

@@ -14,6 +14,16 @@ struct BrowserAppWebOrigin {
         }
         return effectivePort(candidate) == effectivePort(url)
     }
+
+    func containsAppSurface(_ candidate: URL) -> Bool {
+        guard contains(candidate) else { return false }
+        let normalizedPath = candidate.path.count > 1
+            && candidate.path.hasSuffix("/")
+            ? String(candidate.path.dropLast())
+            : candidate.path
+        return normalizedPath == "/app-pricing"
+            || normalizedPath == "/app-pro-welcome"
+    }
 }
 
 private func effectivePort(_ url: URL) -> Int? {

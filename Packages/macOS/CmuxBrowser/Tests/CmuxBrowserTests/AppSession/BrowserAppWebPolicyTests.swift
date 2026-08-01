@@ -10,40 +10,59 @@ struct BrowserAppWebPolicyTests {
         let policy = BrowserExternalNavigationPolicy(
             trustedOrigin: try #require(URL(string: "https://cmux.com"))
         )
+        let trustedSource = try #require(
+            URL(string: "https://cmux.com/app-pricing")
+        )
+        let untrustedSource = try #require(
+            URL(string: "https://attacker.example/app-pricing")
+        )
+        let wrongPortSource = try #require(
+            URL(string: "https://cmux.com:8443/app-pricing")
+        )
 
         #expect(policy.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://cmux.com/api/billing/checkout?cmux_external_browser=1"))
+            try #require(URL(string: "https://cmux.com/api/billing/checkout?cmux_external_browser=1")),
+            sourceURL: trustedSource
         ))
         #expect(policy.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=1"))
+            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=1")),
+            sourceURL: trustedSource
         ))
         #expect(policy.shouldOpenInSystemBrowser(
             try #require(
                 URL(
                     string: "https://billing.example/checkout?cmux_external_browser=1"
                 )
-            )
+            ),
+            sourceURL: trustedSource
         ))
         #expect(!policy.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser"))
+            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser")),
+            sourceURL: trustedSource
         ))
         #expect(!policy.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=yes"))
+            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=yes")),
+            sourceURL: trustedSource
         ))
         #expect(!policy.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=0"))
+            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=0")),
+            sourceURL: trustedSource
         ))
         #expect(!policy.shouldOpenInSystemBrowser(
-            try #require(URL(string: "cmux://enterprise?cmux_external_browser=1"))
+            try #require(URL(string: "cmux://enterprise?cmux_external_browser=1")),
+            sourceURL: trustedSource
         ))
         #expect(!policy.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://attacker.example/?cmux_external_browser=1"))
+            try #require(URL(string: "https://billing.example/?cmux_external_browser=1")),
+            sourceURL: untrustedSource
         ))
         #expect(!policy.shouldOpenInSystemBrowser(
-            try #require(URL(string: "http://cmux.com/?cmux_external_browser=1"))
+            try #require(URL(string: "http://cmux.com/?cmux_external_browser=1")),
+            sourceURL: trustedSource
         ))
         #expect(!policy.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://cmux.com:8443/?cmux_external_browser=1"))
+            try #require(URL(string: "https://billing.example/?cmux_external_browser=1")),
+            sourceURL: wrongPortSource
         ))
     }
 
@@ -52,8 +71,12 @@ struct BrowserAppWebPolicyTests {
         let policy = BrowserExternalNavigationPolicy(
             trustedOrigin: try #require(URL(string: "http://localhost:4100"))
         )
+        let trustedSource = try #require(
+            URL(string: "http://localhost:4100/app-pricing")
+        )
         #expect(policy.shouldOpenInSystemBrowser(
-            try #require(URL(string: "http://localhost:4100/enterprise?cmux_external_browser=1"))
+            try #require(URL(string: "http://localhost:4100/enterprise?cmux_external_browser=1")),
+            sourceURL: trustedSource
         ))
     }
 
