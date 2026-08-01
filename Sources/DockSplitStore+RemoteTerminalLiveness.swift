@@ -72,6 +72,7 @@ extension DockSplitStore {
         transfer.remoteTerminalAttemptID = attemptID
         if beginsNewRuntime {
             transfer.ttyNameWasReportedByCurrentRuntime = false
+            transfer.ttyReportRuntimeSurfaceGeneration = nil
         }
         setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
         return true
@@ -118,7 +119,10 @@ extension DockSplitStore {
     static func registerReportedRemoteSurfaceTTYName(
         _ ttyName: String,
         panelId: UUID,
-        presentationWorkspaceID: UUID
+        presentationWorkspaceID: UUID,
+        authenticatedWorkspaceID: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
     ) -> Bool {
         let owners = liveRemoteTerminalStores(
             presentationWorkspaceID: presentationWorkspaceID
@@ -132,7 +136,10 @@ extension DockSplitStore {
         return owners[0].registerReportedRemoteSurfaceTTYName(
             ttyName,
             panelId: panelId,
-            presentationWorkspaceID: presentationWorkspaceID
+            presentationWorkspaceID: presentationWorkspaceID,
+            authenticatedWorkspaceID: authenticatedWorkspaceID,
+            terminalLifecycleID: terminalLifecycleID,
+            attemptID: attemptID
         )
     }
 
@@ -145,6 +152,8 @@ extension DockSplitStore {
                   transfer.sessionRestoreWorkspaceId == presentationWorkspaceID,
                   transfer.remoteTerminalSessionPhase != .ended,
                   transfer.ttyNameWasReportedByCurrentRuntime,
+                  transfer.ttyReportRuntimeSurfaceGeneration
+                    == (panels[panelId] as? TerminalPanel)?.surface.runtimeSurfaceGeneration,
                   let ttyName = transfer.ttyName else {
                 return nil
             }
@@ -161,17 +170,24 @@ extension DockSplitStore {
     private func registerReportedRemoteSurfaceTTYName(
         _ ttyName: String,
         panelId: UUID,
-        presentationWorkspaceID: UUID
+        presentationWorkspaceID: UUID,
+        authenticatedWorkspaceID: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
     ) -> Bool {
-        guard panels[panelId] != nil,
+        guard let terminal = panels[panelId] as? TerminalPanel,
               var transfer = detachedSurfaceTransfersByPanelId[panelId],
               transfer.isRemoteTerminal,
               transfer.sessionRestoreWorkspaceId == presentationWorkspaceID,
-              transfer.remoteTerminalSessionPhase != .ended else {
+              transfer.sessionRestoreWorkspaceId == authenticatedWorkspaceID,
+              transfer.remoteTerminalSessionPhase != .ended,
+              terminal.surface.terminalLifecycleId == terminalLifecycleID,
+              transfer.remoteTerminalAttemptID == attemptID else {
             return false
         }
         transfer.ttyName = ttyName
         transfer.ttyNameWasReportedByCurrentRuntime = true
+        transfer.ttyReportRuntimeSurfaceGeneration = terminal.surface.runtimeSurfaceGeneration
         setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
         return true
     }
@@ -221,6 +237,7 @@ extension DockSplitStore {
             terminalLifecycleID ?? transfer.remoteTerminalLifecycleID
         transfer.remoteTerminalAttemptID = nil
         transfer.ttyNameWasReportedByCurrentRuntime = false
+        transfer.ttyReportRuntimeSurfaceGeneration = nil
         setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
         return true
     }

@@ -159,10 +159,11 @@ _cmux_report_tty_via_relay() {
     local workspace_id=""
     workspace_id="$(_cmux_relay_workspace_id)" || return 1
     [[ -n "$_CMUX_TTY_NAME" ]] || return 1
+    [[ -n "$CMUX_TERMINAL_LIFECYCLE_ID" && -n "$CMUX_SSH_ATTEMPT_ID" ]] || return 1
 
     local tty_name_json params
     tty_name_json="$(_cmux_json_escape "$_CMUX_TTY_NAME")"
-    params="{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\""
+    params="{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\",\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\",\"attempt_id\":\"$CMUX_SSH_ATTEMPT_ID\""
     if [[ -n "$CMUX_PANEL_ID" ]]; then
         params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
     fi

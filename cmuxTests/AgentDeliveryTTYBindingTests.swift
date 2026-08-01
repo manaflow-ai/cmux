@@ -73,12 +73,22 @@ extension AgentNotificationRegressionTests {
             fixture.restore()
         }
         fixture.source.remoteConfiguration = deliveryTargetRemoteConfiguration()
+        let terminal = try #require(fixture.source.panels[fixture.panelId] as? TerminalPanel)
+        let attemptID = UUID()
         fixture.source.trackRemoteTerminalSurface(fixture.panelId)
+        #expect(fixture.source.markRemoteTerminalSessionLaunching(
+            surfaceId: fixture.panelId,
+            terminalLifecycleID: terminal.surface.terminalLifecycleId,
+            attemptID: attemptID
+        ))
         #expect(
             TerminalController.shared.controlSurfaceReportTTY(
                 workspaceID: fixture.source.id,
                 requestedSurfaceID: fixture.panelId,
-                ttyName: "pts/2"
+                ttyName: "pts/2",
+                authenticatedRemoteWorkspaceID: fixture.source.id,
+                terminalLifecycleID: terminal.surface.terminalLifecycleId,
+                attemptID: attemptID
             ) == .recorded(surfaceID: fixture.panelId)
         )
 
@@ -157,14 +167,24 @@ extension AgentNotificationRegressionTests {
             fixture.restore()
         }
         fixture.source.remoteConfiguration = deliveryTargetRemoteConfiguration()
+        let terminal = try #require(fixture.source.panels[fixture.panelId] as? TerminalPanel)
+        let attemptID = UUID()
         fixture.source.trackRemoteTerminalSurface(fixture.panelId)
+        #expect(fixture.source.markRemoteTerminalSessionLaunching(
+            surfaceId: fixture.panelId,
+            terminalLifecycleID: terminal.surface.terminalLifecycleId,
+            attemptID: attemptID
+        ))
         try moveRemoteSurface(fixture, into: dock)
 
         #expect(
             TerminalController.shared.controlSurfaceReportTTY(
                 workspaceID: fixture.source.id,
                 requestedSurfaceID: fixture.panelId,
-                ttyName: "pts/3"
+                ttyName: "pts/3",
+                authenticatedRemoteWorkspaceID: fixture.source.id,
+                terminalLifecycleID: terminal.surface.terminalLifecycleId,
+                attemptID: attemptID
             ) == .recorded(surfaceID: fixture.panelId)
         )
         assertRelayTTYTarget(
@@ -305,18 +325,22 @@ extension AgentNotificationRegressionTests {
         fixture.source.trackRemoteTerminalSurface(fixture.panelId)
         fixture.source.registerReportedSurfaceTTYName("pts/0", panelId: fixture.panelId)
         try moveRemoteSurface(fixture, into: dock)
+        let attemptID = UUID()
         #expect(
             dock.markRemoteTerminalSessionLaunching(
                 panelId: fixture.panelId,
                 terminalLifecycleID: terminal.surface.terminalLifecycleId,
-                attemptID: UUID()
+                attemptID: attemptID
             )
         )
         #expect(
             TerminalController.shared.controlSurfaceReportTTY(
                 workspaceID: fixture.source.id,
                 requestedSurfaceID: fixture.panelId,
-                ttyName: "pts/0"
+                ttyName: "pts/0",
+                authenticatedRemoteWorkspaceID: fixture.source.id,
+                terminalLifecycleID: terminal.surface.terminalLifecycleId,
+                attemptID: attemptID
             ) == .recorded(surfaceID: fixture.panelId)
         )
         assertRelayTTYTarget(

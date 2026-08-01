@@ -55,6 +55,9 @@ public final class SurfaceRegistryModel<TabSelectionRequest> {
     /// arrives, including when the current runtime reuses the same name.
     public var runtimeReportedTTYSurfaceIDs: Set<UUID> = []
 
+    /// Native runtime generation that emitted each current TTY report.
+    public var runtimeReportedTTYSurfaceGenerations: [UUID: UInt64] = [:]
+
     /// Authenticated remote workspace that originated each live TTY report.
     /// This provenance follows a remote terminal through container moves.
     public var remoteTTYReportOriginWorkspaceIDs: [UUID: UUID] = [:]

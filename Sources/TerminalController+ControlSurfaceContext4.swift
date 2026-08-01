@@ -25,30 +25,45 @@ extension TerminalController {
     func controlSurfaceReportTTY(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
-        ttyName: String
+        ttyName: String,
+        authenticatedRemoteWorkspaceID: UUID?,
+        terminalLifecycleID: UUID?,
+        attemptID: UUID?
     ) -> ControlSurfaceReportTTYResolution {
         guard let tab = controlTabForSidebarMutation(id: workspaceID) else {
             return .workspaceNotFound
         }
+        let relayIdentity = authenticatedRemoteWorkspaceID.flatMap { workspaceID in
+            terminalLifecycleID.flatMap { lifecycleID in
+                attemptID.map { (workspaceID, lifecycleID, $0) }
+            }
+        }
+        let hasRelayIdentity = authenticatedRemoteWorkspaceID != nil ||
+            terminalLifecycleID != nil || attemptID != nil
         let validSurfaceIds = Set(tab.panels.keys)
         tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
         if let requestedSurfaceID,
-           tab.isRemoteWorkspace,
            !validSurfaceIds.contains(requestedSurfaceID),
+           let relayIdentity,
            DockSplitStore.registerReportedRemoteSurfaceTTYName(
                ttyName,
                panelId: requestedSurfaceID,
-               presentationWorkspaceID: workspaceID
+               presentationWorkspaceID: workspaceID,
+               authenticatedWorkspaceID: relayIdentity.0,
+               terminalLifecycleID: relayIdentity.1,
+               attemptID: relayIdentity.2
            ) {
             return .recorded(surfaceID: requestedSurfaceID)
         }
         if let requestedSurfaceID,
-           tab.isRemoteWorkspace,
            !validSurfaceIds.contains(requestedSurfaceID),
+           let relayIdentity,
            AppDelegate.shared?.registerLiveRelayReportedTTY(
                ttyName,
                panelID: requestedSurfaceID,
-               authenticatedWorkspaceID: workspaceID
+               authenticatedWorkspaceID: relayIdentity.0,
+               terminalLifecycleID: relayIdentity.1,
+               attemptID: relayIdentity.2
            ) == true {
             return .recorded(surfaceID: requestedSurfaceID)
         }
@@ -59,18 +74,19 @@ extension TerminalController {
             validSurfaceIds: validSurfaceIds
         )
         guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
-            if tab.isRemoteWorkspace, validSurfaceIds.isEmpty {
-                tab.rememberPendingRemoteSurfaceTTY(ttyName, requestedSurfaceId: requestedSurfaceID)
-                return .pending
-            }
             return .surfaceNotFound
         }
 
-        if tab.isRemoteWorkspace {
+        if tab.isRemoteWorkspace ||
+            tab.surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[surfaceId] != nil ||
+            hasRelayIdentity {
+            guard let relayIdentity else { return .surfaceNotFound }
             guard tab.registerRelayReportedTTY(
                 ttyName,
                 panelID: surfaceId,
-                authenticatedWorkspaceID: workspaceID
+                authenticatedWorkspaceID: relayIdentity.0,
+                terminalLifecycleID: relayIdentity.1,
+                attemptID: relayIdentity.2
             ) else {
                 return .surfaceNotFound
             }

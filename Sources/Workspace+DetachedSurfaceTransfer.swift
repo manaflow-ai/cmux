@@ -38,6 +38,7 @@ extension Workspace {
         let directoryDisplayLabel: String?
         var ttyName: String?
         var ttyNameWasReportedByCurrentRuntime: Bool = false
+        var ttyReportRuntimeSurfaceGeneration: UInt64? = nil
         let cachedTitle: String?
         let customTitle: String?
         let customTitleSource: Workspace.CustomTitleSource?
@@ -92,6 +93,7 @@ extension Workspace {
                 directoryDisplayLabel: directoryDisplayLabel,
                 ttyName: ttyName,
                 ttyNameWasReportedByCurrentRuntime: ttyNameWasReportedByCurrentRuntime,
+                ttyReportRuntimeSurfaceGeneration: ttyReportRuntimeSurfaceGeneration,
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
                 customTitleSource: customTitleSource,

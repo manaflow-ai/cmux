@@ -243,9 +243,11 @@ if test "$_cmux_integration_enabled" != 0
     function _cmux_report_tty_via_relay
         _cmux_socket_uses_remote_relay; or return 1
         test -n "$_CMUX_TTY_NAME"; or return 1
+        test -n "$CMUX_TERMINAL_LIFECYCLE_ID"; or return 1
+        test -n "$CMUX_SSH_ATTEMPT_ID"; or return 1
         set -l workspace_id (_cmux_relay_workspace_id); or return 1
         set -l tty_name_json (_cmux_json_escape "$_CMUX_TTY_NAME")
-        set -l params "{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\""
+        set -l params "{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\",\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\",\"attempt_id\":\"$CMUX_SSH_ATTEMPT_ID\""
         if test -n "$CMUX_PANEL_ID"
             set params "$params,\"surface_id\":\"$CMUX_PANEL_ID\""
         end

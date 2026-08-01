@@ -198,16 +198,8 @@ extension AgentNotificationRegressionTests {
         let siblingPanelID = try #require(fixture.claimedWorkspace.focusedPanelId)
         fixture.claimedWorkspace.trackRemoteTerminalSurface(siblingPanelID)
         fixture.owningWorkspace.trackRemoteTerminalSurface(fixture.panelId)
-        #expect(TerminalController.shared.controlSurfaceReportTTY(
-            workspaceID: fixture.claimedWorkspace.id,
-            requestedSurfaceID: siblingPanelID,
-            ttyName: "0"
-        ) == .recorded(surfaceID: siblingPanelID))
-        #expect(TerminalController.shared.controlSurfaceReportTTY(
-            workspaceID: fixture.owningWorkspace.id,
-            requestedSurfaceID: fixture.panelId,
-            ttyName: "0"
-        ) == .recorded(surfaceID: fixture.panelId))
+        fixture.claimedWorkspace.registerReportedSurfaceTTYName("0", panelId: siblingPanelID)
+        fixture.owningWorkspace.registerReportedSurfaceTTYName("0", panelId: fixture.panelId)
 
         let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
             "tty_name": "0",

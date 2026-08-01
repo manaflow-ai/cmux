@@ -9819,6 +9819,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             surfaceRegistry.remoteTTYReportOriginWorkspaceIDs.removeValue(forKey: detached.panelId)
         }
+        restoreTransferredRelayTTYIdentity(from: detached)
         restoreTransferredSurfaceTTYRuntimeProofIfNeeded(from: detached)
         if let cleanupConfiguration = detached.remoteCleanupConfiguration {
             if didAdoptWorkspaceRemoteTracking {
@@ -12512,6 +12513,8 @@ extension Workspace: BonsplitDelegate {
                 directoryDisplayLabel: panelDirectoryDisplayLabels[panelId],
                 ttyName: surfaceTTYNames[panelId],
                 ttyNameWasReportedByCurrentRuntime: surfaceRegistry.runtimeReportedTTYSurfaceIDs.contains(panelId),
+                ttyReportRuntimeSurfaceGeneration:
+                    surfaceRegistry.runtimeReportedTTYSurfaceGenerations[panelId],
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
                 customTitleSource: panelCustomTitles[panelId] != nil

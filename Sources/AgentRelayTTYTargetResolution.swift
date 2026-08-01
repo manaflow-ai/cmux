@@ -7,11 +7,15 @@ extension Workspace {
     func registerRelayReportedTTY(
         _ ttyName: String,
         panelID: UUID,
-        authenticatedWorkspaceID: UUID
+        authenticatedWorkspaceID: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
     ) -> Bool {
-        guard panels[panelID] is TerminalPanel,
+        guard let terminal = panels[panelID] as? TerminalPanel,
               surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[panelID] ==
-                authenticatedWorkspaceID else {
+                authenticatedWorkspaceID,
+              terminal.surface.terminalLifecycleId == terminalLifecycleID,
+              remoteTerminalAttemptIDsBySurfaceId[panelID] == attemptID else {
             return false
         }
         registerReportedSurfaceTTYName(ttyName, panelId: panelID)
@@ -28,7 +32,8 @@ extension Workspace {
         authenticatedWorkspaceID: UUID
     ) -> [(binding: TerminalCallerTTYBinding, ttyName: String)] {
         surfaceRegistry.runtimeReportedTTYSurfaceIDs.compactMap { surfaceID in
-            guard panels[surfaceID] is TerminalPanel,
+            guard let terminal = panels[surfaceID] as? TerminalPanel,
+                  hasCurrentRuntimeReportedTTY(panelId: surfaceID, terminal: terminal),
                   surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[surfaceID] ==
                     authenticatedWorkspaceID,
                   let ttyName = surfaceRegistry.surfaceTTYNames[surfaceID] else {
@@ -65,6 +70,18 @@ extension Workspace {
             surfaceId: binding.surfaceId
         )
     }
+
+    /// Keeps the launch attempt with a live remote terminal even when its new
+    /// container is an ordinary workspace with no remote configuration.
+    func restoreTransferredRelayTTYIdentity(from transfer: DetachedSurfaceTransfer) {
+        guard transfer.isRemoteTerminal,
+              transfer.remoteTerminalSessionPhase != .ended,
+              let attemptID = transfer.remoteTerminalAttemptID else {
+            remoteTerminalAttemptIDsBySurfaceId.removeValue(forKey: transfer.panelId)
+            return
+        }
+        remoteTerminalAttemptIDsBySurfaceId[transfer.panelId] = attemptID
+    }
 }
 
 @MainActor
@@ -74,7 +91,9 @@ extension AppDelegate {
     func registerLiveRelayReportedTTY(
         _ ttyName: String,
         panelID: UUID,
-        authenticatedWorkspaceID: UUID
+        authenticatedWorkspaceID: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
     ) -> Bool {
         let owners = agentDeliveryTabManagers().flatMap(\.tabs).filter {
             $0.panels[panelID] != nil
@@ -85,7 +104,9 @@ extension AppDelegate {
         return owners[0].registerRelayReportedTTY(
             ttyName,
             panelID: panelID,
-            authenticatedWorkspaceID: authenticatedWorkspaceID
+            authenticatedWorkspaceID: authenticatedWorkspaceID,
+            terminalLifecycleID: terminalLifecycleID,
+            attemptID: attemptID
         )
     }
 

@@ -93,6 +93,10 @@ extension Workspace {
                 unchangedPanelIds.contains($0.key)
             }
             surfaceRegistry.runtimeReportedTTYSurfaceIDs.formIntersection(unchangedPanelIds)
+            surfaceRegistry.runtimeReportedTTYSurfaceGenerations =
+                surfaceRegistry.runtimeReportedTTYSurfaceGenerations.filter {
+                    unchangedPanelIds.contains($0.key)
+                }
         }
     }
 
@@ -104,8 +108,14 @@ extension Workspace {
     /// runtime can legitimately report the same TTY name as its predecessor.
     func registerReportedSurfaceTTYName(_ ttyName: String, panelId: UUID) {
         surfaceTTYNames[panelId] = ttyName
+        guard let terminal = panels[panelId] as? TerminalPanel else {
+            invalidateReportedSurfaceTTYRuntime(panelId: panelId)
+            return
+        }
         surfaceRegistry.surfaceTTYDevices[panelId] = CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName)
         surfaceRegistry.runtimeReportedTTYSurfaceIDs.insert(panelId)
+        surfaceRegistry.runtimeReportedTTYSurfaceGenerations[panelId] =
+            terminal.surface.runtimeSurfaceGeneration
     }
 
     /// Restores display/port-scan metadata without treating the previous
@@ -121,6 +131,13 @@ extension Workspace {
     func invalidateReportedSurfaceTTYRuntime(panelId: UUID) {
         surfaceRegistry.surfaceTTYDevices.removeValue(forKey: panelId)
         surfaceRegistry.runtimeReportedTTYSurfaceIDs.remove(panelId)
+        surfaceRegistry.runtimeReportedTTYSurfaceGenerations.removeValue(forKey: panelId)
+    }
+
+    func hasCurrentRuntimeReportedTTY(panelId: UUID, terminal: TerminalPanel) -> Bool {
+        surfaceRegistry.runtimeReportedTTYSurfaceIDs.contains(panelId)
+            && surfaceRegistry.runtimeReportedTTYSurfaceGenerations[panelId]
+                == terminal.surface.runtimeSurfaceGeneration
     }
 
     func adoptTransferredSurfaceTTYName(from transfer: DetachedSurfaceTransfer) {
@@ -129,7 +146,10 @@ extension Workspace {
             surfaceTTYNames.removeValue(forKey: transfer.panelId)
             return
         }
-        if transfer.ttyNameWasReportedByCurrentRuntime {
+        if transfer.ttyNameWasReportedByCurrentRuntime,
+           let terminal = panels[transfer.panelId] as? TerminalPanel,
+           transfer.ttyReportRuntimeSurfaceGeneration ==
+            terminal.surface.runtimeSurfaceGeneration {
             registerReportedSurfaceTTYName(ttyName, panelId: transfer.panelId)
         } else {
             restorePersistedSurfaceTTYName(ttyName, panelId: transfer.panelId)
@@ -158,7 +178,7 @@ extension Workspace {
             if let liveDevice = terminal.surface.controllingTTYDeviceIdentifier {
                 devices.append(liveDevice)
             }
-            if surfaceRegistry.runtimeReportedTTYSurfaceIDs.contains(panelId),
+            if hasCurrentRuntimeReportedTTY(panelId: panelId, terminal: terminal),
                let reportedDevice = surfaceTTYDevices[panelId],
                !devices.contains(reportedDevice) {
                 devices.append(reportedDevice)
@@ -188,6 +208,8 @@ extension DockSplitStore {
             }
             if let transfer = detachedSurfaceTransfersByPanelId[panelId],
                transfer.ttyNameWasReportedByCurrentRuntime,
+               transfer.ttyReportRuntimeSurfaceGeneration
+                == terminal.surface.runtimeSurfaceGeneration,
                let reportedDevice = transfer.ttyName.flatMap(
                    CmuxTopProcessSnapshot.deviceIdentifier(forTTYName:)
                ),
