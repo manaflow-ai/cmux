@@ -1,14 +1,14 @@
 //! Remote session client: JSON-lines control socket plus locally
 //! mirrored surface terminals (VT replay + live stream).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -30,7 +30,7 @@ use ghostty_vt::{
     TerminalColorOverrides, TerminalPointerSemanticSnapshot, parse_color,
 };
 use serde_json::{Value, json};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use super::CLEAR_HISTORY_UNSUPPORTED_ERROR;
 #[cfg(test)]
@@ -41,6 +41,31 @@ const SUPPORTED_PROTOCOL_VERSION: u64 = 10;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
     [Duration::from_millis(250), Duration::from_millis(500), Duration::from_secs(1)];
 const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
+const INTERACTIVE_WRITE_QUEUE_CAPACITY: usize = 512;
+const INTERACTIVE_WRITE_QUEUE_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) const REMOTE_CONTROL_MESSAGE_MAX_BYTES: usize = 16 * 1024 * 1024;
+const REMOTE_TERMINAL_DIMENSION_MAX: u64 = 10_000;
+const REMOTE_TERMINAL_CELL_MAX: u64 = 1024 * 1024;
+const INTERACTIVE_LATENCY_BUCKET_UPPER_US: [u64; 18] = [
+    50,
+    100,
+    250,
+    500,
+    1_000,
+    2_000,
+    5_000,
+    10_000,
+    25_000,
+    50_000,
+    100_000,
+    250_000,
+    500_000,
+    1_000_000,
+    2_000_000,
+    5_000_000,
+    30_000_000,
+    u64::MAX,
+];
 #[cfg(not(test))]
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(test)]
@@ -68,6 +93,24 @@ fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+fn remote_terminal_size(value: &Value) -> Option<(u16, u16)> {
+    let dimension = |name: &str, default: u16| match value.get(name) {
+        None => Some(default),
+        Some(value) => u16::try_from(value.as_u64()?).ok(),
+    };
+    let cols = dimension("cols", 80)?;
+    let rows = dimension("rows", 24)?;
+    if cols == 0
+        || rows == 0
+        || u64::from(cols) > REMOTE_TERMINAL_DIMENSION_MAX
+        || u64::from(rows) > REMOTE_TERMINAL_DIMENSION_MAX
+        || u64::from(cols).saturating_mul(u64::from(rows)) > REMOTE_TERMINAL_CELL_MAX
+    {
+        return None;
+    }
+    Some((cols, rows))
 }
 
 fn identity_capabilities(ident: &Value) -> HashSet<String> {
@@ -479,8 +522,8 @@ impl RemoteSurface {
     }
 
     /// Apply an ordered attach-stream resize marker to the mirror terminal.
-    pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) {
-        self.apply_stream_resize_with_colors(cols, rows, replay, None);
+    pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) -> bool {
+        self.apply_stream_resize_with_colors(cols, rows, replay, None)
     }
 
     /// Apply one authoritative replay and its coupled color state before the
@@ -491,27 +534,31 @@ impl RemoteSurface {
         rows: u16,
         replay: Option<&[u8]>,
         colors: Option<&RemoteTerminalColors>,
-    ) {
+    ) -> bool {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let mut term = self.term.lock().unwrap();
-        if let Some(replay) = replay
-            && let Ok(mut fresh) = Terminal::new(cols, rows, 10_000, Callbacks::default())
-        {
-            fresh.vt_write(replay);
-            if let Some(colors) = colors {
-                apply_terminal_colors(&mut fresh, colors);
+        let owned_replay;
+        let replay = match replay {
+            Some(replay) => replay,
+            None => {
+                owned_replay = match term.vt_replay_bounded(REMOTE_CONTROL_MESSAGE_MAX_BYTES) {
+                    Ok(replay) => replay,
+                    Err(_) => return false,
+                };
+                &owned_replay
             }
-            *term = fresh;
-            self.sync_mouse_encoders(&term);
-            self.content_generation.fetch_add(1, Ordering::AcqRel);
-            return;
-        }
-        let _ = term.resize(cols, rows, 8, 16);
+        };
+        let Ok(mut fresh) = Terminal::new(cols, rows, 10_000, Callbacks::default()) else {
+            return false;
+        };
+        fresh.vt_write(replay);
         if let Some(colors) = colors {
-            apply_terminal_colors(&mut term, colors);
+            apply_terminal_colors(&mut fresh, colors);
         }
+        *term = fresh;
         self.sync_mouse_encoders(&term);
         self.content_generation.fetch_add(1, Ordering::AcqRel);
+        true
     }
 
     pub(super) fn reported_size(&self) -> Option<(u16, u16)> {
@@ -712,8 +759,365 @@ struct SubscriptionRecoveryState {
     in_flight: bool,
 }
 
+struct InteractiveWrite {
+    message: String,
+    enqueued_at: Instant,
+    sequence: u64,
+    measure_latency: bool,
+}
+
+impl Drop for InteractiveWrite {
+    fn drop(&mut self) {
+        zeroize_string(&mut self.message);
+    }
+}
+
+#[derive(Clone)]
+struct InteractiveWriteFailure {
+    kind: io::ErrorKind,
+    message: String,
+}
+
+impl InteractiveWriteFailure {
+    fn from_error(error: &io::Error) -> Self {
+        Self { kind: error.kind(), message: error.to_string() }
+    }
+
+    fn to_error(&self) -> io::Error {
+        io::Error::new(self.kind, self.message.clone())
+    }
+}
+
+#[derive(Default)]
+struct InteractiveWriteQueueState {
+    writes: VecDeque<InteractiveWrite>,
+    queued_bytes: usize,
+    last_enqueued_sequence: u64,
+    last_written_sequence: u64,
+    closed: bool,
+    writer_closed: bool,
+    failure: Option<InteractiveWriteFailure>,
+}
+
+struct InteractiveWriteMetrics {
+    latency_buckets: [AtomicU64; INTERACTIVE_LATENCY_BUCKET_UPPER_US.len()],
+    write_failures: AtomicU64,
+    backpressure_rejections: AtomicU64,
+}
+
+impl Default for InteractiveWriteMetrics {
+    fn default() -> Self {
+        Self {
+            latency_buckets: std::array::from_fn(|_| AtomicU64::new(0)),
+            write_failures: AtomicU64::new(0),
+            backpressure_rejections: AtomicU64::new(0),
+        }
+    }
+}
+
+impl InteractiveWriteMetrics {
+    fn record_latency(&self, latency: Duration) {
+        let micros = u64::try_from(latency.as_micros()).unwrap_or(u64::MAX);
+        let bucket = INTERACTIVE_LATENCY_BUCKET_UPPER_US
+            .partition_point(|upper_bound| *upper_bound < micros)
+            .min(self.latency_buckets.len() - 1);
+        self.latency_buckets[bucket].fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self) -> InteractiveWriteMetricsSnapshot {
+        let histogram = self
+            .latency_buckets
+            .iter()
+            .zip(INTERACTIVE_LATENCY_BUCKET_UPPER_US)
+            .map(|(samples, upper_bound_micros)| InteractiveLatencyBucket {
+                upper_bound: Duration::from_micros(upper_bound_micros),
+                samples: samples.load(Ordering::Relaxed),
+            })
+            .collect::<Vec<_>>();
+        let samples = histogram.iter().map(|bucket| bucket.samples).sum();
+        InteractiveWriteMetricsSnapshot {
+            p50: latency_percentile(&histogram, samples, 50),
+            p95: latency_percentile(&histogram, samples, 95),
+            p99: latency_percentile(&histogram, samples, 99),
+            histogram,
+            samples,
+            write_failures: self.write_failures.load(Ordering::Relaxed),
+            backpressure_rejections: self.backpressure_rejections.load(Ordering::Relaxed),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InteractiveLatencyBucket {
+    pub(crate) upper_bound: Duration,
+    pub(crate) samples: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InteractiveWriteMetricsSnapshot {
+    pub(crate) histogram: Vec<InteractiveLatencyBucket>,
+    pub(crate) samples: u64,
+    pub(crate) write_failures: u64,
+    pub(crate) backpressure_rejections: u64,
+    pub(crate) p50: Option<Duration>,
+    pub(crate) p95: Option<Duration>,
+    pub(crate) p99: Option<Duration>,
+}
+
+fn latency_percentile(
+    histogram: &[InteractiveLatencyBucket],
+    samples: u64,
+    percentile: u64,
+) -> Option<Duration> {
+    if samples == 0 {
+        return None;
+    }
+    let target = samples.saturating_mul(percentile).div_ceil(100);
+    let mut cumulative = 0_u64;
+    histogram.iter().find_map(|bucket| {
+        cumulative = cumulative.saturating_add(bucket.samples);
+        (cumulative >= target).then_some(bucket.upper_bound)
+    })
+}
+
+struct InteractiveWriterShared {
+    state: Mutex<InteractiveWriteQueueState>,
+    changed: Condvar,
+    metrics: InteractiveWriteMetrics,
+}
+
+struct InteractiveWriter {
+    shared: Arc<InteractiveWriterShared>,
+    abort: Arc<dyn RemoteTransportAbort>,
+}
+
+impl InteractiveWriter {
+    // Control requests use this actor too, then wait for their sequence. This
+    // keeps a mutation from overtaking input already accepted from the PTY lane.
+    fn spawn(
+        writer: Box<dyn RemoteMessageWriter>,
+        abort: Arc<dyn RemoteTransportAbort>,
+    ) -> io::Result<Self> {
+        let shared = Arc::new(InteractiveWriterShared {
+            state: Mutex::new(InteractiveWriteQueueState::default()),
+            changed: Condvar::new(),
+            metrics: InteractiveWriteMetrics::default(),
+        });
+        let worker_shared = shared.clone();
+        std::thread::Builder::new()
+            .name("remote-input-writer".into())
+            .spawn(move || interactive_writer_worker(worker_shared, writer))?;
+        Ok(Self { shared, abort })
+    }
+
+    fn enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
+        let mut write =
+            InteractiveWrite { message, enqueued_at: Instant::now(), sequence: 0, measure_latency };
+        let message_bytes = write.message.len();
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| io::Error::other("interactive writer queue is poisoned"))?;
+        if let Some(failure) = &state.failure {
+            return Err(failure.to_error());
+        }
+        if state.closed {
+            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "interactive writer is closed"));
+        }
+        if state.writes.len() >= INTERACTIVE_WRITE_QUEUE_CAPACITY
+            || message_bytes > INTERACTIVE_WRITE_QUEUE_BYTES.saturating_sub(state.queued_bytes)
+        {
+            if measure_latency {
+                self.shared.metrics.backpressure_rejections.fetch_add(1, Ordering::Relaxed);
+            }
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "interactive writer queue is full",
+            ));
+        }
+        let sequence = state
+            .last_enqueued_sequence
+            .checked_add(1)
+            .ok_or_else(|| io::Error::other("interactive writer sequence space is exhausted"))?;
+        state.last_enqueued_sequence = sequence;
+        state.queued_bytes += message_bytes;
+        write.sequence = sequence;
+        state.writes.push_back(write);
+        drop(state);
+        self.shared.changed.notify_one();
+        Ok(sequence)
+    }
+
+    fn last_enqueued_sequence(&self) -> io::Result<Option<u64>> {
+        let state = self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| io::Error::other("interactive writer queue is poisoned"))?;
+        Ok((state.last_enqueued_sequence != 0).then_some(state.last_enqueued_sequence))
+    }
+
+    fn wait_until_written(&self, sequence: u64, timeout: Duration) -> io::Result<()> {
+        let deadline = Instant::now() + timeout;
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| io::Error::other("interactive writer queue is poisoned"))?;
+        loop {
+            if state.last_written_sequence >= sequence {
+                return Ok(());
+            }
+            if let Some(failure) = &state.failure {
+                return Err(failure.to_error());
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "ordered remote write did not complete before its deadline",
+                ));
+            }
+            let (next, timeout) = self
+                .shared
+                .changed
+                .wait_timeout(state, remaining)
+                .unwrap_or_else(|poison| poison.into_inner());
+            state = next;
+            if timeout.timed_out()
+                && state.last_written_sequence < sequence
+                && state.failure.is_none()
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "ordered remote write did not complete before its deadline",
+                ));
+            }
+        }
+    }
+
+    fn metrics(&self) -> InteractiveWriteMetricsSnapshot {
+        self.shared.metrics.snapshot()
+    }
+
+    fn request_close(&self) {
+        let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.closed = true;
+        drop(state);
+        self.shared.changed.notify_one();
+    }
+
+    fn abort(&self, error: &io::Error) {
+        {
+            let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+            state.closed = true;
+            state.failure.get_or_insert_with(|| InteractiveWriteFailure::from_error(error));
+            state.writes.clear();
+            state.queued_bytes = 0;
+        }
+        self.shared.changed.notify_all();
+        let _ = self.abort.abort();
+    }
+
+    fn close(&self) {
+        self.request_close();
+        let deadline = Instant::now() + REMOTE_WRITE_TIMEOUT;
+        let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        while !state.writer_closed {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let (next, timeout) = self
+                .shared
+                .changed
+                .wait_timeout(state, remaining)
+                .unwrap_or_else(|poison| poison.into_inner());
+            state = next;
+            if timeout.timed_out() {
+                break;
+            }
+        }
+        let writer_closed = state.writer_closed;
+        drop(state);
+        if !writer_closed {
+            self.abort(&io::Error::new(
+                io::ErrorKind::TimedOut,
+                "remote writer did not close before its deadline",
+            ));
+        }
+    }
+}
+
+impl Drop for InteractiveWriter {
+    fn drop(&mut self) {
+        self.request_close();
+        let writer_closed =
+            self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner()).writer_closed;
+        if !writer_closed {
+            self.abort(&io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "remote writer owner was dropped",
+            ));
+        }
+    }
+}
+
+fn interactive_writer_worker(
+    shared: Arc<InteractiveWriterShared>,
+    mut writer: Box<dyn RemoteMessageWriter>,
+) {
+    loop {
+        let write = {
+            let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+            while state.writes.is_empty() && !state.closed && state.failure.is_none() {
+                state = shared.changed.wait(state).unwrap_or_else(|poison| poison.into_inner());
+            }
+            let Some(write) = state.writes.pop_front() else {
+                drop(state);
+                let _ = writer.close();
+                let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+                state.writer_closed = true;
+                drop(state);
+                shared.changed.notify_all();
+                return;
+            };
+            state.queued_bytes = state.queued_bytes.saturating_sub(write.message.len());
+            write
+        };
+
+        let result = writer.send(&write.message);
+        match result {
+            Ok(()) => {
+                if write.measure_latency {
+                    shared.metrics.record_latency(write.enqueued_at.elapsed());
+                }
+                let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+                state.last_written_sequence = write.sequence;
+                drop(state);
+                shared.changed.notify_all();
+            }
+            Err(error) => {
+                if write.measure_latency {
+                    shared.metrics.write_failures.fetch_add(1, Ordering::Relaxed);
+                }
+                let _ = writer.close();
+                let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+                state.failure.get_or_insert_with(|| InteractiveWriteFailure::from_error(&error));
+                state.writes.clear();
+                state.queued_bytes = 0;
+                state.writer_closed = true;
+                drop(state);
+                shared.changed.notify_all();
+                return;
+            }
+        }
+    }
+}
+
 pub struct RemoteSession {
-    writer: Mutex<Box<dyn RemoteMessageWriter>>,
+    interactive_writer: InteractiveWriter,
     pending: Mutex<HashMap<u64, Sender<Value>>>,
     next_id: AtomicU64,
     shutdown: AtomicBool,
@@ -749,26 +1153,50 @@ pub trait RemoteMessageWriter: Send {
     fn close(&mut self) -> io::Result<()>;
 }
 
+/// Independently owned cancellation for a transport whose writer may be
+/// blocked. Implementations must be safe to call from a different thread than
+/// `RemoteMessageWriter::send`.
+pub trait RemoteTransportAbort: Send + Sync {
+    fn abort(&self) -> io::Result<()>;
+}
+
 /// The independently-owned read and write halves of a remote connection.
 /// Split halves support process stdio and async transport pumps without
 /// requiring the underlying stream to be cloneable.
 pub struct RemoteTransport {
     reader: Box<dyn RemoteMessageReader>,
     writer: Box<dyn RemoteMessageWriter>,
+    abort: Arc<dyn RemoteTransportAbort>,
 }
 
 impl RemoteTransport {
-    pub fn new(reader: Box<dyn RemoteMessageReader>, writer: Box<dyn RemoteMessageWriter>) -> Self {
-        Self { reader, writer }
+    pub fn new(
+        reader: Box<dyn RemoteMessageReader>,
+        writer: Box<dyn RemoteMessageWriter>,
+        abort: Arc<dyn RemoteTransportAbort>,
+    ) -> Self {
+        Self { reader, writer, abort }
     }
 
     pub fn json_lines(stream: Box<dyn transport::Stream>) -> io::Result<Self> {
         stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT))?;
         let read_half = stream.try_clone_box()?;
+        let abort_stream = stream.try_clone_box()?;
         Ok(Self {
             reader: Box::new(JsonLineReader { inner: BufReader::new(read_half) }),
             writer: Box::new(JsonLineWriter { inner: stream }),
+            abort: Arc::new(StreamTransportAbort { inner: abort_stream }),
         })
+    }
+}
+
+struct StreamTransportAbort {
+    inner: Box<dyn transport::Stream>,
+}
+
+impl RemoteTransportAbort for StreamTransportAbort {
+    fn abort(&self) -> io::Result<()> {
+        self.inner.shutdown(Shutdown::Both)
     }
 }
 
@@ -778,18 +1206,56 @@ struct JsonLineReader {
 
 impl RemoteMessageReader for JsonLineReader {
     fn receive(&mut self) -> io::Result<Option<String>> {
-        let mut message = String::new();
-        if self.inner.read_line(&mut message)? == 0 {
-            return Ok(None);
-        }
-        if message.ends_with('\n') {
-            message.pop();
-            if message.ends_with('\r') {
-                message.pop();
-            }
-        }
-        Ok(Some(message))
+        read_bounded_json_line(&mut self.inner, REMOTE_CONTROL_MESSAGE_MAX_BYTES)
     }
+}
+
+pub(crate) fn read_bounded_json_line(
+    reader: &mut impl BufRead,
+    limit: usize,
+) -> io::Result<Option<String>> {
+    let mut frame = Zeroizing::new(Vec::new());
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return if frame.is_empty() { Ok(None) } else { decode_json_line(frame).map(Some) };
+        }
+        if let Some(newline) = available.iter().position(|byte| *byte == b'\n') {
+            if frame.len().saturating_add(newline) > limit {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("remote JSON line exceeds the {limit}-byte limit"),
+                ));
+            }
+            frame.extend_from_slice(&available[..newline]);
+            reader.consume(newline + 1);
+            if frame.last() == Some(&b'\r') {
+                frame.pop();
+            }
+            return decode_json_line(frame).map(Some);
+        }
+        if frame.len().saturating_add(available.len()) > limit {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("remote JSON line exceeds the {limit}-byte limit"),
+            ));
+        }
+        let consumed = available.len();
+        frame.extend_from_slice(available);
+        reader.consume(consumed);
+    }
+}
+
+fn decode_json_line(mut frame: Zeroizing<Vec<u8>>) -> io::Result<String> {
+    if std::str::from_utf8(&frame).is_err() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "remote JSON line is not valid UTF-8",
+        ));
+    }
+    let bytes = std::mem::take(&mut *frame);
+    // SAFETY: the complete frame was validated as UTF-8 immediately above.
+    Ok(unsafe { String::from_utf8_unchecked(bytes) })
 }
 
 struct JsonLineWriter {
@@ -878,9 +1344,11 @@ impl RemoteSession {
         provider_workspace_authority: Option<BearerToken>,
         subscribe: bool,
     ) -> anyhow::Result<Arc<Self>> {
-        let RemoteTransport { mut reader, writer } = transport;
+        let RemoteTransport { mut reader, writer, abort } = transport;
+        let interactive_writer = InteractiveWriter::spawn(writer, abort)
+            .map_err(|error| anyhow::anyhow!("cannot start remote interactive writer: {error}"))?;
         let session = Arc::new(RemoteSession {
-            writer: Mutex::new(writer),
+            interactive_writer,
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             shutdown: AtomicBool::new(false),
@@ -903,8 +1371,10 @@ impl RemoteSession {
 
         let reader_session = Arc::downgrade(&session);
         std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
-            while let Ok(Some(message)) = reader.receive() {
-                let Ok(value) = serde_json::from_str::<Value>(&message) else { continue };
+            while let Ok(Some(mut message)) = reader.receive() {
+                let value = serde_json::from_str::<Value>(&message);
+                zeroize_string(&mut message);
+                let Ok(value) = value else { continue };
                 let Some(session) = reader_session.upgrade() else { break };
                 session.handle_line(value);
             }
@@ -1079,8 +1549,7 @@ impl RemoteSession {
             }
             Some("vt-state") => {
                 let Some(id) = surface_id() else { return };
-                let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
-                let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                let Some((cols, rows)) = remote_terminal_size(&value) else { return };
                 let Some(data) = value.get("data").and_then(|v| v.as_str()) else { return };
                 let Ok(replay) = base64::engine::general_purpose::STANDARD.decode(data) else {
                     return;
@@ -1091,20 +1560,21 @@ impl RemoteSession {
                     format!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
                 );
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.apply_stream_resize_with_colors(
+                    if !surface.apply_stream_resize_with_colors(
                         cols,
                         rows,
                         Some(&replay),
                         colors.as_ref(),
-                    );
+                    ) {
+                        return;
+                    }
                     surface.dirty.store(true, Ordering::Release);
                 }
                 self.emit(MuxEvent::SurfaceOutput(id));
             }
             Some("surface-resized") => {
                 let Some(id) = surface_id() else { return };
-                let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
-                let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                let Some((cols, rows)) = remote_terminal_size(&value) else { return };
                 self.emit(MuxEvent::SurfaceResized {
                     surface: id,
                     cols,
@@ -1114,8 +1584,7 @@ impl RemoteSession {
             }
             Some("surface-resize-failed") => {
                 let Some(id) = surface_id() else { return };
-                let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
-                let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                let Some((cols, rows)) = remote_terminal_size(&value) else { return };
                 let error =
                     value.get("error").and_then(Value::as_str).unwrap_or("browser resize failed");
                 let retry_after_ms = value.get("retry_after_ms").and_then(Value::as_u64);
@@ -1156,8 +1625,7 @@ impl RemoteSession {
             }
             Some("resized") => {
                 let Some(id) = surface_id() else { return };
-                let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
-                let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                let Some((cols, rows)) = remote_terminal_size(&value) else { return };
                 let replay = value
                     .get("replay")
                     .or_else(|| value.get("data"))
@@ -1172,12 +1640,14 @@ impl RemoteSession {
                     ),
                 );
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.apply_stream_resize_with_colors(
+                    if !surface.apply_stream_resize_with_colors(
                         cols,
                         rows,
                         replay.as_deref(),
                         colors.as_ref(),
-                    );
+                    ) {
+                        return;
+                    }
                     surface.dirty.store(true, Ordering::Release);
                     self.emit(MuxEvent::SurfaceResized {
                         surface: id,
@@ -1205,9 +1675,10 @@ impl RemoteSession {
             Some("browser-state") => {
                 let Some(id) = surface_id() else { return };
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
-                    let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
-                    surface.apply_stream_resize(cols, rows, None);
+                    let Some((cols, rows)) = remote_terminal_size(&value) else { return };
+                    if !surface.apply_stream_resize(cols, rows, None) {
+                        return;
+                    }
                     surface.update_browser_state(&value);
                     surface.dirty.store(true, Ordering::Release);
                 }
@@ -1470,7 +1941,7 @@ impl RemoteSession {
     fn request_with_timeout(&self, mut cmd: Value, timeout: Duration) -> anyhow::Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         cmd["id"] = json!(id);
-        let mut message = serde_json::to_string(&cmd)
+        let message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
             .map_err(anyhow::Error::new)?;
         if let Some(Value::String(authority)) = cmd.get_mut("authority") {
@@ -1479,16 +1950,17 @@ impl RemoteSession {
 
         let (tx, rx) = channel();
         self.pending.lock().unwrap().insert(id, tx);
-        let mut writer = self.writer.lock().unwrap();
-        let send_result = writer.send(&message);
-        zeroize_string(&mut message);
-        if let Err(err) = send_result {
-            let _ = writer.close();
-            drop(writer);
+        let sequence = match self.interactive_writer.enqueue(message, false) {
+            Ok(sequence) => sequence,
+            Err(error) => {
+                self.pending.lock().unwrap().remove(&id);
+                return Err(RemoteRequestError::Transport(error).into());
+            }
+        };
+        if let Err(error) = self.wait_for_ordered_write(sequence) {
             self.pending.lock().unwrap().remove(&id);
-            return Err(RemoteRequestError::Transport(err).into());
+            return Err(RemoteRequestError::Transport(error).into());
         }
-        drop(writer);
 
         if self.shutdown.load(Ordering::Acquire) {
             self.pending.lock().unwrap().remove(&id);
@@ -1522,6 +1994,31 @@ impl RemoteSession {
         }
     }
 
+    /// Write latency-sensitive input in order without waiting for the mux
+    /// command acknowledgement. The response reader still drains the reply;
+    /// its unknown request id is intentionally ignored. Reliable remote
+    /// sessions replay this write after carrier reconnect.
+    fn request_no_wait(&self, mut cmd: Value) -> anyhow::Result<()> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        cmd["id"] = json!(id);
+        // The local remote bridge replaces eligible sends with compact binary
+        // MuxInput packets. Direct/older mux servers ignore this hint and keep
+        // the existing JSON response behavior.
+        cmd["no_reply"] = json!(true);
+        let message = serde_json::to_string(&cmd)
+            .map_err(RemoteRequestError::Encode)
+            .map_err(anyhow::Error::new)?;
+        let sequence = self
+            .interactive_writer
+            .enqueue(message, true)
+            .map_err(RemoteRequestError::Transport)?;
+        if self.shutdown.load(Ordering::Acquire) {
+            self.wait_for_ordered_write(sequence).map_err(RemoteRequestError::Transport)?;
+            return Err(RemoteRequestError::Shutdown.into());
+        }
+        Ok(())
+    }
+
     pub(super) fn request_guarded_pointer(
         &self,
         cmd: Value,
@@ -1545,7 +2042,12 @@ impl RemoteSession {
 
     pub fn send_bytes(&self, surface: SurfaceId, bytes: &[u8]) -> anyhow::Result<()> {
         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-        self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded})).map(|_| ())
+        self.request_no_wait(json!({"cmd": "send", "surface": surface, "bytes": encoded}))
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn interactive_write_metrics(&self) -> InteractiveWriteMetricsSnapshot {
+        self.interactive_writer.metrics()
     }
 
     pub fn clear_history_classified(&self, surface: SurfaceId) -> Result<(), ClearHistoryFailure> {
@@ -1629,13 +2131,26 @@ impl RemoteSession {
         for (_, sender) in pending {
             let _ = sender.send(json!({"shutdown": true}));
         }
+        if let Ok(Some(sequence)) = self.interactive_writer.last_enqueued_sequence() {
+            let _ = self.wait_for_ordered_write(sequence);
+        }
+    }
+
+    fn wait_for_ordered_write(&self, sequence: u64) -> io::Result<()> {
+        match self.interactive_writer.wait_until_written(sequence, REMOTE_WRITE_TIMEOUT) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                if error.kind() == io::ErrorKind::TimedOut {
+                    self.interactive_writer.abort(&error);
+                }
+                Err(error)
+            }
+        }
     }
 
     fn disconnect_transport(&self) {
         self.begin_shutdown();
-        if let Ok(mut writer) = self.writer.lock() {
-            let _ = writer.close();
-        }
+        self.interactive_writer.close();
     }
 
     pub fn set_cell_pixel_size(
@@ -1762,10 +2277,9 @@ impl RemoteSession {
         })
     }
 
-    /// Mirror for a surface, attaching on first use. When a size is
-    /// provided, the caller's immediately following `resize` sends the
-    /// server resize after the attach tap is installed, so the resize
-    /// marker and any shell WINCH redraw bytes stay ordered in-stream.
+    /// Mirror for a surface, attaching on first use. Servers advertising
+    /// initial attach sizing receive the first viewer claim atomically with
+    /// the attach, so the initial replay already has its final geometry.
     pub fn try_ensure_surface(
         self: &Arc<Self>,
         id: SurfaceId,
@@ -1811,10 +2325,21 @@ impl RemoteSession {
         });
         surface.update_browser_source(source);
         self.surfaces.lock().unwrap().insert(id, surface.clone());
+        let initial_size = size.map(|(cols, rows)| (cols.max(1), rows.max(1))).filter(|_| {
+            self.supports_capability(cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY)
+        });
+        let mut request = json!({"cmd": "attach-surface", "surface": id});
+        if let Some((cols, rows)) = initial_size {
+            request["cols"] = json!(cols);
+            request["rows"] = json!(rows);
+        }
         // The vt-state event that follows fills the mirror.
-        if let Err(error) = self.request(json!({"cmd": "attach-surface", "surface": id})) {
+        if let Err(error) = self.request(request) {
             self.surfaces.lock().unwrap().remove(&id);
             return Err(error);
+        }
+        if let Some(size) = initial_size {
+            surface.set_reported_size(size);
         }
         if let Some(recovery) = self.surface_overflow_recovery.lock().unwrap().get_mut(&id) {
             recovery.attached_at = Some(Instant::now());
@@ -2136,13 +2661,23 @@ fn parse_browser_status(value: &Value) -> Option<BrowserStatus> {
 }
 
 #[cfg(test)]
+struct NoopTransportAbort;
+
+#[cfg(test)]
+impl RemoteTransportAbort for NoopTransportAbort {
+    fn abort(&self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
 fn test_session_with_writer(
     writer: Box<dyn RemoteMessageWriter>,
     provider_workspace_authority: Option<BearerToken>,
     capabilities: HashSet<String>,
 ) -> Arc<RemoteSession> {
     Arc::new(RemoteSession {
-        writer: Mutex::new(writer),
+        interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
         pending: Mutex::new(HashMap::new()),
         next_id: AtomicU64::new(1),
         shutdown: AtomicBool::new(false),
@@ -2296,7 +2831,7 @@ mod tests {
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicBool, AtomicU64};
     use std::sync::mpsc::{Receiver, Sender};
-    use std::sync::{Mutex, Weak};
+    use std::sync::{Condvar, Mutex, Weak};
 
     use ghostty_vt::{Callbacks, ColorSpec, KeyAction, Mods, RenderState, Terminal};
     use serde_json::json;
@@ -2491,6 +3026,37 @@ mod tests {
         assert_eq!(bytes, "{\"first\":1}\n{\"second\":2}\n");
     }
 
+    struct RecordingMessageWriter {
+        messages: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl RemoteMessageWriter for RecordingMessageWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            assert!(!message.contains(['\r', '\n']), "actor leaked transport framing");
+            self.messages.lock().unwrap().push(message.to_string());
+            Ok(())
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn interactive_actor_sends_complete_messages_without_transport_delimiters() {
+        let messages = Arc::new(Mutex::new(Vec::new()));
+        let session = test_session(Box::new(RecordingMessageWriter { messages: messages.clone() }));
+
+        session.send_bytes(9, b"x").unwrap();
+        session.disconnect_transport();
+
+        let messages = messages.lock().unwrap();
+        assert_eq!(messages.len(), 1);
+        let request: Value = serde_json::from_str(&messages[0]).unwrap();
+        assert_eq!(request["cmd"], "send");
+        assert_eq!(request["bytes"], "eA==");
+    }
+
     struct CloseTrackingWriter {
         closed: Arc<AtomicBool>,
     }
@@ -2609,6 +3175,7 @@ mod tests {
         RemoteTransport::new(
             Box::new(ScriptedInitializationReader { responses: received_responses }),
             Box::new(ScriptedInitializationWriter { responses, failure, closed }),
+            Arc::new(NoopTransportAbort),
         )
     }
 
@@ -2705,8 +3272,22 @@ mod tests {
         capabilities: HashSet<String>,
         provider_workspace_authority: Option<BearerToken>,
     ) -> Arc<RemoteSession> {
+        test_session_with_abort_and_context(
+            writer,
+            Arc::new(NoopTransportAbort),
+            capabilities,
+            provider_workspace_authority,
+        )
+    }
+
+    fn test_session_with_abort_and_context(
+        writer: Box<dyn RemoteMessageWriter>,
+        abort: Arc<dyn RemoteTransportAbort>,
+        capabilities: HashSet<String>,
+        provider_workspace_authority: Option<BearerToken>,
+    ) -> Arc<RemoteSession> {
         Arc::new(RemoteSession {
-            writer: Mutex::new(writer),
+            interactive_writer: InteractiveWriter::spawn(writer, abort).unwrap(),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             shutdown: AtomicBool::new(false),
@@ -2728,8 +3309,125 @@ mod tests {
         })
     }
 
+    #[derive(Default)]
+    struct BlockingWriteState {
+        blocked: bool,
+        entered: bool,
+        aborted: bool,
+        fail_on_release: bool,
+    }
+
+    #[derive(Clone)]
+    struct BlockingWriteControl {
+        state: Arc<(Mutex<BlockingWriteState>, Condvar)>,
+    }
+
+    impl BlockingWriteControl {
+        fn wait_until_entered(&self) {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            let (state, changed) = &*self.state;
+            let mut state = state.lock().unwrap();
+            while !state.entered {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                assert!(!remaining.is_zero(), "interactive writer never entered the test stream");
+                let (next, timeout) = changed.wait_timeout(state, remaining).unwrap();
+                state = next;
+                assert!(!timeout.timed_out() || state.entered);
+            }
+        }
+
+        fn release(&self) {
+            let (state, changed) = &*self.state;
+            let mut state = state.lock().unwrap();
+            state.blocked = false;
+            drop(state);
+            changed.notify_all();
+        }
+
+        fn fail(&self) {
+            let (state, changed) = &*self.state;
+            let mut state = state.lock().unwrap();
+            state.fail_on_release = true;
+            state.blocked = false;
+            drop(state);
+            changed.notify_all();
+        }
+    }
+
+    #[derive(Clone)]
+    struct BlockingWriteStream {
+        control: BlockingWriteControl,
+        output: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl BlockingWriteStream {
+        fn new() -> (Self, BlockingWriteControl) {
+            let control = BlockingWriteControl {
+                state: Arc::new((
+                    Mutex::new(BlockingWriteState {
+                        blocked: true,
+                        entered: false,
+                        aborted: false,
+                        fail_on_release: false,
+                    }),
+                    Condvar::new(),
+                )),
+            };
+            (Self { control: control.clone(), output: Arc::new(Mutex::new(Vec::new())) }, control)
+        }
+    }
+
+    impl RemoteMessageWriter for BlockingWriteStream {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let (state, changed) = &*self.control.state;
+            let mut state = state.lock().unwrap();
+            state.entered = true;
+            changed.notify_all();
+            while state.blocked {
+                state = changed.wait(state).unwrap();
+            }
+            if state.aborted {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "test writer aborted"));
+            }
+            if state.fail_on_release {
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "scripted write failure"));
+            }
+            drop(state);
+            let mut output = self.output.lock().unwrap();
+            output.extend_from_slice(message.as_bytes());
+            output.push(b'\n');
+            Ok(())
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            self.control.release();
+            Ok(())
+        }
+    }
+
+    struct BlockingWriteAbort {
+        control: BlockingWriteControl,
+    }
+
+    impl RemoteTransportAbort for BlockingWriteAbort {
+        fn abort(&self) -> io::Result<()> {
+            let (state, changed) = &*self.control.state;
+            let mut state = state.lock().unwrap();
+            state.aborted = true;
+            state.blocked = false;
+            drop(state);
+            changed.notify_all();
+            Ok(())
+        }
+    }
+
     fn test_session(writer: Box<dyn RemoteMessageWriter>) -> Arc<RemoteSession> {
         test_session_with_provider_context(writer, HashSet::new(), None)
+    }
+
+    fn blocking_test_session(writer: BlockingWriteStream) -> Arc<RemoteSession> {
+        let abort = Arc::new(BlockingWriteAbort { control: writer.control.clone() });
+        test_session_with_abort_and_context(Box::new(writer), abort, HashSet::new(), None)
     }
 
     #[test]
@@ -3018,6 +3716,46 @@ mod tests {
     }
 
     #[test]
+    fn bounded_json_lines_reject_oversize_and_invalid_utf8() {
+        let mut valid = BufReader::with_capacity(2, io::Cursor::new(b"{}\r\nnext\n"));
+        assert_eq!(read_bounded_json_line(&mut valid, 8).unwrap().as_deref(), Some("{}"));
+        assert_eq!(read_bounded_json_line(&mut valid, 8).unwrap().as_deref(), Some("next"));
+
+        let mut oversized = BufReader::with_capacity(2, io::Cursor::new(b"123456789\n"));
+        assert_eq!(
+            read_bounded_json_line(&mut oversized, 8).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        let mut oversized_unterminated = BufReader::with_capacity(2, io::Cursor::new(b"123456789"));
+        assert_eq!(
+            read_bounded_json_line(&mut oversized_unterminated, 8).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        let mut truncated = BufReader::with_capacity(2, io::Cursor::new(b"{}"));
+        assert_eq!(read_bounded_json_line(&mut truncated, 8).unwrap().as_deref(), Some("{}"));
+        let mut invalid = BufReader::new(io::Cursor::new([0xff, b'\n']));
+        assert_eq!(
+            read_bounded_json_line(&mut invalid, 8).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn remote_terminal_dimensions_are_bounded_by_dimension_and_total_cells() {
+        assert_eq!(remote_terminal_size(&json!({})), Some((80, 24)));
+        assert_eq!(remote_terminal_size(&json!({"cols": 4096, "rows": 256})), Some((4096, 256)));
+        for value in [
+            json!({"cols": 0, "rows": 24}),
+            json!({"cols": 65_535, "rows": 24}),
+            json!({"cols": 4096, "rows": 257}),
+            json!({"cols": -1, "rows": 24}),
+            json!({"cols": "80", "rows": 24}),
+        ] {
+            assert_eq!(remote_terminal_size(&value), None, "accepted {value}");
+        }
+    }
+
+    #[test]
     fn provider_guard_state_changes_only_after_the_remote_acknowledges() {
         let session = crate::session::Session::Remote(acknowledging_provider_session());
 
@@ -3221,22 +3959,309 @@ mod tests {
         assert!(release["id"].as_u64().unwrap() > first["id"].as_u64().unwrap());
     }
 
+    #[test]
+    fn shutdown_send_waits_for_ordered_write_completion() {
+        let (stream, control) = BlockingWriteStream::new();
+        let session = blocking_test_session(stream);
+        session.begin_shutdown();
+
+        let (finished_tx, finished_rx) = channel();
+        let release = std::thread::spawn(move || {
+            finished_tx.send(session.send_bytes(7, b"release")).unwrap();
+        });
+        control.wait_until_entered();
+        assert!(
+            finished_rx.recv_timeout(Duration::from_millis(25)).is_err(),
+            "shutdown send returned before its ordered write completed"
+        );
+
+        control.release();
+        let error = finished_rx.recv_timeout(REMOTE_WRITE_TIMEOUT * 2).unwrap().unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Shutdown)
+        ));
+        release.join().unwrap();
+    }
+
+    #[test]
+    fn begin_shutdown_waits_for_previously_accepted_input() {
+        let (stream, control) = BlockingWriteStream::new();
+        let session = blocking_test_session(stream);
+        session.send_bytes(7, b"accepted").unwrap();
+        control.wait_until_entered();
+
+        let (finished_tx, finished_rx) = channel();
+        let shutdown = std::thread::spawn(move || {
+            session.begin_shutdown();
+            finished_tx.send(()).unwrap();
+        });
+        assert!(
+            finished_rx.recv_timeout(Duration::from_millis(25)).is_err(),
+            "shutdown returned before previously accepted input was written"
+        );
+
+        control.release();
+        finished_rx.recv_timeout(REMOTE_WRITE_TIMEOUT * 2).unwrap();
+        shutdown.join().unwrap();
+    }
+
+    #[test]
+    fn write_timeout_aborts_the_blocked_writer_and_discards_queued_mutations() {
+        let (stream, control) = BlockingWriteStream::new();
+        let output = stream.output.clone();
+        let session = blocking_test_session(stream);
+        session.send_bytes(7, b"blocked").unwrap();
+        control.wait_until_entered();
+        session.send_bytes(7, b"queued").unwrap();
+        let sequence = session.interactive_writer.last_enqueued_sequence().unwrap().unwrap();
+
+        let started = Instant::now();
+        let error = session.wait_for_ordered_write(sequence).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert!(started.elapsed() < REMOTE_WRITE_TIMEOUT * 5);
+        let deadline = Instant::now() + REMOTE_WRITE_TIMEOUT;
+        loop {
+            let state = session.interactive_writer.shared.state.lock().unwrap();
+            if state.writer_closed {
+                assert!(state.writes.is_empty());
+                assert_eq!(state.queued_bytes, 0);
+                break;
+            }
+            drop(state);
+            assert!(Instant::now() < deadline, "aborted writer did not exit");
+            std::thread::yield_now();
+        }
+        assert!(control.state.0.lock().unwrap().aborted);
+        assert!(output.lock().unwrap().is_empty());
+        let error = session.send_bytes(7, b"late").unwrap_err();
+        assert!(error.downcast_ref::<RemoteRequestError>().is_some_and(|error| {
+            matches!(error, RemoteRequestError::Transport(io_error)
+                if io_error.kind() == io::ErrorKind::TimedOut)
+        }));
+    }
+
+    #[test]
+    fn dropping_a_session_aborts_a_blocked_writer() {
+        let (stream, control) = BlockingWriteStream::new();
+        let session = blocking_test_session(stream);
+        session.send_bytes(7, b"blocked").unwrap();
+        control.wait_until_entered();
+
+        drop(session);
+
+        let deadline = Instant::now() + REMOTE_WRITE_TIMEOUT;
+        loop {
+            let state = control.state.0.lock().unwrap();
+            if state.aborted {
+                break;
+            }
+            drop(state);
+            assert!(Instant::now() < deadline, "dropped session did not abort writer");
+            std::thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn closing_a_session_aborts_a_writer_that_cannot_drain() {
+        let (stream, control) = BlockingWriteStream::new();
+        let session = blocking_test_session(stream);
+        session.send_bytes(7, b"blocked").unwrap();
+        control.wait_until_entered();
+
+        let started = Instant::now();
+        session.disconnect_transport();
+
+        assert!(started.elapsed() < REMOTE_WRITE_TIMEOUT * 5);
+        let state = control.state.0.lock().unwrap();
+        assert!(state.aborted);
+        drop(state);
+        let state = session.interactive_writer.shared.state.lock().unwrap();
+        assert!(state.writer_closed);
+        assert!(matches!(
+            state.failure,
+            Some(ref failure) if failure.kind == io::ErrorKind::TimedOut
+        ));
+    }
+
+    #[test]
+    fn send_failure_wakes_every_waiter_and_discards_the_queue() {
+        let (stream, control) = BlockingWriteStream::new();
+        let output = stream.output.clone();
+        let session = blocking_test_session(stream);
+        let first = session.interactive_writer.enqueue("first".into(), true).unwrap();
+        control.wait_until_entered();
+        let second = session.interactive_writer.enqueue("second".into(), true).unwrap();
+        let (finished_tx, finished_rx) = channel();
+        let mut waiters = Vec::new();
+        for sequence in [first, second] {
+            let session = session.clone();
+            let finished_tx = finished_tx.clone();
+            waiters.push(std::thread::spawn(move || {
+                finished_tx
+                    .send(
+                        session
+                            .interactive_writer
+                            .wait_until_written(sequence, REMOTE_WRITE_TIMEOUT * 2),
+                    )
+                    .unwrap();
+            }));
+        }
+
+        control.fail();
+        for _ in 0..2 {
+            let error = finished_rx
+                .recv_timeout(REMOTE_WRITE_TIMEOUT * 2)
+                .expect("write failure did not wake a waiter")
+                .unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+        }
+        for waiter in waiters {
+            waiter.join().unwrap();
+        }
+        let state = session.interactive_writer.shared.state.lock().unwrap();
+        assert!(state.writes.is_empty());
+        assert_eq!(state.queued_bytes, 0);
+        assert!(state.writer_closed);
+        drop(state);
+        assert!(output.lock().unwrap().is_empty());
+        assert_eq!(session.interactive_write_metrics().write_failures, 1);
+    }
+
     #[cfg(unix)]
     #[test]
-    fn stalled_remote_write_times_out_and_closes_the_transport() {
-        let (client, _server) = UnixStream::pair().unwrap();
+    fn keystroke_write_does_not_wait_for_command_response() {
+        let (client, server) = UnixStream::pair().unwrap();
         let session = socket_test_session(client);
-        let payload = vec![b'x'; 4 * 1024 * 1024];
+        let (finished_tx, finished_rx) = channel();
+        let sender_session = session.clone();
+        let sender = std::thread::spawn(move || {
+            finished_tx.send(sender_session.send_bytes(9, b"x")).unwrap();
+        });
 
-        let error = session.send_bytes(7, &payload).unwrap_err();
+        let mut peer = BufReader::new(server);
+        let mut line = String::new();
+        peer.read_line(&mut line).unwrap();
+        let command: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(command["cmd"], "send");
+        assert_eq!(command["surface"], 9);
+        assert_eq!(command["bytes"], "eA==");
+        assert_eq!(command["no_reply"], true);
+        assert!(finished_rx.recv_timeout(Duration::from_millis(100)).unwrap().is_ok());
+        sender.join().unwrap();
+        assert_eq!(Arc::strong_count(&session), 1);
+    }
 
+    #[cfg(unix)]
+    #[test]
+    fn accepted_interactive_writes_remain_fifo() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        session.send_bytes(7, b"release").unwrap();
+        session.send_bytes(7, b"press").unwrap();
+
+        let mut peer = BufReader::new(server);
+        let mut first = String::new();
+        let mut second = String::new();
+        peer.read_line(&mut first).unwrap();
+        peer.read_line(&mut second).unwrap();
+        let first: Value = serde_json::from_str(&first).unwrap();
+        let second: Value = serde_json::from_str(&second).unwrap();
+        assert_eq!(first["bytes"], "cmVsZWFzZQ==");
+        assert_eq!(second["bytes"], "cHJlc3M=");
+        assert!(first["id"].as_u64().unwrap() < second["id"].as_u64().unwrap());
+        session.begin_shutdown();
+        let metrics = session.interactive_write_metrics();
+        assert_eq!(metrics.samples, 2);
+        assert_eq!(metrics.histogram.iter().map(|bucket| bucket.samples).sum::<u64>(), 2);
+        assert!(metrics.p50.is_some());
+        assert!(metrics.p95.is_some());
+        assert!(metrics.p99.is_some());
+    }
+
+    #[test]
+    fn control_request_cannot_overtake_accepted_interactive_writes() {
+        let (stream, control) = BlockingWriteStream::new();
+        let output = stream.output.clone();
+        let session = blocking_test_session(stream);
+        session.send_bytes(7, b"first").unwrap();
+        control.wait_until_entered();
+        session.send_bytes(7, b"release").unwrap();
+
+        let request_session = session.clone();
+        let request = std::thread::spawn(move || {
+            request_session.request(json!({"cmd": "mutation"})).unwrap_err()
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while session.interactive_writer.last_enqueued_sequence().unwrap() != Some(3) {
+            assert!(Instant::now() < deadline, "control request was not queued");
+            std::thread::yield_now();
+        }
+
+        control.release();
+        session.begin_shutdown();
+        assert!(request.join().unwrap().to_string().contains("canceled for shutdown"));
+        let output = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        let commands = output
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(commands.len(), 3);
+        assert_eq!(commands[0]["bytes"], "Zmlyc3Q=");
+        assert_eq!(commands[1]["bytes"], "cmVsZWFzZQ==");
+        assert_eq!(commands[2]["cmd"], "mutation");
+    }
+
+    #[test]
+    fn interactive_queue_saturation_fails_without_waiting_for_the_writer() {
+        let (stream, control) = BlockingWriteStream::new();
+        let session = blocking_test_session(stream);
+        session.send_bytes(7, b"in-flight").unwrap();
+        control.wait_until_entered();
+        for _ in 0..INTERACTIVE_WRITE_QUEUE_CAPACITY {
+            session.send_bytes(7, b"queued").unwrap();
+        }
+
+        let overflow_session = session.clone();
+        let (finished_tx, finished_rx) = channel();
+        let overflow = std::thread::spawn(move || {
+            finished_tx.send(overflow_session.send_bytes(7, b"overflow")).unwrap();
+        });
+        let error = finished_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("queue rejection waited for the blocked writer")
+            .unwrap_err();
         assert!(error.downcast_ref::<RemoteRequestError>().is_some_and(|error| {
-            matches!(error, RemoteRequestError::Transport(io_error) if matches!(
-                io_error.kind(),
-                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-            ))
+            matches!(error, RemoteRequestError::Transport(io_error)
+                if io_error.kind() == io::ErrorKind::WouldBlock)
         }));
-        assert!(session.pending.lock().unwrap().is_empty());
+        let metrics = session.interactive_write_metrics();
+        assert_eq!(metrics.backpressure_rejections, 1);
+        control.release();
+        overflow.join().unwrap();
+    }
+
+    #[test]
+    fn latency_histogram_reports_fixed_bucket_percentiles() {
+        let metrics = InteractiveWriteMetrics::default();
+        for latency in [
+            Duration::from_micros(10),
+            Duration::from_micros(80),
+            Duration::from_micros(200),
+            Duration::from_micros(900),
+            Duration::from_millis(20),
+        ] {
+            metrics.record_latency(latency);
+        }
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.samples, 5);
+        assert_eq!(snapshot.write_failures, 0);
+        assert_eq!(snapshot.backpressure_rejections, 0);
+        assert_eq!(snapshot.p50, Some(Duration::from_micros(250)));
+        assert_eq!(snapshot.p95, Some(Duration::from_millis(25)));
+        assert_eq!(snapshot.p99, Some(Duration::from_millis(25)));
+        assert_eq!(snapshot.histogram.iter().map(|bucket| bucket.samples).sum::<u64>(), 5);
     }
 
     #[cfg(unix)]
