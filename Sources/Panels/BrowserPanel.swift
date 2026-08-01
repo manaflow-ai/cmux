@@ -7407,19 +7407,20 @@ extension BrowserPanel {
         completion: @escaping (Result<NSImage, Error>) -> Void
     ) {
         guard visualAutomationCaptureGate.begin() else {
-            completion(.failure(BrowserScreenshotError.emptySnapshot))
+            completion(.failure(BrowserScreenshotError.captureInProgress))
             return
         }
+        let timingBudget = BrowserScreenshotTimingBudget()
 
         withVisualAutomationRenderLease(
             reason: "browser.screenshot",
-            timeout: 15.0,
-            operation: { webView, afterScreenUpdates, finish in
-                BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
-                    from: webView,
-                    afterScreenUpdates: afterScreenUpdates,
-                    completion: finish
-                )
+            timingBudget: timingBudget,
+            operation: { webView, presentation in
+                try await BrowserScreenshotCaptureService(
+                    webView: webView,
+                    presentation: presentation,
+                    timingBudget: timingBudget
+                ).capture()
             },
             completion: { [visualAutomationCaptureGate] result in
                 visualAutomationCaptureGate.end()
@@ -7430,12 +7431,11 @@ extension BrowserPanel {
 
     private func withVisualAutomationRenderLease<T>(
         reason: String,
-        timeout: TimeInterval,
-        operation: @escaping (
+        timingBudget: BrowserScreenshotTimingBudget,
+        operation: @escaping @MainActor (
             _ webView: WKWebView,
-            _ afterScreenUpdates: Bool,
-            _ finish: @escaping (Result<T, Error>) -> Void
-        ) -> Void,
+            _ presentation: BrowserScreenshotPresentation
+        ) async throws -> T,
         completion: @escaping (Result<T, Error>) -> Void
     ) {
         activeVisualAutomationCaptureCount += 1
@@ -7447,9 +7447,11 @@ extension BrowserPanel {
         let captureWebView = webView
         var timeoutTimer: Timer?
         var didFinish = false
-        let usesOffscreenRenderHost = shouldUseOffscreenRenderHostForVisualAutomation
+        let presentation = visualAutomationPresentation
+        let usesOffscreenRenderHost = presentation.usesOffscreenRenderHost
+        let timeout = timingBudget.captureLeaseTimeout
 
-        let finish: (Result<T, Error>) -> Void = { result in
+        let completeLease: @MainActor (Result<T, Error>) -> Void = { result in
             guard !didFinish else { return }
             didFinish = true
             timeoutTimer?.invalidate()
@@ -7471,30 +7473,46 @@ extension BrowserPanel {
                 viewportSize: viewportSize,
                 expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil,
                 timeout: timeout,
-                operation: { operationFinish in
-                    operation(captureWebView, false, operationFinish)
+                timingBudget: timingBudget,
+                operation: {
+                    try await operation(captureWebView, presentation)
                 },
-                completion: finish
+                completion: completeLease
             )
             return
         }
 
-        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
-            finish(.failure(BrowserScreenshotError.automationTimedOut))
+        let lease = BrowserScreenshotRenderLease<T>(
+            teardown: {},
+            completion: completeLease
+        )
+        let finish: @MainActor (Result<T, Error>) -> Void = { result in
+            guard lease.finish(result) else { return }
+            timeoutTimer?.invalidate()
+            timeoutTimer = nil
         }
+        let timer = Timer(timeInterval: timeout, repeats: false) { _ in
+            MainActor.assumeIsolated {
+                finish(.failure(BrowserScreenshotError.automationTimedOut))
+            }
+        }
+        timeoutTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
 
-        BrowserScreenshotWebViewSnapshotter.prepareForVisualCapture(
-            captureWebView,
-            expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil
-        ) { result in
-            switch result {
-            case .success:
-                guard !didFinish else { return }
-                operation(captureWebView, false, finish)
-            case .failure(let error):
+        let operationTask = Task { @MainActor in
+            do {
+                try await BrowserScreenshotWebViewSnapshotter.prepareForVisualCapture(
+                    captureWebView,
+                    expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil,
+                    timingBudget: timingBudget
+                )
+                try Task.checkCancellation()
+                finish(.success(try await operation(captureWebView, presentation)))
+            } catch {
                 finish(.failure(error))
             }
         }
+        lease.installOperationTask(operationTask)
     }
 
     @discardableResult
@@ -7505,11 +7523,16 @@ extension BrowserPanel {
     }
 
     private var shouldUseOffscreenRenderHostForVisualAutomation: Bool {
-        guard isWebViewVisibleInUI else { return true }
-        guard webView.window != nil else { return true }
-        guard !webView.isHiddenOrHasHiddenAncestor else { return true }
-        guard webView.bounds.width > 1, webView.bounds.height > 1 else { return true }
-        return false
+        visualAutomationPresentation.usesOffscreenRenderHost
+    }
+
+    private var visualAutomationPresentation: BrowserScreenshotPresentation {
+        BrowserScreenshotPresentation.resolve(
+            isVisibleInUI: isWebViewVisibleInUI,
+            isAttachedToWindow: webView.window != nil,
+            isHiddenOrHasHiddenAncestor: webView.isHiddenOrHasHiddenAncestor,
+            boundsSize: webView.bounds.size
+        )
     }
 
     /// Execute JavaScript

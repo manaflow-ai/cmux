@@ -470,7 +470,10 @@ extension ControlSurfaceContext {
     }
 
     func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
-        ControlSurfaceResumeStrings(agentSessionEndedMustBeBoolean: "")
+        ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: "",
+            launchCommandMustBeValid: ""
+        )
     }
 
     func controlSurfaceSendText(
