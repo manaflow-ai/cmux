@@ -107,6 +107,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowHiddenComputersPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.hiddenComputersPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
     private var shouldShowOnboardingPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.onboardingPreviewEnabled
@@ -154,6 +162,14 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var changesPreview: some View {
         #if os(iOS) && DEBUG
         ChangesPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var hiddenComputersPreview: some View {
+        #if os(iOS) && DEBUG
+        HiddenComputersPreviewView()
         #else
         EmptyView()
         #endif
@@ -302,6 +318,8 @@ struct CMUXMobileRootView: View {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
+        } else if shouldShowHiddenComputersPreview {
+            hiddenComputersPreview
         } else if shouldShowStreamingChatPreview {
             streamingChatPreview
         } else if shouldShowOnboardingPreview {
