@@ -333,6 +333,58 @@ struct SimulatorUIAutomationSnapshotTests {
         ).isEmpty)
     }
 
+    @Test("Truncated labels and values cannot become exact selectors")
+    func truncatedTextIsNotASelector() throws {
+        let label = String(repeating: "label", count: 100)
+        let value = String(repeating: "value", count: 100)
+        let flaggedNode = try nodeMarkedWithTruncatedText(
+            node(
+                id: "field",
+                role: "AXTextField",
+                label: label,
+                value: value,
+                frame: SimulatorRect(x: 20, y: 100, width: 200, height: 44)
+            )
+        )
+        let source = SimulatorAccessibilitySnapshot(
+            roots: [node(
+                id: "0",
+                role: "Application",
+                label: "Example",
+                frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                children: [flaggedNode]
+            )],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+        let record = try source.uiAutomationRecord(
+            simulatorID: "SIM-1",
+            sequence: 1,
+            capturedAtMilliseconds: 1_000
+        )
+        let textField = try #require(record.snapshot.elements.first {
+            $0.role == .textField
+        })
+
+        #expect(textField.label == nil)
+        #expect(textField.value == nil)
+        #expect(record.stableSelector(for: textField.ref) == nil)
+        #expect(record.matching(SimulatorUIAutomationSelector(
+            label: label,
+            role: .textField
+        )).isEmpty)
+        #expect(record.containingText("label").isEmpty)
+        #expect(record.accessibilityInteractionTargets(
+            label: label,
+            identifier: nil,
+            role: nil
+        ).isEmpty)
+    }
+
     @Test("Truncated snapshots never advertise selector-dependent typing")
     func typeTextRequiresCompleteSnapshot() throws {
         let complete = snapshot()
@@ -780,6 +832,21 @@ struct SimulatorUIAutomationSnapshotTests {
             JSONSerialization.jsonObject(with: data) as? [String: Any]
         )
         object["isIdentifierTruncated"] = true
+        return try JSONDecoder().decode(
+            SimulatorAccessibilityNode.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+    }
+
+    private func nodeMarkedWithTruncatedText(
+        _ node: SimulatorAccessibilityNode
+    ) throws -> SimulatorAccessibilityNode {
+        let data = try JSONEncoder().encode(node)
+        var object = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        object["isLabelTruncated"] = true
+        object["isValueTruncated"] = true
         return try JSONDecoder().decode(
             SimulatorAccessibilityNode.self,
             from: JSONSerialization.data(withJSONObject: object)

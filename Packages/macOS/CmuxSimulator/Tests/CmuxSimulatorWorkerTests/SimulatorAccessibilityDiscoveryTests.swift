@@ -62,16 +62,18 @@ struct SimulatorAccessibilityDiscoveryTests {
         #expect(bounded.count == SimulatorAccessibilityBridge.maximumTextUTF8ByteCount / 4)
     }
 
-    @Test("Truncated accessibility identifiers carry explicit metadata")
-    func truncatedAccessibilityIdentifiersAreMarked() throws {
+    @Test("Truncated accessibility selector fields carry explicit metadata")
+    func truncatedAccessibilitySelectorFieldsAreMarked() throws {
         let element = NSAccessibilityElement()
-        let identifier = String(
-            repeating: "identifier ",
+        let longValue = String(
+            repeating: "selector ",
             count: SimulatorAccessibilityBridge.maximumTextUTF8ByteCount
         )
         element.setAccessibilityFrame(NSRect(x: 0, y: 0, width: 100, height: 44))
         element.setAccessibilityRole(.textField)
-        element.setAccessibilityIdentifier(identifier)
+        element.setAccessibilityIdentifier(longValue)
+        element.setAccessibilityLabel(longValue)
+        element.setAccessibilityValue(longValue)
         let bridge = SimulatorAccessibilityBridge()
         var remaining = 1
         var visited: Set<ObjectIdentifier> = []
@@ -94,8 +96,12 @@ struct SimulatorAccessibilityDiscoveryTests {
         )
 
         #expect(object["isIdentifierTruncated"] as? Bool == true)
+        #expect(object["isLabelTruncated"] as? Bool == true)
+        #expect(object["isValueTruncated"] as? Bool == true)
         #expect(node.id == "0")
-        #expect(node.identifier != identifier)
+        #expect(node.identifier != longValue)
+        #expect(node.label != longValue)
+        #expect(node.value != longValue)
     }
 
     @Test("Grid covers the full display while respecting its hard point cap")
