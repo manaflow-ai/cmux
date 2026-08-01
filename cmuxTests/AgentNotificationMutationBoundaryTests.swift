@@ -87,7 +87,7 @@ extension AgentNotificationRegressionTests {
     func localTTYBindingsExcludeRemoteDeviceNamespaces() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
-        workspace.surfaceTTYNames[panelId] = "/dev/null"
+        workspace.registerReportedSurfaceTTYName("/dev/null", panelId: panelId)
         #expect(workspace.localAgentDeliveryTTYDevices.map(\.surfaceId) == [panelId])
 
         workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
@@ -155,7 +155,7 @@ extension AgentNotificationRegressionTests {
         }
         let dockOwnerId = UUID()
         let dock = DockSplitStore(workspaceId: dockOwnerId, baseDirectoryProvider: { nil })
-        fixture.source.surfaceTTYNames[fixture.panelId] = "/dev/null"
+        fixture.source.registerReportedSurfaceTTYName("/dev/null", panelId: fixture.panelId)
         fixture.source.setAgentLifecycle(
             key: "manual:workspace-loader",
             panelId: fixture.panelId,

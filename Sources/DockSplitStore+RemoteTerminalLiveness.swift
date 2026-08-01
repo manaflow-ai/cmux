@@ -108,6 +108,65 @@ extension DockSplitStore {
         return transfer.sessionRestoreWorkspaceId == presentationWorkspaceID
     }
 
+    static func registerReportedRemoteSurfaceTTYName(
+        _ ttyName: String,
+        panelId: UUID,
+        presentationWorkspaceID: UUID
+    ) -> Bool {
+        let owners = liveRemoteTerminalStores(
+            presentationWorkspaceID: presentationWorkspaceID
+        ).filter {
+            $0.ownsRemoteTerminalTransfer(
+                panelId: panelId,
+                presentationWorkspaceID: presentationWorkspaceID
+            )
+        }
+        guard owners.count == 1 else { return false }
+        return owners[0].registerReportedRemoteSurfaceTTYName(
+            ttyName,
+            panelId: panelId,
+            presentationWorkspaceID: presentationWorkspaceID
+        )
+    }
+
+    func runtimeReportedRemoteTTYCandidates(
+        presentationWorkspaceID: UUID
+    ) -> [(binding: TerminalCallerTTYBinding, ttyName: String)] {
+        detachedSurfaceTransfersByPanelId.compactMap { panelId, transfer in
+            guard panels[panelId] != nil,
+                  transfer.isRemoteTerminal,
+                  transfer.sessionRestoreWorkspaceId == presentationWorkspaceID,
+                  transfer.ttyNameWasReportedByCurrentRuntime,
+                  let ttyName = transfer.ttyName else {
+                return nil
+            }
+            return (
+                binding: TerminalCallerTTYBinding(
+                    workspaceId: workspaceId,
+                    surfaceId: panelId
+                ),
+                ttyName: ttyName
+            )
+        }
+    }
+
+    private func registerReportedRemoteSurfaceTTYName(
+        _ ttyName: String,
+        panelId: UUID,
+        presentationWorkspaceID: UUID
+    ) -> Bool {
+        guard panels[panelId] != nil,
+              var transfer = detachedSurfaceTransfersByPanelId[panelId],
+              transfer.isRemoteTerminal,
+              transfer.sessionRestoreWorkspaceId == presentationWorkspaceID else {
+            return false
+        }
+        transfer.ttyName = ttyName
+        transfer.ttyNameWasReportedByCurrentRuntime = true
+        setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
+        return true
+    }
+
     func markRemoteTerminalSessionEnded(panelId: UUID, relayPort: Int?) -> Bool {
         guard let relayPort, relayPort > 0 else { return false }
         return markRemoteTerminalSessionEnded(

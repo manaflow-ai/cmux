@@ -9620,11 +9620,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)
         }
-        if let ttyName = detached.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
-            surfaceTTYNames[detached.panelId] = ttyName
-        } else {
-            surfaceTTYNames.removeValue(forKey: detached.panelId)
-        }
+        adoptTransferredSurfaceTTYName(from: detached)
         syncRemotePortScanTTYs()
         if let cachedTitle = detached.cachedTitle {
             panelTitles[detached.panelId] = cachedTitle
@@ -12490,6 +12486,7 @@ extension Workspace: BonsplitDelegate {
                 directoryIsTrustedRemoteReport: panelDirectory != nil && remoteDirectoryReportPanelIds.contains(panelId),
                 directoryDisplayLabel: panelDirectoryDisplayLabels[panelId],
                 ttyName: surfaceTTYNames[panelId],
+                ttyNameWasReportedByCurrentRuntime: surfaceRegistry.runtimeReportedTTYSurfaceIDs.contains(panelId),
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
                 customTitleSource: panelCustomTitles[panelId] != nil

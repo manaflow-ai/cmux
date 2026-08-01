@@ -36,7 +36,8 @@ extension Workspace {
         let directory: String?
         let directoryIsTrustedRemoteReport: Bool
         let directoryDisplayLabel: String?
-        let ttyName: String?
+        var ttyName: String?
+        var ttyNameWasReportedByCurrentRuntime: Bool = false
         let cachedTitle: String?
         let customTitle: String?
         let customTitleSource: Workspace.CustomTitleSource?
@@ -89,6 +90,7 @@ extension Workspace {
                 directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
                 directoryDisplayLabel: directoryDisplayLabel,
                 ttyName: ttyName,
+                ttyNameWasReportedByCurrentRuntime: ttyNameWasReportedByCurrentRuntime,
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
                 customTitleSource: customTitleSource,

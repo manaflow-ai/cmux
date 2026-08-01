@@ -276,6 +276,7 @@ extension DockSplitStore {
                 ? preservedTransfer?.directoryDisplayLabel
                 : nil,
             ttyName: preservedTransfer?.ttyName,
+            ttyNameWasReportedByCurrentRuntime: preservedTransfer?.ttyNameWasReportedByCurrentRuntime ?? false,
             cachedTitle: panel.displayTitle,
             customTitle: preservedTransfer?.customTitle,
             customTitleSource: preservedTransfer?.customTitleSource,

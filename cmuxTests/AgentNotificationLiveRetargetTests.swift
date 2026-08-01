@@ -513,7 +513,7 @@ extension AgentNotificationRegressionTests {
     @Test
     func testTTYDeviceMatchRequiresUniqueSurface() throws {
         let workspace = Workspace(), panel = try #require(workspace.focusedPanelId)
-        workspace.surfaceTTYNames[panel] = "/dev/null"
+        workspace.registerReportedSurfaceTTYName("/dev/null", panelId: panel)
         #expect(workspace.surfaceTTYDevices[panel] == CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: "/dev/null"))
         let w1 = UUID(), s1 = UUID(), w2 = UUID(), s2 = UUID()
         let bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = [

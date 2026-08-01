@@ -13,10 +13,10 @@ import Foundation
 ///
 /// Two lookups implement this:
 /// - pid → surface: the agent process's controlling tty device
-///   (`proc_bsdinfo.e_tdev`) matched against every live surface's reported
-///   tty. A pane's pty device is fixed for the pane's lifetime and the
-///   process's controlling terminal is a live kernel fact, so a unique match
-///   is authoritative regardless of where the pane has been moved.
+///   (`proc_bsdinfo.e_tdev`) matched against every live Ghostty PTY plus fresh
+///   runtime TTY reports. A pane's pty device is fixed for the pane's lifetime,
+///   and the process's controlling terminal is a live kernel fact, so a unique
+///   match is authoritative regardless of where the pane has been moved.
 /// - surface → notification owner: `AppDelegate.notificationSurfaceOwner`,
 ///   which finds the workspace or Dock that CURRENTLY owns the panel (issue
 ///   #5781 pane moves and Dock transfers).
@@ -78,25 +78,25 @@ nonisolated func agentLiveProcessIdentity(pid: pid_t) -> (ttyDevice: Int64?, sco
 
 @MainActor
 extension Workspace {
-    /// Reported TTY names and their device-id index share one mutation path so
-    /// live agent resolution never stats every surface on the main actor.
+    /// TTY metadata writes preserve runtime provenance only when the value is
+    /// unchanged. Only ``registerReportedSurfaceTTYName(_:panelId:)`` may
+    /// establish current-runtime evidence.
     var surfaceTTYNames: [UUID: String] {
         get { surfaceRegistry.surfaceTTYNames }
         set {
             let previous = surfaceRegistry.surfaceTTYNames
-            var devices = surfaceRegistry.surfaceTTYDevices.filter { newValue[$0.key] != nil }
-            var runtimeReported = surfaceRegistry.runtimeReportedTTYSurfaceIDs.intersection(newValue.keys)
-            for (panelId, ttyName) in newValue where previous[panelId] != ttyName {
-                devices[panelId] = CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName)
-                runtimeReported.insert(panelId)
-            }
+            let unchangedPanelIds = Set(newValue.compactMap { panelId, ttyName in
+                previous[panelId] == ttyName ? panelId : nil
+            })
             surfaceRegistry.surfaceTTYNames = newValue
-            surfaceRegistry.surfaceTTYDevices = devices
-            surfaceRegistry.runtimeReportedTTYSurfaceIDs = runtimeReported
+            surfaceRegistry.surfaceTTYDevices = surfaceRegistry.surfaceTTYDevices.filter {
+                unchangedPanelIds.contains($0.key)
+            }
+            surfaceRegistry.runtimeReportedTTYSurfaceIDs.formIntersection(unchangedPanelIds)
         }
     }
 
-    /// Cached TTY character-device ids, updated with ``surfaceTTYNames``.
+    /// Cached character-device ids from explicit current-runtime TTY reports.
     var surfaceTTYDevices: [UUID: Int64] { surfaceRegistry.surfaceTTYDevices }
 
     /// Records an explicit `report_tty` from the current terminal runtime.
@@ -118,12 +118,25 @@ extension Workspace {
         surfaceRegistry.runtimeReportedTTYSurfaceIDs.remove(panelId)
     }
 
+    func adoptTransferredSurfaceTTYName(from transfer: DetachedSurfaceTransfer) {
+        guard let ttyName = transfer.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !ttyName.isEmpty else {
+            surfaceTTYNames.removeValue(forKey: transfer.panelId)
+            return
+        }
+        if transfer.ttyNameWasReportedByCurrentRuntime {
+            registerReportedSurfaceTTYName(ttyName, panelId: transfer.panelId)
+        } else {
+            restorePersistedSurfaceTTYName(ttyName, panelId: transfer.panelId)
+        }
+    }
+
     /// Resolves a remote caller only from a TTY report observed in this app
     /// runtime. TTY basenames are unique only inside one authenticated remote
     /// workspace because separate hosts commonly reuse `/dev/pts/0`.
     func agentDeliveryTarget(forReportedTTYName ttyName: String) -> AgentDeliveryTargetCandidate? {
         guard isRemoteWorkspace else { return nil }
-        let candidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] =
+        var candidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] =
             surfaceRegistry.runtimeReportedTTYSurfaceIDs.compactMap { surfaceId
                 -> (binding: TerminalCallerTTYBinding, ttyName: String)? in
                 guard panels[surfaceId] != nil,
@@ -135,6 +148,11 @@ extension Workspace {
                     ttyName: reportedTTYName
                 )
             }
+        for dock in DockSplitStore.liveRemoteTerminalStores(presentationWorkspaceID: id) {
+            candidates.append(contentsOf: dock.runtimeReportedRemoteTTYCandidates(
+                presentationWorkspaceID: id
+            ))
+        }
         let resolver = TerminalCallerTTYResolver(reportedCandidates: candidates)
         guard let binding = resolver.binding(for: ttyName) else { return nil }
         return AgentDeliveryTargetCandidate(
@@ -148,9 +166,23 @@ extension Workspace {
     /// `/dev` namespace and must never participate in local device matching.
     var localAgentDeliveryTTYDevices: [(surfaceId: UUID, ttyDevice: Int64)] {
         guard !isRemoteWorkspace, !isRemoteTmuxMirror else { return [] }
-        return surfaceTTYDevices.compactMap { panelId, device in
-            guard panels[panelId] != nil, !isRemoteTerminalSurface(panelId) else { return nil }
-            return (panelId, device)
+        return panels.flatMap { panelId, panel -> [(surfaceId: UUID, ttyDevice: Int64)] in
+            guard let terminal = panel as? TerminalPanel,
+                  !isRemoteTerminalSurface(panelId) else {
+                return []
+            }
+            var devices: [Int64] = []
+            if let liveDevice = terminal.surface.controllingTTYName().flatMap(
+                CmuxTopProcessSnapshot.deviceIdentifier(forTTYName:)
+            ) {
+                devices.append(liveDevice)
+            }
+            if surfaceRegistry.runtimeReportedTTYSurfaceIDs.contains(panelId),
+               let reportedDevice = surfaceTTYDevices[panelId],
+               !devices.contains(reportedDevice) {
+                devices.append(reportedDevice)
+            }
+            return devices.map { (panelId, $0) }
         }
     }
 }
@@ -161,22 +193,29 @@ extension DockSplitStore {
     ///
     /// A surface transfer removes the panel from its Workspace registry, so
     /// live PID attribution must inspect Dock ownership separately. Prefer the
-    /// terminal's current Ghostty PTY and fall back to the TTY preserved with
-    /// the transfer while the live surface is being reattached.
+    /// terminal's current Ghostty PTY and include a fresh reported TTY as the
+    /// nested-PTY fallback.
     var localAgentDeliveryTTYDevices: [(surfaceId: UUID, ttyDevice: Int64)] {
-        panels.compactMap { panelId, panel in
+        panels.flatMap { panelId, panel -> [(surfaceId: UUID, ttyDevice: Int64)] in
             guard let terminal = panel as? TerminalPanel,
                   detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal != true else {
-                return nil
+                return []
             }
-            let liveDevice = terminal.surface.controllingTTYName().flatMap {
-                CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: $0)
+            var devices: [Int64] = []
+            if let liveDevice = terminal.surface.controllingTTYName().flatMap(
+                CmuxTopProcessSnapshot.deviceIdentifier(forTTYName:)
+            ) {
+                devices.append(liveDevice)
             }
-            let preservedDevice = detachedSurfaceTransfersByPanelId[panelId]?.ttyName.flatMap {
-                CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: $0)
+            if let transfer = detachedSurfaceTransfersByPanelId[panelId],
+               transfer.ttyNameWasReportedByCurrentRuntime,
+               let reportedDevice = transfer.ttyName.flatMap(
+                   CmuxTopProcessSnapshot.deviceIdentifier(forTTYName:)
+               ),
+               !devices.contains(reportedDevice) {
+                devices.append(reportedDevice)
             }
-            guard let ttyDevice = liveDevice ?? preservedDevice else { return nil }
-            return (panelId, ttyDevice)
+            return devices.map { (panelId, $0) }
         }
     }
 }
@@ -197,9 +236,8 @@ extension AppDelegate {
 
         var ttyTarget: AgentDeliveryTargetCandidate?
         if let ttyDevice = identity.ttyDevice {
-            // TTY device ids are indexed when each surface reports or moves,
-            // so hook delivery only walks in-memory bindings on MainActor. It
-            // never stats every live surface while UI work is serialized.
+            // Query Ghostty's live PTY so shell integration is not required;
+            // fresh runtime reports remain a nested-PTY fallback.
             ttyTarget = agentDeliveryTargetMatchingTTYDevice(
                 ttyDevice,
                 surfaceTTYDevices: liveAgentDeliveryTTYBindings()

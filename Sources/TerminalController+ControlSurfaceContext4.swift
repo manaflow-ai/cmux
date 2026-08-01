@@ -32,6 +32,16 @@ extension TerminalController {
         }
         let validSurfaceIds = Set(tab.panels.keys)
         tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+        if let requestedSurfaceID,
+           tab.isRemoteWorkspace,
+           !validSurfaceIds.contains(requestedSurfaceID),
+           DockSplitStore.registerReportedRemoteSurfaceTTYName(
+               ttyName,
+               panelId: requestedSurfaceID,
+               presentationWorkspaceID: workspaceID
+           ) {
+            return .recorded(surfaceID: requestedSurfaceID)
+        }
 
         let surfaceId = controlResolveReportedSurfaceId(
             in: tab,
