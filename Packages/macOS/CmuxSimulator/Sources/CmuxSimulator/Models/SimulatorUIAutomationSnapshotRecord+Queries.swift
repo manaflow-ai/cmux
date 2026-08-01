@@ -70,7 +70,7 @@ extension SimulatorUIAutomationSnapshotRecord {
     /// - Parameter text: The nonempty text fragment.
     /// - Returns: Matching public elements in snapshot order.
     public func containingText(_ text: String) -> [SimulatorUIAutomationElement] {
-        let needle = (simulatorUIAutomationNormalizedText(text) ?? "").lowercased()
+        let needle = (text.normalizedUIAutomationText ?? "").lowercased()
         guard !needle.isEmpty else { return [] }
         return snapshot.elements.filter {
             ($0.label ?? "").lowercased().contains(needle)
@@ -91,7 +91,7 @@ extension SimulatorUIAutomationSnapshotRecord {
         _ candidates: [SimulatorUIAutomationElement],
         containing text: String
     ) -> Bool {
-        let needle = (simulatorUIAutomationNormalizedText(text) ?? "").lowercased()
+        let needle = (text.normalizedUIAutomationText ?? "").lowercased()
         guard !needle.isEmpty else { return false }
         let matches = candidates.compactMap {
             matchingText(in: $0, containingNormalized: needle)
@@ -196,8 +196,8 @@ extension SimulatorUIAutomationSnapshotRecord {
         centeredOnActivationPoint: Bool,
         activationPoint: SimulatorPoint
     ) -> SimulatorUIAutomationGesturePoints? {
-        guard simulatorUIAutomationIsValidFrame(frame),
-              simulatorUIAutomationIsValidFrame(viewport),
+        guard frame.isValidUIAutomationFrame,
+              viewport.isValidUIAutomationFrame,
               distance.isFinite, distance > 0, distance <= 1 else {
             return nil
         }

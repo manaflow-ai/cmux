@@ -299,14 +299,15 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(Darwin.kill(leafPID, 0) != 0)
     }
 
-    @Test func forceKillRetainsAndIdentityChecksBothFrozenSnapshots() {
+    @Test func forceKillUsesTwoParentAnchoredDiscoveryPasses() {
         let shell = SSHForegroundAuthenticationRetryPolicy()
             .processTreeTerminationShellFunction()
 
-        #expect(shell.contains("cmux_ssh_auth_process_has_identity"))
-        #expect(shell.contains("cmux_ssh_auth_tree_first_frozen_processes"))
-        #expect(shell.contains("cmux_ssh_auth_tree_second_frozen_processes"))
-        #expect(shell.contains("cmux_ssh_auth_tree_current_processes"))
+        #expect(shell.contains("cmux_ssh_auth_tree_snapshot_has_stopped_process"))
+        #expect(shell.contains("cmux_ssh_auth_tree_first_snapshot"))
+        #expect(shell.contains("cmux_ssh_auth_tree_second_snapshot"))
+        #expect(shell.contains("cmux_ssh_auth_tree_final_snapshot"))
+        #expect(shell.contains("cmux_ssh_freeze_anchored_auth_processes"))
         #expect(!shell.contains("lstart"))
     }
 

@@ -153,6 +153,10 @@ final class SimulatorUIAutomationSession {
         retainedTouch = nil
     }
 
+    func releaseAllHeldTouches() {
+        retainedTouch = nil
+    }
+
     func beginTransaction() async throws {
         try await acquireTransaction()
         do {

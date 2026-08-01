@@ -16,8 +16,8 @@ struct SimulatorAgentCursorTests {
         let geometry = SimulatorOrientationGeometry(display: display)
         let displayed = SimulatorPoint(x: 0.24, y: 0.61)
         let raw = geometry.rawPoint(for: displayed)
-        let plan = try #require(simulatorAgentCursorPlan(
-            for: .interactive(.gesture([
+        let plan = try #require(SimulatorAgentCursorPlan(
+            action: .interactive(.gesture([
                 SimulatorPointerEvent(phase: .began, primary: raw),
                 SimulatorPointerEvent(phase: .ended, primary: raw),
             ])),
@@ -35,8 +35,8 @@ struct SimulatorAgentCursorTests {
     func timedGesturePlan() throws {
         let start = SimulatorPoint(x: 0.2, y: 0.8)
         let end = SimulatorPoint(x: 0.2, y: 0.3)
-        let plan = try #require(simulatorAgentCursorPlan(
-            for: .interactive(.timedGesture(
+        let plan = try #require(SimulatorAgentCursorPlan(
+            action: .interactive(.timedGesture(
                 events: [
                     SimulatorPointerEvent(phase: .began, primary: start),
                     SimulatorPointerEvent(phase: .ended, primary: end),

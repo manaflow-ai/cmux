@@ -8,6 +8,7 @@ extension SimulatorPaneCoordinator {
     ) {
         guard frameTransport == failedTransport else { return }
         self.failure = failure
+        releaseAllHeldUIAutomationTouches()
         frameTransport = nil
         display = nil
         status = .failed(failure)
@@ -50,6 +51,7 @@ extension SimulatorPaneCoordinator {
     private func handleOutgoingQueueOverflow() {
         guard !outgoingOverflowed else { return }
         outgoingOverflowed = true
+        releaseAllHeldUIAutomationTouches()
         outgoingContinuation.finish()
         let deliveryTask = outgoingTask
         deliveryTask?.cancel()
@@ -81,6 +83,7 @@ extension SimulatorPaneCoordinator {
         case let .message(message):
             receive(message)
         case .workerStopped:
+            releaseAllHeldUIAutomationTouches()
             resetCapabilityHydration()
             failPendingTextInputCompletions()
             frameTransport = nil
@@ -109,6 +112,7 @@ extension SimulatorPaneCoordinator {
             case .idle, .connecting, .streaming, .workerCrashed: false
             }
             if sessionEnded {
+                releaseAllHeldUIAutomationTouches()
                 resetCapabilityHydration()
                 frameTransport = nil
                 display = nil

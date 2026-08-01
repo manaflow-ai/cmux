@@ -53,6 +53,7 @@ extension SimulatorPaneCoordinator {
         guard let completion = textInputCompletions.removeValue(forKey: requestID) else { return }
         cancelledTextInputRequestIDs.insert(requestID)
         status = .connecting
+        releaseAllHeldUIAutomationTouches()
         let previousRecoveryTask = outgoingRecoveryTask
         outgoingRecoveryGeneration &+= 1
         outgoingRecoveryTask = Task { @MainActor [weak self, client] in
@@ -185,6 +186,7 @@ extension SimulatorPaneCoordinator {
 
     /// Releases touch and keyboard state held by the host pane.
     public func releaseInputs() {
+        releaseAllHeldUIAutomationTouches()
         enqueue(.releaseInputs)
     }
 

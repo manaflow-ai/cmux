@@ -140,6 +140,11 @@ extension SimulatorPaneCoordinator {
         uiAutomationSession.releaseHeldTouch(elementRef: elementRef)
     }
 
+    /// Clears retained semantic contact when worker input state is released.
+    func releaseAllHeldUIAutomationTouches() {
+        uiAutomationSession.releaseAllHeldTouches()
+    }
+
     /// Resets refs and sequence when this pane changes devices.
     public func resetUIAutomationSession() {
         uiAutomationSession.reset()

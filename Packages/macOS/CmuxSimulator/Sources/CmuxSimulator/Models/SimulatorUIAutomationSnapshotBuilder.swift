@@ -25,7 +25,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
     func build() throws -> SimulatorUIAutomationSnapshotRecord {
         guard let viewport = source.roots
             .compactMap(\.frame)
-            .filter(simulatorUIAutomationIsValidFrame)
+            .filter(\.isValidUIAutomationFrame)
             .max(by: {
                 $0.width * $0.height < $1.width * $1.height
             }) else {
@@ -104,7 +104,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
         }
         for index in result.indices.reversed() {
             let nodeFrame = result[index].node.frame.flatMap {
-                simulatorUIAutomationIsValidFrame($0) ? $0 : nil
+                $0.isValidUIAutomationFrame ? $0 : nil
             }
             let subtreeBounds = mergedFrame(
                 nodeFrame,
@@ -127,13 +127,11 @@ struct SimulatorUIAutomationSnapshotBuilder {
         descendantFrameBounds: SimulatorRect?
     ) -> SimulatorUIAutomationElementRecord {
         let frame = node.frame ?? SimulatorRect(x: 0, y: 0, width: 0, height: 0)
-        let normalizedLabel = simulatorUIAutomationNormalizedText(node.label)
-        let normalizedValue = simulatorUIAutomationNormalizedText(node.value)
-        let normalizedIdentifier = simulatorUIAutomationNormalizedText(node.identifier)
-        let normalizedRawRole = simulatorUIAutomationNormalizedText(node.role)
-        let normalizedRoleDescription = simulatorUIAutomationNormalizedText(
-            node.roleDescription
-        )
+        let normalizedLabel = node.label?.normalizedUIAutomationText
+        let normalizedValue = node.value?.normalizedUIAutomationText
+        let normalizedIdentifier = node.identifier?.normalizedUIAutomationText
+        let normalizedRawRole = node.role?.normalizedUIAutomationText
+        let normalizedRoleDescription = node.roleDescription?.normalizedUIAutomationText
         let role = normalizedRole(
             normalizedRawRole,
             description: normalizedRoleDescription,
@@ -394,8 +392,8 @@ struct SimulatorUIAutomationSnapshotBuilder {
         _ first: SimulatorRect,
         _ second: SimulatorRect
     ) -> SimulatorRect? {
-        guard simulatorUIAutomationIsValidFrame(first),
-              simulatorUIAutomationIsValidFrame(second),
+        guard first.isValidUIAutomationFrame,
+              second.isValidUIAutomationFrame,
               framesIntersect(first, second) else {
             return nil
         }

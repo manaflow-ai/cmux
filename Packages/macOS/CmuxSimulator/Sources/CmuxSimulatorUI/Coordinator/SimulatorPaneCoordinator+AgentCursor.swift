@@ -10,15 +10,22 @@ extension SimulatorPaneCoordinator {
         agentCursorGeneration &+= 1
         let generation = agentCursorGeneration
         let origin = agentCursorPresentation?.destination ?? plan.origin
+        let distance = hypot(
+            plan.destination.x - origin.x,
+            plan.destination.y - origin.y
+        )
+        let durationMilliseconds: Int
+        if distance > 0.002 {
+            let travelMilliseconds = Int(140 + min(distance, 1) * 260)
+            durationMilliseconds = max(plan.durationMilliseconds, travelMilliseconds)
+        } else {
+            durationMilliseconds = plan.durationMilliseconds
+        }
         agentCursorPresentation = SimulatorAgentCursorPresentation(
             generation: generation,
             origin: origin,
             destination: plan.destination,
-            durationMilliseconds: simulatorAgentCursorDuration(
-                from: origin,
-                to: plan.destination,
-                actionDurationMilliseconds: plan.durationMilliseconds
-            ),
+            durationMilliseconds: durationMilliseconds,
             phase: plan.beginsTouch ? .pressed : .clicked
         )
         return generation
@@ -72,15 +79,5 @@ extension SimulatorPaneCoordinator {
             phase: .resting
         )
     }
-}
 
-private func simulatorAgentCursorDuration(
-    from origin: SimulatorPoint,
-    to destination: SimulatorPoint,
-    actionDurationMilliseconds: Int
-) -> Int {
-    let distance = hypot(destination.x - origin.x, destination.y - origin.y)
-    guard distance > 0.002 else { return actionDurationMilliseconds }
-    let travelMilliseconds = Int(140 + min(distance, 1) * 260)
-    return max(actionDurationMilliseconds, travelMilliseconds)
 }

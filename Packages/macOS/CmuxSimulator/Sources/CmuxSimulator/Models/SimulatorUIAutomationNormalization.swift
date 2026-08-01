@@ -1,26 +1,29 @@
 import Foundation
 
-func simulatorUIAutomationIsValidFrame(_ frame: SimulatorRect) -> Bool {
-    frame.x.isFinite && frame.y.isFinite
-        && frame.width.isFinite && frame.height.isFinite
-        && frame.width > 0 && frame.height > 0
+extension SimulatorRect {
+    var isValidUIAutomationFrame: Bool {
+        x.isFinite && y.isFinite
+            && width.isFinite && height.isFinite
+            && width > 0 && height > 0
+    }
 }
 
-func simulatorUIAutomationNormalizedText(_ value: String?) -> String? {
-    guard let value else { return nil }
-    var normalized = ""
-    normalized.reserveCapacity(value.utf8.count)
-    var pendingSpace = false
-    for character in value {
-        if character.isWhitespace {
-            pendingSpace = !normalized.isEmpty
-            continue
+extension String {
+    var normalizedUIAutomationText: String? {
+        var normalized = ""
+        normalized.reserveCapacity(utf8.count)
+        var pendingSpace = false
+        for character in self {
+            if character.isWhitespace {
+                pendingSpace = !normalized.isEmpty
+                continue
+            }
+            if pendingSpace {
+                normalized.append(" ")
+                pendingSpace = false
+            }
+            normalized.append(character)
         }
-        if pendingSpace {
-            normalized.append(" ")
-            pendingSpace = false
-        }
-        normalized.append(character)
+        return normalized.isEmpty ? nil : normalized
     }
-    return normalized.isEmpty ? nil : normalized
 }

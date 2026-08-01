@@ -114,6 +114,7 @@ extension SimulatorPaneCoordinator {
     public func close() async {
         guard !closed else { return }
         closed = true
+        releaseAllHeldUIAutomationTouches()
         let controlActionTasks = cancelControlActions()
         for task in controlActionTasks { await task.value }
         let locationRouteTeardownTask = beginLocationRouteTeardown()

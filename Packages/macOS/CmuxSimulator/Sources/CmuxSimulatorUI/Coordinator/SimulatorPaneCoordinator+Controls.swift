@@ -76,7 +76,7 @@ extension SimulatorPaneCoordinator {
         try Task.checkCancellation()
         guard !closed else { throw CancellationError() }
         let generation = selectionGeneration
-        let cursorPlan = simulatorAgentCursorPlan(for: action, display: display)
+        let cursorPlan = SimulatorAgentCursorPlan(action: action, display: display)
         let cursorToken = cursorPlan.map(beginAgentCursorPresentation)
         activeControlActions += 1
         isPerformingControlAction = true
@@ -102,6 +102,10 @@ extension SimulatorPaneCoordinator {
             appendCoordinatorAction(for: action, succeeded: true)
             return result
         } catch {
+            if case let .interactive(interactiveAction) = action,
+               case .touch = interactiveAction {
+                releaseAllHeldUIAutomationTouches()
+            }
             if generation == selectionGeneration, !closed,
                let cursorPlan, let cursorToken {
                 cancelAgentCursorPresentation(cursorPlan, token: cursorToken)
