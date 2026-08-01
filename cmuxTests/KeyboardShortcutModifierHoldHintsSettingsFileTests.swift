@@ -1,6 +1,7 @@
 import CmuxFoundation
 import Foundation
 import Testing
+import struct CmuxSettings.NotificationsCatalogSection
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -79,6 +80,44 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
 
             #expect(defaults.string(forKey: paneBorderKey) == "#33AAFF")
             #expect(defaults.object(forKey: activePaneBorderKey) == nil)
+        }
+    }
+
+    @Test
+    func malformedPaneFlashColorDoesNotSkipLaterNotificationSettings() throws {
+        let defaults = UserDefaults.standard
+        let notifications = NotificationsCatalogSection()
+        let paneFlashColorKey = notifications.paneFlashColorHex.userDefaultsKey
+        let agentTurnCompleteKey = notifications.agentTurnComplete.userDefaultsKey
+        try preservingDefaults(keys: [
+            paneFlashColorKey,
+            agentTurnCompleteKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.set("never", forKey: agentTurnCompleteKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "notifications": {
+                "paneFlashColor": "not-a-color",
+                "agentTurnComplete": "always"
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.string(forKey: agentTurnCompleteKey) == "always")
         }
     }
 
