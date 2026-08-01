@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import { Resend } from "resend";
 
 import { env } from "@/app/env";
+import { upsertFounderIntoAudiences } from "@/services/newsletter/founder-hook";
+import { ResendClient } from "@/services/newsletter/resend-client";
 import {
   recordSpanError,
   setSpanAttributes,
@@ -183,6 +185,33 @@ export async function POST(request: Request) {
         console.error("stripe.founders_welcome.resend_failed", error);
         // Non-2xx so Stripe retries and the email is not silently lost.
         return jsonError("Failed to send welcome email", 502);
+      }
+
+      // Purchase-time newsletter audience upsert (see
+      // services/newsletter/founder-hook.ts). Best-effort by design: the
+      // welcome email already went out, so a Resend audience hiccup (for
+      // example a sending-only restricted key) must not fail the webhook and
+      // trigger a Stripe retry storm. The manual sync script reconciles any
+      // contact missed here.
+      if (trigger === "founders_edition") {
+        try {
+          const results = await upsertFounderIntoAudiences({
+            client: new ResendClient({ apiKey: config.resendApiKey }),
+            email: customerEmail,
+            customerName: session?.customer_details?.name,
+          });
+          setSpanAttributes(span, {
+            "cmux.newsletter.audience_outcomes": results
+              .map((result) => result.outcome)
+              .join(","),
+          });
+        } catch (audienceError) {
+          recordSpanError(span, audienceError);
+          console.error(
+            "stripe.founders_welcome.audience_upsert_failed",
+            audienceError,
+          );
+        }
       }
 
       return NextResponse.json(
