@@ -96,7 +96,51 @@ describe("app pricing page", () => {
     expect(html).toContain(
       "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test",
     );
+    expect(html).toContain("$35/user/month");
+    expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain("/api/billing/portal");
+  });
+
+  test("renders annual pricing and preserves native checkout context", async () => {
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        cmux_scheme: "cmux-dev-test",
+        appearance: "dark",
+        background: "#112233",
+        foreground: "#ddeeff",
+        accent: "#0091ff",
+        interval: "year",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("$24");
+    expect(html).toContain("$28");
+    expect(html).toContain("per month billed yearly");
+    expect(html).toContain("per user per month billed yearly");
+    expect(html).toContain("Billed $288 annually · save 20%");
+    expect(html).toContain("Billed $336 annually · save 20%");
+    expect(html).toContain("$28/user/month · $336/user/year");
+    expect(html).toContain(
+      "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=year",
+    );
+    expect(html).toContain(
+      "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=year",
+    );
+    expect(html).toContain('<button type="button" aria-pressed="true"');
+    expect(html).not.toContain("appearance=dark&amp;interval=month");
+    expect(html).toContain('data-cmux-app-theme="true"');
+    expect(html).toContain("--ghostty-background:#112233");
+    expect(html).toContain("--ghostty-foreground:#ddeeff");
+    expect(html).toContain("--cmux-product-blue:#0091ff");
+    expect(html).toContain("--cmux-product-blue-on-background:#0091ff");
+    expect(html).toContain("--cmux-product-blue-on-foreground:#006CBF");
+    expect(html).toContain("mx-auto mt-6 flex w-fit");
+    expect(html).toContain(
+      "var(--cmux-product-blue-on-foreground, var(--cmux-product-blue, #0088ff))",
+    );
+    expect(html).toContain('href="/enterprise?cmux_external_browser=1"');
   });
 
   test("removes external purchase links in App Store distribution mode", async () => {

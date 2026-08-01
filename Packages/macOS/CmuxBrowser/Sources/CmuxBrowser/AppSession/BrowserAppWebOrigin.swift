@@ -8,12 +8,42 @@ struct BrowserAppWebOrigin {
     }
 
     func contains(_ candidate: URL) -> Bool {
-        guard candidate.scheme?.lowercased() == url.scheme?.lowercased(),
-              candidate.host?.lowercased() == url.host?.lowercased() else {
+        guard isSecureOrLoopbackOrigin(url),
+              isSecureOrLoopbackOrigin(candidate),
+              let scheme = url.scheme?.lowercased(),
+              let host = url.host?.lowercased(),
+              candidate.scheme?.lowercased() == scheme,
+              candidate.host?.lowercased() == host else {
             return false
         }
         return effectivePort(candidate) == effectivePort(url)
     }
+
+    func containsAppSurface(_ candidate: URL) -> Bool {
+        guard contains(candidate) else { return false }
+        let normalizedPath = candidate.path.count > 1
+            && candidate.path.hasSuffix("/")
+            ? String(candidate.path.dropLast())
+            : candidate.path
+        return normalizedPath == "/app-pricing"
+            || normalizedPath == "/app-pro-welcome"
+    }
+}
+
+private func isSecureOrLoopbackOrigin(_ url: URL) -> Bool {
+    guard url.user == nil,
+          url.password == nil,
+          let host = url.host?.lowercased(),
+          !host.isEmpty else {
+        return false
+    }
+    if url.scheme?.lowercased() == "https" {
+        return true
+    }
+    guard url.scheme?.lowercased() == "http" else { return false }
+    return host == "localhost"
+        || host == "127.0.0.1"
+        || host == "::1"
 }
 
 private func effectivePort(_ url: URL) -> Int? {
