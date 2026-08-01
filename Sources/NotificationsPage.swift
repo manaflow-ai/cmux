@@ -159,7 +159,7 @@ struct NotificationsPage: View {
         Binding(
             get: { phonePushConfiguration.forwardingEnabled },
             set: { enabled in
-                phonePushConfiguration = PhonePushClient.shared.updateSettings(
+                PhonePushClient.shared.updateSettings(
                     forwardingEnabled: enabled
                 )
             }
@@ -173,7 +173,7 @@ struct NotificationsPage: View {
                 guard let mode = PhoneForwardingMode(rawValue: rawValue) else {
                     return
                 }
-                phonePushConfiguration = PhonePushClient.shared.updateSettings(
+                PhonePushClient.shared.updateSettings(
                     mode: mode
                 )
             }
@@ -184,7 +184,7 @@ struct NotificationsPage: View {
         Binding(
             get: { phonePushConfiguration.hideContent },
             set: { hideContent in
-                phonePushConfiguration = PhonePushClient.shared.updateSettings(
+                PhonePushClient.shared.updateSettings(
                     hideContent: hideContent
                 )
             }
