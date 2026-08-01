@@ -92,6 +92,37 @@ public actor CmxIrohRelayPolicyCache {
         return policy
     }
 
+    /// Verifies a candidate without advancing the persistent rollback floor.
+    func verifyCandidate(
+        signedPolicy: String,
+        trustRoot: CmxIrohRelayPolicyTrustRoot,
+        now: Date
+    ) throws -> CmxIrohManagedRelayPolicy {
+        try verifier.verify(signedPolicy, trustRoot: trustRoot, now: now)
+    }
+
+    /// Returns the last verified publication even after its runtime authority
+    /// expires. Preference migration uses only its signed identity and issue
+    /// time, while normal relay use still goes through ``load(trustRoot:now:)``.
+    func rollbackPolicy(
+        trustRoot: CmxIrohRelayPolicyTrustRoot
+    ) async throws -> CmxIrohManagedRelayPolicy? {
+        await acquire()
+        defer { release() }
+        guard let record = try await storedRecord(),
+              let issuedAt = record.issuedAt else { return nil }
+        let policy = try verifier.verify(
+            record.signedPolicy,
+            trustRoot: trustRoot,
+            now: Date(timeIntervalSince1970: TimeInterval(issuedAt))
+        )
+        guard policy.sequence == record.highestSequence,
+              Self.metadataMatches(policy, record: record) else {
+            throw CmxIrohRelayPolicyError.rollback
+        }
+        return policy
+    }
+
     /// Loads and re-verifies the cached policy at the current time.
     ///
     /// - Parameters:

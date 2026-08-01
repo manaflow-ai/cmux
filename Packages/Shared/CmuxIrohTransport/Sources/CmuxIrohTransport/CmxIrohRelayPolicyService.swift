@@ -89,9 +89,19 @@ public actor CmxIrohRelayPolicyService {
     ) async throws -> CmxIrohEffectiveRelayPolicy {
         let operation = beginOperation()
         do {
+            let candidatePolicy = try await policyCache.verifyCandidate(
+                signedPolicy: response.policy,
+                trustRoot: trustRoot,
+                now: now
+            )
+            let legacyPolicy = try await policyCache.rollbackPolicy(
+                trustRoot: trustRoot
+            )
             try await Resolver.validatePreferenceRevision(
                 response.preferenceRevision,
                 configuration: response.preference,
+                policy: candidatePolicy,
+                legacyPolicy: legacyPolicy,
                 accountID: accountID,
                 currentEffective: currentEffective,
                 preferenceStore: preferenceStore
@@ -116,6 +126,8 @@ public actor CmxIrohRelayPolicyService {
                 effective: resolution.effective.effectivePreference,
                 revision: response.preferenceRevision,
                 effectivePolicySequence: resolution.effective.managedPolicy?.sequence,
+                policy: policy,
+                legacyPolicy: legacyPolicy,
                 staleRelayIDs: resolution.effective.staleRelayIDs,
                 accountID: accountID
             )
@@ -340,14 +352,16 @@ public actor CmxIrohRelayPolicyService {
         now: Date,
         operation: UInt64
     ) async throws -> CmxIrohEffectiveRelayPolicy {
+        let policy = try? await policyCache.load(trustRoot: trustRoot, now: now)
         try await Resolver.validatePreferenceRevision(
             response.revision,
             configuration: response.preference,
+            policy: policy,
+            legacyPolicy: policy,
             accountID: accountID,
             currentEffective: currentEffective,
             preferenceStore: preferenceStore
         )
-        let policy = try? await policyCache.load(trustRoot: trustRoot, now: now)
         let resolution = await Resolver.resolve(
             configuration: response.preference,
             revision: response.revision,
@@ -365,6 +379,7 @@ public actor CmxIrohRelayPolicyService {
                 effective: resolution.effective.effectivePreference,
                 revision: response.revision,
                 effectivePolicySequence: resolution.effective.managedPolicy?.sequence,
+                policy: policy,
                 staleRelayIDs: resolution.effective.staleRelayIDs,
                 accountID: accountID
             )

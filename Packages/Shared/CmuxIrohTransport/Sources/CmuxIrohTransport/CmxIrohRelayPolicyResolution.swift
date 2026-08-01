@@ -6,6 +6,86 @@ struct CmxIrohRelayPolicyResolutionResult {
     let failure: CmxIrohRelayPolicyFailure?
 }
 
+struct CmxIrohRelayPolicyPublication: Equatable, Sendable {
+    let policyID: String
+    let issuedAt: Int64
+
+    init(_ policy: CmxIrohManagedRelayPolicy) {
+        policyID = policy.policyID
+        issuedAt = policy.issuedAt
+    }
+
+    init?(policyID: String?, issuedAt: Int64?) {
+        guard let policyID,
+              let issuedAt,
+              issuedAt >= 0,
+              UUID(uuidString: policyID)?.uuidString.lowercased() == policyID else {
+            return nil
+        }
+        self.policyID = policyID
+        self.issuedAt = issuedAt
+    }
+}
+
+enum CmxIrohRelayPreferenceRevisionValidation {
+    static func validate(
+        incomingRevision: Int64,
+        incomingConfiguration: CmxIrohAccountRelayConfiguration,
+        incomingPublication: CmxIrohRelayPolicyPublication?,
+        currentRevision: Int64,
+        currentConfiguration: CmxIrohAccountRelayConfiguration,
+        currentPublication: CmxIrohRelayPolicyPublication?
+    ) throws {
+        guard let incomingPublication, let currentPublication else {
+            try requireMonotonicOrIdentical(
+                incomingRevision: incomingRevision,
+                incomingConfiguration: incomingConfiguration,
+                currentRevision: currentRevision,
+                currentConfiguration: currentConfiguration
+            )
+            return
+        }
+        guard incomingPublication.issuedAt >= currentPublication.issuedAt else {
+            throw CmxIrohRelayPolicyServiceError.preferenceRollback
+        }
+        if incomingPublication.issuedAt == currentPublication.issuedAt {
+            guard incomingPublication.policyID == currentPublication.policyID else {
+                guard incomingRevision == currentRevision,
+                      incomingConfiguration == currentConfiguration else {
+                    throw CmxIrohRelayPolicyServiceError.preferenceRollback
+                }
+                return
+            }
+            try requireMonotonicOrIdentical(
+                incomingRevision: incomingRevision,
+                incomingConfiguration: incomingConfiguration,
+                currentRevision: currentRevision,
+                currentConfiguration: currentConfiguration
+            )
+            return
+        }
+        guard incomingRevision > currentRevision
+                || incomingConfiguration.hasEquivalentActiveAuthority(
+                    to: currentConfiguration
+                ) else {
+            throw CmxIrohRelayPolicyServiceError.preferenceRollback
+        }
+    }
+
+    private static func requireMonotonicOrIdentical(
+        incomingRevision: Int64,
+        incomingConfiguration: CmxIrohAccountRelayConfiguration,
+        currentRevision: Int64,
+        currentConfiguration: CmxIrohAccountRelayConfiguration
+    ) throws {
+        guard incomingRevision > currentRevision
+                || (incomingRevision == currentRevision
+                    && incomingConfiguration == currentConfiguration) else {
+            throw CmxIrohRelayPolicyServiceError.preferenceRollback
+        }
+    }
+}
+
 enum CmxIrohRelayPolicyResolution {
     typealias Resolution = CmxIrohRelayPolicyResolutionResult
 
@@ -238,6 +318,8 @@ enum CmxIrohRelayPolicyResolution {
     static func validatePreferenceRevision(
         _ revision: Int64,
         configuration: CmxIrohAccountRelayConfiguration,
+        policy: CmxIrohManagedRelayPolicy?,
+        legacyPolicy: CmxIrohManagedRelayPolicy?,
         accountID: String,
         currentEffective: CmxIrohEffectiveRelayPolicy?,
         preferenceStore: CmxIrohRelayPreferenceStore
@@ -245,17 +327,39 @@ enum CmxIrohRelayPolicyResolution {
         let currentRevision = currentEffective?.preferenceRevision
         let currentConfiguration = currentEffective?.requestedConfiguration
         if let currentRevision, let currentConfiguration {
-            guard revision > currentRevision
-                    || configuration.hasEquivalentActiveAuthority(to: currentConfiguration) else {
-                throw CmxIrohRelayPolicyServiceError.preferenceRollback
+            let currentPublication: CmxIrohRelayPolicyPublication?
+            if let currentPolicy = currentEffective?.managedPolicy {
+                currentPublication = CmxIrohRelayPolicyPublication(currentPolicy)
+            } else if let persisted = try? await preferenceStore.load(accountID: accountID) {
+                currentPublication = CmxIrohRelayPolicyPublication(
+                    policyID: persisted.policyID,
+                    issuedAt: persisted.policyIssuedAt
+                ) ?? legacyPolicy.map(CmxIrohRelayPolicyPublication.init)
+            } else {
+                currentPublication = legacyPolicy.map(CmxIrohRelayPolicyPublication.init)
             }
+            try CmxIrohRelayPreferenceRevisionValidation.validate(
+                incomingRevision: revision,
+                incomingConfiguration: configuration,
+                incomingPublication: policy.map(CmxIrohRelayPolicyPublication.init),
+                currentRevision: currentRevision,
+                currentConfiguration: currentConfiguration,
+                currentPublication: currentPublication
+            )
             return
         }
         guard let existing = try await preferenceStore.load(accountID: accountID) else { return }
-        guard revision > existing.revision
-                || configuration.hasEquivalentActiveAuthority(to: existing.requested) else {
-            throw CmxIrohRelayPolicyServiceError.preferenceRollback
-        }
+        try CmxIrohRelayPreferenceRevisionValidation.validate(
+            incomingRevision: revision,
+            incomingConfiguration: configuration,
+            incomingPublication: policy.map(CmxIrohRelayPolicyPublication.init),
+            currentRevision: existing.revision,
+            currentConfiguration: existing.requested,
+            currentPublication: CmxIrohRelayPolicyPublication(
+                policyID: existing.policyID,
+                issuedAt: existing.policyIssuedAt
+            ) ?? legacyPolicy.map(CmxIrohRelayPolicyPublication.init)
+        )
     }
 
     static func cleanupOrphanCredentials(
