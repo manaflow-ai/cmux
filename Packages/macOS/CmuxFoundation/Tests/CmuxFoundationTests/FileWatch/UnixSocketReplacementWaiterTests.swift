@@ -24,9 +24,12 @@ private final class ReplacementOutcomeBox: @unchecked Sendable {
 @Suite struct UnixSocketReplacementWaiterTests {
     @Test
     func deadSameInodeAndUnrelatedParentWriteWaitForExactReplacement() throws {
-        let directory = FileManager.default.temporaryDirectory
+        // sockaddr_un caps socket paths at ~104 bytes; the user temporary
+        // directory (/var/folders/.../T/) plus a full UUID overflows that, so
+        // bind fails before the waiter is exercised. Keep the path short.
+        let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent(
-                "cmux-socket-replacement-\(UUID().uuidString)",
+                "cmux-srw-\(UUID().uuidString.prefix(8))",
                 isDirectory: true
             )
         try FileManager.default.createDirectory(
@@ -86,7 +89,14 @@ private final class ReplacementOutcomeBox: @unchecked Sendable {
         let maxLength = MemoryLayout.size(ofValue: address.sun_path)
         guard path.utf8.count < maxLength else {
             Darwin.close(fd)
-            throw posixError("socket path")
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(ENAMETOOLONG),
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "socket path exceeds sockaddr_un limit: \(path)",
+                ]
+            )
         }
         path.withCString { pointer in
             withUnsafeMutablePointer(to: &address.sun_path) { tuplePointer in
