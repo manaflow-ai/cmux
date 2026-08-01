@@ -156,7 +156,7 @@ final class TerminalBytesDemoTests: XCTestCase {
     }
 
     @MainActor
-    func testTerminalClientHandleDisconnectsExactlyOnce() throws {
+    func testTerminalClientHandleRetainsEnrollmentAcrossLogicalDisconnect() throws {
         let raw = try XCTUnwrap(OpaquePointer(bitPattern: 1))
         var disconnected: [OpaquePointer] = []
         let handle = TerminalClientHandle(raw: raw) {
@@ -167,7 +167,7 @@ final class TerminalBytesDemoTests: XCTestCase {
         handle.disconnect()
         handle.disconnect()
 
-        XCTAssertNil(handle.withRaw { $0 })
+        XCTAssertEqual(handle.withRaw { $0 }, raw)
         XCTAssertEqual(disconnected, [raw])
     }
 
