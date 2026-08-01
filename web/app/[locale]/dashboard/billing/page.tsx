@@ -474,7 +474,7 @@ function TeamPlan({
     ? formatBillingDate(subscription.currentPeriodEnd, locale)
     : t("dates.unknown");
   const seats = String(subscription.seats ?? 1);
-  const price = priceLookupKey(subscription) === TEAM_PRICING_USD.year.lookupKey
+  const price = isAnnualTeamSubscription(subscription)
     ? t("team.annualPrice")
     : t("team.price");
 
@@ -594,6 +594,18 @@ function priceLookupKey(subscription: StripeSubscriptionRow): string | null {
     ? (price as { lookup_key?: unknown }).lookup_key
     : null;
   return typeof lookupKey === "string" ? lookupKey : null;
+}
+
+function isAnnualTeamSubscription(subscription: StripeSubscriptionRow): boolean {
+  if (priceLookupKey(subscription) === TEAM_PRICING_USD.year.lookupKey) return true;
+  const raw = subscription.raw;
+  const metadata = raw && typeof raw === "object" ? raw.metadata : null;
+  return Boolean(
+    metadata &&
+      typeof metadata === "object" &&
+      "billingInterval" in metadata &&
+      (metadata as { billingInterval?: unknown }).billingInterval === "year",
+  );
 }
 
 function formatBillingDate(date: Date, locale: string): string {
