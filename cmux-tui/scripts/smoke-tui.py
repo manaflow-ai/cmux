@@ -140,6 +140,15 @@ def tree():
 def active_screen(ws):
     return next(s for s in ws["screens"] if s["active"])
 
+def tree_has_surface(workspaces):
+    return any(
+        tab
+        for workspace in workspaces
+        for screen in workspace["screens"]
+        for pane in screen["panes"]
+        for tab in pane["tabs"]
+    )
+
 def send_prefix_t_until_tab_count(count):
     last = None
     for _ in range(5):
@@ -149,6 +158,24 @@ def send_prefix_t_until_tab_count(count):
         os.write(fd, b"\x02t")
         drain(0.8)
     raise AssertionError(last)
+
+def wait_for_pane_count(count, seconds=15):
+    deadline = time.time() + seconds
+    last = None
+    while time.time() < deadline:
+        drain(0.2)
+        workspaces = tree()
+        if workspaces:
+            last = active_screen(workspaces[0])
+            if len(last["panes"]) == count:
+                return last
+    rendered = render_text_snapshot(output)
+    surfaces = [tab["surface"] for pane in last["panes"] for tab in pane["tabs"]] if last else []
+    screens = {
+        surface: rpc({"id": 998, "cmd": "read-screen", "surface": surface})["data"]["text"]
+        for surface in surfaces
+    }
+    raise AssertionError({"tree": last, "render": rendered, "screens": screens})
 
 SOCK = discover_socket_path()
 
@@ -198,6 +225,7 @@ os.kill(pid, signal.SIGWINCH)
 output = b""
 probe_pending = b""
 probe_answers = {10: 0, 11: 0}
+keyboard_probe_answers = 0
 
 def answer_host_color_queries(chunk):
     global probe_pending
@@ -228,7 +256,7 @@ def answer_host_color_queries(chunk):
         probe_pending = probe_pending[end + term_len:]
 
 def drain(seconds):
-    global output
+    global output, keyboard_probe_answers
     end = time.time() + seconds
     while time.time() < end:
         r, _, _ = select.select([fd], [], [], 0.1)
@@ -236,6 +264,10 @@ def drain(seconds):
             try:
                 chunk = os.read(fd, 65536)
                 output += chunk
+                keyboard_queries = output.count(b"\x1b[?u")
+                while keyboard_probe_answers < keyboard_queries:
+                    os.write(fd, b"\x1b[?29u")
+                    keyboard_probe_answers += 1
                 answer_host_color_queries(chunk)
             except OSError:
                 break
@@ -470,15 +502,33 @@ deadline = time.time() + 15
 while not os.path.exists(SOCK) and time.time() < deadline:
     drain(0.2)
 assert os.path.exists(SOCK), f"socket missing at {SOCK}"
-drain(1.0)
+
+# The production interactive path starts a daemon and then attaches through
+# its control socket. The socket can become visible before the client has
+# completed host probing and created the initial workspace, so wait for both
+# milestones instead of assigning them an arbitrary one-second budget.
+initial_tree = []
+deadline = time.time() + 15
+while time.time() < deadline:
+    drain(0.2)
+    initial_tree = tree()
+    if (
+        probe_answers[10] > 0
+        and probe_answers[11] > 0
+        and keyboard_probe_answers > 0
+        and tree_has_surface(initial_tree)
+    ):
+        break
 assert probe_answers[10] > 0 and probe_answers[11] > 0, probe_answers
+assert keyboard_probe_answers > 0, "host keyboard protocol was not negotiated"
+assert tree_has_surface(initial_tree), "interactive client did not create its initial surface"
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-tui", ident
 assert ident["data"]["protocol"] == 10, ident
 print("identify ok:", ident["data"])
 
-ws0 = tree()[0]
+ws0 = initial_tree[0]
 assert ws0["name"] == "0", ws0
 screen0 = active_screen(ws0)
 panes = screen0["panes"]
@@ -493,6 +543,22 @@ print("initial tree ok, screen", screen0["id"], "pane", pane_id, "surface", surf
 size = panes[0]["tabs"][0]["size"]
 assert size == {"cols": 75, "rows": 27}, size
 print("initial surface spawned at final size ok")
+
+# Ghostty emits these CSI-u sequences after accepting cmux's enhanced keyboard
+# flags: Ctrl-b, then Shift-5 with '%' as both shifted and associated text.
+os.write(fd, b"\x1b[98;5u\x1b[53:37;2;37u")
+screen0 = wait_for_pane_count(2)
+assert screen0["layout"]["type"] == "split" and screen0["layout"]["dir"] == "right", screen0
+drain(0.8)
+idle_output_start = len(output)
+drain(1.0)
+print("enhanced prefix-% horizontal split ok; idle output bytes", len(output) - idle_output_start)
+
+# Close the newly focused pane through the same enhanced input path so the
+# remaining smoke cases retain their one-pane geometry.
+os.write(fd, b"\x1b[98;5u\x1b[120:88;2;88u")
+wait_for_pane_count(1)
+print("enhanced prefix-X close pane ok")
 
 # The tab bar is always visible: a single-tab pane still shows its
 # numbered tab and the + button in the top border.
@@ -670,15 +736,15 @@ assert len(panes) == 1, screen0
 assert len(panes[0]["tabs"]) == 3, screen0
 assert panes[0]["active_tab"] == 2, screen0
 
-# Alt-n: smart split. In this 75x27 content geometry, width > 2*height,
-# so the visually longer axis is horizontal and the split is right.
-os.write(fd, b"\x1bn")
+# Ctrl-b %: explicit horizontal split. Keep this as a literal byte sequence
+# so the smoke test covers the real prefix parser and production remote client.
+os.write(fd, b"\x02%")
 drain(1.0)
 screen0 = active_screen(tree()[0])
 panes = screen0["panes"]
 assert len(panes) == 2, screen0
 assert screen0["layout"]["type"] == "split" and screen0["layout"]["dir"] == "right", screen0
-print("alt-n smart split ok")
+print("prefix-% horizontal split ok")
 
 left_pane = panes[0]
 right_pane = panes[1]

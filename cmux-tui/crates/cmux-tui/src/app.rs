@@ -18419,6 +18419,47 @@ mod tests {
     }
 
     #[test]
+    fn enhanced_prefixed_split_survives_pointer_mutation_and_focus_refresh() {
+        let (mux, _) = test_mux("enhanced-prefix-split-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.session.pending_pointer_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('b'),
+            KeyModifiers::CONTROL,
+        ))))
+        .unwrap();
+        assert!(app.prefix_armed);
+
+        app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('5'), KeyModifiers::SHIFT),
+            shifted_key: Some('%'),
+            base_layout_key: None,
+            text: "%".to_string(),
+        })))
+        .unwrap();
+
+        assert!(app.prefix_armed);
+        assert_eq!(app.deferred_input.len(), 1);
+        app.focus = FocusTarget::WorkspaceRail;
+        app.session.settle_pending_mutation(MutationImpact::PointerMap);
+        app.replay_deferred_input().unwrap();
+        assert!(!app.prefix_armed);
+        assert!(app.deferred_input.is_empty());
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+        assert_eq!(app.tree.active_screen().unwrap().panes.len(), 2);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn doubled_prefix_keeps_the_focused_sidebar_plugin_target() {
         let (mux, sidebar_surface) = test_mux("sidebar-send-prefix-test", None);
         mux.new_workspace(Some("pane".to_string()), Some((20, 8))).unwrap();
