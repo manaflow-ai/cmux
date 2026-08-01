@@ -7,76 +7,10 @@ permissions:
   contents: read
 
 jobs:
-  isolate-hostruntime-methods:
-    name: HostRuntime methods (${{ matrix.group }})
-    runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - group: base
-            tests: |
-              startupConsumesEmbeddedDiscoveryWithoutAThirdBrokerRoundTrip
-              directOnlyStartupSkipsRelayReadiness
-              unavailableRelayPolicyStillAllowsDirectDiscovery
-              coldStartRetriesTransientBrokerConnectivity
-              coldStartRetriesTransientBrokerServiceFailure
-              coldStartHonorsRestoredDiscoveryFloorBeforeRegistering
-              coldStartDoesNotRetryInvalidBrokerResponse
-              stopDuringColdStartBackoffPreventsRetry
-              cancellingColdStartBackoffCancelsDelay
-              pendingRevocationFailureBlocksHostRegistrationAndCachedFallback
-          - group: lifecycle-race
-            tests: |
-              relayInstallationRepublishesNewlyAddressedHost
-              validatedBindingPublishesBeforeRelayCredentialInstallationCompletes
-              validatedBindingPublishesBeforeLANAdvertisementCompletes
-              stoppedHostIgnoresSupersededRefreshFailure
-              signedOutHostIgnoresSupersededRefreshFailure
-          - group: lifecycle-a
-            tests: |
-              unchangedReachabilityRenewsRegistrationBeforeHintExpiry
-              registrationRenewalHonorsBrokerRetryAfterFloor
-              registrationRenewalBacksOffConsecutiveFailures
-              successfulRegistrationRenewalResetsBackoff
-              startBindsExactRegisteredIdentityAndStopClosesIt
-              suspendedSignOutPersistenceStopsPendingAdmissionAndBlocksRestart
-              failedSignOutPersistenceClosesHostAndQuarantinesLocalState
-              requiredBindPolicyIsForwardedToTheEndpointGeneration
-          - group: lifecycle-b
-            tests: |
-              connectivityFailureUsesVerifiedCacheOnlyAfterOnlineAttempt
-              transientBrokerFailureUsesVerifiedCacheWithoutWaitingForRetry
-              cachedActivationRegistersTheCurrentEndpointPortWithoutRestartingIt
-              restoredBrokerCooldownUsesVerifiedCacheBeforeRegistration
-              endpointNetworkChangeRequestsImmediateLANRefresh
-              endpointOnlineRequestsImmediateReachabilityRefresh
-              unavailableRegistrationRefreshPreservesActiveEndpoint
-          - group: policy-a
-            tests: |
-              embeddedDiscoveryMustExactlyMatchTheRegistrationRevision
-              embeddedDiscoveryCannotRegressTheInstalledAuthoritativeRevision
-              unauthorizedRegistrationRefreshDeactivatesActiveEndpoint
-              networkChangeDuringRegistrationIsObservedAfterStartup
-              networkChangeDuringActiveRefreshRequestsAnotherRegistration
-              refreshedVerifiedRendezvousReplacesPublishedLANPolicy
-              terminalBrokerFailureNeverUsesCachedPolicy
-          - group: policy-b
-            tests: |
-              onlinePolicySupersedesAValidCachedBinding
-              cachedConnectivityFallbackPublishesResolvedBinding
-              forgedCachedPolicyFailsAfterConnectivityFailure
-              confirmedOnlineBindingChangePreventsDiscoveryConnectivityFallback
-              routeContractMismatchNeverUsesCachedPolicy
-              discoverySubstitutionFailsClosedAndClosesEndpoint
-          - group: requested-and-restart
-            tests: |
-              pushedRevisionReconcilesMacReadOnly
-              requestRegistrationRefreshRunsImmediateBrokerRound
-              requestRegistrationRefreshSettlesFailedOnReplacedBinding
-              requestRegistrationRefreshNoOpWhenInactive
-              nonTransientRefreshRejectionFailsClosedThenRestarts
+  isolate-unauthorized-refresh:
+    name: HostRuntime unauthorized refresh
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 10
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -87,33 +21,10 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: Run each method independently
-        shell: bash
-        env:
-          TEST_METHODS: ${{ matrix.tests }}
+      - name: Run suspected hanging method
         run: |
-          set -uo pipefail
-          package_path="Packages/Shared/CmuxIrohTransport"
-          swift test list --package-path "$package_path" | tee /tmp/hostruntime-tests.txt
-          failed=0
-          while IFS= read -r method; do
-            [ -n "$method" ] || continue
-            echo "::group::$method"
-            if ! grep -F "/$method" /tmp/hostruntime-tests.txt; then
-              echo "::error::test method not discovered: $method"
-              failed=1
-              echo "::endgroup::"
-              continue
-            fi
-            status=0
-            python3 scripts/ci/run_with_timeout.py \
-              --timeout-seconds 45 \
-              -- swift test --package-path "$package_path" --filter "$method" \
-              || status=$?
-            if [ "$status" -ne 0 ]; then
-              echo "::error::method $method exited $status"
-              failed=1
-            fi
-            echo "::endgroup::"
-          done <<< "$TEST_METHODS"
-          exit "$failed"
+          python3 scripts/ci/run_with_timeout.py \
+            --timeout-seconds 45 \
+            -- swift test \
+              --package-path Packages/Shared/CmuxIrohTransport \
+              --filter unauthorizedRegistrationRefreshDeactivatesActiveEndpoint
