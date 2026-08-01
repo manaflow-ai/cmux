@@ -119,7 +119,7 @@ private struct PaneZoomNavigationHostBackground: UIViewRepresentable {
 }
 
 final class PaneZoomNavigationBackgroundBridgeView: UIView {
-    private final class BackgroundSnapshot {
+    @MainActor private final class BackgroundSnapshot {
         weak var view: UIView?
         let originalColor: UIColor?
         var appliedColor: UIColor?
