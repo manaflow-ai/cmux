@@ -130,7 +130,7 @@ Every field in the table is required unless marked optional or given a default.
 | `computer-use-capabilities` | none | `computer-use-capabilities` |
 | `computer-use-capabilities-v1` | none | `computer-use-capabilities-v1` |
 | `invoke-computer-use` | `invocation:ComputerUseInvocation` | unavailable in protocol 4 |
-| `cancel-computer-use` | `invocation:u64` | `computer-use-canceled` with `accepted:false` |
+| `cancel-computer-use` | `invocation:ComputerUseInvocationId` | `computer-use-canceled` with `accepted:false` |
 
 Common response objects have these fields:
 
@@ -148,11 +148,11 @@ Common response objects have these fields:
 | `git-status` | `status:{branch,head,changes}` |
 | `diff` | `data:ByteString`, `format:DiffFormat`, optional `next_cursor` |
 | `structured-diff` | `diff:StructuredDiffV1`, optional `next_cursor` |
-| `process-started` | `process:ProcessId`, `pid:u32|null`, optional `operation:string` |
+| `process-started` | `process:ProcessId`, `pid:u32\|null`, optional `operation:string` |
 | `process-write-accepted` | `process`, `write_id` |
 | `process-resized` | `process`, `cols`, `rows` |
 | `process-signaled` | `process`, `signal` |
-| `process-exit` | `process`, `code:i32|null`, `signal:i32|null` |
+| `process-exit` | `process`, `code:i32\|null`, `signal:i32\|null` |
 | `process-events` | `process`, `range`, `events`, optional `next_cursor:u64` |
 | `process-replay-gap` | `process`, `requested_after`, `range` |
 | `processes` | `processes:[ProcessDescriptor]` |
@@ -162,6 +162,11 @@ Common response objects have these fields:
 | `request-canceled` | `request`, `accepted:bool` |
 | `route-created` | `route:u64`, `host`, `port` |
 | `closed` | no fields |
+| `computer-use-capabilities` | `capabilities:[string]` |
+| `computer-use-capabilities-v1` | `capabilities:[ComputerUseCapability]` |
+| `computer-use-accepted` | `invocation:ComputerUseInvocationId` |
+| `computer-use-result` | `result:ComputerUseResult` |
+| `computer-use-canceled` | `invocation:ComputerUseInvocationId`, `accepted:bool` |
 
 Protocol 4 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-catalog-v1`, `process-pty-v1` and `process-terminal-snapshot-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `workspace-patch-v3`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, and `request-control-v1`. `workspace-patch-v3` indicates that `apply-patch.patch` accepts both unified diff and Codex native patch syntax.
 
@@ -326,13 +331,13 @@ The response is `{"type":"route-created","route":9,"host":"127.0.0.1","port":300
 
 `computer-use-capabilities-v1` returns entries with `feature` and `version`. Feature strings are `screenshot`, `accessibility-tree`, `pointer`, `keyboard`, `text-input`, and `scroll`. The default daemon returns an empty list.
 
-An `invoke-computer-use` request contains an `invocation` with numeric `id`, optional `workspace`, optional `timeout_ms`, and an `action`. Action objects use the types `screenshot`, `accessibility-tree`, `pointer`, `keyboard`, `text-input`, or `scroll`. Protocol 4 returns `computer-use-unavailable` because no platform executor is wired. Future execution belongs on the separate `computer-use` service so media and long actions cannot block process input.
+An `invoke-computer-use` request contains an `invocation` with a UUID-string `id`, optional `workspace`, optional `timeout_ms`, and an `action`. Action objects use the types `screenshot`, `accessibility-tree`, `pointer`, `keyboard`, `text-input`, or `scroll`. Protocol 4 returns `computer-use-unavailable` because no platform executor is wired. Future execution belongs on the separate `computer-use` service so media and long actions cannot block process input.
 
 | Action `type` | Fields |
 | --- | --- |
 | `screenshot` | optional `display:u32` |
 | `accessibility-tree` | optional `root:string` |
-| `pointer` | `x:i32`, `y:i32`, `action:move|left-down|left-up|right-down|right-up` |
-| `keyboard` | `key:string`, `action:down|up|press`, optional `modifiers:[string]` default `[]` |
+| `pointer` | `x:i32`, `y:i32`, `action:move\|left-down\|left-up\|right-down\|right-up` |
+| `keyboard` | `key:string`, `action:down\|up\|press`, optional `modifiers:[string]` default `[]` |
 | `text-input` | `text:string` |
 | `scroll` | `x:i32`, `y:i32`, `delta_x:i32`, `delta_y:i32` |

@@ -137,6 +137,7 @@ pub struct ServerConnection {
     session: RwLock<ReliableSession>,
     generation: watch::Sender<u64>,
     changed: Notify,
+    close_requested: Notify,
     lifecycle: Mutex<ServerLifecycle>,
     diagnostics: StdMutex<ServerDiagnostics>,
     lane_sends: [Mutex<()>; 4],
@@ -255,6 +256,7 @@ impl ServerConnection {
             session: RwLock::new(session),
             generation,
             changed: Notify::new(),
+            close_requested: Notify::new(),
             lifecycle: Mutex::new(ServerLifecycle {
                 disconnected_generation: None,
                 resume_deadline: None,
@@ -459,9 +461,20 @@ impl ServerConnection {
         if remaining.is_zero() {
             return Err(DaemonError::Closed);
         }
+        let close_requested = self.close_requested.notified();
+        tokio::pin!(close_requested);
+        close_requested.as_mut().enable();
+        if self.closed.load(Ordering::Acquire) {
+            return Err(DaemonError::Closed);
+        }
         let reconnect = reconnecting.reconnect_to(link, peer_resume, generation);
-        let next =
-            tokio::time::timeout(remaining, reconnect).await.map_err(|_| DaemonError::Closed)??;
+        let next = tokio::select! {
+            biased;
+            _ = &mut close_requested => return Err(DaemonError::Closed),
+            result = tokio::time::timeout(remaining, reconnect) => {
+                result.map_err(|_| DaemonError::Closed)??
+            }
+        };
         let generation = next.generation();
         let previous = std::mem::replace(&mut *current, next);
         lifecycle.disconnected_generation = None;
@@ -532,17 +545,27 @@ impl ServerConnection {
     }
 
     async fn mark_closed(&self, disconnected_generation: Option<u64>) -> bool {
-        let mut lifecycle = self.lifecycle.lock().await;
-        if self.closed.load(Ordering::Acquire) {
-            return false;
+        // Explicit shutdown publishes cancellation before waiting for replay's
+        // lifecycle guard. Reconnect watches this notification, so revocation
+        // and owner disconnect cannot be delayed by a stalled replay write.
+        if disconnected_generation.is_none() {
+            if self.closed.swap(true, Ordering::AcqRel) {
+                return false;
+            }
+            self.close_requested.notify_waiters();
         }
+        let mut lifecycle = self.lifecycle.lock().await;
         if let Some(expected) = disconnected_generation
-            && (lifecycle.disconnected_generation != Some(expected)
+            && (self.closed.load(Ordering::Acquire)
+                || lifecycle.disconnected_generation != Some(expected)
                 || self.current_generation() != expected)
         {
             return false;
         }
-        self.closed.store(true, Ordering::Release);
+        if disconnected_generation.is_some() {
+            self.closed.store(true, Ordering::Release);
+            self.close_requested.notify_waiters();
+        }
         lifecycle.disconnected_generation = None;
         lifecycle.resume_deadline = None;
         {
@@ -2345,5 +2368,58 @@ mod tests {
         blocking.release.add_permits(1);
         reconnect.await.unwrap().unwrap();
         assert_eq!(connection.current_generation(), 1);
+    }
+
+    #[tokio::test]
+    async fn explicit_close_cancels_a_blocked_registration_replay() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "cancel-replay", true).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let key = ClientKey { device_id: "closing-device".into(), session: SessionId([36; 16]) };
+        let (server_link, _peer_link) = test_support::pair(128 * 1024);
+        let session =
+            ReliableSession::new(key.session, Arc::new(server_link), SessionLimits::default());
+        let connection =
+            ServerConnection::new(&daemon, key.clone(), session, vec![Lane::ALL.to_vec()]);
+        daemon.state.lock().await.clients.insert(key.clone(), connection.clone());
+        connection
+            .send(Lane::Control, 9, Bytes::from_static(b"pending replay"), FrameFlags::empty())
+            .await
+            .unwrap();
+
+        let blocking =
+            Arc::new(BlockingReplayLink { started: Semaphore::new(0), release: Semaphore::new(0) });
+        let reconnecting_daemon = daemon.clone();
+        let reconnecting_connection = connection.clone();
+        let reconnecting_key = key.clone();
+        let reconnecting_link: Arc<dyn FrameLink> = blocking.clone();
+        let reconnect = tokio::spawn(async move {
+            let resume = Lane::ALL.into_iter().map(|lane| (lane, 0)).collect();
+            reconnecting_daemon
+                .reconnect_registered_client(
+                    &reconnecting_key,
+                    &reconnecting_connection,
+                    ReconnectRegistration {
+                        expected_generation: 0,
+                        generation: 1,
+                        link: reconnecting_link,
+                        lane_bindings: vec![Lane::ALL.to_vec()],
+                        peer_resume: &resume,
+                    },
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(1), blocking.started.acquire())
+            .await
+            .expect("replay did not reach the blocking link")
+            .unwrap()
+            .forget();
+
+        tokio::time::timeout(Duration::from_millis(250), connection.close())
+            .await
+            .expect("close waited for the resume lease")
+            .unwrap();
+        assert!(matches!(reconnect.await.unwrap(), Err(DaemonError::Closed)));
+        assert!(daemon.connections().await.is_empty());
     }
 }

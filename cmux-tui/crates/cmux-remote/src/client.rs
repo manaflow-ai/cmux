@@ -125,6 +125,7 @@ impl WorkspaceClient {
         let channel = self.channel(rpc_traffic_class(&request));
         let id = self.next_request_id();
         let timeout_ms = timeout.map(|(milliseconds, _)| milliseconds);
+        let deadline = timeout.map(|(_, duration)| tokio::time::Instant::now() + duration);
         let encoded = serde_json::to_vec(&RpcRequest { id, timeout_ms, request })
             .map_err(|error| RpcError::new("protocol", error.to_string()))?;
         let (sender, receiver) = oneshot::channel();
@@ -133,12 +134,7 @@ impl WorkspaceClient {
             channel.pending.lock().await.remove(&id);
             return Err(transport_error(error));
         }
-        Ok(PendingWorkspaceRequest {
-            id,
-            receiver,
-            timeout: timeout.map(|(_, duration)| duration),
-            pending: channel.pending.clone(),
-        })
+        Ok(PendingWorkspaceRequest { id, receiver, deadline, pending: channel.pending.clone() })
     }
 
     fn channel(&self, class: RpcTrafficClass) -> &WorkspaceRpcChannel {
@@ -229,7 +225,7 @@ impl WorkspaceClient {
 pub struct PendingWorkspaceRequest {
     id: RequestId,
     receiver: oneshot::Receiver<PendingResponse>,
-    timeout: Option<Duration>,
+    deadline: Option<tokio::time::Instant>,
     pending: PendingRequests,
 }
 
@@ -239,8 +235,8 @@ impl PendingWorkspaceRequest {
     }
 
     pub async fn receive(self) -> Result<WorkspaceResponse, RpcError> {
-        let response = match self.timeout {
-            Some(timeout) => match tokio::time::timeout(timeout, self.receiver).await {
+        let response = match self.deadline {
+            Some(deadline) => match tokio::time::timeout_at(deadline, self.receiver).await {
                 Ok(response) => response,
                 Err(_) => {
                     self.pending.lock().await.remove(&self.id);
@@ -505,7 +501,7 @@ mod tests {
         );
         assert_eq!(
             rpc_traffic_class(&WorkspaceRequest::CancelComputerUse {
-                invocation: ComputerUseInvocationId(1),
+                invocation: ComputerUseInvocationId::from_u128(1),
             }),
             RpcTrafficClass::Control
         );

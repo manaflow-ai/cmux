@@ -20,6 +20,7 @@ const NOISE_XX_PSK3: &str = "Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s";
 const NOISE_MAX_MESSAGE: usize = 65_535;
 const NOISE_TAG_BYTES: usize = 16;
 const NOISE_NONCE_BYTES: usize = 8;
+pub(crate) const SECURE_FRAME_OVERHEAD_BYTES: usize = NOISE_TAG_BYTES + NOISE_NONCE_BYTES;
 const HANDSHAKE_PAYLOAD_MAX: usize = 16 * 1024;
 
 #[derive(Clone)]
@@ -576,7 +577,7 @@ fn secure_link(
     let link_maximum = inner.maximum_frame_bytes();
     let maximum_plaintext = link_maximum
         .min(NOISE_MAX_MESSAGE)
-        .checked_sub(NOISE_TAG_BYTES + NOISE_NONCE_BYTES)
+        .checked_sub(SECURE_FRAME_OVERHEAD_BYTES)
         .ok_or_else(|| CryptoError::Link("link frame limit is too small for Noise".into()))?;
     let description = format!("noise+{}", inner.description());
     Ok(SecureLink {

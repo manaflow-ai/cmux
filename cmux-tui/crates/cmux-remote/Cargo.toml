@@ -24,6 +24,7 @@ cmux-pty.workspace = true
 cmux-remote-protocol.workspace = true
 diffy.workspace = true
 futures-util.workspace = true
+fs4.workspace = true
 getrandom.workspace = true
 ghostty-vt.workspace = true
 hmac.workspace = true

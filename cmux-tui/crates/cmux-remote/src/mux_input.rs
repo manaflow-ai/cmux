@@ -37,8 +37,8 @@ pub(crate) fn encode_local_line(line: &[u8]) -> Result<Option<Bytes>, MuxInputEr
     let Ok(value) = serde_json::from_slice::<Value>(line) else { return Ok(None) };
     if value.get("cmd").and_then(Value::as_str) != Some("send")
         || value.get("no_reply").and_then(Value::as_bool) != Some(true)
-        || value.get("paste").and_then(Value::as_bool) == Some(true)
-        || value.get("text").and_then(Value::as_str).is_some_and(|text| !text.is_empty())
+        || value.get("paste").is_some_and(|paste| paste.as_bool() != Some(false))
+        || value.get("text").is_some_and(|text| text.as_str() != Some(""))
     {
         return Ok(None);
     }
@@ -127,7 +127,9 @@ mod tests {
             br#"{"id":1,"cmd":"send","surface":2,"bytes":"eA=="}"#.as_slice(),
             br#"{"id":1,"cmd":"send","surface":2,"bytes":"!","no_reply":true}"#,
             br#"{"id":1,"cmd":"send","surface":2,"bytes":"eA==","no_reply":true,"paste":true}"#,
+            br#"{"id":1,"cmd":"send","surface":2,"bytes":"eA==","no_reply":true,"paste":"false"}"#,
             br#"{"id":1,"cmd":"send","surface":2,"text":"x","bytes":"eA==","no_reply":true}"#,
+            br#"{"id":1,"cmd":"send","surface":2,"text":false,"bytes":"eA==","no_reply":true}"#,
         ] {
             assert!(encode_local_line(line).unwrap().is_none());
         }
