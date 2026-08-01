@@ -737,7 +737,7 @@ public final class MobileIrohRuntimeComposition:
         async -> MobileIrohConnectionReadinessOutcome
     {
         await reconcileLiveAuthIfNeeded()
-        let outcome = await connectionReadiness.wait()
+        let outcome = await connectionReadiness.wait(now: now)
         await sceneTransitionTask?.value
         if runtime != nil { return .ready }
         let accountID = observedAccountID ?? activeAccountID
