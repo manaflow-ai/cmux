@@ -3,7 +3,7 @@ import Network
 import UIKit
 import XCTest
 
-final class CmuxLabsSettingsUITests: XCTestCase {
+final class cmuxUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -13,13 +13,16 @@ final class CmuxLabsSettingsUITests: XCTestCase {
     /// production Settings.
     @MainActor
     func testGroupsDebugExperimentRows() throws {
-        let app = launchSettingsPreviewApp()
+        let app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
+        )
         defer { app.terminate() }
 
         openSettings(in: app)
 
         let labsHeader = app.descendants(matching: .any)["MobileSettingsCmuxLabsHeader"]
-        XCTAssertTrue(scrollToElement(labsHeader, in: app))
+        XCTAssertTrue(scrollToSettingsElement(labsHeader, in: app))
         XCTAssertEqual(labsHeader.label, "CMUX Labs")
 
         for identifier in [
@@ -32,54 +35,8 @@ final class CmuxLabsSettingsUITests: XCTestCase {
             "MobileSettingsUnreadIndicatorLeftness",
         ] {
             let row = app.descendants(matching: .any)[identifier]
-            XCTAssertTrue(scrollToElement(row, in: app), "Missing \(identifier) from CMUX Labs")
+            XCTAssertTrue(scrollToSettingsElement(row, in: app), "Missing \(identifier) from CMUX Labs")
         }
-    }
-
-    @MainActor
-    private func launchSettingsPreviewApp() -> XCUIApplication {
-        let app = XCUIApplication()
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "0"
-        app.launchEnvironment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW"] = "1"
-        app.launch()
-        return app
-    }
-
-    @MainActor
-    private func openSettings(in app: XCUIApplication) {
-        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 8))
-        tap(settings)
-    }
-
-    @MainActor
-    private func scrollToElement(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
-        if element.waitForExistence(timeout: 2) {
-            return true
-        }
-        for _ in 0..<8 {
-            app.swipeUp(velocity: .slow)
-            if element.waitForExistence(timeout: 1) {
-                return true
-            }
-        }
-        return false
-    }
-
-    @MainActor
-    private func tap(_ element: XCUIElement) {
-        if element.isHittable {
-            element.tap()
-        } else {
-            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        }
-    }
-}
-
-final class cmuxUITests: XCTestCase {
-    override func setUpWithError() throws {
-        continueAfterFailure = false
     }
 
     func testMockHostInstanceTagFollowsTargetBuildScope() {
@@ -4428,6 +4385,27 @@ final class cmuxUITests: XCTestCase {
         }
         app.launch()
         return app
+    }
+
+    @MainActor
+    private func openSettings(in app: XCUIApplication) {
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        tap(settings, in: app)
+    }
+
+    @MainActor
+    private func scrollToSettingsElement(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        if element.waitForExistence(timeout: 2) {
+            return true
+        }
+        for _ in 0..<8 {
+            app.swipeUp(velocity: .slow)
+            if element.waitForExistence(timeout: 1) {
+                return true
+            }
+        }
+        return false
     }
 
     @MainActor
