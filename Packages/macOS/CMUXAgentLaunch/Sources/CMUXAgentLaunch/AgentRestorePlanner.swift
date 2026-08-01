@@ -216,7 +216,14 @@ public struct AgentRestorePlanner: Sendable {
             return arguments
         }
 
-        if first != restoreLaunch.executableName {
+        if kind == "claude" {
+            let replayKey = "CMUX_RESOLVED_CLAUDE_PATH"
+            if environment[replayKey] == nil,
+               let executablePath = normalized(request.launchCommand?.executablePath),
+               isExecutableFile(executablePath) {
+                environment[replayKey] = executablePath
+            }
+        } else if first != restoreLaunch.executableName {
             environment[restoreLaunch.customExecutablePathEnvironmentKey] = first
         }
         environment["CMUX_AGENT_RESTORE_LAUNCH"] = restoreLaunch.authorizationEnvironmentValue

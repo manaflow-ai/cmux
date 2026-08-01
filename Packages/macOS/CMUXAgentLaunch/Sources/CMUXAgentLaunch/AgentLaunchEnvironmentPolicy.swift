@@ -69,6 +69,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "CAMPFIRE_RELAY_URL",
         "CLAUDE_CONFIG_DIR",
         "CMUX_CUSTOM_CLAUDE_PATH",
+        "CMUX_RESOLVED_CLAUDE_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
         "CODEBUDDY_BASE_URL",

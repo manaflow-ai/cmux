@@ -154,6 +154,15 @@ cmux_claude_wrapper_exec_resolved_claude() {
 
     if ! cmux_claude_wrapper_target_looks_like_reexec_shim "$target"; then
         # A non-shim target is the boundary where a real Claude process starts.
+        # Hook-integrated launches publish the final executable so restore hooks
+        # can replay it. Passthrough launches must not leak an inherited replay
+        # hint into updater/doctor/install/version subprocesses.
+        if [[ "${cmux_claude_wrapper_publish_resolved_path:-0}" == "1" ]]; then
+            export CMUX_RESOLVED_CLAUDE_PATH="$target"
+        else
+            unset CMUX_RESOLVED_CLAUDE_PATH
+        fi
+        unset cmux_claude_wrapper_publish_resolved_path
         # Clear the shim-bounce guard so real Claude children that invoke
         # `claude` later begin a fresh wrapper resolution.
         unset CMUX_AGENT_RESTORE_LAUNCH
@@ -191,18 +200,20 @@ cmux_claude_wrapper_init_reexec_guard
 
 # Find the real claude binary, skipping cmux's wrapper and temp shell shims.
 find_real_claude() {
-    # Honor custom path from Settings > Automation > Claude Code > Claude Binary Path.
-    # Guard against self-reference (user pointing back to this wrapper).
-    local custom="${CMUX_CUSTOM_CLAUDE_PATH:-}"
-    custom="${custom#"${custom%%[![:space:]]*}"}"  # trim leading whitespace
-    custom="${custom%"${custom##*[![:space:]]}"}"  # trim trailing whitespace
-    if [[ -n "$custom" && -f "$custom" && -x "$custom" ]]; then
-        # Use -ef to detect same underlying file even through symlinks.
-        if ! cmux_claude_wrapper_is_self_or_shim "$custom"; then
-            printf '%s' "$custom"
-            return 0
+    # Settings override restore replay, which overrides the current PATH. Invalid
+    # or self-referential configured paths fall through to the next candidate.
+    local configured
+    for configured in "${CMUX_CUSTOM_CLAUDE_PATH:-}" "${CMUX_RESOLVED_CLAUDE_PATH:-}"; do
+        configured="${configured#"${configured%%[![:space:]]*}"}"  # trim leading whitespace
+        configured="${configured%"${configured##*[![:space:]]}"}"  # trim trailing whitespace
+        if [[ -n "$configured" && -f "$configured" && -x "$configured" ]]; then
+            # Use -ef to detect the same underlying file even through symlinks.
+            if ! cmux_claude_wrapper_is_self_or_shim "$configured"; then
+                printf '%s' "$configured"
+                return 0
+            fi
         fi
-    fi
+    done
     local self_dir
     self_dir="$(cd "$(dirname "$0")" && pwd)"
     local IFS=:
@@ -210,7 +221,10 @@ find_real_claude() {
         [[ "$d" == "$self_dir" ]] && continue
         local candidate="$d/claude"
         cmux_claude_wrapper_is_self_or_shim "$candidate" && continue
-        [[ -x "$candidate" ]] && printf '%s' "$candidate" && return 0
+        if [[ -f "$candidate" && -x "$candidate" ]]; then
+            printf '%s' "$candidate"
+            return 0
+        fi
     done
     return 1
 }
@@ -1052,8 +1066,10 @@ process.stdout.write(JSON.stringify(acc));
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
+    export cmux_claude_wrapper_publish_resolved_path=1
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    export cmux_claude_wrapper_publish_resolved_path=1
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
 fi
