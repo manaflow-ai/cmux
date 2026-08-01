@@ -1059,6 +1059,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored
     private var secondaryMacEstablishmentFlights:
         [MacPairingKey: SecondaryMacEstablishmentFlight] = [:]
+    /// Foreground route authority is published before its first dial can
+    /// suspend. Control aggregation must not start or publish a competing
+    /// session while this reservation is current.
+    @ObservationIgnored
+    private var foregroundConnectionAttemptReservation:
+        ForegroundConnectionAttemptReservation? = nil
     /// Retired control clients whose physical transport is still draining.
     /// These entries block another same-Mac dial without appearing in the live
     /// registry or remaining available to workspace and notification actions.
@@ -5013,6 +5019,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let eligibleMacs = macs.filter { mac in
             guard !mac.macDeviceID.isEmpty else { return false }
+            guard foregroundConnectionAttemptReservation?.conflicts(
+                with: mac
+            ) != true else {
+                return false
+            }
             if foregroundIDSet.contains(cmxCanonicalDeviceID(mac.macDeviceID)) {
                 // Exclude the exact foreground pairing, and ALSO any legacy
                 // untagged row on the foreground device: it names the same app
@@ -5142,7 +5153,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
         }
         secondaryMacEstablishmentFlights[flightKey] =
-            SecondaryMacEstablishmentFlight(id: flightID, task: task)
+            SecondaryMacEstablishmentFlight(
+                id: flightID,
+                mac: mac,
+                task: task
+            )
         let outcome = await task.value
         if secondaryMacEstablishmentFlights[flightKey]?.id == flightID {
             secondaryMacEstablishmentFlights[flightKey] = nil
@@ -5159,6 +5174,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let pairingKey = MacPairingKey(mac)
         guard let pairedMacStore,
               !Task.isCancelled,
+              foregroundConnectionAttemptReservation?.conflicts(
+                  with: mac
+              ) != true,
               secondaryMacSubscriptions[pairingKey] == nil,
               secondaryMacDrainReservation(onDeviceOf: pairingKey) == nil else {
             return .superseded
@@ -5194,6 +5212,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // during the connect does not leave an old-scope connection live or write
         // its state; the loser disconnects its client.
         guard !Task.isCancelled,
+              foregroundConnectionAttemptReservation?.conflicts(
+                  with: mac
+              ) != true,
               secondaryMacSubscriptions[pairingKey] == nil,
               secondaryMacDrainReservation(onDeviceOf: pairingKey) == nil,
               secondaryMacSubscriptions.count
@@ -7707,6 +7728,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             clearRemoteConnectionContext()
             return .noSupportedRoute
         }
+        let foregroundReservation = ForegroundConnectionAttemptReservation(
+            id: generation,
+            requestedMacDeviceID: requestedMacDeviceID,
+            instanceTagExpectation: instanceTagExpectation,
+            routes: supportedRoutes
+        )
+        foregroundConnectionAttemptReservation = foregroundReservation
+        defer {
+            if foregroundConnectionAttemptReservation?.id == generation {
+                foregroundConnectionAttemptReservation = nil
+            }
+        }
+        // A control pass may have selected this route before the foreground
+        // reservation existed and then suspended in transport admission. Retire
+        // and join those flights before dialing so the host never observes two
+        // competing sessions for the foreground route.
+        let conflictingControlFlights = secondaryMacEstablishmentFlights
+            .filter { foregroundReservation.conflicts(with: $0.value.mac) }
+        for (_, flight) in conflictingControlFlights {
+            flight.task.cancel()
+        }
+        for (key, flight) in conflictingControlFlights {
+            _ = await flight.task.value
+            if secondaryMacEstablishmentFlights[key]?.id == flight.id {
+                secondaryMacEstablishmentFlights[key] = nil
+            }
+        }
+        guard isConnectCurrent() else { return nil }
         let targetsCurrentLogicalMac =
             currentFocusedConnection.map { connection in
                 requestedMacDeviceID.map {
