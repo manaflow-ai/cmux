@@ -545,7 +545,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
-    private let presenceNudgeSubscriber = PresenceNudgeSubscriber()
     /// Composition-root lifetime owner shared by every window's font-size
     /// queue. Window coordinators receive this dependency explicitly; no
     /// coordinator reaches back through `AppDelegate.shared`.
@@ -565,6 +564,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// the SDK is off.
     private var transportSentryReporter: TransportSentryReporter?
     private let cmuxThemePreviewReloadScheduler = MainActorDeferredActionScheduler()
+    private let connectivityInvalidationSubscriberCoordinator =
+        ConnectivityInvalidationSubscriberCoordinator()
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
         // On some macOS/Xcode setups, the app-under-test process doesn't get
@@ -2137,7 +2138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Best-effort presence goodbye; unclean exits are covered by the
         // service's missed-heartbeat timeout.
         PresenceHeartbeatClient.shared.appWillTerminate()
-        presenceNudgeSubscriber.appWillTerminate()
+        connectivityInvalidationSubscriberCoordinator.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
@@ -2193,7 +2194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
-        presenceNudgeSubscriber.configure(auth: auth.coordinator)
+        connectivityInvalidationSubscriberCoordinator.configure(auth: auth.coordinator)
         // DEV-only: auto-publish this Mac's attach route to the signed-in user's
         // pairedMacs backup so a fresh dev iOS build restores it (no manual host
         // entry). No-op on Release / when the flag is off.
@@ -7322,6 +7323,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         suppressWelcome: Bool = false
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
+        // Restored terminals can execute their short `cmux restore` input as
+        // soon as their PTY comes up. Bind the transport before constructing
+        // those surfaces; main-actor command routing naturally waits until the
+        // restore pass has registered their windows and bindings.
+        reconcileSocketListenerConfiguration(source: "bootstrapInitialMainWindow.preRestore")
         let windowId = ensureInitialMainWindowIfNeeded(
             shouldActivate: shouldActivate,
             suppressWelcome: suppressWelcome

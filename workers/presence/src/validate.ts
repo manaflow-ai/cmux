@@ -128,49 +128,67 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
   };
 }
 
-/** Directed wake-up kinds a nudge may carry. A bounded allowlist so the wire
- * stays enumerable; extend deliberately, never pass a client string through. */
-export const NUDGE_KINDS: ReadonlySet<string> = new Set(["iroh-binding-changed"]);
-
-export interface NudgeInput {
-  deviceId: string;
-  /** Restrict the wake-up to one app instance (build tag). Absent = whole device. */
-  tag?: string;
-  kind: string;
+export interface ConnectivityInvalidationInput {
+  revision: number;
 }
 
-export type NudgeParse =
-  | { ok: true; nudge: NudgeInput }
+/** Constant-work comparison for the server-only invalidation capability. */
+export async function isConnectivityPublisherAuthorized(
+  request: Request,
+  configuredSecret: string | undefined,
+): Promise<boolean> {
+  const expected = configuredSecret?.trim() ?? "";
+  const actual = request.headers.get(
+    "x-cmux-connectivity-publisher-secret",
+  )?.trim() ?? "";
+  if (expected.length < 32 || expected.length > 512) return false;
+  const encoder = new TextEncoder();
+  const expectedBytes = encoder.encode(expected);
+  const actualBytes = encoder.encode(actual);
+  if (actualBytes.byteLength === 0 || actualBytes.byteLength > 512) return false;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    expectedBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+  const candidateSignature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    actualBytes,
+  );
+  return crypto.subtle.verify(
+    "HMAC",
+    key,
+    candidateSignature,
+    expectedBytes,
+  );
+}
+
+export type ConnectivityInvalidationParse =
+  | { ok: true; invalidation: ConnectivityInvalidationInput }
   | { ok: false; error: string };
 
-/** Parse and bound a nudge body that has already been JSON-decoded. Pure for
- * tests. */
-export function parseNudge(body: Record<string, unknown>): NudgeParse {
-  const deviceId = trimmedString(body.deviceId).toLowerCase();
-  if (!UUID_RE.test(deviceId)) return { ok: false, error: "invalid_device_id" };
-
-  const kind = trimmedString(body.kind);
-  if (!NUDGE_KINDS.has(kind)) return { ok: false, error: "invalid_kind" };
-
-  const tag = trimmedString(body.tag);
-  if (tag.length > MAX_TAG_LENGTH) return { ok: false, error: "invalid_tag" };
-
-  return { ok: true, nudge: { deviceId, tag: tag || undefined, kind } };
-}
-
-export type DeviceScopeParse =
-  | { scope: "none" }
-  | { scope: "invalid" }
-  | { scope: "device"; deviceId: string };
-
-/** Parse the `?deviceScope=` subscribe query parameter: a device UUID that
- * turns the stream into a directed nudge channel for that device. Pure for
- * tests. */
-export function parseDeviceScope(raw: string | null): DeviceScopeParse {
-  const value = raw?.trim() ?? "";
-  if (!value) return { scope: "none" };
-  const deviceId = value.toLowerCase();
-  return UUID_RE.test(deviceId) ? { scope: "device", deviceId } : { scope: "invalid" };
+/** Parses the only payload the account connectivity channel accepts.
+ *
+ * The notification carries no routes, endpoint ids, or path hints. It is only
+ * a monotonic hint to reconcile through the authenticated v2 authority. */
+export function parseConnectivityInvalidation(
+  body: Record<string, unknown>,
+): ConnectivityInvalidationParse {
+  const keys = Object.keys(body);
+  if (keys.length !== 1 || keys[0] !== "revision") {
+    return { ok: false, error: "invalid_request" };
+  }
+  const revision = body.revision;
+  if (!Number.isSafeInteger(revision) || (revision as number) <= 0) {
+    return { ok: false, error: "invalid_revision" };
+  }
+  return {
+    ok: true,
+    invalidation: { revision: revision as number },
+  };
 }
 
 /** Bounded JSON body reader. Unlike the registry route's post-hoc length
