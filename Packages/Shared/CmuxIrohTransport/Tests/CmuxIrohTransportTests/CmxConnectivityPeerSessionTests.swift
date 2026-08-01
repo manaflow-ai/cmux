@@ -183,6 +183,40 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func unavailablePathKeepsTheSessionThroughTheGraceWindow() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let clock = OnlineAdmissionManualClock(
+            now: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        let stranded = TestConnectivitySession(
+            continuityID: 31,
+            keepsSelectedPathStreamOpen: true
+        )
+        let builder = SequencedConnectivitySessionBuilder(sessions: [stranded])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            },
+            clock: clock
+        )
+
+        _ = try await peer.acquireControl(for: request, ownerID: UUID())
+        try await Self.waitUntil { await stranded.hasSelectedPathObserver() }
+        await stranded.publishSelectedPath(.unavailable)
+        for _ in 0 ..< 100 { await Task.yield() }
+
+        // One unavailable observation is a blip, not a verdict: the session
+        // must survive until the bounded grace deadline expires, because the
+        // native path evidence can be transient or stale and every premature
+        // eviction costs a full teardown + redial + re-pair cycle.
+        let snapshot = await peer.snapshot()
+        #expect(snapshot.phase == .connected)
+        #expect(await stranded.closeCount() == 0)
+    }
+
+    @Test
     func lateClosureCleanupCannotOverwriteAReplacementSession() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
