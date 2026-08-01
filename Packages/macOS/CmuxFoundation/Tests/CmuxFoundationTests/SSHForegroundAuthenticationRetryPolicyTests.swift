@@ -313,6 +313,16 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(!shell.contains("lstart"))
     }
 
+    @Test func forceKillSharesTheCleanupDeadlineAndHasImmediateContainment() {
+        let shell = SSHForegroundAuthenticationRetryPolicy()
+            .processTreeTerminationShellFunction()
+
+        #expect(shell.contains("cmux_ssh_auth_cleanup_force_at"))
+        #expect(shell.contains("cmux_ssh_auth_cleanup_has_grace_time"))
+        #expect(shell.contains("&& cmux_ssh_auth_cleanup_has_time"))
+        #expect(shell.contains("cmux_ssh_kill_frozen_auth_processes"))
+    }
+
     @Test func forceKillOwnsAndReleasesEveryStoppedCandidate() {
         let shell = SSHForegroundAuthenticationRetryPolicy()
             .processTreeTerminationShellFunction()

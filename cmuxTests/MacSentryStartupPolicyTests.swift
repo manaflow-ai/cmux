@@ -88,6 +88,15 @@ import Testing
         )
     }
 
+    @Test func dormantEmbeddedTestBundleIsNotAnActiveTestRunMarker() {
+        #expect(
+            !MacSentryStartupPolicy.containsXCTestArtifacts(
+                plugInNames: ["cmuxTests.xctest"],
+                frameworkNames: []
+            )
+        )
+    }
+
     @Test func loadedXCTestInjectionLibraryIsATestRunMarker() {
         #expect(
             MacSentryStartupPolicy.containsXCTestArtifacts(
