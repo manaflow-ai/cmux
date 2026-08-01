@@ -76,16 +76,23 @@ struct BrowserAppWebPolicyTests {
 
     @Test("external intent supports a loopback development origin")
     func externalIntentSupportsLoopbackDevelopmentOrigin() throws {
-        let policy = BrowserExternalNavigationPolicy(
-            trustedOrigin: try #require(URL(string: "http://localhost:4100"))
-        )
-        let trustedSource = try #require(
-            URL(string: "http://localhost:4100/app-pricing")
-        )
-        #expect(policy.shouldOpenInSystemBrowser(
-            try #require(URL(string: "http://localhost:4100/enterprise?cmux_external_browser=1")),
-            sourceURL: trustedSource
-        ))
+        for host in ["localhost", "dev.localhost", "127.0.0.10", "::1"] {
+            let authority = host.contains(":") ? "[\(host)]" : host
+            let policy = BrowserExternalNavigationPolicy(
+                trustedOrigin: try #require(URL(string: "http://\(authority):4100"))
+            )
+            let trustedSource = try #require(
+                URL(string: "http://\(authority):4100/app-pricing")
+            )
+            #expect(policy.shouldOpenInSystemBrowser(
+                try #require(
+                    URL(
+                        string: "http://\(authority):4100/enterprise?cmux_external_browser=1"
+                    )
+                ),
+                sourceURL: trustedSource
+            ))
+        }
     }
 
     @Test("external intent rejects insecure and non-web origins")
