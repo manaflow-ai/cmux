@@ -1436,9 +1436,9 @@ Example:
 | status | implemented |
 | since | protocol 9 additive capability `layout-undo-v1` |
 
-Undoes the latest structural layout entry on the screen containing `pane`. History is owned by that screen, capped at 32 entries, and kept in memory only. Resize samples carrying the same connection-scoped `transaction` coalesce. A new transaction, another connection, or a request without a transaction starts a new undo entry. Pane creation, split and column resize, swap, zoom, and automatic-layout changes are undoable. A direct pane close clears that screen's history because the closed process cannot be recreated.
+Undoes the latest structural layout entry on the screen containing `pane`. History is owned by that screen, capped at 32 entries, and kept in memory only. Resize samples carrying the same connection-scoped `transaction` coalesce. A new transaction, another connection, or a request without a transaction starts a new undo entry. Pane creation, split and column resize, swap, zoom, and automatic-layout changes are undoable. A direct pane close clears that screen's history because the journal cannot reconstruct exact removed tab membership or a closed browser target.
 
-If the entry created panes, the first request returns a confirmation preview. The server advances to a unique confirmation revision and binds it to the exact ordered surface membership of every pane in `closes_panes`. The client must show the consequence, then resend that revision with `confirm_close:true`. A later structural change, tab addition, tab removal, tab reorder, tab move, or newer preview invalidates the confirmation. A rejected or stale confirmation closes nothing.
+If the entry created panes, the first request returns a confirmation preview. The server advances to a unique confirmation revision and binds it to the exact ordered surface membership of every pane in `closes_panes`. The client must show the consequence, then resend that revision with `confirm_close:true`. Confirming detaches PTY terminal views and closes single-view browser surfaces; it never invokes `terminal.close`. A later structural change, tab addition, tab removal, tab reorder, tab move, or newer preview invalidates the confirmation. A rejected or stale confirmation changes nothing.
 
 Clients must reject the response unless it contains exactly one complete result variant. The applied variant requires `undone:true`, `screen`, and `revision`, with `confirmation_required` either absent or false. The preview variant requires `undone:false`, `confirmation_required:true`, `screen`, `revision`, and an array of valid pane ids in `closes_panes`. Missing fields, contradictory outcome flags, invalid ids, and non-array `closes_panes` values are protocol errors.
 
@@ -1804,7 +1804,12 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes one surface tab. The server kills the surface runtime, removes the tab from its pane, collapses an emptied pane out of its split tree, removes emptied screens and workspaces, and may emit `tree-changed` and `empty`.
+Closes one tab placement. For a PTY, the session-owned terminal process,
+history, and canonical grid remain available, including when this was its last
+view. A browser runtime closes because a browser is single-view. The server
+removes the tab from its pane, collapses an emptied pane and screen, keeps an
+emptied canonical workspace, and may emit `tree-changed`. Only explicit
+`close-workspace` can remove the workspace and produce `empty`.
 
 Params:
 
@@ -1850,7 +1855,10 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes a pane and every tab in it. The pane is collapsed out of the screen split tree. Emptied screens and workspaces are removed.
+Closes a pane and removes every tab placement in it. PTY terminal resources
+remain session-owned and browser runtimes close. The pane is collapsed out of
+the screen split tree. An emptied screen is removed, while its canonical
+workspace remains.
 
 Params:
 
@@ -1896,7 +1904,9 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes a screen and every pane and tab in it. The workspace remains if it still has screens; otherwise the workspace is removed.
+Closes a screen and removes every pane and tab placement in it. PTY terminal
+resources remain session-owned and browser runtimes close. The canonical
+workspace remains even when this was its final screen.
 
 Params:
 
@@ -1942,8 +1952,10 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Explicitly tombstones a workspace and closes every screen, pane, and tab in
-it. Terminal/pane exit alone never invokes this operation. The active
+Explicitly tombstones a workspace and removes every screen, pane, and tab
+placement in it. PTY terminal resources remain session-owned with zero or more
+views; only `terminal.close` ends them. Single-view browser runtimes close.
+Terminal or pane exit alone never invokes this operation. The active
 workspace selection is adjusted to keep a remaining workspace active when
 possible. The workspace may be selected by stable key or numeric id, and the
 common mutation envelope provides revision CAS and exactly-once retries.
@@ -3415,7 +3427,7 @@ Hook event mapping:
 | `on-bell` | Implemented `bell` event |
 | `on-agent-blocked` | Proposed agent state becomes `blocked` |
 | `on-agent-done` | Proposed agent state becomes `done` |
-| `on-surface-exit` | Implemented surface exits and is reaped |
+| `on-surface-exit` | Implemented terminal runtime exits or browser surface closes; terminal placements may remain |
 
 ## Compatibility Notes
 

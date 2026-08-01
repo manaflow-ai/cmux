@@ -211,6 +211,10 @@ provider authority install
 ```
 
 Workspace creation starts with one terminal unless `--empty` is present.
+`terminal <selector> project` requires destination `--workspace`, `--screen`,
+`--pane`, and `--index` values and creates an unfocused tab placement. Tab,
+pane, screen, and workspace closes detach PTY views; only `terminal close`
+ends the session-owned process and removes all of its placements.
 `client <selector> metadata set` leaves an omitted field unchanged and clears
 one passed as null. A non-null name or kind preserves its exact value, contains
 at most 64 Unicode scalars, and contains no Unicode `Cc` control scalar.

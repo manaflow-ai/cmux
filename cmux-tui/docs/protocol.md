@@ -149,15 +149,15 @@ Existing `set-ratio` clients remain source-compatible and the server keeps the p
 
 Attach clients mirror PTY surfaces locally. After `identify` advertises `attach-initial-size`, a client can include paired `cols` and `rows` in `attach-surface`, so the server records its initial size claim before capturing the first VT replay or render state. Older servers that omit the capability must receive neither field.
 
-When several clients display the same surface, the authoritative grid uses the
-smallest reported columns and the smallest reported rows across visible
-viewers. A client reports after the surface becomes visible and whenever its
-local viewport changes, then sends `release-surface-size` when the surface is
-hidden. Input and mux-driven redraws do not claim sizing ownership or cause a
-passive client to reassert its viewport. See the canonical
-[`Sizing`](../spec/commands.md#sizing) contract.
-
-When several attach clients render the same surface at different sizes, the surface uses the smallest participating width and height. A protocol-v10 sizing action changes participation only on its requested surface, so choosing “Use only this client size” on one terminal leaves every other terminal's policy unchanged. Mux-driven redraws update local mirrors from `surface-resized` without reasserting an idle client's viewport.
+When several clients display one terminal, their size reports are passive
+viewport hints until one exact client and terminal view claim geometry
+authority. Only that owner can resize the canonical PTY grid; every other view
+crops, pans, or scales it locally. Releasing or disconnecting the owner freezes
+the current grid until another explicit claim. Browser surfaces retain the
+legacy smallest-participating-size reducer because each browser has one live
+tab. A client releases its report when that view becomes hidden. Input and
+mux-driven redraws never claim geometry or reassert an idle viewport. See the
+canonical [`Sizing`](../spec/commands.md#sizing) contract.
 
 Provider-aware clients require `provider-managed-workspace-authority-v2` before exposing provider-owned workspace lifecycle controls. The server starts with provider ownership fixed for that mux generation, including during temporary provider descriptor gaps, so an older or stale client cannot reopen ordinary rename or close paths.
 
