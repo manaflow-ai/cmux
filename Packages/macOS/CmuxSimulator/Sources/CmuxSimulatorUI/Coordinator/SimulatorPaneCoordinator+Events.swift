@@ -33,6 +33,7 @@ extension SimulatorPaneCoordinator {
     func enqueue(_ message: SimulatorWorkerInbound) -> Bool {
         if message.invalidatesUIAutomationSnapshot,
            uiAutomationSession.isTransactionActive,
+           !message.isLiveInputRelease,
            !uiAutomationSession.currentTaskOwnsTransaction(
                controlActionToken: currentControlActionTaskToken
            ) {
@@ -284,6 +285,21 @@ extension SimulatorPaneCoordinator {
 }
 
 private extension SimulatorWorkerInbound {
+    var isLiveInputRelease: Bool {
+        switch self {
+        case let .pointer(event):
+            event.phase == .ended || event.phase == .cancelled
+        case let .key(event):
+            event.phase == .up
+        case let .hidButton(event):
+            event.phase == .up
+        case .releaseInputs:
+            true
+        default:
+            false
+        }
+    }
+
     var invalidatesUIAutomationSnapshot: Bool {
         switch self {
         case .pointer, .key, .keySequence, .scrollWheel, .typeText,
