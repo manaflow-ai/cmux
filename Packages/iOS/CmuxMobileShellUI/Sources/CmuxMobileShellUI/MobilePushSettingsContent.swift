@@ -402,32 +402,32 @@ private extension MobilePushSettingsContent {
     func phoneBlockerText(_ blocker: MobilePushReadiness.Blocker) -> String {
         switch blocker {
         case .phoneOptInDisabled:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.phoneOff",
                 defaultValue: "Blocked, Off on This iPhone"
             )
         case .systemPermissionNotRequested:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.permissionNotRequested",
                 defaultValue: "Blocked, iOS Permission Not Requested"
             )
         case .systemPermissionDenied:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.permissionDenied",
                 defaultValue: "Blocked, iOS Permission Denied"
             )
         case .systemNotificationsUnsupported:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.unsupported",
                 defaultValue: "Blocked, Notifications Unsupported"
             )
         case .awaitingDeviceToken:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.awaitingToken",
                 defaultValue: "Blocked, Waiting for Notification Setup"
             )
         case .deviceTokenRegistrationFailed:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.tokenFailed",
                 defaultValue: "Blocked, Notification Setup Failed"
             )
@@ -442,32 +442,32 @@ private extension MobilePushSettingsContent {
     ) -> String {
         switch blocker {
         case .registeringDevice:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.registering",
                 defaultValue: "Blocked, Registering This Device"
             )
         case .backendRegistrationRequired:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.backendRequired",
                 defaultValue: "Blocked, Finishing Notification Setup"
             )
         case .authenticationRequired:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.authenticationRequired",
                 defaultValue: "Blocked, Sign In Again"
             )
         case .accountDeletionInProgress:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.accountDeletion",
                 defaultValue: "Blocked, Account Deletion in Progress"
             )
         case .registrationRateLimited:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.rateLimited",
                 defaultValue: "Blocked, Registration Rate Limited"
             )
         case let .deviceLimitReached(limit):
-            String.localizedStringWithFormat(
+            return String.localizedStringWithFormat(
                 L10n.string(
                     "mobile.notifications.status.deviceLimitFormat",
                     defaultValue: "Blocked, %d-Device Limit Reached"
@@ -475,18 +475,18 @@ private extension MobilePushSettingsContent {
                 limit
             )
         case .networkUnavailable:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.offline",
                 defaultValue: "Blocked, Network Unavailable"
             )
         case .pushServiceUnavailable, .invalidServerResponse,
              .registrationRejected:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.registrationFailed",
                 defaultValue: "Blocked, Registration Failed"
             )
         case .invalidConfiguration:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.invalidConfiguration",
                 defaultValue: "Blocked, Invalid Push Configuration"
             )
@@ -499,27 +499,27 @@ private extension MobilePushSettingsContent {
     func macBlockerText(_ blocker: MobilePushReadiness.Blocker) -> String {
         switch blocker {
         case .macStatusUnavailable, .macAdmissionUnavailable:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.macUnavailable",
                 defaultValue: "Blocked, Mac Status Unavailable"
             )
         case .macAccountMismatch:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.accountMismatch",
                 defaultValue: "Blocked, Mac Account Does Not Match"
             )
         case .macForwardingDisabled:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.macForwardingOff",
                 defaultValue: "Blocked, Mac Forwarding Is Off"
             )
         case .macCurrentlyActive:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.macActive",
                 defaultValue: "Paused, Mac Is Active"
             )
         case .apiOriginMismatch:
-            L10n.string(
+            return L10n.string(
                 "mobile.notifications.status.originMismatch",
                 defaultValue: "Blocked, Mac and iPhone Servers Differ"
             )
