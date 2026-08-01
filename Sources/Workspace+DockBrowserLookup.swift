@@ -202,6 +202,7 @@ extension DockSplitStore {
                     initialRequest: request,
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -213,6 +214,7 @@ extension DockSplitStore {
                     sourcePanelId: sourcePanel.id,
                     initialRequest: request,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore,
                     focus: true
                 ) != nil
@@ -224,9 +226,11 @@ extension DockSplitStore {
                     initialRequest: request,
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
-            }
+            },
+            isBrowserAvailable: { self.isBrowserAvailable() }
         )
     }
 
@@ -258,6 +262,7 @@ extension DockSplitStore {
                     url: url,
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -270,6 +275,7 @@ extension DockSplitStore {
                     sourcePanelId: sourcePanel.id,
                     url: url,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore,
                     focus: true
                 ) != nil
@@ -282,9 +288,11 @@ extension DockSplitStore {
                     url: url,
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
-            }
+            },
+            isBrowserAvailable: { self.isBrowserAvailable() }
         )
     }
 
