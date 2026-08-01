@@ -51,17 +51,22 @@ jobs:
             echo "Dispatch sdk-release-cut.yml from main, found $GITHUB_REF." >&2
             exit 1
           }
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
             echo "version must match X.Y.Z" >&2
             exit 1
           }
 
-          git fetch --force origin main
+          git fetch --force origin main --tags
           main_sha="$(git rev-parse origin/main)"
           [[ "$GITHUB_SHA" == "$main_sha" ]] || {
             echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
             exit 1
           }
+
+          git tag --list 'cmux-sdk-v*' | \
+            python3 cmux-tui/bindings/validate_release_version.py \
+              --version "$VERSION" \
+              --require-newer-than-tags
 
           python3 cmux-tui/bindings/check-versions.py \
             --published-only \

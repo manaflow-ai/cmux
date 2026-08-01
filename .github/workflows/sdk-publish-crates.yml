@@ -30,10 +30,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Validate tag and package versions
         id: version
         env:
+          CONFIRM_PUBLISH: ${{ inputs.confirm_publish }}
           DISPATCH_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
@@ -43,10 +45,41 @@ jobs:
               exit 1
             }
             version="${GITHUB_REF_NAME#cmux-sdk-v}"
+            [[ "$DISPATCH_VERSION" == "$version" ]] || {
+              echo "workflow_dispatch version $DISPATCH_VERSION does not match tag version $version" >&2
+              exit 1
+            }
           else
             version="$DISPATCH_VERSION"
             [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
               echo "workflow_dispatch version must match X.Y.Z" >&2
+              exit 1
+            }
+          fi
+          python3 cmux-tui/bindings/validate_release_version.py \
+            --version "$version"
+          if [[ "$CONFIRM_PUBLISH" == "true" ]]; then
+            tag="cmux-sdk-v$version"
+            expected_ref="refs/tags/$tag"
+            [[ "$GITHUB_REF" == "$expected_ref" ]] || {
+              echo "Refusing to publish crates from $GITHUB_REF; dispatch on $expected_ref." >&2
+              exit 1
+            }
+            git fetch --force origin main --tags
+            git tag --list 'cmux-sdk-v*' | \
+              python3 cmux-tui/bindings/validate_release_version.py \
+                --version "$version" \
+                --require-latest-tag
+            release_sha="$(git rev-parse "refs/tags/$tag^{commit}")" || {
+              echo "release tag does not exist: $tag" >&2
+              exit 1
+            }
+            git merge-base --is-ancestor "$release_sha" origin/main || {
+              echo "release tag $tag is not an ancestor of protected main" >&2
+              exit 1
+            }
+            [[ "$release_sha" == "$GITHUB_SHA" ]] || {
+              echo "release tag $tag resolves to $release_sha, expected workflow commit $GITHUB_SHA" >&2
               exit 1
             }
           fi

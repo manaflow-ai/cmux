@@ -50,7 +50,9 @@ and crates.io require the interactive bootstrap above.
 
 1. Update the TypeScript, Python, `cmux-client`, and `cmux-sidebar` manifests to
    the same `X.Y.Z`. Keep the `cmux-sidebar` dependency on `cmux-client` pinned
-   to that exact version. Go follows the path-prefixed tag.
+   to that exact version. Go follows the path-prefixed tag. The version must be
+   greater than every existing `cmux-sdk-v*` release. Major versions are limited
+   to 0 and 1 until the Go module path adopts a `/vN` suffix.
 2. Verify the publish set:
 
    ```bash
@@ -75,7 +77,9 @@ workflow explicitly dispatches exactly four workflows in independent jobs:
 - `sdk-publish-python.yml`
 
 Each publisher runs its package tests and live conformance case before any
-registry write. The Go workflow additionally resolves the tagged module from a
+registry write. A confirmed registry publish also requires the exact release
+tag, verifies that the tag commit is on protected `main`, and binds provenance
+to that commit. The Go workflow additionally resolves the tagged module from a
 clean external consumer.
 
 If one dispatch job fails, use GitHub's **Re-run failed jobs** action. Successful

@@ -67,6 +67,9 @@ def test_sdk_release_cut_dispatches_only_the_selected_four_languages() -> None:
     assert release.index("go-preflight:") < release.index("git push --atomic origin")
     assert 'existing_sha="$(git rev-parse' in release
     assert '"$existing_sha" != "$GITHUB_SHA"' in release
+    assert "validate_release_version.py" in release
+    assert "--require-newer-than-tags" in release
+    assert "git tag --list 'cmux-sdk-v*'" in release
     assert release.count("gh workflow run sdk-publish-") == 4
     assert "if: always()" in release
     for result in (
@@ -112,6 +115,12 @@ def test_sdk_publishers_only_publish_after_confirmed_dispatch() -> None:
         assert "push:\n    tags:" not in text
         assert "if: inputs.confirm_publish == true" in text
         assert "github.event_name == 'push'" not in text
+        assert 'expected_ref="refs/tags/$tag"' in text
+        assert '[[ "$GITHUB_REF" == "$expected_ref" ]]' in text
+        assert 'git merge-base --is-ancestor "$release_sha" origin/main' in text
+        assert '[[ "$release_sha" == "$GITHUB_SHA" ]]' in text
+        assert "validate_release_version.py" in text
+        assert "--require-latest-tag" in text
 
     go = workflow("sdk-publish-go.yml")
     assert "push:\n    tags:" not in go
@@ -120,6 +129,22 @@ def test_sdk_publishers_only_publish_after_confirmed_dispatch() -> None:
     public_probe = go.split("verify-versioned-go-module:", 1)[1]
     setup = public_probe.split("Resolve the public module tag", 1)[0]
     assert "cache: false" in setup
+
+
+def test_typescript_spec_uses_the_sdk_registry_name() -> None:
+    spec = (ROOT / "cmux-tui" / "spec" / "bindings.md").read_text()
+    typescript = spec.split("### TypeScript", 1)[1].split("### Go", 1)[0]
+
+    for entry_point in (
+        "cmux-sdk",
+        "cmux-sdk/browser",
+        "cmux-sdk/node",
+        "cmux-sdk/raw",
+    ):
+        assert f"`{entry_point}`" in typescript
+    assert "`cmux/browser`" not in typescript
+    assert "`cmux/node`" not in typescript
+    assert "`cmux/raw`" not in typescript
 
 
 def test_required_sdk_ci_checks_only_the_publish_set_version() -> None:
