@@ -177,7 +177,6 @@ function parseHealth(
   return {
     health: {
       ok: value.ok,
-      ...(isString(value.message) ? { message: value.message } : {}),
     },
   };
 }
