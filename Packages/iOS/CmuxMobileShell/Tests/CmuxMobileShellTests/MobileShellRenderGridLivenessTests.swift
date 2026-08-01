@@ -109,7 +109,12 @@ import Testing
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
-    #expect(store.macConnectionStatus == .connected)
+    // Health publishes only once the first listener's acknowledgement is
+    // processed; wait for it so the replacement below demonstrably revokes
+    // an earned healthy status rather than a still-pending one.
+    #expect(try await pollUntil(attempts: 1_000) {
+        store.macConnectionStatus == .connected
+    })
 
     await router.delaySubscribeRequest(number: 2)
     store.resyncTerminalOutput(
