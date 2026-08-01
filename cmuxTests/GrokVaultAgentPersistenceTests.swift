@@ -54,6 +54,59 @@ struct GrokVaultAgentPersistenceTests {
         #expect(detected?.snapshot.sessionId == "019ebaf3-8860-7f53-b31b-70e8b426016d")
     }
 
+    @Test func updatedAtRanksSessionWhenLastActiveAtIsMissing() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+
+        try fixture.writeSession(
+            id: "updated-at-fallback",
+            createdAt: "2026-07-01T00:00:00Z",
+            updatedAt: "2026-07-10T00:00:00Z",
+            summaryModifiedAt: Date(timeIntervalSince1970: 1_000),
+            directoryModifiedAt: Date(timeIntervalSince1970: 1_000),
+            lockModifiedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        try fixture.writeSession(
+            id: "older-last-active",
+            createdAt: "2026-07-01T00:00:00Z",
+            updatedAt: "2026-07-09T00:00:00Z",
+            lastActiveAt: "2026-07-09T00:00:00Z",
+            summaryModifiedAt: Date(timeIntervalSince1970: 2_000_000_000),
+            directoryModifiedAt: Date(timeIntervalSince1970: 2_000_000_000),
+            lockModifiedAt: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+
+        let detected = fixture.detectedEntry(arguments: ["/usr/local/bin/grok"])
+
+        #expect(detected?.snapshot.sessionId == "updated-at-fallback")
+    }
+
+    @Test func createdAtRanksSessionWhenLaterActivityTimestampsAreMissing() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+
+        try fixture.writeSession(
+            id: "created-at-fallback",
+            createdAt: "2026-07-10T00:00:00Z",
+            summaryModifiedAt: Date(timeIntervalSince1970: 1_000),
+            directoryModifiedAt: Date(timeIntervalSince1970: 1_000),
+            lockModifiedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        try fixture.writeSession(
+            id: "older-last-active",
+            createdAt: "2026-07-01T00:00:00Z",
+            updatedAt: "2026-07-09T00:00:00Z",
+            lastActiveAt: "2026-07-09T00:00:00Z",
+            summaryModifiedAt: Date(timeIntervalSince1970: 2_000_000_000),
+            directoryModifiedAt: Date(timeIntervalSince1970: 2_000_000_000),
+            lockModifiedAt: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+
+        let detected = fixture.detectedEntry(arguments: ["/usr/local/bin/grok"])
+
+        #expect(detected?.snapshot.sessionId == "created-at-fallback")
+    }
+
     @Test(arguments: ["-r", "--resume"])
     func explicitResumeArgumentTakesPriority(_ option: String) throws {
         let fixture = try Fixture.make()
