@@ -132,22 +132,28 @@ struct SimulatorUIAutomationSnapshotBuilder {
         } ?? SimulatorRect(x: 0, y: 0, width: 0, height: 0)
         let normalizedLabel = node.label?.normalizedUIAutomationText
         let normalizedValue = node.value?.normalizedUIAutomationText
-        let normalizedIdentifier = node.identifier?.normalizedUIAutomationText
+        let exactIdentifier: String? = if !node.isIdentifierTruncated,
+                                          let identifier = node.identifier,
+                                          !identifier.isEmpty {
+            identifier
+        } else {
+            nil
+        }
         let normalizedRawRole = node.role?.normalizedUIAutomationText
         let normalizedRoleDescription = node.roleDescription?.normalizedUIAutomationText
         let role = normalizedRole(
             normalizedRawRole,
             description: normalizedRoleDescription,
-            identifier: normalizedIdentifier
+            identifier: exactIdentifier
         )
         let visibleFrame = frameIntersection(frame, viewport)
         let visible = visibleFrame != nil
         let enabled = node.isEnabled != false
-        let hasStableInputSelector = normalizedIdentifier != nil
+        let hasStableInputSelector = exactIdentifier != nil
         let actions = supportedActions(
             node: node,
             role: role,
-            hasSemanticIdentity: normalizedLabel != nil || normalizedIdentifier != nil,
+            hasSemanticIdentity: normalizedLabel != nil || exactIdentifier != nil,
             hasStableInputSelector: hasStableInputSelector,
             enabled: enabled,
             visible: visible,
@@ -159,7 +165,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
             role: role,
             label: normalizedLabel,
             value: normalizedValue,
-            identifier: normalizedIdentifier,
+            identifier: exactIdentifier,
             frame: frame,
             state: SimulatorUIAutomationElementState(
                 isEnabled: enabled,
