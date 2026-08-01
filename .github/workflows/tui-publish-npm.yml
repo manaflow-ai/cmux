@@ -9,7 +9,7 @@ on:
         type: string
       artifact_run_id:
         description: "Successful cmux-tui release run containing verified packages"
-        required: false
+        required: true
         type: string
       confirm_tui_cmux:
         description: "Set true only for the coordinated npm cmux TUI publish"

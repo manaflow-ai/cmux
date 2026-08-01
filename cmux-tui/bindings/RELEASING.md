@@ -73,14 +73,17 @@ workflow create `cmux-sdk-vX.Y.Z` and `cmux-tui/bindings/go/vX.Y.Z` atomically
 on the same commit.
 
 The workflow next resolves the public Go module from a clean consumer. It then
-publishes crates.io, npm, and PyPI in parallel through jobs owned directly by
-the cut workflow. Each job requires the exact latest release tag, verifies that
-its commit is on protected `main`, and binds provenance to that commit. Manual
-publisher dispatches validate only and cannot write to a registry.
+publishes npm, the PyPI wheel, and the PyPI source distribution in separate
+jobs while publishing `cmux-client` before `cmux-sidebar`. Each irreversible
+write has its own rerunnable job. Every job requires the exact latest release
+tag, verifies that its commit is on protected `main`, and binds provenance to
+that commit. Manual publisher dispatches validate only and cannot write to a
+registry.
 
 The cut workflow holds one cross-version concurrency lock until the Go check and
 all registry jobs finish. If one publish job fails, use GitHub's **Re-run failed
-jobs** action so successful publishers and the tag step are not repeated.
+jobs** action so successful crates, Python distributions, npm packages, and the
+tag step are not repeated.
 
 ## Verification after publishing
 

@@ -194,7 +194,7 @@ jobs:
       verify_tag: true
       release_ref: refs/tags/${{ needs.validate-release.outputs.go_tag }}
 
-  publish-crates:
+  publish-crate-client:
     needs:
       - validate-release
       - cut-tags
@@ -247,6 +247,51 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth_client.outputs.token }}
         run: cargo publish -p cmux-client --locked
+
+  publish-crate-sidebar:
+    needs:
+      - validate-release
+      - cut-tags
+      - verify-go-tag
+      - publish-crate-client
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment:
+      name: crates-io
+      url: https://crates.io/crates/cmux-sidebar
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require the coordinated release source
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+        run: |
+          set -euo pipefail
+          git fetch --force origin main --tags
+          [[ "$SDK_TAG" == "cmux-sdk-v$VERSION" ]] || {
+            echo "unexpected coordinated SDK tag: $SDK_TAG" >&2
+            exit 1
+          }
+          git tag --list 'cmux-sdk-v*' | \
+            python3 cmux-tui/bindings/validate_release_version.py \
+              --version "$VERSION" \
+              --require-latest-tag
+          release_sha="$(git rev-parse "refs/tags/$SDK_TAG^{commit}")"
+          [[ "$release_sha" == "$GITHUB_SHA" ]] || {
+            echo "release tag $SDK_TAG resolves to $release_sha, expected $GITHUB_SHA" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$release_sha" origin/main || {
+            echo "release tag $SDK_TAG is not on protected main" >&2
+            exit 1
+          }
 
       - name: Wait for cmux-client to reach the crates.io index
         env:
@@ -343,7 +388,7 @@ jobs:
           }
           npm publish --provenance "${packages[0]}"
 
-  publish-python:
+  publish-python-wheel:
     needs:
       - validate-release
       - cut-tags
@@ -396,10 +441,93 @@ jobs:
           name: cmux-python-dist
           path: dist
 
-      - name: Publish package distributions to PyPI
+      - name: Select the validated wheel
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(dist/*.whl)
+          [[ "${#files[@]}" == 1 ]] || {
+            echo "expected one validated wheel, found ${#files[@]}" >&2
+            exit 1
+          }
+          mkdir upload
+          cp "${files[0]}" upload/
+
+      - name: Publish wheel to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
-          packages-dir: dist
+          packages-dir: upload
+          attestations: true
+
+  publish-python-sdist:
+    needs:
+      - validate-release
+      - cut-tags
+      - verify-go-tag
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    # PyPI trusted publishers cannot authenticate a reusable workflow, so the
+    # OIDC publish job stays directly in this top-level release workflow.
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment:
+      name: pypi
+      url: https://pypi.org/p/cmux-sdk
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require the coordinated release source
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+        run: |
+          set -euo pipefail
+          git fetch --force origin main --tags
+          [[ "$SDK_TAG" == "cmux-sdk-v$VERSION" ]] || {
+            echo "unexpected coordinated SDK tag: $SDK_TAG" >&2
+            exit 1
+          }
+          git tag --list 'cmux-sdk-v*' | \
+            python3 cmux-tui/bindings/validate_release_version.py \
+              --version "$VERSION" \
+              --require-latest-tag
+          release_sha="$(git rev-parse "refs/tags/$SDK_TAG^{commit}")"
+          [[ "$release_sha" == "$GITHUB_SHA" ]] || {
+            echo "release tag $SDK_TAG resolves to $release_sha, expected $GITHUB_SHA" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$release_sha" origin/main || {
+            echo "release tag $SDK_TAG is not on protected main" >&2
+            exit 1
+          }
+
+      - name: Download distributions
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-python-dist
+          path: dist
+
+      - name: Select the validated source distribution
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(dist/*.tar.gz)
+          [[ "${#files[@]}" == 1 ]] || {
+            echo "expected one validated source distribution, found ${#files[@]}" >&2
+            exit 1
+          }
+          mkdir upload
+          cp "${files[0]}" upload/
+
+      - name: Publish source distribution to PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: upload
           attestations: true
 
   summarize:
@@ -412,9 +540,11 @@ jobs:
       - python-preflight
       - cut-tags
       - verify-go-tag
-      - publish-crates
+      - publish-crate-client
+      - publish-crate-sidebar
       - publish-npm
-      - publish-python
+      - publish-python-wheel
+      - publish-python-sdist
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions: {}
     steps:
@@ -430,9 +560,11 @@ jobs:
           PYTHON_PREFLIGHT_RESULT: ${{ needs.python-preflight.result }}
           CUT_TAGS_RESULT: ${{ needs.cut-tags.result }}
           GO_TAG_RESULT: ${{ needs.verify-go-tag.result }}
-          CRATES_RESULT: ${{ needs.publish-crates.result }}
+          CRATE_CLIENT_RESULT: ${{ needs.publish-crate-client.result }}
+          CRATE_SIDEBAR_RESULT: ${{ needs.publish-crate-sidebar.result }}
           NPM_RESULT: ${{ needs.publish-npm.result }}
-          PYTHON_RESULT: ${{ needs.publish-python.result }}
+          PYTHON_WHEEL_RESULT: ${{ needs.publish-python-wheel.result }}
+          PYTHON_SDIST_RESULT: ${{ needs.publish-python-sdist.result }}
         run: |
           {
             echo "### cmux SDK $VERSION"
@@ -446,7 +578,9 @@ jobs:
             echo "- Python preflight: \`$PYTHON_PREFLIGHT_RESULT\`"
             echo "- Tag creation: \`$CUT_TAGS_RESULT\`"
             echo "- Public Go tag: \`$GO_TAG_RESULT\`"
-            echo "- crates.io publish: \`$CRATES_RESULT\`"
+            echo "- cmux-client publish: \`$CRATE_CLIENT_RESULT\`"
+            echo "- cmux-sidebar publish: \`$CRATE_SIDEBAR_RESULT\`"
             echo "- npm publish: \`$NPM_RESULT\`"
-            echo "- PyPI publish: \`$PYTHON_RESULT\`"
+            echo "- PyPI wheel publish: \`$PYTHON_WHEEL_RESULT\`"
+            echo "- PyPI source publish: \`$PYTHON_SDIST_RESULT\`"
           } >> "$GITHUB_STEP_SUMMARY"

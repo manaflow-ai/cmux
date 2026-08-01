@@ -120,9 +120,11 @@ def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
     assert "verify-go-tag:" in release
     assert release.index("verify-go-tag:") > tag_push
     for job, publisher in (
-        ("publish-crates", "crates"),
+        ("publish-crate-client", "crates"),
+        ("publish-crate-sidebar", "crates"),
         ("publish-npm", "npm"),
-        ("publish-python", "python"),
+        ("publish-python-wheel", "python"),
+        ("publish-python-sdist", "python"),
     ):
         assert f"{job}:" in release
         block = workflow_job(release, job)
@@ -138,10 +140,12 @@ def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
         "TYPESCRIPT_PREFLIGHT_RESULT",
         "PYTHON_PREFLIGHT_RESULT",
         "CUT_TAGS_RESULT",
-        "CRATES_RESULT",
+        "CRATE_CLIENT_RESULT",
+        "CRATE_SIDEBAR_RESULT",
         "GO_TAG_RESULT",
         "NPM_RESULT",
-        "PYTHON_RESULT",
+        "PYTHON_WHEEL_RESULT",
+        "PYTHON_SDIST_RESULT",
     ):
         assert result in release
     assert "sdk-publish-java.yml" not in release
@@ -177,9 +181,9 @@ def test_sdk_preflight_workflows_cannot_write_to_registries() -> None:
         assert "  publish:\n" not in text
 
     release = workflow("sdk-release-cut.yml")
-    assert release.count("id-token: write") == 3
-    assert release.count("Require the coordinated release source") == 3
-    assert release.count("--require-latest-tag") == 3
+    assert release.count("id-token: write") == 5
+    assert release.count("Require the coordinated release source") == 5
+    assert release.count("--require-latest-tag") == 5
 
     go = workflow("sdk-publish-go.yml")
     assert "push:\n    tags:" not in go
@@ -207,10 +211,11 @@ def test_registry_publishers_reuse_preflight_artifacts() -> None:
     assert "npm test" not in npm_publish
 
     assert python.count("name: cmux-python-dist") == 1
-    assert release.count("name: cmux-python-dist") == 1
-    python_publish = workflow_job(release, "publish-python")
-    assert "Download distributions" in python_publish
-    assert "python3 -m build" not in python_publish
+    assert release.count("name: cmux-python-dist") == 2
+    for job in ("publish-python-wheel", "publish-python-sdist"):
+        python_publish = workflow_job(release, job)
+        assert "Download distributions" in python_publish
+        assert "python3 -m build" not in python_publish
 
 
 def test_irreversible_registry_writes_are_independently_rerunnable() -> None:

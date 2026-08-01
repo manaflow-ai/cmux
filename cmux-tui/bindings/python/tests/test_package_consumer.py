@@ -2,23 +2,42 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.9 and 3.10
+    tomllib = None
+
 
 PROJECT = Path(__file__).resolve().parents[1]
-VERSION_MATCH = re.search(
-    r'^version = "([^"]+)"$',
-    (PROJECT / "pyproject.toml").read_text(encoding="utf-8"),
-    re.MULTILINE,
-)
-if VERSION_MATCH is None:
+
+
+def _project_version() -> str:
+    contents = (PROJECT / "pyproject.toml").read_text(encoding="utf-8")
+    if tomllib is not None:
+        try:
+            return tomllib.loads(contents)["project"]["version"]
+        except KeyError as error:
+            raise RuntimeError("pyproject.toml has no project version") from error
+
+    in_project = False
+    for source_line in contents.splitlines():
+        line = source_line.strip()
+        if line.startswith("[") and line.endswith("]"):
+            in_project = line == "[project]"
+        elif in_project and line.startswith("version"):
+            key, separator, value = line.partition("=")
+            if separator and key.strip() == "version":
+                return value.strip().strip('"')
     raise RuntimeError("pyproject.toml has no project version")
-PROJECT_VERSION = VERSION_MATCH.group(1)
+
+
+PROJECT_VERSION = _project_version()
 
 
 class PackagedConsumerTests(unittest.TestCase):
