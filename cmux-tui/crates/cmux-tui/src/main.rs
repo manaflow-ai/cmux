@@ -35,7 +35,7 @@ mod ui;
 #[cfg(target_os = "linux")]
 use std::ffi::CStr;
 use std::ffi::OsString;
-use std::io::{self, IsTerminal};
+use std::io::{self, BufRead, BufReader, IsTerminal, Read, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -486,6 +486,74 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
+#[cfg(unix)]
+fn shell_prompt() -> &'static str {
+    ""
+}
+
+#[cfg(windows)]
+fn shell_prompt() -> &'static str {
+    "PowerShell> "
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum SchemaSocketOwner {
+    Absent,
+    Matching,
+    Different,
+    Unverified,
+}
+
+fn schema_socket_owner(
+    socket_path: &Path,
+    expected_session: &str,
+    expected_registry_id: Option<&str>,
+) -> SchemaSocketOwner {
+    let stream = match cmux_tui_core::platform::transport::connect(socket_path) {
+        Ok(stream) => stream,
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+            ) =>
+        {
+            return SchemaSocketOwner::Absent;
+        }
+        Err(_) => return SchemaSocketOwner::Unverified,
+    };
+    let timeout = Some(std::time::Duration::from_millis(500));
+    if stream.set_read_timeout(timeout).is_err() || stream.set_write_timeout(timeout).is_err() {
+        return SchemaSocketOwner::Unverified;
+    }
+    let Ok(mut writer) = stream.try_clone_box() else {
+        return SchemaSocketOwner::Unverified;
+    };
+    if writer.write_all(b"{\"id\":0,\"cmd\":\"identify\"}\n").and_then(|()| writer.flush()).is_err()
+    {
+        return SchemaSocketOwner::Unverified;
+    }
+    let mut reader = BufReader::new(stream).take(64 * 1024);
+    let mut line = String::new();
+    if reader.read_line(&mut line).is_err() || !line.ends_with('\n') {
+        return SchemaSocketOwner::Unverified;
+    }
+    let Ok(response) = serde_json::from_str::<serde_json::Value>(&line) else {
+        return SchemaSocketOwner::Unverified;
+    };
+    let data = &response["data"];
+    if response["id"] != 0 || response["ok"] != true || data["app"] != "cmux-tui" {
+        return SchemaSocketOwner::Unverified;
+    }
+    let Some(expected_registry_id) = expected_registry_id else {
+        return SchemaSocketOwner::Unverified;
+    };
+    if data["session"] == expected_session && data["registry_id"] == expected_registry_id {
+        SchemaSocketOwner::Matching
+    } else {
+        SchemaSocketOwner::Different
+    }
+}
+
 fn workspace_schema_startup_error(
     error: anyhow::Error,
     session: &str,
@@ -497,30 +565,25 @@ fn workspace_schema_startup_error(
     };
     let messages = &localization::catalog().startup;
     let socket = socket_path.display().to_string();
-    let stop_command =
-        format!("cmux --socket {} session current shutdown --force", shell_quote(&socket));
-    let socket_recovery = match cmux_tui_core::platform::transport::connect(socket_path) {
-        Ok(_) => format!("{}\n  {stop_command}", messages.stop_newer_server),
-        Err(error)
-            if matches!(
-                error.kind(),
-                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
-            ) =>
-        {
-            messages.no_server_listening.to_string()
+    let stop_command = format!(
+        "{}cmux --socket {} session current shutdown --force",
+        shell_prompt(),
+        shell_quote(&socket)
+    );
+    let socket_recovery = match schema_socket_owner(socket_path, session, schema.registry_id()) {
+        SchemaSocketOwner::Matching => {
+            format!("{}\n  {stop_command}", messages.stop_newer_server)
         }
-        Err(error) => messages.server_check_failed(&error.to_string()),
+        SchemaSocketOwner::Absent => messages.no_server_listening.to_string(),
+        SchemaSocketOwner::Different => messages.different_server.to_string(),
+        SchemaSocketOwner::Unverified => messages.server_not_verified.to_string(),
     };
-    let separate_session = format!("{session}-schema{}", schema.newest_supported());
-    let separate_command = format!("cmux --session {}", shell_quote(&separate_session));
+    let separate_session = format!("{session}-separate");
+    let separate_command =
+        format!("{}cmux --session {}", shell_prompt(), shell_quote(&separate_session));
     anyhow::anyhow!(format!(
         "{}\n{}: {}\n{}\n{}\n{}\n  {}",
-        messages.schema_too_new(
-            session,
-            schema.found(),
-            &version_string(),
-            schema.newest_supported(),
-        ),
+        messages.schema_too_new(session, &version_string()),
         messages.session_socket,
         socket,
         socket_recovery,
@@ -1336,6 +1399,13 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn recovery_commands_identify_the_powershell_dialect() {
+        assert_eq!(shell_prompt(), "PowerShell> ");
+        assert_eq!(shell_quote(r"C:\future session.sock"), r"'C:\future session.sock'");
     }
 
     #[test]

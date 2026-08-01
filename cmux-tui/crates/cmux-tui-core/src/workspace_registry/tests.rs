@@ -2624,6 +2624,7 @@ fn newer_schema_is_reported_before_writer_lease_conflict() {
     let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
     let schema = error.downcast_ref::<UnsupportedWorkspaceRegistrySchema>().unwrap();
     assert_eq!(schema.found(), SCHEMA_VERSION + 1);
+    assert_eq!(schema.registry_id(), Some(registry.registry_id()));
     assert!(!error.to_string().contains("already owned"));
 
     drop(registry);

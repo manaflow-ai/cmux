@@ -77,6 +77,7 @@ pub struct UnsupportedWorkspaceRegistrySchema {
     found: i64,
     newest_supported: i64,
     database_path: Option<PathBuf>,
+    registry_id: Option<String>,
 }
 
 impl UnsupportedWorkspaceRegistrySchema {
@@ -90,6 +91,10 @@ impl UnsupportedWorkspaceRegistrySchema {
 
     pub fn database_path(&self) -> Option<&Path> {
         self.database_path.as_deref()
+    }
+
+    pub fn registry_id(&self) -> Option<&str> {
+        self.registry_id.as_deref()
     }
 }
 
@@ -384,8 +389,13 @@ impl WorkspaceRegistry {
             format!("create workspace state directory {}", session_dir.display())
         })?;
         platform::restrict_directory(&session_dir)?;
-        let lease = SessionLease::acquire(&session_dir.join("writer.lock"))?;
         let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
+        if db_path.is_file()
+            && let Some(error) = preflight_unsupported_schema(&db_path)?
+        {
+            return Err(error.into());
+        }
+        let lease = SessionLease::acquire(&session_dir.join("writer.lock"))?;
         let connection = Connection::open(&db_path)
             .with_context(|| format!("open workspace registry {}", db_path.display()))?;
         platform::restrict_file(&db_path)?;
@@ -443,6 +453,7 @@ impl WorkspaceRegistry {
                 return Err(UnsupportedWorkspaceRegistrySchema {
                     found: value,
                     newest_supported: SCHEMA_VERSION,
+                    registry_id: meta_value(&connection, "registry_id")?,
                     database_path,
                 }
                 .into());
@@ -2561,6 +2572,34 @@ fn canonical_json(value: &Value) -> anyhow::Result<String> {
     let mut output = String::new();
     write(value, &mut output)?;
     Ok(output)
+}
+
+fn preflight_unsupported_schema(
+    database_path: &Path,
+) -> anyhow::Result<Option<UnsupportedWorkspaceRegistrySchema>> {
+    let connection = Connection::open_with_flags(database_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    connection.busy_timeout(std::time::Duration::from_millis(500))?;
+    let has_meta: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_meta {
+        return Ok(None);
+    }
+    let Some(found) = meta_value(&connection, "schema_version")? else {
+        return Ok(None);
+    };
+    let found = found.parse::<i64>().context("workspace registry schema is invalid")?;
+    if found <= SCHEMA_VERSION {
+        return Ok(None);
+    }
+    Ok(Some(UnsupportedWorkspaceRegistrySchema {
+        found,
+        newest_supported: SCHEMA_VERSION,
+        database_path: Some(database_path.to_path_buf()),
+        registry_id: meta_value(&connection, "registry_id")?,
+    }))
 }
 
 fn meta_value(connection: &Connection, key: &str) -> anyhow::Result<Option<String>> {

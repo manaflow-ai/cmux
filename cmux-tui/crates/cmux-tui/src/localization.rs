@@ -462,28 +462,15 @@ pub(crate) struct StartupMessages {
     pub session_socket: &'static str,
     pub stop_newer_server: &'static str,
     pub no_server_listening: &'static str,
-    server_check_failed: &'static str,
+    pub different_server: &'static str,
+    pub server_not_verified: &'static str,
     pub saved_state_requires_newer: &'static str,
     pub start_separate_session: &'static str,
 }
 
 impl StartupMessages {
-    pub(crate) fn schema_too_new(
-        &self,
-        session: &str,
-        found: i64,
-        version: &str,
-        supported: i64,
-    ) -> String {
-        self.schema_too_new
-            .replace("{session}", session)
-            .replace("{found}", &found.to_string())
-            .replace("{version}", version)
-            .replace("{supported}", &supported.to_string())
-    }
-
-    pub(crate) fn server_check_failed(&self, error: &str) -> String {
-        self.server_check_failed.replace("{error}", error)
+    pub(crate) fn schema_too_new(&self, session: &str, version: &str) -> String {
+        self.schema_too_new.replace("{version}", version).replace("{session}", session)
     }
 }
 
@@ -515,11 +502,12 @@ impl Catalog {
 static ENGLISH: Catalog = Catalog {
     japanese: false,
     startup: StartupMessages {
-        schema_too_new: "cannot open session \"{session}\": saved state uses workspace schema {found}, but cmux {version} supports through {supported}",
+        schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
         session_socket: "session socket",
-        stop_newer_server: "if a newer server is still using this socket, stop it:",
+        stop_newer_server: "a newer cmux server owns this saved session; stop it before retrying:",
         no_server_listening: "no server is listening on this socket; nothing needs to be stopped",
-        server_check_failed: "could not check whether a server is listening on this socket: {error}",
+        different_server: "this socket belongs to a different cmux session; no shutdown command is shown",
+        server_not_verified: "cmux could not verify which session owns this socket; no shutdown command is shown",
         saved_state_requires_newer: "the saved state still requires a newer cmux; upgrade cmux to reopen this session",
         start_separate_session: "or start this build in a separate session:",
     },
@@ -764,11 +752,12 @@ edits shell files. Authenticate with the configured host before retrying.
 static JAPANESE: Catalog = Catalog {
     japanese: true,
     startup: StartupMessages {
-        schema_too_new: "セッション \"{session}\" を開けません。保存状態のワークスペーススキーマは {found} ですが、cmux {version} は {supported} まで対応しています",
+        schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
         session_socket: "セッションソケット",
-        stop_newer_server: "新しいサーバーがこのソケットをまだ使用している場合は停止:",
+        stop_newer_server: "新しい cmux サーバーがこの保存済みセッションを所有しています。再試行する前に停止:",
         no_server_listening: "このソケットを待ち受けているサーバーはありません。停止は不要です",
-        server_check_failed: "このソケットをサーバーが待ち受けているか確認できませんでした: {error}",
+        different_server: "このソケットは別の cmux セッションに属しています。シャットダウンコマンドは表示しません",
+        server_not_verified: "このソケットを所有するセッションを確認できませんでした。シャットダウンコマンドは表示しません",
         saved_state_requires_newer: "保存状態には新しい cmux が必要です。このセッションを再度開くには cmux をアップグレードしてください",
         start_separate_session: "または、このビルドを別のセッションで開始:",
     },
