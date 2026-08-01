@@ -177,7 +177,7 @@ extension TerminalSurface {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
-        manualIO: Bool = false,
+        ioMode: TerminalSurfaceIOMode = .exec,
         manualInputHandler: (@Sendable (Data) -> Void)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in }
@@ -195,7 +195,7 @@ extension TerminalSurface {
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement,
-            manualIO: manualIO,
+            ioMode: ioMode,
             manualInputHandler: manualInputHandler,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             preparePaneHost: preparePaneHost,

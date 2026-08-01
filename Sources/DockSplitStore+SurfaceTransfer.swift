@@ -227,6 +227,7 @@ extension DockSplitStore {
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
+        appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         panelCancellables[panelId]?.cancel()
         panelCancellables.removeValue(forKey: panelId)
         surfaceIdToPanelId.removeValue(forKey: tabId)
@@ -350,6 +351,9 @@ extension DockSplitStore {
             return nil
         }
         surfaceIdToPanelId[newTabId] = detached.panelId
+        if let browser = panel as? BrowserPanel {
+            configureBrowserPanel(browser)
+        }
         AgentHibernationController.shared.transferTrackingStateForMovedPanel(
             panelId: detached.panelId,
             from: detached.sourceWorkspaceId,
@@ -442,6 +446,9 @@ extension DockSplitStore {
             panels.removeValue(forKey: detached.panelId)
             clearSessionRestoreState(panelId: detached.panelId)
             return nil
+        }
+        if let browser = panel as? BrowserPanel {
+            configureBrowserPanel(browser)
         }
         AgentHibernationController.shared.transferTrackingStateForMovedPanel(
             panelId: detached.panelId,
