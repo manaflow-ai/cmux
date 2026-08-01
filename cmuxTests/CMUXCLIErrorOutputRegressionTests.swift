@@ -785,23 +785,10 @@ import Testing
             code: "not_found",
             message: "No live delivery target"
         )
-        let restoreResponse = try restoreResponse(result: [
-            "restore_record": [
-                "mode": "direct",
-                "kind": "pi",
-                "checkpoint_id": checkpointID,
-                "environment": [:],
-                "launch_command": [
-                    "arguments": ["/usr/bin/true"],
-                    "executable_path": "/usr/bin/true",
-                ],
-                "prepared_arguments": ["/usr/bin/true"],
-            ],
-        ])
         let socketPath = "/tmp/cmux-restore-ambiguous-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(
             path: socketPath,
-            responses: [callerTargetResponse, restoreResponse]
+            response: callerTargetResponse
         )
         defer { responder.stop() }
         var environment = ProcessInfo.processInfo.environment
@@ -830,9 +817,9 @@ import Testing
             let data = try #require(request.data(using: .utf8))
             return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         }
-        #expect(requests.compactMap { $0["method"] as? String } == [
-            "agent.resolve_delivery_target",
-        ])
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(methods.count > 1)
+        #expect(methods.allSatisfy { $0 == "agent.resolve_delivery_target" })
     }
 
     @Test func testRestoreUsesUniqueTTYBindingWhenLiveTargetMethodIsUnsupported() throws {

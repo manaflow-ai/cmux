@@ -85,7 +85,8 @@ extension Workspace {
         set {
             let previous = surfaceRegistry.surfaceTTYNames
             var devices = surfaceRegistry.surfaceTTYDevices.filter { newValue[$0.key] != nil }
-            for (panelId, ttyName) in newValue where previous[panelId] != ttyName {
+            for (panelId, ttyName) in newValue
+            where previous[panelId] != ttyName || devices[panelId] == nil {
                 devices[panelId] = CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName)
             }
             surfaceRegistry.surfaceTTYNames = newValue
@@ -95,6 +96,15 @@ extension Workspace {
 
     /// Cached TTY character-device ids, updated with ``surfaceTTYNames``.
     var surfaceTTYDevices: [UUID: Int64] { surfaceRegistry.surfaceTTYDevices }
+
+    /// Restores display/port-scan metadata without treating the previous
+    /// process's PTY as evidence about the newly created terminal runtime.
+    /// A subsequent `report_tty`, even with the same name, populates the live
+    /// device index through ``surfaceTTYNames``.
+    func restorePersistedSurfaceTTYName(_ ttyName: String?, panelId: UUID) {
+        surfaceRegistry.surfaceTTYNames[panelId] = ttyName
+        surfaceRegistry.surfaceTTYDevices.removeValue(forKey: panelId)
+    }
 
     /// Host-local TTY bindings eligible to identify a process running on this
     /// Mac. Remote workspaces and remote terminal surfaces use a different

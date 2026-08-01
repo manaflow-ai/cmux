@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -188,39 +189,50 @@ extension CMUXCLI {
         }
 
         let resolution = AgentProcessBindingResolution.controllingTTY.rawValue
-        do {
-            let payload = try client.sendV2(
-                method: "agent.resolve_delivery_target",
-                params: [
-                    "pid": Int(ProcessInfo.processInfo.processIdentifier),
-                    "pid_resolution": resolution,
-                ]
-            )
-            guard payload["source"] as? String == "pid",
-                  payload["pid_resolution"] as? String == resolution,
-                  let workspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
-                  isUUID(workspaceID),
-                  let surfaceID = normalizedHandleValue(payload["surface_id"] as? String),
-                  isUUID(surfaceID) else {
-                throw currentRestoreSurfaceUnknownError()
-            }
-            return surfaceID
-        } catch let error as CLIError {
-            switch error.v2Code {
-            case "not_found":
-                client.close()
-                throw currentRestoreSurfaceUnknownError()
-            case "method_not_found", "unrecognized_method":
-                // These protocol replies were consumed in full, so the socket
-                // remains synchronized for the legacy discovery request.
-                return legacyRestoreSurfaceID(client: client)
-            default:
+        let retryDelays: [useconds_t] = [25_000, 50_000, 100_000, 200_000, 400_000]
+        var retryIndex = 0
+        while true {
+            do {
+                let payload = try client.sendV2(
+                    method: "agent.resolve_delivery_target",
+                    params: [
+                        "pid": Int(ProcessInfo.processInfo.processIdentifier),
+                        "pid_resolution": resolution,
+                    ]
+                )
+                guard payload["source"] as? String == "pid",
+                      payload["pid_resolution"] as? String == resolution,
+                      let workspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
+                      isUUID(workspaceID),
+                      let surfaceID = normalizedHandleValue(payload["surface_id"] as? String),
+                      isUUID(surfaceID) else {
+                    throw currentRestoreSurfaceUnknownError()
+                }
+                return surfaceID
+            } catch let error as CLIError {
+                switch error.v2Code {
+                case "not_found" where retryIndex < retryDelays.count:
+                    // Local shell integration registers its TTY in a background
+                    // child. A complete `not_found` reply leaves this socket
+                    // synchronized, so briefly wait for that registration and
+                    // retry without trusting persisted or ambient surface ids.
+                    usleep(retryDelays[retryIndex])
+                    retryIndex += 1
+                case "not_found":
+                    client.close()
+                    throw currentRestoreSurfaceUnknownError()
+                case "method_not_found", "unrecognized_method":
+                    // These protocol replies were consumed in full, so the socket
+                    // remains synchronized for the legacy discovery request.
+                    return legacyRestoreSurfaceID(client: client)
+                default:
+                    client.close()
+                    throw error
+                }
+            } catch {
                 client.close()
                 throw error
             }
-        } catch {
-            client.close()
-            throw error
         }
     }
 
