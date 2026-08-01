@@ -377,17 +377,17 @@ import UIKit
 
         #expect(
             footerCell?.accessibilityIdentifier
-                == "MobileWorkspaceGroupFooterBoundary-inactive"
+                == "MobileWorkspaceGroupFooterBoundary-group-a-inactive"
         )
         coordinator.tableView(tableView, dragSessionWillBegin: dragSession)
         #expect(
             tableView.cellForRow(at: footerIndexPath)?.accessibilityIdentifier
-                == "MobileWorkspaceGroupFooterBoundary-active"
+                == "MobileWorkspaceGroupFooterBoundary-group-a-active"
         )
         coordinator.tableView(tableView, dragSessionDidEnd: dragSession)
         #expect(
             tableView.cellForRow(at: footerIndexPath)?.accessibilityIdentifier
-                == "MobileWorkspaceGroupFooterBoundary-inactive"
+                == "MobileWorkspaceGroupFooterBoundary-group-a-inactive"
         )
     }
 

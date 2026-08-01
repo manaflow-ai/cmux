@@ -149,7 +149,14 @@ struct MobileHostAuthorizationTests {
         let service = MobileHostService.shared
         service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
         defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
-        #expect(MobileHostService.mobileHostCapabilities.contains("workspace.mutations.account_auth.v1"))
+        guard MobileHostService.mobileHostCapabilities.contains(
+            "workspace.mutations.account_auth.v1"
+        ) else {
+            return #expect(
+                Bool(false),
+                "the host must advertise account-authorized workspace mutations"
+            )
+        }
         let mutations: [(String, [String: Any])] = [
             ("workspace.move", ["workspace_id": "workspace-main", "before_workspace_id": "workspace-next"]),
             ("workspace.group.action", ["group_id": "group-main", "action": "rename"]),

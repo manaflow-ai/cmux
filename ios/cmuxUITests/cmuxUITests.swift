@@ -927,7 +927,7 @@ final class cmuxUITests: XCTestCase {
             "MobileWorkspaceRow-workspace-seed-4"
         ]
         let inactiveBoundary = app.descendants(matching: .any)[
-            "MobileWorkspaceGroupFooterBoundary-inactive"
+            "MobileWorkspaceGroupFooterBoundary-seed-group-0-inactive"
         ]
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
         XCTAssertTrue(waitForHittable(source, timeout: 3))
@@ -955,7 +955,7 @@ final class cmuxUITests: XCTestCase {
         )
         XCTAssertFalse(
             app.descendants(matching: .any)[
-                "MobileWorkspaceGroupFooterBoundary-active"
+                "MobileWorkspaceGroupFooterBoundary-seed-group-0-active"
             ].exists,
             "No active group boundary may survive the cancelled drag"
         )

@@ -339,7 +339,7 @@ struct MobileHostMacScopedMutationAuthorizationTests {
         }
     }
 
-    @Test func rejectsMacScopedMutationsWithoutAttachToken() async {
+    @Test func allowsAccountAuthorizedMacScopedMutationsWithoutAttachToken() async {
         let service = MobileHostService.shared
         service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
         defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
@@ -357,14 +357,14 @@ struct MobileHostMacScopedMutationAuthorizationTests {
                 auth: MobileHostRPCAuth(attachToken: nil, stackAccessToken: "cmux-dev-token")
             )
             let result = await service.debugAuthorizationError(for: request)
-            guard case let .failure(error) = result else {
-                return #expect(Bool(false), "missing attach token should reject \(method)")
-            }
-            #expect(error.code == "forbidden")
+            #expect(
+                result == nil,
+                "the Stack account should authorize \(method) without an attach token"
+            )
         }
     }
 
-    @Test func rejectsMacScopedMutationsWithUnknownAttachToken() async {
+    @Test func allowsAccountAuthorizedMacScopedMutationsWithUnknownAttachToken() async {
         let service = MobileHostService.shared
         service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
         defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
@@ -382,10 +382,10 @@ struct MobileHostMacScopedMutationAuthorizationTests {
                 auth: MobileHostRPCAuth(attachToken: "stale-ticket", stackAccessToken: "cmux-dev-token")
             )
             let result = await service.debugAuthorizationError(for: request)
-            guard case let .failure(error) = result else {
-                return #expect(Bool(false), "stale attach token should reject \(method)")
-            }
-            #expect(error.code == "forbidden")
+            #expect(
+                result == nil,
+                "the Stack account should authorize \(method) with a stale attach token"
+            )
         }
     }
 }
