@@ -31,9 +31,9 @@ See [Configuration](configuration.md#machines) for the full schema and examples.
 A dynamic provider supplies scopes, machines, lifecycle actions, and transports without adding provider logic to the TUI. Choose exactly one startup transport:
 
 ```bash
-cmux-tui --machine-provider /run/cmux/provider.sock
-cmux-tui --machine-provider-command /opt/cmux-provider --profile production --
-cmux-tui --cloud
+cmux --machine-provider /run/cmux/provider.sock
+cmux --machine-provider-command /opt/cmux-provider --profile production --
+cmux --cloud
 ```
 
 The direct-command form treats every value through the terminating `--` as one literal argument. It does not use a shell. cmux appends `control` to the long-lived provider process and `stream` to each machine transport process.
