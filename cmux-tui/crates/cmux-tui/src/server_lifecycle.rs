@@ -1677,6 +1677,11 @@ mod tests {
     use std::process::{Command, Stdio};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    #[cfg(unix)]
+    use std::sync::mpsc;
+
+    #[cfg(unix)]
+    use cmux_tui_core::{Mux, SurfaceOptions};
 
     use super::*;
 
@@ -1745,6 +1750,45 @@ mod tests {
         let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
         let quarantine = LegacySocketQuarantine::acquire(&path).unwrap();
         (listener, quarantine, path)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_quarantine_blocks_replacement_publication() {
+        let (listener, mut quarantine, path) = quarantined_test_listener("cq-publication");
+        let (sender, receiver) = mpsc::channel();
+        let publication_path = path.clone();
+        let publisher = std::thread::spawn(move || {
+            let mux = Mux::new("quarantine-publication-test", SurfaceOptions::default());
+            let result = cmux_tui_core::server::serve_owned(mux, Some(publication_path));
+            sender.send(result).unwrap();
+        });
+
+        match receiver.recv_timeout(Duration::from_millis(250)) {
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(error) => panic!("replacement publication channel failed: {error}"),
+            Ok(result) => {
+                if let Ok(publication) = result {
+                    publication.cleanup();
+                }
+                quarantine.restore().unwrap();
+                drop(quarantine);
+                drop(listener);
+                let _ = std::fs::remove_file(&path);
+                publisher.join().unwrap();
+                panic!("replacement server published while the legacy socket was quarantined");
+            }
+        }
+
+        quarantine.restore().unwrap();
+        drop(quarantine);
+        let result = receiver
+            .recv_timeout(Duration::from_secs(5))
+            .expect("replacement publication did not resume after quarantine ownership ended");
+        assert!(result.is_err(), "replacement publication replaced the restored live socket");
+        publisher.join().unwrap();
+        drop(listener);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
