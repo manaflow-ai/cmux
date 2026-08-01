@@ -185,6 +185,12 @@ struct PanesTabsPreviewHost: View {
                     .background { autoplayDriver(for: .paneMap) }
                 } terminal: {
                     terminalPreviewEndpoint
+                        .mobileSurfaceDeckInset(
+                            isVisible: paneZoomPresentation.isTerminalPresented,
+                            value: deckValue,
+                            actions: deckActions,
+                            terminalTheme: terminalTheme
+                        )
                         .navigationBarBackButtonHidden(true)
                         .navigationTransition(
                             .zoom(
@@ -193,12 +199,6 @@ struct PanesTabsPreviewHost: View {
                             )
                         )
                 }
-                .mobileSurfaceDeckInset(
-                    isVisible: paneZoomPresentation.isTerminalPresented,
-                    value: deckValue,
-                    actions: deckActions,
-                    terminalTheme: terminalTheme
-                )
             } else {
                 terminalPreviewEndpoint
                     .mobileSurfaceDeckInset(

@@ -133,6 +133,12 @@ struct WorkspaceDetailView: View {
                         .navigationBarBackButtonHidden(true)
                 } terminal: {
                     terminalWorkspaceEndpoint
+                        .mobileSurfaceDeckInset(
+                            isVisible: shouldShowSurfaceDeck,
+                            value: surfaceDeckValue,
+                            actions: surfaceDeckActions,
+                            terminalTheme: store.activeTerminalTheme
+                        )
                         .navigationBarBackButtonHidden(true)
                         .navigationTransition(
                             .zoom(
@@ -141,12 +147,6 @@ struct WorkspaceDetailView: View {
                             )
                         )
                 }
-                .mobileSurfaceDeckInset(
-                    isVisible: shouldShowSurfaceDeck,
-                    value: surfaceDeckValue,
-                    actions: surfaceDeckActions,
-                    terminalTheme: store.activeTerminalTheme
-                )
             } else {
                 terminalWorkspaceEndpoint
                     .mobileSurfaceDeckInset(

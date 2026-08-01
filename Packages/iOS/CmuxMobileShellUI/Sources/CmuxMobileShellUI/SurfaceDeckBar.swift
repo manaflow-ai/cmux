@@ -313,10 +313,10 @@ struct SurfaceDeckBar: View, Equatable {
 
 #if os(iOS)
 extension View {
-    /// Installs the deck on a concrete layout container so it remains outside
-    /// pane-map navigation transitions while still contributing a real safe-area
-    /// inset to the terminal viewport. Applying `safeAreaInset` to a conditional
-    /// `Group` drops the deck around nested navigation stacks on iOS.
+    /// Installs the deck on the terminal destination so it contributes a real
+    /// safe-area inset to the terminal viewport. Applying `safeAreaInset`
+    /// outside a nested navigation stack lets its UIKit-hosted destination
+    /// cover the deck on iOS.
     func mobileSurfaceDeckInset(
         isVisible: Bool,
         value: SurfaceDeckValue,
