@@ -12489,10 +12489,16 @@ extension Workspace: BonsplitDelegate {
             )
             let agentRuntime = agentRuntimeState(forPanelId: panelId)
             let panelDirectory = panelDirectories[panelId]
+            let remoteTTYReportOriginWorkspaceID =
+                surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[panelId]
+            let isRemoteTerminal = activeRemoteTerminalSurfaceIds.contains(panelId)
+                || remoteTTYReportOriginWorkspaceID != nil
+            let remoteRelayNamespaceConfiguration = activeRemoteTerminalSurfaceIds.contains(panelId)
+                ? remoteConfiguration
+                : transferredRemoteCleanupConfiguration
             splitLayout.storeDetachedTransfer(DetachedSurfaceTransfer(
                 sourceWorkspaceId: id,
-                sessionRestoreSourceWorkspaceId:
-                    surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[panelId] ?? id,
+                sessionRestoreSourceWorkspaceId: remoteTTYReportOriginWorkspaceID ?? id,
                 panelId: panelId,
                 panel: panel,
                 title: resolvedPanelTitle(panelId: panelId, fallback: transferFallbackTitle),
@@ -12523,18 +12529,14 @@ extension Workspace: BonsplitDelegate {
                     $0.hasCompleteManagedSessionIdentity ? $0 : nil
                 },
                 agentRuntime: agentRuntime,
-                isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
+                isRemoteTerminal: isRemoteTerminal,
                 remoteTerminalSessionPhase: remoteTerminalSessionStatesBySurfaceId[panelId]?.phase,
                 remoteTerminalAuthority: remoteTerminalSessionStatesBySurfaceId[panelId]?.authority,
                 remoteTerminalLifecycleID: remoteTerminalSessionStatesBySurfaceId[panelId]?
                     .terminalLifecycleID,
                 remoteTerminalAttemptID: remoteTerminalAttemptIDsBySurfaceId[panelId],
-                remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
-                    ? remoteConfiguration?.relayPort
-                    : nil,
-                remoteRelayNamespaceConfiguration: activeRemoteTerminalSurfaceIds.contains(panelId)
-                    ? remoteConfiguration
-                    : transferredRemoteCleanupConfiguration,
+                remoteRelayPort: remoteRelayNamespaceConfiguration?.relayPort,
+                remoteRelayNamespaceConfiguration: remoteRelayNamespaceConfiguration,
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 remoteCleanupConfiguration: transferredRemoteCleanupConfiguration
             ), for: tabId)

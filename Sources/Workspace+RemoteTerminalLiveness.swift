@@ -123,7 +123,10 @@ extension Workspace {
         }
         endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(forKey: surfaceId)
         if remoteTerminalAttemptIDsBySurfaceId[surfaceId] != attemptID,
-           remoteConfiguration?.preserveAfterTerminalExit != true {
+           (activeRemoteTerminalSurfaceIds.contains(surfaceId)
+                ? remoteConfiguration
+                : transferredRemoteCleanupConfigurationsByPanelId[surfaceId])?
+                .preserveAfterTerminalExit != true {
             invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
         }
         remoteTerminalAttemptIDsBySurfaceId[surfaceId] = attemptID
