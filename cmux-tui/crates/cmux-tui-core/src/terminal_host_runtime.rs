@@ -1533,7 +1533,7 @@ mod unix {
             response: SyncSender<Result<ParserResizeResult, String>>,
         },
         SetDefaults {
-            colors: DefaultColors,
+            colors: Box<DefaultColors>,
             source_cursor: u64,
             response: SyncSender<()>,
         },
@@ -1883,7 +1883,11 @@ mod unix {
             let (response, applied) = sync_channel(1);
             if self
                 .parser_commands
-                .send(ParserCommand::SetDefaults { colors, source_cursor, response })
+                .send(ParserCommand::SetDefaults {
+                    colors: Box::new(colors),
+                    source_cursor,
+                    response,
+                })
                 .is_err()
             {
                 self.smart.mark_applied(source_cursor);
@@ -2756,6 +2760,7 @@ mod unix {
                         let _ = response.send(result);
                     }
                     ParserCommand::SetDefaults { colors, source_cursor, response } => {
+                        let colors = *colors;
                         {
                             let mut term = parser_host.term.lock().unwrap();
                             term.replace_default_colors(colors.fg, colors.bg, colors.cursor);

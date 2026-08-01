@@ -502,10 +502,15 @@ async fn receive_frames(
                                 Ok(FrameEffect::Continue) => {}
                                 Ok(FrameEffect::Restart) => {
                                     outcome = Some(StreamOutcome::Restart);
+                                    break;
                                 }
-                                Ok(FrameEffect::Stop) => outcome = Some(StreamOutcome::Stop),
+                                Ok(FrameEffect::Stop) => {
+                                    outcome = Some(StreamOutcome::Stop);
+                                    break;
+                                }
                                 Err(error) => {
                                     state.lock().unwrap().status = error;
+                                    let _ = finish_decoder(&decoder, &state);
                                     return StreamOutcome::Restart;
                                 }
                             }
@@ -517,6 +522,7 @@ async fn receive_frames(
                     }
                     Err(error) => {
                         state.lock().unwrap().status = format!("codec: {error}");
+                        let _ = finish_decoder(&decoder, &state);
                         return StreamOutcome::Restart;
                     }
                 }
@@ -1291,6 +1297,60 @@ mod tests {
                 state.lock().unwrap().status.contains("truncated"),
                 "stream termination discarded the decoder's buffered prefix"
             );
+            client.shutdown().await;
+            daemon.shutdown().await;
+        });
+    }
+
+    #[test]
+    fn resync_stops_applying_later_frames_from_the_same_chunk() {
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(async {
+            let (client_endpoint, daemon_endpoint) = endpoint_pair();
+            let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+            let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+            let stream = Arc::new(
+                client
+                    .open(Service::TerminalBytes, BTreeMap::from([("surface".into(), "73".into())]))
+                    .await
+                    .unwrap(),
+            );
+            let incoming = daemon.accept().await.unwrap().unwrap();
+            let state = Arc::new(Mutex::new(
+                ClientState::new("test".into(), "memory".into(), 1, 73).unwrap(),
+            ));
+            let receiver = tokio::spawn(receive_frames(stream, state.clone()));
+
+            let boundary = 10;
+            let frames = [
+                Frame {
+                    sequence: boundary,
+                    ..Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"snapshot"))
+                },
+                Frame { sequence: boundary, ..Frame::new(MessageKind::Ready, Vec::new()) },
+                Frame {
+                    sequence: boundary + 1,
+                    ..Frame::new(MessageKind::ResyncRequired, Vec::new())
+                },
+                Frame {
+                    sequence: boundary + 2,
+                    ..Frame::new(MessageKind::Output, b"must-not-apply".to_vec())
+                },
+            ];
+            let mut chunk = Vec::new();
+            for frame in frames {
+                chunk.extend_from_slice(&encode_frame(&frame).unwrap());
+            }
+            incoming.stream.send_on(Lane::Interactive, Bytes::from(chunk)).await.unwrap();
+
+            assert_eq!(receiver.await.unwrap(), StreamOutcome::Restart);
+            {
+                let mut state = state.lock().unwrap();
+                state.materialize_frame().unwrap();
+                assert_eq!(state.status, "resync-required");
+                assert!(!state.frame_text.contains("must-not-apply"));
+            }
+            let _ = incoming.stream.close().await;
             client.shutdown().await;
             daemon.shutdown().await;
         });
