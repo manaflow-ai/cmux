@@ -92,10 +92,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config
 
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        shell: bash
+        run: |
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Install zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: 0.15.2
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
 
       - name: Install Rust toolchain
         shell: bash
@@ -162,7 +169,6 @@ jobs:
     if: inputs.include_windows
     runs-on: ${{ vars.WINDOWS_RUNNER || 'windows-latest' }}
     timeout-minutes: 60
-    continue-on-error: true
     permissions:
       contents: read
     steps:
@@ -182,10 +188,17 @@ jobs:
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty
 
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        shell: bash
+        run: |
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Install zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: 0.15.2
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
 
       - name: Install Rust toolchain
         shell: bash

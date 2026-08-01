@@ -18,12 +18,15 @@ use cmux_tui_core::server::{
     VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
 use cmux_tui_core::{
-    BrowserFrame, BrowserStatus, ClearHistoryFailure, DefaultColors, LayoutRatioError,
-    LayoutUndoError, LayoutUndoResult, Mux, MuxEventReceiver, PaneId, ScreenId,
-    SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
-    SurfaceResizeReporter, ViewportWidthError, WorkspaceId, ZoomMode,
+    BrowserFrameUpdate, BrowserStatus, ClearHistoryFailure, DefaultColors, GuardedMouseEncode,
+    LayoutRatioError, LayoutUndoError, LayoutUndoResult, Mux, MuxEventReceiver, PaneId,
+    PointerSemanticProbe, PointerSnapshotProbe, ScreenId, SidebarPluginStatus, SplitDir, SplitId,
+    Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter,
+    TerminalPointerSnapshot, ViewportWidthError, WorkspaceId, ZoomMode,
 };
-use ghostty_vt::{KeyInput, MouseInput, RenderState, Terminal};
+use ghostty_vt::{
+    KeyInput, MouseInput, RenderState, Scrollbar, Terminal, TerminalPointerSemanticSnapshot,
+};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -1443,7 +1446,9 @@ impl SurfaceHandle {
                     std::array::from_fn(|idx| rs.palette_overridden(idx as u8));
                 Ok(Arc::new(SurfaceRenderFrame {
                     frame: rs.build_frame()?,
+                    content_generation: surface.content_generation.load(Ordering::Acquire),
                     scrollback_rows: term.history_rows(),
+                    pointer_semantics: term.pointer_semantic_snapshot(),
                     palette_colors,
                     palette_overridden,
                 }))
@@ -1472,7 +1477,7 @@ impl SurfaceHandle {
     pub fn encode_mouse(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self {
             SurfaceHandle::Local(surface, _) => surface.encode_mouse(input, output),
@@ -1483,10 +1488,44 @@ impl SurfaceHandle {
         }
     }
 
+    pub fn encode_mouse_if_semantics(
+        &self,
+        expected: TerminalPointerSemanticSnapshot,
+        input: MouseInput,
+        output: &mut impl Extend<u8>,
+    ) -> Option<GuardedMouseEncode> {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                surface.encode_mouse_if_semantics(expected, input, output)
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                Some(surface.encode_mouse_if_semantics(expected, input, output))
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn encode_mouse_if_snapshot(
+        &self,
+        expected: TerminalPointerSnapshot,
+        input: MouseInput,
+        output: &mut impl Extend<u8>,
+    ) -> Option<GuardedMouseEncode> {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                surface.encode_mouse_if_snapshot(expected, input, output)
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                Some(surface.encode_mouse_if_snapshot(expected, input, output))
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
     pub fn encode_mouse_release(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self {
             SurfaceHandle::Local(surface, _) => surface.encode_mouse_release(input, output),
@@ -1501,8 +1540,8 @@ impl SurfaceHandle {
         &self,
         press: MouseInput,
         release: MouseInput,
-        press_output: &mut Vec<u8>,
-        release_output: &mut Vec<u8>,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self {
             SurfaceHandle::Local(surface, _) => {
@@ -1515,6 +1554,35 @@ impl SurfaceHandle {
         }
     }
 
+    pub fn encode_mouse_press_pair_if_snapshot(
+        &self,
+        expected: TerminalPointerSnapshot,
+        press: MouseInput,
+        release: MouseInput,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
+    ) -> Option<GuardedMouseEncode> {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.encode_mouse_press_pair_if_snapshot(
+                expected,
+                press,
+                release,
+                press_output,
+                release_output,
+            ),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                Some(surface.encode_mouse_press_pair_if_snapshot(
+                    expected,
+                    press,
+                    release,
+                    press_output,
+                    release_output,
+                ))
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
     pub fn reset_mouse_motion_dedupe(&self) {
         match self {
             SurfaceHandle::Local(surface, _) => surface.reset_mouse_motion_dedupe(),
@@ -1522,6 +1590,26 @@ impl SurfaceHandle {
                 surface.reset_mouse_motion_dedupe();
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => {}
+        }
+    }
+
+    pub fn try_pointer_semantics(&self) -> Option<PointerSemanticProbe> {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.try_pointer_semantics(),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                Some(surface.try_pointer_semantics())
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn try_pointer_snapshot(&self) -> Option<PointerSnapshotProbe> {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.try_pointer_snapshot(),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                Some(surface.try_pointer_snapshot())
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
     }
 
@@ -1544,7 +1632,36 @@ impl SurfaceHandle {
                 let before = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
                 term.scroll_delta(delta);
                 let after = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
+                if before != after {
+                    surface.content_generation.fetch_add(1, Ordering::AcqRel);
+                }
                 Some(before != after)
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn scroll_delta_if_scrollbar(
+        &self,
+        expected: Scrollbar,
+        delta: isize,
+    ) -> Option<Scrollbar> {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                surface.scroll_delta_if_scrollbar(expected, delta).ok().flatten()
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                let mut term = surface.term.lock().unwrap();
+                let before = term.scrollbar();
+                if before != Some(expected) {
+                    return None;
+                }
+                term.scroll_delta(delta);
+                let after = term.scrollbar();
+                if after != before {
+                    surface.content_generation.fetch_add(1, Ordering::AcqRel);
+                }
+                after
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
@@ -1569,19 +1686,93 @@ impl SurfaceHandle {
                 let before = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
                 term.scroll_to_bottom();
                 let after = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
+                if before != after {
+                    surface.content_generation.fetch_add(1, Ordering::AcqRel);
+                }
                 Some(before != after)
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
     }
 
-    pub fn browser_frame(&self) -> Option<Arc<BrowserFrame>> {
+    pub fn browser_frame_update(&self) -> Option<BrowserFrameUpdate> {
         match self {
-            SurfaceHandle::Local(surface, _) => surface.browser_frame_shared(),
+            SurfaceHandle::Local(surface, _) => surface.browser_frame_update(),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
-                surface.browser_frame()
+                surface.browser_frame_update()
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn browser_frame_seq(&self) -> Option<u64> {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.browser_frame_seq(),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
+                surface.browser_frame_seq()
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn browser_accepts_pointer_frame(&self, frame_seq: u64) -> bool {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.browser_accepts_pointer_frame(frame_seq),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
+                surface.browser_accepts_pointer_frame(frame_seq)
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => false,
+        }
+    }
+
+    pub fn browser_pointer_frame_is_in_current_route(&self, frame_seq: u64) -> bool {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                surface.browser_pointer_frame_is_in_current_route(frame_seq)
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
+                surface.browser_pointer_frame_is_in_current_route(frame_seq)
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => false,
+        }
+    }
+
+    /// Update the renderer-local presentation acknowledgement immediately.
+    /// Returns whether the exact acknowledged token changed.
+    pub fn browser_acknowledge_pointer_frame(&self, frame_seq: u64) -> bool {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                surface.browser_acknowledge_pointer_frame(frame_seq)
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
+                surface.acknowledge_browser_pointer_frame(frame_seq)
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => false,
+        }
+    }
+
+    /// Publish a renderer acknowledgement to the surface owner. Remote calls
+    /// perform control-socket I/O and must run off the app event loop.
+    pub fn browser_publish_pointer_frame(&self, frame_seq: u64) -> anyhow::Result<()> {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                let _ = surface.browser_acknowledge_pointer_frame(frame_seq);
+                Ok(())
+            }
+            SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
+                session
+                    .request(json!({
+                        "cmd": "browser-frame-presented",
+                        "surface": surface.id,
+                        "frame_seq": frame_seq,
+                    }))
+                    .map(|_| ())
+            }
+            SurfaceHandle::Remote(_, _) => anyhow::bail!("PTY surface is not a browser surface"),
+            SurfaceHandle::RemoteBrowserUnsupported => {
+                anyhow::bail!("browser panes are not supported over attach yet")
+            }
         }
     }
 
@@ -1686,34 +1877,28 @@ impl SurfaceHandle {
         }
     }
 
-    pub fn browser_mouse_event(
+    pub fn browser_key_press(
         &self,
-        event_type: &str,
-        x: f64,
-        y: f64,
-        button: Option<&str>,
-        click_count: Option<u32>,
+        key: &str,
+        code: &str,
+        windows_virtual_key_code: u32,
+        modifiers: u32,
+        text: Option<&str>,
     ) -> anyhow::Result<()> {
         match self {
             SurfaceHandle::Local(surface, _) => {
-                surface.browser_mouse_event(event_type, x, y, button, click_count)
+                surface.browser_key_press(key, code, windows_virtual_key_code, modifiers, text)
             }
             SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
-                let kind = match event_type {
-                    "mousePressed" => "down",
-                    "mouseReleased" => "up",
-                    "mouseMoved" => "move",
-                    _ => anyhow::bail!("bad browser mouse event type {event_type:?}"),
-                };
                 session
                     .request(json!({
-                        "cmd": "browser-mouse",
+                        "cmd": "browser-key-press",
                         "surface": surface.id,
-                        "kind": kind,
-                        "x_px": x,
-                        "y_px": y,
-                        "button": button,
-                        "click_count": click_count,
+                        "key": key,
+                        "code": code,
+                        "windows_virtual_key_code": windows_virtual_key_code,
+                        "modifiers": modifiers,
+                        "text": text,
                     }))
                     .map(|_| ())
             }
@@ -1724,17 +1909,80 @@ impl SurfaceHandle {
         }
     }
 
-    pub fn browser_wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
+    pub fn browser_mouse_event_for_frame(
+        &self,
+        event_type: &str,
+        x: f64,
+        y: f64,
+        button: Option<&str>,
+        click_count: Option<u32>,
+        frame_seq: Option<u64>,
+    ) -> anyhow::Result<()> {
         match self {
-            SurfaceHandle::Local(surface, _) => surface.browser_wheel(x, y, delta_y),
+            SurfaceHandle::Local(surface, _) => surface.browser_mouse_event_for_frame(
+                event_type,
+                x,
+                y,
+                button,
+                click_count,
+                frame_seq,
+            ),
             SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
+                let frame_seq = frame_seq.ok_or_else(|| {
+                    anyhow::anyhow!("remote browser pointer input requires an admitted frame")
+                })?;
+                let (kind, lifecycle) = match event_type {
+                    "mousePressed" => ("down", remote::GuardedPointerLifecycle::CaptureMutation),
+                    "mouseReleased" => ("up", remote::GuardedPointerLifecycle::CaptureMutation),
+                    "mouseMoved" => ("move", remote::GuardedPointerLifecycle::Motion),
+                    _ => anyhow::bail!("bad browser mouse event type {event_type:?}"),
+                };
+                session
+                    .request_guarded_pointer(
+                        json!({
+                            "cmd": "browser-mouse-guarded",
+                            "surface": surface.id,
+                            "kind": kind,
+                            "x_px": x,
+                            "y_px": y,
+                            "button": button,
+                            "click_count": click_count,
+                            "frame_seq": frame_seq,
+                        }),
+                        lifecycle,
+                    )
+                    .map(|_| ())
+            }
+            SurfaceHandle::Remote(_, _) => anyhow::bail!("PTY surface is not a browser surface"),
+            SurfaceHandle::RemoteBrowserUnsupported => {
+                anyhow::bail!("browser panes are not supported over attach yet")
+            }
+        }
+    }
+
+    pub fn browser_wheel_for_frame(
+        &self,
+        x: f64,
+        y: f64,
+        delta_y: f64,
+        frame_seq: Option<u64>,
+    ) -> anyhow::Result<()> {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                surface.browser_wheel_for_frame(x, y, delta_y, frame_seq)
+            }
+            SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
+                let frame_seq = frame_seq.ok_or_else(|| {
+                    anyhow::anyhow!("remote browser pointer input requires an admitted frame")
+                })?;
                 session
                     .request(json!({
-                        "cmd": "browser-wheel",
+                        "cmd": "browser-wheel-guarded",
                         "surface": surface.id,
                         "x_px": x,
                         "y_px": y,
                         "delta_y_px": delta_y,
+                        "frame_seq": frame_seq,
                     }))
                     .map(|_| ())
             }
@@ -1799,6 +2047,27 @@ impl SurfaceHandle {
 #[cfg(test)]
 pub(crate) fn test_remote_session_without_provider_authority() -> Session {
     Session::Remote(remote::test_session_without_provider_authority())
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_session_with_live_browser(
+    surface_id: SurfaceId,
+    frame_seq: u64,
+) -> Session {
+    Session::Remote(remote::test_session_with_live_browser(surface_id, frame_seq))
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_session_with_browser_pointer_range(
+    surface_id: SurfaceId,
+    pointer_frame_floor_seq: u64,
+    frame_seq: u64,
+) -> Session {
+    Session::Remote(remote::test_session_with_browser_pointer_range(
+        surface_id,
+        pointer_frame_floor_seq,
+        frame_seq,
+    ))
 }
 
 #[cfg(test)]

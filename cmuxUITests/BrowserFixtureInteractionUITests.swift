@@ -43,7 +43,7 @@ class BrowserFixtureSocketTestCase: XCTestCase {
 
     @discardableResult
     func launchApp(additionalLaunchArguments: [String] = []) throws -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += [
             "-socketControlMode", "allowAll",
             "-AppleLanguages", "(en)",

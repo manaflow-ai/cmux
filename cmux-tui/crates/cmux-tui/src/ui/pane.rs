@@ -15,8 +15,9 @@ use ratatui::style::{Color, Modifier, Style};
 use unicode_width::UnicodeWidthStr;
 
 use super::{ScrollbarState, ScrollbarStyle, copy_buffer_row_cropped, thumb_geometry, truncate};
-use crate::app::{App, FocusTarget, Hit, PaneArea, PaneEdge, Selection};
+use crate::app::{App, FocusTarget, Hit, PaneArea, PaneContentGeneration, PaneEdge, Selection};
 use crate::config::{Theme, tab_label};
+use crate::localization;
 use crate::session::{ClientInfo, TabNotificationView};
 
 /// Border style for a pane box: active gets the accent color, idle
@@ -99,6 +100,8 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
     let areas = app.pane_areas.clone();
     let visible_surfaces: HashSet<_> = areas.iter().map(|area| area.surface).collect();
     app.rendered_terminal_bounds.retain(|surface, _| visible_surfaces.contains(surface));
+    app.rendered_terminal_pointer_semantics.retain(|surface, _| visible_surfaces.contains(surface));
+    app.rendered_pane_content_generations.retain(|surface, _| visible_surfaces.contains(surface));
     let mut input_cursor = None;
     let mut terminal_cursor = None;
     for area in &areas {
@@ -404,6 +407,13 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
 fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) -> DrawCursors {
     let rect = area.content;
     app.rendered_terminal_bounds.remove(&area.surface);
+    app.rendered_terminal_pointer_semantics.remove(&area.surface);
+    if matches!(
+        app.rendered_pane_content_generations.get(&area.surface),
+        Some(PaneContentGeneration::Terminal(_))
+    ) {
+        app.rendered_pane_content_generations.remove(&area.surface);
+    }
     if rect.width == 0 || rect.height == 0 {
         return DrawCursors::default();
     }
@@ -416,7 +426,6 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         draw_browser_content(app, frame, area, &surface);
         return DrawCursors { input: cursor.filter(|_| focused), terminal: None };
     }
-
     let selection: Option<Selection> =
         app.selection.filter(|s| s.surface == area.surface && s.anchor != s.head);
     let selection_offset = selection.map(|_| app.surface_scroll_offset(area.surface)).unwrap_or(0);
@@ -434,6 +443,9 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         super::terminal_grid::rendered_viewport_rect_cropped(rect, frame.area(), &render, source_x);
     app.rendered_terminal_bounds.insert(area.surface, live);
     app.rendered_terminal_sizes.insert(area.surface, render.frame.size);
+    app.rendered_terminal_pointer_semantics.insert(area.surface, render.pointer_semantics);
+    app.rendered_pane_content_generations
+        .insert(area.surface, PaneContentGeneration::Terminal(render.content_generation));
     if focused && app.menu.is_none() && app.prompt.is_none() && app.pairing_dialog.is_none() {
         let (shape, blinking) = render.frame.cursor_visual;
         app.use_terminal_cursor_spec(
@@ -472,13 +484,10 @@ fn draw_browser_content(
         }
     }
 
-    let message = if matches!(surface.browser_status(), Some(BrowserStatus::Failed(_))) {
-        let error = match surface.browser_status() {
-            Some(BrowserStatus::Failed(error)) => error,
-            _ => String::new(),
-        };
-        Some(format!("browser failed: {error}"))
-    } else if matches!(surface.browser_status(), Some(BrowserStatus::Starting)) {
+    let browser_status = surface.browser_status();
+    let message = if let Some(status @ BrowserStatus::Failed(_)) = browser_status.as_ref() {
+        status.failure().map(|failure| localization::catalog().browser.failure_message(failure))
+    } else if matches!(browser_status, Some(BrowserStatus::Starting)) {
         Some("starting browser...".to_string())
     } else if surface.browser_url().is_none() {
         Some("browser panes are not supported over attach yet".to_string())
@@ -567,7 +576,7 @@ fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bo
         Style::default(),
         state,
     );
-    app.hits.push((track, Hit::Scrollbar { surface: area.surface, track }));
+    app.hits.push((track, Hit::Scrollbar { surface: area.surface, track, scrollbar: sb }));
 }
 
 fn push_resize_hits(app: &mut App, area: &PaneArea) {

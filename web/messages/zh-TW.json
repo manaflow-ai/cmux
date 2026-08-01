@@ -102,7 +102,7 @@
     "faqGhosttyQ": "cmux 和 Ghostty 有什麼關係？",
     "faqGhosttyA": "cmux 不是 Ghostty 的分支。它使用 <link>libghostty</link> 作為終端機渲染的函式庫，就像應用程式使用 WebKit 來顯示網頁一樣。Ghostty 是一個獨立的終端機；cmux 是建立在其渲染引擎之上的不同應用程式。",
     "faqPlatformQ": "支援哪些平台？",
-    "faqPlatformA": "目前僅支援 macOS。cmux 是原生的 Swift + AppKit 應用程式。",
+    "faqPlatformA": "可在下載選單中查看已推出的 cmux 版本。尚未發布的平台可以<waitlist>加入候補名單</waitlist>。",
     "faqAgentsQ": "cmux 支援哪些程式碼代理？",
     "faqAgentsA": "全部都支援。cmux 是一個終端機，所以任何在終端機中執行的代理都能直接使用：Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent，以及任何你能從命令列啟動的工具。",
     "faqNotificationsQ": "通知是如何運作的？",
@@ -3523,7 +3523,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "目前無法使用結算功能。請稍後再試。"
+    "billingUnavailable": "目前無法使用結算功能。請稍後再試。",
+    "signedOutNotice": "你尚未登入。登入後可查看目前方案或恢復既有購買。",
+    "signedOutSignIn": "登入"
   },
   "platforms": {
     "macos": "macOS",
@@ -3536,8 +3538,8 @@
     "title": "加入 {platform} 候補名單",
     "titleAny": "加入候補名單",
     "description": "{platform} 支援即將推出。留下你的電子郵件，準備好後我們會第一時間通知你。",
-    "descriptionAny": "目前 cmux 以 macOS 為優先。留下電子郵件，Linux、Windows 或 Android 版本就緒後我們會通知你。",
-    "calloutText": "即將支援 Linux、Windows 和 Android。",
+    "descriptionAny": "選擇一個尚未發布的平台並留下電子郵件。該版本準備好後，我們會通知你。",
+    "calloutText": "更多 cmux 版本即將推出。",
     "platformsLabel": "哪些平台？",
     "selectPlatform": "請至少選擇一個平台。",
     "emailLabel": "電子郵件",
@@ -3551,5 +3553,86 @@
     "successBody": "{platform} 版本就緒後，我們會寄電子郵件給你。",
     "successBodyAny": "cmux 在你的平台上就緒後，我們會寄電子郵件給你。",
     "done": "完成"
+  },
+  "browserDownloads": {
+    "eyebrow": "cmux 瀏覽器",
+    "title": "適用於 {platform} 的 cmux",
+    "tagline": "將 Chromium 瀏覽器與代理工作區整合在一起。",
+    "logoAlt": "cmux App 圖示",
+    "portableCta": "可攜式 ZIP",
+    "featuresTitle": "專為代理工作打造",
+    "features": {
+      "chromium": {
+        "title": "真正的 Chromium",
+        "description": "：具備 Chrome 等級的分頁、轉譯、擴充功能與網址列體驗"
+      },
+      "workspaces": {
+        "title": "以任務為核心的工作區",
+        "description": "：依任務整理網頁分頁與工具，不再面對無止盡的分頁列"
+      },
+      "terminals": {
+        "title": "終端介面",
+        "description": "：在同一個視窗與合成器中使用 shell 和瀏覽器分頁"
+      },
+      "openSource": {
+        "title": "免費且開放原始碼",
+        "description": "：可在 GitHub 上檢視程式碼、回報問題並從原始碼建置"
+      }
+    },
+    "installTitle": "安裝",
+    "releaseTitle": "版本與更新",
+    "releaseBody": "這些連結一律指向 <github>GitHub Releases</github> 上的最新穩定版本。cmux 會在安裝更新前驗證已簽署的更新資訊清單。",
+    "sourceLink": "在 GitHub 上檢視原始碼",
+    "otherPlatform": "適用於 {platform} 的 cmux",
+    "macLink": "Mac 版 cmux 終端",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "下載 Windows 版 cmux",
+      "metaDescription": "下載 Windows x64 版 cmux：免費且開放原始碼的 Chromium 瀏覽器與代理工作區，提供以任務為核心的分頁和終端介面。",
+      "subtitle": "原生 x64 版本，提供 Chromium 分頁、cmux 工作區和熟悉的 Windows 鍵盤操作。",
+      "primaryCta": "下載安裝程式（.exe）",
+      "requirements": "Windows 10 或更新版本 · x64",
+      "installBody": "執行安裝程式並依照 Windows 提示操作。若想將 cmux 放在資料夾中而不進行全系統安裝，請選擇可攜式 ZIP。"
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "下載 Linux 版 cmux",
+      "metaDescription": "下載 Linux x64 版 cmux：免費且開放原始碼的 Chromium 瀏覽器與代理工作區，提供以任務為核心的分頁和終端介面。",
+      "subtitle": "原生 x64 版本，提供 Chromium 分頁、cmux 工作區和整合式終端介面。",
+      "primaryCta": "下載 .deb",
+      "requirements": "Debian 或 Ubuntu · x64",
+      "installBody": "下載 Debian 套件並使用套件管理員安裝。若要進行每位使用者安裝和 App 內更新，請選擇可攜式 ZIP。"
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "歡迎加入 cmux Pro 🎉",
+      "fallbackName": "朋友",
+      "greeting": "你好，{name}！",
+      "thanks": "感謝你加入 cmux Pro！完整的 Pro 體驗仍在完善中，Cloud 存取也即將推出。",
+      "cloudStatus": "Cloud 存取上線後，我們會根據你的訂閱月數，將使用額度加入帳戶。",
+      "currentBenefit": "在此期間，你的 Pro 權益是搶先體驗 cmux iOS 版。請透過下方連結註冊，完成後 Apple 會寄出 TestFlight 邀請。",
+      "testflightLink": "註冊 TestFlight：{url}",
+      "testflightLinkLabel": "註冊 TestFlight",
+      "signoff": "很高興有你加入！\ncmux 團隊"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro 已啟用",
+    "title": "歡迎加入 cmux Pro",
+    "body": "Pro 功能仍在開發中。Cloud 存取即將推出，訂閱期間每個月都會累積使用額度。目前，Pro 包含透過 TestFlight 存取 cmux iOS 版的權益。",
+    "done": "前往控制面板",
+    "steps": {
+      "iosApp": {
+        "title": "cmux iOS App",
+        "body": "在手機上使用 cmux。",
+        "action": "加入 iOS 測試版"
+      },
+      "billing": {
+        "title": "管理你的方案",
+        "body": "查看方案、發票與取消選項。",
+        "action": "管理方案"
+      }
+    }
   }
 }

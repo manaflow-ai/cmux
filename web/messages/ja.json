@@ -27,6 +27,56 @@
     "backToMac": "cmux for Mac",
     "galleryItemAlt": "iPhone の cmux ターミナルで動作する {name}"
   },
+  "browserDownloads": {
+    "eyebrow": "cmux Browser",
+    "title": "{platform} 版 cmux",
+    "tagline": "Chromium ブラウザとエージェントワークスペースを、ひとつに。",
+    "logoAlt": "cmux アプリアイコン",
+    "portableCta": "ポータブル ZIP",
+    "featuresTitle": "エージェント作業のための設計",
+    "features": {
+      "chromium": {
+        "title": "本物の Chromium",
+        "description": "：Chrome 品質のタブ、レンダリング、拡張機能、アドレスバー"
+      },
+      "workspaces": {
+        "title": "タスク単位のワークスペース",
+        "description": "：延々と続くタブ列ではなく、タスクごとに Web タブとツールを整理"
+      },
+      "terminals": {
+        "title": "ターミナルサーフェス",
+        "description": "：シェルとブラウザタブを同じウィンドウとコンポジタに配置"
+      },
+      "openSource": {
+        "title": "無料・オープンソース",
+        "description": "：GitHub でコードの確認、Issue の報告、ソースからのビルドが可能"
+      }
+    },
+    "installTitle": "インストール",
+    "releaseTitle": "リリースとアップデート",
+    "releaseBody": "リンクは常に <github>GitHub Releases</github> の最新安定版を指します。cmux は署名済みアップデートマニフェストを検証してから更新をインストールします。",
+    "sourceLink": "GitHub でソースを見る",
+    "otherPlatform": "{platform} 版 cmux",
+    "macLink": "Mac 版 cmux ターミナル",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Windows 版 cmux をダウンロード",
+      "metaDescription": "Windows x64 版 cmux をダウンロード。タスク単位のタブとターミナルサーフェスを備えた、無料・オープンソースの Chromium ブラウザ兼エージェントワークスペースです。",
+      "subtitle": "Chromium タブ、cmux ワークスペース、Windows で慣れたキー操作を備えたネイティブ x64 ビルドです。",
+      "primaryCta": "インストーラー（.exe）をダウンロード",
+      "requirements": "Windows 10 以降 · x64",
+      "installBody": "インストーラーを実行し、Windows の案内に従ってください。システム全体にインストールせずフォルダ内で使いたい場合は、ポータブル ZIP を選べます。"
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Linux 版 cmux をダウンロード",
+      "metaDescription": "Linux x64 版 cmux をダウンロード。タスク単位のタブとターミナルサーフェスを備えた、無料・オープンソースの Chromium ブラウザ兼エージェントワークスペースです。",
+      "subtitle": "Chromium タブ、cmux ワークスペース、統合ターミナルサーフェスを備えたネイティブ x64 ビルドです。",
+      "primaryCta": ".deb をダウンロード",
+      "requirements": "Debian または Ubuntu · x64",
+      "installBody": "Debian パッケージをダウンロードし、パッケージマネージャーでインストールしてください。ユーザー単位のインストールとアプリ内更新にはポータブル ZIP を選べます。"
+    }
+  },
   "meta": {
     "title": "cmux — マルチタスク、整理、プログラマビリティのために作られたターミナル",
     "description": "無料・オープンソースのGhosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
@@ -86,20 +136,24 @@
         "upsellTitle": "クラウドエージェントやチーム請求が必要になったらアップグレードできます。",
         "upsellBody": "個人向けクラウド機能にはPro、共有請求とシート管理にはTeamを選択してください。",
         "testflightTitle": "cmux iOSアプリを入手",
-        "testflightBody": "iOSベータは、有効なProユーザーとTeamメンバーがTestFlightで利用できます。",
+        "testflightBody": "iOSベータは、有効な個人向けProサブスクリプションでTestFlightから利用できます。",
         "testflightCta": "iOSベータに参加"
       },
       "pro": {
         "name": "cmux Pro",
         "activeBody": "プランは{date}に更新されます。",
-        "pendingBody": "プランは{date}に終了する予定です。"
+        "pendingBody": "プランは{date}に終了する予定です。",
+        "monthlyPrice": "$30/月",
+        "annualPrice": "$24/月（年払い）",
+        "legacyAnnualPrice": "$20/月（年払い）"
       },
       "team": {
         "name": "cmux Team",
         "fallbackName": "チーム",
         "activeBody": "{team}は{date}に更新されます。",
         "pendingBody": "{team}は{date}に終了する予定です。",
-        "price": "$35/シート/月"
+        "price": "$35/シート/月",
+        "annualPrice": "$28/シート/月（年払い）"
       },
       "details": {
         "renewsOn": "更新日",
@@ -137,13 +191,13 @@
         "joined": "AppleからTestFlightの招待メールがまもなく届きます。",
         "left": "iOS TestFlightグループから退出しました。",
         "error": "TestFlightを更新できませんでした。しばらくしてから再試行してください。",
-        "ineligible": "iOS TestFlightには有効なProまたはTeamサブスクリプションが必要です。",
+        "ineligible": "iOS TestFlightには有効な個人Proサブスクリプションが必要です。",
         "needs_email": "iOS TestFlightに参加する前に、確認済みのメインメールを追加してください。",
         "unavailable": "現在、TestFlight登録は利用できません。"
       },
       "notEligible": {
         "title": "サブスクリプションが必要です",
-        "body": "iOS TestFlightアクセスは、有効なProユーザーとTeamサブスクリプションのメンバーが利用できます。"
+        "body": "iOS TestFlightアクセスは、有効な個人Proサブスクリプションのユーザーが利用できます。"
       },
       "needsEmail": {
         "title": "確認済みメールが必要です",
@@ -242,6 +296,9 @@
       "eyebrow": "cmux Vault",
       "title": "CLIアクセスを承認",
       "description": "cmux-vaultに表示されたコードを確認し、このデバイスをサインイン中のcmuxアカウントに接続します。",
+      "subrouterEyebrow": "Subrouter",
+      "subrouterTitle": "Subrouterアクセスを承認",
+      "subrouterDescription": "srに表示されたコードを確認し、このデバイスをサインイン中のcmuxチームに接続します。",
       "codeLabel": "ユーザーコード",
       "approveButton": "アクセスを承認",
       "approving": "承認中...",
@@ -323,6 +380,7 @@
     "community": "コミュニティ",
     "docs": "ドキュメント",
     "changelog": "変更履歴",
+    "companyInformation": "会社情報",
     "privacy": "プライバシー",
     "terms": "利用規約",
     "eula": "EULA",
@@ -347,7 +405,16 @@
     "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイを利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
     "perMonth": "/月",
+    "perMonthBilledYearly": "/月（年払い）",
     "perUserMonth": "/ユーザー/月",
+    "perUserMonthBilledYearly": "/ユーザー/月（年払い）",
+    "billingPeriod": "請求期間",
+    "monthly": "月払い",
+    "annual": "年払い",
+    "saveAnnual": "{discount}%割引",
+    "annualComparePrice": "${monthly}/月",
+    "teamMonthlyComparePrice": "${monthly}/ユーザー/月",
+    "teamAnnualComparePrice": "${monthly}/ユーザー/月",
     "currentPlan": "現在のプラン",
     "manageBilling": "請求を管理",
     "free": {
@@ -605,7 +672,7 @@
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月額 $30、または年額 $240(年払いでは月あたり約 $20)で、4 vCPU / 16 GB の Cloud VM で毎月20時間のアクティブ計算時間が含まれます。それを超えると、VM サイズに応じてアクティブな計算時間あたりで課金されます(上記の Cloud VM サイズを参照)。アイドルの VM は自動的に一時停止し、エージェントを並列実行するとより多くの時間を使うだけです。ターミナルとローカルエージェントは無料のままです。"
+          "a": "Pro は月払いで $30/月、年払いでは $24/月（20%割引）で、4 vCPU / 16 GB の Cloud VM で毎月20時間のアクティブ計算時間が含まれます。それを超えると、VM サイズに応じてアクティブな計算時間あたりで課金されます（上記の Cloud VM サイズを参照）。アイドルの VM は自動的に一時停止し、エージェントを並列実行するとより多くの時間を使うだけです。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -613,7 +680,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "はい。Team は1ユーザーあたり月額 $35 です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
+          "a": "はい。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
         }
       ]
     },
@@ -625,6 +692,9 @@
     "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。",
     "billingCancelled": "チェックアウトはキャンセルされました。請求は発生していません。",
     "billingInvalidPlan": "指定されたプランはご利用いただけません。以下からプランをお選びください。",
+    "signedOutNotice": "サインインしていません。サインインすると、現在のプランの確認や購入済みプランの復元ができます。",
+    "signedOutSignIn": "サインイン",
+    "billingInvalidRelay": "アプリのチェックアウトリンクの有効期限が切れているか、検証できませんでした。cmuxに戻ってもう一度お試しください。",
     "welcomeTeam": "cmux Team のご購入が完了しました。"
   },
   "home": {
@@ -663,7 +733,7 @@
     "faqGhosttyQ": "cmuxとGhosttyの関係は？",
     "faqGhosttyA": "cmuxはGhosttyのフォークではありません。アプリがWebKitをWebビューに使うのと同様に、ターミナルレンダリングのライブラリとして<link>libghostty</link>を使用しています。Ghosttyはスタンドアロンのターミナルで、cmuxはそのレンダリングエンジンの上に構築された別のアプリです。",
     "faqPlatformQ": "対応プラットフォームは？",
-    "faqPlatformA": "現在はmacOSのみです。cmuxはネイティブSwift + AppKitアプリです。Linux・Windows・Android 版が公開され次第お知らせします。<waitlist>順番待ちリストに登録</waitlist>してください。",
+    "faqPlatformA": "ダウンロードメニューで利用可能な cmux ビルドを確認できます。未公開のプラットフォームは<waitlist>順番待ちリストに登録</waitlist>してください。",
     "faqAgentsQ": "cmuxはどのコーディングエージェントに対応していますか？",
     "faqAgentsA": "すべてに対応しています。cmuxはターミナルなので、ターミナルで動作するすべてのエージェントがそのまま使えます：Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent、その他コマンドラインから起動できるすべてのツール。",
     "faqNotificationsQ": "通知はどのように機能しますか？",
@@ -921,6 +991,28 @@
     "metaDescription": "cmuxチームからのニュースとアップデート",
     "description": "cmuxチームからのニュースとアップデート",
     "posts": {
+      "tokenMultitasking": {
+        "title": "30日で3670億トークンを使った方法",
+        "summary": "cmuxでのループは、Cmd+Shift+U、完了したエージェントの確認、返信、繰り返しです。通知が空になったら次のタスクを始めます。",
+        "date": "2026年7月29日",
+        "p1": "直近30日間で3670億トークンを使いました。1日のピークはGPT 5.6 Solで370億トークンでした。",
+        "videoTitle": "Codex CLIとcmuxで30日間に3670億トークンを使った方法",
+        "watchVideo": "<link>YouTubeで動画を見る</link>。",
+        "workflowTitle": "ワークフローのすべて",
+        "workflowIntro": "cmuxのワークスペースごとに、通常のCodexまたはClaude Codeで一つのタスクを実行します。エージェントはレビューが必要になると通知します。",
+        "workflowJump": "<shortcut>Cmd+Shift+U</shortcut>を押します。cmuxが最新の未読通知へ移動し、該当するワークスペースとペインにフォーカスします。",
+        "workflowReview": "devビルド、成果物、またはバグ修正を確認し、エージェントに返信します。",
+        "workflowRepeat": "もう一度Cmd+Shift+Uを押して繰り返します。",
+        "workflowStart": "通知が残っていなければ、新しいワークスペースを作って次のタスクを始めます。",
+        "workflowClose": "このループが成果の大半を生みます。cmuxは実行中の作業を見える状態に保ち、完了したエージェントの作業をレビューキューに変えます。",
+        "simpleTitle": "カスタムハーネスは使っていません",
+        "simpleP1": "通常のClaude CodeとCodexを使っています。委任が必要な場合は、それぞれに組み込まれたサブエージェントだけを使います。",
+        "simpleP2": "カスタムのエージェントハーネスや外部オーケストレーションは使いません。<code>/loop</code>は使わず、<code>/goal</code>もほとんど使いません。",
+        "economicsTitle": "費用",
+        "economicsP1": "API料金に換算すると、この使用量は約8万5000ドルです。実際に支払ったのは37個のChatGPT Pro 20xアカウントに対する7400ドルで、Tiboが提供したクォータリセットも使いました。<codexBar>CodexBar</codexBar>でローカルのトークン数とAPI料金換算を集計しました。",
+        "economicsP2": "3670億という数字も、アカウント全体の使用量より少なく出ています。<subrouter>Subrouter</subrouter>で共同創業者と同じアカウントプールを共有していますが、CodexBarが集計するのは私のマシン上のローカルトークン使用量だけだからです。",
+        "closing": "このワークフローでは判断に注意を集中できます。完了した作業を確認してエージェントのブロックを解除し、キューが空になったら次のタスクを始めます。"
+      },
       "cmdShiftU": {
         "title": "Cmd+Shift+U",
         "summary": "Cmd+Shift+Uがcmuxのワークスペース間で完了したエージェントにどうナビゲートするか。",
@@ -1167,6 +1259,21 @@
         "p4": "cmuxはワークフローを押し付けるのではなく、あなたのワークフローに合わせるべきです。cmuxを自分の居場所のように感じてほしいのです。",
         "p5": "<link>cmux-home</link>はその一例です。ClaudeとCodexのワークスペースを起動してライブ状態を監視する小さなRust製TUIで、すべてcmuxのプリミティブの上に作られています。ランチャーはコマンドテンプレートを使うので、ワークツリーの作成、チェックアウトの選択、VMへのSSH接続などを自分のスクリプトに差し替えられます。フォークして自分のものにしてください。"
       }
+    },
+    "tokenMultitasking": {
+      "metaTitle": "30日で3670億トークンを使った方法",
+      "metaDescription": "cmuxでCodexとClaude Codeを並行実行し、Cmd+Shift+Uで完了通知を確認することで、30日間に3670億トークンを使いました。",
+      "metaKeywords": [
+        "3670億トークン",
+        "GPT 5.6 Sol",
+        "Codex CLI",
+        "Claude Code",
+        "cmux",
+        "AIコーディングエージェント",
+        "並列コーディングエージェント",
+        "Cmd+Shift+U",
+        "CodexBar"
+      ]
     },
     "zenOfCmux": {
       "metaTitle": "cmuxの禅",
@@ -1646,6 +1753,8 @@
           "globalFontMagnification": "cmux が所有するターミナル、タブタイトル、サイドバー、設定、オーバーレイ、アプリの chrome をこの割合で拡大縮小します。レンダリングされたブラウザページ内容は対象外です。"
         },
         "terminal": {
+          "agentHibernation": "通常のエージェント休止の設定です。cmux はアイドル中のバックグラウンドエージェントプロセスを終了して RAM と CPU を解放し、そのタブを開いたときに保存済みセッションから再開します。通常の休止には、再開可能なコーディングエージェントであること、ライフサイクルがアイドルと報告していること、ターミナルが画面外にあること、ライブターミナル数が設定上限を超えていること、アイドル時間と確認時間を通して出力が変化していないことが必要です。これとは別に、メモリ負荷が危険な状態では enabled が false でも、安全なアイドル中のバックグラウンドエージェントを cmux が上限付きのバッチで休止する場合があります。表示中、実行中、入力待ち、最近変更された、またはトランスクリプトを保護できないエージェントは対象外です。プレースホルダーの「再開」ボタンは手動の代替手段です。",
+          "agentHibernationEnabled": "ライブターミナル数の上限に基づく通常のエージェント休止を有効にします。false の場合も、メモリ負荷が危険な状態での安全休止は有効です。",
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
           "scrollSpeed": "ターミナルのスクロールホイールとトラックパッドの移動量に適用される倍率です。値を大きくするとスクロールが速くなり、小さくすると遅くなります。",
           "sessionContentMaxWidth": "ターミナルと組み込みエージェントチャットのコンテンツ幅の上限をポイント単位で指定します。ペインの全幅を使うには false を設定します。",
@@ -2383,6 +2492,7 @@
     },
     "navItems": {
       "gettingStarted": "はじめに",
+      "tui": "cmux TUI",
       "concepts": "コンセプト",
       "workspaceGroups": "ワークスペースグループ",
       "configuration": "設定",
@@ -4565,8 +4675,8 @@
     "title": "{platform}版の順番待ちリストに登録",
     "titleAny": "順番待ちリストに登録",
     "description": "{platform}版は準備中です。メールアドレスをご記入いただくと、公開され次第すぐにお知らせします。",
-    "descriptionAny": "現在 cmux は macOS 専用です。メールアドレスをご記入いただくと、Linux・Windows・Android 版が公開され次第お知らせします。",
-    "calloutText": "Linux・Windows・Android 版も準備中です。",
+    "descriptionAny": "未公開のプラットフォームを選んでメールアドレスを入力してください。そのビルドが公開され次第お知らせします。",
+    "calloutText": "ほかの cmux ビルドも準備中です。",
     "platformsLabel": "対象プラットフォーム",
     "selectPlatform": "1つ以上選択してください。",
     "emailLabel": "メールアドレス",
@@ -4639,22 +4749,159 @@
       "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
     }
   },
+  "emails": {
+    "proWelcome": {
+      "subject": "cmux Pro へようこそ！",
+      "fallbackName": "お客様",
+      "greeting": "{name} さん、こんにちは！",
+      "thanks": "cmux Pro にご参加いただきありがとうございます！現在、Pro の全体的な体験を準備しており、Cloud アクセスも近日提供予定です。",
+      "cloudStatus": "Cloud アクセスの提供開始時に、それまで Pro を購読いただいた月数に応じた利用クレジットをアカウントに付与します。",
+      "currentBenefit": "それまでの Pro 特典は cmux iOS の先行アクセスです。下のリンクから登録すると、登録完了後に Apple から TestFlight の招待が届きます。",
+      "testflightLink": "TestFlight に登録する：{url}",
+      "testflightLinkLabel": "TestFlight に登録する",
+      "signoff": "ご参加いただき、ありがとうございます！\ncmux チーム"
+    }
+  },
+  "tui": {
+    "marketing": {
+      "sectionLabel": "TUI",
+      "metaTitle": "cmux TUI：エージェント向けターミナルワークスペース",
+      "metaDescription": "macOS、Linux、Windows で動く高速なオープンソース TUI から、ワークスペース、分割ペイン、ブラウザタブ、リモートマシンを操作できます。",
+      "eyebrow": "cmux TUI · オープンソース",
+      "title": "どこでも動くターミナルワークスペース。",
+      "intro": "cmux TUI は、コーディングエージェント向けのワークスペースモデルを macOS、Linux、Windows に提供します。シェル、ブラウザ、テスト、長時間動くエージェントを、キーボード中心の一つのツリーで管理できます。",
+      "runButton": "cmux をインストール",
+      "docsButton": "ドキュメントを読む",
+      "sourceButton": "ソースを見る",
+      "screenshotAlt": "macOS の cmux 内で TUI ワークスペースレールの横に Neovim、OpenCode、Hunk を3つのペインで表示する cmux TUI",
+      "screenshotCaption": "macOS の cmux 内で動く実際の cmux-tui セッション。TUI のワークスペースレールは表示し、macOS アプリのサイドバーは非表示にしています。",
+      "facts": {
+        "platforms": {
+          "label": "対応環境",
+          "value": "macOS + Linux + Windows"
+        },
+        "engine": {
+          "label": "ターミナルエンジン",
+          "value": "Ghostty VT"
+        },
+        "license": {
+          "label": "ソース",
+          "value": "オープンソース"
+        }
+      },
+      "workflowEyebrow": "作業全体を一つのツリーに",
+      "workflowTitle": "すべてのエージェントとツールを見渡せます。",
+      "workflowBody": "ワークスペースにはスクリーン、スクリーンには分割ペイン、ペインにはターミナルまたはブラウザのタブが入ります。同じライブツリーへローカルからアタッチし、SSH 経由で接続し、Web で描画し、ソケット API から操作できます。",
+      "features": {
+        "tree": {
+          "number": "01 / ワークスペース",
+          "title": "タスク単位で整理",
+          "body": "機能、調査、エージェントチームごとにワークスペースを分けられます。ターミナル状態やレイアウトを失わずに切り替えられます。"
+        },
+        "agents": {
+          "number": "02 / エージェント",
+          "title": "並行作業を把握",
+          "body": "コーディングエージェントの横にテスト、ログ、レビューコマンドを配置できます。通知とエージェント状態は各サーフェスに紐づきます。"
+        },
+        "browser": {
+          "number": "03 / ブラウザ",
+          "title": "実ブラウザをタブで開く",
+          "body": "Chrome ターゲットをターミナルプロセスの隣で操作できます。プロファイル、キーボード、マウス、ライブフレームに対応します。"
+        },
+        "remote": {
+          "number": "04 / マシン",
+          "title": "マシン間を移動",
+          "body": "オプションのマシンレールから、ローカルセッション、Unix ソケット、SSH ホスト、cmux Cloud 接続を切り替えられます。"
+        }
+      },
+      "keyboardEyebrow": "最初から高速",
+      "keyboardTitle": "tmux の操作感と、より豊かなモデル。",
+      "keyboardBody": "標準の Ctrl-b プレフィックスは馴染みのあるペイン操作を保ちつつ、ワークスペース、タブ、ブラウザ、スクロール可能なビューポート、レイアウトの取り消し、マウス操作を追加します。",
+      "keys": {
+        "split": "アクティブペインを右に分割",
+        "tab": "ペイン内にタブを開く",
+        "workspace": "ワークスペースを作成",
+        "viewport": "右側にスクロール可能なペインを追加"
+      },
+      "installEyebrow": "今すぐ開始",
+      "installTitle": "コマンド一つ。アプリウィンドウは不要です。",
+      "installBody": "インストーラーがプラットフォームに合うネイティブバイナリを選び、SHA-256 チェックサムを検証して、cmux コマンドを PATH に追加します。",
+      "installTabs": {
+        "label": "オペレーティングシステム",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "viewScript": "インストールスクリプトを見る",
+        "copy": "インストールコマンドをコピー",
+        "copied": "コピーしました"
+      },
+      "installNpx": "Node.js がある場合は、次のコマンドでも実行できます。",
+      "fullDocs": "インストール、キー、リモートセッション、自動化",
+      "browseSource": "GitHub で cmux-tui を見る"
+    },
+    "docs": {
+      "metaTitle": "cmux TUI ドキュメント",
+      "metaDescription": "cmux TUI のインストール、ワークスペースモデル、キーボード操作、セッションへのアタッチ、リモート接続、自動化を説明します。",
+      "title": "cmux TUI",
+      "intro": "cmux TUI は macOS、Linux、Windows 向けの Rust 製ターミナルマルチプレクサです。ワークスペース、スクリーン、分割ペイン、ターミナルタブ、ブラウザタブ、リモートセッション、制御ソケットを一つのプロセスにまとめます。",
+      "screenshotAlt": "macOS の cmux 内で TUI ワークスペースレールの横に Neovim、OpenCode、Hunk を3つのペインで表示する cmux TUI",
+      "screenshotCaption": "Neovim、OpenCode、Hunk レビュー TUI を表示するライブセッション。",
+      "installTitle": "インストールと実行",
+      "installIntro": "インストールスクリプトが OS とアーキテクチャに合うネイティブバイナリを選び、SHA-256 チェックサムを検証して、cmux を PATH に追加します。",
+      "installTabs": {
+        "label": "オペレーティングシステム",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "viewScript": "インストールスクリプトを見る",
+        "copy": "インストールコマンドをコピー",
+        "copied": "コピーしました"
+      },
+      "installNpx": "Node.js がインストール済みなら、恒久的にインストールせずに実行できます。",
+      "platforms": "配布ビルドは Apple Silicon と Intel Mac、x64 と Arm64 Linux、x64 Windows に対応します。Windows on Arm では x64 ビルドをエミュレーションで実行します。ソースからのビルドには Rust、Zig 0.15.2、リポジトリの Ghostty サブモジュールが必要です。",
+      "modelTitle": "ワークスペースモデル",
+      "modelIntro": "cmux TUI は各プロセスを無関係なターミナルタブへ平坦化せず、一つの永続ツリーで管理します。",
+      "modelBody": "セッションは一つの制御ソケットを持ちます。各ワークスペースには複数のスクリーン、各スクリーンにはペインレイアウト、各ペインにはターミナルとブラウザのタブを置けます。他のタブが残っていれば、タブを閉じてもペインは閉じません。",
+      "keyboardTitle": "キーボードとマウス",
+      "keyboardIntro": "標準プレフィックスは Ctrl-b です。Ctrl-b を2回押すと、リテラルの Ctrl-b をアクティブなターミナルへ送ります。",
+      "keyTable": {
+        "keys": "キー",
+        "action": "操作"
+      },
+      "keys": {
+        "splitRight": "アクティブペインを右に分割",
+        "splitDown": "アクティブペインを下に分割",
+        "newTab": "ターミナルタブを作成",
+        "newWorkspace": "ワークスペースを作成",
+        "sidebar": "ワークスペースレールを表示または非表示",
+        "detach": "ローカルでは終了、サーバーからはデタッチ"
+      },
+      "mouse": "ペイン境界、タブ、ワークスペース、スクリーンを直接クリックできます。ペインを右クリックすると操作メニューが開きます。ペイン内のアプリがマウス入力を所有している場合は、Shift を押しながら右クリックします。",
+      "sessionsTitle": "ヘッドレスセッションとアタッチ",
+      "sessionsIntro": "ヘッドレスモードはローカル UI なしで mux バックエンドとターミナルを実行し続けます。UI が必要なときに別のターミナルからアタッチできます。",
+      "sessionsBody": "標準セッション名は main です。名前付きセッションは別々の Unix ソケットを使います。デタッチ後もヘッドレスサーバーは動き続けるため、後から同じツリーとターミナル状態を復元できます。",
+      "remoteTitle": "リモートマシン",
+      "remoteIntro": "マシンレールを有効にすると、現在のセッションと設定済みの Unix ソケットまたは SSH ターゲットを切り替えられます。",
+      "remoteBody": "リモートマシンではヘッドレス cmux セッションを事前に実行し、非対話 SSH から cmux バイナリを見つけられるようにします。cmux は厳格なホスト鍵確認を使い、エージェント転送とポート転送を無効にします。",
+      "browserTitle": "ブラウザタブ",
+      "browserBody": "ブラウザタブは Chrome DevTools Protocol を通じて実際の Chrome または Chromium ターゲットを操作します。プロファイルはセッション間で維持されるため、Cookie とサインインを保持できます。次のキーでブラウザタブを開きます。",
+      "automationTitle": "自動化と制御ソケット",
+      "automationIntro": "TUI が使うすべてのツリー操作と検査は、コマンドラインと JSON Lines 制御ソケットからも利用できます。",
+      "automationBody": "コマンドはワークスペース作成、プロセス実行、ペイン分割、入力送信、表示テキスト取得、イベント購読、エージェント状態報告に対応します。TypeScript、Python、Go、Java、Rust の型付きバインディングがリポジトリに含まれます。",
+      "configTitle": "設定",
+      "configBody": "TUI 設定ファイルでキー、サイドバー幅、マシン、ブラウザ動作、起動コマンド、テーマ値を設定できます。CMUX_TUI_CONFIG で標準パスを上書きできます。",
+      "moreTitle": "関連情報",
+      "links": {
+        "product": "cmux TUI 製品ページ",
+        "sourceDocs": "ソース内の完全なドキュメント",
+        "source": "cmux-tui ソースコード"
+      }
+    }
+  },
   "appProWelcome": {
     "eyebrow": "cmux Pro が有効です",
     "title": "cmux Pro へようこそ",
-    "body": "プランには、Cloud VM 上のクラウドエージェント、毎月 20 コンピュート時間、モデルゲートウェイ、cmux iOS アプリが含まれます。まずはここから始めましょう。",
+    "body": "Pro の機能は現在も開発中です。Cloud アクセスは近日提供予定で、継続して購読した月数に応じた利用クレジットを付与します。現在の Pro には cmux iOS TestFlight アクセスが含まれます。",
     "done": "ダッシュボードへ",
     "steps": {
-      "modelGateway": {
-        "title": "モデルゲートウェイ",
-        "body": "使用量とコスト分析を見ながらプロバイダー間でルーティングします。",
-        "action": "モデルゲートウェイを開く"
-      },
-      "aiAccounts": {
-        "title": "AI アカウントを接続",
-        "body": "プロバイダーのアカウントを追加すると、cmux が処理をルーティングできます。",
-        "action": "プロバイダーを接続"
-      },
       "iosApp": {
         "title": "cmux iOS アプリ",
         "body": "スマートフォンで cmux を使えます。",

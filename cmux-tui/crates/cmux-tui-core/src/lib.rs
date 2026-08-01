@@ -14,7 +14,13 @@ mod model;
 mod mux;
 mod pairing;
 pub mod provider_management;
+pub mod resource;
+mod resource_api;
+mod resource_mutation;
+mod resource_router;
+mod resource_selector;
 mod short_id;
+mod sidebar_resource;
 mod surface;
 mod workspace_registry;
 
@@ -25,7 +31,7 @@ pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 
-pub use browser::{TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
+pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use layout::{
     DEFAULT_VIEWPORT_PANE_WIDTH, ExactSplitResize, ExactViewportSplitResize, LayoutResult,
@@ -40,23 +46,28 @@ pub use mux::{
     CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
     LayoutUndoError, LayoutUndoResult, Mux, MuxEvent, NotificationEvent, NotificationLevel,
     ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
-    ProviderWorkspaceAuthorityUpdateError, RunPlacement, SidebarPluginOptions, SidebarPluginStatus,
-    SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError,
-    WorkspaceMutationResult, WorkspacePlacement, ZoomMode, ZoomState,
+    ProviderWorkspaceAuthorityUpdateError, ResourceNotification, RunPlacement,
+    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,
+    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult, WorkspacePlacement,
+    ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
+pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
-    BrowserFrameStream, BrowserSource, BrowserStatus, CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR,
-    CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR, CLEAR_HISTORY_PRESERVATION_ERROR,
-    CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, ClearHistoryDelivery, ClearHistoryFailure, DefaultColors,
-    RenderAttachFrame, RenderAttachStream, Surface, SurfaceKind, SurfaceOptions,
-    SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
+    BrowserFrameStream, BrowserFrameUpdate, BrowserSource, BrowserStatus,
+    CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+    CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, ClearHistoryDelivery,
+    ClearHistoryFailure, DefaultColors, GuardedMouseEncode, PointerSemanticProbe,
+    PointerSnapshotProbe, RenderAttachFrame, RenderAttachStream, Surface, SurfaceKind,
+    SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
+    TerminalPointerSnapshot,
 };
 pub use workspace_registry::{
     FrontendProjection, ProjectionCommit, RegistryCommit, RegistryEvent, RegistrySnapshot,
-    RegistryWorkspace, WorkspaceMutation, WorkspaceRegistry,
+    RegistryWorkspace, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
 };
 
 pub use cmux_tui_cdp::BrowserMode;

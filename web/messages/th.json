@@ -102,7 +102,7 @@
     "faqGhosttyQ": "cmux เกี่ยวข้องกับ Ghostty อย่างไร?",
     "faqGhosttyA": "cmux ไม่ใช่ fork ของ Ghostty แต่ใช้ <link>libghostty</link> เป็นไลบรารีสำหรับการเรนเดอร์เทอร์มินัล เหมือนกับที่แอปต่างๆ ใช้ WebKit สำหรับ web view Ghostty เป็นเทอร์มินัลแบบ standalone ส่วน cmux เป็นแอปที่แตกต่างที่สร้างบน rendering engine ของมัน",
     "faqPlatformQ": "รองรับแพลตฟอร์มอะไรบ้าง?",
-    "faqPlatformA": "macOS เท่านั้นในตอนนี้ cmux เป็นแอปเนทีฟ Swift + AppKit",
+    "faqPlatformA": "ดูบิลด์ cmux ที่พร้อมใช้งานได้ในเมนูดาวน์โหลด สำหรับแพลตฟอร์มที่ยังไม่เปิดตัว คุณสามารถ<waitlist>เข้าร่วมรายการรอ</waitlist>ได้",
     "faqAgentsQ": "cmux ใช้งานร่วมกับ coding agent ตัวไหนได้บ้าง?",
     "faqAgentsA": "ทั้งหมดเลย cmux เป็นเทอร์มินัล ดังนั้น agent ใดก็ตามที่รันในเทอร์มินัลก็ใช้ได้ทันที: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent และอะไรก็ตามที่คุณเปิดได้จาก command line",
     "faqNotificationsQ": "การแจ้งเตือนทำงานอย่างไร?",
@@ -3529,7 +3529,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "การเรียกเก็บเงินยังไม่พร้อมใช้งานในตอนนี้ โปรดลองอีกครั้งภายหลัง"
+    "billingUnavailable": "การเรียกเก็บเงินยังไม่พร้อมใช้งานในตอนนี้ โปรดลองอีกครั้งภายหลัง",
+    "signedOutNotice": "คุณยังไม่ได้ลงชื่อเข้าใช้ ลงชื่อเข้าใช้เพื่อดูแผนปัจจุบันหรือกู้คืนการซื้อที่มีอยู่",
+    "signedOutSignIn": "ลงชื่อเข้าใช้"
   },
   "platforms": {
     "macos": "macOS",
@@ -3542,8 +3544,8 @@
     "title": "เข้าร่วมรายชื่อรอสำหรับ {platform}",
     "titleAny": "เข้าร่วมรายชื่อรอ",
     "description": "การรองรับ {platform} กำลังจะมา ทิ้งอีเมลไว้ แล้วเราจะแจ้งให้ทราบทันทีที่พร้อม",
-    "descriptionAny": "ขณะนี้ cmux เน้น macOS ก่อน ทิ้งอีเมลไว้ แล้วเราจะแจ้งทันทีที่เวอร์ชัน Linux, Windows หรือ Android พร้อม",
-    "calloutText": "เร็ว ๆ นี้บน Linux, Windows และ Android",
+    "descriptionAny": "เลือกแพลตฟอร์มที่ยังไม่เปิดตัวและฝากอีเมลไว้ เราจะแจ้งให้ทราบเมื่อบิลด์นั้นพร้อม",
+    "calloutText": "กำลังจะมีบิลด์ cmux เพิ่มเติม",
     "platformsLabel": "แพลตฟอร์มใดบ้าง?",
     "selectPlatform": "เลือกอย่างน้อยหนึ่งแพลตฟอร์ม",
     "emailLabel": "อีเมล",
@@ -3557,5 +3559,86 @@
     "successBody": "เราจะส่งอีเมลถึงคุณเมื่อเวอร์ชัน {platform} พร้อมใช้งาน",
     "successBodyAny": "เราจะส่งอีเมลถึงคุณเมื่อ cmux พร้อมใช้งานบนแพลตฟอร์มของคุณ",
     "done": "เสร็จสิ้น"
+  },
+  "browserDownloads": {
+    "eyebrow": "เบราว์เซอร์ cmux",
+    "title": "cmux สำหรับ {platform}",
+    "tagline": "เบราว์เซอร์ Chromium และพื้นที่ทำงานสำหรับเอเจนต์ที่สร้างเป็นหนึ่งเดียวกัน",
+    "logoAlt": "ไอคอนแอป cmux",
+    "portableCta": "ZIP แบบพกพา",
+    "featuresTitle": "สร้างมาเพื่องานที่ใช้เอเจนต์",
+    "features": {
+      "chromium": {
+        "title": "Chromium ของแท้",
+        "description": ": แท็บ การเรนเดอร์ ส่วนขยาย และการทำงานของแถบอเนกประสงค์ในระดับเดียวกับ Chrome"
+      },
+      "workspaces": {
+        "title": "พื้นที่ทำงานตามงาน",
+        "description": ": จัดระเบียบแท็บเว็บและเครื่องมือตามงาน แทนการรวมไว้ในแถบแท็บที่ยาวไม่สิ้นสุด"
+      },
+      "terminals": {
+        "title": "หน้าจอเทอร์มินัล",
+        "description": ": ใช้เชลล์และแท็บเบราว์เซอร์ในหน้าต่างและคอมโพซิเตอร์เดียวกัน"
+      },
+      "openSource": {
+        "title": "ฟรีและโอเพนซอร์ส",
+        "description": ": ตรวจสอบโค้ด รายงานปัญหา และบิลด์จากซอร์สบน GitHub"
+      }
+    },
+    "installTitle": "ติดตั้ง",
+    "releaseTitle": "รุ่นและการอัปเดต",
+    "releaseBody": "ลิงก์เหล่านี้จะชี้ไปยังรุ่นเสถียรล่าสุดบน <github>GitHub Releases</github> เสมอ cmux จะตรวจสอบไฟล์กำกับการอัปเดตที่ลงนามแล้วก่อนติดตั้งการอัปเดต",
+    "sourceLink": "ดูซอร์สโค้ดบน GitHub",
+    "otherPlatform": "cmux สำหรับ {platform}",
+    "macLink": "เทอร์มินัล cmux สำหรับ Mac",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "ดาวน์โหลด cmux สำหรับ Windows",
+      "metaDescription": "ดาวน์โหลด cmux สำหรับ Windows x64: เบราว์เซอร์ Chromium และพื้นที่ทำงานสำหรับเอเจนต์แบบฟรีและโอเพนซอร์ส พร้อมแท็บตามงานและหน้าจอเทอร์มินัล",
+      "subtitle": "บิลด์ x64 แบบเนทีฟพร้อมแท็บ Chromium พื้นที่ทำงาน cmux และรูปแบบแป้นพิมพ์ Windows ที่คุ้นเคย",
+      "primaryCta": "ดาวน์โหลดตัวติดตั้ง (.exe)",
+      "requirements": "Windows 10 ขึ้นไป · x64",
+      "installBody": "เรียกใช้ตัวติดตั้งและทำตามคำแนะนำของ Windows เลือก ZIP แบบพกพาหากต้องการเก็บ cmux ไว้ในโฟลเดอร์โดยไม่ติดตั้งทั่วทั้งระบบ"
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "ดาวน์โหลด cmux สำหรับ Linux",
+      "metaDescription": "ดาวน์โหลด cmux สำหรับ Linux x64: เบราว์เซอร์ Chromium และพื้นที่ทำงานสำหรับเอเจนต์แบบฟรีและโอเพนซอร์ส พร้อมแท็บตามงานและหน้าจอเทอร์มินัล",
+      "subtitle": "บิลด์ x64 แบบเนทีฟพร้อมแท็บ Chromium พื้นที่ทำงาน cmux และหน้าจอเทอร์มินัลแบบผสานรวม",
+      "primaryCta": "ดาวน์โหลด .deb",
+      "requirements": "Debian หรือ Ubuntu · x64",
+      "installBody": "ดาวน์โหลดแพ็กเกจ Debian และติดตั้งด้วยตัวจัดการแพ็กเกจ เลือก ZIP แบบพกพาสำหรับการติดตั้งเฉพาะผู้ใช้และการอัปเดตภายในแอป"
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "ยินดีต้อนรับสู่ cmux Pro 🎉",
+      "fallbackName": "คุณ",
+      "greeting": "สวัสดี {name}",
+      "thanks": "ขอบคุณที่เข้าร่วม cmux Pro! เรายังอยู่ระหว่างพัฒนาประสบการณ์ Pro ให้สมบูรณ์ และการเข้าถึง Cloud กำลังจะมาในเร็ว ๆ นี้",
+      "cloudStatus": "เมื่อเปิดให้ใช้ Cloud เราจะเพิ่มเครดิตการใช้งานในบัญชีของคุณตามจำนวนเดือนที่สมัครสมาชิก",
+      "currentBenefit": "ระหว่างนี้ สิทธิประโยชน์ Pro ของคุณคือการเข้าถึง cmux บน iOS ก่อนใคร ลงทะเบียนผ่านลิงก์ด้านล่าง แล้ว Apple จะส่งคำเชิญ TestFlight หลังจากลงทะเบียนเสร็จ",
+      "testflightLink": "ลงทะเบียน TestFlight: {url}",
+      "testflightLinkLabel": "ลงทะเบียน TestFlight",
+      "signoff": "ดีใจที่มีคุณร่วมทาง!\nทีม cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro เปิดใช้งานแล้ว",
+    "title": "ยินดีต้อนรับสู่ cmux Pro",
+    "body": "ฟีเจอร์ Pro ยังอยู่ระหว่างการพัฒนา การเข้าถึง Cloud จะมาในเร็ว ๆ นี้ พร้อมเครดิตการใช้งานที่สะสมในทุกเดือนที่คุณสมัครสมาชิก ขณะนี้ Pro รวมสิทธิ์เข้าถึง cmux บน iOS ผ่าน TestFlight",
+    "done": "ไปที่แดชบอร์ด",
+    "steps": {
+      "iosApp": {
+        "title": "แอป cmux สำหรับ iOS",
+        "body": "ใช้ cmux บนโทรศัพท์ของคุณ",
+        "action": "เข้าร่วม iOS เบต้า"
+      },
+      "billing": {
+        "title": "จัดการแพ็กเกจของคุณ",
+        "body": "ดูแพ็กเกจ ใบแจ้งหนี้ และตัวเลือกการยกเลิก",
+        "action": "จัดการแพ็กเกจ"
+      }
+    }
   }
 }

@@ -1,6 +1,7 @@
 use std::io::{Cursor, Write};
 use std::sync::OnceLock;
 
+use cmux_tui_core::BrowserFailure;
 use cmux_tui_machine_protocol::provider_action_id;
 use unicode_width::UnicodeWidthStr;
 
@@ -110,6 +111,33 @@ pub(crate) struct ShortcutMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct BrowserMessages {
+    failed_prefix: &'static str,
+    not_responding: &'static str,
+    resize_recovery: &'static str,
+    new_page_verification_prefix: &'static str,
+    updated_page_verification_prefix: &'static str,
+    verification_suffix: &'static str,
+}
+
+impl BrowserMessages {
+    pub(crate) fn failure_message(&self, failure: BrowserFailure<'_>) -> String {
+        match failure {
+            BrowserFailure::NotResponding => self.not_responding.to_string(),
+            BrowserFailure::ResizeRecovery => self.resize_recovery.to_string(),
+            BrowserFailure::NewPageVerification(detail) => {
+                format!("{}{detail}{}", self.new_page_verification_prefix, self.verification_suffix)
+            }
+            BrowserFailure::UpdatedPageVerification(detail) => format!(
+                "{}{detail}{}",
+                self.updated_page_verification_prefix, self.verification_suffix
+            ),
+            BrowserFailure::Other(detail) => format!("{}{detail}", self.failed_prefix),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct LayoutMessages {
     pub startup_shortcuts: &'static str,
     pub verb_help_heading: &'static str,
@@ -188,16 +216,19 @@ impl LayoutMessages {
             .replace("{ratio}", &ratio.to_string())
     }
 
+    #[cfg(test)]
     pub(crate) fn unsupported_server_command(&self, command: &str) -> String {
         self.unsupported_server_command.replace("{command}", command)
     }
 
+    #[cfg(test)]
     pub(crate) fn layout_undo_applied(&self, screen: u64, revision: u64) -> String {
         self.layout_undo_applied
             .replace("{screen}", &screen.to_string())
             .replace("{revision}", &revision.to_string())
     }
 
+    #[cfg(test)]
     pub(crate) fn layout_undo_confirmation_required(&self, revision: u64, panes: &str) -> String {
         self.layout_undo_confirmation_required
             .replace("{revision}", &revision.to_string())
@@ -256,10 +287,12 @@ impl AttachMessages {
         format!("{}{reference:?}{}", self.unknown_terminal_prefix, self.unknown_terminal_suffix)
     }
 
+    #[cfg(test)]
     pub fn ambiguous_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.ambiguous_terminal_prefix, self.ambiguous_terminal_suffix)
     }
 
+    #[cfg(test)]
     pub fn browser_not_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.browser_terminal_prefix, self.browser_terminal_suffix)
     }
@@ -424,14 +457,35 @@ const fn decimal_width(mut value: u16) -> usize {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct StartupMessages {
+    schema_too_new: &'static str,
+    pub session_socket: &'static str,
+    pub stop_newer_server: &'static str,
+    pub no_server_listening: &'static str,
+    pub forced_handoff_unsupported: &'static str,
+    pub different_server: &'static str,
+    pub server_not_verified: &'static str,
+    pub saved_state_requires_newer: &'static str,
+    pub start_separate_session: &'static str,
+}
+
+impl StartupMessages {
+    pub(crate) fn schema_too_new(&self, session: &str, version: &str) -> String {
+        self.schema_too_new.replace("{version}", version).replace("{session}", session)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
+    pub startup: StartupMessages,
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
     pub terminal: TerminalMessages,
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
+    pub browser: BrowserMessages,
     pub layout: LayoutMessages,
     pub runtime: RuntimeMessages,
     pub config: ConfigMessages,
@@ -448,6 +502,17 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
+    startup: StartupMessages {
+        schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
+        session_socket: "session socket",
+        stop_newer_server: "a newer cmux server owns this saved session; stop it before retrying:",
+        no_server_listening: "no server is listening on this socket; nothing needs to be stopped",
+        forced_handoff_unsupported: "this server cannot accept a safe forced shutdown command; use the newer cmux build that started it to stop the session",
+        different_server: "this socket belongs to a different cmux session; no shutdown command is shown",
+        server_not_verified: "cmux could not verify which session owns this socket; no shutdown command is shown",
+        saved_state_requires_newer: "the saved state still requires a newer cmux; upgrade cmux to reopen this session",
+        start_separate_session: "or start this build in a separate session:",
+    },
     pairing: PairingMessages {
         title: "Approve browser?",
         confirm: "Confirm this code matches the browser:",
@@ -505,7 +570,7 @@ OPTIONS:
 The agent opens one outbound connection. It never opens a public listener or
 edits shell files. Authenticate with the configured host before retrying.
 ",
-        usage: "cmux machine-agent           Share one local session through the configured host",
+        usage: "cmux machine-agent       Share one local session through the configured host",
         pairing_code: "Pairing code",
         registered: "Sharing local cmux session",
         retrying: "Cloud connection lost; retrying in {milliseconds} ms",
@@ -534,6 +599,14 @@ edits shell files. Authenticate with the configured host before retrying.
         title: "Keyboard shortcuts",
         close_button: "Esc close",
         footer: "↑/↓ or wheel scroll · Esc or ? close",
+    },
+    browser: BrowserMessages {
+        failed_prefix: "browser failed: ",
+        not_responding: "browser failed: browser is not responding",
+        resize_recovery: "browser failed: browser resize recovery failed; reload to retry",
+        new_page_verification_prefix: "browser failed: could not verify new page pixels: ",
+        updated_page_verification_prefix: "browser failed: could not verify updated page pixels: ",
+        verification_suffix: "; reload to retry",
     },
     layout: LayoutMessages {
         startup_shortcuts: "  g  new 2/3 column right   U    undo layout",
@@ -587,9 +660,9 @@ edits shell files. Authenticate with the configured host before retrying.
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
         unknown_terminal_prefix: "unknown terminal ",
-        unknown_terminal_suffix: "; use `cmux-tui ids` to list surfaces",
+        unknown_terminal_suffix: "; use `cmux terminal list` to list terminal IDs",
         ambiguous_terminal_prefix: "ambiguous terminal reference ",
-        ambiguous_terminal_suffix: "; use an unambiguous id from `cmux-tui ids`",
+        ambiguous_terminal_suffix: "; use an unambiguous ID from `cmux terminal list`",
         browser_terminal_prefix: "surface ",
         browser_terminal_suffix: " is a browser, not a terminal",
     },
@@ -680,6 +753,17 @@ edits shell files. Authenticate with the configured host before retrying.
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
+    startup: StartupMessages {
+        schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
+        session_socket: "セッションソケット",
+        stop_newer_server: "新しい cmux サーバーがこの保存済みセッションを所有しています。再試行する前に停止:",
+        no_server_listening: "このソケットを待ち受けているサーバーはありません。停止は不要です",
+        forced_handoff_unsupported: "このサーバーは安全な強制停止コマンドに対応していません。セッションを停止するには、起動に使用した新しい cmux ビルドを使用してください",
+        different_server: "このソケットは別の cmux セッションに属しています。シャットダウンコマンドは表示しません",
+        server_not_verified: "このソケットを所有するセッションを確認できませんでした。シャットダウンコマンドは表示しません",
+        saved_state_requires_newer: "保存状態には新しい cmux が必要です。このセッションを再度開くには cmux をアップグレードしてください",
+        start_separate_session: "または、このビルドを別のセッションで開始:",
+    },
     pairing: PairingMessages {
         title: "ブラウザを承認しますか？",
         confirm: "ブラウザのコードと一致するか確認:",
@@ -737,7 +821,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
 エージェントは外向きの接続を 1 つ開きます。公開リスナーを開いたり、シェルファイル
 を編集したりしません。再試行する前に、設定したホストで認証してください。
 ",
-        usage: "cmux machine-agent           設定したホスト経由でローカルセッションを共有",
+        usage: "cmux machine-agent       設定したホスト経由でローカルセッションを共有",
         pairing_code: "ペアリングコード",
         registered: "ローカル cmux セッションを共有中",
         retrying: "クラウド接続が切断されました。{milliseconds} ミリ秒後に再接続します",
@@ -766,6 +850,14 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         title: "キーボードショートカット",
         close_button: "Esc 閉じる",
         footer: "↑/↓ またはホイールでスクロール · Esc または ? で閉じる",
+    },
+    browser: BrowserMessages {
+        failed_prefix: "ブラウザでエラーが発生しました: ",
+        not_responding: "ブラウザが応答していません",
+        resize_recovery: "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
+        new_page_verification_prefix: "新しいページの表示を確認できませんでした: ",
+        updated_page_verification_prefix: "更新後のページ表示を確認できませんでした: ",
+        verification_suffix: "。再読み込みして再試行してください",
     },
     layout: LayoutMessages {
         startup_shortcuts: "  g  右に 2/3 幅の列を追加   U    レイアウトを元に戻す",
@@ -819,9 +911,9 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
         unknown_terminal_prefix: "ターミナル ",
-        unknown_terminal_suffix: " が見つかりません。`cmux-tui ids` でサーフェス一覧を確認してください",
+        unknown_terminal_suffix: " が見つかりません。`cmux terminal list` でターミナル ID 一覧を確認してください",
         ambiguous_terminal_prefix: "ターミナル参照 ",
-        ambiguous_terminal_suffix: " は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください",
+        ambiguous_terminal_suffix: " は曖昧です。`cmux terminal list` に表示される一意の ID を使用してください",
         browser_terminal_prefix: "サーフェス ",
         browser_terminal_suffix: " はブラウザであり、ターミナルではありません",
     },
@@ -944,16 +1036,32 @@ mod tests {
         assert_eq!(ENGLISH.shortcuts.close_button, "Esc close");
         assert_eq!(JAPANESE.shortcuts.close_button, "Esc 閉じる");
         assert_eq!(
+            ENGLISH.terminal.deferred_input_destination_changed,
+            "Deferred input was discarded because its destination changed"
+        );
+        assert_eq!(
+            JAPANESE.terminal.deferred_input_destination_changed,
+            "遅延入力は送信先が変更されたため破棄されました"
+        );
+        assert_eq!(
+            ENGLISH.terminal.deferred_input_queue_full,
+            "Input queue byte limit reached while a session change is pending"
+        );
+        assert_eq!(
+            JAPANESE.terminal.deferred_input_queue_full,
+            "セッション変更の保留中に入力キューのバイト上限に達しました"
+        );
+        assert_eq!(
             JAPANESE.attach.filtered_subscription_unavailable,
             "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください"
         );
         assert_eq!(
             ENGLISH.attach.unknown_terminal("missing"),
-            "unknown terminal \"missing\"; use `cmux-tui ids` to list surfaces"
+            "unknown terminal \"missing\"; use `cmux terminal list` to list terminal IDs"
         );
         assert_eq!(
             JAPANESE.attach.ambiguous_terminal("000010"),
-            "ターミナル参照 \"000010\" は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください"
+            "ターミナル参照 \"000010\" は曖昧です。`cmux terminal list` に表示される一意の ID を使用してください"
         );
         assert_eq!(
             JAPANESE.attach.browser_not_terminal("browser"),
@@ -1176,6 +1284,18 @@ mod tests {
     }
 
     #[test]
+    fn deferred_input_discard_status_is_catalog_backed() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").terminal.deferred_input_destination_changed,
+            "Deferred input was discarded because its destination changed"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").terminal.deferred_input_destination_changed,
+            "遅延入力は送信先が変更されたため破棄されました"
+        );
+    }
+
+    #[test]
     fn option_mode_config_warning_is_localized() {
         assert_eq!(
             catalog_for_locale("en_US.UTF-8").config.invalid_macos_option_as_alt("\"guess\""),
@@ -1185,6 +1305,49 @@ mod tests {
             catalog_for_locale("ja_JP.UTF-8").config.invalid_macos_option_as_alt("\"guess\""),
             "cmux-tui: 真偽値ではない keys.macos_option_as_alt = \"guess\" を無視します"
         );
+    }
+
+    #[test]
+    fn deferred_input_overflow_status_is_catalog_backed() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").terminal.deferred_input_queue_full,
+            "Input queue byte limit reached while a session change is pending"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").terminal.deferred_input_queue_full,
+            "セッション変更の保留中に入力キューのバイト上限に達しました"
+        );
+    }
+
+    #[test]
+    fn browser_recovery_failures_are_localized_at_the_ui_boundary() {
+        let cases = [
+            (
+                "browser resize recovery failed; reload to retry",
+                "browser failed: browser resize recovery failed; reload to retry",
+                "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
+            ),
+            (
+                "could not verify new page pixels: capture timed out; reload to retry",
+                "browser failed: could not verify new page pixels: capture timed out; reload to retry",
+                "新しいページの表示を確認できませんでした: capture timed out。再読み込みして再試行してください",
+            ),
+            (
+                "could not verify updated page pixels: capture timed out; reload to retry",
+                "browser failed: could not verify updated page pixels: capture timed out; reload to retry",
+                "更新後のページ表示を確認できませんでした: capture timed out。再読み込みして再試行してください",
+            ),
+        ];
+
+        for (error, english, japanese) in cases {
+            let status = cmux_tui_core::BrowserStatus::Failed(error.to_string());
+            let failure = status.failure().expect("failed status");
+            assert_eq!(catalog_for_locale("en_US.UTF-8").browser.failure_message(failure), english);
+            assert_eq!(
+                catalog_for_locale("ja_JP.UTF-8").browser.failure_message(failure),
+                japanese
+            );
+        }
     }
 
     #[test]

@@ -135,8 +135,13 @@ enum KeyboardShortcutSettings {
         case focusRight
         case focusUp
         case focusDown
+        case focusPreviousPane
+        case focusNextPane
         case splitRight
         case splitDown, toggleSplitZoom
+        case increaseWorkspaceTerminalFontSize
+        case decreaseWorkspaceTerminalFontSize
+        case resetWorkspaceTerminalFontSize
         case equalizeSplits
         case splitBrowserRight
         case splitBrowserDown
@@ -278,9 +283,26 @@ enum KeyboardShortcutSettings {
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
             case .focusUp: return String(localized: "shortcut.focusPaneUp.label", defaultValue: "Focus Pane Up")
             case .focusDown: return String(localized: "shortcut.focusPaneDown.label", defaultValue: "Focus Pane Down")
+            case .focusPreviousPane: return String(localized: "shortcut.focusPreviousPane.label", defaultValue: "Focus Previous Pane")
+            case .focusNextPane: return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
             case .splitRight: return String(localized: "shortcut.splitRight.label", defaultValue: "Split Right")
             case .splitDown: return String(localized: "shortcut.splitDown.label", defaultValue: "Split Down")
             case .toggleSplitZoom: return String(localized: "shortcut.togglePaneZoom.label", defaultValue: "Toggle Pane Zoom")
+            case .increaseWorkspaceTerminalFontSize:
+                return String(
+                    localized: "shortcut.increaseWorkspaceTerminalFontSize.label",
+                    defaultValue: "Increase Font Size for Workspace Terminals"
+                )
+            case .decreaseWorkspaceTerminalFontSize:
+                return String(
+                    localized: "shortcut.decreaseWorkspaceTerminalFontSize.label",
+                    defaultValue: "Decrease Font Size for Workspace Terminals"
+                )
+            case .resetWorkspaceTerminalFontSize:
+                return String(
+                    localized: "shortcut.resetWorkspaceTerminalFontSize.label",
+                    defaultValue: "Reset Font Size for Workspace Terminals"
+                )
             case .equalizeSplits: return String(localized: "shortcut.equalizeSplits.label", defaultValue: "Equalize Splits")
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
@@ -456,9 +478,9 @@ enum KeyboardShortcutSettings {
                 // with "." as the collapse mnemonic. No-ops gracefully when the focused workspace isn't in a group.
                 return StoredShortcut(key: ".", command: true, shift: false, option: false, control: true)
             case .reopenClosedWorkspace:
-                return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
-            case .reopenClosedBrowserPanel:
                 return .unbound
+            case .reopenClosedBrowserPanel:
+                return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
             case .focusLeft:
                 return StoredShortcut(key: "←", command: true, shift: false, option: true, control: false)
             case .focusRight:
@@ -467,11 +489,25 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "↑", command: true, shift: false, option: true, control: false)
             case .focusDown:
                 return StoredShortcut(key: "↓", command: true, shift: false, option: true, control: false)
+            // Unbound by default: Ghostty's goto_split:previous/next mirror still
+            // cycles panes on the terminal-config keys when Focus Back/Forward do
+            // not claim them; these entries exist so pane cycling stays rebindable
+            // now that ⌘[ / ⌘] reach global focus history.
+            case .focusPreviousPane:
+                return .unbound
+            case .focusNextPane:
+                return .unbound
             case .splitRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
             case .toggleSplitZoom: return StoredShortcut(key: "\r", command: true, shift: true, option: false, control: false)
-            case .equalizeSplits: return StoredShortcut(key: "=", command: true, shift: false, option: false, control: true)
+            case .increaseWorkspaceTerminalFontSize:
+                return StoredShortcut(key: "=", command: true, shift: false, option: false, control: true)
+            case .decreaseWorkspaceTerminalFontSize:
+                return StoredShortcut(key: "-", command: true, shift: false, option: false, control: true)
+            case .resetWorkspaceTerminalFontSize:
+                return StoredShortcut(key: "0", command: true, shift: false, option: false, control: true)
+            case .equalizeSplits: return StoredShortcut(key: "=", command: true, shift: true, option: false, control: true)
             case .splitBrowserRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)
             case .splitBrowserDown:

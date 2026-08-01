@@ -10,18 +10,32 @@ import SwiftUI
 @MainActor
 @Observable
 private final class WorkspaceListLayoutPreviewModel {
+    /// The continuous update feed's payload shape
+    /// (`CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES`).
+    enum LiveUpdateMode {
+        /// No feed.
+        case off
+        /// `1`: visible churn — unread toggles plus activity restamps.
+        case visible
+        /// `timestamps`: sub-minute activity restamps only, the shape the Mac
+        /// emits while agents stream (`last_activity_at` is the latest
+        /// notification's `createdAt`). Rows render identically, so a correct
+        /// list does zero work per tick.
+        case timestampsOnly
+    }
+
     var workspaces: [MobileWorkspacePreview]
-    private let liveUpdatesEnabled: Bool
+    private let liveUpdateMode: LiveUpdateMode
 
     /// Creates a preview model with an optional continuous update feed.
-    init(workspaces: [MobileWorkspacePreview], liveUpdatesEnabled: Bool) {
+    init(workspaces: [MobileWorkspacePreview], liveUpdateMode: LiveUpdateMode) {
         self.workspaces = workspaces
-        self.liveUpdatesEnabled = liveUpdatesEnabled
+        self.liveUpdateMode = liveUpdateMode
     }
 
     /// Mutates rotating row payloads until the view-owned task is cancelled.
     func runLiveUpdates() async {
-        guard liveUpdatesEnabled else { return }
+        guard liveUpdateMode != .off else { return }
         var updateLane = 0
         while !Task.isCancelled {
             do {
@@ -30,8 +44,31 @@ private final class WorkspaceListLayoutPreviewModel {
                 return
             }
             for index in workspaces.indices where index % 10 == updateLane {
-                workspaces[index].hasUnread.toggle()
-                workspaces[index].previewAt = Date()
+                if liveUpdateMode == .visible {
+                    workspaces[index].hasUnread.toggle()
+                    workspaces[index].previewAt = Date()
+                    workspaces[index].lastActivityAt = Date()
+                } else {
+                    // Restamp relative to the row's own clock: the seeded
+                    // timestamps are hours old, so jumping them to `Date()`
+                    // would change the rendered minute on every row's first
+                    // tick and do real row work. The bump also wraps back to
+                    // the start of the row's current minute rather than
+                    // crossing into the next one, so EVERY tick is a
+                    // render-equivalent delta (this mode's zero-work
+                    // contract), not just the first fifty-nine.
+                    let current = workspaces[index].lastActivityAt
+                        ?? workspaces[index].previewAt
+                        ?? Date()
+                    let minute = (current.timeIntervalSinceReferenceDate / 60)
+                        .rounded(.down)
+                    var restamped = current.addingTimeInterval(1)
+                    if (restamped.timeIntervalSinceReferenceDate / 60).rounded(.down) != minute {
+                        restamped = Date(timeIntervalSinceReferenceDate: minute * 60)
+                    }
+                    workspaces[index].previewAt = restamped
+                    workspaces[index].lastActivityAt = restamped
+                }
             }
             updateLane = (updateLane + 1) % 10
         }
@@ -72,14 +109,19 @@ public struct WorkspaceListLayoutPreviewView: View {
         let seedCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT"].flatMap(Int.init) ?? 0
         let reorderEnabled = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER"] == "1"
         let initialWorkspaces: [MobileWorkspacePreview]
+        let initialGroups: [MobileWorkspaceGroupPreview]
         if seedCount > 0 {
             let groupCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS"].flatMap(Int.init) ?? 0
-            (initialWorkspaces, groups) = Self.seeded(count: seedCount, groupCount: groupCount)
+            (initialWorkspaces, initialGroups) = Self.seeded(
+                count: seedCount,
+                groupCount: groupCount
+            )
         } else {
             initialWorkspaces = Self.defaultWorkspaces
-            groups = []
+            initialGroups = []
         }
         self.reorderEnabled = reorderEnabled
+        _groups = State(initialValue: initialGroups)
         let fixtureWorkspaces = reorderEnabled
             ? initialWorkspaces.map { workspace in
                 var workspace = workspace
@@ -94,12 +136,16 @@ public struct WorkspaceListLayoutPreviewView: View {
                 return workspace
             }
             : initialWorkspaces
+        let liveUpdateMode: WorkspaceListLayoutPreviewModel.LiveUpdateMode
+        switch environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES"] {
+        case "1": liveUpdateMode = .visible
+        case "timestamps": liveUpdateMode = .timestampsOnly
+        default: liveUpdateMode = .off
+        }
         _model = State(
             initialValue: WorkspaceListLayoutPreviewModel(
                 workspaces: fixtureWorkspaces,
-                liveUpdatesEnabled: environment[
-                    "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES"
-                ] == "1"
+                liveUpdateMode: liveUpdateMode
             )
         )
     }
@@ -121,7 +167,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_SWEEP"] == "1"
     }
 
-    private let groups: [MobileWorkspaceGroupPreview]
+    @State private var groups: [MobileWorkspaceGroupPreview]
     private let reorderEnabled: Bool
 
     private static let defaultWorkspaces: [MobileWorkspacePreview] = [
@@ -316,6 +362,12 @@ public struct WorkspaceListLayoutPreviewView: View {
                 )
                 return true
             } : nil,
+            toggleGroupCollapsed: reorderEnabled ? { groupID, isCollapsed in
+                guard let index = groups.firstIndex(where: { $0.id == groupID }) else {
+                    return
+                }
+                groups[index].isCollapsed = isCollapsed
+            } : nil,
             filterState: filterState,
             searchText: searchText
         )
@@ -332,7 +384,8 @@ public struct WorkspaceListLayoutPreviewView: View {
             } else {
                 let workspaceListStack = NavigationStack {
                     MobilePrimaryWorkspaceSearchHost(
-                        searchCoordinator: primarySearchCoordinator
+                        searchCoordinator: primarySearchCoordinator,
+                        taskComposerAction: showsTabScaffold ? {} : nil
                     ) { searchText in
                         workspaceListFixture(searchText: searchText)
                     }
@@ -376,7 +429,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                     MobilePrimaryTabScaffold(
                         selection: $selectedPrimaryTab,
                         searchCoordinator: primarySearchCoordinator,
-                        notificationUnreadCount: 0
+                        notificationUnreadCount: 0,
+                        taskComposerAction: {}
                     ) {
                         workspaceListStack
                     } notifications: {
@@ -465,15 +519,6 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
         selectedPrimaryTab = tab
         return previousTab != tab
-    }
-}
-
-/// Pairing rows for the store-free workspace-list fixture. Lives in this
-/// DEBUG-only file so the production view exposes no fixture storage; the
-/// picker reads it only when `UITestConfig.workspaceListLayoutPreviewEnabled`.
-enum WorkspaceListLayoutPreviewFixture {
-    static var displayPairedMacs: [MobilePairedMac] {
-        WorkspaceListLayoutPreviewView.previewPairedMacs
     }
 }
 

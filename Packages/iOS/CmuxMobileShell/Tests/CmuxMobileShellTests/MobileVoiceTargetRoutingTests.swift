@@ -38,7 +38,7 @@ import Testing
         )
         store.foregroundMacDeviceID = "mac-a"
         store.workspacesByMac = [
-            "mac-a": MacWorkspaceState(
+            "mac-a".pairingKey: MacWorkspaceState(
                 macDeviceID: "mac-a",
                 displayName: "Studio A",
                 workspaces: [
@@ -46,11 +46,16 @@ import Testing
                 ],
                 status: .connected
             ),
-            "mac-b": MacWorkspaceState(
+            MacPairingKey(macDeviceID: "mac-b", instanceTag: "vmini"): MacWorkspaceState(
                 macDeviceID: "mac-b",
+                instanceTag: "vmini",
                 displayName: "Studio B",
                 workspaces: [
-                    workspace(macDeviceID: "mac-b", name: "Secondary"),
+                    workspace(
+                        macDeviceID: "mac-b",
+                        instanceTag: "vmini",
+                        name: "Secondary"
+                    ),
                 ],
                 status: .connected
             ),
@@ -58,6 +63,7 @@ import Testing
         try installSecondaryClient(
             on: store,
             macDeviceID: "mac-b",
+            instanceTag: "vmini",
             router: secondaryRouter,
             supportedHostCapabilities: [
                 MobileShellComposite.targetedVoiceInputCapability,
@@ -87,9 +93,10 @@ import Testing
 
     private func workspace(
         macDeviceID: String,
+        instanceTag: String? = nil,
         name: String
     ) -> MobileWorkspacePreview {
-        MobileWorkspacePreview(
+        var workspace = MobileWorkspacePreview(
             id: .init(rawValue: RoutingHostRouter.workspaceID),
             macDeviceID: macDeviceID,
             name: name,
@@ -104,5 +111,7 @@ import Testing
                 ),
             ]
         )
+        workspace.macInstanceTag = instanceTag
+        return workspace
     }
 }

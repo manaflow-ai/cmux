@@ -110,7 +110,7 @@ extension WorkspaceGroupCoordinator {
                     initialBrowserTransparentBackground: false,
                     inheritWorkingDirectory: true,
                     select: true,
-                    shouldApplyWorkspaceDirectoryCustomization: true
+                    applyCreationTitleAsCustomTitle: true
                 )
             }
             let countBefore = model.tabs.count

@@ -21,6 +21,7 @@ private struct WorkspaceRootToolbarRenderContext: Equatable {
     let title: String
     let visibleSelection: WorkspaceMacSelection
     let machines: [WorkspaceFilterMachine]
+    var statusLine: WorkspaceConnectionStatusLine?
 
     static let fallback = WorkspaceRootToolbarRenderContext(
         title: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer"),
@@ -72,6 +73,8 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let select: (WorkspaceMacSelection) -> Void
     let machines: [WorkspaceFilterMachine]
     let showAddDevice: (() -> Void)?
+    var statusLine: WorkspaceConnectionStatusLine?
+    var reconnect: (() -> Void)?
 
     var body: some ToolbarContent {
         ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
@@ -89,11 +92,13 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     selection: selection,
                     machines: machines,
                     canAddDevice: showAddDevice != nil,
-                    labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth)
+                    labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth),
+                    statusLine: statusLine
                 ),
                 actions: WorkspaceMacTitlePickerActions(
                     select: select,
-                    addDevice: showAddDevice
+                    addDevice: showAddDevice,
+                    reconnect: reconnect
                 )
             )
             .equatable()
@@ -116,6 +121,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
     let pendingSelection: WorkspaceMacSelection?
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
+    var reconnect: (() -> Void)?
 
     var body: some ToolbarContent {
         WorkspaceRootToolbarContent(
@@ -126,7 +132,9 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             selection: pendingSelection ?? renderContext.visibleSelection,
             select: select,
             machines: renderContext.machines,
-            showAddDevice: showAddDevice
+            showAddDevice: showAddDevice,
+            statusLine: renderContext.statusLine,
+            reconnect: reconnect
         )
     }
 }
@@ -144,7 +152,7 @@ private struct WorkspaceShellRenderPresentation {
 
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
-    let signOut: () -> Void
+    let signOut: @MainActor @Sendable () -> Void
     var isInitialConnectionLoading = false
     var initialConnectionTimedOut = false
     var retryInitialConnection: (() -> Void)?
@@ -176,17 +184,14 @@ struct WorkspaceShellView: View {
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
-    @Environment(ToastCenter.self) var toasts
     /// Legacy fallback while the Toasts beta flag is off: the old dismissible
     /// bottom banner for workspace-action failures.
     @State var workspaceActionToast: WorkspaceActionToastContent?
     var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
+    @Environment(ToastCenter.self) var toasts
     @State private var isTaskComposerPresented = false
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
-    /// True once this shell has held a live connection, so only genuine
-    /// reconnections toast (the expected first attach stays silent).
-    @State private var hasHeldConnection = false
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -222,7 +227,10 @@ struct WorkspaceShellView: View {
             MobilePrimaryTabScaffold(
                 selection: $selectedPrimaryTab,
                 searchCoordinator: primarySearchCoordinator,
-                notificationUnreadCount: presentation.notificationUnreadCount
+                notificationUnreadCount: presentation.notificationUnreadCount,
+                taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
+                    ? nil
+                    : taskComposerAction
             ) {
                 workspaceTabContent(
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
@@ -430,21 +438,6 @@ struct WorkspaceShellView: View {
             )
         }
         #endif
-        // `initial: true` primes `hasHeldConnection` when the view mounts
-        // already connected, so the first genuine reconnect still toasts.
-        .onChange(of: store.connectionState, initial: true) { _, state in
-            guard state == .connected else { return }
-            if hasHeldConnection {
-                toasts.present(.success(
-                    L10n.string(
-                        "mobile.connection.reconnectedToast",
-                        defaultValue: "Reconnected to your Mac."
-                    ),
-                    coalescingKey: "connection.reconnected"
-                ))
-            }
-            hasHeldConnection = true
-        }
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
 
@@ -465,11 +458,6 @@ struct WorkspaceShellView: View {
                     rootToolbarContent
                 }
             }
-            #if os(iOS)
-            .overlay(alignment: .bottomTrailing) {
-                taskComposerButtonOverlay
-            }
-            #endif
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
                     for: workspaceID,
@@ -562,11 +550,6 @@ struct WorkspaceShellView: View {
             .toolbar {
                 rootToolbarContent
             }
-            #if os(iOS)
-            .overlay(alignment: .bottomTrailing) {
-                taskComposerButtonOverlay
-            }
-            #endif
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
             workspaceDestination(
@@ -675,13 +658,30 @@ struct WorkspaceShellView: View {
             openDevices: { showingRootDeviceTree = true },
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
-            showAddDevice: showAddDevice
+            showAddDevice: showAddDevice,
+            reconnect: reconnectClosure
         )
+    }
+
+    /// The Mail-style status line under the computers picker. Derived through
+    /// the same chrome policy as the list rows so exactly one surface owns the
+    /// connection story: reauth and initial restore render their own chrome,
+    /// transient degradation renders only this line.
+    private var toolbarConnectionStatusLine: WorkspaceConnectionStatusLine? {
+        WorkspaceListConnectionChrome(
+            hasStore: true,
+            connectionRequiresReauth: store.connectionRequiresReauth,
+            connectionRecoveryFailed: store.connectionRecoveryFailed,
+            isRecoveringConnection: store.isRecoveringConnection,
+            connectionStatus: listConnectionStatus,
+            isInitialConnectionLoading: isInitialConnectionLoading,
+            initialConnectionTimedOut: initialConnectionTimedOut
+        ).statusLine
     }
 
     private var workspaceShellRenderPresentation: WorkspaceShellRenderPresentation {
         let scope = macSelectionScope
-        let selectedMachineIDs = scope.selectedMachineIDs
+        let selectedMachineIDs = scope.selectedScopeEntries
         let visibleNotificationFeedItems = store.notificationFeedItems(scopedTo: selectedMachineIDs)
         let notificationUnreadCount = visibleNotificationFeedItems.lazy.filter { !$0.isRead }.count
         var names: [String: String] = [:]
@@ -751,7 +751,8 @@ struct WorkspaceShellView: View {
         return WorkspaceRootToolbarRenderContext(
             title: title,
             visibleSelection: visibleSelection,
-            machines: machineSnapshots.macPickerMachines
+            machines: machineSnapshots.macPickerMachines,
+            statusLine: toolbarConnectionStatusLine
         )
     }
 
@@ -804,22 +805,6 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private var showsTaskComposerButtonOverlay: Bool {
-        guard displaySettings.taskComposerEnabled else { return false }
-        if #available(iOS 26.0, *) {
-            return false
-        }
-        return true
-    }
-
-    @ViewBuilder
-    private var taskComposerButtonOverlay: some View {
-        if showsTaskComposerButtonOverlay {
-            TaskComposerButton(action: openTaskComposer)
-                .padding(.trailing, 20)
-                .padding(.bottom, 6)
-        }
-    }
     #endif
 
     /// Apply (and clear) a pending deep-link navigation intent. On the compact
@@ -1016,6 +1001,7 @@ struct WorkspaceShellView: View {
             displayPairedMacs: store.displayPairedMacs,
             notificationFeedItems: store.notificationFeedItems,
             foregroundMacDeviceID: store.connectedMacDeviceID ?? store.activeTicket?.macDeviceID,
+            foregroundInstanceTag: store.connectedMacInstanceTag,
             aliasesFor: { store.pairedMacAliasIDs(for: $0) }
         )
     }
@@ -1092,20 +1078,23 @@ struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
             (navigationController?.viewControllers.count ?? 0) > 1
         }
 
-        // The pushed workspace detail hosts surfaces with their own pan/scroll
-        // gesture recognizers: the terminal's full-bounds scroll-mechanics
-        // `UIScrollView` and the browser's `WKWebView` scroll view. Taking over
-        // the navigation controller's `interactivePopGestureRecognizer` delegate
-        // (above, so the custom back button can re-enable the swipe) drops
-        // UIKit's built-in rule that lets the edge swipe-back coexist with scroll
-        // views, so the swipe stopped popping back to the workspace list over a
-        // terminal or browser (issue #6634). Allow the pop gesture to recognize
-        // simultaneously with those surface gestures to restore it.
+        // The terminal and browser both cover the pushed workspace detail with
+        // scroll views. Letting their pans recognize alongside the pop gesture
+        // makes a diagonal back swipe scroll the surface while navigation moves.
+        // The dynamic failure rule below restores the system ownership order:
+        // off-edge touches fail the edge recognizer and then scroll normally,
+        // while an edge touch lets navigation win without dual recognition.
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
-            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
-            gestureRecognizer == navigationController?.interactivePopGestureRecognizer
+            guard gestureRecognizer === navigationController?.interactivePopGestureRecognizer,
+                  otherGestureRecognizer is UIPanGestureRecognizer,
+                  let navigationView = navigationController?.view,
+                  let otherView = otherGestureRecognizer.view else {
+                return false
+            }
+            return otherView.isDescendant(of: navigationView)
         }
     }
 }

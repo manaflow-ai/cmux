@@ -2,14 +2,11 @@
 # Injected automatically — do not source manually
 
 # Socket sends exec a unix-socket-capable client in a detached child. The
-# historical zsocket fast path (zmodload zsh/net/unix) never activated: that
-# module does not exist (zsocket lives in zsh/net/socket), and enabling it has
-# three known defects — its instant-exit child loses the server's live
-# peer-ancestry authorization race in cmuxOnly mode, per-connection handler
-# threads make cross-connection ordering nondeterministic unless the client
-# waits for responses, and a timeout-free blocked child can outlive its shell.
-# A future fast path needs one connection per batch plus response reads; until
-# then the external-client transport below is the only send path.
+# historical zsocket fast path (zmodload zsh/net/unix) never activated because
+# that module does not exist (zsocket lives in zsh/net/socket). Enabling it
+# would also lose response-based ordering between connections and introduce an
+# unbounded blocked child. A future fast path still needs one connection per
+# batch plus bounded response reads.
 
 typeset -g _CMUX_HAS_ZSH_JOBSTATES=0
 if zmodload zsh/parameter 2>/dev/null && (( ${+jobstates} )); then
@@ -35,31 +32,42 @@ _cmux_restore_status() {
 
 # BSD nc at /usr/bin/nc is preferred: it always supports -U, it waits for the
 # server to process the line and close (which preserves send order across a
-# batched child and keeps the peer alive through cmuxOnly ancestry checks),
-# and -w bounds its lifetime. PATH `nc` cannot be trusted first: GNU netcat
-# (e.g. Homebrew in /usr/local/bin) lacks -U and fails silently, which dropped
-# every hook message (report_tty, ports_kick, report_shell_state) on machines
-# where it shadows the system nc.
+# batched child), and -w bounds its lifetime. PATH `nc` cannot be trusted first:
+# GNU netcat (e.g. Homebrew in /usr/local/bin) lacks -U and fails silently,
+# which dropped every hook message (report_tty, ports_kick, report_shell_state)
+# on machines where it shadows the system nc. The capability envelope keeps
+# the detached client authorized even after launchd or tmux reparents it.
+_cmux_write_socket_payload() {
+    local payload="$1"
+    case "${CMUX_SOCKET_CAPABILITY:-}" in
+        ""|*[[:space:]]*)
+            print -r -- "$payload"
+            ;;
+        *)
+            print -r -- "_cmux_capability_v1 $CMUX_SOCKET_CAPABILITY $payload"
+            ;;
+    esac
+}
+
 _cmux_send() {
     local payload="$1"
     if [[ -x /usr/bin/nc ]]; then
         # Apple's nc defines -N as `num_probes` (it is not OpenBSD's no-arg
         # shutdown-after-EOF flag), so the -N form fails option parsing; use
-        # the bounded -w form directly. nc still waits for the server to
-        # process the line and close, preserving order in a batched child and
-        # keeping the peer alive through cmuxOnly ancestry checks.
-        print -r -- "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
+        # the bounded -w form directly. nc waits for the server to process the
+        # line and close, preserving order in a batched child.
+        _cmux_write_socket_payload "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
         return 0
     fi
     if command -v ncat >/dev/null 2>&1; then
-        print -r -- "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only
+        _cmux_write_socket_payload "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only
     elif command -v socat >/dev/null 2>&1; then
-        print -r -- "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
+        _cmux_write_socket_payload "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
     elif command -v nc >/dev/null 2>&1; then
-        if print -r -- "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; then
+        if _cmux_write_socket_payload "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; then
             :
         else
-            print -r -- "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
+            _cmux_write_socket_payload "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
         fi
     fi
 }
@@ -309,7 +317,12 @@ _cmux_path_prepend_unique_directory() {
 _cmux_install_cli_command_shim() {
     local command_name="$1"
     local wrapper_path="$2"
-    local shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/${CMUX_SURFACE_ID:-$$}"
+    local surface_component="${CMUX_SURFACE_ID:-$$}"
+    local shim_root="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"
+    local shim_parent="${shim_root%/*}"
+    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" ]]; then
+        shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/$surface_component"
+    fi
     local shim_path="$shim_root/$command_name"
     local escaped_wrapper="$wrapper_path"
 
@@ -472,6 +485,8 @@ typeset -g _CMUX_TTY_REPORTED=0
 typeset -g _CMUX_TMUX_PUSH_SIGNATURE=""
 typeset -g _CMUX_TMUX_PULL_SIGNATURE=""
 typeset -g _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=${_CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT:-0}
+# Keep CMUX_SOCKET_CAPABILITY inherited; tmux's global environment is readable
+# by clients that were not started inside cmux.
 typeset -ga _CMUX_TMUX_SYNC_KEYS=(
     CMUX_BUNDLED_CLI_PATH
     CMUX_BUNDLE_ID

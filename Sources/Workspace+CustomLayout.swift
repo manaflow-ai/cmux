@@ -38,7 +38,7 @@ extension Workspace {
     /// Sends a config-defined workspace `setup` command to the first terminal
     /// panel. Used by workspace actions/commands that define no custom layout.
     func sendConfigSetupCommand(_ command: String) {
-        let firstTerminal: TerminalPanel? = focusedTerminalPanel ?? {
+        let firstTerminal: TerminalPanel? = focusedTerminalInputTarget()?.panel ?? {
             for paneId in bonsplitController.allPaneIds {
                 for tab in bonsplitController.tabs(inPane: paneId) {
                     if let panelId = panelIdFromSurfaceId(tab.id),

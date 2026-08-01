@@ -27,7 +27,7 @@ extension MobileShellComposite {
                 && supportedHostCapabilities.contains(Self.targetedVoiceInputCapability)
         }
         guard let macDeviceID = target.macDeviceID,
-              let subscription = secondaryMacSubscriptions[macDeviceID],
+              let subscription = secondaryMacSubscriptions[MacPairingKey(pairingID: macDeviceID)],
               subscription.client === target.client else {
             return false
         }
@@ -99,7 +99,7 @@ extension MobileShellComposite {
             }
         } else {
             guard let macDeviceID = target.macDeviceID,
-                  secondaryMacSubscriptions[macDeviceID]?.client === client else {
+                  secondaryMacSubscriptions[MacPairingKey(pairingID: macDeviceID)]?.client === client else {
                 throw MobileShellConnectionError.connectionClosed
             }
         }

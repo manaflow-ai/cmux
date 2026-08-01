@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxAuthRuntime
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileToast
 import CmuxMobileWorkspace
@@ -18,6 +19,10 @@ struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    /// Optional so previews and hosts without the app root still render; the
+    /// Connection Method section is hidden when absent.
+    @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
+        MobileConnectionMethodStore?
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.irohSettingsController) private var irohSettingsController
     let connectedHostName: String
@@ -91,7 +96,26 @@ struct MobileSettingsView: View {
                 // reuse of this sheet does not render an empty header.
                 if hasConnectionSection {
                     Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
-                        if !connectedHostName.isEmpty {
+                        if let connections = store?.liveMacConnections,
+                           !connections.isEmpty {
+                            ForEach(connections) { connection in
+                                LabeledContent(
+                                    connection.displayName,
+                                    value: connection.role == .focused
+                                        ? L10n.string(
+                                            "mobile.settings.connectionFocused",
+                                            defaultValue: "Focused"
+                                        )
+                                        : L10n.string(
+                                            "mobile.settings.connectionReady",
+                                            defaultValue: "Ready"
+                                        )
+                                )
+                                .accessibilityIdentifier(
+                                    "MobileSettingsMacConnection-\(connection.macDeviceID)"
+                                )
+                            }
+                        } else if !connectedHostName.isEmpty {
                             LabeledContent(
                                 L10n.string("mobile.settings.mac", defaultValue: "Computer"),
                                 value: connectedHostName
@@ -130,6 +154,13 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
+                }
+
+                if let connectionMethodStore {
+                    MobileConnectionMethodSection(
+                        store: connectionMethodStore,
+                        startPairingScanner: startPairingScanner
+                    )
                 }
 
                 if let irohSettingsController {
@@ -472,6 +503,8 @@ struct MobileSettingsView: View {
                         isSearching: store?.isReconnectingStoredMac == true,
                         didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
                     ),
+                    connectionMethod: connectionMethodStore?.method ?? .automatic,
+                    onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
                     onReachedConnection: {},
                     onSkip: { showingOnboarding = false },
                     onRetryConnection: retryAutomaticConnection,

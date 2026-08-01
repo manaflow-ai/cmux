@@ -102,7 +102,7 @@
     "faqGhosttyQ": "Quel est le lien entre cmux et Ghostty ?",
     "faqGhosttyA": "cmux n'est pas un fork de Ghostty. Il utilise <link>libghostty</link> comme bibliothèque pour le rendu du terminal, de la même manière que les applications utilisent WebKit pour les vues web. Ghostty est un terminal autonome ; cmux est une application différente construite sur son moteur de rendu.",
     "faqPlatformQ": "Quelles plateformes sont supportées ?",
-    "faqPlatformA": "macOS uniquement, pour le moment. cmux est une application native Swift + AppKit.",
+    "faqPlatformA": "Consultez les versions de cmux disponibles dans le menu de téléchargement. <waitlist>Inscrivez-vous sur la liste d’attente</waitlist> pour toute plateforme qui n’est pas encore disponible.",
     "faqAgentsQ": "Avec quels agents de code cmux fonctionne-t-il ?",
     "faqAgentsA": "Tous. cmux est un terminal, donc tout agent qui fonctionne dans un terminal marche directement : Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, et tout ce que vous pouvez lancer depuis la ligne de commande.",
     "faqNotificationsQ": "Comment fonctionnent les notifications ?",
@@ -3526,7 +3526,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard."
+    "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard.",
+    "signedOutNotice": "Vous n'êtes pas connecté. Connectez-vous pour voir votre forfait actuel ou restaurer un achat existant.",
+    "signedOutSignIn": "Se connecter"
   },
   "platforms": {
     "macos": "macOS",
@@ -3539,8 +3541,8 @@
     "title": "Rejoindre la liste d'attente {platform}",
     "titleAny": "Rejoindre la liste d'attente",
     "description": "La prise en charge de {platform} arrive. Laissez votre e-mail et nous vous préviendrons dès que c'est prêt.",
-    "descriptionAny": "cmux est d'abord disponible sur macOS. Laissez votre e-mail et nous vous préviendrons dès que Linux, Windows ou Android sera prêt.",
-    "calloutText": "Bientôt sur Linux, Windows et Android.",
+    "descriptionAny": "Choisissez une plateforme pas encore disponible et laissez votre e-mail. Nous vous préviendrons lorsque cette version sera prête.",
+    "calloutText": "D’autres versions de cmux sont en préparation.",
     "platformsLabel": "Quelles plateformes ?",
     "selectPlatform": "Choisissez au moins une plateforme.",
     "emailLabel": "E-mail",
@@ -3554,5 +3556,86 @@
     "successBody": "Nous vous enverrons un e-mail dès que la version {platform} sera prête.",
     "successBodyAny": "Nous vous enverrons un e-mail dès que cmux sera prêt pour votre plateforme.",
     "done": "Terminé"
+  },
+  "browserDownloads": {
+    "eyebrow": "Navigateur cmux",
+    "title": "cmux pour {platform}",
+    "tagline": "Un navigateur Chromium et un espace de travail pour agents, conçus ensemble.",
+    "logoAlt": "Icône de l’application cmux",
+    "portableCta": "ZIP portable",
+    "featuresTitle": "Conçu pour le travail avec des agents",
+    "features": {
+      "chromium": {
+        "title": "Le véritable Chromium",
+        "description": " : des onglets, un rendu, des extensions et un comportement d’omnibox dignes de Chrome"
+      },
+      "workspaces": {
+        "title": "Espaces de travail par tâche",
+        "description": " : organisez les onglets web et les outils autour de la tâche plutôt que dans une barre d’onglets sans fin"
+      },
+      "terminals": {
+        "title": "Surfaces de terminal",
+        "description": " : gardez les shells et les onglets du navigateur dans la même fenêtre et le même compositeur"
+      },
+      "openSource": {
+        "title": "Gratuit et open source",
+        "description": " : consultez le code, signalez des problèmes et compilez depuis les sources sur GitHub"
+      }
+    },
+    "installTitle": "Installation",
+    "releaseTitle": "Versions et mises à jour",
+    "releaseBody": "Ces liens pointent toujours vers la dernière version stable sur <github>GitHub Releases</github>. cmux vérifie les manifestes de mise à jour signés avant d’installer une mise à jour.",
+    "sourceLink": "Voir le code source sur GitHub",
+    "otherPlatform": "cmux pour {platform}",
+    "macLink": "Terminal cmux pour Mac",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Télécharger cmux pour Windows",
+      "metaDescription": "Téléchargez cmux pour Windows x64 : un navigateur Chromium et un espace de travail pour agents, gratuits et open source, avec des onglets par tâche et des surfaces de terminal.",
+      "subtitle": "Une version x64 native avec des onglets Chromium, des espaces de travail cmux et les conventions clavier familières de Windows.",
+      "primaryCta": "Télécharger le programme d’installation (.exe)",
+      "requirements": "Windows 10 ou version ultérieure · x64",
+      "installBody": "Exécutez le programme d’installation et suivez les instructions de Windows. Choisissez le ZIP portable si vous préférez conserver cmux dans un dossier sans installation à l’échelle du système."
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Télécharger cmux pour Linux",
+      "metaDescription": "Téléchargez cmux pour Linux x64 : un navigateur Chromium et un espace de travail pour agents, gratuits et open source, avec des onglets par tâche et des surfaces de terminal.",
+      "subtitle": "Une version x64 native avec des onglets Chromium, des espaces de travail cmux et des surfaces de terminal intégrées.",
+      "primaryCta": "Télécharger le .deb",
+      "requirements": "Debian ou Ubuntu · x64",
+      "installBody": "Téléchargez le paquet Debian et installez-le avec votre gestionnaire de paquets. Choisissez le ZIP portable pour une installation par utilisateur et les mises à jour dans l’application."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Bienvenue dans cmux Pro 🎉",
+      "fallbackName": "ami",
+      "greeting": "Bonjour {name},",
+      "thanks": "Merci d’avoir rejoint cmux Pro ! Nous peaufinons encore l’expérience Pro complète. L’accès au cloud arrive bientôt.",
+      "cloudStatus": "Lors du lancement de l’accès au cloud, nous ajouterons à votre compte des crédits d’utilisation calculés selon votre nombre de mois d’abonnement.",
+      "currentBenefit": "En attendant, votre avantage Pro est l’accès anticipé à cmux sur iOS. Inscrivez-vous avec le lien ci-dessous, puis Apple vous enverra votre invitation TestFlight une fois l’inscription terminée.",
+      "testflightLink": "S’inscrire à TestFlight : {url}",
+      "testflightLinkLabel": "S’inscrire à TestFlight",
+      "signoff": "Ravis de vous compter parmi nous !\nL’équipe cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro est actif",
+    "title": "Bienvenue dans cmux Pro",
+    "body": "Les fonctionnalités Pro sont encore en cours de développement. L’accès au cloud arrive bientôt, avec des crédits d’utilisation cumulés pour chaque mois d’abonnement. Aujourd’hui, Pro inclut l’accès à cmux iOS via TestFlight.",
+    "done": "Accéder au tableau de bord",
+    "steps": {
+      "iosApp": {
+        "title": "App cmux pour iOS",
+        "body": "Utilisez cmux sur votre téléphone.",
+        "action": "Rejoindre la bêta iOS"
+      },
+      "billing": {
+        "title": "Gérer votre abonnement",
+        "body": "Consultez votre abonnement, vos factures et les options de résiliation.",
+        "action": "Gérer l’abonnement"
+      }
+    }
   }
 }

@@ -1361,6 +1361,754 @@
         }
       }
     },
+    "account.signIn.browserOpenFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t open your browser. Copy the link and paste it into any browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザを開けませんでした。リンクをコピーして任意のブラウザに貼り付けてください。"
+          }
+        }
+      }
+    },
+    "account.signIn.browserOpened": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser opened. Complete sign-in there."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザを開きました。そこでサインインを完了してください。"
+          }
+        }
+      }
+    },
+    "account.signIn.copyFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t copy the link. Open it in your browser instead."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクをコピーできませんでした。代わりにブラウザで開いてください。"
+          }
+        }
+      }
+    },
+    "account.signIn.copyLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Sign-In Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインリンクをコピー"
+          }
+        }
+      }
+    },
+    "account.signIn.error.browserUnavailable.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the link in your browser, or copy it and paste it into any browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザでリンクを開くか、リンクをコピーして任意のブラウザに貼り付けてください。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.browserUnavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t open sign-in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインを開けませんでした"
+          }
+        }
+      }
+    },
+    "account.signIn.error.cancelled.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No changes were made. Try again when you’re ready, or use the browser link below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更はありません。準備ができたらもう一度試すか、下のブラウザリンクを使用してください。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.cancelled.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in canceled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインをキャンセルしました"
+          }
+        }
+      }
+    },
+    "account.signIn.error.invalidLink.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again to create a fresh secure link. The old link cannot sign in."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度試して新しい安全なリンクを作成してください。古いリンクではサインインできません。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.invalidLink.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That sign-in link is no longer valid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのサインインリンクは無効です"
+          }
+        }
+      }
+    },
+    "account.signIn.error.network.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check your connection, then try again. Your account was not changed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続を確認してから、もう一度試してください。アカウントは変更されていません。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.network.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t reach Stack"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack に接続できません"
+          }
+        }
+      }
+    },
+    "account.signIn.error.offline.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to Wi-Fi or another network, then try again. You can keep this pane open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi または別のネットワークに接続して、もう一度試してください。このペインは開いたままにできます。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.offline.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No internet connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターネットに接続されていません"
+          }
+        }
+      }
+    },
+    "account.signIn.error.rejected.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the account details in the browser and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザでアカウント情報を確認して、もう一度試してください。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.rejected.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack rejected the sign-in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack がサインインを拒否しました"
+          }
+        }
+      }
+    },
+    "account.signIn.error.server.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again in a moment. Your account and existing cmux workspaces are unchanged."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "しばらくしてからもう一度試してください。アカウントと既存の cmux ワークスペースは変更されていません。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.server.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack is temporarily unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack は一時的に利用できません"
+          }
+        }
+      }
+    },
+    "account.signIn.error.timedOut.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sign-in window did not return to cmux. Reopen the browser link or start a new attempt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインウインドウから cmux に戻りませんでした。ブラウザリンクをもう一度開くか、新しいサインインを開始してください。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.timedOut.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in timed out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインがタイムアウトしました"
+          }
+        }
+      }
+    },
+    "account.signIn.error.unauthorized.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm you’re using the intended Stack account, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用する Stack アカウントが正しいことを確認して、もう一度試してください。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.unauthorized.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack couldn’t authorize this sign-in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack がこのサインインを承認できませんでした"
+          }
+        }
+      }
+    },
+    "account.signIn.error.unknown.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again. If the sign-in window still fails, copy the link and open it in your browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度試してください。サインインウインドウが引き続き失敗する場合は、リンクをコピーしてブラウザで開いてください。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.unknown.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t finish sign-in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインを完了できませんでした"
+          }
+        }
+      }
+    },
+    "account.signIn.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux にサインイン"
+          }
+        }
+      }
+    },
+    "account.signIn.instructions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Complete sign-in in the window that opened. This pane updates automatically."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いたウインドウでサインインを完了してください。このペインは自動的に更新されます。"
+          }
+        }
+      }
+    },
+    "account.signIn.linkCopied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクをコピーしました"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.finishing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finishing sign-in…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインを完了しています…"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.finishing.instructions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is verifying your Stack account. Keep this pane open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が Stack アカウントを確認しています。このペインを開いたままにしてください。"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.opening": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening secure sign-in…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全なサインインを開いています…"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.opening.instructions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing a secure Stack sign-in window."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が安全な Stack サインインウインドウを準備しています。"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for sign-in…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインを待機中…"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.waiting.instructions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Complete sign-in in the window that opened. This pane updates automatically."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いたウインドウでサインインを完了してください。このペインは自動的に更新されます。"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.waitingSlow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still waiting for sign-in…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引き続きサインインを待機中…"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.waitingSlow.instructions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sign-in window is taking longer than expected. You can reopen or copy the same secure link without restarting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインウインドウに時間がかかっています。最初からやり直さずに、同じ安全なリンクをもう一度開くかコピーできます。"
+          }
+        }
+      }
+    },
+    "account.signIn.notCompleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in wasn’t completed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインが完了しませんでした。"
+          }
+        }
+      }
+    },
+    "account.signIn.openInBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Again in Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザでもう一度開く"
+          }
+        }
+      }
+    },
+    "account.signIn.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue with your Stack account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack アカウントで続行します。"
+          }
+        }
+      }
+    },
+    "account.signIn.start": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        }
+      }
+    },
+    "account.signIn.successBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is connected to your Stack account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が Stack アカウントに接続されました。"
+          }
+        }
+      }
+    },
+    "account.signIn.successTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインしました"
+          }
+        }
+      }
+    },
+    "account.signIn.tryAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度試す"
+          }
+        }
+      }
+    },
+    "account.signIn.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for sign-in…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインを待機中…"
+          }
+        }
+      }
+    },
+    "account.signIn.workspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        }
+      }
+    },
     "agent.campfire.capability.fallback": {
       "extractionState": "manual",
       "localizations": {
@@ -3072,6 +3820,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "PID は正の整数でなければなりません。"
+          }
+        }
+      }
+    },
+    "agent.deliveryTarget.error.invalidPidResolution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pid_resolution must be corroborated or controlling_tty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pid_resolution は corroborated または controlling_tty でなければなりません。"
           }
         }
       }
@@ -31663,6 +32428,23 @@
         }
       }
     },
+    "browser.screenshot.error.captureInProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another browser screenshot is already in progress."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のブラウザのスクリーンショットを取得中です。"
+          }
+        }
+      }
+    },
     "browser.screenshot.error.emptySnapshot": {
       "extractionState": "manual",
       "localizations": {
@@ -32159,6 +32941,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法將螢幕截圖寫入剪貼簿。"
+          }
+        }
+      }
+    },
+    "browser.screenshot.error.renderedContentMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The browser screenshot disagreed with rendered text at %1$@; %2$lld text probes were blank after %3$lld attempts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのスクリーンショットが %1$@ の描画済みテキストと一致しません。%3$lld 回試行した後も %2$lld 個のテキストプローブが空白でした。"
           }
         }
       }
@@ -34316,6 +35115,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Використання: cmux claude-teams [аргументи-claude...]\n\nЗапуск Claude Code з увімкненими командами агентів.\n\nЦя команда:\n  - типово вмикає режим teammate для Claude\n  - забезпечує підтримку cmux для сеансу\n  - встановлює CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1\n  - додає приватну tmux-прокладку на початок PATH\n  - передає всі інші аргументи до claude\n\nTmux-прокладка перетворює підтримувані команди tmux вікон/панелей на операції\nробочих просторів і розділів cmux у поточному сеансі cmux.\n\nПриклади:\n  cmux claude-teams\n  cmux claude-teams --continue\n  cmux claude-teams --model sonnet"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.depthExceeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher skipped a Codex subagent: depth %1$lld exceeds the automatic pane limit %2$lld."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは Codex サブエージェントをスキップしました: 深さ %1$lld がペイン自動作成の上限 %2$lld を超えています。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.paneCreationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher could not create a pane for a resumed Codex subagent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは再開された Codex サブエージェント用のペインを作成できませんでした。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.paneCreationFailedWithCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher could not create a pane for a resumed Codex subagent (error code: %@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは再開された Codex サブエージェント用のペインを作成できませんでした（エラーコード: %@）。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.readinessFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher could not attach a Codex subagent because its resumed thread was not ready."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは、再開されたスレッドの準備ができていないため Codex サブエージェントをアタッチできませんでした。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.statusNotAttachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher skipped a Codex subagent: thread status %@ is not attachable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは Codex サブエージェントをスキップしました: スレッドの状態 %@ はアタッチ可能ではありません。"
           }
         }
       }
@@ -40906,6 +41790,23 @@
         }
       }
     },
+    "cli.hooks.pi.error.feedIngestionNotAcknowledged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux did not receive acknowledgment for Pi feed ingestion"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が Pi フィードの取り込み確認を受信できませんでした"
+          }
+        }
+      }
+    },
     "cli.hooks.pi.error.notCmuxExtension": {
       "extractionState": "manual",
       "localizations": {
@@ -46765,6 +47666,174 @@
         }
       }
     },
+    "cli.restore.error.checkpointMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this command no longer matches the session. Run 'cmux restore --surface' to use the current record." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このコマンドは現在のセッションと一致しません。現在の状態を使用するには 'cmux restore --surface' を実行してください。" } }
+      }
+    },
+    "cli.restore.error.compatibilityShellFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the saved process could not be started. Retry the visible restore command." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存されたプロセスを開始できませんでした。表示されている復元コマンドを再実行してください。" } }
+      }
+    },
+    "cli.restore.error.currentSurfaceUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the current cmux surface could not be identified. Retry from this terminal or pass --surface <id|ref>." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 現在の cmux サーフェスを特定できませんでした。このターミナルから再試行するか、--surface <id|ref> を指定してください。" } }
+      }
+    },
+    "cli.restore.error.executableNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the saved agent command is unavailable. Make sure the agent is installed, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存されたエージェントコマンドを利用できません。エージェントがインストールされていることを確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.execveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the saved process could not be started. Retry the visible restore command." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存されたプロセスを開始できませんでした。表示されている復元コマンドを再実行してください。" } }
+      }
+    },
+    "cli.restore.error.incompleteData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this session's saved restore data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このセッションの保存済み復元データには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
+      }
+    },
+    "cli.restore.error.kindMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this command no longer matches the session. Run 'cmux restore --surface' to use the current record." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このコマンドは現在のセッションと一致しません。現在の状態を使用するには 'cmux restore --surface' を実行してください。" } }
+      }
+    },
+    "cli.restore.error.malformedArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this session's saved restore data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このセッションの保存済み復元データには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
+      }
+    },
+    "cli.restore.error.malformedRecord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this session's saved restore data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このセッションの保存済み復元データには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
+      }
+    },
+    "cli.restore.error.noRecord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this session has nothing to restore. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このセッションには復元できるものがありません。このターミナルでエージェントをもう一度起動してください。" } }
+      }
+    },
+    "cli.restore.error.providerSetupConfigurationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup could not start. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を開始できませんでした。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.providerSetupExited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup failed. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定に失敗しました。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.providerSetupSignaled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup failed. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定に失敗しました。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.providerSetupStartFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup could not start. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を開始できませんでした。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.providerSetupTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup took too long. Check the provider connection, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定に時間がかかりすぎました。プロバイダー接続を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.providerSetupUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup is unavailable. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を利用できません。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.providerSetupWaitFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup could not complete. Retry the visible restore command." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を完了できませんでした。表示されている復元コマンドを再実行してください。" } }
+      }
+    },
+    "cli.restore.error.socketNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: cmux is still opening. Retry the visible restore command in a moment." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: cmux はまだ起動中です。しばらくしてから、表示されている復元コマンドを再実行してください。" } }
+      }
+    },
+    "cli.restore.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the requested surface was not found. Check the surface reference, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 指定されたサーフェスが見つかりません。サーフェスの参照を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.unsupportedMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this session's saved restore data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このセッションの保存済み復元データには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
+      }
+    },
+    "cli.restore.error.workingDirectoryFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the saved working directory is inaccessible. Restore access to it, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存された作業ディレクトリにアクセスできません。アクセスを復元してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore <kind> <checkpoint-id>\n       cmux restore --surface [id|ref]\n\nReplace this CLI process with the persisted surface process. New\nrecords preserve argv, environment, and cwd as structured values;\ncommand-only records from older builds use a compatibility shell.\nWith no id or ref, --surface uses the calling cmux surface." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore <kind> <checkpoint-id>\n        cmux restore --surface [id|ref]\n\nこの CLI プロセスを保存されたサーフェスプロセスで置き換えます。新しい\nレコードでは argv、環境、cwd が構造化された値として保持されます。\n旧ビルドのコマンドのみのレコードでは互換シェルを使用します。\nid または ref を省略すると、--surface は呼び出し元の cmux サーフェスを使用します。" } }
+      }
+    },
+    "cli.restore.usage.positional": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore <kind> <checkpoint-id>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore <kind> <checkpoint-id>" } }
+      }
+    },
+    "cli.restore.usage.surface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore --surface [id|ref]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore --surface [id|ref]" } }
+      }
+    },
     "cli.rightSidebar.error.invalidWindow": {
       "extractionState": "manual",
       "localizations": {
@@ -48907,6 +49976,142 @@
         }
       }
     },
+    "cli.socket.error.commandTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command timed out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドがタイムアウトしました"
+          }
+        }
+      }
+    },
+    "cli.socket.error.failedToWrite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to write to socket"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソケットへの書き込みに失敗しました"
+          }
+        }
+      }
+    },
+    "cli.socket.error.invalidUTF8Response": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid UTF-8 response"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-8 形式ではない応答です"
+          }
+        }
+      }
+    },
+    "cli.socket.error.notConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続されていません"
+          }
+        }
+      }
+    },
+    "cli.socket.error.responseExceededBatchLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Socket response exceeded batch limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソケット応答がバッチ上限を超えました"
+          }
+        }
+      }
+    },
+    "cli.socket.error.socketClosedBeforeCompleteReply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Socket closed before complete reply"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全な応答を受信する前にソケットが閉じられました"
+          }
+        }
+      }
+    },
+    "cli.socket.error.socketRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Socket read error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソケット読み取りエラー"
+          }
+        }
+      }
+    },
+    "cli.socket.error.unexpectedExtraBatchResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unexpected extra batched socket response"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予期しない余分なバッチソケット応答を受信しました"
+          }
+        }
+      }
+    },
     "cli.socket.error.workspaceNotClosed": {
       "extractionState": "manual",
       "localizations": {
@@ -50049,6 +51254,131 @@
         }
       }
     },
+    "cli.ssh.restore.lifecycleUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] توقف استعادة SSH لأن cmux لم يتمكن من تسجيل دورة حياة الاتصال. أعد فتح مساحة العمل البعيدة لإعادة الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Vraćanje SSH-a je zaustavljeno jer cmux nije mogao registrirati životni ciklus veze. Ponovo otvorite udaljeni radni prostor za ponovno povezivanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH-gendannelse blev stoppet, fordi cmux ikke kunne registrere forbindelsens livscyklus. Åbn fjernarbejdsområdet igen for at oprette forbindelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Die SSH-Wiederherstellung wurde beendet, weil cmux den Verbindungslebenszyklus nicht registrieren konnte. Öffnen Sie den Remote-Arbeitsbereich erneut, um die Verbindung wiederherzustellen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH restore stopped because cmux could not register the connection lifecycle. Reopen this remote workspace to reconnect."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] La restauración de SSH se detuvo porque cmux no pudo registrar el ciclo de vida de la conexión. Vuelva a abrir este espacio de trabajo remoto para reconectarse."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] La restauration SSH s’est arrêtée, car cmux n’a pas pu enregistrer le cycle de vie de la connexion. Rouvrez cet espace de travail distant pour vous reconnecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Il ripristino SSH è stato interrotto perché cmux non ha potuto registrare il ciclo di vita della connessione. Riapri questo spazio di lavoro remoto per riconnetterti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux が接続ライフサイクルを登録できなかったため、SSH の復元を停止しました。再接続するには、このリモートワークスペースを開き直してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ការស្តារ SSH បានបញ្ឈប់ ព្រោះ cmux មិនអាចចុះឈ្មោះវដ្តជីវិតនៃការតភ្ជាប់បាន។ សូមបើកកន្លែងធ្វើការពីចម្ងាយនេះឡើងវិញ ដើម្បីភ្ជាប់ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux가 연결 수명 주기를 등록하지 못해 SSH 복원이 중지되었습니다. 다시 연결하려면 이 원격 작업 공간을 다시 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH-gjenopprettingen stoppet fordi cmux ikke kunne registrere tilkoblingens livssyklus. Åpne det eksterne arbeidsområdet på nytt for å koble til igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Przywracanie SSH zostało zatrzymane, ponieważ cmux nie mógł zarejestrować cyklu życia połączenia. Otwórz ponownie ten zdalny obszar roboczy, aby się połączyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] A restauração do SSH foi interrompida porque o cmux não conseguiu registrar o ciclo de vida da conexão. Reabra este workspace remoto para se reconectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Восстановление SSH остановлено, потому что cmux не смог зарегистрировать жизненный цикл подключения. Повторно откройте удалённое рабочее пространство, чтобы подключиться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] การกู้คืน SSH หยุดลงเนื่องจาก cmux ไม่สามารถลงทะเบียนวงจรชีวิตการเชื่อมต่อได้ เปิดพื้นที่ทำงานระยะไกลนี้อีกครั้งเพื่อเชื่อมต่อใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux bağlantı yaşam döngüsünü kaydedemediği için SSH geri yüklemesi durduruldu. Yeniden bağlanmak için bu uzak çalışma alanını yeniden açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Відновлення SSH зупинено, оскільки cmux не зміг зареєструвати життєвий цикл підключення. Повторно відкрийте віддалений робочий простір, щоб підключитися."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux 无法注册连接生命周期，因此已停止恢复 SSH。请重新打开此远程工作区以重新连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux 無法註冊連線生命週期，因此已停止復原 SSH。請重新開啟此遠端工作區以重新連線。"
+          }
+        }
+      }
+    },
     "cli.ssh.transport.invalid": {
       "extractionState": "manual",
       "localizations": {
@@ -50174,6 +51504,74 @@
         }
       }
     },
+    "cli.sshPtyAttach.bridgeClosedReattaching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge closed; reattaching (attempt %s/%s)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジが閉じました。再接続しています（試行 %s/%s）。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.bridgeClosedWithoutProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-pty-attach: bridge closed without receiving new output while the remote PTY session is still running"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-pty-attach: 新しい出力を受信しないままブリッジが閉じましたが、リモート PTY セッションは引き続き実行中です"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.noProgressRetryLimitReached.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge made no progress after %s attempt; stopping retries."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジは %s 回試行しても進行しなかったため、再試行を停止します。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.noProgressRetryLimitReached.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge made no progress after %s attempts; stopping retries."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジは %s 回試行しても進行しなかったため、再試行を停止します。"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.remoteSessionLostRespawn": {
       "extractionState": "manual",
       "localizations": {
@@ -50187,6 +51585,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモートセッションが失われました。新しいシェルを開始します。"
+          }
+        }
+      }
+    },
+    "cli.tmux-compat.error.downstreamTmuxMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tmux shim: no downstream tmux executable found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tmux シム: 後続の tmux 実行ファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "cli.tmux-compat.error.managedTerminalRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ must be launched from a cmux-managed terminal surface. Open a terminal surface in cmux and run this command there."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は cmux が管理するターミナルサーフェスから起動する必要があります。cmux でターミナルサーフェスを開き、そこでこのコマンドを実行してください。"
           }
         }
       }
@@ -77904,6 +79336,35 @@
         }
       }
     },
+    "debug.devBuildBanner.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controls the red debug-build label below the sidebar footer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのフッター下にある赤い開発ビルドラベルの表示を切り替えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 하단 아래의 빨간색 개발 빌드 라벨 표시를 전환합니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Керує показом червоної позначки збірки для розробки під нижньою частиною бічної панелі."
+          }
+        }
+      }
+    },
     "debug.devBuildBanner.show": {
       "extractionState": "manual",
       "localizations": {
@@ -78791,6 +80252,23 @@
         }
       }
     },
+    "debug.menu.sidebarFooterIconBalance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Footer Icon Balance Lab…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フッターアイコンバランスラボ…"
+          }
+        }
+      }
+    },
     "debug.menu.splitButtonLayoutDebug": {
       "extractionState": "manual",
       "localizations": {
@@ -78957,6 +80435,397 @@
           "stringUnit": {
             "state": "translated",
             "value": "Titlebar Layout Debug..."
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tune each icon live, compare sharp and squint previews, then use the cards to explore Help weights."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各アイコンをライブ調整し、鮮明表示とスクイント表示を比較してから、カードでヘルプのウェイトを確認します。"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.helpIcon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Help icon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヘルプアイコン"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.helpSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Help"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヘルプ"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.hoverIntensity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hover intensity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホバーの強さ"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.hoverPreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hover preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホバープレビュー"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.iconSizes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon sizes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコンサイズ"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.mobileSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.opticalBalance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optical balance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視覚的バランス"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.profileDisplay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile display"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロフィール表示"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.profileDisplay.icon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコン"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.profileDisplay.picture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.profileIcon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile icon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロフィールアイコン"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.profileSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロフィール"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.referenceNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cell guides show geometric alignment; the squint preview compares optical weight."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セルガイドは幾何学的な整列を示し、スクイント表示は視覚的なウェイトを比較します。"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Selection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択をリセット"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.sharpPreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sharp"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鮮明"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.showCellGuides": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show 22 pt cell guides"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "22 ptセルガイドを表示"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.squintPreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Squint"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクイント"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.squintRadius": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Squint radius"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクイント半径"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Footer Icon Balance Lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フッターアイコンバランスラボ"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.weight.medium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medium"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミディアム"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.weight.regular": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regular"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レギュラー"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.weight.semibold": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Semibold"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セミボールド"
           }
         }
       }
@@ -107643,13 +109512,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows the iPhone button that opens the Mobile Connect pairing window."
+            "value": "Shows Mobile Connect entrypoints that open the iPhone pairing workspace."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile Connectのペアリングウィンドウを開くiPhoneボタンを表示します。"
+            "value": "iPhoneペアリングワークスペースを開くMobile Connectの入口を表示します。"
           }
         }
       }
@@ -107824,6 +109693,40 @@
         }
       }
     },
+    "featureFlags.sidebarAccount.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the profile and sign-in control in the sidebar footer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのフッターにプロフィールとサインインのコントロールを表示します。"
+          }
+        }
+      }
+    },
+    "featureFlags.sidebarAccount.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar account button"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのアカウントボタン"
+          }
+        }
+      }
+    },
     "featureFlags.sidebarWorkspaceAgentSpinner.description": {
       "extractionState": "manual",
       "localizations": {
@@ -107905,6 +109808,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "既定値"
+          }
+        }
+      }
+    },
+    "featureFlags.source.local": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локально"
           }
         }
       }
@@ -110841,6 +112773,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "%2$@からの%1$@リクエスト"
+          }
+        }
+      }
+    },
+    "feed.push.error.decodeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.push event failed to decode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.push イベントをデコードできませんでした"
+          }
+        }
+      }
+    },
+    "feed.push.error.exclusiveEventShape": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.push accepts either `event` or `events`, not both"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.push には `event` または `events` のいずれか一方のみを指定できます。"
+          }
+        }
+      }
+    },
+    "feed.push.error.requiresEvent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.push requires an `event` object"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.push には `event` オブジェクトが必要です。"
           }
         }
       }
@@ -115503,6 +117486,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "画像 URL: {url}"
+          }
+        }
+      }
+    },
+    "memory.attribution.multipleOwners": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "multiple owners"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複数の帰属先"
+          }
+        }
+      }
+    },
+    "memory.attribution.multipleWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld ワークスペース"
+          }
+        }
+      }
+    },
+    "memory.attribution.partial": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "partially attributed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部のみ帰属"
           }
         }
       }
@@ -131599,6 +133633,40 @@
         }
       }
     },
+    "mobile.pairing.codeMode.legacyDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale code: for the Tailscale connection method and older iPhone apps. The iPhone must be on the same Tailscale network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleコード: Tailscale接続方法および旧バージョンのiPhoneアプリ用。iPhoneが同じTailscaleネットワークに接続されている必要があります。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.codeMode.useLegacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Tailscale Pairing Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleペアリングコードを使用"
+          }
+        }
+      }
+    },
     "mobile.workspaceChanges.error.invalidContentRequest": {
       "extractionState": "manual",
       "localizations": {
@@ -139516,6 +141584,57 @@
         }
       }
     },
+    "remoteSession.controlMaster.ownershipUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH connection is busy in another cmux process."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の cmux プロセスが SSH 接続を使用しています。"
+          }
+        }
+      }
+    },
+    "remoteSession.reverseRelay.portUnavailableRetrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote SSH relay port unavailable; retrying in 2 seconds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート SSH リレーポートを利用できません。2秒後に再試行します"
+          }
+        }
+      }
+    },
+    "remoteSession.reverseRelay.unavailableRetrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote SSH relay unavailable; retrying in 2 seconds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート SSH リレーを利用できません。2秒後に再試行します"
+          }
+        }
+      }
+    },
     "remoteTmux.error.commandFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -143442,13 +145561,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud dev boxes, the iOS app, and cmux AI. $30/month, or $240/year."
+            "value": "Cloud dev boxes, the iOS app, and cmux AI. $30/month, or $288/year."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウド開発マシン、iOSアプリ、cmux AI。月額$30、または年額$240。"
+            "value": "クラウド開発マシン、iOSアプリ、cmux AI。月額$30、または年額$288。"
           }
         }
       }
@@ -169133,6 +171252,23 @@
         }
       }
     },
+    "settings.config.status.reloadBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload queued; too many requests are pending to confirm completion."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込みをキューに追加しましたが、保留中のリクエストが多すぎるため完了を確認できません。"
+          }
+        }
+      }
+    },
     "settings.config.status.reloaded": {
       "extractionState": "manual",
       "localizations": {
@@ -173499,6 +175635,114 @@
             "state": "translated",
             "value": "デスクトップ通知"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面通知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데스크톱 알림"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop-Benachrichtigungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificaciones de escritorio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications du bureau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifiche desktop"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivebordsnotifikationer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadomienia na pulpicie"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления на рабочем столе"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obavještenja na radnoj površini"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إشعارات سطح المكتب"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivebordsvarsler"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificações da área de trabalho"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแจ้งเตือนบนเดสก์ท็อป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masaüstü Bildirimleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сповіщення на робочому столі"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជូនដំណឹងលើផ្ទៃតុ"
+          }
         }
       }
     },
@@ -173515,6 +175759,239 @@
           "stringUnit": {
             "state": "translated",
             "value": "有効にする"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성화"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abilita"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włącz"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включить"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omogući"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمكين"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiver"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativar"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etkinleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімкнути"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក"
+          }
+        }
+      }
+    },
+    "settings.notifications.desktop.action.openSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open System Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定を開く"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开系统设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟系統設定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정 열기"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemeinstellungen öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes del Sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les Réglages Système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri Impostazioni di Sistema"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn Systemindstillinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz Ustawienia systemowe"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть Системные настройки"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori Postavke sistema"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح إعدادات النظام"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne Systeminnstillinger"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes do Sistema"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดการตั้งค่าระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem Ayarları'nı Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити Системні налаштування"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកការកំណត់ប្រព័ន្ធ"
           }
         }
       }
@@ -173533,6 +176010,614 @@
             "state": "translated",
             "value": "テストを送信"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送测试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送測試"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테스트 보내기"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test senden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar prueba"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer un test"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia test"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send test"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyślij test"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить тест"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pošalji test"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إرسال اختبار"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send test"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar teste"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งการทดสอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test Gönder"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надіслати тест"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើការសាកល្បង"
+          }
+        }
+      }
+    },
+    "settings.notifications.desktop.status.allowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allowed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可済み"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已允许"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已允許"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허용됨"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaubt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitidas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorisées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consentite"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilladt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozwolone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешено"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoljeno"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسموح"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillatt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitidas"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İzin Verildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволено"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានអនុញ្ញាត"
+          }
+        }
+      }
+    },
+    "settings.notifications.desktop.status.deliverQuietly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deliver Quietly"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静かに配信"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静默送达"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "靜默傳送"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조용히 전달"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leise zustellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entregar silenciosamente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distribuer discrètement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consegna in silenzio"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lever stille"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostarczaj po cichu"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доставлять тихо"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostavi tiho"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التسليم بهدوء"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lever stille"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entregar silenciosamente"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งแบบเงียบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessiz Teslim Et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доставляти тихо"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជូនដោយស្ងាត់"
+          }
+        }
+      }
+    },
+    "settings.notifications.desktop.status.denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒否"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拒绝"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拒絕"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "거부됨"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abgelehnt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denegadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refusées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Negate"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afvist"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odmówiono"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запрещено"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odbijeno"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرفوض"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvist"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Negadas"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถูกปฏิเสธ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reddedildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відхилено"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបដិសេធ"
+          }
+        }
+      }
+    },
+    "settings.notifications.desktop.status.temporary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporary"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一時的"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "临时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫時"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "임시"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorübergehend"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporaire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporaneo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Midlertidig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tymczasowe"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Временно"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privremeno"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مؤقت"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Midlertidig"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporário"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชั่วคราว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçici"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тимчасово"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បណ្ដោះអាសន្ន"
+          }
         }
       }
     },
@@ -173550,6 +176635,364 @@
             "state": "translated",
             "value": "権限が不明です"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "权限未知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "權限未知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한 알 수 없음"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechtigung unbekannt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permiso desconocido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorisation inconnue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorizzazione sconosciuta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilladelse ukendt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieznane uprawnienie"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешение неизвестно"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvola nepoznata"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإذن غير معروف"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillatelse ukjent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permissão desconhecida"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ทราบสิทธิ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İzin bilinmiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозвіл невідомий"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនស្គាល់សិទ្ធិអនុញ្ញាត"
+          }
+        }
+      }
+    },
+    "settings.notifications.desktop.subtitle.allowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop notifications are enabled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ通知は有効です。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面通知已启用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面通知已啟用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데스크톱 알림이 활성화되어 있습니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop-Benachrichtigungen sind aktiviert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las notificaciones de escritorio están activadas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les notifications du bureau sont activées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le notifiche desktop sono abilitate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivebordsnotifikationer er slået til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadomienia na pulpicie są włączone."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления на рабочем столе включены."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obavještenja na radnoj površini su omogućena."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تمكين إشعارات سطح المكتب."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivebordsvarsler er aktivert."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As notificações da área de trabalho estão ativadas."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแจ้งเตือนบนเดสก์ท็อปเปิดใช้งานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masaüstü bildirimleri etkin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сповіщення на робочому столі увімкнено."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជូនដំណឹងលើផ្ទៃតុត្រូវបានបើក។"
+          }
+        }
+      }
+    },
+    "settings.notifications.desktop.subtitle.denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop notifications are disabled in System Settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ通知はシステム設定で無効になっています。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面通知已在系统设置中禁用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面通知已在「系統設定」中停用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데스크톱 알림이 시스템 설정에서 비활성화되어 있습니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop-Benachrichtigungen sind in den Systemeinstellungen deaktiviert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las notificaciones de escritorio están desactivadas en Ajustes del Sistema."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les notifications du bureau sont désactivées dans les Réglages Système."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le notifiche desktop sono disabilitate nelle Impostazioni di Sistema."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivebordsnotifikationer er deaktiveret i Systemindstillinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadomienia na pulpicie są wyłączone w Ustawieniach systemowych."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления на рабочем столе отключены в Системных настройках."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obavještenja na radnoj površini su onemogućena u Postavkama sistema."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تعطيل إشعارات سطح المكتب في إعدادات النظام."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivebordsvarsler er deaktivert i Systeminnstillinger."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As notificações da área de trabalho estão desativadas nos Ajustes do Sistema."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแจ้งเตือนบนเดสก์ท็อปถูกปิดใช้งานในการตั้งค่าระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masaüstü bildirimleri Sistem Ayarları'nda devre dışı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сповіщення на робочому столі вимкнено в Системних налаштуваннях."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជូនដំណឹងលើផ្ទៃតុត្រូវបានបិទនៅក្នុងការកំណត់ប្រព័ន្ធ។"
+          }
         }
       }
     },
@@ -173566,6 +177009,114 @@
           "stringUnit": {
             "state": "translated",
             "value": "デスクトップ通知はまだ有効になっていません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面通知尚未启用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面通知尚未啟用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데스크톱 알림이 아직 활성화되지 않았습니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop-Benachrichtigungen sind noch nicht aktiviert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las notificaciones de escritorio aún no están activadas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les notifications du bureau ne sont pas encore activées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le notifiche desktop non sono ancora abilitate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivebordsnotifikationer er ikke slået til endnu."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadomienia na pulpicie nie są jeszcze włączone."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления на рабочем столе еще не включены."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obavještenja na radnoj površini još nisu omogućena."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم تمكين إشعارات سطح المكتب بعد."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivebordsvarsler er ikke aktivert ennå."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As notificações da área de trabalho ainda não estão ativadas."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแจ้งเตือนบนเดสก์ท็อปยังไม่ได้เปิดใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masaüstü bildirimleri henüz etkin değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сповіщення на робочому столі ще не увімкнено."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជូនដំណឹងលើផ្ទៃតុមិនទាន់ត្រូវបានបើកទេ។"
           }
         }
       }
@@ -192493,13 +196044,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent terminals stay live until you close them or quit cmux."
+            "value": "Scheduled hibernation is off. During critical memory pressure, cmux may still hibernate safe idle background agents."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェント端末は、閉じるか cmux を終了するまでライブのままです。"
+            "value": "通常の休止はオフです。メモリ負荷が危険な状態では、安全なアイドル中のバックグラウンドエージェントを cmux が休止する場合があります。"
           }
         }
       }
@@ -200099,6 +203650,57 @@
         }
       }
     },
+    "shortcut.decreaseWorkspaceTerminalFontSize.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decrease Font Size for Workspace Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内のターミナルのフォントサイズを小さくする"
+          }
+        }
+      }
+    },
+    "shortcut.increaseWorkspaceTerminalFontSize.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increase Font Size for Workspace Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内のターミナルのフォントサイズを大きくする"
+          }
+        }
+      }
+    },
+    "shortcut.resetWorkspaceTerminalFontSize.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Font Size for Workspace Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内のターミナルのフォントサイズをリセット"
+          }
+        }
+      }
+    },
     "shortcut.equalizeSplits.label": {
       "extractionState": "manual",
       "localizations": {
@@ -200825,6 +204427,125 @@
         }
       }
     },
+    "shortcut.focusNextPane.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التركيز على اللوحة التالية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokusiraj sljedeći panel"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokuser næste panel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächsten Bereich fokussieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Next Pane"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enfocar panel siguiente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer le panneau suivant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta focus pannello successivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のペインにフォーカス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 패널로 포커스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokuser neste panel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokus na następny panel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focar Próximo Painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фокус на следующую панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟกัสบานหน้าต่างถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonraki Bölmeye Odaklan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фокус на наступну панель"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦下一个面板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦下一個面板"
+          }
+        }
+      }
+    },
     "shortcut.focusPaneDown.label": {
       "extractionState": "manual",
       "localizations": {
@@ -201297,6 +205018,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "聚焦上方面板"
+          }
+        }
+      }
+    },
+    "shortcut.focusPreviousPane.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التركيز على اللوحة السابقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokusiraj prethodni panel"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokuser forrige panel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorherigen Bereich fokussieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Previous Pane"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enfocar panel anterior"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer le panneau précédent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta focus pannello precedente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のペインにフォーカス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 패널로 포커스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokuser forrige panel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokus na poprzedni panel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focar Painel Anterior"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фокус на предыдущую панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟกัสบานหน้าต่างก่อนหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önceki Bölmeye Odaklan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фокус на попередню панель"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦上一个面板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦上一個面板"
           }
         }
       }
@@ -225248,6 +229088,40 @@
         }
       }
     },
+    "socket.surface.resume.agentSessionEndedMustBeBoolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent_session_ended must be a boolean"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent_session_ended はブール値である必要があります"
+          }
+        }
+      }
+    },
+    "socket.surface.resume.launchCommandMustBeValid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launch_command.arguments must be a non-empty array of strings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launch_command.arguments は空でない文字列の配列である必要があります"
+          }
+        }
+      }
+    },
     "socket.surfaceSplitOff.error.appDelegateUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -230198,6 +234072,23 @@
         }
       }
     },
+    "surfaceResumeApproval.proposal.applyToPrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply to all commands starting with “%@” in this folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダで「%@」から始まるすべてのコマンドに適用"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.proposal.ask": {
       "extractionState": "manual",
       "localizations": {
@@ -230283,6 +234174,23 @@
         }
       }
     },
+    "surfaceResumeApproval.runPrompt.dontAskAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t ask again for this command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコマンドについて今後確認しない"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.runPrompt.message": {
       "extractionState": "manual",
       "localizations": {
@@ -230317,6 +234225,23 @@
         }
       }
     },
+    "surfaceResumeApproval.runPrompt.runAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて実行"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.runPrompt.skip": {
       "extractionState": "manual",
       "localizations": {
@@ -230330,6 +234255,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "スキップ"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.runPrompt.skipAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてスキップ"
           }
         }
       }
@@ -232731,6 +236673,40 @@
         }
       }
     },
+    "terminal.agentHibernation.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent shutdown needs attention"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの終了を確認してください"
+          }
+        }
+      }
+    },
+    "terminal.agentHibernation.finishing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finishing agent shutdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントを終了しています"
+          }
+        }
+      }
+    },
     "terminal.agentHibernation.lastActivity": {
       "extractionState": "manual",
       "localizations": {
@@ -232761,6 +236737,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "再開"
+          }
+        }
+      }
+    },
+    "terminal.agentHibernation.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry shutdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了を再試行"
           }
         }
       }
@@ -256035,6 +260028,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "プロトコルエラー"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.routeGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Attempt Held"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続試行が一時的に保留されました"
           }
         }
       }

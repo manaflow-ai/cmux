@@ -28,7 +28,7 @@ final class UpdatePillUITests: XCTestCase {
     func testUpdatePillShowsForAvailableUpdate() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "available"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_VERSION"] = "9.9.9"
@@ -47,7 +47,7 @@ final class UpdatePillUITests: XCTestCase {
     func testDetectedBackgroundUpdateShowsPillWithoutManualCheck() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"] = "9.9.9"
         launchAndActivate(app)
@@ -63,7 +63,7 @@ final class UpdatePillUITests: XCTestCase {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"] = "9.9.9"
         app.launchEnvironment["CMUX_UI_TEST_FEED_URL"] = "https://cmux.test/appcast.xml"
@@ -91,7 +91,7 @@ final class UpdatePillUITests: XCTestCase {
         systemSettings.terminate()
         let timingPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ui-test-timing-\(UUID().uuidString).json")
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "notFound"
         app.launchEnvironment["CMUX_UI_TEST_TIMING_PATH"] = timingPath.path
@@ -169,7 +169,7 @@ final class UpdatePillUITests: XCTestCase {
     func testBackgroundDetectedUpdateKeepsOnlyBottomUpdatePill() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"] = "9.9.9"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "available"
@@ -187,7 +187,7 @@ final class UpdatePillUITests: XCTestCase {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         // Make Sparkle re-request permission on startup, but we should auto-handle it with no UI.
         app.launchEnvironment["CMUX_UI_TEST_RESET_SPARKLE_PERMISSION"] = "1"
         launchAndActivate(app)
@@ -203,7 +203,7 @@ final class UpdatePillUITests: XCTestCase {
     func testUpdatePillShowsDownloadingState() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "downloading"
         launchAndActivate(app)
@@ -218,7 +218,7 @@ final class UpdatePillUITests: XCTestCase {
     func testUpdatePillShowsExtractingState() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "extracting"
         launchAndActivate(app)
@@ -233,7 +233,7 @@ final class UpdatePillUITests: XCTestCase {
     func testUpdatePillShowsInstallingStateAndRestartPopover() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "installing"
         launchAndActivate(app)
@@ -255,7 +255,7 @@ final class UpdatePillUITests: XCTestCase {
     func testUpdatePillShowsErrorStateWithRetryAndDetails() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "error"
         launchAndActivate(app)
@@ -342,7 +342,7 @@ final class UpdatePillUITests: XCTestCase {
         timingPath: URL? = nil,
         extraEnvironment: [String: String] = [:]
     ) -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_FEED_URL"] = "https://cmux.test/appcast.xml"
         app.launchEnvironment["CMUX_UI_TEST_FEED_MODE"] = mode
@@ -449,7 +449,7 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
     }
 
     private func launchApp(alwaysShowShortcutHints: Bool = false) -> (XCUIApplication, String) {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-titlebar-shortcut-hints-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"

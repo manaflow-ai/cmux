@@ -1,12 +1,14 @@
 # Rust Binding Style
 
-Rust generation is not run this round.
-
-Future requirements:
+Requirements:
 
 - Generate typed request and response structs with Serde.
 - Use snake_case public methods and kebab-case wire names.
 - Return `Result<T, CmuxError>`.
-- Provide non-exhaustive event enums with an unknown-event fallback.
+- Preserve absent, null, and present values as distinct states.
+- Preserve unknown events and their complete JSON objects.
 - Preserve command, transport, timeout, decode, and protocol-version error categories.
-- Expose blocking streams first; async adapters can come later.
+- Use bounded blocking streams with a close handle that unblocks another thread.
+- Keep topology and other ergonomic helpers in hand-written modules.
+- Support the minimum Rust version declared by the crate.
+- Pass generation drift, rustfmt, clippy, rustdoc, tests, and `cargo package`.
