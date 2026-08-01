@@ -31,30 +31,16 @@ extension SimulatorPaneCoordinator {
 
     @discardableResult
     func enqueue(_ message: SimulatorWorkerInbound) -> Bool {
-        if message.participatesInUIAutomationTransaction,
+        if message.invalidatesUIAutomationSnapshot,
            uiAutomationSession.isTransactionActive,
            !uiAutomationSession.currentTaskOwnsTransaction(
                controlActionToken: currentControlActionTaskToken
            ) {
-            guard deferredUIAutomationMessages.count
-                    < Self.maximumOutgoingMessageCount else {
-                handleOutgoingQueueOverflow()
-                return false
-            }
-            deferredUIAutomationMessages.append(message)
-            return true
+            // Live input is time-sensitive. Replaying it after a long semantic
+            // wait can mutate a different screen or leave worker input held.
+            return false
         }
         return enqueueImmediately(message)
-    }
-
-    func flushDeferredUIAutomationMessagesIfPossible() {
-        guard !uiAutomationSession.isTransactionActive,
-              !deferredUIAutomationMessages.isEmpty else { return }
-        let messages = deferredUIAutomationMessages
-        deferredUIAutomationMessages.removeAll(keepingCapacity: false)
-        for message in messages where !outgoingOverflowed {
-            guard enqueueImmediately(message) else { break }
-        }
     }
 
     private func enqueueImmediately(_ message: SimulatorWorkerInbound) -> Bool {
@@ -78,7 +64,6 @@ extension SimulatorPaneCoordinator {
     private func handleOutgoingQueueOverflow() {
         guard !outgoingOverflowed else { return }
         outgoingOverflowed = true
-        deferredUIAutomationMessages.removeAll(keepingCapacity: false)
         releaseAllHeldUIAutomationTouches()
         outgoingContinuation.finish()
         let deliveryTask = outgoingTask
@@ -299,10 +284,6 @@ extension SimulatorPaneCoordinator {
 }
 
 private extension SimulatorWorkerInbound {
-    var participatesInUIAutomationTransaction: Bool {
-        invalidatesUIAutomationSnapshot || self == .releaseInputs
-    }
-
     var invalidatesUIAutomationSnapshot: Bool {
         switch self {
         case .pointer, .key, .keySequence, .scrollWheel, .typeText,

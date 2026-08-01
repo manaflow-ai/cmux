@@ -2,6 +2,8 @@ import CmuxSimulator
 import Foundation
 
 extension SimulatorWorkerCoordinator {
+    private static let accessibilitySnapshotHardDeadline: Duration = .seconds(30)
+
     func requestAccessibility(requestIdentifier: UUID) {
         guard let display = currentDisplay else {
             send(
@@ -59,7 +61,6 @@ extension SimulatorWorkerCoordinator {
 
             guard let self else { return }
             guard self.accessibilitySnapshotGeneration == generation else {
-                self.clearAccessibilitySnapshotRequestState(clearCache: false)
                 return
             }
             let requestIdentifiers = self.accessibilitySnapshotRequestIdentifiers
@@ -81,6 +82,7 @@ extension SimulatorWorkerCoordinator {
                 }
             }
         }
+        startAccessibilitySnapshotDeadline(generation: generation)
     }
 
     func cancelAccessibilitySnapshotRequests() {
@@ -99,19 +101,46 @@ extension SimulatorWorkerCoordinator {
                 ))
         }
         accessibilitySnapshotTask?.cancel()
-        accessibilitySnapshotGeneration = nil
-        accessibilitySnapshotRequestIdentifiers.removeAll()
-        accessibilitySnapshotDeviceIdentifier = nil
-        accessibilitySnapshotDisplay = nil
-        cachedAccessibilitySnapshot = nil
+        clearAccessibilitySnapshotRequestState(clearCache: true)
     }
 
     private func clearAccessibilitySnapshotRequestState(clearCache: Bool) {
+        accessibilitySnapshotDeadlineTask?.cancel()
+        accessibilitySnapshotDeadlineTask = nil
+        accessibilitySnapshotCancellationGraceTask?.cancel()
+        accessibilitySnapshotCancellationGraceTask = nil
         accessibilitySnapshotTask = nil
         accessibilitySnapshotGeneration = nil
         accessibilitySnapshotRequestIdentifiers.removeAll()
         accessibilitySnapshotDeviceIdentifier = nil
         accessibilitySnapshotDisplay = nil
         if clearCache { cachedAccessibilitySnapshot = nil }
+    }
+
+    private func startAccessibilitySnapshotDeadline(generation: UUID) {
+        let sleeper = toolOperationSleeper
+        accessibilitySnapshotDeadlineTask = Task { @MainActor [weak self] in
+            do {
+                try await sleeper.sleep(for: Self.accessibilitySnapshotHardDeadline)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self,
+                  self.accessibilitySnapshotGeneration == generation,
+                  self.accessibilitySnapshotTask != nil else { return }
+            self.accessibilitySnapshotTask?.cancel()
+            let containment = self.toolOperationContainment
+            self.accessibilitySnapshotCancellationGraceTask = Task {
+                do {
+                    try await sleeper.sleep(for: containment.cancellationGrace)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled,
+                      self.accessibilitySnapshotGeneration == generation,
+                      self.accessibilitySnapshotTask != nil else { return }
+                containment.terminate()
+            }
+        }
     }
 }

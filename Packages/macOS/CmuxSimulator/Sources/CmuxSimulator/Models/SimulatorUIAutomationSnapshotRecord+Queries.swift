@@ -48,21 +48,8 @@ extension SimulatorUIAutomationSnapshotRecord {
     public func matching(
         _ selector: SimulatorUIAutomationSelector
     ) -> [SimulatorUIAutomationElement] {
-        snapshot.elements.filter { element in
-            guard element.state.isVisible else { return false }
-            if let identifier = selector.identifier, element.identifier != identifier {
-                return false
-            }
-            if let label = selector.label, element.label != label {
-                return false
-            }
-            if let role = selector.role, element.role != role {
-                return false
-            }
-            if let value = selector.value, element.value != value {
-                return false
-            }
-            return true
+        snapshot.elements.filter {
+            $0.state.isVisible && selector.matches($0)
         }
     }
 
@@ -113,28 +100,7 @@ extension SimulatorUIAutomationSnapshotRecord {
     public func stableSelector(
         for elementRef: String
     ) -> SimulatorUIAutomationSelector? {
-        guard let element = elementsByRef[elementRef]?.element else { return nil }
-        if let identifier = element.identifier {
-            return SimulatorUIAutomationSelector(
-                sourceElementRef: elementRef,
-                identifier: identifier
-            )
-        }
-        if let label = element.label, let role = element.role {
-            return SimulatorUIAutomationSelector(
-                sourceElementRef: elementRef,
-                label: label,
-                role: role
-            )
-        }
-        if let value = element.value, let role = element.role {
-            return SimulatorUIAutomationSelector(
-                sourceElementRef: elementRef,
-                role: role,
-                value: value
-            )
-        }
-        return nil
+        elementsByRef[elementRef]?.element.stableSelector
     }
 
     /// Resolves a swipe wholly inside the target's visible frame.
@@ -327,5 +293,41 @@ extension SimulatorUIAutomationSnapshotRecord {
             ) == .orderedSame
         }
         return actual == expected
+    }
+}
+
+extension SimulatorUIAutomationElement {
+    var stableSelector: SimulatorUIAutomationSelector? {
+        if let identifier {
+            return SimulatorUIAutomationSelector(
+                sourceElementRef: ref,
+                identifier: identifier
+            )
+        }
+        if let label, let role {
+            return SimulatorUIAutomationSelector(
+                sourceElementRef: ref,
+                label: label,
+                role: role
+            )
+        }
+        if let value, let role {
+            return SimulatorUIAutomationSelector(
+                sourceElementRef: ref,
+                role: role,
+                value: value
+            )
+        }
+        return nil
+    }
+}
+
+extension SimulatorUIAutomationSelector {
+    func matches(_ element: SimulatorUIAutomationElement) -> Bool {
+        if let identifier, element.identifier != identifier { return false }
+        if let label, element.label != label { return false }
+        if let role, element.role != role { return false }
+        if let value, element.value != value { return false }
+        return true
     }
 }

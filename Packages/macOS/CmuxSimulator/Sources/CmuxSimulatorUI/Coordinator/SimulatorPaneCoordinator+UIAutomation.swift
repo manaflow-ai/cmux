@@ -9,7 +9,6 @@ extension SimulatorPaneCoordinator {
     public func withUIAutomationTransaction<T>(
         _ operation: @MainActor () async throws -> T
     ) async throws -> T {
-        defer { flushDeferredUIAutomationMessagesIfPossible() }
         return try await uiAutomationSession.withTransaction(operation)
     }
 
@@ -25,7 +24,6 @@ extension SimulatorPaneCoordinator {
     /// Releases a transaction acquired by ``beginUIAutomationTransaction()``.
     public func endUIAutomationTransaction() {
         uiAutomationSession.endTransaction()
-        flushDeferredUIAutomationMessagesIfPossible()
     }
 
     /// Records a fresh compact snapshot and advances this pane's ref sequence.

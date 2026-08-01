@@ -32,7 +32,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
             throw SimulatorUIAutomationSnapshotError.viewportUnavailable
         }
 
-        let records = flattenedNodes(source.roots).enumerated().map { index, input in
+        let preliminaryRecords = flattenedNodes(source.roots).enumerated().map { index, input in
             elementRecord(
                 node: input.node,
                 path: input.path,
@@ -41,6 +41,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
                 descendantFrameBounds: input.descendantFrameBounds
             )
         }
+        let records = removingAmbiguousTypeTextActions(from: preliminaryRecords)
         let elements = records.map(\.element)
         let actions = elements.flatMap { element in
             element.actions.map {
@@ -345,7 +346,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
         elements: [SimulatorUIAutomationElement],
         isTruncated: Bool
     ) -> String {
-        let stableElements = elements.enumerated().map { index, element in
+        let stableElements = elements.filter(\.state.isVisible).enumerated().map { index, element in
             SimulatorUIAutomationElement(
                 ref: "e\(index + 1)",
                 role: element.role,
@@ -382,6 +383,42 @@ struct SimulatorUIAutomationSnapshotBuilder {
             bytes.append(Self.hexDigits[Int(byte & 0x0F)])
         }
         return String(decoding: bytes, as: UTF8.self)
+    }
+
+    private func removingAmbiguousTypeTextActions(
+        from records: [SimulatorUIAutomationElementRecord]
+    ) -> [SimulatorUIAutomationElementRecord] {
+        let elements = records.map(\.element)
+        return records.map { record in
+            let element = record.element
+            guard element.actions.contains(.typeText) else { return record }
+            let hasUniqueSelector = element.stableSelector.map { selector in
+                elements.lazy.filter {
+                    $0.state.isVisible && selector.matches($0)
+                }.prefix(2).count == 1
+            } ?? false
+            guard !hasUniqueSelector else {
+                return record
+            }
+            let filteredElement = SimulatorUIAutomationElement(
+                ref: element.ref,
+                role: element.role,
+                label: element.label,
+                value: element.value,
+                identifier: element.identifier,
+                frame: element.frame,
+                state: element.state,
+                actions: element.actions.filter { $0 != .typeText }
+            )
+            return SimulatorUIAutomationElementRecord(
+                element: filteredElement,
+                node: record.node,
+                path: record.path,
+                activationPoint: record.activationPoint,
+                viewport: record.viewport,
+                swipeFrame: record.swipeFrame
+            )
+        }
     }
 
     private func framesIntersect(

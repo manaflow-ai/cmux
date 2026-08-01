@@ -182,6 +182,7 @@ public struct SimulatorUIAutomationExecutor {
         let previousScreenHash = preflight.previousScreenHash
         let actionPayload: [String: JSONValue]
         var postActionSettleDelayMilliseconds = 0
+        var actionCommitWarning: JSONValue?
         switch action {
         case let .tap(elementRef, _, postDelayMilliseconds):
             try requireSimulatorCapability(.touch, coordinator: coordinator)
@@ -196,10 +197,10 @@ public struct SimulatorUIAutomationExecutor {
                 snapshotDisplay: record.display,
                 coordinator: coordinator
             )
-            try await simulatorUIDelay(max(
+            postActionSettleDelayMilliseconds = max(
                 postDelayMilliseconds,
                 Self.postMutationAccessibilityQuiescenceMilliseconds
-            ))
+            )
             actionPayload = [
                 "type": .string("tap"),
                 "element_ref": .string(elementRef),
@@ -308,10 +309,10 @@ public struct SimulatorUIAutomationExecutor {
                 snapshotDisplay: record.display,
                 coordinator: coordinator
             )
-            try await simulatorUIDelay(max(
+            postActionSettleDelayMilliseconds = max(
                 postDelayMilliseconds,
                 Self.postMutationAccessibilityQuiescenceMilliseconds
-            ))
+            )
             actionPayload = simulatorUIGestureActionPayload(
                 type: "swipe",
                 elementRef: elementRef,
@@ -347,10 +348,10 @@ public struct SimulatorUIAutomationExecutor {
                 snapshotDisplay: record.display,
                 coordinator: coordinator
             )
-            try await simulatorUIDelay(max(
+            postActionSettleDelayMilliseconds = max(
                 postDelayMilliseconds,
                 Self.postMutationAccessibilityQuiescenceMilliseconds
-            ))
+            )
             actionPayload = simulatorUIGestureActionPayload(
                 type: "drag",
                 elementRef: elementRef,
@@ -403,6 +404,13 @@ public struct SimulatorUIAutomationExecutor {
                     )
                 )
             }
+            guard record.matching(focusSelector).count == 1 else {
+                throw simulatorUIReferenceFailure(
+                    SimulatorUIAutomationReferenceError.stableSelectorAmbiguous(
+                        elementRef
+                    )
+                )
+            }
             let sequence: SimulatorTextInputSequence
             do {
                 sequence = try SimulatorUSKeyboardTextEncoder().encode(text)
@@ -417,21 +425,27 @@ public struct SimulatorUIAutomationExecutor {
                 snapshotDisplay: record.display,
                 coordinator: coordinator
             )
-            try await simulatorUIDelay(
-                Self.postMutationAccessibilityQuiescenceMilliseconds
-            )
-            try await waitForSimulatorUITextFocus(
-                selector: focusSelector,
-                elementRef: elementRef,
-                coordinator: coordinator
-            )
-            if replaceExisting {
-                _ = try await coordinator.perform(.interactive(.keyChord(
-                    modifiers: [0xE3],
-                    key: 0x04
-                )))
+            var textCommitted = false
+            do {
+                try await simulatorUIDelay(
+                    Self.postMutationAccessibilityQuiescenceMilliseconds
+                )
+                try await waitForSimulatorUITextFocus(
+                    selector: focusSelector,
+                    elementRef: elementRef,
+                    coordinator: coordinator
+                )
+                if replaceExisting {
+                    _ = try await coordinator.perform(.interactive(.keyChord(
+                        modifiers: [0xE3],
+                        key: 0x04
+                    )))
+                }
+                _ = try await coordinator.perform(.interactive(.typeText(sequence)))
+                textCommitted = true
+            } catch {
+                actionCommitWarning = simulatorUICommittedActionError(error)
             }
-            _ = try await coordinator.perform(.interactive(.typeText(sequence)))
             postActionSettleDelayMilliseconds =
                 Self.postMutationAccessibilityQuiescenceMilliseconds
             actionPayload = [
@@ -439,6 +453,7 @@ public struct SimulatorUIAutomationExecutor {
                 "element_ref": .string(elementRef),
                 "text_length": .int(Int64(text.count)),
                 "replace_existing": .bool(replaceExisting),
+                "text_committed": .bool(textCommitted),
             ]
         case let .keyPress(keyCode, durationMilliseconds):
             try requireSimulatorCapability(.keyboard, coordinator: coordinator)
@@ -514,10 +529,10 @@ public struct SimulatorUIAutomationExecutor {
                 snapshotDisplay: snapshotDisplay,
                 coordinator: coordinator
             )
-            try await simulatorUIDelay(max(
+            postActionSettleDelayMilliseconds = max(
                 postDelayMilliseconds,
                 Self.postMutationAccessibilityQuiescenceMilliseconds
-            ))
+            )
             actionPayload = [
                 "type": .string("gesture"),
                 "gesture": .string(preset),
@@ -538,26 +553,35 @@ public struct SimulatorUIAutomationExecutor {
                     )
                 )
             }
+            var completedStepCount = 0
             for (step, target) in targets {
-                try await simulatorUIDelay(step.preDelayMilliseconds)
-                try await revalidateSimulatorUIRecord(
-                    record,
-                    elementRef: step.elementRef,
-                    coordinator: coordinator
-                )
-                try await performSimulatorUITap(
-                    target,
-                    snapshotDisplay: record.display,
-                    coordinator: coordinator
-                )
-                try await simulatorUIDelay(max(
-                    step.postDelayMilliseconds,
-                    Self.postMutationAccessibilityQuiescenceMilliseconds
-                ))
+                do {
+                    try await simulatorUIDelay(step.preDelayMilliseconds)
+                    try await revalidateSimulatorUIRecord(
+                        record,
+                        elementRef: step.elementRef,
+                        coordinator: coordinator
+                    )
+                    try await performSimulatorUITap(
+                        target,
+                        snapshotDisplay: record.display,
+                        coordinator: coordinator
+                    )
+                    completedStepCount += 1
+                    try await simulatorUIDelay(max(
+                        step.postDelayMilliseconds,
+                        Self.postMutationAccessibilityQuiescenceMilliseconds
+                    ))
+                } catch {
+                    guard completedStepCount > 0 else { throw error }
+                    actionCommitWarning = simulatorUICommittedActionError(error)
+                    break
+                }
             }
             actionPayload = [
                 "type": .string("batch"),
                 "step_count": .int(Int64(steps.count)),
+                "completed_step_count": .int(Int64(completedStepCount)),
             ]
         }
 
@@ -566,6 +590,11 @@ public struct SimulatorUIAutomationExecutor {
             "completed": .bool(true),
             "action": .object(actionPayload),
         ]
+        if let actionCommitWarning {
+            result["snapshot_warning"] = .string(simulatorUIActionCommittedWarning())
+            result["ui_error"] = actionCommitWarning
+            return .object(result)
+        }
         do {
             try await simulatorUIDelay(postActionSettleDelayMilliseconds)
             let refreshed = try await captureSettledSimulatorUISnapshot(
@@ -579,17 +608,11 @@ public struct SimulatorUIAutomationExecutor {
             } ?? .null
         } catch let failure as SimulatorUIAutomationFailure {
             coordinator.clearUIAutomationSnapshot()
-            result["snapshot_warning"] = .string(String(
-                localized: "cli.simulator.warning.uiSnapshotRefreshFailed",
-                defaultValue: "The action succeeded, but the refreshed UI snapshot was unavailable"
-            ))
+            result["snapshot_warning"] = .string(simulatorUIActionCommittedWarning())
             result["ui_error"] = failure.uiError
         } catch {
             coordinator.clearUIAutomationSnapshot()
-            result["snapshot_warning"] = .string(String(
-                localized: "cli.simulator.warning.uiSnapshotRefreshFailed",
-                defaultValue: "The action succeeded, but the refreshed UI snapshot was unavailable"
-            ))
+            result["snapshot_warning"] = .string(simulatorUIActionCommittedWarning())
             result["ui_error"] = simulatorUISnapshotCaptureFailure(
                 String(
                     localized: "cli.simulator.error.uiSnapshotViewportMissing",
@@ -1262,6 +1285,27 @@ public struct SimulatorUIAutomationExecutor {
             code: "action_failed",
             message: message,
             recoveryHint: simulatorUIActionRecoveryHint()
+        )
+    }
+
+    private func simulatorUICommittedActionError(_ error: any Error) -> JSONValue {
+        if let failure = error as? SimulatorUIAutomationFailure {
+            return failure.uiError
+        }
+        if let failure = error as? SimulatorFailure {
+            return simulatorUIActionFailure(failure.message).uiError
+        }
+        return SimulatorUIAutomationFailure(
+            code: "action_committed",
+            message: simulatorUIActionCommittedWarning(),
+            recoveryHint: simulatorUICaptureRecoveryHint()
+        ).uiError
+    }
+
+    private func simulatorUIActionCommittedWarning() -> String {
+        String(
+            localized: "cli.simulator.warning.uiSnapshotRefreshFailed",
+            defaultValue: "The action succeeded, but the refreshed UI snapshot was unavailable"
         )
     }
 

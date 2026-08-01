@@ -40,6 +40,8 @@ final class SimulatorWorkerCoordinator {
     var foregroundApplicationGeneration: UUID?
     var foregroundApplicationRequestIdentifiers: [UUID] = []
     var accessibilitySnapshotTask: Task<Void, Never>?
+    var accessibilitySnapshotDeadlineTask: Task<Void, Never>?
+    var accessibilitySnapshotCancellationGraceTask: Task<Void, Never>?
     var accessibilitySnapshotGeneration: UUID?
     var accessibilitySnapshotRequestIdentifiers: [UUID] = []
     var accessibilitySnapshotDeviceIdentifier: String?

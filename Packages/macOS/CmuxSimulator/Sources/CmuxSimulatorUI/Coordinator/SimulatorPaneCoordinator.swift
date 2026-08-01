@@ -106,7 +106,6 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var outgoingRecoveryTask: Task<Void, Never>?
     @ObservationIgnored var outgoingRecoveryGeneration: UInt64 = 0
     @ObservationIgnored var outgoingOverflowed = false
-    @ObservationIgnored var deferredUIAutomationMessages: [SimulatorWorkerInbound] = []
     @ObservationIgnored var eventsTask: Task<Void, Never>?
     @ObservationIgnored var activationTask: Task<Void, Never>?
     @ObservationIgnored var startupTask: Task<Void, Never>?
