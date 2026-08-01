@@ -8646,6 +8646,73 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["command"] as? String, "tmux attach -t work")
     }
 
+    func testSurfaceResumeCLIRejectsUnknownFlagsBeforeSocketRequest() throws {
+        let cliPath = try bundledCLIPath()
+        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let cases: [(arguments: [String], context: String, unknown: String, known: [String])] = [
+            (
+                ["surface", "resume", "set", "--bad-flag"],
+                "surface resume set",
+                "--bad-flag",
+                ["--workspace <id|ref|index>", "--shell <command>"]
+            ),
+            (
+                ["surface", "resume", "set", "--sheel", "tmux attach -t work"],
+                "surface resume set",
+                "--sheel",
+                ["--workspace <id|ref|index>", "--shell <command>"]
+            ),
+            (
+                ["surface-resume", "set", "--auto-resume"],
+                "surface resume set",
+                "--auto-resume",
+                ["--workspace <id|ref|index>", "--shell <command>"]
+            ),
+            (
+                ["surface", "resume", "show", "--bad-flag"],
+                "surface resume show",
+                "--bad-flag",
+                ["--workspace <id|ref|index>", "--surface <id|ref|index>"]
+            ),
+            (
+                ["surface", "resume", "get", "--bad-flag"],
+                "surface resume get",
+                "--bad-flag",
+                ["--workspace <id|ref|index>", "--surface <id|ref|index>"]
+            ),
+            (
+                ["surface", "resume", "clear", "--bad-flag"],
+                "surface resume clear",
+                "--bad-flag",
+                ["--workspace <id|ref|index>", "--checkpoint <id>"]
+            ),
+        ]
+
+        for item in cases {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: item.arguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 1, result.stderr)
+            XCTAssertTrue(
+                result.stderr.contains("\(item.context): unknown flag '\(item.unknown)'. Known flags:"),
+                result.stderr
+            )
+            for knownFlag in item.known {
+                XCTAssertTrue(result.stderr.contains(knownFlag), result.stderr)
+            }
+            XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
+        }
+    }
+
     func testSurfaceResumeSetCLIStopsParsingOptionsAfterTerminator() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("resume-set-terminator")
@@ -8710,6 +8777,111 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             request["command"] as? String,
             "'myapp' '--name' 'foo' '--kind' 'bar' '--cwd' '/tmp/ignored' '--surface' 'not-a-target'"
         )
+    }
+
+    func testSurfaceResumeSetCLIAllowsDashPrefixedCommandAfterTerminator() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("resume-set-dash-command")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "surface.resume.set")
+            return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "surface", "resume", "set",
+                "--workspace", workspaceId,
+                "--surface", surfaceId,
+                "--",
+                "--bad-flag",
+                "value",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let request = try XCTUnwrap(state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }.first)
+        XCTAssertEqual(request["command"] as? String, "'--bad-flag' 'value'")
+        let launchCommand = try XCTUnwrap(request["launch_command"] as? [String: Any])
+        XCTAssertEqual(launchCommand["executable_path"] as? String, "--bad-flag")
+        XCTAssertEqual(launchCommand["arguments"] as? [String], ["--bad-flag", "value"])
+    }
+
+    func testWorkspaceRemoteConnectionCLIRejectsUnknownFlags() throws {
+        let cliPath = try bundledCLIPath()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+
+        for subcommand in ["reconnect", "disconnect"] {
+            let socketPath = makeSocketPath("workspace-remote-\(subcommand)")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line),
+                      let id = payload["id"] as? String else {
+                    return self.malformedRequestResponse(raw: line)
+                }
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            }
+
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "workspace", subcommand,
+                    "--bad-flag",
+                    "--workspace", workspaceId,
+                ],
+                environment: environment,
+                timeout: 5
+            )
+
+            wait(for: [serverHandled], timeout: 5)
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 1, result.stderr)
+            XCTAssertTrue(
+                result.stderr.contains(
+                    "workspace \(subcommand): unknown flag '--bad-flag'. Known flags:"
+                ),
+                result.stderr
+            )
+            XCTAssertTrue(result.stderr.contains("--workspace <id|ref|index>"), result.stderr)
+            XCTAssertTrue(result.stderr.contains("--window <id|ref|index>"), result.stderr)
+            XCTAssertTrue(state.commands.isEmpty, state.commands.joined(separator: "\n"))
+        }
     }
 
     func testSurfaceResumeSetCLIDoesNotScopeExplicitSurfaceToEnvWorkspace() throws {
