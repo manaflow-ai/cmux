@@ -92,10 +92,10 @@ struct AppWebThemeSnapshot: Equatable {
             )
         }
         if let candidate = candidates.min(by: {
-            if $0.step == $1.step {
+            if $0.distanceSquared == $1.distanceSquared {
                 return $0.contrast > $1.contrast
             }
-            return $0.step < $1.step
+            return $0.distanceSquared < $1.distanceSquared
         }) {
             return candidate.color
         }
@@ -143,11 +143,20 @@ struct AppWebThemeSnapshot: Equatable {
                 blue: mix(blue)
             )
         }
+
+        func squaredDistance(to other: RGBBytes) -> Int {
+            let redDistance = red - other.red
+            let greenDistance = green - other.green
+            let blueDistance = blue - other.blue
+            return redDistance * redDistance
+                + greenDistance * greenDistance
+                + blueDistance * blueDistance
+        }
     }
 
     private struct ContrastAdjustmentCandidate {
         let color: NSColor
-        let step: Int
+        let distanceSquared: Int
         let contrast: CGFloat
     }
 
@@ -158,10 +167,11 @@ struct AppWebThemeSnapshot: Equatable {
         minimumContrast: CGFloat
     ) -> ContrastAdjustmentCandidate? {
         for step in 1...255 {
-            let color = preferred.mixed(
+            let adjusted = preferred.mixed(
                 toward: targetComponent,
                 step: step
-            ).color
+            )
+            let color = adjusted.color
             let contrast = cmuxContrastRatio(
                 foreground: color,
                 background: background
@@ -169,7 +179,7 @@ struct AppWebThemeSnapshot: Equatable {
             if contrast >= minimumContrast {
                 return ContrastAdjustmentCandidate(
                     color: color,
-                    step: step,
+                    distanceSquared: preferred.squaredDistance(to: adjusted),
                     contrast: contrast
                 )
             }

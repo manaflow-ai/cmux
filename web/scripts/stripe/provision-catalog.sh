@@ -101,19 +101,36 @@ product_matches_catalog_identity() {
 ensure_product() {
   local name="$1"
   local plan="$2"
-  local response product_json product_id
+  local response product_json product_id next_page
   local -a matching_product_ids=()
+  local -a page_args=()
 
-  response="$(
-    stripe_get "/products/search" \
-      --data-urlencode "query=name:'${name}' AND active:'true'" \
-      --data-urlencode "limit=100"
-  )"
-  while IFS= read -r product_json; do
-    if product_matches_catalog_identity "$product_json" "$name" "$plan"; then
-      matching_product_ids+=("$(jq -er '.id' <<<"$product_json")")
+  next_page=""
+  while :; do
+    page_args=()
+    if [[ -n "$next_page" ]]; then
+      page_args+=(--data-urlencode "page=${next_page}")
     fi
-  done < <(jq -c '.data[]' <<<"$response")
+    response="$(
+      stripe_get "/products/search" \
+        --data-urlencode "query=name:'${name}' AND active:'true'" \
+        --data-urlencode "limit=100" \
+        "${page_args[@]}"
+    )"
+    while IFS= read -r product_json; do
+      if product_matches_catalog_identity "$product_json" "$name" "$plan"; then
+        matching_product_ids+=("$(jq -er '.id' <<<"$product_json")")
+      fi
+    done < <(jq -c '.data[]' <<<"$response")
+
+    if [[ "$(jq -r '.has_more // false' <<<"$response")" != "true" ]]; then
+      break
+    fi
+    next_page="$(
+      jq -er '.next_page | select(type == "string" and length > 0)' \
+        <<<"$response"
+    )"
+  done
 
   if (( ${#matching_product_ids[@]} > 1 )); then
     echo "Multiple canonical products found for ${name}" >&2
@@ -228,14 +245,36 @@ ensure_price "$team_product_id" "cmux-team-monthly" "3500" "month" "cmux Team Mo
 ensure_price "$team_product_id" "cmux-team-yearly-336" "33600" "year" "cmux Team Yearly"
 
 if [[ "$MODE" == "live" ]]; then
-  webhooks_response="$(stripe_get "/webhook_endpoints" --data-urlencode "limit=100")"
-  webhook_ids="$(
-    jq -r --arg url "$WEBHOOK_URL" '
-      .data[]
-      | select(.url == $url and .status == "enabled")
-      | .id
-    ' <<<"$webhooks_response"
-  )"
+  webhook_ids=""
+  starting_after=""
+  while :; do
+    webhook_page_args=()
+    if [[ -n "$starting_after" ]]; then
+      webhook_page_args+=(--data-urlencode "starting_after=${starting_after}")
+    fi
+    webhooks_response="$(
+      stripe_get "/webhook_endpoints" \
+        --data-urlencode "limit=100" \
+        "${webhook_page_args[@]}"
+    )"
+    page_webhook_ids="$(
+      jq -r --arg url "$WEBHOOK_URL" '
+        .data[]
+        | select(.url == $url and .status == "enabled")
+        | .id
+      ' <<<"$webhooks_response"
+    )"
+    if [[ -n "$page_webhook_ids" ]]; then
+      webhook_ids+="${webhook_ids:+$'\n'}${page_webhook_ids}"
+    fi
+    if [[ "$(jq -r '.has_more // false' <<<"$webhooks_response")" != "true" ]]; then
+      break
+    fi
+    starting_after="$(
+      jq -er '.data[-1].id | select(type == "string" and length > 0)' \
+        <<<"$webhooks_response"
+    )"
+  done
   webhook_count="$(awk 'NF { count += 1 } END { print count + 0 }' <<<"$webhook_ids")"
   if (( webhook_count > 1 )); then
     echo "Multiple enabled webhook endpoints found for ${WEBHOOK_URL}" >&2

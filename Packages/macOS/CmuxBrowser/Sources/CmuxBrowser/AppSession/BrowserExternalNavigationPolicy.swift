@@ -9,9 +9,8 @@ public struct BrowserExternalNavigationPolicy: Equatable, Sendable {
         self.trustedOrigin = trustedOrigin
     }
 
-    /// Returns true only when a trusted app-web source activates a safe web URL
-    /// with an explicit intent marker. The destination may use a separate
-    /// configured billing origin.
+    /// Returns true only when a trusted app-web source activates a same-origin
+    /// web URL with an explicit intent marker.
     public func shouldOpenInSystemBrowser(
         _ url: URL,
         sourceURL: URL?
