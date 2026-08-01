@@ -4118,18 +4118,27 @@ impl Mux {
         }
         let mut registry = self.workspace_registry.lock().unwrap();
         let state = self.state.lock().unwrap();
-        let identity_matches = state
-            .surfaces
-            .get(&surface_id)
-            .and_then(|surface| surface.terminal_host_identity())
-            .is_some_and(|current| current == *identity);
+        let topology_pending = match state.surfaces.get(&surface_id) {
+            Some(surface) => {
+                if surface.terminal_host_identity().as_ref() != Some(identity) {
+                    return false;
+                }
+                false
+            }
+            None => true,
+        };
         drop(state);
-        if !identity_matches {
-            return false;
-        }
         let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
             return false;
         };
+        if topology_pending {
+            // Surface construction and restart adoption start the host reader
+            // before inserting the surface into the topology. A loss or an
+            // ordered renderer resync in that window belongs to the current
+            // launch transaction, so let the reader recover without racing a
+            // durable lifecycle transition against topology binding.
+            return pending_host_identity_matches_registry(&terminal, identity);
+        }
         if terminal.incarnation.as_deref() != Some(identity.incarnation.as_str())
             || matches!(
                 terminal.lifecycle,
@@ -4174,18 +4183,22 @@ impl Mux {
         }
         let mut registry = self.workspace_registry.lock().unwrap();
         let state = self.state.lock().unwrap();
-        let identity_matches = state
-            .surfaces
-            .get(&surface_id)
-            .and_then(|surface| surface.terminal_host_identity())
-            .is_some_and(|current| current == *identity);
+        let topology_pending = match state.surfaces.get(&surface_id) {
+            Some(surface) => {
+                if surface.terminal_host_identity().as_ref() != Some(identity) {
+                    return false;
+                }
+                false
+            }
+            None => true,
+        };
         drop(state);
-        if !identity_matches {
-            return false;
-        }
         let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
             return false;
         };
+        if topology_pending {
+            return pending_host_identity_matches_registry(&terminal, identity);
+        }
         if terminal.incarnation.as_deref() != Some(identity.incarnation.as_str())
             || matches!(
                 terminal.lifecycle,
@@ -11003,6 +11016,22 @@ fn terminal_lifecycle_name(lifecycle: TerminalLifecycle) -> &'static str {
         TerminalLifecycle::Running => "running",
         TerminalLifecycle::Exited => "exited",
         TerminalLifecycle::Tombstoned => "tombstoned",
+    }
+}
+
+fn pending_host_identity_matches_registry(
+    terminal: &RegistryTerminal,
+    identity: &TerminalHostIdentity,
+) -> bool {
+    if terminal.terminal_id != identity.terminal_id {
+        return false;
+    }
+    match terminal.lifecycle {
+        TerminalLifecycle::Launching => terminal.incarnation.is_none(),
+        TerminalLifecycle::Adopting | TerminalLifecycle::Running => {
+            terminal.incarnation.as_deref() == Some(identity.incarnation.as_str())
+        }
+        TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned => false,
     }
 }
 
@@ -19037,10 +19066,8 @@ mod tests {
         let workspace = mux
             .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001112".into()), None)
             .unwrap();
-        let identity = TerminalHostIdentity {
-            terminal_id: TERMINAL.into(),
-            incarnation: INCARNATION.into(),
-        };
+        let identity =
+            TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() };
         {
             let mut registry = mux.workspace_registry.lock().unwrap();
             commit_terminal_transition(
