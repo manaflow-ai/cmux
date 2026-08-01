@@ -51,6 +51,25 @@ import Testing
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
     }
 
+    @Test func teardownSurfaceReturnsTicketThatFencesNativeFree() async throws {
+        let surface = makeSurface()
+        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        let allowFree = DispatchSemaphore(value: 0)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            allowFree.wait()
+        }
+        defer {
+            allowFree.signal()
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        }
+
+        let ticket = try #require(surface.teardownSurface())
+
+        #expect(await ticket.wait(timeout: .zero) == false)
+        allowFree.signal()
+        #expect(await ticket.wait(timeout: .seconds(1)))
+    }
+
     @Test func agentHibernationSuspendKeepsTeeLeaseUntilNativeFree() async {
         let recorder = TeardownOrderRecorder()
         let registry = TerminalSurfaceRegistry()
