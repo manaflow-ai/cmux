@@ -140,14 +140,25 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         return runtimeSurfaceOwners[UInt(bitPattern: surface)]
     }
 
-    /// The registered surface with the given id, if it is still alive.
+    /// The newest registered surface with the given id, if it is still alive.
+    ///
+    /// Surface replacement can briefly overlap the outgoing and incoming
+    /// models under one logical id. Registration order is the ownership order:
+    /// the newest live model is canonical until it unregisters, at which point
+    /// the prior live registration is promoted.
     public func surface(id: UUID) -> (any TerminalSurfacing)? {
         lock.lock()
-        let object = surfaces.allObjects
-            .compactMap { $0 as? any TerminalSurfacing }
-            .first { $0.id == id }
-        lock.unlock()
-        return object
+        defer { lock.unlock() }
+        var node = incrementalTraversalHead
+        while let current = node {
+            if current.isRegistered,
+               let surface = current.surface,
+               surface.id == id {
+                return surface
+            }
+            node = current.next
+        }
+        return nil
     }
 
     /// Whether the surface with the given id is placed in the right-sidebar

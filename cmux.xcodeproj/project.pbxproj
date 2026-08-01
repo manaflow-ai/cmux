@@ -2165,6 +2165,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C51A73000000000000000301 /* TerminalController+ControlSurfacePanelType.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000302 /* TerminalController+ControlSurfacePanelType.swift */; };
 		C0DE00000000000000000C7A /* TerminalController+ControlSystemContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C79 /* TerminalController+ControlSystemContext.swift */; };
 		C0DE00000000000000000C7C /* TerminalController+ControlSystemContext2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C7B /* TerminalController+ControlSystemContext2.swift */; };
+		93300003A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93300004A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift */; };
 		C0DE00000000000000000C62 /* TerminalController+ControlWorkspaceContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C61 /* TerminalController+ControlWorkspaceContext.swift */; };
 		C0DE00000000000000000C54 /* TerminalController+ControlWorkspaceGroupContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C53 /* TerminalController+ControlWorkspaceGroupContext.swift */; };
 		7371B0010000000000000001 /* TerminalController+ControlWorkspaceStrings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7371B0010000000000000002 /* TerminalController+ControlWorkspaceStrings.swift */; };
@@ -4725,6 +4726,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C51A73000000000000000302 /* TerminalController+ControlSurfacePanelType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfacePanelType.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C79 /* TerminalController+ControlSystemContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSystemContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C7B /* TerminalController+ControlSystemContext2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSystemContext2.swift"; sourceTree = "<group>"; };
+		93300004A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlTerminalBinding.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C61 /* TerminalController+ControlWorkspaceContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlWorkspaceContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C53 /* TerminalController+ControlWorkspaceGroupContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlWorkspaceGroupContext.swift"; sourceTree = "<group>"; };
 		7371B0010000000000000002 /* TerminalController+ControlWorkspaceStrings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlWorkspaceStrings.swift"; sourceTree = "<group>"; };
@@ -6240,6 +6242,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE00000000000000000C65 /* TerminalController+ControlSurfaceContext2.swift */,
 				C51A73000000000000000302 /* TerminalController+ControlSurfacePanelType.swift */,
 				C0DE00000000000000000C67 /* TerminalController+ControlSurfaceContext3.swift */,
+				93300004A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift */,
 				C0DE00000000000000000C69 /* TerminalController+ControlSurfaceContext4.swift */,
 				8126BEEF0000000000000002 /* TerminalController+ControlSurfaceGitContext.swift */,
 				C0DE00000000000000000C85 /* TerminalController+ControlSurfaceDock.swift */,
@@ -9672,6 +9675,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C51A73000000000000000301 /* TerminalController+ControlSurfacePanelType.swift in Sources */,
 				C0DE00000000000000000C7A /* TerminalController+ControlSystemContext.swift in Sources */,
 				C0DE00000000000000000C7C /* TerminalController+ControlSystemContext2.swift in Sources */,
+				93300003A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift in Sources */,
 				C0DE00000000000000000C62 /* TerminalController+ControlWorkspaceContext.swift in Sources */,
 				C0DE00000000000000000C54 /* TerminalController+ControlWorkspaceGroupContext.swift in Sources */,
 				7371B0010000000000000001 /* TerminalController+ControlWorkspaceStrings.swift in Sources */,
