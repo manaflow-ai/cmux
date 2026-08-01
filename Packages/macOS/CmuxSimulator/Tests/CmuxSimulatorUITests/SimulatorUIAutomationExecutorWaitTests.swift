@@ -91,6 +91,57 @@ struct SimulatorUIAutomationExecutorWaitTests {
         await coordinator.close()
     }
 
+    @Test("Up-only touch rejects a different held-touch ref")
+    func mismatchedTouchUpPreservesHeldTouch() async throws {
+        let snapshot = Self.twoButtonSnapshot()
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let record = try await coordinator.recordUIAutomationSnapshot(
+            snapshot,
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+        let refs = record.snapshot.elements.filter { $0.role == .button }.map(\.ref)
+        let heldRef = try #require(refs.first)
+        let mismatchedRef = try #require(refs.dropFirst().first)
+        let heldRecord = try #require(record.element(ref: heldRef))
+        coordinator.holdUIAutomationTouch(
+            elementRef: heldRef,
+            point: heldRecord.activationPoint,
+            display: record.display
+        )
+
+        do {
+            _ = try await SimulatorUIAutomationExecutor(
+                scheduler: AdvancingActionScheduler(nowMilliseconds: 1_000)
+            ).perform(
+                .uiAction(.touch(
+                    elementRef: mismatchedRef,
+                    down: false,
+                    up: true,
+                    delayMilliseconds: 0
+                )),
+                coordinator: coordinator
+            )
+            Issue.record("Expected mismatched touch-up to be rejected")
+        } catch let failure as SimulatorUIAutomationFailure {
+            #expect(failure.code == "touch_already_held")
+        } catch {
+            Issue.record("Expected a structured UI failure, got \(error)")
+        }
+
+        #expect(coordinator.heldUIAutomationTouch(elementRef: heldRef) != nil)
+        #expect(!(await client.actions().contains { action in
+            if case .interactive = action { return true }
+            return false
+        }))
+        await coordinator.close()
+    }
+
     @Test("Text-only gone waits reject heterogeneous matches")
     func textOnlyGoneRejectsAmbiguousMatches() async {
         let display = SimulatorDisplayMetadata(
@@ -230,6 +281,47 @@ struct SimulatorUIAutomationExecutorWaitTests {
                         label: "Name",
                         value: nil,
                         frame: SimulatorRect(x: 20, y: 160, width: 200, height: 44),
+                        isEnabled: true,
+                        children: []
+                    ),
+                ]
+            )],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+    }
+
+    private static func twoButtonSnapshot() -> SimulatorAccessibilitySnapshot {
+        SimulatorAccessibilitySnapshot(
+            roots: [SimulatorAccessibilityNode(
+                id: "root",
+                role: "Application",
+                label: "Example",
+                value: nil,
+                frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                isEnabled: true,
+                children: [
+                    SimulatorAccessibilityNode(
+                        id: "first",
+                        identifier: "first",
+                        role: "AXButton",
+                        label: "First",
+                        value: nil,
+                        frame: SimulatorRect(x: 20, y: 100, width: 120, height: 44),
+                        isEnabled: true,
+                        children: []
+                    ),
+                    SimulatorAccessibilityNode(
+                        id: "second",
+                        identifier: "second",
+                        role: "AXButton",
+                        label: "Second",
+                        value: nil,
+                        frame: SimulatorRect(x: 20, y: 160, width: 120, height: 44),
                         isEnabled: true,
                         children: []
                     ),
