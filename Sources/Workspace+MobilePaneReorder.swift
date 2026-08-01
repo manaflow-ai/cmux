@@ -101,18 +101,22 @@ extension Workspace {
                 bonsplitController.focusPane(destinationPane)
                 bonsplitController.selectTab(selectedTab)
             }
+        }
 
-            if let originallyFocusedPaneID {
-                let restoredFocusedPaneID: UUID
-                if mutationSucceeded,
-                   let destinationIndex = requestedPaneIDs.firstIndex(of: originallyFocusedPaneID) {
-                    restoredFocusedPaneID = spatialPanes[destinationIndex]
-                } else {
-                    restoredFocusedPaneID = originallyFocusedPaneID
-                }
-                if let restoredFocusedPane = panesByID[restoredFocusedPaneID] {
-                    bonsplitController.focusPane(restoredFocusedPane)
-                }
+        // The remote-mutation coordinator restores its entry focus when the
+        // closure exits. Reassert the content-relative focus afterward, while
+        // publication remains suppressed, so observers see only the final
+        // authoritative topology.
+        if let originallyFocusedPaneID {
+            let restoredFocusedPaneID: UUID
+            if mutationSucceeded,
+               let destinationIndex = requestedPaneIDs.firstIndex(of: originallyFocusedPaneID) {
+                restoredFocusedPaneID = spatialPanes[destinationIndex]
+            } else {
+                restoredFocusedPaneID = originallyFocusedPaneID
+            }
+            if let restoredFocusedPane = panesByID[restoredFocusedPaneID] {
+                bonsplitController.focusPane(restoredFocusedPane)
             }
         }
         mobilePaneLayoutPublicationSuppressionCount -= 1
