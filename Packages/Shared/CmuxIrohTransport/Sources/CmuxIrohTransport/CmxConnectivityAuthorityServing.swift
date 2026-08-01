@@ -36,16 +36,38 @@ struct CmxAuthoritativeDiscoveryResolver: Sendable {
             knownRevision: cached?.revision
         )
         if let snapshot = response.snapshot {
-            try Self.requireRevision(snapshot, atLeast: minimumRevision)
-            if !response.reset {
-                try Self.requireRevision(snapshot, atLeast: cached?.revision)
+            let completeSnapshot: CmxIrohDiscoveryResponse
+            if snapshot.bindings.count == CmxIrohDiscoveryPage.legacyBindingLimit {
+                completeSnapshot = try await broker.discover()
+                try Self.requireRevision(
+                    completeSnapshot,
+                    atLeast: response.revision
+                )
+            } else {
+                completeSnapshot = snapshot
             }
-            return snapshot
+            try Self.requireRevision(completeSnapshot, atLeast: minimumRevision)
+            if !response.reset {
+                try Self.requireRevision(
+                    completeSnapshot,
+                    atLeast: cached?.revision
+                )
+            }
+            return completeSnapshot
         }
         guard !response.reset,
               let cached,
               cached.revision == response.revision else {
             throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+        if cached.bindings.count == CmxIrohDiscoveryPage.legacyBindingLimit {
+            let completeSnapshot = try await broker.discover()
+            try Self.requireRevision(
+                completeSnapshot,
+                atLeast: response.revision
+            )
+            try Self.requireRevision(completeSnapshot, atLeast: minimumRevision)
+            return completeSnapshot
         }
         try Self.requireRevision(cached, atLeast: minimumRevision)
         return cached

@@ -393,7 +393,26 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
     }
 
+    private static let discoverySnapshotAttemptLimit = 4
+
     private func discoverAllPages() async throws -> CmxIrohDiscoveryResponse {
+        for attempt in 1 ... Self.discoverySnapshotAttemptLimit {
+            do {
+                return try await discoverOneSnapshot()
+            } catch {
+                guard Self.isDiscoverySnapshotChange(error) else { throw error }
+                guard attempt < Self.discoverySnapshotAttemptLimit else {
+                    throw error
+                }
+            }
+        }
+        throw CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 409,
+            code: "discovery_snapshot_changed"
+        )
+    }
+
+    private func discoverOneSnapshot() async throws -> CmxIrohDiscoveryResponse {
         var bindings: [CmxIrohBrokerBinding] = []
         var bindingIDs: Set<String> = []
         var seenCursors: Set<String> = []
@@ -417,8 +436,13 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                 queryItems: queryItems
             )
             if let first {
+                guard page.discovery.revision == first.revision else {
+                    throw CmxIrohTrustBrokerClientError.rejected(
+                        statusCode: 409,
+                        code: "discovery_snapshot_changed"
+                    )
+                }
                 guard page.discovery.routeContractVersion == first.routeContractVersion,
-                      page.discovery.revision == first.revision,
                       page.discovery.relayFleet == first.relayFleet,
                       page.discovery.lanRendezvous == first.lanRendezvous,
                       page.discovery.grantVerificationKeys
@@ -453,6 +477,16 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             lanRendezvous: first.lanRendezvous,
             grantVerificationKeys: first.grantVerificationKeys
         )
+    }
+
+    private static func isDiscoverySnapshotChange(_ error: any Error) -> Bool {
+        guard case let .rejected(statusCode, code)? =
+                error as? CmxIrohTrustBrokerClientError,
+              statusCode == 409 else {
+            return false
+        }
+        return code == "discovery_cursor_stale"
+            || code == "discovery_snapshot_changed"
     }
 
     private func sendUngated<Response: Decodable & Sendable, Body: Encodable>(

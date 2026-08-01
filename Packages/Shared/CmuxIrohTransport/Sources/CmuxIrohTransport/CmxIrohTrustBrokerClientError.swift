@@ -28,7 +28,8 @@ public enum CmxIrohTrustBrokerClientError:
         case .rateLimited:
             return true
         case let .rejected(statusCode, _):
-            return statusCode == 408
+            return Self.isRegistryChurn(error)
+                || statusCode == 408
                 || statusCode == 425
                 || statusCode == 429
                 || (500...599).contains(statusCode)
@@ -53,7 +54,8 @@ public enum CmxIrohTrustBrokerClientError:
         case let .rejected(statusCode, _):
             // A server failure cannot establish trust, so retrying the request
             // is safe while the lifecycle-owned start task remains current.
-            return statusCode == 408
+            return Self.isRegistryChurn(error)
+                || statusCode == 408
                 || statusCode == 425
                 || statusCode == 429
                 || (500...599).contains(statusCode)
@@ -64,6 +66,15 @@ public enum CmxIrohTrustBrokerClientError:
              .invalidResponse:
             return false
         }
+    }
+
+    private static func isRegistryChurn(_ error: any Error) -> Bool {
+        guard case let .rejected(statusCode, code)? = error as? Self,
+              statusCode == 409 else {
+            return false
+        }
+        return code == "discovery_cursor_stale"
+            || code == "discovery_snapshot_changed"
     }
 
     /// The validated server retry floor, when present.
