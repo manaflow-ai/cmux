@@ -32,6 +32,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     var pendingPointerEntry: SimulatorPendingPointerEntry?
     var pendingInputMotion: SimulatorWorkerInbound?
     private var pendingInputFlushTimer: DispatchSourceTimer?
+    private var inputRejectionGeneration: UInt64 = 0
     var stageHaloPointerActive = false
     var stagePointerMonitor: Any?
     private(set) var isPointerInputEnabled = false
@@ -482,13 +483,18 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     func send(_ messages: [SimulatorWorkerInbound]) {
+        let rejectionGeneration = inputRejectionGeneration
         for message in messages {
+            guard inputRejectionGeneration == rejectionGeneration else { return }
             switch message {
             case let .pointer(event) where event.phase == .moved:
                 if case .pointer? = pendingInputMotion {
                     pendingInputMotion = message
                 } else {
                     flushPendingInputMotion()
+                    guard inputRejectionGeneration == rejectionGeneration else {
+                        return
+                    }
                     pendingInputMotion = message
                 }
                 schedulePendingInputFlush()
@@ -502,11 +508,17 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
                     ))
                 } else {
                     flushPendingInputMotion()
+                    guard inputRejectionGeneration == rejectionGeneration else {
+                        return
+                    }
                     pendingInputMotion = message
                 }
                 schedulePendingInputFlush()
             default:
                 flushPendingInputMotion()
+                guard inputRejectionGeneration == rejectionGeneration else {
+                    return
+                }
                 onMessage?(message)
             }
         }
@@ -556,6 +568,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     func discardRejectedInputs() {
+        inputRejectionGeneration &+= 1
         pendingInputFlushTimer?.setEventHandler(handler: nil)
         pendingInputFlushTimer?.cancel()
         pendingInputFlushTimer = nil
