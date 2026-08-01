@@ -2,7 +2,7 @@
 name = "cmux-client"
 version = "1.0.0"
 edition.workspace = true
-rust-version.workspace = true
+rust-version = "1.88"
 license.workspace = true
 description = "Rust client for the cmux-tui terminal multiplexer control protocol"
 repository = "https://github.com/manaflow-ai/cmux"
