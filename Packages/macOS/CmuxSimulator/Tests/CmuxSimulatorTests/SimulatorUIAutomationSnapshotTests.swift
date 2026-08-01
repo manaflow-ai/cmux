@@ -131,6 +131,53 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect(!record.candidatesShareMatchingText(distinct, containing: "e"))
     }
 
+    @Test("Semantic queries exclude offscreen accessibility nodes")
+    func semanticQueriesExcludeOffscreenNodes() throws {
+        let source = SimulatorAccessibilitySnapshot(
+            roots: [
+                node(
+                    id: "0",
+                    role: "Application",
+                    label: "Example",
+                    frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                    children: [
+                        node(
+                            id: "0.0",
+                            identifier: "visible.continue",
+                            role: "AXButton",
+                            label: "Continue",
+                            frame: SimulatorRect(x: 20, y: 100, width: 120, height: 44)
+                        ),
+                        node(
+                            id: "0.1",
+                            identifier: "offscreen.continue",
+                            role: "AXButton",
+                            label: "Continue",
+                            frame: SimulatorRect(x: 20, y: 900, width: 120, height: 44)
+                        ),
+                    ]
+                ),
+            ],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+        let record = try source.uiAutomationRecord(
+            simulatorID: "SIM-1",
+            sequence: 1,
+            capturedAtMilliseconds: 1_000
+        )
+
+        #expect(record.matching(SimulatorUIAutomationSelector(
+            label: "Continue",
+            role: .button
+        )).map(\.identifier) == ["visible.continue"])
+        #expect(record.containingText("continue").map(\.identifier) == ["visible.continue"])
+    }
+
     @Test("Role descriptions and clipped targets remain semantic and actionable")
     func roleDescriptionsAndClippedTargets() throws {
         let source = SimulatorAccessibilitySnapshot(
