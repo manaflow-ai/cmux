@@ -28,6 +28,16 @@ public struct CmxIrohRetrySchedule: Equatable, Sendable {
         self.jitterFraction = min(1, max(0, jitterFraction))
     }
 
+    /// Interactive-client profile sharing the reconnect backoff bounds: the
+    /// first retry lands after about a second and no locally scheduled retry
+    /// exceeds 30 seconds. The type's 30 s / 1 h defaults remain the
+    /// host-side profile; an iOS client in the foreground must never nap for
+    /// minutes on a single transient failure.
+    public static let foregroundClient = CmxIrohRetrySchedule(
+        initialDelay: CmxIrohReconnectBackoffConfiguration.foreground.floor,
+        maximumDelay: CmxIrohReconnectBackoffConfiguration.foreground.cap
+    )
+
     /// Returns a retry delay that never precedes a server-provided floor.
     ///
     /// - Parameters:

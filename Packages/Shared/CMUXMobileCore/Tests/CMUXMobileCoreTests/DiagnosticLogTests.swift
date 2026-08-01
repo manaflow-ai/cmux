@@ -287,6 +287,7 @@ import os
         #expect(DiagnosticSessionLifecycleKind.runtimeDeactivated.rawValue == 8)
         #expect(DiagnosticSessionLifecycleKind.runtimeReconfigured.rawValue == 9)
         #expect(DiagnosticSessionLifecycleKind.explicitlyInvalidated.rawValue == 10)
+        #expect(DiagnosticSessionLifecycleKind.allPathsClosed.rawValue == 11)
 
         #expect(DiagnosticPathKind(.unavailable) == .unknown)
         #expect(DiagnosticPathKind(.direct) == .direct)
