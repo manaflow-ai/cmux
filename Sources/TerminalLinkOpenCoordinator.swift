@@ -7,6 +7,11 @@ import Foundation
 /// panel container currently owns the source terminal.
 @MainActor
 struct TerminalLinkOpenCoordinator {
+    struct PreviewTarget: Equatable {
+        let url: URL
+        let profileID: UUID
+    }
+
     private let defaults: UserDefaults
     private let containerResolver: @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?
     private let externalOpen: @MainActor @Sendable (URL) -> Bool
@@ -101,6 +106,24 @@ struct TerminalLinkOpenCoordinator {
         case .embeddedBrowser(let url):
             return openEmbeddedBrowserURL(url, request: request, container: container)
         }
+    }
+
+    /// Resolves a terminal hover to a page that can be preloaded locally and
+    /// later adopted by the exact embedded-browser route used on click.
+    func previewTarget(for request: TerminalLinkOpenRequest) -> PreviewTarget? {
+        guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults),
+              case let .embeddedBrowser(url)? = resolveTerminalOpenURLTarget(request.rawValue),
+              !BrowserLinkOpenSettings.shouldOpenExternally(url, defaults: defaults),
+              let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? ""),
+              BrowserLinkOpenSettings.hostMatchesWhitelist(host, defaults: defaults),
+              !browserShouldBlockInsecureHTTPURL(url, defaults: defaults),
+              let sourcePanelId = request.sourcePanelId,
+              let container = containerResolver(request.sourceWorkspaceId, sourcePanelId),
+              !container.terminalLinkIsRemoteTerminal(sourcePanelId),
+              let profileID = container.terminalLinkBrowserProfileID(for: sourcePanelId) else {
+            return nil
+        }
+        return PreviewTarget(url: url, profileID: profileID)
     }
 
     private func routeLocalFile(

@@ -2,6 +2,12 @@ import Foundation
 
 /// Settings under the dotted-id prefix `browser.*`.
 public struct BrowserCatalogSection: SettingCatalogSection {
+    /// The dwell range accepted before a terminal link preview appears.
+    public static let terminalLinkPreviewHoverDelayMillisecondsRange = 200...2_000
+
+    /// The default dwell balances deliberate intent against a responsive preview.
+    public static let defaultTerminalLinkPreviewHoverDelayMilliseconds = 650
+
     public let defaultSearchEngine = DefaultsKey<BrowserSearchEngine>(
         id: "browser.defaultSearchEngine",
         defaultValue: BrowserSearchSettingsStore.defaultSearchEngine,
@@ -56,6 +62,12 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         id: "browser.openTerminalLinksInCmuxBrowser",
         defaultValue: true,
         userDefaultsKey: "browserOpenTerminalLinksInCmuxBrowser"
+    )
+
+    public let terminalLinkPreviewHoverDelayMilliseconds = DefaultsKey<Int>(
+        id: "browser.terminalLinkPreviewHoverDelayMilliseconds",
+        defaultValue: Self.defaultTerminalLinkPreviewHoverDelayMilliseconds,
+        userDefaultsKey: "browserTerminalLinkPreviewHoverDelayMilliseconds"
     )
 
     public let interceptTerminalOpenCommandInCmuxBrowser = DefaultsKey<Bool>(

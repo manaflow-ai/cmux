@@ -22,6 +22,17 @@ extension Workspace: TerminalLinkOpenContainer {
         )
     }
 
+    func terminalLinkBrowserProfileID(for sourcePanelId: UUID) -> UUID? {
+        guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return nil }
+        let profileSourcePanelID: UUID?
+        if let targetPane = preferredRightSideTargetPane(fromPanelId: target.containerPanelID) {
+            profileSourcePanelID = effectiveSelectedPanelId(inPane: targetPane)
+        } else {
+            profileSourcePanelID = target.containerPanelID
+        }
+        return resolvedNewBrowserProfileID(sourcePanelId: profileSourcePanelID)
+    }
+
     func deferTerminalFileLinkOpen(
         sourcePanelId: UUID,
         filePath: String,
@@ -40,13 +51,25 @@ extension Workspace: TerminalLinkOpenContainer {
 
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
+        let intendedProfileID = terminalLinkBrowserProfileID(for: sourcePanelId)
+        let preferredProfileID = intendedProfileID.flatMap { profileID in
+            BrowserPrewarmedWebViewPool.shared.hasEntry(url: url, profileID: profileID)
+                ? profileID
+                : nil
+        }
         if let targetPane = preferredRightSideTargetPane(fromPanelId: target.containerPanelID) {
-            return newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
+            return newBrowserSurface(
+                inPane: targetPane,
+                url: url,
+                focus: true,
+                preferredProfileID: preferredProfileID
+            ) != nil
         }
         return newBrowserSplit(
             from: target.containerPanelID,
             orientation: .horizontal,
-            url: url
+            url: url,
+            preferredProfileID: preferredProfileID
         ) != nil
     }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import WebKit
@@ -83,9 +84,10 @@ struct BrowserPrewarmedWebViewPoolTests {
         harness.pool.discard(reason: "test-teardown")
     }
 
-    @Test func claimBeforeLoadFinishesReturnsNilAndConsumesEntry() {
+    @Test func claimBeforeLoadFinishesTransfersTheInFlightWebView() {
         let harness = PrewarmPoolHarness()
         harness.pool.prewarm(url: pricingURL, profileID: profileID)
+        let webView = harness.madeWebViews[0]
 
         let claimed = harness.pool.claim(
             url: pricingURL,
@@ -93,7 +95,9 @@ struct BrowserPrewarmedWebViewPoolTests {
             websiteDataStore: harness.dataStore
         )
 
-        #expect(claimed == nil)
+        #expect(claimed?.webView === webView)
+        #expect(claimed?.loadState == .loading)
+        #expect(claimed?.webView.window == nil)
         #expect(!harness.pool.hasEntry(url: pricingURL, profileID: profileID))
     }
 
@@ -109,15 +113,171 @@ struct BrowserPrewarmedWebViewPoolTests {
             websiteDataStore: harness.dataStore
         )
 
-        #expect(claimed === webView)
-        #expect(claimed?.window == nil)
-        #expect(claimed?.superview == nil)
-        #expect(claimed?.navigationDelegate == nil)
+        #expect(claimed?.webView === webView)
+        #expect(claimed?.loadState == .finished)
+        #expect(claimed?.webView.window == nil)
+        #expect(claimed?.webView.superview == nil)
+        #expect(claimed?.webView.navigationDelegate == nil)
         // The portal's first-attach refresh only fires the WebKit reattach
         // selectors for webviews marked hidden; without this the adopted view
         // keeps the prewarm-sized layer tree (#7554 dogfood round 1).
-        #expect(claimed?.browserPortalRequiresRenderingStateReattach == true)
+        #expect(claimed?.webView.browserPortalRequiresRenderingStateReattach == true)
         #expect(!harness.pool.hasEntry(url: pricingURL, profileID: profileID))
+    }
+
+    @Test func previewAttachmentHostsAndThenClaimsTheExactInFlightWebView() {
+        let harness = PrewarmPoolHarness()
+        harness.pool.prewarm(url: pricingURL, profileID: profileID)
+        let webView = harness.madeWebViews[0]
+        let previewHost = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 252))
+        var observedStates: [BrowserPrewarmedWebViewPool.LoadState] = []
+        var dismissCount = 0
+
+        let attachment = harness.pool.attachPreview(
+            url: pricingURL,
+            profileID: profileID,
+            to: previewHost,
+            stateDidChange: { observedStates.append($0) },
+            didDismiss: { dismissCount += 1 }
+        )
+
+        #expect(attachment?.loadState == .loading)
+        #expect(webView.superview === previewHost)
+        #expect(webView.frame == previewHost.bounds)
+        #expect(observedStates == [.loading])
+
+        let claimed = harness.pool.claim(
+            url: pricingURL,
+            profileID: profileID,
+            websiteDataStore: harness.dataStore
+        )
+
+        #expect(claimed?.webView === webView)
+        #expect(claimed?.loadState == .loading)
+        #expect(dismissCount == 1)
+        #expect(webView.superview == nil)
+    }
+
+    @Test func detachingPreviewReturnsWebViewToHiddenHostAndKeepsItClaimable() throws {
+        let harness = PrewarmPoolHarness()
+        harness.pool.prewarm(url: pricingURL, profileID: profileID)
+        let webView = harness.madeWebViews[0]
+        let previewHost = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 252))
+        let attachment = try #require(harness.pool.attachPreview(
+            url: pricingURL,
+            profileID: profileID,
+            to: previewHost,
+            stateDidChange: { _ in },
+            didDismiss: {}
+        ))
+
+        harness.pool.detachPreview(attachment)
+
+        #expect(webView.superview !== previewHost)
+        #expect(webView.window != nil)
+        #expect(harness.pool.hasEntry(url: pricingURL, profileID: profileID))
+        let claimed = harness.pool.claim(
+            url: pricingURL,
+            profileID: profileID,
+            websiteDataStore: harness.dataStore
+        )
+        #expect(claimed?.webView === webView)
+    }
+
+    @Test func previewReceivesFinishedLoadStateWithoutReplacingItsWebView() {
+        let harness = PrewarmPoolHarness()
+        harness.pool.prewarm(url: pricingURL, profileID: profileID)
+        let webView = harness.madeWebViews[0]
+        let previewHost = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 252))
+        var observedStates: [BrowserPrewarmedWebViewPool.LoadState] = []
+        let attachment = harness.pool.attachPreview(
+            url: pricingURL,
+            profileID: profileID,
+            to: previewHost,
+            stateDidChange: { observedStates.append($0) },
+            didDismiss: {}
+        )
+
+        harness.pool.webView(webView, didFinish: nil)
+
+        #expect(observedStates == [.loading, .finished])
+        #expect(webView.superview === previewHost)
+        if let attachment {
+            harness.pool.detachPreview(attachment)
+        }
+        harness.pool.discard(reason: "test-teardown")
+    }
+
+    @Test func delayedPreviewStartsAfterDwellAndLeavingFirstCancelsIt() async throws {
+        let url = try #require(URL(string: "https://example.com/preview"))
+        let target = TerminalLinkOpenCoordinator.PreviewTarget(url: url, profileID: profileID)
+        let view = TerminalLinkHoverIndicatorView(
+            frame: NSRect(x: 0, y: 0, width: 900, height: 650)
+        )
+        var prewarmedURLs: [URL] = []
+        let controller = TerminalLinkPreviewController(
+            view: view,
+            targetResolver: { _ in target },
+            prewarm: { url, _ in prewarmedURLs.append(url) },
+            attach: { _, _, _, stateDidChange, _ in
+                stateDidChange(.loading)
+                return .init(id: UUID(), loadState: .loading)
+            },
+            detach: { _ in },
+            delayMilliseconds: { 650 },
+            sleep: { _ in }
+        )
+
+        controller.update(
+            rawURL: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            anchorPoint: NSPoint(x: 450, y: 325)
+        )
+        #expect(prewarmedURLs.isEmpty)
+        #expect(!view.isPreviewVisible)
+        await Task.yield()
+        await Task.yield()
+        #expect(prewarmedURLs == [url])
+        #expect(view.previewURL == url)
+
+        controller.update(
+            rawURL: nil,
+            sourceWorkspaceId: nil,
+            sourcePanelId: nil,
+            anchorPoint: .zero
+        )
+        #expect(!view.isPreviewVisible)
+
+        let cancelledView = TerminalLinkHoverIndicatorView(
+            frame: NSRect(x: 0, y: 0, width: 900, height: 650)
+        )
+        var cancelledPrewarms = 0
+        let cancelledController = TerminalLinkPreviewController(
+            view: cancelledView,
+            targetResolver: { _ in target },
+            prewarm: { _, _ in cancelledPrewarms += 1 },
+            attach: { _, _, _, _, _ in nil },
+            detach: { _ in },
+            delayMilliseconds: { 650 },
+            sleep: { _ in }
+        )
+        cancelledController.update(
+            rawURL: url.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            anchorPoint: NSPoint(x: 450, y: 325)
+        )
+        cancelledController.update(
+            rawURL: nil,
+            sourceWorkspaceId: nil,
+            sourcePanelId: nil,
+            anchorPoint: .zero
+        )
+        await Task.yield()
+        await Task.yield()
+        #expect(cancelledPrewarms == 0)
+        #expect(!cancelledView.isPreviewVisible)
     }
 
     @Test func claimForDifferentURLKeepsEntry() {
@@ -141,7 +301,7 @@ struct BrowserPrewarmedWebViewPoolTests {
             profileID: profileID,
             websiteDataStore: harness.dataStore
         )
-        #expect(match === webView)
+        #expect(match?.webView === webView)
     }
 
     @Test func claimForDifferentProfileKeepsEntry() {

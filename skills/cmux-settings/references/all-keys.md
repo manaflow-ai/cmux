@@ -124,6 +124,7 @@ Embedded browser settings from Settings > Browser.
 | `browser.showSearchSuggestions` | boolean | `true` | Show omnibar search suggestions. |
 | `browser.theme` | `"system"` or `"light"` or `"dark"` | `"system"` | Embedded browser theme. |
 | `browser.openTerminalLinksInCmuxBrowser` | boolean | `true` | Open clicked terminal links in the embedded browser. |
+| `browser.terminalLinkPreviewHoverDelayMilliseconds` | integer | `650` | Milliseconds the pointer must remain over a terminal link before its live page preview appears. |
 | `browser.interceptTerminalOpenCommandInCmuxBrowser` | boolean | `true` | Intercept terminal open http(s) commands and route them through the embedded browser. |
 | `browser.hostsToOpenInEmbeddedBrowser` | array<string> | `[]` | Allowlist of hosts that should stay inside the embedded browser. |
 | `browser.urlsToAlwaysOpenExternally` | array<string> | `[]` | Rules that always open matching URLs in the system browser. |

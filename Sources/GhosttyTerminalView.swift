@@ -4120,6 +4120,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         } else {
             surface.reconcileAttachedWindowIfNeeded(for: self)
         }
+        if let ghosttySurface = surface.surface {
+            ghostty_surface_set_unmodified_link_previews(ghosttySurface, true)
+        }
         surface.setKeyboardCopyModeActive(keyboardCopyModeActive)
         if !isAlreadyAttached {
             updateSurfaceSize()
@@ -8231,6 +8234,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
     let linkHoverIndicatorView: TerminalLinkHoverIndicatorView
+    var terminalLinkPreviewController: TerminalLinkPreviewController?
     private let imageTransferIndicatorContainerView: NSView
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
@@ -8496,6 +8500,7 @@ final class GhosttySurfaceScrollView: NSView {
         documentView.addSubview(surfaceView)
 
         super.init(frame: .zero)
+        terminalLinkPreviewController = TerminalLinkPreviewController(view: linkHoverIndicatorView)
         wantsLayer = true
         layer?.masksToBounds = true
 
@@ -8836,6 +8841,9 @@ final class GhosttySurfaceScrollView: NSView {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         dropZoneOverlayView.removeFromSuperview()
+        MainActor.assumeIsolated {
+            terminalLinkPreviewController?.invalidate()
+        }
         cancelFocusRequest()
     }
 
