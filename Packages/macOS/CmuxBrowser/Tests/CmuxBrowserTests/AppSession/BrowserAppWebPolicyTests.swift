@@ -88,6 +88,33 @@ struct BrowserAppWebPolicyTests {
         ))
     }
 
+    @Test("external intent rejects insecure and non-web origins")
+    func externalIntentRejectsInsecureAndNonWebOrigins() throws {
+        let insecurePolicy = BrowserExternalNavigationPolicy(
+            trustedOrigin: try #require(URL(string: "http://cmux.test"))
+        )
+        #expect(!insecurePolicy.shouldOpenInSystemBrowser(
+            try #require(URL(string: "http://cmux.test/enterprise?cmux_external_browser=1")),
+            sourceURL: URL(string: "http://cmux.test/app-pricing")
+        ))
+
+        let filePolicy = BrowserExternalNavigationPolicy(
+            trustedOrigin: try #require(URL(string: "file:///"))
+        )
+        #expect(!filePolicy.shouldOpenInSystemBrowser(
+            try #require(URL(string: "file:///enterprise?cmux_external_browser=1")),
+            sourceURL: URL(string: "file:///app-pricing")
+        ))
+
+        let securePolicy = BrowserExternalNavigationPolicy(
+            trustedOrigin: try #require(URL(string: "https://cmux.com"))
+        )
+        #expect(!securePolicy.shouldOpenInSystemBrowser(
+            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=1")),
+            sourceURL: URL(string: "https://user@cmux.com/app-pricing")
+        ))
+    }
+
     @Test("theme serializes shared variables and supports only app-web routes")
     func themeSerializesSharedVariablesAndSupportsOnlyAppWebRoutes() throws {
         let trustedOrigin = try #require(URL(string: "https://cmux.com"))

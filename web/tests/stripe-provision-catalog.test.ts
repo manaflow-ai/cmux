@@ -66,6 +66,44 @@ describe("Stripe catalog provisioning", () => {
     expect(
       result.calls.some((call) => call.args.includes("product=prod_attacker")),
     ).toBe(false);
+    expect(
+      result.calls.some(
+        (call) =>
+          call.args.includes("https://api.stripe.com/v1/prices") &&
+          call.args.includes("POST") &&
+          call.args.includes("lookup_key=cmux-pro-yearly-288") &&
+          call.args.includes("unit_amount=28800"),
+      ),
+    ).toBe(true);
+    expect(
+      result.calls.some(
+        (call) =>
+          call.args.includes("https://api.stripe.com/v1/prices") &&
+          call.args.includes("POST") &&
+          call.args.includes("lookup_key=cmux-team-yearly-336") &&
+          call.args.includes("unit_amount=33600"),
+      ),
+    ).toBe(true);
+  });
+
+  test("finds a canonical product on a later search page", async () => {
+    const result = await runProvision("test", "canonical-product-second-page");
+
+    expect(result.exitCode).toBe(0);
+    expect(
+      result.calls.some((call) => call.args.includes("page=products_page_2")),
+    ).toBe(true);
+    expect(
+      result.calls.some(
+        (call) =>
+          call.args.includes("https://api.stripe.com/v1/products") &&
+          call.args.includes("POST") &&
+          call.args.includes("name=cmux Pro"),
+      ),
+    ).toBe(false);
+    expect(
+      result.calls.some((call) => call.args.includes("product=prod_pro")),
+    ).toBe(true);
   });
 
   test("rejects a canonical product with mismatched catalog metadata", async () => {
@@ -101,6 +139,29 @@ describe("Stripe catalog provisioning", () => {
             "https://api.stripe.com/v1/webhook_endpoints",
           ),
         ),
+      ),
+    ).toBe(false);
+  });
+
+  test("finds an existing webhook on a later list page", async () => {
+    const result = await runProvision("live", "webhook-second-page");
+
+    expect(result.exitCode).toBe(0);
+    expect(
+      result.calls.some((call) => call.args.includes("starting_after=we_other")),
+    ).toBe(true);
+    expect(
+      result.calls.some((call) =>
+        call.args.includes(
+          "https://api.stripe.com/v1/webhook_endpoints/we_existing",
+        ) && call.args.includes("POST"),
+      ),
+    ).toBe(true);
+    expect(
+      result.calls.some(
+        (call) =>
+          call.args.includes("https://api.stripe.com/v1/webhook_endpoints") &&
+          call.args.includes("POST"),
       ),
     ).toBe(false);
   });
@@ -204,6 +265,8 @@ const valueFor = (prefix) => {
   return argument ? argument.slice(prefix.length) : null;
 };
 const lookupKey = valueFor("lookup_keys[]=");
+const page = valueFor("page=");
+const startingAfter = valueFor("starting_after=");
 const expandedProduct = args.includes("expand[]=data.product");
 const dataValue = valueFor("name=");
 const respond = (value) => {
@@ -260,8 +323,17 @@ const prices = {
 if (url.endsWith("/prices") && !isPost) {
   const price = prices[lookupKey];
   if (
-    scenario === "unrelated-product" &&
-    lookupKey?.startsWith("cmux-pro")
+    (
+      scenario === "unrelated-product" &&
+      (
+        lookupKey?.startsWith("cmux-pro") ||
+        lookupKey === "cmux-team-yearly-336"
+      )
+    ) ||
+    (
+      scenario === "canonical-product-second-page" &&
+      lookupKey?.startsWith("cmux-pro")
+    )
   ) {
     respond({ data: [] });
   } else if (price) {
@@ -294,17 +366,25 @@ if (url.endsWith("/prices") && !isPost) {
     respond({ data: [] });
   }
 } else if (url.endsWith("/products/search")) {
-  respond({
-    data:
-      scenario === "unrelated-product"
-        ? [{
-            id: "prod_attacker",
-            name: "cmux Pro",
-            active: true,
-            metadata: { app: "other", plan: "pro" },
-          }]
-        : [],
-  });
+  const attacker = {
+    id: "prod_attacker",
+    name: "cmux Pro",
+    active: true,
+    metadata: { app: "other", plan: "pro" },
+  };
+  if (scenario === "canonical-product-second-page" && !page) {
+    respond({ data: [attacker], has_more: true, next_page: "products_page_2" });
+  } else if (
+    scenario === "canonical-product-second-page" &&
+    page === "products_page_2"
+  ) {
+    respond({ data: [products.pro], has_more: false });
+  } else {
+    respond({
+      data: scenario === "unrelated-product" ? [attacker] : [],
+      has_more: false,
+    });
+  }
 } else if (url.endsWith("/products") && isPost) {
   respond({
     id: dataValue === "cmux Pro" ? "prod_new_pro" : "prod_new_team",
@@ -318,9 +398,23 @@ if (url.endsWith("/prices") && !isPost) {
         { id: "we_one", url: "https://cmux.com/api/stripe/webhook", status: "enabled" },
         { id: "we_two", url: "https://cmux.com/api/stripe/webhook", status: "enabled" },
       ],
+      has_more: false,
+    });
+  } else if (scenario === "webhook-second-page" && !startingAfter) {
+    respond({
+      data: [{ id: "we_other", url: "https://example.com/webhook", status: "enabled" }],
+      has_more: true,
+    });
+  } else if (
+    scenario === "webhook-second-page" &&
+    startingAfter === "we_other"
+  ) {
+    respond({
+      data: [{ id: "we_existing", url: "https://cmux.com/api/stripe/webhook", status: "enabled" }],
+      has_more: false,
     });
   } else {
-    respond({ data: [] });
+    respond({ data: [], has_more: false });
   }
 } else if (url.endsWith("/webhook_endpoints") && isPost) {
   respond({ id: "we_created", secret: "whsec_mock" });

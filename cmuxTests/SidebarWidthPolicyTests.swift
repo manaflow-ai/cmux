@@ -326,6 +326,16 @@ struct AppWebThemeContrastTests {
             ) >= 4.5
         )
     }
+
+    @Test
+    func choosesSmallestRGBAdjustmentWhenBothDirectionsAreReadable() throws {
+        let adjusted = AppWebThemeSnapshot.contrastAdjustedAccentNSColor(
+            try #require(NSColor(hex: "#000040")),
+            on: try #require(NSColor(hex: "#8060D0"))
+        )
+
+        #expect(adjusted.hexString() == "#000000")
+    }
 }
 
 final class SidebarWorkspaceSelectionColorTests: XCTestCase {
