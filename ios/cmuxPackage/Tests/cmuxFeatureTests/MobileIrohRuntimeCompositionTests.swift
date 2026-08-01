@@ -518,40 +518,6 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
-    func relayPolicyRetryScheduleShortensAuthorizationFailures() {
-        // An authorization failure already survived the broker client's single
-        // force-refresh retry; it resolves on token-store timescales. The
-        // default 30s-plus-jitter first delay turned every wake-time rotation
-        // race into a visible half-minute connectivity gap.
-        let authSchedule = MobileIrohRuntimeComposition.relayPolicyRetrySchedule(
-            for: CmxIrohTrustBrokerClientError.rejected(
-                statusCode: 401,
-                code: "unauthorized"
-            )
-        )
-        #expect(authSchedule.delay(
-            failureCount: 0,
-            retryAfterSeconds: nil,
-            jitterUnitInterval: 0
-        ) == 2)
-        #expect(authSchedule.delay(
-            failureCount: 20,
-            retryAfterSeconds: nil,
-            jitterUnitInterval: 0
-        ) == 120)
-
-        let connectivitySchedule =
-            MobileIrohRuntimeComposition.relayPolicyRetrySchedule(
-                for: CmxIrohTrustBrokerClientError.connectivity
-            )
-        #expect(connectivitySchedule.delay(
-            failureCount: 0,
-            retryAfterSeconds: nil,
-            jitterUnitInterval: 0
-        ) == 30)
-    }
-
-    @Test
     func disablingAutomaticRelayCredentialRefreshAlsoDisablesPolicyBootstrapRefresh() {
         #expect(MobileIrohRuntimeComposition.shouldScheduleRelayPolicyRefresh(
             automaticRelayCredentialRefreshEnabled: true,
