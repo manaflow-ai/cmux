@@ -373,7 +373,7 @@ USAGE
   cmux terminal <selector> copy|process show [OPTIONS]
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> viewport scroll --delta-rows <n>
-  cmux terminal <selector> move|attach|close [OPTIONS]
+  cmux terminal <selector> move|project|attach|close [OPTIONS]
 ";
 
 const BROWSER_HELP: &str = "\
@@ -481,6 +481,7 @@ mod tests {
         assert!(SESSION_HELP.contains("creation <correlation-key> resolve"));
         assert!(TERMINAL_HELP.contains("screen wait --pattern <regex>"));
         assert!(TERMINAL_HELP.contains("process wait [--timeout-ms <n>]"));
+        assert!(TERMINAL_HELP.contains("move|project|attach|close"));
     }
 
     #[test]
