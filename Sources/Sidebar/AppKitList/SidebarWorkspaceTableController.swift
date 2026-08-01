@@ -827,9 +827,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func workspaceDragSessionDidEnd() {
-        reorderDragWindowPoint = nil
-        reorderDragPayloadWorkspaceId = nil
-        retireReorderIndicator()
+        reorderDropSessionEnded()
     }
 
     // MARK: Workspace reorder drop (native NSTableView destination)
@@ -851,12 +849,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// final drop can re-arm the drag instead of silently no-oping.
     private var reorderDragPayloadWorkspaceId: UUID?
 
-    /// True while a reorder drop session is hovering the table (between an
-    /// accepted validateDrop and drop/exit/end). Gates the table's refusal of
-    /// AppKit's built-in drag autoscroll to drop sessions only.
-    var isReorderDropSessionActive: Bool {
-        reorderDragWindowPoint != nil || reorderIndicatorPainter != nil
-    }
+    /// True after the native destination accepts a reorder until AppKit or the
+    /// source ends the drag session. This deliberately survives
+    /// `draggingExited`: leaving a destination is not the end of a drag, and
+    /// edge autoscroll must keep one owner while the pointer is outside it.
+    private(set) var isReorderDropSessionActive = false
 
     /// The plan whose indicator is currently painted. The drop commits this
     /// plan verbatim so the outcome always matches the line the user saw;
@@ -922,14 +919,20 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func reorderDropDragExited() {
+        guard isReorderDropSessionActive else { return }
         reorderDragPayloadWorkspaceId = nil
-        guard reorderDragWindowPoint != nil || reorderIndicatorPainter != nil else { return }
         reorderDragWindowPoint = nil
         retireReorderIndicator()
+        // Retiring the indicator stops the shared controller. Re-plan only
+        // after that cleanup so the pointer beyond the viewport restarts it.
+        actions?.updateDragAutoscroll()
     }
 
     func reorderDropSessionEnded() {
-        reorderDropDragExited()
+        isReorderDropSessionActive = false
+        reorderDragPayloadWorkspaceId = nil
+        reorderDragWindowPoint = nil
+        retireReorderIndicator()
     }
 
     /// Runs the shared reorder planner for a drag hovering at `windowPoint`
@@ -965,6 +968,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         enforceReorderIndicatorPaintOnVisibleCells()
         setAppKitDropIndicator(update.indicator, scope: update.scope, includeRowTargets: false)
         reorderDragWindowPoint = windowPoint
+        isReorderDropSessionActive = true
+        actions.updateDragAutoscroll()
         return true
     }
 

@@ -54,31 +54,24 @@ struct SidebarDragAutoScrollControllerTests {
     }
 
     @Test
-    func appliedPlansMoveARealFlippedTableInTheMatchingDirection() {
-        let controller = SidebarDragAutoScrollController()
+    func plansProduceMatchingDeltasForARealFlippedTable() {
         let scrollView = makeScrolledScrollView(offsetY: 2000)
         let clipView = scrollView.contentView
         let tableView = scrollView.documentView as? NSTableView
-        let startY = clipView.bounds.origin.y
 
         #expect(clipView.isFlipped)
         #expect(tableView?.isFlipped == true)
         #expect(
-            controller.apply(
-                plan: SidebarAutoScrollPlan(direction: .up, pointsPerTick: 12),
-                to: scrollView
-            )
+            SidebarDragAutoScrollMotion.verticalDelta(
+                for: SidebarAutoScrollPlan(direction: .up, pointsPerTick: 12),
+                documentViewIsFlipped: tableView?.isFlipped == true
+            ) == -12
         )
-        #expect(clipView.bounds.origin.y == startY - 12)
-
-        clipView.scroll(to: NSPoint(x: 0, y: startY))
-        scrollView.reflectScrolledClipView(clipView)
         #expect(
-            controller.apply(
-                plan: SidebarAutoScrollPlan(direction: .down, pointsPerTick: 12),
-                to: scrollView
-            )
+            SidebarDragAutoScrollMotion.verticalDelta(
+                for: SidebarAutoScrollPlan(direction: .down, pointsPerTick: 12),
+                documentViewIsFlipped: tableView?.isFlipped == true
+            ) == 12
         )
-        #expect(clipView.bounds.origin.y == startY + 12)
     }
 }

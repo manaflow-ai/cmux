@@ -117,13 +117,14 @@ public final class SidebarDragAutoScrollController: ObservableObject {
         currentPlan(for: scrollView)
     }
 
-    func apply(plan: SidebarAutoScrollPlan, to scrollView: NSScrollView) -> Bool {
+    private func apply(plan: SidebarAutoScrollPlan, to scrollView: NSScrollView) -> Bool {
         guard let documentView = scrollView.documentView else { return false }
         let clipView = scrollView.contentView
 
-        let directionMultiplier: CGFloat = (plan.direction == .down) ? 1 : -1
-        let flippedMultiplier: CGFloat = documentView.isFlipped ? 1 : -1
-        let delta = directionMultiplier * flippedMultiplier * plan.pointsPerTick
+        let delta = SidebarDragAutoScrollMotion.verticalDelta(
+            for: plan,
+            documentViewIsFlipped: documentView.isFlipped
+        )
         let currentY = clipView.bounds.origin.y
         // constrainBoundsRect is the boundary authority: unlike a manual
         // [0, contentHeight] clamp it honors the scroll view's content

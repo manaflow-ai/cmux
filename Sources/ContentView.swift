@@ -13500,7 +13500,6 @@ struct VerticalTabsSidebar: View, Equatable {
               let plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext) else {
             return nil
         }
-        dragAutoScrollController.updateFromDragLocation()
         return SidebarWorkspaceTableReorderDropUpdate(
             indicator: plan.indicator,
             scope: plan.indicatorScope,
