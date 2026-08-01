@@ -86,7 +86,6 @@ export default async function AppPricingPage({
   const faqItems = visibleFaqItems(pricing.faq.items as FaqItem[]);
   const annualComparePrice = pricingMessage(pricing.annualComparePrice, {
     monthly: PRO_PRICING_USD.year.monthlyEquivalent,
-    annual: PRO_PRICING_USD.year.billedAmount,
   });
   const teamMonthlyComparePrice = pricingMessage(
     pricing.teamMonthlyComparePrice,
@@ -96,7 +95,6 @@ export default async function AppPricingPage({
     pricing.teamAnnualComparePrice,
     {
       monthly: TEAM_PRICING_USD.year.monthlyEquivalent,
-      annual: TEAM_PRICING_USD.year.billedAmount,
     },
   );
 

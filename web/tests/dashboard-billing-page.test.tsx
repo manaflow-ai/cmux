@@ -107,8 +107,9 @@ describe("dashboard billing page", () => {
     );
     expect(html).toContain("Get Pro");
     expect(html).toContain("Get Teams");
-    expect(html).toContain("/mo.");
-    expect(html).toContain("/user/mo.");
+    expect(html).toContain("/mo");
+    expect(html).toContain("/user/mo");
+    expect(html).not.toContain("/mo.");
     expect(html).not.toContain('style="min-height:4rem"');
     expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
     expect(html).toContain('href="/dashboard/testflight"');
@@ -122,8 +123,9 @@ describe("dashboard billing page", () => {
 
     expect(html).toContain("$24");
     expect(html).toContain("$28");
-    expect(html).toContain("/mo.");
-    expect(html).toContain("/user/mo.");
+    expect(html).toContain("/mo");
+    expect(html).toContain("/user/mo");
+    expect(html).not.toContain("/mo.");
     expect(html).not.toContain("Billed $288 annually · save 20%");
     expect(html).not.toContain("Billed $336 annually · save 20%");
     expect(html).toContain(
@@ -142,7 +144,7 @@ describe("dashboard billing page", () => {
 
     expect(html).toContain("cmux Pro");
     expect(html).toContain("Your plan renews on");
-    expect(html).toContain("$30/month");
+    expect(html).toContain("$30/mo");
     expect(html).toContain("Cancel plan");
     expect(html).toContain('action="/api/billing/subscription"');
     expect(html).toContain('href="/api/billing/portal"');
@@ -156,7 +158,7 @@ describe("dashboard billing page", () => {
       }),
     ];
     customerRows = [{ id: "cus_123" }];
-    expect(await renderBillingPage()).toContain("$288/year");
+    expect(await renderBillingPage()).toContain("$24/mo, billed annually");
 
     subscriptionRows = [
       stripeSubscriptionRow({
@@ -164,7 +166,7 @@ describe("dashboard billing page", () => {
         lookupKey: "cmux-pro-yearly",
       }),
     ];
-    expect(await renderBillingPage()).toContain("$240/year");
+    expect(await renderBillingPage()).toContain("$20/mo, billed annually");
   });
 
   test("renders pending cancellation with resume and end-date copy", async () => {
@@ -201,7 +203,7 @@ describe("dashboard billing page", () => {
     expect(html).toContain("Team Pro renews on");
     expect(html).toContain("Seats");
     expect(html).toContain(">4<");
-    expect(html).toContain("$35/seat/month");
+    expect(html).toContain("$35/seat/mo");
     expect(html).toContain('name="scope" value="team"');
     expect(html).toContain('href="/api/billing/portal?scope=team"');
   });
@@ -223,7 +225,7 @@ describe("dashboard billing page", () => {
     ];
     customerRows = [{ id: "cus_team" }];
 
-    expect(await renderBillingPage()).toContain("$336/seat/year");
+    expect(await renderBillingPage()).toContain("$28/seat/mo, billed annually");
   });
 
   test("uses the current Stripe price interval over stale checkout metadata", async () => {
@@ -244,7 +246,7 @@ describe("dashboard billing page", () => {
     ];
     customerRows = [{ id: "cus_team" }];
 
-    expect(await renderBillingPage()).toContain("$35/seat/month");
+    expect(await renderBillingPage()).toContain("$35/seat/mo");
 
     subscriptionResults = [
       [],
@@ -260,12 +262,14 @@ describe("dashboard billing page", () => {
         }),
       ],
     ];
-    expect(await renderBillingPage()).toContain("$336/seat/year");
+    expect(await renderBillingPage()).toContain("$28/seat/mo, billed annually");
   });
 
   test("localizes active annual Pro prices", () => {
-    expect(enMessages.dashboard.billing.pro.annualPrice).toBe("$288/year");
-    expect(jaMessages.dashboard.billing.pro.annualPrice).toBe("$288/年");
+    expect(enMessages.dashboard.billing.pro.annualPrice).toBe(
+      "$24/mo, billed annually",
+    );
+    expect(jaMessages.dashboard.billing.pro.annualPrice).toBe("$24/月（年払い）");
   });
 
   test("renders active Stripe Team for a paid team when no team is selected", async () => {
