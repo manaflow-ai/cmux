@@ -43,6 +43,14 @@ actor GateableValidationAuthClient: AuthClient {
         self.teams = teams
     }
 
+    /// Seed the persisted token pair directly, like a previous process run's
+    /// session surviving in the keychain, so launch-restore tests can start
+    /// from a stored session without running a sign-in exchange first.
+    func seedTokens(access: String, refresh: String) {
+        self.access = access
+        self.refresh = refresh
+    }
+
     // MARK: - Gate plumbing
 
     private func didPark(_ gate: Gate, count: Int = 1) async {

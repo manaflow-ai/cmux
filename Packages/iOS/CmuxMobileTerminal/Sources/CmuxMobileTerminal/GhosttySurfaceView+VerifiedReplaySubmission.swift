@@ -7,7 +7,8 @@ import QuartzCore
 @MainActor
 extension GhosttySurfaceView {
     func submitVerifiedReplayRenderAndWait(
-        read: VerifiedReplaySurfaceRead?
+        read: VerifiedReplaySurfaceRead?,
+        rearmReadyFenceOnPresent: Bool = false
     ) async -> VerifiedReplayPresentedSubmission? {
         guard let surface,
               !isDismantled,
@@ -45,6 +46,7 @@ extension GhosttySurfaceView {
                     read: read,
                     fence: fence,
                     observedFrame: nil,
+                    rearmReadyFenceOnPresent: rearmReadyFenceOnPresent,
                     continuation: continuation
                 )
             )
@@ -62,29 +64,17 @@ extension GhosttySurfaceView {
         submission: VerifiedReplayRenderSubmission,
         generation: UInt64
     ) {
-        guard let read else {
-            outputQueue.async {
-                ghostty_surface_render_now_with_token(submission.surface, submission.token)
-            }
-            return
-        }
-        outputQueue.async { [weak self] in
-            let observed = verifiedReplayExportThenSubmit(
-                export: { exportVerifiedReplayGridSynchronously(read) },
-                submit: {
-                    ghostty_surface_render_now_with_token(
-                        submission.surface,
-                        submission.token
-                    )
-                }
+        enqueueVerifiedReplaySubmissionOnSurfaceQueue(
+            outputQueue: outputQueue,
+            read: read,
+            submission: submission,
+            generation: generation
+        ) { [weak self] observed, submission, generation in
+            self?.acceptVerifiedReplayObservedFrame(
+                observed,
+                submission: submission,
+                generation: generation
             )
-            Task { @MainActor [weak self] in
-                self?.acceptVerifiedReplayObservedFrame(
-                    observed,
-                    submission: submission,
-                    generation: generation
-                )
-            }
         }
     }
 
@@ -100,6 +90,39 @@ extension GhosttySurfaceView {
         pendingVerifiedReplayPresentation = nil
         pending.continuation.resume(returning: result)
         return true
+    }
+}
+
+private nonisolated func enqueueVerifiedReplaySubmissionOnSurfaceQueue(
+    outputQueue: GhosttySurfaceWorkQueue,
+    read: VerifiedReplaySurfaceRead?,
+    submission: VerifiedReplayRenderSubmission,
+    generation: UInt64,
+    acceptObservedFrame: @escaping @MainActor @Sendable (
+        MobileTerminalRenderGridFrame?,
+        VerifiedReplayRenderSubmission,
+        UInt64
+    ) -> Void
+) {
+    guard let read else {
+        outputQueue.async {
+            ghostty_surface_render_now_with_token(submission.surface, submission.token)
+        }
+        return
+    }
+    outputQueue.async {
+        let observed = verifiedReplayExportThenSubmit(
+            export: { exportVerifiedReplayGridSynchronously(read) },
+            submit: {
+                ghostty_surface_render_now_with_token(
+                    submission.surface,
+                    submission.token
+                )
+            }
+        )
+        Task { @MainActor in
+            acceptObservedFrame(observed, submission, generation)
+        }
     }
 }
 
@@ -186,16 +209,21 @@ extension MobileTerminalRenderGridFrame {
     }
 }
 
-private func exportVerifiedReplayGridSynchronously(
+private nonisolated func exportVerifiedReplayGridSynchronously(
     _ read: VerifiedReplaySurfaceRead
 ) -> MobileTerminalRenderGridFrame? {
     let exported = read.surfaceID.withCString { pointer in
-        ghostty_surface_render_grid_json(
+        // Screen-anchored frames verify against the ACTIVE area so a locally
+        // scrolled viewport cannot fail the read-back; viewport-anchored (v1)
+        // frames keep the historical viewport read.
+        ghostty_surface_render_grid_json_v2(
             read.surface,
             pointer,
             UInt(read.surfaceID.utf8.count),
             read.stateSeq,
-            0
+            0,
+            false,
+            read.anchor == .screen
         )
     }
     defer { ghostty_string_free(exported) }

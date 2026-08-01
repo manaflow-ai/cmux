@@ -66,14 +66,14 @@ struct IrohZeroTouchDiscoveryTests {
     }
 
     @Test
-    func forgottenLiveCandidateIsNeitherDialedNorRecreated() async throws {
+    func hiddenLiveCandidateIsNeitherDialedNorRecreated() async throws {
         let fixture = try await makeFixture(
             candidates: [try candidate(deviceID: "mac-a", endpointByte: "a")],
             reportedDeviceID: "mac-a"
         )
         defer { fixture.cleanup() }
         let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
-        await fixture.shell.rememberForgottenMacDeviceID(
+        await fixture.shell.rememberHiddenMacDeviceID(
             MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"),
             scope: scope
         )
@@ -332,13 +332,15 @@ struct IrohZeroTouchDiscoveryTests {
 
     private func candidate(
         deviceID: String,
-        endpointByte: Character
+        endpointByte: Character,
+        instanceTag: String = "stable",
+        extraRoutes: [CmxAttachRoute] = []
     ) throws -> MobileDiscoveredIrohMac {
         let endpointID = String(repeating: String(endpointByte), count: 64)
         return MobileDiscoveredIrohMac(
             deviceID: deviceID,
             displayName: "Test \(deviceID)",
-            instanceTag: "stable",
+            instanceTag: instanceTag,
             routes: [try CmxAttachRoute(
                 id: "iroh-\(deviceID)",
                 kind: .iroh,
@@ -347,7 +349,7 @@ struct IrohZeroTouchDiscoveryTests {
                     pathHints: []
                 ),
                 priority: -10_000
-            )],
+            )] + extraRoutes,
             lastSeenAt: Self.fixedNow
         )
     }

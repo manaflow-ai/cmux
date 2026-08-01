@@ -50,8 +50,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         // reject those silently and let the user explicitly ungroup first.
         let existingAnchorIds = Set(model.workspaceGroups.map(\.anchorWorkspaceId))
         let eligibleChildren = childWorkspaceIds.compactMap { id -> UUID? in
-            guard let tab = model.tabs.first(where: { $0.id == id }),
-                  !tab.isPinned,
+            guard model.tabs.contains(where: { $0.id == id }),
                   !existingAnchorIds.contains(id) else { return nil }
             return id
         }
@@ -118,7 +117,9 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
 
     /// Create a brand-new workspace inheriting the anchor's cwd, attach it
     /// to the group, and position it within the group's tabs[] range per
-    /// `placement`. Returns the new workspace.
+    /// `placement`. Generated-purpose workspaces can keep a creation title as
+    /// automatic metadata instead of adopting it as a user-owned custom title.
+    /// Returns the new workspace.
     @discardableResult
     public func createWorkspaceInGroup(
         groupId: UUID,
@@ -129,12 +130,12 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         title: String? = nil,
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false
+        initialBrowserTransparentBackground: Bool = false,
+        applyCreationTitleAsCustomTitle: Bool = true
     ) -> Tab? {
         guard let host else { return nil }
-        // nil resolves to the stored global default at call time, matching
-        // the legacy default-argument read of the
-        // workspaceGroups.newWorkspacePlacement setting.
+        // nil resolves to the stored global default at call time, matching the
+        // legacy workspaceGroups.newWorkspacePlacement default-argument read.
         let placement = explicitPlacement
             ?? host.defaultNewWorkspacePlacementInGroup
         guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
@@ -147,7 +148,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             inheritWorkingDirectory: cwd == nil,
-            select: select
+            select: select,
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
         )
         model.assignGroup(workspaceId: newWorkspace.id, groupId: groupId)
         placeWithinGroup(

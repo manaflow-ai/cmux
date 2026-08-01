@@ -22,6 +22,12 @@ export async function runRelayEffect<A, E>(
 export function enforceRelayRateLimit(input: {
   readonly request: Request;
   readonly accountId: string;
+  /**
+   * Optional per-device partition (endpoint id). When present the budget is
+   * per account+device, so one storming device cannot starve the account's
+   * other phones, simulators, and tagged builds.
+   */
+  readonly devicePartition?: string;
   readonly ruleId: string | undefined;
   readonly check: RelayRateLimitCheck;
   readonly isVercel?: boolean;
@@ -32,14 +38,16 @@ export function enforceRelayRateLimit(input: {
   }
   const ruleId = input.ruleId?.trim();
   if (!ruleId) {
-    return Effect.fail(
-      new RelayConfigurationError({ code: "rate_limit_not_configured" }),
-    );
+    // No configured rule means the operator wants no rate limiting. Failing
+    // here would turn a deliberately-unset env var into a relay outage.
+    return Effect.void;
   }
   return Effect.tryPromise({
     try: () => input.check(ruleId, {
       request: input.request,
-      rateLimitKey: input.accountId,
+      rateLimitKey: input.devicePartition
+        ? `${input.accountId}:${input.devicePartition}`
+        : input.accountId,
     }),
     catch: () => new RelayRateLimitError({ code: "rate_limit_unavailable" }),
   }).pipe(
@@ -55,6 +63,14 @@ export function enforceRelayRateLimit(input: {
             ? { retryAfterSeconds }
             : {}),
         }));
+      }
+      if (error === "not-found") {
+        // The configured rule no longer exists (Vercel returns 404). That
+        // means the operator deleted the limit, so treat it as "no limit" and
+        // fail open rather than 503-ing every request. Genuine unavailability
+        // (a thrown check or an unexpected status) still fails closed below.
+        console.warn("relay rate-limit rule not found; failing open");
+        return Effect.void;
       }
       if (error) {
         return Effect.fail(

@@ -6,6 +6,17 @@ import Testing
 
 @MainActor
 @Suite struct MobileShellWorkspaceCapabilityTests {
+    @Test func workspaceChangesCapabilityFollowsHostStatusSet() {
+        let store = MobileShellComposite.preview()
+        #expect(!store.workspaceChangesCapable)
+
+        store.supportedHostCapabilities = ["workspace.changes.v1"]
+        #expect(store.workspaceChangesCapable)
+
+        store.supportedHostCapabilities = ["workspace.actions.v1"]
+        #expect(!store.workspaceChangesCapable)
+    }
+
     @Test func artifactFolderCapabilitiesFailClosedForOlderHosts() {
         let store = MobileShellComposite.preview()
         store.supportedHostCapabilities = [
@@ -34,16 +45,27 @@ import Testing
             "workspace.actions.v1",
         ])
         #expect(oldMac.store.supportsWorkspaceActions)
+        #expect(!oldMac.store.supportsWorkspaceMetadata)
         #expect(!oldMac.store.supportsWorkspaceReadStateActions && !oldMac.store.supportsWorkspaceCloseActions)
         #expect(!oldMac.store.supportsWorkspaceMoveActions && !oldMac.store.supportsWorkspaceGroupActions)
         #expect(!oldMac.store.supportsWorkspaceCreateInGroup)
         #expect(!oldMac.store.supportsWorkspaceGroupCreate)
+
+        let metadataOnly = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "workspace.metadata.v1",
+        ])
+        #expect(metadataOnly.store.supportsWorkspaceMetadata)
+        #expect(metadataOnly.store.workspaces.first?.actionCapabilities.supportsWorkspaceMetadata == false)
 
         let currentCapabilities = [
             "events.v1",
             "terminal.render_grid.v1",
             "terminal.replay.v1",
             "workspace.actions.v1",
+            "workspace.metadata.v1",
             "workspace.read_state.v1",
             "workspace.close.v1",
             "workspace.move.v1",
@@ -52,6 +74,8 @@ import Testing
             "workspace.group_create.v1",
         ]
         let scoped = try await connectedStore(capabilities: currentCapabilities)
+        #expect(scoped.store.supportsWorkspaceMetadata)
+        #expect(scoped.store.workspaces.first?.actionCapabilities.supportsWorkspaceMetadata == true)
         #expect(scoped.store.supportsWorkspaceReadStateActions && scoped.store.supportsWorkspaceCloseActions)
         #expect(!scoped.store.supportsWorkspaceMoveActions && !scoped.store.supportsWorkspaceGroupActions)
         #expect(!scoped.store.supportsWorkspaceCreateInGroup)
@@ -113,6 +137,41 @@ import Testing
         #expect(await router.count(of: "workspace.group.action") == 0)
         #expect(await router.count(of: "workspace.create") == 0)
         #expect(await router.count(of: "workspace.group.create") == 0)
+    }
+
+    @Test func macScopedMutationsSurviveTicketExpiryOnAccountAuthHosts() async throws {
+        let connected = try await connectedStore(
+            capabilities: [
+                "events.v1",
+                "terminal.render_grid.v1",
+                "terminal.replay.v1",
+                "workspace.move.v1",
+                "workspace.group_actions.v1",
+                "workspace.create_in_group.v1",
+                "workspace.group_create.v1",
+                "workspace.mutations.account_auth.v1",
+            ],
+            ticketWorkspaceID: "",
+            ticketTerminalID: nil,
+            ticketLifetime: 1
+        )
+        let store = connected.store
+        let router = connected.router
+        let clock = connected.clock
+        let workspaceID = try #require(store.workspaces.first?.id)
+        #expect(store.workspaces.first?.actionCapabilities.supportsMoveActions == true)
+
+        clock.advance(by: 2)
+
+        // The pairing ticket has expired, but the host authorizes Mac-scoped
+        // mutations by the signed-in account: the affordances must stay on and
+        // the mutation RPCs must actually be sent.
+        #expect(store.supportsWorkspaceMoveActions)
+        #expect(store.supportsWorkspaceGroupActions)
+        #expect(store.supportsWorkspaceCreateInGroup)
+        #expect(store.supportsWorkspaceGroupCreate)
+        _ = await store.moveWorkspace(id: workspaceID, toGroup: nil, before: nil)
+        #expect(await router.count(of: "workspace.move") == 1)
     }
 
     private func connectedStore(

@@ -15,12 +15,18 @@ import Testing
 private func workspaceRecord(
     id: String,
     title: String,
+    customDescription: String? = nil,
+    customDescriptionIsTruncated: Bool = false,
+    customColorHex: String? = nil,
     sortIndex: Int
 ) -> WorkspaceSyncRecord {
     WorkspaceSyncRecord(
         id: id,
         windowID: "win-1",
         title: title,
+        customDescription: customDescription,
+        customDescriptionIsTruncated: customDescriptionIsTruncated,
+        customColorHex: customColorHex,
         currentDirectory: nil,
         isSelected: false,
         isPinned: false,
@@ -91,16 +97,35 @@ private func workspaceUpdatedEventFrame() throws -> Data {
     return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
 }
 
+private let workspaceRowActionCapabilities = [
+    "events.v1",
+    "terminal.render_grid.v1",
+    "terminal.replay.v1",
+    "workspace.actions.v1",
+    "workspace.metadata.v1",
+    "workspace.read_state.v1",
+    "workspace.close.v1",
+]
+
 @MainActor
 struct MobileShellStateSyncTests {
     @Test func negotiationAppliesSnapshotAndSuppressesLegacyRefetch() async throws {
+        let firstWorkspaceID = UUID().uuidString
         let router = LivenessHostRouter()
+        await router.setCapabilities(workspaceRowActionCapabilities)
         await router.scriptSyncFetchResult(
             jsonData: try syncSnapshotResultData(
                 epoch: "epoch-1",
                 rev: 3,
                 records: [
-                    workspaceRecord(id: UUID().uuidString, title: "synced-alpha", sortIndex: 0),
+                    workspaceRecord(
+                        id: firstWorkspaceID,
+                        title: "synced-alpha",
+                        customDescription: "Release validation",
+                        customDescriptionIsTruncated: true,
+                        customColorHex: "#1565C0",
+                        sortIndex: 0
+                    ),
                     workspaceRecord(id: UUID().uuidString, title: "synced-beta", sortIndex: 1),
                 ]
             )
@@ -115,10 +140,22 @@ struct MobileShellStateSyncTests {
             store.workspaces.map(\.name).contains("synced-alpha")
         }
         #expect(projected, "snapshot projection must reach the published workspace list")
+        let customizedWorkspace = try #require(
+            store.workspaces.first(where: { $0.rpcWorkspaceID.rawValue == firstWorkspaceID })
+        )
+        #expect(customizedWorkspace.customDescription == "Release validation")
+        #expect(customizedWorkspace.customDescriptionIsTruncated)
+        #expect(customizedWorkspace.customColorHex == "#1565C0")
+        #expect(customizedWorkspace.actionCapabilities.supportsWorkspaceActions)
+        #expect(customizedWorkspace.actionCapabilities.supportsWorkspaceMetadata)
+        #expect(customizedWorkspace.actionCapabilities.supportsReadStateActions)
+        #expect(customizedWorkspace.actionCapabilities.supportsCloseActions)
 
         // A workspace.updated push must no longer trigger the legacy full-list
         // refetch while v2 owns the list.
         let listCallsBefore = await router.count(of: "mobile.workspace.list")
+        let legacyEventGenerationBefore =
+            store.workspaceListEventGeneration
         let transport = try #require(box.get())
         await transport.deliver(try workspaceUpdatedEventFrame())
         // Deliver a delta behind it; its application proves the updated event
@@ -127,16 +164,40 @@ struct MobileShellStateSyncTests {
             epoch: "epoch-1",
             fromRev: 3,
             toRev: 4,
-            records: [workspaceRecord(id: UUID().uuidString, title: "synced-gamma", sortIndex: 2)]
+            records: [
+                workspaceRecord(
+                    id: firstWorkspaceID,
+                    title: "synced-alpha",
+                    customDescription: "Ready for launch",
+                    customColorHex: "#E91E63",
+                    sortIndex: 0
+                ),
+                workspaceRecord(id: UUID().uuidString, title: "synced-gamma", sortIndex: 2),
+            ]
         ))
         let deltaApplied = try await pollUntil {
-            store.workspaces.map(\.name).contains("synced-gamma")
+            let updatedWorkspace = store.workspaces.first {
+                $0.rpcWorkspaceID.rawValue == firstWorkspaceID
+            }
+            return store.workspaces.map(\.name).contains("synced-gamma")
+                && updatedWorkspace?.customDescription == "Ready for launch"
+                && updatedWorkspace?.customColorHex == "#E91E63"
         }
-        #expect(deltaApplied, "contiguous delta must extend the mirrored list")
+        #expect(deltaApplied, "contiguous delta must update workspace metadata and extend the mirrored list")
+        let updatedWorkspace = try #require(
+            store.workspaces.first(where: { $0.rpcWorkspaceID.rawValue == firstWorkspaceID })
+        )
+        #expect(updatedWorkspace.customDescription == "Ready for launch")
+        #expect(updatedWorkspace.customColorHex == "#E91E63")
         let listCallsAfter = await router.count(of: "mobile.workspace.list")
         #expect(
             listCallsAfter == listCallsBefore,
             "workspace.updated must not schedule a full-list refetch while state sync is active"
+        )
+        #expect(
+            store.workspaceListEventGeneration
+                == legacyEventGenerationBefore,
+            "state-sync events must not impersonate pending legacy refresh work"
         )
     }
 
@@ -177,6 +238,72 @@ struct MobileShellStateSyncTests {
         #expect(repaired, "a gapped delta must trigger a cursor fetch that re-bases the mirror")
         let fetches = await router.count(of: "mobile.sync.fetch")
         #expect(fetches >= 2, "gap repair must issue a second mobile.sync.fetch")
+    }
+
+    @Test func removedWorkspaceEvictsSummaryBatchesMapsAndChipImmediately() async throws {
+        let removedID = UUID().uuidString
+        let keptID = UUID().uuidString
+        let router = LivenessHostRouter()
+        await router.scriptSyncFetchResult(
+            jsonData: try syncSnapshotResultData(
+                epoch: "epoch-1",
+                rev: 3,
+                records: [
+                    workspaceRecord(id: removedID, title: "removed", sortIndex: 0),
+                    workspaceRecord(id: keptID, title: "kept", sortIndex: 1),
+                ]
+            )
+        )
+        let box = TransportBox()
+        let clock = TestClock()
+        let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+        _ = try await pollUntil { store.stateSyncActive }
+        _ = try await pollUntil {
+            store.foregroundWorkspaceChangesIDs.contains(removedID)
+        }
+        store.workspaceChangesSummaryFetchedAtByWorkspaceID = [
+            removedID: clock.now,
+            keptID: clock.now,
+        ]
+        store.workspaceChangesSummaryTrailingExpiryByWorkspaceID = [
+            removedID: clock.now.addingTimeInterval(15),
+            keptID: clock.now.addingTimeInterval(15),
+        ]
+        store.setWorkspaceChangeChipsByWorkspaceID([
+            removedID: MobileWorkspaceChangesChip(
+                filesChanged: 1,
+                additions: 2,
+                deletions: 3
+            ),
+            keptID: MobileWorkspaceChangesChip(
+                filesChanged: 4,
+                additions: 5,
+                deletions: 6
+            ),
+        ])
+
+        let transport = try #require(box.get())
+        await transport.deliver(try syncDeltaEventFrame(
+            epoch: "epoch-1",
+            fromRev: 3,
+            toRev: 4,
+            records: [],
+            removedIDs: [removedID]
+        ))
+        _ = try await pollUntil {
+            !store.foregroundWorkspaceChangesIDs.contains(removedID)
+        }
+        let batches = store.workspaceChangesSummaryFetchPolicy.batches(
+            workspaceIDs: store.foregroundWorkspaceChangesIDs,
+            fetchedAtByWorkspaceID: [:],
+            now: clock.now,
+            force: true
+        )
+
+        #expect(batches.flatMap { $0 } == [keptID])
+        #expect(Set(store.workspaceChangesSummaryFetchedAtByWorkspaceID.keys) == [keptID])
+        #expect(Set(store.workspaceChangesSummaryTrailingExpiryByWorkspaceID.keys) == [keptID])
+        #expect(Set(store.workspaceChangeChipsByWorkspaceID.keys) == [keptID])
     }
 
     @Test func failedRepairFetchFallsBackToLegacyListAndReenablesRefetch() async throws {
@@ -280,5 +407,71 @@ struct MobileShellStateSyncTests {
             await router.count(of: "mobile.workspace.list") > listCallsBefore
         }
         #expect(refetched, "a legacy Mac must keep the workspace.updated refetch loop")
+    }
+
+    @Test func foregroundMutationRefreshRunsTrailingFetchForMutationDuringInFlightRefresh() async throws {
+        let workspaceID = "live-workspace"
+        let router = LivenessHostRouter()
+        await router.scriptSyncFetchResult(
+            jsonData: try syncSnapshotResultData(
+                epoch: "epoch-1",
+                rev: 3,
+                records: [workspaceRecord(id: workspaceID, title: "synced-alpha", sortIndex: 0)]
+            )
+        )
+        await router.scriptSyncFetchResult(
+            jsonData: try syncSnapshotResultData(
+                epoch: "epoch-1",
+                rev: 4,
+                records: [workspaceRecord(id: workspaceID, title: "synced-beta", sortIndex: 0)]
+            )
+        )
+        await router.scriptSyncFetchResult(
+            jsonData: try syncSnapshotResultData(
+                epoch: "epoch-1",
+                rev: 5,
+                records: [workspaceRecord(id: workspaceID, title: "synced-gamma", sortIndex: 0)]
+            )
+        )
+        let box = TransportBox()
+        let clock = TestClock()
+        let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+        let negotiated = try await pollUntil {
+            store.stateSyncActive
+                && store.workspaces.contains { $0.rpcWorkspaceID.rawValue == workspaceID }
+        }
+        #expect(negotiated, "state sync must settle before the mutation refresh check")
+        let foregroundTarget = WorkspaceMutationTarget(
+            client: store.remoteClient,
+            isForeground: true,
+            macDeviceID: store.foregroundMacDeviceID
+        )
+        let fetchesBefore = await router.count(of: "mobile.sync.fetch")
+        #expect(fetchesBefore >= 1)
+        await router.holdSyncFetchRequest(number: fetchesBefore + 1)
+
+        let firstRefresh = Task { @MainActor in
+            await store.refreshAfterWorkspaceMutation(foregroundTarget)
+        }
+        let firstRequestStarted = await router.waitForCount(
+            of: "mobile.sync.fetch",
+            atLeast: fetchesBefore + 1
+        )
+        #expect(firstRequestStarted, "first foreground mutation refresh must start a state-sync fetch")
+
+        let secondRefresh = Task { @MainActor in
+            await store.refreshAfterWorkspaceMutation(foregroundTarget)
+        }
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+        await router.releaseAllHeld()
+        await firstRefresh.value
+        await secondRefresh.value
+
+        let trailingReloaded = try await pollUntil {
+            await router.count(of: "mobile.sync.fetch") >= fetchesBefore + 2
+        }
+        #expect(trailingReloaded, "a mutation arriving during an in-flight refresh must trigger one trailing fetch")
     }
 }

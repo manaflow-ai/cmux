@@ -70,13 +70,17 @@ extension CmxIrohClientRuntime {
         supervisorEventTask = nil
         await relayCoordinator?.deactivate()
         relayCoordinator = nil
-        await sessionPool.deactivate()
         await contextRouter.clear()
+        authoritativeDiscovery = nil
         if !preserveBinding { localBinding = nil }
-        await supervisor.deactivate()
+        await connectivityEngine.stop()
     }
 
     func validateRelayFleet(_ fleet: [String]) throws {
+        // Without a verified managed fleet (relay policy unavailable) there is
+        // nothing to cross-check and no relay will be configured; activation
+        // continues on direct paths instead of failing closed here.
+        guard !managedRelayURLs.isEmpty else { return }
         guard fleet.count == managedRelayURLs.count,
               Set(fleet) == managedRelayURLs else {
             throw CmxIrohClientRuntimeError.relayFleetMismatch

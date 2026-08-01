@@ -7,15 +7,7 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     }
 
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? {
-        if let directory = detachedSurfaceTransfersByPanelId[sourcePanelId]?.directory,
-           !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return directory
-        }
-        guard let tabId = surfaceId(forPanelId: sourcePanelId),
-              let terminal = panel(for: tabId) as? TerminalPanel else {
-            return nil
-        }
-        return terminal.requestedWorkingDirectory
+        terminalWorkingDirectory(for: sourcePanelId)
     }
 
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool {
