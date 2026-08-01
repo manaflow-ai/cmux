@@ -42,10 +42,7 @@ public struct BrowserURLResolver: Sendable {
 
         let lower = trimmed.lowercased()
         let bareHost = bareHostCandidate(lower)
-        if bareHost == "localhost" ||
-            isIPv4Loopback(bareHost) ||
-            bareHost == "::1" ||
-            (bareHost != ".localhost" && bareHost.hasSuffix(".localhost")) {
+        if isBrowserLoopbackHost(bareHost) {
             return URL(string: "http://\(trimmed)")
         }
 
@@ -174,13 +171,6 @@ public struct BrowserURLResolver: Sendable {
         return String(lowercasedInput[..<end])
     }
 
-    /// Recognizes IPv4 loopback addresses without accepting dotted-host lookalikes.
-    private func isIPv4Loopback(_ host: String) -> Bool {
-        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
-        guard octets.count == 4, octets.allSatisfy({ UInt8($0) != nil }) else { return false }
-        return octets[0] == "127"
-    }
-
     private func isDottedHostWithPort(_ input: String, schemeCandidate: String) -> Bool {
         guard schemeCandidate.contains(".") else { return false }
         guard input.count > schemeCandidate.count else { return false }
@@ -192,4 +182,19 @@ public struct BrowserURLResolver: Sendable {
         let rest = portAndRest.dropFirst(port.count)
         return rest.isEmpty || rest.first == "/" || rest.first == "?" || rest.first == "#"
     }
+}
+
+/// Recognizes local development hosts without accepting dotted-host lookalikes.
+func isBrowserLoopbackHost(_ candidate: String) -> Bool {
+    let host = candidate.lowercased()
+    if host == "localhost" || host == "::1" {
+        return true
+    }
+    if host != ".localhost", host.hasSuffix(".localhost") {
+        return true
+    }
+    let octets = host.split(separator: ".", omittingEmptySubsequences: false)
+    return octets.count == 4
+        && octets.allSatisfy { UInt8($0) != nil }
+        && octets[0] == "127"
 }
