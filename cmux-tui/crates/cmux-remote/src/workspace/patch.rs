@@ -399,12 +399,48 @@ async fn snapshot_path(
 fn split_unified_patch(source: &str) -> Result<Vec<String>, RpcError> {
     let lines = source.split_inclusive('\n').collect::<Vec<_>>();
     let mut starts = Vec::new();
-    for index in 0..lines.len() {
+    let mut index = 0;
+    let mut section_open = false;
+    let mut hunk_remaining = None;
+    while index < lines.len() {
+        if let Some((old_remaining, new_remaining)) = hunk_remaining.as_mut() {
+            if *old_remaining == 0 && *new_remaining == 0 {
+                hunk_remaining = None;
+                continue;
+            }
+            match lines[index].as_bytes().first().copied() {
+                Some(b' ') if *old_remaining > 0 && *new_remaining > 0 => {
+                    *old_remaining -= 1;
+                    *new_remaining -= 1;
+                }
+                Some(b'-') if *old_remaining > 0 => *old_remaining -= 1,
+                Some(b'+') if *new_remaining > 0 => *new_remaining -= 1,
+                Some(b'\\') => {}
+                _ => {
+                    hunk_remaining = None;
+                    continue;
+                }
+            }
+            index += 1;
+            continue;
+        }
+        if section_open && let Some(counts) = unified_hunk_line_counts(lines[index]) {
+            hunk_remaining = Some(counts);
+            index += 1;
+            continue;
+        }
         if lines[index].starts_with("--- ")
             && lines.get(index + 1).is_some_and(|line| line.starts_with("+++ "))
         {
             starts.push(index);
+            section_open = true;
+            index += 2;
+            continue;
         }
+        if lines[index].starts_with("diff --git ") {
+            section_open = false;
+        }
+        index += 1;
     }
     if starts.is_empty() {
         return Err(RpcError::new(
@@ -423,6 +459,20 @@ fn split_unified_patch(source: &str) -> Result<Vec<String>, RpcError> {
         sections.push(lines[start..end].concat());
     }
     Ok(sections)
+}
+
+fn unified_hunk_line_counts(line: &str) -> Option<(usize, usize)> {
+    let line = line.trim_end_matches(['\r', '\n']);
+    let ranges = line.strip_prefix("@@ -")?;
+    let (old_range, ranges) = ranges.split_once(" +")?;
+    let (new_range, _) = ranges.split_once(" @@")?;
+    Some((unified_range_line_count(old_range)?, unified_range_line_count(new_range)?))
+}
+
+fn unified_range_line_count(range: &str) -> Option<usize> {
+    let (start, count) = range.split_once(',').map_or((range, "1"), |parts| parts);
+    start.parse::<usize>().ok()?;
+    count.parse().ok()
 }
 
 fn normalize_patch_path(path: &str) -> Result<Option<String>, RpcError> {

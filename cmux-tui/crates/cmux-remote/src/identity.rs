@@ -4,7 +4,7 @@ use std::fs::File;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex as StdMutex};
+use std::sync::{Arc, Condvar, Mutex as StdMutex, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
@@ -877,7 +877,7 @@ pub struct AuthDatabase {
     daemon_name: String,
     identity: StaticIdentity,
     allow_carrier: bool,
-    state: Mutex<AuthState>,
+    state: Arc<Mutex<AuthState>>,
     persistence: Arc<PersistenceCoordinator>,
     pending_changed: Notify,
     #[cfg(test)]
@@ -949,7 +949,7 @@ impl AuthDatabase {
             daemon_name,
             identity,
             allow_carrier,
-            state: Mutex::new(AuthState::from_persisted(persisted)),
+            state: Arc::new(Mutex::new(AuthState::from_persisted(persisted))),
             persistence,
             pending_changed: Notify::new(),
             #[cfg(test)]
@@ -1476,6 +1476,7 @@ impl ServerAuthenticator for AuthDatabase {
                 let now = unix_time().map_err(|error| error.to_string())?;
                 let fingerprint = public_key_fingerprint(&request.device_public_key);
                 let (decision_tx, decision_rx) = oneshot::channel();
+                let pending_token = Arc::new(());
                 {
                     let mut state = self.state.lock().await;
                     state.ensure_open().map_err(|error| error.to_string())?;
@@ -1520,18 +1521,20 @@ impl ServerAuthenticator for AuthDatabase {
                             },
                             device_public_key: request.device_public_key,
                             decision: decision_tx,
+                            token: Arc::clone(&pending_token),
                         },
                     );
                 }
+                let mut cleanup =
+                    PendingDecisionCleanup::new(&self.state, invitation_id.clone(), pending_token);
                 self.pending_changed.notify_waiters();
-                match tokio::time::timeout(APPROVAL_TIMEOUT, decision_rx).await {
+                let result = match tokio::time::timeout(APPROVAL_TIMEOUT, decision_rx).await {
                     Ok(Ok(result)) => result,
                     Ok(Err(_)) => Err("enrollment approval channel closed".into()),
-                    Err(_) => {
-                        self.state.lock().await.pending.remove(&invitation_id);
-                        Err("enrollment approval timed out".into())
-                    }
-                }
+                    Err(_) => Err("enrollment approval timed out".into()),
+                };
+                cleanup.finish().await;
+                result
             }
         }
     }
@@ -1635,6 +1638,57 @@ struct PendingDecision {
     request: PendingEnrollment,
     device_public_key: [u8; 32],
     decision: oneshot::Sender<Result<AuthGrant, String>>,
+    token: Arc<()>,
+}
+
+struct PendingDecisionCleanup {
+    state: Weak<Mutex<AuthState>>,
+    invitation_id: String,
+    token: Arc<()>,
+    armed: bool,
+}
+
+impl PendingDecisionCleanup {
+    fn new(state: &Arc<Mutex<AuthState>>, invitation_id: String, token: Arc<()>) -> Self {
+        Self { state: Arc::downgrade(state), invitation_id, token, armed: true }
+    }
+
+    async fn finish(&mut self) {
+        if let Some(state) = self.state.upgrade() {
+            let mut locked = state.lock().await;
+            remove_pending_decision(&mut locked, &self.invitation_id, &self.token);
+        }
+        self.armed = false;
+    }
+}
+
+impl Drop for PendingDecisionCleanup {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let Some(state) = self.state.upgrade() else {
+            return;
+        };
+        if let Ok(mut locked) = state.try_lock() {
+            remove_pending_decision(&mut locked, &self.invitation_id, &self.token);
+            return;
+        }
+        let invitation_id = self.invitation_id.clone();
+        let token = Arc::clone(&self.token);
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                let mut locked = state.lock().await;
+                remove_pending_decision(&mut locked, &invitation_id, &token);
+            });
+        }
+    }
+}
+
+fn remove_pending_decision(state: &mut AuthState, invitation_id: &str, token: &Arc<()>) {
+    if state.pending.get(invitation_id).is_some_and(|pending| Arc::ptr_eq(&pending.token, token)) {
+        state.pending.remove(invitation_id);
+    }
 }
 
 #[derive(Serialize, Deserialize)]
