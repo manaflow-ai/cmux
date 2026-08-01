@@ -54,6 +54,7 @@ const MAX_PROCESS_ARGUMENTS: usize = 4_096;
 const MAX_PROCESS_ENVIRONMENT: usize = 4_096;
 const MAX_PROCESS_CONFIGURATION_BYTES: usize = 4 * 1024 * 1024;
 const TERMINATION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+const CHILD_REAP_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 const MAX_PROCESS_REPLAY_EVENTS: u32 = 1_024;
 const MAX_PROCESS_TIMEOUT_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
 const MAX_OPERATION_ID_BYTES: usize = 256;
@@ -2319,9 +2320,7 @@ async fn wait_and_reap_pipe_child(
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(error) => return Err(error),
         }
-        child_events.recv().await.ok_or_else(|| {
-            std::io::Error::other("SIGCHLD listener closed before the child exited")
-        })?;
+        wait_for_child_exit_hint(child_events).await?;
     }
 }
 
@@ -2339,9 +2338,7 @@ async fn wait_and_reap_pty_child(
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(error) => return Err(error),
             }
-            child_events.recv().await.ok_or_else(|| {
-                std::io::Error::other("SIGCHLD listener closed before the PTY child exited")
-            })?;
+            wait_for_child_exit_hint(child_events).await?;
         }
     }
     loop {
@@ -2351,9 +2348,17 @@ async fn wait_and_reap_pty_child(
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(error) => return Err(error),
         }
-        child_events.recv().await.ok_or_else(|| {
-            std::io::Error::other("SIGCHLD listener closed before the PTY child exited")
-        })?;
+        wait_for_child_exit_hint(child_events).await?;
+    }
+}
+
+#[cfg(unix)]
+async fn wait_for_child_exit_hint(
+    child_events: &mut tokio::signal::unix::Signal,
+) -> std::io::Result<()> {
+    match tokio::time::timeout(CHILD_REAP_POLL_INTERVAL, child_events.recv()).await {
+        Ok(Some(())) | Err(_) => Ok(()),
+        Ok(None) => Err(std::io::Error::other("SIGCHLD listener closed before the child exited")),
     }
 }
 
