@@ -50,7 +50,10 @@ final class TerminalLinkHoverIndicatorView: NSView {
         guard !isHidden,
               !previewShadowView.isHidden,
               previewShadowView.frame.contains(point) else { return nil }
-        return previewShadowView.hitTest(convert(point, to: previewShadowView))
+        // NSView suppresses its own hit testing while its presentation alpha
+        // is near zero. Route through the card content so the webview is live
+        // throughout both fades, including when a re-entry cancels dismissal.
+        return previewBackdrop.hitTest(convert(point, to: previewBackdrop)) ?? previewShadowView
     }
 
     override init(frame frameRect: NSRect) {
