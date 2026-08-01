@@ -1036,11 +1036,13 @@ public struct SimulatorUIAutomationExecutor {
             throw simulatorUISnapshotCaptureFailure(simulatorUIDisplayChangedMessage())
         }
         do {
-            return try coordinator.recordUIAutomationSnapshot(
+            return try await coordinator.recordUIAutomationSnapshot(
                 snapshot,
                 simulatorID: simulatorID,
                 capturedAtMilliseconds: simulatorUIWallTimeNowMilliseconds()
             )
+        } catch SimulatorUIAutomationSnapshotRecordingError.invalidatedDuringPreparation {
+            throw simulatorUIStateChangedFailure()
         } catch {
             throw simulatorUISnapshotCaptureFailure(String(
                 localized: "cli.simulator.error.uiSnapshotViewportMissing",

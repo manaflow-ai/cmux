@@ -26,14 +26,33 @@ final class SimulatorUIAutomationSession {
         _ snapshot: SimulatorAccessibilitySnapshot,
         simulatorID: String,
         capturedAtMilliseconds: Int64
-    ) throws -> SimulatorUIAutomationSnapshotRecord {
-        let newRecord = try snapshot.uiAutomationRecord(
-            simulatorID: simulatorID,
-            sequence: nextSequence,
-            capturedAtMilliseconds: capturedAtMilliseconds
-        )
+    ) async throws -> SimulatorUIAutomationSnapshotRecord {
+        let reservedSequence = nextSequence
         nextSequence &+= 1
-        record = newRecord
+        let startingGeneration = mutationGeneration
+        let preparation = Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
+            let prepared = try snapshot.uiAutomationRecord(
+                simulatorID: simulatorID,
+                sequence: reservedSequence,
+                capturedAtMilliseconds: capturedAtMilliseconds
+            )
+            try Task.checkCancellation()
+            return prepared
+        }
+        let newRecord = try await withTaskCancellationHandler {
+            try await preparation.value
+        } onCancel: {
+            preparation.cancel()
+        }
+        try Task.checkCancellation()
+        guard mutationGeneration == startingGeneration else {
+            throw SimulatorUIAutomationSnapshotRecordingError
+                .invalidatedDuringPreparation
+        }
+        if (record?.snapshot.sequence ?? 0) <= reservedSequence {
+            record = newRecord
+        }
         return newRecord
     }
 

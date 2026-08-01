@@ -26,7 +26,6 @@ public struct SimulatorUIAutomationTickIterator: AsyncIteratorProtocol {
         let beforeWait = scheduler.monotonicNowMilliseconds()
         if isFirstEvent, includesImmediateEvent {
             isFirstEvent = false
-            guard beforeWait <= deadlineMilliseconds else { return nil }
             return beforeWait
         }
         isFirstEvent = false

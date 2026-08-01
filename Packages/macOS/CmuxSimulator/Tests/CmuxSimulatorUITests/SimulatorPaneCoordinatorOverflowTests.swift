@@ -35,14 +35,14 @@ struct SimulatorPaneCoordinatorOverflowTests {
 
     @Test("A dropped UI mutation preserves the last accepted semantic snapshot")
     @MainActor
-    func droppedMutationPreservesSnapshot() throws {
+    func droppedMutationPreservesSnapshot() async throws {
         let coordinator = SimulatorPaneCoordinator(
             client: SimulatorPaneClientSpy(devices: [])
         )
         for sequence in 0..<SimulatorPaneCoordinator.maximumOutgoingMessageCount {
             #expect(coordinator.enqueue(.ping(UInt64(sequence))))
         }
-        let record = try coordinator.recordUIAutomationSnapshot(
+        let record = try await coordinator.recordUIAutomationSnapshot(
             Self.snapshot(),
             simulatorID: "DEVICE",
             capturedAtMilliseconds: 1_000

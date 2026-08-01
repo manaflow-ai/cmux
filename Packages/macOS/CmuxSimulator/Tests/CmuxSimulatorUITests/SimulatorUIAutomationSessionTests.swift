@@ -6,9 +6,9 @@ import Testing
 @Suite("Simulator UI automation session")
 struct SimulatorUIAutomationSessionTests {
     @Test("Refs resolve only from the current unexpired snapshot")
-    func refLifetime() throws {
+    func refLifetime() async throws {
         let session = SimulatorUIAutomationSession()
-        let record = try session.record(
+        let record = try await session.record(
             snapshot(),
             simulatorID: "SIM-1",
             capturedAtMilliseconds: 1_000
@@ -37,9 +37,9 @@ struct SimulatorUIAutomationSessionTests {
     }
 
     @Test("Action contracts and explicit invalidation reject stale refs")
-    func actionContractAndInvalidation() throws {
+    func actionContractAndInvalidation() async throws {
         let session = SimulatorUIAutomationSession()
-        let record = try session.record(
+        let record = try await session.record(
             snapshot(),
             simulatorID: "SIM-1",
             capturedAtMilliseconds: 1_000
@@ -70,9 +70,9 @@ struct SimulatorUIAutomationSessionTests {
     }
 
     @Test("A newer snapshot never rebinds an older ordinal ref")
-    func replacementSnapshotInvalidatesOldRef() throws {
+    func replacementSnapshotInvalidatesOldRef() async throws {
         let session = SimulatorUIAutomationSession()
-        let first = try session.record(
+        let first = try await session.record(
             snapshot(),
             simulatorID: "SIM-1",
             capturedAtMilliseconds: 1_000
@@ -80,7 +80,7 @@ struct SimulatorUIAutomationSessionTests {
         let oldRef = try #require(first.snapshot.elements.first {
             $0.identifier == "continue"
         }?.ref)
-        let second = try session.record(
+        let second = try await session.record(
             snapshot(),
             simulatorID: "SIM-1",
             capturedAtMilliseconds: 2_000
@@ -100,9 +100,9 @@ struct SimulatorUIAutomationSessionTests {
     }
 
     @Test("A ref-derived wait selector must identify one source element")
-    func stableSelectorRejectsAmbiguousSource() throws {
+    func stableSelectorRejectsAmbiguousSource() async throws {
         let session = SimulatorUIAutomationSession()
-        let record = try session.record(
+        let record = try await session.record(
             snapshotWithDuplicateIdentifiers(),
             simulatorID: "SIM-1",
             capturedAtMilliseconds: 1_000
@@ -123,21 +123,21 @@ struct SimulatorUIAutomationSessionTests {
     }
 
     @Test("Recording and device reset preserve a monotonic sequence")
-    func sequenceRemainsMonotonicAcrossReset() throws {
+    func sequenceRemainsMonotonicAcrossReset() async throws {
         let session = SimulatorUIAutomationSession()
-        #expect(try session.record(
+        #expect(try await session.record(
             snapshot(),
             simulatorID: "SIM-1",
             capturedAtMilliseconds: 1
         ).snapshot.sequence == 1)
-        #expect(try session.record(
+        #expect(try await session.record(
             snapshot(),
             simulatorID: "SIM-1",
             capturedAtMilliseconds: 2
         ).snapshot.sequence == 2)
 
         session.reset()
-        #expect(try session.record(
+        #expect(try await session.record(
             snapshot(),
             simulatorID: "SIM-2",
             capturedAtMilliseconds: 3

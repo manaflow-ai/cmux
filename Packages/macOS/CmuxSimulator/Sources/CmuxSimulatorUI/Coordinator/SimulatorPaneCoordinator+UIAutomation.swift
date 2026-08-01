@@ -31,14 +31,14 @@ extension SimulatorPaneCoordinator {
     ///   - simulatorID: The selected CoreSimulator device identifier.
     ///   - capturedAtMilliseconds: The capture time in Unix epoch milliseconds.
     /// - Returns: The public snapshot and its lookup metadata.
-    /// - Throws: ``SimulatorUIAutomationSnapshotError/viewportUnavailable`` when no root
-    ///   has a usable viewport.
+    /// - Throws: When no root has a usable viewport, the task is cancelled, or the pane
+    ///   changes before the prepared snapshot can be committed.
     public func recordUIAutomationSnapshot(
         _ snapshot: SimulatorAccessibilitySnapshot,
         simulatorID: String,
         capturedAtMilliseconds: Int64
-    ) throws -> SimulatorUIAutomationSnapshotRecord {
-        try uiAutomationSession.record(
+    ) async throws -> SimulatorUIAutomationSnapshotRecord {
+        try await uiAutomationSession.record(
             snapshot,
             simulatorID: simulatorID,
             capturedAtMilliseconds: capturedAtMilliseconds
