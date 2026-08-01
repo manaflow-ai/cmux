@@ -18,6 +18,9 @@ struct DescriptorCleanup {
     descriptor_limit: RawFd,
 }
 
+#[cfg(target_os = "linux")]
+const MAX_INDIVIDUAL_DESCRIPTOR_LIMIT: RawFd = 65_536;
+
 impl DescriptorCleanup {
     fn new(descriptor_limit: RawFd) -> Self {
         Self { descriptor_limit }
@@ -160,10 +163,13 @@ fn mark_inherited_descriptors_close_on_exec(cleanup: &DescriptorCleanup) -> io::
             unsafe { libc::close(directory_fd) };
             return result;
         }
-        // The configured table limit is finite even when it is large. An
-        // allocation-free scan is slower than the two fast paths, but it is
-        // async-signal-safe and cannot leak inherited descriptors merely
-        // because a hardened or minimal environment denies both fast paths.
+        // Never turn an adversarial or unusually large descriptor limit into
+        // hundreds of thousands of syscalls in the post-fork child. Returning
+        // an error aborts the spawn before exec, so failing closed preserves
+        // descriptor isolation without stalling the parent.
+        if cleanup.descriptor_limit > MAX_INDIVIDUAL_DESCRIPTOR_LIMIT {
+            return Err(io::Error::from_raw_os_error(libc::EOVERFLOW));
+        }
     }
     mark_descriptors_close_on_exec_individually(cleanup.descriptor_limit)
 }
