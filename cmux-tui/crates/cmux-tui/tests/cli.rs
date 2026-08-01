@@ -1793,10 +1793,15 @@ fn invalid_websocket_startup_returns_after_publishing_the_local_socket() {
     let dir = unique_temp_dir("invalid-websocket-startup");
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("mux.sock");
+    let ghostty = dir.join("ghostty");
+    fs::write(&ghostty, "#!/bin/sh\nprintf 'background = #272822\\nforeground = #fdfff1\\n'\n")
+        .unwrap();
+    fs::set_permissions(&ghostty, fs::Permissions::from_mode(0o700)).unwrap();
     let mut server = Command::new(bin())
         .args(["--headless", "--ephemeral", "--socket"])
         .arg(&socket)
         .args(["--ws", "not-an-address"])
+        .env("GHOSTTY_BIN", &ghostty)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()

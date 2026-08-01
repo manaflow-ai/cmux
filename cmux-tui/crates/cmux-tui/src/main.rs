@@ -1661,9 +1661,19 @@ fn finish_server_process(
     server_process: ServerProcessShutdownGuard,
     result: anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    if !server_process.has_published_socket() {
+    let has_published_socket = server_process.has_published_socket();
+    if !has_published_socket || result.is_err() {
         let shutdown_result = server_process.shutdown();
-        server_process.abandon_unpublished();
+        if has_published_socket {
+            if shutdown_result.is_err() {
+                // A failed cleanup retains the published socket and exact
+                // process owners until an explicit stop retries it.
+                server_process.wait_for_shutdown();
+            }
+            server_process.complete();
+        } else {
+            server_process.abandon_unpublished();
+        }
         return match (result, shutdown_result) {
             (result, Ok(())) => result,
             (Ok(()), Err(shutdown_error)) => Err(shutdown_error),
