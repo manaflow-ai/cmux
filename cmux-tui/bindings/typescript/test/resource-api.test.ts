@@ -134,6 +134,7 @@ class FakeTransport implements Transport {
 }
 
 class DispatchHandleTransport implements Transport {
+  readonly supportsDispatchGuard = true;
   readonly dispatched: string[] = [];
   readonly registrations: string[] = [];
   retained: string | undefined;
@@ -148,10 +149,15 @@ class DispatchHandleTransport implements Transport {
     this.dispatched.push(json);
   }
 
-  sendCancellable(json: string, onDispatched: () => void): Unsubscribe {
+  sendCancellable(
+    json: string,
+    onDispatched: () => void,
+    dispatchGuard?: () => boolean,
+  ): Unsubscribe {
     this.registrations.push(json);
     this.retained = json;
     const dispatch = () => {
+      if (dispatchGuard?.() === false) return;
       onDispatched();
       this.dispatched.push(json);
     };
@@ -187,6 +193,38 @@ class DispatchHandleTransport implements Transport {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    for (const handler of this.closes) handler();
+  }
+}
+
+class LegacyDeferredTransport implements Transport {
+  readonly sent: string[] = [];
+  readonly deferred: string[] = [];
+  private readonly closes = new Set<() => void>();
+
+  send(json: string): void {
+    this.sent.push(json);
+  }
+
+  sendCancellable(json: string, _onDispatched: () => void): Unsubscribe {
+    this.deferred.push(json);
+    return () => undefined;
+  }
+
+  onMessage(): Unsubscribe {
+    return () => undefined;
+  }
+
+  onClose(handler: () => void): Unsubscribe {
+    this.closes.add(handler);
+    return () => this.closes.delete(handler);
+  }
+
+  onError(): Unsubscribe {
+    return () => undefined;
+  }
+
+  close(): void {
     for (const handler of this.closes) handler();
   }
 }
@@ -252,6 +290,34 @@ test("raw router releases the exact cancellation handle at dispatch", async () =
     await client.close();
     await assert.rejects(() => pending, /transport closed/);
     assert.equal(transport.releases, 1);
+  }
+});
+
+test("clients do not trust unadvertised cancellable dispatch guards", async () => {
+  {
+    const transport = new LegacyDeferredTransport();
+    const client = new Client({ transport, timeoutMs: 0 });
+    const pending = client.session(SESSION).ping();
+    const rejected = assert.rejects(() => pending, CmuxConnectionError);
+
+    assert.equal(transport.sent.length, 1);
+    assert.deepEqual(transport.deferred, []);
+
+    client.close();
+    await rejected;
+  }
+
+  {
+    const transport = new LegacyDeferredTransport();
+    const client = new CmuxClient({ transport, timeoutMs: 1_000 });
+    const pending = client.sendRaw({ id: 3, cmd: "ping" });
+    const rejected = assert.rejects(() => pending, /transport closed/);
+
+    assert.equal(transport.sent.length, 1);
+    assert.deepEqual(transport.deferred, []);
+
+    await client.close();
+    await rejected;
   }
 });
 
@@ -1269,6 +1335,58 @@ test("request.cancel false rejects malformed target results in both orders", asy
     await assert.rejects(() => waiting, CmuxAbortError);
     assert.equal(client.closed, true);
     await assert.rejects(() => client.session(SESSION).ping());
+  }
+});
+
+test("request.cancel false validates wait_exit identity before reuse", async () => {
+  const otherTerminal = terminalId(`term_${"d".repeat(32)}`);
+  for (const responseFirst of [false, true]) {
+    const transport = new FakeTransport(() => {});
+    const client = new Client({ transport, timeoutMs: 200 });
+    const session = client.session(SESSION);
+    const abort = new AbortController();
+    const waiting = session.terminal(TERMINAL).waitExit(undefined, {
+      signal: abort.signal,
+    });
+    const target = await waitForOperation(transport, "terminal.wait_exit");
+    abort.abort();
+    const canceled = await waitForOperation(transport, "request.cancel");
+    const ping = session.ping();
+    const pingRejected = assert.rejects(() => ping);
+
+    try {
+      const wrongTarget = {
+        state: "pending",
+        terminal_id: otherTerminal,
+        lifecycle: "running",
+        revision: "1",
+      };
+      if (responseFirst) {
+        transport.ok(target, wrongTarget);
+      } else {
+        transport.ok(canceled, { canceled: false });
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
+      assert.equal(
+        transport.requests.filter(
+          (request) => request.operation === "session.ping",
+        ).length,
+        0,
+      );
+
+      if (responseFirst) {
+        transport.ok(canceled, { canceled: false });
+      } else {
+        transport.ok(target, wrongTarget);
+      }
+
+      await assert.rejects(() => waiting, CmuxAbortError);
+      assert.equal(client.closed, true);
+      await pingRejected;
+    } finally {
+      client.close();
+      await Promise.allSettled([waiting, ping, pingRejected]);
+    }
   }
 });
 

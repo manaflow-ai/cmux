@@ -84,6 +84,55 @@ class FakeWebSocket implements WebSocketLike {
   }
 }
 
+class FakeEmitterWebSocket implements WebSocketLike {
+  static readonly instances: FakeEmitterWebSocket[] = [];
+  readonly sent: string[] = [];
+  readyState = 0;
+  closeCalls = 0;
+  private readonly listeners = new Map<
+    string,
+    Set<(...args: unknown[]) => void>
+  >();
+
+  constructor(_url: string | URL, _protocols?: string | string[]) {
+    FakeEmitterWebSocket.instances.push(this);
+  }
+
+  send(data: string): void {
+    this.sent.push(data);
+  }
+
+  close(code = 1000, reason = ""): void {
+    this.closeCalls += 1;
+    this.readyState = 3;
+    this.emit("close", code, new TextEncoder().encode(reason));
+  }
+
+  on(type: string, listener: (...args: unknown[]) => void): void {
+    const listeners = this.listeners.get(type) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  open(): void {
+    this.readyState = 1;
+    this.emit("open");
+  }
+
+  rejectAuthentication(): void {
+    this.readyState = 3;
+    this.emit(
+      "close",
+      1008,
+      new TextEncoder().encode("authentication failed"),
+    );
+  }
+
+  private emit(type: string, ...args: unknown[]): void {
+    for (const listener of this.listeners.get(type) ?? []) listener(...args);
+  }
+}
+
 const Constructor = FakeWebSocket as unknown as WebSocketConstructor;
 const ResourceConstructor =
   FakeWebSocket as unknown as ResourceWebSocketConstructor;
@@ -103,6 +152,7 @@ interface SurfaceTransport {
 
 interface SurfaceOptions {
   readonly authToken?: string;
+  readonly maxPreauthenticationMessageBytes?: number;
   readonly onPairingChallenge?: (challenge: {
     readonly id?: bigint;
     readonly code: string;
@@ -121,6 +171,8 @@ function createSurfaceTransport(
     const transport = new WebSocketTransport("ws://localhost/cmux", {
       WebSocket: Constructor,
       authToken: options.authToken,
+      maxPreauthenticationMessageBytes:
+        options.maxPreauthenticationMessageBytes,
       onPairingChallenge: ({ id, code, peer, expiresIn }) =>
         options.onPairingChallenge?.({ id, code, peer, expiresIn }),
       onPairingCredential: options.onPairingCredential,
@@ -131,12 +183,42 @@ function createSurfaceTransport(
   const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
     WebSocket: ResourceConstructor,
     authToken: options.authToken,
+    maxPreauthenticationMessageBytes:
+      options.maxPreauthenticationMessageBytes,
     onPairingChallenge: ({ code, peer, expiresIn }) =>
       options.onPairingChallenge?.({ code, peer, expiresIn }),
     onPairingCredential: options.onPairingCredential,
     onAuthenticationRejected: options.onAuthenticationRejected,
   });
   return { transport, socket: FakeWebSocket.instances.at(-1)! };
+}
+
+function createEmitterSurfaceTransport(
+  surface: WebSocketSurface,
+  options: SurfaceOptions = {},
+): {
+  readonly transport: SurfaceTransport;
+  readonly socket: FakeEmitterWebSocket;
+} {
+  const EmitterConstructor =
+    FakeEmitterWebSocket as unknown as WebSocketConstructor;
+  const ResourceEmitterConstructor =
+    FakeEmitterWebSocket as unknown as ResourceWebSocketConstructor;
+  const transport = surface === "raw"
+    ? new WebSocketTransport("ws://localhost/cmux", {
+      WebSocket: EmitterConstructor,
+      authToken: options.authToken,
+      onAuthenticationRejected: options.onAuthenticationRejected,
+    })
+    : new ResourceWebSocketTransport("ws://localhost/cmux", {
+      WebSocket: ResourceEmitterConstructor,
+      authToken: options.authToken,
+      onAuthenticationRejected: options.onAuthenticationRejected,
+    });
+  return {
+    transport,
+    socket: FakeEmitterWebSocket.instances.at(-1)!,
+  };
 }
 
 function resourceOperationCount(socket: FakeWebSocket, operation: string): number {
@@ -174,10 +256,13 @@ for (const surface of WEBSOCKET_SURFACES) {
   test(`${surface} WebSocket pairing challenge validation preserves its public shape`, () => {
     const received: Parameters<NonNullable<SurfaceOptions["onPairingChallenge"]>>[0][] = [];
     const errors: Error[] = [];
+    let closes = 0;
     const { transport, socket } = createSurfaceTransport(surface, {
       onPairingChallenge: (challenge) => received.push(challenge),
     });
     transport.onError((error) => errors.push(error));
+    transport.onClose(() => closes += 1);
+    transport.send("queued");
 
     socket.open();
     socket.message(
@@ -193,7 +278,32 @@ for (const surface of WEBSOCKET_SURFACES) {
         : { code: "123 456", peer: "127.0.0.1", expiresIn: 60 },
     ]);
     assert.match(errors[0]?.message ?? "", /invalid pairing data/);
-    transport.close();
+    assert.equal(closes, 1);
+    assert.equal(socket.closeCalls, 1);
+    assert.deepEqual(socket.sent, ['{"pair":{"request":true}}']);
+    assert.throws(() => transport.send("late"), /closed/);
+  });
+
+  test(`${surface} WebSocket pairing denial is terminal and redacts peer text`, () => {
+    const peerSecret = "pairing denied for auth token secret-123";
+    const errors: Error[] = [];
+    let closes = 0;
+    const { transport, socket } = createSurfaceTransport(surface);
+    transport.onError((error) => errors.push(error));
+    transport.onClose(() => closes += 1);
+    transport.send("queued");
+
+    socket.open();
+    socket.message(JSON.stringify({
+      pairing_error: { message: peerSecret },
+    }));
+
+    assert.equal(errors[0]?.message, "WebSocket pairing failed");
+    assert.ok(!errors[0]?.message.includes(peerSecret));
+    assert.equal(closes, 1);
+    assert.equal(socket.closeCalls, 1);
+    assert.deepEqual(socket.sent, ['{"pair":{"request":true}}']);
+    assert.throws(() => transport.send("late"), /closed/);
   });
 
   test(`${surface} WebSocket token mode sends auth before queued frames`, () => {
@@ -224,21 +334,49 @@ for (const surface of WEBSOCKET_SURFACES) {
       transport.onError((error) => errors.push(error));
       transport.onClose(() => closes += 1);
       transport.send("queued");
+      const adapterSecret = `${preamble.name}-adapter-secret`;
       socket.sendFailure = (data) => data.includes(preamble.frame)
-        ? new Error(`${preamble.name} preamble exploded`)
+        ? new Error(`preamble exposed ${adapterSecret}`)
         : undefined;
 
       assert.doesNotThrow(() => socket.open());
       assert.deepEqual(socket.sent, []);
-      assert.match(
-        errors[0]?.message ?? "",
-        new RegExp(`${preamble.name} preamble failed.*preamble exploded`),
+      assert.equal(
+        errors[0]?.message,
+        `WebSocket ${preamble.name} preamble failed`,
       );
+      assert.ok(!errors[0]?.message.includes(adapterSecret));
       assert.equal(closes, 1);
       assert.equal(socket.closeCalls, 1);
       assert.throws(() => transport.send("late"), /closed/);
     });
   }
+
+  test(`${surface} WebSocket rejects an oversized auth preamble locally`, () => {
+    const errors: Error[] = [];
+    let closes = 0;
+    let authenticationRejected = 0;
+    const { transport, socket } = createSurfaceTransport(surface, {
+      authToken: "secret-token".repeat(8),
+      maxPreauthenticationMessageBytes: 32,
+      onAuthenticationRejected: () => authenticationRejected += 1,
+    });
+    transport.onError((error) => errors.push(error));
+    transport.onClose(() => closes += 1);
+    transport.send("queued");
+
+    socket.open();
+
+    assert.deepEqual(socket.sent, []);
+    assert.equal(
+      errors[0]?.message,
+      "WebSocket authentication preamble exceeds 32 bytes",
+    );
+    assert.equal(authenticationRejected, 0);
+    assert.equal(closes, 1);
+    assert.equal(socket.closeCalls, 1);
+    assert.throws(() => transport.send("late"), /closed/);
+  });
 
   test(`${surface} WebSocket paired flush failure closes before credential publication`, () => {
     const credentials: string[] = [];
@@ -251,15 +389,17 @@ for (const surface of WEBSOCKET_SURFACES) {
     transport.onClose(() => closes += 1);
     transport.send("queued");
     socket.open();
+    const adapterSecret = "queued-adapter-auth-token";
     socket.sendFailure = (data) => data === "queued"
-      ? new Error("queued dispatch exploded")
+      ? new Error(`queued dispatch exposed ${adapterSecret}`)
       : undefined;
 
     assert.doesNotThrow(() => {
       socket.message('{"paired":{"credential":"issued-secret"}}');
     });
     assert.deepEqual(credentials, ["issued-secret"]);
-    assert.match(errors[0]?.message ?? "", /dispatch failed.*queued dispatch exploded/);
+    assert.equal(errors[0]?.message, "WebSocket dispatch failed");
+    assert.ok(!errors[0]?.message.includes(adapterSecret));
     assert.equal(closes, 1);
     assert.equal(socket.closeCalls, 1);
     assert.throws(() => transport.send("late"), /closed/);
@@ -348,6 +488,41 @@ for (const surface of WEBSOCKET_SURFACES) {
       "close-one",
       "close-two",
     ]);
+  });
+
+  test(`${surface} EventEmitter close preserves credential rejection metadata`, () => {
+    const errors: Error[] = [];
+    let rejected = 0;
+    let closes = 0;
+    const { transport, socket } = createEmitterSurfaceTransport(surface, {
+      authToken: "expired",
+      onAuthenticationRejected: () => rejected += 1,
+    });
+    transport.onError((error) => errors.push(error));
+    transport.onClose(() => closes += 1);
+
+    socket.open();
+    socket.rejectAuthentication();
+
+    assert.equal(errors[0]?.constructor.name, "CmuxAuthenticationRejectedError");
+    assert.equal(rejected, 1);
+    assert.equal(closes, 1);
+  });
+
+  test(`${surface} WebSocket redacts adapter error details`, () => {
+    const adapterSecret = "adapter echoed auth token secret-456";
+    const errors: Error[] = [];
+    const { transport, socket } = createSurfaceTransport(surface, {
+      authToken: "shared-token",
+    });
+    transport.onError((error) => errors.push(error));
+
+    socket.open();
+    socket.error(new Error(adapterSecret));
+
+    assert.equal(errors[0]?.message, "WebSocket transport error");
+    assert.ok(!errors[0]?.message.includes(adapterSecret));
+    transport.close();
   });
 
   test(`${surface} WebSocket pairing denial preserves stored credentials`, () => {
@@ -571,10 +746,10 @@ test("WebSocketTransport forwards text, errors, and close", () => {
   transport.onClose(() => closes += 1);
   socket.open();
   socket.message('{"event":"tree-changed"}');
-  socket.error(new Error("boom"));
+  socket.error(new Error("adapter exposed secret-token"));
   socket.close();
   assert.deepEqual(messages, ['{"event":"tree-changed"}']);
-  assert.equal(errors[0]?.message, "boom");
+  assert.equal(errors[0]?.message, "WebSocket transport error");
   assert.equal(closes, 1);
 });
 
@@ -661,8 +836,9 @@ for (const preamble of [
     });
     const client = new Client({ transport, timeoutMs: 0 });
     const socket = FakeWebSocket.instances.at(-1)!;
+    const adapterSecret = `${preamble.name}-resource-adapter-secret`;
     socket.sendFailure = (data) => data.includes(preamble.frame)
-      ? new Error(`${preamble.name} preamble exploded`)
+      ? new Error(`preamble exposed ${adapterSecret}`)
       : undefined;
     transport.onError((error) => errors.push(error));
     transport.onClose(() => closes += 1);
@@ -672,10 +848,11 @@ for (const preamble of [
     try {
       assert.doesNotThrow(() => socket.open());
       assert.deepEqual(socket.sent, []);
-      assert.match(
-        errors[0]?.message ?? "",
-        new RegExp(`WebSocket ${preamble.name} preamble failed.*preamble exploded`),
+      assert.equal(
+        errors[0]?.message,
+        `WebSocket ${preamble.name} preamble failed`,
       );
+      assert.ok(!errors[0]?.message.includes(adapterSecret));
       assert.equal(errors.length, 1);
       assert.equal(closes, 1);
       assert.equal(socket.readyState, 3);
@@ -709,8 +886,9 @@ for (const preamble of [
     const client = new Client({ transport, timeoutMs: 0 });
     const socket = FakeWebSocket.instances.at(-1)!;
     socket.delayCloseEvent = true;
+    const adapterSecret = `${preamble.name}-late-resource-secret`;
     socket.sendFailure = (data) => data.includes(preamble.frame)
-      ? new Error(`${preamble.name} preamble exploded`)
+      ? new Error(`preamble exposed ${adapterSecret}`)
       : undefined;
     transport.onError((error) => errors.push(error));
     transport.onClose(() => closes += 1);
@@ -722,6 +900,11 @@ for (const preamble of [
       socket.open();
       assert.equal(socket.readyState, 2);
       assert.equal(closes, 0);
+      assert.equal(
+        errors[0]?.message,
+        `WebSocket ${preamble.name} preamble failed`,
+      );
+      assert.ok(!errors[0]?.message.includes(adapterSecret));
 
       socket.message('{"paired":{"credential":"late-secret"}}');
       assert.deepEqual(credentials, []);
@@ -1005,15 +1188,17 @@ test("resource WebSocket send failure during paired flush closes and settles", a
 
   try {
     socket.open();
+    const adapterSecret = "resource-queued-auth-token";
     socket.sendFailure = (data) => data.includes('"operation":"session.ping"')
-      ? new Error("queued send exploded")
+      ? new Error(`queued send exposed ${adapterSecret}`)
       : undefined;
     assert.doesNotThrow(() => {
       socket.message('{"paired":{"credential":"resource-secret"}}');
     });
 
     assert.deepEqual(credentials, ["resource-secret"]);
-    assert.match(errors[0]?.message ?? "", /dispatch failed.*queued send exploded/);
+    assert.equal(errors[0]?.message, "WebSocket dispatch failed");
+    assert.ok(!errors[0]?.message.includes(adapterSecret));
     assert.equal(socket.readyState, 3);
     assert.equal(closes, 1);
     await Promise.race([

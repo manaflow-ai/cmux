@@ -104,6 +104,34 @@ async function delayedUnixFixture(
   };
 }
 
+test("delayed Unix fixture rejects when the socket fails before connect", async () => {
+  const fixture = await delayedUnixFixture();
+  const socket = (
+    fixture.transport as unknown as { readonly socket: Socket }
+  ).socket;
+  const ready = fixture.ready().then(
+    () => ({ state: "resolved" as const }),
+    (error: unknown) => ({ state: "rejected" as const, error }),
+  );
+
+  try {
+    socket.emit("error", new Error("fixture connect failed"));
+    socket.destroy();
+    const outcome = await Promise.race([
+      ready,
+      new Promise<{ state: "pending" }>((resolve) => {
+        setTimeout(() => resolve({ state: "pending" }), 50);
+      }),
+    ]);
+    assert.equal(outcome.state, "rejected");
+    if (outcome.state === "rejected") {
+      assert.match(String(outcome.error), /fixture connect failed/);
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 function unixResourceOperationCount(
   fixture: DelayedUnixFixture,
   operation: string,
@@ -411,6 +439,34 @@ test("Unix failure fans out throwing observers before destroying the socket", as
     assert.deepEqual(calls, ["error-one", "error-two"]);
     assert.equal(transport.socket.destroyed, true);
     await closed;
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("Unix connect callback contains observer failures during flush failure", async () => {
+  const fixture = await delayedUnixFixture();
+  const transport = fixture.transport as Transport;
+  const calls: string[] = [];
+  const closed = new Promise<void>((resolve) => fixture.transport.onClose(resolve));
+  fixture.transport.onError(() => {
+    calls.push("error-one");
+    throw new Error("first Unix error observer failed");
+  });
+  fixture.transport.onError(() => calls.push("error-two"));
+  assert.ok(transport.sendCancellable);
+  transport.sendCancellable("queued", () => {
+    throw new Error("dispatch callback failed");
+  });
+
+  try {
+    await assert.doesNotReject(() => fixture.release());
+    await closed;
+    assert.deepEqual(calls, ["error-one", "error-two"]);
+    assert.equal(
+      (fixture.transport as unknown as { readonly socket: Socket }).socket.destroyed,
+      true,
+    );
   } finally {
     await fixture.close();
   }
