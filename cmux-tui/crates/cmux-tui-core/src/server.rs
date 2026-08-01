@@ -12783,6 +12783,63 @@ mod tests {
     }
 
     #[test]
+    fn daemon_shutdown_force_preserves_the_identity_fence() {
+        let mux = test_mux();
+        let owner_writer = test_writer();
+        let owner = mux.control_clients.register(ClientTransport::Unix, owner_writer.clone());
+        handle_command(
+            &mux,
+            owner,
+            Command::SetClientInfo {
+                name: Some("browser owner".to_string()),
+                kind: Some("native-browser".to_string()),
+                capabilities: None,
+            },
+            &owner_writer,
+        )
+        .unwrap();
+
+        let (requester_writer, outbound) = captured_writer();
+        let requester =
+            mux.control_clients.register(ClientTransport::Unix, requester_writer.clone());
+        let (_, generation) = mux.registry_identity();
+        assert!(handle_message(
+            &mux,
+            requester,
+            &json!({
+                "id": 95,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id(),
+                "generation": "stale-generation",
+                "force": true,
+            })
+            .to_string(),
+            &requester_writer,
+        ));
+        let rejected = pop_json(&outbound);
+        assert_eq!(rejected["ok"], false);
+        assert!(rejected["error"].as_str().unwrap().contains("generation changed"));
+        assert!(!mux.daemon_shutdown_requested());
+
+        assert!(handle_message(
+            &mux,
+            requester,
+            &json!({
+                "id": 96,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id(),
+                "generation": generation,
+                "force": true,
+            })
+            .to_string(),
+            &requester_writer,
+        ));
+        let accepted = pop_json(&outbound);
+        assert_eq!(accepted["ok"], true);
+        assert!(mux.daemon_shutdown_requested());
+    }
+
+    #[test]
     fn daemon_shutdown_atomically_fences_native_browser_ownership() {
         let owned = test_mux();
         let requester_writer = test_writer();

@@ -416,7 +416,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
         let live_server = String::from_utf8(live_server.stderr).unwrap();
         assert!(
             live_server.contains(&format!(
-                "cmux --socket '{}' raw command --request-json '{{\"cmd\":\"shutdown-daemon\",\"generation\":\"schema-generation\",\"id\":1,\"pid\":4242}}'",
+                "cmux --socket '{}' raw command --request-json '{{\"cmd\":\"shutdown-daemon\",\"force\":true,\"generation\":\"schema-generation\",\"id\":1,\"pid\":4242}}'",
                 socket.display()
             )),
             "{live_server}"
