@@ -1,5 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const transport_hook_test = if (builtin.is_test)
+    @import("transport_hook_test.zig")
+else
+    struct {};
 
 pub const VTable = struct {
     read: *const fn (*anyopaque, []u8, ?u32) anyerror!usize,
@@ -133,16 +137,12 @@ const UnixWaitTestHook = struct {
     entered_poll: std.Thread.ResetEvent = .{},
     returned_from_poll: std.Thread.ResetEvent = .{},
     continue_wait: std.Thread.ResetEvent = .{},
-    poll_fd_override: ?std.posix.fd_t = null,
 };
 
 const UnixCloseTestHook = struct {
     shutdown_complete: std.Thread.ResetEvent = .{},
     continue_close: std.Thread.ResetEvent = .{},
 };
-
-var unix_connect_test_hook: if (builtin.is_test) ?*UnixWaitTestHook else void =
-    if (builtin.is_test) null else {};
 
 const UnixConnection = struct {
     allocator: std.mem.Allocator,
@@ -392,7 +392,7 @@ fn connectUnixStream(
             .revents = 0,
         }};
         if (builtin.is_test) {
-            if (unix_connect_test_hook) |hook| {
+            if (transport_hook_test.connect_hook) |hook| {
                 poll_fds[0].fd = hook.poll_fd_override orelse socket;
             }
         }
@@ -405,16 +405,21 @@ fn connectUnixStream(
         else
             -1;
         if (builtin.is_test) {
-            if (unix_connect_test_hook) |hook| hook.entered_poll.set();
+            if (transport_hook_test.connect_hook) |hook| {
+                hook.entered_poll.set();
+            }
         }
         const ready = pollOnce(&poll_fds, poll_timeout) catch |failure| {
             if (failure == error.SignalInterrupt) continue;
             return failure;
         };
         if (builtin.is_test) {
-            if (unix_connect_test_hook) |hook| {
+            if (transport_hook_test.connect_hook) |hook| {
                 hook.returned_from_poll.set();
                 hook.continue_wait.wait();
+                if (hook.fail_ready_poll and ready != 0) {
+                    return error.TestPollReleased;
+                }
             }
         }
         if (ready == 0) {
@@ -817,10 +822,12 @@ test "connect deadline survives repeated signal interruptions" {
         };
     }
 
-    var hook = UnixWaitTestHook{ .poll_fd_override = pipe_fds[1] };
+    var hook = transport_hook_test.ConnectHook{
+        .poll_fd_override = pipe_fds[1],
+    };
     hook.continue_wait.set();
-    unix_connect_test_hook = &hook;
-    defer unix_connect_test_hook = null;
+    transport_hook_test.connect_hook = &hook;
+    defer transport_hook_test.connect_hook = null;
     const PendingConnect = struct {
         path: []const u8,
         thread_id: std.Thread.Id = 0,
