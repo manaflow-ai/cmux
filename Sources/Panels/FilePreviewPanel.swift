@@ -889,8 +889,13 @@ enum FilePreviewKindResolver {
     private static func sniffLooksLikeText(url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
-        let data = (try? handle.read(upToCount: sniffPrefixByteCount)) ?? Data()
-        return prefixLooksLikeText(data)
+        // One byte past the window, so a truncated tail is observed rather than
+        // inferred from the prefix length.
+        let probe = (try? handle.read(upToCount: sniffPrefixByteCount + 1)) ?? Data()
+        return prefixLooksLikeText(
+            probe.prefix(sniffPrefixByteCount),
+            hasMoreBytes: probe.count > sniffPrefixByteCount
+        )
     }
 
     /// Classifies the head of a file that neither its name nor its UTType could
@@ -902,7 +907,10 @@ enum FilePreviewKindResolver {
     /// still source. The control-byte gate applies only to the single-byte
     /// fallback below, where a successful decode proves nothing because
     /// ISO Latin-1 maps every byte.
-    static func prefixLooksLikeText(_ data: Data) -> Bool {
+    /// - Parameter hasMoreBytes: whether the file continues past this prefix.
+    ///   Only then can the tail have been cut mid-scalar; otherwise a malformed
+    ///   tail is a defect in the file rather than an artifact of the read.
+    static func prefixLooksLikeText(_ data: Data, hasMoreBytes: Bool = false) -> Bool {
         guard !data.isEmpty else { return true }
         if hasUTF16ByteOrderMark(data), String(data: data, encoding: .utf16) != nil {
             return true
@@ -913,10 +921,7 @@ enum FilePreviewKindResolver {
         if String(data: data, encoding: .utf8) != nil {
             return true
         }
-        // Only a prefix that filled the read window can have been cut mid-scalar.
-        // A shorter prefix is the whole file, where a malformed tail is a defect
-        // and not an artifact of the read.
-        if data.count == sniffPrefixByteCount,
+        if hasMoreBytes,
            let completedSequences = droppingTrailingPartialUTF8Sequence(data),
            String(data: completedSequences, encoding: .utf8) != nil {
             return true
@@ -927,19 +932,41 @@ enum FilePreviewKindResolver {
     }
 
     /// Drops the trailing UTF-8 sequence that the fixed-size read cut in half.
-    /// Returns nil when the tail is not a truncated sequence.
+    /// Returns nil when the tail is malformed rather than truncated, so the
+    /// caller keeps classifying the bytes it actually has.
     private static func droppingTrailingPartialUTF8Sequence(_ data: Data) -> Data? {
-        var continuationCount = 0
+        var continuations: [UInt8] = []
         for byte in Array(data.suffix(maximumUTF8SequenceLength)).reversed() {
             if byte & 0b1100_0000 == 0b1000_0000 {
-                continuationCount += 1
+                continuations.append(byte)
                 continue
             }
             guard let sequenceLength = utf8SequenceLength(leadByte: byte),
-                  sequenceLength > continuationCount + 1 else { return nil }
-            return data.dropLast(continuationCount + 1)
+                  sequenceLength > continuations.count + 1,
+                  isTruncatedSequence(leadByte: byte, continuations: continuations) else { return nil }
+            return data.dropLast(continuations.count + 1)
         }
         return nil
+    }
+
+    /// The byte after the lead carries a lead-specific range: it rules out
+    /// overlong forms after 0xE0 and 0xF0, surrogates after 0xED, and scalars
+    /// past U+10FFFF after 0xF4. A sequence that violates it was never valid,
+    /// so it cannot be the start of a scalar the read cut in half.
+    ///
+    /// - Parameter continuations: the trailing continuation bytes in reverse
+    ///   order, so the byte right after the lead is the last element.
+    private static func isTruncatedSequence(leadByte: UInt8, continuations: [UInt8]) -> Bool {
+        guard let byteAfterLead = continuations.last else { return true }
+        let allowed: ClosedRange<UInt8>
+        switch leadByte {
+        case 0xE0: allowed = 0xA0...0xBF
+        case 0xED: allowed = 0x80...0x9F
+        case 0xF0: allowed = 0x90...0xBF
+        case 0xF4: allowed = 0x80...0x8F
+        default: allowed = 0x80...0xBF
+        }
+        return allowed.contains(byteAfterLead)
     }
 
     /// Valid UTF-8 lead bytes only. 0xC0 and 0xC1 encode overlong forms and

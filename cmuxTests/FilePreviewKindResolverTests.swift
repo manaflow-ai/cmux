@@ -106,6 +106,37 @@ struct FilePreviewKindResolverTests {
         )
     }
 
+    @Test("A file that ends exactly at the read window keeps its malformed tail")
+    func aFileThatEndsExactlyAtTheReadWindowKeepsItsMalformedTail() throws {
+        var payload = Data(repeating: 0x61, count: FilePreviewKindResolver.sniffPrefixByteCount - 2)
+        payload.append(0x07)
+        payload.append(0xC3)
+        let url = try temporaryFile(extension: "bin", data: payload)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(payload.count == FilePreviewKindResolver.sniffPrefixByteCount)
+        #expect(
+            FilePreviewKindResolver.mode(for: url) == .quickLook,
+            "Nothing follows this prefix, so the lone lead byte is a defect and the control byte decides."
+        )
+    }
+
+    @Test("A tail that violates its lead-specific range is not treated as truncated")
+    func aTailThatViolatesItsLeadSpecificRangeIsNotTreatedAsTruncated() throws {
+        var payload = Data(repeating: 0x61, count: FilePreviewKindResolver.sniffPrefixByteCount - 3)
+        payload.append(0x07)
+        payload.append(0xE0)
+        payload.append(0x80)  // 0xE0 admits 0xA0...0xBF only; this is an overlong form
+        payload.append(contentsOf: Data(repeating: 0x61, count: 16))
+        let url = try temporaryFile(extension: "bin", data: payload)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(
+            FilePreviewKindResolver.mode(for: url) == .quickLook,
+            "Dropping a sequence that was never valid would hide the control byte behind a clean UTF-8 decode."
+        )
+    }
+
     @Test("Valid UTF-8 carrying a control byte still resolves to text")
     func validUTF8CarryingAControlByteStillResolvesToText() throws {
         let url = try temporaryFile(extension: "dat", contents: "ring \u{07} and continue\n")
