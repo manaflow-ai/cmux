@@ -3822,6 +3822,10 @@ struct CMUXCLI {
         let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command) // Backwards compatibility aliases stay hidden from help.
         do {
         switch command {
+        case "__sidebar_footer_icon_balance":
+            let response = try sendV1Command("__sidebar_footer_icon_balance", client: client)
+            print(response)
+
         case "__internal_flags":
             let response = try sendV1Command("__internal_flags", client: client)
             print(response)
@@ -14396,11 +14400,11 @@ struct CMUXCLI {
             let (outPathOpt, _) = parseOption(subArgs, name: "--out")
             let localJSONOutput = hasFlag(subArgs, name: "--json")
             let outputAsJSON = effectiveJSONOutput || localJSONOutput
-            // Leave room beyond the app's capture deadline for its liveness probe and recovery reply.
+            let responseTimeout = BrowserScreenshotTimingBudget().clientResponseTimeout
             var payload = try client.sendV2(
                 method: "browser.screenshot",
                 params: ["surface_id": sid],
-                responseTimeout: 25
+                responseTimeout: responseTimeout
             )
 
             func fileURL(fromPath rawPath: String) -> URL {

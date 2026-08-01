@@ -5,8 +5,58 @@ import Testing
 @testable import CmuxIrohTransport
 
 extension CmxIrohHostRuntimeTests {
-    /// A server-directed nudge asks the host to re-register now instead of
-    /// waiting out the hint-expiry renewal timer. The refresh must run one
+    @Test("pushed revision reconciles the Mac without re-registering")
+    func pushedRevisionReconcilesMacReadOnly() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: now)
+        let first = try HostRuntimeFixture.discovery(
+            binding: fixture.binding,
+            relays: HostRuntimeFixture.relayURLs,
+            revision: 1
+        )
+        let second = try HostRuntimeFixture.discovery(
+            binding: fixture.binding,
+            relays: HostRuntimeFixture.relayURLs,
+            lanGeneration: 2,
+            revision: 2
+        )
+        let broker = TestRevisionedHostBroker(
+            binding: fixture.binding,
+            discoveries: [first, second]
+        )
+        let bindings = HostRuntimeBindingRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { now },
+            handleTransport: { session, _ in await session.close() },
+            handleBinding: { _, _, _ in await bindings.record() }
+        )
+        try await runtime.start()
+
+        #expect(await broker.registrationCount == 1)
+        #expect(await broker.syncCount == 1)
+        #expect(
+            await runtime.reconcileConnectivityRevision(2) == .refreshed
+        )
+        #expect(await broker.registrationCount == 1)
+        #expect(await broker.syncCount == 2)
+        #expect(await bindings.count() == 2)
+
+        #expect(
+            await runtime.reconcileConnectivityRevision(1) == .refreshed
+        )
+        #expect(await broker.registrationCount == 1)
+        #expect(await broker.syncCount == 2)
+        await runtime.stop()
+    }
+
+    /// An explicit request asks the host to re-register now instead of waiting
+    /// out the hint-expiry renewal timer. The refresh must run one
     /// extra broker registration round and leave the runtime active.
     @Test("requestRegistrationRefresh runs an immediate broker round")
     func requestRegistrationRefreshRunsImmediateBrokerRound() async throws {
@@ -39,7 +89,7 @@ extension CmxIrohHostRuntimeTests {
         await runtime.stop()
     }
 
-    /// A nudge-triggered refresh that discovers the binding was REPLACED
+    /// An explicit registration refresh that discovers the binding was REPLACED
     /// server-side (the broker returns a different binding id, the re-key
     /// newest-wins case) must fail closed into `.failed` by the time the
     /// await returns — that settled state is what the macOS composition root
@@ -79,7 +129,7 @@ extension CmxIrohHostRuntimeTests {
         #expect(await runtime.snapshot().state == .failed)
     }
 
-    /// The nudge path must be a no-op on a stopped runtime: no broker round,
+    /// The explicit refresh path must be a no-op on a stopped runtime: no broker round,
     /// no state change.
     @Test("requestRegistrationRefresh is a no-op when inactive")
     func requestRegistrationRefreshNoOpWhenInactive() async throws {
@@ -111,4 +161,74 @@ extension CmxIrohHostRuntimeTests {
         #expect(await broker.observedRegistrationCount() == countAfterStop)
         #expect(await runtime.snapshot().state == .inactive)
     }
+}
+
+private actor TestRevisionedHostBroker:
+    CmxIrohHostBrokerServing,
+    CmxConnectivityAuthorityServing
+{
+    private let binding: CmxIrohBrokerBinding
+    private var discoveries: [CmxIrohDiscoveryResponse]
+    private(set) var registrationCount = 0
+    private(set) var syncCount = 0
+
+    init(
+        binding: CmxIrohBrokerBinding,
+        discoveries: [CmxIrohDiscoveryResponse]
+    ) {
+        self.binding = binding
+        self.discoveries = discoveries
+    }
+
+    func register(
+        prepared _: CmxIrohPreparedRegistration,
+        signer _: CmxIrohRegistrationSigner
+    ) -> CmxIrohRegistrationResponse {
+        registrationCount += 1
+        return CmxIrohRegistrationResponse(
+            revision: discoveries.first?.revision,
+            binding: binding,
+            relay: .unavailable
+        )
+    }
+
+    func syncConnectivity(
+        knownRevision: UInt64?
+    ) throws -> CmxConnectivitySyncResponse {
+        syncCount += 1
+        guard !discoveries.isEmpty else {
+            throw TestIrohTransportError.unsupported
+        }
+        return CmxConnectivitySyncResponse(
+            legacySnapshot: discoveries.removeFirst(),
+            knownRevision: knownRevision
+        )
+    }
+
+    func discover() throws -> CmxIrohDiscoveryResponse {
+        guard let discovery = discoveries.first else {
+            throw TestIrohTransportError.unsupported
+        }
+        return discovery
+    }
+
+    func issueEndpointAttestation(
+        bindingID _: String
+    ) throws -> CmxIrohEndpointAttestationResponse {
+        throw TestIrohTransportError.unsupported
+    }
+
+    func issueRelayToken(
+        bindingID _: String,
+        endpointID _: CmxIrohPeerIdentity
+    ) -> CmxIrohRelayTokenResponse {
+        CmxIrohRelayTokenResponse(
+            token: "testrelaytoken",
+            expiresAt: "2027-07-10T12:00:00.000Z",
+            refreshAfter: "2027-07-10T11:00:00.000Z",
+            relayFleet: HostRuntimeFixture.relayURLs
+        )
+    }
+
+    func revoke(bindingID _: String) {}
 }

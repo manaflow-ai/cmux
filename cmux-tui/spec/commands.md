@@ -1,6 +1,10 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v10 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
+This file specifies private protocol-v10 commands for cmux frontends and raw
+SDK adapters. Application code should use
+[`cmux.protocol/1`](resource-api-v1.md).
+
+Implemented commands match protocol v10 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
 
 ## Notation
 
@@ -3232,7 +3236,19 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Reports agent state for a surface. This is a telemetry command and must not change focus. Reports with `source:"hook"` have hook authority and override detector-derived state. Reports with `source:"socket"` override detector-derived state but are lower priority than a newer hook report.
+Reports agent state for a durable terminal surface without changing focus. A
+successful report commits the same public agent projection used by
+`agent.report`, advances the resource revision, and publishes one agent change
+to `session.events`. The server generates an internal mutation identity for
+this raw command.
+
+Each live terminal has at most one current agent projection. Hook reports have
+authority over socket reports. A socket report received after a hook retains
+the hook value while still advancing the resource revision and publishing that
+retained value. Restart restores the current projection. Closing the terminal
+deletes it, so historical reports cannot recreate an agent. Browser surfaces,
+surfaces without durable terminal identity, and terminal-less default reports
+are rejected.
 
 Params:
 
@@ -3254,6 +3270,8 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown surface <id>` | Surface id does not exist |
+| `surface <id> is not a terminal` | Surface is a browser |
+| `surface <id> has no durable resource identity` | Surface is not durably registered |
 | `bad state <state>` | State is not allowed |
 | `bad source <source>` | Source is not allowed |
 | `bad request: ...` | Missing fields or wrong JSON type |
