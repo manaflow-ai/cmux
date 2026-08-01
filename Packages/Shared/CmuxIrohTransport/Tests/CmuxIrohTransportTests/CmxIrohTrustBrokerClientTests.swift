@@ -546,6 +546,41 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func registryChurnPreservesVerifiedPolicyAndRetriesInitialActivation() {
+        let error = CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 409,
+            code: "discovery_cursor_stale"
+        )
+
+        #expect(CmxIrohTrustBrokerClientError.preservesVerifiedPolicyDuringRefresh(error))
+        #expect(CmxIrohTrustBrokerClientError.retriesInitialActivation(error))
+    }
+
+    @Test
+    func boundedConnectivitySnapshotFallsBackToCompleteDiscovery() async throws {
+        let decoder = JSONDecoder()
+        let bounded = try decoder.decode(
+            CmxIrohDiscoveryResponse.self,
+            from: Data(try Self.discoveryResponse(bindingCount: 256).utf8)
+        )
+        let complete = try decoder.decode(
+            CmxIrohDiscoveryResponse.self,
+            from: Data(try Self.discoveryResponse(bindingCount: 300).utf8)
+        )
+        let broker = BoundedConnectivitySnapshotBroker(
+            bounded: bounded,
+            complete: complete
+        )
+
+        let resolved = try await CmxAuthoritativeDiscoveryResolver(
+            broker: broker
+        ).resolve(cached: nil)
+
+        #expect(resolved.bindings.count == 300)
+        #expect(await broker.discoveryCount() == 1)
+    }
+
+    @Test
     func discoveryKeepsLegacyUnpaginatedResponseBounded() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 200, body: try Self.discoveryResponse(bindingCount: 256)),
@@ -896,4 +931,37 @@ struct CmxIrohTrustBrokerClientTests {
       }
     }
     """
+}
+
+private actor BoundedConnectivitySnapshotBroker:
+    CmxIrohDiscoveryServing,
+    CmxConnectivityAuthorityServing
+{
+    private nonisolated let bounded: CmxIrohDiscoveryResponse
+    private nonisolated let complete: CmxIrohDiscoveryResponse
+    private var count = 0
+
+    init(
+        bounded: CmxIrohDiscoveryResponse,
+        complete: CmxIrohDiscoveryResponse
+    ) {
+        self.bounded = bounded
+        self.complete = complete
+    }
+
+    func discover() -> CmxIrohDiscoveryResponse {
+        count += 1
+        return complete
+    }
+
+    nonisolated func syncConnectivity(
+        knownRevision: UInt64?
+    ) async -> CmxConnectivitySyncResponse {
+        CmxConnectivitySyncResponse(
+            legacySnapshot: bounded,
+            knownRevision: knownRevision
+        )
+    }
+
+    func discoveryCount() -> Int { count }
 }
