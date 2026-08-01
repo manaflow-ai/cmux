@@ -19561,6 +19561,93 @@ test "stream byte overflow is bounded independently" {
     );
 }
 
+test "stream control cumulative byte overflow owns rejected item once" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    var initial = (try stream.next()) orelse
+        return error.MissingInitialStreamItem;
+    initial.deinit();
+
+    const mebibyte = 1024 * 1024;
+    const prefill_payload = try std.testing.allocator.alloc(u8, mebibyte);
+    defer std.testing.allocator.free(prefill_payload);
+    @memset(prefill_payload, 'p');
+    var sequence: usize = 10;
+    while (stream.raw_stream.pending_bytes <
+        RawStream.max_buffered_bytes - 3 * mebibyte)
+    {
+        const message = try fakePendingStreamItem(
+            std.testing.allocator,
+            stream.raw_stream.stream_id,
+            sequence,
+            prefill_payload,
+        );
+        try stream.raw_stream.queuePending(message);
+        sequence += 1;
+    }
+
+    const overflow_payload = try std.testing.allocator.alloc(
+        u8,
+        4 * mebibyte,
+    );
+    defer std.testing.allocator.free(overflow_payload);
+    @memset(overflow_payload, 'x');
+    var overflow = try fakePendingStreamItem(
+        std.testing.allocator,
+        stream.raw_stream.stream_id,
+        sequence,
+        overflow_payload,
+    );
+    defer overflow.deinit();
+    const encoded = try raw.wire.stringifyAlloc(
+        std.testing.allocator,
+        overflow.value,
+    );
+    defer std.testing.allocator.free(encoded);
+    try stream_shared.appendInput(encoded);
+    var params = raw.wire.Object.init(std.testing.allocator);
+    defer params.deinit();
+
+    try std.testing.expectError(
+        error.StreamBufferFull,
+        stream.raw_stream.control(
+            .terminal_viewer_release,
+            .{ .object = params },
+        ),
+    );
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+    try std.testing.expectEqual(
+        StreamEndReason.gap,
+        stream.end().?.reason,
+    );
+}
+
 test "attachment viewer controls use only dedicated connections" {
     var control_shared = FakeShared{
         .allocator = std.testing.allocator,
