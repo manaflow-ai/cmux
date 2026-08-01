@@ -1495,6 +1495,83 @@ mod tests {
         CarrierEvidence, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
     };
 
+    #[cfg(target_os = "macos")]
+    fn hold_process_creation_barrier()
+    -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>) {
+        let (held_sender, held_receiver) = std::sync::mpsc::channel();
+        let (release_sender, release_receiver) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let _barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+            held_sender.send(()).unwrap();
+            release_receiver.recv().unwrap();
+        });
+        held_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("process creation barrier was not acquired");
+        (release_sender, holder)
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn direct_socket_bind_waits_for_process_creation_barrier() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "guarded-bind", true).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let (release, holder) = hold_process_creation_barrier();
+
+        let bind = tokio::spawn(serve_direct_websocket(
+            daemon,
+            "127.0.0.1:0".parse().unwrap(),
+            128 * 1024,
+            false,
+        ));
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let completed_while_barrier_held = bind.is_finished();
+        release.send(()).unwrap();
+        holder.join().unwrap();
+
+        let server = tokio::time::timeout(Duration::from_secs(5), bind)
+            .await
+            .expect("direct socket bind did not resume after the process barrier was released")
+            .unwrap()
+            .unwrap();
+        server.shutdown().await.unwrap();
+        assert!(
+            !completed_while_barrier_held,
+            "direct socket bound while a concurrent process could inherit its descriptor"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn direct_socket_accept_waits_for_process_creation_barrier() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let client = tokio::net::TcpStream::connect(address).await.unwrap();
+        let mut listener = LimitedTcpListener {
+            inner: listener,
+            permits: Arc::new(Semaphore::new(1)),
+        };
+        let (release, holder) = hold_process_creation_barrier();
+
+        let accept = tokio::spawn(async move { listener.accept().await });
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let completed_while_barrier_held = accept.is_finished();
+        release.send(()).unwrap();
+        holder.join().unwrap();
+
+        let (server, _) = tokio::time::timeout(Duration::from_secs(5), accept)
+            .await
+            .expect("direct socket accept did not resume after the process barrier was released")
+            .unwrap();
+        drop(server);
+        drop(client);
+        assert!(
+            !completed_while_barrier_held,
+            "direct socket accepted while a concurrent process could inherit its descriptor"
+        );
+    }
+
     struct PreludeProbeLink {
         reads: Arc<AtomicUsize>,
     }
