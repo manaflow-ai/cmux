@@ -25,6 +25,7 @@ public struct UnifiedDiffParser: Sendable {
     ///   - isBinary: Whether the file is binary.
     ///   - totalLineCount: Number of lines in the full raw diff, when reported.
     /// - Returns: A display-ready immutable document.
+    @concurrent
     public nonisolated func parseOffMain(
         _ unifiedDiff: String,
         truncated: Bool = false,
@@ -49,6 +50,7 @@ public struct UnifiedDiffParser: Sendable {
     ///   - contentFingerprint: Working-file revision fingerprint, when reported.
     ///   - fileKind: Change kind controlling hidden-context expansion.
     /// - Returns: A parsed document and display projection ready for publication.
+    @concurrent
     public nonisolated func parsePresentationOffMain(
         _ unifiedDiff: String,
         truncated: Bool = false,

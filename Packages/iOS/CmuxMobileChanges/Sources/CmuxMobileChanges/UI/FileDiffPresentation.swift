@@ -16,6 +16,7 @@ public struct FileDiffPresentation: Sendable, Equatable {
     ///   - document: Parsed diff document to project.
     ///   - fileKind: Change kind controlling hidden-context expansion.
     /// - Returns: A presentation ready for one atomic UI-state publication.
+    @concurrent
     public nonisolated static func prepareOffMain(
         document: FileDiffDocument,
         fileKind: FileChangeKind
@@ -28,6 +29,7 @@ public struct FileDiffPresentation: Sendable, Equatable {
         )
     }
 
+    @concurrent
     nonisolated static func prepareOffMain(
         document: FileDiffDocument,
         expansionState: DiffExpansionState,
@@ -43,6 +45,7 @@ public struct FileDiffPresentation: Sendable, Equatable {
     }
 
     /// Builds an expansion projection that cooperatively stops when superseded.
+    @concurrent
     nonisolated static func prepareOffMainCancellable(
         document: FileDiffDocument,
         expansionState: DiffExpansionState,
