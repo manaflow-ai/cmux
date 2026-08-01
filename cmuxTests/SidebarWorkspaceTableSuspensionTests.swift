@@ -408,6 +408,66 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func groupHeaderUsesTableLightPaletteWhenBackingAppearanceIsDark() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let model = makeGroupHeaderModel()
+        let row = SidebarWorkspaceTableRowConfiguration(
+            groupHeaderModel: model,
+            actions: makeGroupHeaderActions {},
+            environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100,
+                lazyContractProbe: SidebarLazyContractProbe()
+            )
+        )
+        let darkAppearance = try #require(NSAppearance(named: .darkAqua))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.appearance = darkAppearance
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [model.anchorWorkspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        let cell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+                as? SidebarGroupHeaderTableCellView
+        )
+        let nameField = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == model.name }
+        )
+        var resolvedColor: NSColor?
+        darkAppearance.performAsCurrentDrawingAppearance {
+            resolvedColor = nameField.textColor?.usingColorSpace(.sRGB)
+        }
+        let color = try #require(resolvedColor)
+
+        #expect(
+            color.redComponent < 0.5 && color.greenComponent < 0.5 && color.blueComponent < 0.5,
+            "The table's explicit light palette must win over a transient dark backing appearance."
+        )
+    }
+
+    @Test
     func groupHeaderReconfigureAfterSuspensionRestoresAuthoritativePaint() throws {
         let cell = SidebarGroupHeaderTableCellView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 44)
