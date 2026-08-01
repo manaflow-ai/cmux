@@ -3,6 +3,21 @@ import Testing
 
 @Suite("AgentLaunchEnvironmentPolicy")
 struct AgentLaunchEnvironmentPolicyTests {
+    @Test("Preserves Subrouter's non-secret Codex placeholder without persisting real API keys")
+    func preservesSubrouterCodexPlaceholderWithoutPersistingSecrets() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: [
+                "OPENAI_API_KEY": "secret-should-not-persist",
+                "SUBROUTER_CODEX_DUMMY_API_KEY": "subrouter-placeholder",
+            ],
+            kind: "codex"
+        )
+
+        #expect(selected == [
+            "SUBROUTER_CODEX_DUMMY_API_KEY": "subrouter-placeholder",
+        ])
+    }
+
     @Test("Preserves OMP config roots without persisting secrets")
     func preservesOmpConfigRootsWithoutPersistingSecrets() {
         let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
