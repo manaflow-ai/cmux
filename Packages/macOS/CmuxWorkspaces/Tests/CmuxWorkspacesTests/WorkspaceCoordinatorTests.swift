@@ -969,6 +969,68 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func collapseAllGroupsMovesHiddenFocusToAnchorAndReconcilesSelectionOnce() throws {
+        let (model, host, groups, _) = makeWorld()
+        let firstChild = CoordinatorStubTab()
+        let secondChild = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [firstChild, secondChild, outside]
+        let firstGroupId = try #require(groups.createWorkspaceGroup(
+            name: "First",
+            childWorkspaceIds: [firstChild.id]
+        ))
+        let secondGroupId = try #require(groups.createWorkspaceGroup(
+            name: "Second",
+            childWorkspaceIds: [secondChild.id]
+        ))
+        let firstGroup = try #require(model.workspaceGroups.first { $0.id == firstGroupId })
+        let secondGroup = try #require(model.workspaceGroups.first { $0.id == secondGroupId })
+        model.selectedTabId = secondChild.id
+        host.sidebarSelectedWorkspaceIds = [firstChild.id, secondChild.id, outside.id]
+
+        groups.collapseAllWorkspaceGroups()
+
+        #expect(model.workspaceGroups.allSatisfy { $0.isCollapsed })
+        #expect(model.selectedTabId == secondGroup.anchorWorkspaceId)
+        #expect(host.selectedWorkspaceIds == [secondGroup.anchorWorkspaceId])
+        #expect(host.subtractedSidebarSelections.count == 1)
+        let reconciliation = try #require(host.subtractedSidebarSelections.first)
+        #expect(reconciliation.hidden == [firstChild.id, secondChild.id])
+        #expect(reconciliation.focused == secondGroup.anchorWorkspaceId)
+        #expect(!reconciliation.hidden.contains(firstGroup.anchorWorkspaceId))
+        #expect(!reconciliation.hidden.contains(secondGroup.anchorWorkspaceId))
+    }
+
+    @Test
+    func expandAllGroupsPreservesFocusAndSelection() throws {
+        let (model, host, groups, _) = makeWorld()
+        let firstChild = CoordinatorStubTab()
+        let secondChild = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [firstChild, secondChild, outside]
+        let firstGroupId = try #require(groups.createWorkspaceGroup(
+            name: "First",
+            childWorkspaceIds: [firstChild.id]
+        ))
+        let secondGroupId = try #require(groups.createWorkspaceGroup(
+            name: "Second",
+            childWorkspaceIds: [secondChild.id]
+        ))
+        groups.setWorkspaceGroupCollapsed(groupId: firstGroupId, isCollapsed: true)
+        groups.setWorkspaceGroupCollapsed(groupId: secondGroupId, isCollapsed: true)
+        model.selectedTabId = outside.id
+        host.sidebarSelectedWorkspaceIds = [outside.id]
+
+        groups.expandAllWorkspaceGroups()
+
+        #expect(model.workspaceGroups.allSatisfy { !$0.isCollapsed })
+        #expect(model.selectedTabId == outside.id)
+        #expect(host.sidebarSelectedWorkspaceIds == [outside.id])
+        #expect(host.selectedWorkspaceIds.isEmpty)
+        #expect(host.subtractedSidebarSelections.isEmpty)
+    }
+
+    @Test
     func anchorCloseDissolvesGroupAndRenormalizes() {
         let (model, host, groups, _) = makeWorld()
         _ = host
