@@ -11,8 +11,7 @@ extension Workspace {
     ) -> Bool {
         guard panels[panelID] is TerminalPanel,
               surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[panelID] ==
-                authenticatedWorkspaceID,
-              remoteTerminalSessionStatesBySurfaceId[panelID]?.phase != .ended else {
+                authenticatedWorkspaceID else {
             return false
         }
         registerReportedSurfaceTTYName(ttyName, panelId: panelID)
@@ -32,7 +31,6 @@ extension Workspace {
             guard panels[surfaceID] is TerminalPanel,
                   surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[surfaceID] ==
                     authenticatedWorkspaceID,
-                  remoteTerminalSessionStatesBySurfaceId[surfaceID]?.phase != .ended,
                   let ttyName = surfaceRegistry.surfaceTTYNames[surfaceID] else {
                 return nil
             }

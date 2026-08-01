@@ -451,9 +451,18 @@ extension Workspace {
     }
 
     func clearRemoteTerminalSessionPhase(surfaceId: UUID) {
+        invalidateReportedSurfaceTTYRuntime(panelId: surfaceId)
+        surfaceRegistry.remoteTTYReportOriginWorkspaceIDs.removeValue(forKey: surfaceId)
         remoteTerminalSessionStatesBySurfaceId.removeValue(forKey: surfaceId)
         pendingRemoteTerminalConnectionsBySurfaceId.removeValue(forKey: surfaceId)
         remoteTerminalAttemptIDsBySurfaceId.removeValue(forKey: surfaceId)
+    }
+
+    func clearActiveRemoteTerminalSessionPhases() {
+        for surfaceId in activeRemoteTerminalSurfaceIds {
+            clearRemoteTerminalSessionPhase(surfaceId: surfaceId)
+        }
+        activeRemoteTerminalSurfaceIds.removeAll()
     }
 
     func restoreRemoteTerminalSessionPhase(

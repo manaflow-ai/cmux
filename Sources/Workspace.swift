@@ -5928,7 +5928,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         cancelPendingRemoteControlMasterAdoption()
         remoteDisconnectPlaceholderPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
-        activeRemoteTerminalSurfaceIds.removeAll()
+        clearActiveRemoteTerminalSessionPhases()
         remoteTerminalSessionStatesBySurfaceId.removeAll()
         pendingRemoteTerminalConnectionsBySurfaceId.removeAll()
         remoteTerminalAttemptIDsBySurfaceId.removeAll()
@@ -6047,7 +6047,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func untrackRemoteTerminalSurface(_ panelId: UUID) {
-        surfaceRegistry.remoteTTYReportOriginWorkspaceIDs.removeValue(forKey: panelId)
         let previousPresentedDirectory = presentedCurrentDirectory
         let removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(panelId) != nil; if removedTrustedDirectory { clearPanelGitBranch(panelId: panelId) }
         clearRemoteTerminalSessionPhase(surfaceId: panelId)

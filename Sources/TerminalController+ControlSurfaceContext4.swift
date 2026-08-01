@@ -66,11 +66,16 @@ extension TerminalController {
             return .surfaceNotFound
         }
 
-        tab.registerReportedSurfaceTTYName(ttyName, panelId: surfaceId)
         if tab.isRemoteWorkspace {
-            tab.syncRemotePortScanTTYs()
-            _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
+            guard tab.registerRelayReportedTTY(
+                ttyName,
+                panelID: surfaceId,
+                authenticatedWorkspaceID: workspaceID
+            ) else {
+                return .surfaceNotFound
+            }
         } else {
+            tab.registerReportedSurfaceTTYName(ttyName, panelId: surfaceId)
             PortScanner.shared.registerTTY(workspaceId: workspaceID, panelId: surfaceId, ttyName: ttyName)
         }
         return .recorded(surfaceID: surfaceId)
