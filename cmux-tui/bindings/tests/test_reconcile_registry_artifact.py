@@ -333,6 +333,50 @@ class RegistryArtifactTests(unittest.TestCase):
         ), self.assertRaises(reconcile.ArtifactMismatch):
             reconcile.registry_status("npm", "cmux-sdk", "1.0.0", self.artifact)
 
+    def test_npm_accepts_a_matching_hash_in_multi_entry_sri(self) -> None:
+        integrity = " ".join((
+            "sha256-invalid",
+            reconcile._integrity(self.artifact, "sha512"),
+        ))
+        metadata = {
+            "dist-tags": {"latest": "1.0.0"},
+            "versions": {"1.0.0": {"dist": {"integrity": integrity}}},
+        }
+
+        with mock.patch.object(
+            reconcile,
+            "urlopen",
+            return_value=self.response(metadata),
+        ):
+            self.assertEqual(
+                reconcile.registry_status(
+                    "npm",
+                    "cmux-sdk",
+                    "1.0.0",
+                    self.artifact,
+                ),
+                reconcile.MATCH,
+            )
+
+    def test_npm_rejects_a_weaker_match_when_the_strongest_hash_differs(
+        self,
+    ) -> None:
+        integrity = " ".join((
+            reconcile._integrity(self.artifact, "sha256"),
+            "sha512-invalid",
+        ))
+        metadata = {
+            "dist-tags": {"latest": "1.0.0"},
+            "versions": {"1.0.0": {"dist": {"integrity": integrity}}},
+        }
+
+        with mock.patch.object(
+            reconcile,
+            "urlopen",
+            return_value=self.response(metadata),
+        ), self.assertRaises(reconcile.ArtifactMismatch):
+            reconcile.registry_status("npm", "cmux-sdk", "1.0.0", self.artifact)
+
     def test_npm_rejects_exact_old_bytes_behind_registry_history(self) -> None:
         dist = {"integrity": reconcile._integrity(self.artifact, "sha512")}
         metadata = {
