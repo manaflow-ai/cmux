@@ -254,14 +254,15 @@ import Testing
         let deadline = ProcessInfo.processInfo.systemUptime + 0.05
         let startedAt = ContinuousClock.now
 
-        let wroteAll = SocketTransport().writeAll(
+        let writeOutcome = SocketTransport().writeAll(
             Data(repeating: 0x78, count: 4 * 1_024 * 1_024),
             to: sockets.writer,
             deadline: deadline,
             isInterrupted: { false }
         )
 
-        #expect(!wroteAll)
+        #expect(!writeOutcome.didWriteAllBytes)
+        #expect(!writeOutcome.socketIsReusable)
         #expect(ContinuousClock.now - startedAt < .milliseconds(500))
     }
 

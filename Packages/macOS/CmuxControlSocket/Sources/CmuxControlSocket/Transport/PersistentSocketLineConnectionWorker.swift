@@ -146,7 +146,7 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
             closeConnection()
             return nil
         }
-        guard transport.writeAll(
+        let writeOutcome = transport.writeAll(
             Data((command + "\n").utf8),
             to: current.socket,
             deadline: deadline,
@@ -157,7 +157,12 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
                     activeGeneration: activeGeneration
                 )
             }
-        ), let response = readResponseLine(
+        )
+        guard writeOutcome.didWriteAllBytes else {
+            closeConnection()
+            return nil
+        }
+        guard let response = readResponseLine(
             from: &current,
             deadline: deadline,
             cancellation: cancellation,
@@ -167,7 +172,11 @@ final class PersistentSocketLineConnectionWorker: @unchecked Sendable {
             closeConnection()
             return nil
         }
-        state = current
+        if writeOutcome.socketIsReusable {
+            state = current
+        } else {
+            closeConnection()
+        }
         return (
             response: response,
             peerProcessID: current.peerProcessID

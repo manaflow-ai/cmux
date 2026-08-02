@@ -1,6 +1,16 @@
 public import Foundation
 internal import Darwin
 
+struct SocketTransportWriteOutcome: Equatable, Sendable {
+    let didWriteAllBytes: Bool
+    let socketIsReusable: Bool
+
+    static let failed = SocketTransportWriteOutcome(
+        didWriteAllBytes: false,
+        socketIsReusable: false
+    )
+}
+
 extension SocketTransport {
     /// Writes all of `data` to `socket`, retrying on `EINTR` and partial
     /// writes.
@@ -45,18 +55,20 @@ extension SocketTransport {
         _ data: Data,
         to socket: Int32,
         deadline: TimeInterval,
-        isInterrupted: () -> Bool
-    ) -> Bool {
+        isInterrupted: () -> Bool,
+        setStatusFlags: (Int32, Int32) -> Int32 = {
+            Darwin.fcntl($0, F_SETFL, $1)
+        }
+    ) -> SocketTransportWriteOutcome {
         let originalFlags = Darwin.fcntl(socket, F_GETFL, 0)
         guard
             originalFlags >= 0,
-            Darwin.fcntl(
+            setStatusFlags(
                 socket,
-                F_SETFL,
                 originalFlags | O_NONBLOCK
             ) == 0
         else {
-            return false
+            return .failed
         }
         let writeSucceeded = data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress else { return true }
@@ -117,12 +129,14 @@ extension SocketTransport {
 
             return true
         }
-        let restoredFlags = Darwin.fcntl(
+        let restoredFlags = setStatusFlags(
             socket,
-            F_SETFL,
             originalFlags
         )
-        return writeSucceeded && restoredFlags == 0
+        return SocketTransportWriteOutcome(
+            didWriteAllBytes: writeSucceeded,
+            socketIsReusable: writeSucceeded && restoredFlags == 0
+        )
     }
 
     /// Connects to the listener at `socketPath`, sends one line-terminated
