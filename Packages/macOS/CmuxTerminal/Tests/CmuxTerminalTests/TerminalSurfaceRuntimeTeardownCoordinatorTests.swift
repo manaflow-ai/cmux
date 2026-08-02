@@ -59,6 +59,9 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
     }
 }
 
+@MainActor
+private final class RuntimeOwnershipRecoveryProbe {}
+
 private func requireTeardownTicket(
     _ ticket: TerminalSurfaceRuntimeTeardownTicket?
 ) throws -> TerminalSurfaceRuntimeTeardownTicket {
@@ -277,6 +280,50 @@ private func requireTeardownTicket(
             )
         )
         #expect(await recoveredTicket.wait(timeout: .seconds(1)))
+    }
+
+    @MainActor
+    @Test func staleRecoveryHeadDoesNotStrandTheNextWaiter() async throws {
+        let admission = TerminalSurfaceRuntimeOwnershipAdmission(
+            maximumOwnerCount: 2
+        )
+        let firstOwner = try #require(admission.reserve())
+        let secondOwner = try #require(admission.reserve())
+        var staleProbe: RuntimeOwnershipRecoveryProbe? =
+            RuntimeOwnershipRecoveryProbe()
+        weak let releasedProbe = staleProbe
+        let staleRecoveryID = UUID()
+        let nextRecoveryID = UUID()
+        var nextRecoveryRan = false
+
+        let staleReservation = admission.reserve(
+            recoveryID: staleRecoveryID,
+            onRecovery: { [weak staleProbe] in
+                _ = staleProbe
+            }
+        )
+        let nextReservation = admission.reserve(
+            recoveryID: nextRecoveryID,
+            onRecovery: {
+                nextRecoveryRan = true
+            }
+        )
+        #expect(staleReservation == nil)
+        #expect(nextReservation == nil)
+
+        admission.release(firstOwner)
+        staleProbe = nil
+        #expect(releasedProbe == nil)
+        for _ in 0..<100 where !nextRecoveryRan {
+            await Task.yield()
+        }
+
+        #expect(
+            nextRecoveryRan,
+            "a stale dequeued recovery callback stranded the next waiter despite free capacity"
+        )
+        admission.cancelRecovery(nextRecoveryID)
+        admission.release(secondOwner)
     }
 
     @Test func stuckHibernationFreeDoesNotStrandAnotherAdmissionOrClose() async throws {
