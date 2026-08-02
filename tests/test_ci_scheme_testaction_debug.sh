@@ -23,6 +23,12 @@ done
 
 for scheme in cmux-ci cmux-unit; do
   scheme_file="cmux.xcodeproj/xcshareddata/xcschemes/${scheme}.xcscheme"
+  if ! sed -n '/<TestAction /,/<\/TestAction>/p' "$scheme_file" \
+    | grep -q 'key="CMUX_XCTEST_APP_HOST" value="1" isEnabled="YES"'; then
+    echo "FAIL: $scheme TestAction must mark its app host before XCTest connects" >&2
+    exit 1
+  fi
+
   if ! sed -n '/<LaunchAction /,/<\/LaunchAction>/p' "$scheme_file" \
     | grep -q 'key="CMUX_XCTEST_APP_HOST" value="1" isEnabled="YES"'; then
     echo "FAIL: $scheme LaunchAction must mark its app host as XCTest" >&2
