@@ -24655,6 +24655,10 @@ mod tests {
         let error = result.unwrap_err();
         assert!(format!("{error:#}").contains("load terminal hosts for server shutdown"));
         assert!(topology_retained);
+        assert_eq!(
+            mux.shutdown_cleanup_health(),
+            ShutdownCleanupHealth { pending: 1, retrying: false, degraded: true }
+        );
     }
 
     #[cfg(unix)]
@@ -25124,8 +25128,16 @@ mod tests {
         assert!(!mux.daemon_shutdown_requested());
         assert!(mux.surface(surface).is_some());
         assert!(mux.with_state(|state| state.pane_of(surface).is_some()));
+        assert_eq!(
+            mux.shutdown_cleanup_health(),
+            ShutdownCleanupHealth { pending: 1, retrying: false, degraded: true }
+        );
         mux.set_terminal_close_failure_for_test(false).unwrap();
         assert_eq!(mux.close_all_surfaces_for_shutdown().unwrap(), 1);
+        assert_eq!(
+            mux.shutdown_cleanup_health(),
+            ShutdownCleanupHealth { pending: 0, retrying: false, degraded: false }
+        );
         assert!(!mux.shutdown_requested());
         assert!(!mux.daemon_shutdown_requested());
         assert!(mux.surface(surface).is_none());
