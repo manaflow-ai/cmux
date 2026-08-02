@@ -17,6 +17,7 @@ public import CmuxTerminalCore
 /// tee callback and the io thread that fires the MANUAL-mode `io_write_cb`),
 /// so a release ordered after the free can never race an in-flight callback.
 struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
+    let ticketID: UUID
     let id: UUID
     let workspaceId: UUID
     let reason: String
@@ -24,6 +25,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
     let callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     let manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
     let byteTeeLease: (any TerminalByteTeeLease)?
+    let runtimeOwnershipReservation: TerminalSurfaceRuntimeOwnershipReservation
     let freeSurface: @Sendable (ghostty_surface_t) -> Void
     let completion: TerminalSurfaceRuntimeTeardownCompletion
 #if DEBUG
@@ -32,6 +34,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
 #endif
 
     init(
+        ticketID: UUID,
         id: UUID,
         workspaceId: UUID,
         reason: String,
@@ -39,9 +42,11 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
+        runtimeOwnershipReservation: TerminalSurfaceRuntimeOwnershipReservation,
         freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void,
         completion: TerminalSurfaceRuntimeTeardownCompletion
     ) {
+        self.ticketID = ticketID
         self.id = id
         self.workspaceId = workspaceId
         self.reason = reason
@@ -49,6 +54,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         self.callbackContext = callbackContext
         self.manualIOContext = manualIOContext
         self.byteTeeLease = byteTeeLease
+        self.runtimeOwnershipReservation = runtimeOwnershipReservation
         self.freeSurface = freeSurface
         self.completion = completion
 #if DEBUG

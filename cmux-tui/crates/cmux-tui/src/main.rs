@@ -1631,6 +1631,8 @@ impl ServerShutdownCleanup {
         };
         drop(state);
 
+        self.mux.schedule_server_shutdown_cleanup();
+
         // Runtime owners and mux resources share one absolute deadline. If an
         // owner is still live, retain it and the published socket until an
         // explicit retry instead of starting a second cleanup budget.
@@ -1682,6 +1684,15 @@ impl ServerShutdownCleanup {
                 }
             }
         };
+        match &outcome {
+            ServerShutdownCleanupOutcome::Complete { .. } => {
+                self.mux.complete_server_shutdown_cleanup();
+            }
+            ServerShutdownCleanupOutcome::Degraded { .. }
+            | ServerShutdownCleanupOutcome::Abandoned => {
+                self.mux.degrade_server_shutdown_cleanup();
+            }
+        }
         let next_state = match &outcome {
             ServerShutdownCleanupOutcome::Complete { error } => {
                 ServerShutdownCleanupState::Complete { error: error.clone() }

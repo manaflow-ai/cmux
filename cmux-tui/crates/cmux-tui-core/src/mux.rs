@@ -8518,6 +8518,24 @@ impl Mux {
         watch
     }
 
+    /// Publish an outer server cleanup attempt through the same health state
+    /// used by mux-owned shutdown work. Server process owners live outside the
+    /// mux, but clients must observe one authoritative cleanup lifecycle.
+    pub fn schedule_server_shutdown_cleanup(&self) {
+        self.shutdown_cleanup_lifecycle.schedule();
+    }
+
+    /// Clear the shared cleanup health after every mux and outer server owner
+    /// has completed shutdown.
+    pub fn complete_server_shutdown_cleanup(&self) {
+        self.shutdown_cleanup_lifecycle.complete();
+    }
+
+    /// Publish an outer server cleanup failure that requires explicit retry.
+    pub fn degrade_server_shutdown_cleanup(&self) {
+        self.shutdown_cleanup_lifecycle.degrade();
+    }
+
     pub(crate) fn shutdown_cleanup_health(&self) -> ShutdownCleanupHealth {
         let owner_pending = self.shutdown_owners.len();
         #[cfg(unix)]

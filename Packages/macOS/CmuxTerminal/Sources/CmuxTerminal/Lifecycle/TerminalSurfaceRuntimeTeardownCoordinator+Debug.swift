@@ -10,7 +10,18 @@ extension TerminalSurfaceRuntimeTeardownCoordinator {
     /// host; suites that create surfaces assert this drained back to their
     /// baseline after teardown.
     public var debugPendingTeardownCount: Int {
-        pendingReasonsById.count
+        pendingRequestsById.count
+    }
+
+    /// Test support: whether every close worker has exceeded its deadline and
+    /// new native-surface ownership is fenced until one worker returns.
+    public var debugCloseTeardownDegraded: Bool {
+        runtimeOwnershipAdmission.debugCloseTeardownDegraded
+    }
+
+    /// Test support: live plus retained native surfaces charged to admission.
+    public nonisolated var debugRuntimeSurfaceOwnerCount: Int {
+        runtimeOwnershipAdmission.debugOwnerCount
     }
 }
 #endif

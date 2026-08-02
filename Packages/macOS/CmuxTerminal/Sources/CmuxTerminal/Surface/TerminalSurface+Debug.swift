@@ -181,9 +181,17 @@ extension TerminalSurface {
     public func releaseSurfaceForTesting() {
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        let runtimeOwnershipReservation =
+            runtimeSurfaceOwnershipReservation
+        self.runtimeSurfaceOwnershipReservation = nil
 
         guard let surfaceToFree = surface else {
             callbackContext?.release()
+            if let runtimeOwnershipReservation {
+                runtimeTeardown.cancelRuntimeSurfaceOwnership(
+                    runtimeOwnershipReservation
+                )
+            }
             return
         }
 
@@ -191,6 +199,11 @@ extension TerminalSurface {
         surface = nil
         ghostty_surface_free(surfaceToFree)
         callbackContext?.release()
+        if let runtimeOwnershipReservation {
+            runtimeTeardown.cancelRuntimeSurfaceOwnership(
+                runtimeOwnershipReservation
+            )
+        }
     }
 
     /// Test-only helper to simulate a stale Swift wrapper whose native surface
@@ -201,9 +214,17 @@ extension TerminalSurface {
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        let runtimeOwnershipReservation =
+            runtimeSurfaceOwnershipReservation
+        self.runtimeSurfaceOwnershipReservation = nil
 
         guard let surfaceToFree = surface else {
             callbackContext?.release()
+            if let runtimeOwnershipReservation {
+                runtimeTeardown.cancelRuntimeSurfaceOwnership(
+                    runtimeOwnershipReservation
+                )
+            }
             return
         }
 
@@ -211,11 +232,26 @@ extension TerminalSurface {
         ghostty_surface_free(surfaceToFree)
         runtimeSurfaceFreedOutOfBandForTesting = true
         callbackContext?.release()
+        if let runtimeOwnershipReservation {
+            runtimeTeardown.cancelRuntimeSurfaceOwnership(
+                runtimeOwnershipReservation
+            )
+        }
     }
 
     /// Test-only helper to install a runtime surface pointer directly.
     @MainActor
     public func installRuntimeSurfaceForTesting(_ runtimeSurface: ghostty_surface_t) {
+        if runtimeSurfaceOwnershipReservation == nil {
+            guard let runtimeOwnershipReservation =
+                    runtimeTeardown.reserveRuntimeSurfaceOwnership() else {
+                preconditionFailure(
+                    "Test runtime surface requires bounded runtime ownership"
+                )
+            }
+            self.runtimeSurfaceOwnershipReservation =
+                runtimeOwnershipReservation
+        }
         let callbackContext: Unmanaged<
             GhosttySurfaceCallbackContext
         >

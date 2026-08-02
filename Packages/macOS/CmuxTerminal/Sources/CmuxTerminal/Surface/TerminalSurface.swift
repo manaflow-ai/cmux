@@ -280,6 +280,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         (any TerminalSurfaceNativeViewing)?
     var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
+    /// Bounded ownership of the live native surface. Transferred to the
+    /// teardown coordinator with the pointer and released only after native
+    /// free returns.
+    var runtimeSurfaceOwnershipReservation:
+        TerminalSurfaceRuntimeOwnershipReservation?
     var closeRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
     var agentHibernationRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
     var agentHibernationRuntimeTeardownReservation:
@@ -643,6 +648,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // mobileByteTeeLease, so teeLease is nil here and ?.release() no-ops.
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
+        let runtimeOwnershipReservation =
+            runtimeSurfaceOwnershipReservation
+        runtimeSurfaceOwnershipReservation = nil
         // `dropSurface` is @MainActor but `deinit` is nonisolated, so hop to the
         // main actor with the surface id captured by value (no self capture).
         // Dropping by id only clears the registry/replay state; releasing
@@ -671,6 +679,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
+            if let runtimeOwnershipReservation {
+                runtimeTeardown.cancelRuntimeSurfaceOwnership(
+                    runtimeOwnershipReservation
+                )
+            }
             return
         }
 
@@ -680,9 +693,20 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
+            if let runtimeOwnershipReservation {
+                runtimeTeardown.cancelRuntimeSurfaceOwnership(
+                    runtimeOwnershipReservation
+                )
+            }
             return
         }
 #endif
+
+        guard let runtimeOwnershipReservation else {
+            preconditionFailure(
+                "A native terminal surface requires bounded runtime ownership"
+            )
+        }
 
 #if DEBUG
         logDebugEvent(
@@ -699,7 +723,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // the coordinator's deferred free runs.
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
-            runtimeTeardown.enqueueRuntimeTeardown(
+            let ticket = runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
                 reason: "deinit",
@@ -707,19 +731,29 @@ public final class TerminalSurface: Identifiable, ObservableObject {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                runtimeOwnershipReservation: runtimeOwnershipReservation,
                 freeSurface: freeSurface
+            )
+            precondition(
+                ticket != nil,
+                "Transferred runtime ownership must remain admitted"
             )
             return
         }
 #endif
-        runtimeTeardown.enqueueRuntimeTeardown(
+        let ticket = runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
             workspaceId: tabId,
             reason: "deinit",
             surface: surfaceToFree,
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
-            byteTeeLease: teeLease
+            byteTeeLease: teeLease,
+            runtimeOwnershipReservation: runtimeOwnershipReservation
+        )
+        precondition(
+            ticket != nil,
+            "Transferred runtime ownership must remain admitted"
         )
     }
 }
