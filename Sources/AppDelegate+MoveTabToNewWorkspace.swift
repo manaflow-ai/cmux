@@ -28,29 +28,42 @@ extension AppDelegate {
 
     func canMoveBonsplitTab(tabId: UUID, toWorkspace targetWorkspaceId: UUID) -> Bool {
         guard let located = locateBonsplitSurface(tabId: tabId),
-              let sourceWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
-              sourceWorkspace.panels[located.panelId] != nil,
+              let sourceWorkspace = located.tabManager.tabs.first(where: {
+                  $0.id == located.workspaceId
+              }),
+              let sourcePanel = sourceWorkspace.panels[located.panelId],
               let destinationManager = tabManagerFor(tabId: targetWorkspaceId),
-              destinationManager.tabs.contains(where: { $0.id == targetWorkspaceId }) else {
+              let destinationWorkspace = destinationManager.tabs.first(where: {
+                  $0.id == targetWorkspaceId
+              }) else {
             return false
         }
-        return true
+        return destinationWorkspace.acceptsDetachedSurface(sourcePanel)
     }
 
     func workspaceMoveTargets(forSurface panelId: UUID) -> [WorkspaceMoveTarget] {
-        guard let source = locateSurface(surfaceId: panelId) else { return [] }
+        guard
+            let source = locateSurface(surfaceId: panelId),
+            let sourceWorkspace = source.tabManager.tabs.first(where: {
+                $0.id == source.workspaceId
+            }),
+            let sourcePanel = sourceWorkspace.panels[panelId]
+        else {
+            return []
+        }
         return workspaceMoveTargets(
             excludingWorkspaceId: source.workspaceId,
             referenceWindowId: source.windowId
-        )
+        ).filter { target in
+            target.tabManager.tabs.first(where: {
+                $0.id == target.workspaceId
+            })?.acceptsDetachedSurface(sourcePanel) == true
+        }
     }
 
     func workspaceMoveTargets(forBonsplitTab tabId: UUID) -> [WorkspaceMoveTarget] {
         guard let located = locateBonsplitSurface(tabId: tabId) else { return [] }
-        return workspaceMoveTargets(
-            excludingWorkspaceId: located.workspaceId,
-            referenceWindowId: located.windowId
-        )
+        return workspaceMoveTargets(forSurface: located.panelId)
     }
 
     @discardableResult

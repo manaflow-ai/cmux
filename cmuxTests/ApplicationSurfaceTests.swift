@@ -1662,6 +1662,13 @@ struct ApplicationSurfaceTests {
             source.surfaceIdFromPanelId(panel.id)
         )
         let destinationPanelIDs = Set(destination.panels.keys)
+        #expect(!app.canMoveBonsplitTab(
+            tabId: sourceSurfaceID.uuid,
+            toWorkspace: destination.id
+        ))
+        #expect(!app.workspaceMoveTargets(forSurface: panel.id).contains {
+            $0.workspaceId == destination.id
+        })
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }
         let lifecycleSequence = CmuxEventBus.shared.latestSequence
