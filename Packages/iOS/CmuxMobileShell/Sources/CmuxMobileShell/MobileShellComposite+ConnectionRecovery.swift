@@ -102,7 +102,8 @@ extension MobileShellComposite {
         // race the foreground attempt for one physical route lease.
         if multiMacAggregationEnabled,
            trigger.reschedulesSecondaryAggregation,
-           connectionState == .connected {
+           connectionState == .connected,
+           !connectionRecoveryOwner.isRedialingOrValidating {
             scheduleSecondaryAggregation()
         }
     }
