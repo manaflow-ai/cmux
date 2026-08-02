@@ -225,7 +225,59 @@ struct SSHFileExplorerConnection: Equatable, Sendable {
     let destination: String
     let port: Int?
     let identityFile: String?
+    let configFile: String?
+    let useIPv4: Bool
+    let useIPv6: Bool
+    let forwardAgent: Bool
+    let compressionEnabled: Bool
     let sshOptions: [String]
+
+    init(
+        destination: String,
+        port: Int?,
+        identityFile: String?,
+        configFile: String? = nil,
+        useIPv4: Bool = false,
+        useIPv6: Bool = false,
+        forwardAgent: Bool = false,
+        compressionEnabled: Bool = false,
+        sshOptions: [String]
+    ) {
+        self.destination = destination
+        self.port = port
+        self.identityFile = identityFile
+        self.configFile = configFile
+        self.useIPv4 = useIPv4
+        self.useIPv6 = useIPv6
+        self.forwardAgent = forwardAgent
+        self.compressionEnabled = compressionEnabled
+        self.sshOptions = sshOptions
+    }
+
+    init(detectedSSHSession session: DetectedSSHSession) {
+        self.init(
+            destination: session.destination,
+            port: session.port,
+            identityFile: session.identityFile,
+            sshOptions: session.sshOptions
+        )
+    }
+
+    func sshArguments(command: String) -> [String] {
+        var arguments = SSHHostConfiguredRemoteCommand().overrideArguments
+        if let port {
+            arguments += ["-p", String(port)]
+        }
+        if let identityFile {
+            arguments += ["-i", identityFile]
+        }
+        for option in sshOptions {
+            arguments += ["-o", option]
+        }
+        arguments += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
+        arguments += [destination, command]
+        return arguments
+    }
 }
 
 protocol SSHFileExplorerTransport: AnyObject {
@@ -623,20 +675,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 
     private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
-        var args: [String] = SSHHostConfiguredRemoteCommand().overrideArguments
-        if let port = connection.port {
-            args += ["-p", String(port)]
-        }
-        if let identityFile = connection.identityFile {
-            args += ["-i", identityFile]
-        }
-        for option in connection.sshOptions {
-            args += ["-o", option]
-        }
-        // Batch mode, no TTY, connection timeout
-        args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
-        args += [connection.destination, command]
-        return args
+        connection.sshArguments(command: command)
     }
 
     private static func runSSHListCommand(

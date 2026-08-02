@@ -3,7 +3,7 @@ import CmuxRemoteSession
 import Foundation
 import Darwin
 
-struct DetectedSSHSession: Equatable {
+struct DetectedSSHSession: Equatable, Sendable {
     let destination: String
     let port: Int?
     let identityFile: String?
@@ -412,6 +412,18 @@ enum TerminalSSHSessionDetector {
             processes: processes,
             argumentsByPID: argumentsByPID
         )
+    }
+
+    static func detectSSH(forTTY ttyName: String) -> DetectedSSHSession? {
+        nil
+    }
+
+    static func detectSSHForTesting(
+        ttyName: String,
+        processes: [ProcessSnapshot],
+        argumentsByPID: [Int32: [String]]
+    ) -> DetectedSSHSession? {
+        nil
     }
 
     static func detectForTesting(

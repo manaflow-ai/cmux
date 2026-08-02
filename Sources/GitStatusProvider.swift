@@ -52,6 +52,19 @@ struct GitStatusProvider: Sendable {
         return parseGitStatus(output: parts[1], repoRoot: repoRoot, explorerRoot: directory)
     }
 
+    func fetchStatusSSH(
+        directory: String,
+        connection: SSHFileExplorerConnection
+    ) -> [String: GitFileStatus] {
+        fetchStatusSSH(
+            directory: directory,
+            destination: connection.destination,
+            port: connection.port,
+            identityFile: connection.identityFile,
+            sshOptions: connection.sshOptions
+        )
+    }
+
     private func parseGitStatus(
         output: String?, repoRoot: String, explorerRoot: String
     ) -> [String: GitFileStatus] {
