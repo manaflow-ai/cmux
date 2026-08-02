@@ -393,6 +393,34 @@ struct SimulatorPaneCoordinatorOverflowTests {
         }
     }
 
+    @Test("Semantic capture waits for worker-acknowledged input quiescence")
+    @MainActor
+    func semanticCaptureWaitsForWorkerInputQuiescence() async throws {
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            defersLiveInputDelivery: true
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        let scroll = SimulatorWorkerInbound.scrollWheel(SimulatorScrollWheelEvent(
+            id: UUID(),
+            anchor: SimulatorPoint(x: 0.5, y: 0.5),
+            deltaX: 0,
+            deltaY: 0.25
+        ))
+        #expect(coordinator.enqueue(scroll))
+
+        try await coordinator.withUIAutomationTransaction {}
+
+        #expect(await client.inputQuiescenceCount() == 1)
+        #expect(!(await client.hasDeferredLiveInput()))
+        let delivered = await client.deliveredMessages()
+        let scrollIndex = try #require(delivered.firstIndex(of: scroll))
+        let releaseIndex = try #require(delivered.lastIndex(of: .releaseInputs))
+        #expect(scrollIndex < releaseIndex)
+        await coordinator.close()
+    }
+
     @Test("External control input waits for the active semantic transaction")
     @MainActor
     func controlInputWaitsForSemanticTransaction() async throws {

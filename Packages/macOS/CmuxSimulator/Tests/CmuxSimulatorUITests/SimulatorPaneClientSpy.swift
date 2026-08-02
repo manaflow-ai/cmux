@@ -19,10 +19,14 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private let failingInteractiveActionNumber: Int?
     private let failsAccessibilityRead: Bool
     private let cancelsControlActionBeforeReturning: Bool
+    private let defersLiveInputDelivery: Bool
     private let accessibilityResult: SimulatorControlResult
     private let eventStream: SimulatorWorkerEventStream
     private let eventContinuation: SimulatorWorkerEventStream.Continuation
     private var sentMessages: [SimulatorWorkerInbound] = []
+    private var workerDeliveredMessages: [SimulatorWorkerInbound] = []
+    private var deferredLiveInputMessages: [SimulatorWorkerInbound] = []
+    private var inputQuiescenceCountValue = 0
     private var activationValues: [Activation] = []
     private var stopValue = 0
     private var invalidationValue = 0
@@ -52,7 +56,8 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         failingInteractiveActionNumber: Int? = nil,
         failsAccessibilityRead: Bool = false,
         accessibilityResult: SimulatorControlResult = .none,
-        cancelsControlActionBeforeReturning: Bool = false
+        cancelsControlActionBeforeReturning: Bool = false,
+        defersLiveInputDelivery: Bool = false
     ) {
         self.devicesValue = devices
         self.applicationValues = applications
@@ -70,6 +75,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         self.failsAccessibilityRead = failsAccessibilityRead
         self.accessibilityResult = accessibilityResult
         self.cancelsControlActionBeforeReturning = cancelsControlActionBeforeReturning
+        self.defersLiveInputDelivery = defersLiveInputDelivery
         let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 1_024 * 1_024,
             maximumBufferedEvents: 64,
@@ -111,6 +117,20 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
 
     func send(_ message: SimulatorWorkerInbound) async {
         sentMessages.append(message)
+        if defersLiveInputDelivery,
+           message.invalidatesUIAutomationSnapshot,
+           message != .releaseInputs {
+            deferredLiveInputMessages.append(message)
+        } else {
+            workerDeliveredMessages.append(message)
+        }
+    }
+
+    func quiesceInputDelivery() async throws {
+        inputQuiescenceCountValue += 1
+        workerDeliveredMessages.append(contentsOf: deferredLiveInputMessages)
+        deferredLiveInputMessages.removeAll()
+        workerDeliveredMessages.append(.releaseInputs)
     }
 
     func synchronizeOrientation(
@@ -218,6 +238,18 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
 
     func messages() -> [SimulatorWorkerInbound] {
         sentMessages
+    }
+
+    func deliveredMessages() -> [SimulatorWorkerInbound] {
+        workerDeliveredMessages
+    }
+
+    func inputQuiescenceCount() -> Int {
+        inputQuiescenceCountValue
+    }
+
+    func hasDeferredLiveInput() -> Bool {
+        !deferredLiveInputMessages.isEmpty
     }
 
     func activations() -> [Activation] {
