@@ -184,6 +184,40 @@ class RegistryArtifactTests(unittest.TestCase):
                 "crates", "cmux-sidebar", "1.0.0", self.artifact
             )
 
+    def test_crates_bootstrap_can_create_only_the_reserved_prerelease(self) -> None:
+        missing = HTTPError("https://registry.example", 404, "missing", None, None)
+        with mock.patch.object(reconcile, "urlopen", side_effect=missing), \
+            mock.patch.object(
+                reconcile.subprocess,
+                "run",
+                return_value=mock.Mock(returncode=1),
+            ):
+            self.assertEqual(
+                reconcile.main([
+                    "publish",
+                    "--registry", "crates",
+                    "--package", "cmux-sidebar",
+                    "--version", "0.0.0-bootstrap.0",
+                    "--artifact", str(self.artifact),
+                    "--allow-missing-project",
+                    "--",
+                    "false",
+                ]),
+                1,
+            )
+
+        with self.assertRaisesRegex(SystemExit, "bootstrap prerelease"):
+            reconcile.main([
+                "publish",
+                "--registry", "crates",
+                "--package", "cmux-sidebar",
+                "--version", "1.0.0",
+                "--artifact", str(self.artifact),
+                "--allow-missing-project",
+                "--",
+                "false",
+            ])
+
     def test_npm_uses_the_registry_integrity_digest(self) -> None:
         metadata = {
             "dist-tags": {"latest": "1.0.0"},

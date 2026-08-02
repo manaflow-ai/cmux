@@ -43,6 +43,7 @@ class VerifyCratesOwnershipTests(unittest.TestCase):
                 "id": package,
                 "name": package,
                 "repository": self.repository,
+                "trustpub_only": True,
             }
         })
 
@@ -94,6 +95,22 @@ class VerifyCratesOwnershipTests(unittest.TestCase):
 
         with mock.patch.object(ownership, "urlopen", side_effect=response), \
             self.assertRaisesRegex(ownership.OwnershipError, "repository"):
+            ownership.verify(
+                self.packages,
+                self.repository,
+                self.owner_id,
+                self.owner_login,
+            )
+
+    def test_rejects_api_token_publishing(self) -> None:
+        def response(request: object, **kwargs: object) -> io.BytesIO:
+            payload = json.loads(self.registry_response(request, **kwargs).read())
+            if not str(getattr(request, "full_url", "")).endswith("/owners"):
+                payload["crate"]["trustpub_only"] = False
+            return self.response(payload)
+
+        with mock.patch.object(ownership, "urlopen", side_effect=response), \
+            self.assertRaisesRegex(ownership.OwnershipError, "trusted publishing"):
             ownership.verify(
                 self.packages,
                 self.repository,

@@ -166,6 +166,60 @@ def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
     assert "--owner lawrencecchen" in registry
 
 
+def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
+    bootstrap = workflow("sdk-bootstrap-crates.yml")
+    sdk_ci = workflow("cmux-tui-sdks.yml")
+    releasing = (
+        ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
+    ).read_text()
+    manifest = tomllib.loads(
+        (
+            ROOT
+            / "cmux-tui"
+            / "bindings"
+            / "bootstrap"
+            / "rust-sidebar"
+            / "Cargo.toml"
+        ).read_text()
+    )
+
+    assert workflow_triggers(bootstrap) == {
+        "repository_dispatch": {"types": ["sdk-bootstrap-crates"]}
+    }
+    assert "runs-on: ubuntu-24.04" in bootstrap
+    assert 'RUST_TOOLCHAIN: "1.95.0"' in bootstrap
+    assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
+    assert "CARGO_BOOTSTRAP_TOKEN" in bootstrap
+    assert "cargo test --manifest-path" in bootstrap
+    assert "cargo package --manifest-path" in bootstrap
+    assert "reconcile_registry_artifact.py publish" in bootstrap
+    assert "--allow-missing-project" in bootstrap
+    assert "cargo publish" in bootstrap
+    assert manifest["package"]["name"] == "cmux-sidebar"
+    assert manifest["package"]["version"] == "0.0.0-bootstrap.0"
+    assert "dependencies" not in manifest
+    assert manifest["workspace"] == {}
+    assert sdk_ci.count('".github/workflows/sdk-bootstrap-crates.yml"') == 2
+    assert "sdk-bootstrap-crates.yml" in releasing
+    assert "0.0.0-bootstrap.0" in releasing
+    assert "publish `cmux-sidebar` interactively once" not in releasing
+
+
+def test_registry_setup_disables_long_lived_publish_credentials() -> None:
+    releasing = (
+        ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
+    ).read_text()
+    verifier = (
+        ROOT / "cmux-tui" / "bindings" / "verify_crates_ownership.py"
+    ).read_text()
+
+    assert "Require two-factor authentication and disallow tokens" in releasing
+    assert releasing.count("Require trusted publishing for all new versions") >= 2
+    assert "revoke the npm access token" in releasing
+    assert "revoke the crates.io API token" in releasing
+    assert 'crate.get("trustpub_only") is not True' in verifier
+
+
 def test_all_registry_names_are_owned_before_release_tags() -> None:
     release = workflow("sdk-release-cut.yml")
     registry = workflow_job(release, "registry-preflight")
@@ -304,6 +358,7 @@ def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
 
 def test_privileged_sdk_workflows_use_external_release_authority() -> None:
     release = workflow("sdk-release-cut.yml")
+    crates_bootstrap = workflow("sdk-bootstrap-crates.yml")
     npm_bootstrap = workflow("sdk-bootstrap-npm.yml")
     pypi_bootstrap = workflow("sdk-bootstrap-pypi.yml")
     releasing = (
@@ -312,6 +367,7 @@ def test_privileged_sdk_workflows_use_external_release_authority() -> None:
 
     for text, event_type in (
         (release, "sdk-release-cut"),
+        (crates_bootstrap, "sdk-bootstrap-crates"),
         (npm_bootstrap, "sdk-bootstrap-npm"),
         (pypi_bootstrap, "sdk-bootstrap-pypi"),
     ):
@@ -346,6 +402,7 @@ def test_privileged_sdk_workflows_use_external_release_authority() -> None:
         "protected branches only",
         "prevent self-review",
         "disable administrator bypass",
+        "crates-bootstrap",
         "SDK release GitHub App",
         "refs/tags/cmux-sdk-v*",
         "refs/tags/cmux-tui/bindings/go/v*",
@@ -740,6 +797,7 @@ def test_workflow_guard_runs_for_every_workflow_it_validates() -> None:
         "cmux-tui-release-cut.yml",
         "cmux-tui-release.yml",
         "cmux-tui-sdks.yml",
+        "sdk-bootstrap-crates.yml",
         "sdk-publish-crates.yml",
         "sdk-publish-go.yml",
         "sdk-publish-java.yml",
