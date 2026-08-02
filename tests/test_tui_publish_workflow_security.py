@@ -5,12 +5,11 @@ import re
 import subprocess
 import tempfile
 import time
-import tomllib
 import unittest
 from pathlib import Path
 
+import tomllib
 import yaml
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -625,7 +624,7 @@ def test_tag_cut_revalidates_release_order_after_its_final_fetch() -> None:
     assert compare < create < push
 
 
-def test_tag_cut_retry_requires_fresh_authority_or_exact_poststate() -> None:
+def test_tag_cut_retry_requires_fresh_authority_or_safe_poststate() -> None:
     release = workflow("sdk-release-cut.yml")
     revalidate_tags = workflow_job(release, "revalidate-tags")
     cut_tags = workflow_job(release, "cut-tags")
@@ -638,6 +637,7 @@ def test_tag_cut_retry_requires_fresh_authority_or_exact_poststate() -> None:
         "authorization_run_attempt",
         "authorized_at",
         "remote_state_sha256",
+        "remote_tag_state_sha256",
     ):
         assert output in revalidate_tags
         assert output.upper() in cut_tags
@@ -648,7 +648,8 @@ def test_tag_cut_retry_requires_fresh_authority_or_exact_poststate() -> None:
     )
     assert "authorization_age" in cut_tags
     assert "authorization_age <= 900" in cut_tags
-    assert "normalized_state_sha256" in cut_tags
+    assert "normalized_tag_state_sha256" in cut_tags
+    assert "verify_release_commit_on_main" in cut_tags
     assert "remote_release_state=published" in cut_tags
     assert "both coordinated tags already name the release commit" in cut_tags
     assert "id: prepare" in cut_tags
@@ -656,7 +657,7 @@ def test_tag_cut_retry_requires_fresh_authority_or_exact_poststate() -> None:
         "if: steps.prepare.outputs.tags_exist != 'true'"
     ) == 2
     assert "**Re-run all jobs**" in releasing
-    assert "exact coordinated tag post-state" in releasing
+    assert "release commit remains an ancestor" in releasing
 
 
 def test_tag_cut_retry_behavior_accepts_tags_after_main_advances() -> None:
@@ -673,8 +674,7 @@ def test_tag_cut_retry_behavior_accepts_tags_after_main_advances() -> None:
             cwd=cwd,
             check=True,
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
         ).stdout.strip()
 
     with tempfile.TemporaryDirectory(prefix="cmux-sdk-tag-retry-") as raw:
@@ -693,6 +693,7 @@ def test_tag_cut_retry_behavior_accepts_tags_after_main_advances() -> None:
 
         prestate = f"{release_sha}\trefs/heads/main\n"
         prestate_sha256 = hashlib.sha256(prestate.encode()).hexdigest()
+        pretag_state_sha256 = hashlib.sha256(b"\n").hexdigest()
 
         def prepare(attempt: int) -> tuple[subprocess.CompletedProcess[str], str, Path]:
             run_root = temporary / f"run-{attempt}"
@@ -715,6 +716,7 @@ def test_tag_cut_retry_behavior_accepts_tags_after_main_advances() -> None:
                     "GITHUB_SHA": release_sha,
                     "GO_TAG": "cmux-tui/bindings/go/v1.0.1",
                     "REMOTE_STATE_SHA256": prestate_sha256,
+                    "REMOTE_TAG_STATE_SHA256": pretag_state_sha256,
                     "RUNNER_TEMP": str(run_root),
                     "SDK_TAG": "cmux-sdk-v1.0.1",
                     "VERSION": "1.0.1",
@@ -755,6 +757,22 @@ def test_tag_cut_retry_behavior_accepts_tags_after_main_advances() -> None:
         assert "both coordinated tags already name the release commit" in recovered.stdout
         assert recovered_output == "tags_exist=true\n"
         assert not (recovered_root / "cmux-sdk-release").exists()
+
+        git("tag", "-a", "cmux-sdk-v0.9.9", "-m", "unrelated release", cwd=source)
+        git("push", "origin", "refs/tags/cmux-sdk-v0.9.9", cwd=source)
+        changed_tags, changed_tags_output, _ = prepare(3)
+        assert changed_tags.returncode != 0
+        assert "remote release tags changed" in changed_tags.stdout
+        assert changed_tags_output == ""
+
+        git("push", "origin", ":refs/tags/cmux-sdk-v0.9.9", cwd=source)
+        git("checkout", "--orphan", "rewritten-main", cwd=source)
+        git("commit", "--allow-empty", "-m", "rewrite main", cwd=source)
+        git("push", "--force", "origin", "HEAD:main", cwd=source)
+        rewritten, rewritten_output, _ = prepare(4)
+        assert rewritten.returncode != 0
+        assert "is no longer on protected main" in rewritten.stdout
+        assert rewritten_output == ""
 
 
 def test_go_publisher_uses_the_nested_module_semver_tag() -> None:

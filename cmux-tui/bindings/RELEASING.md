@@ -225,9 +225,12 @@ The cut workflow holds one cross-version concurrency lock until the Go check and
 all registry jobs finish. If tag creation fails before both coordinated tags
 exist, use GitHub's **Re-run all jobs** action so approval-fresh registry checks
 run again. A failed-job retry accepts the exact coordinated tag post-state when
-an atomic push succeeded but its response was lost; otherwise it rejects stale
-authorization. After tag creation succeeds, use **Re-run failed jobs** for a
-publisher failure so successful registry writes are not repeated.
+an atomic push succeeded but its response was lost. Recovery also permits
+protected `main` to advance when all other release tags still match the final
+revalidation snapshot and the release commit remains an ancestor of current
+`main`; otherwise it rejects stale authorization. After tag creation succeeds,
+use **Re-run failed jobs** for a publisher failure so successful registry writes
+are not repeated.
 
 ## Verification after publishing
 

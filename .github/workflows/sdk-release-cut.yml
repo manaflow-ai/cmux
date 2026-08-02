@@ -365,6 +365,7 @@ jobs:
       authorization_run_id: ${{ steps.revalidate.outputs.authorization_run_id }}
       authorized_at: ${{ steps.revalidate.outputs.authorized_at }}
       remote_state_sha256: ${{ steps.revalidate.outputs.remote_state_sha256 }}
+      remote_tag_state_sha256: ${{ steps.revalidate.outputs.remote_tag_state_sha256 }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -460,8 +461,19 @@ jobs:
           remote_state_sha256="$(
             printf '%s\n' "$remote_state_after" | sha256sum | cut -d ' ' -f 1
           )"
+          remote_tag_state="$(
+            printf '%s\n' "$remote_state_after" | \
+              awk '$2 != "refs/heads/main"'
+          )"
+          remote_tag_state_sha256="$(
+            printf '%s\n' "$remote_tag_state" | sha256sum | cut -d ' ' -f 1
+          )"
           [[ "$remote_state_sha256" =~ ^[0-9a-f]{64}$ ]] || {
             echo "remote release state digest is malformed" >&2
+            exit 1
+          }
+          [[ "$remote_tag_state_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "remote release tag state digest is malformed" >&2
             exit 1
           }
           [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ ]] || {
@@ -482,6 +494,7 @@ jobs:
             echo "authorization_run_id=$GITHUB_RUN_ID"
             echo "authorized_at=$authorized_at"
             echo "remote_state_sha256=$remote_state_sha256"
+            echo "remote_tag_state_sha256=$remote_tag_state_sha256"
           } >> "$GITHUB_OUTPUT"
 
   cut-tags:
@@ -504,6 +517,7 @@ jobs:
           DISPATCH_VERSION: ${{ github.event.client_payload.version }}
           GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
           REMOTE_STATE_SHA256: ${{ needs.revalidate-tags.outputs.remote_state_sha256 }}
+          REMOTE_TAG_STATE_SHA256: ${{ needs.revalidate-tags.outputs.remote_tag_state_sha256 }}
           SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
           VERSION: ${{ needs.validate-release.outputs.version }}
         run: |
@@ -544,6 +558,10 @@ jobs:
             echo "validated remote release state digest is malformed" >&2
             exit 1
           }
+          [[ "$REMOTE_TAG_STATE_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "validated remote release tag state digest is malformed" >&2
+            exit 1
+          }
 
           release_repository="https://github.com/manaflow-ai/cmux.git"
           remote_state() {
@@ -564,10 +582,42 @@ jobs:
           ref_sha() {
             printf '%s\n' "$1" | awk -v ref="$2" '$2 == ref { print $1 }'
           }
+          verify_release_commit_on_main() {
+            local current_main_sha="$1"
+            local recovery_dir
+            local fetched_main_sha
+            if [[ "$current_main_sha" == "$GITHUB_SHA" ]]; then
+              return
+            fi
+            recovery_dir="$RUNNER_TEMP/cmux-sdk-recovery-main"
+            mkdir -m 700 "$recovery_dir"
+            git -C "$recovery_dir" init --quiet
+            git -C "$recovery_dir" remote add origin "$release_repository"
+            git -C "$recovery_dir" fetch \
+              --filter=blob:none \
+              --force \
+              --no-recurse-submodules \
+              --no-tags \
+              origin \
+              refs/heads/main:refs/remotes/origin/main
+            fetched_main_sha="$(
+              git -C "$recovery_dir" rev-parse refs/remotes/origin/main
+            )"
+            [[ "$fetched_main_sha" == "$current_main_sha" ]] || {
+              echo "protected main changed during coordinated tag recovery" >&2
+              exit 1
+            }
+            git -C "$recovery_dir" merge-base \
+              --is-ancestor "$GITHUB_SHA" "$fetched_main_sha" || {
+              echo "release commit $GITHUB_SHA is no longer on protected main" >&2
+              exit 1
+            }
+          }
           verify_remote_state() {
             local state
             local remote_state_sha256
             local main_ref_count
+            local main_ref_sha
             local sdk_ref
             local sdk_peeled_ref
             local go_ref
@@ -581,14 +631,19 @@ jobs:
             local sdk_peeled_sha
             local go_ref_sha
             local go_peeled_sha
-            local normalized_state
-            local normalized_state_sha256
+            local normalized_tag_state
+            local normalized_tag_state_sha256
             state="$(remote_state)"
             main_ref_count="$(
               printf '%s\n' "$state" | grep -c $'\trefs/heads/main$' || true
             )"
             [[ "$main_ref_count" == 1 ]] || {
               echo "remote release state does not contain exactly one main ref" >&2
+              exit 1
+            }
+            main_ref_sha="$(ref_sha "$state" "refs/heads/main")"
+            [[ "$main_ref_sha" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "protected main ref is malformed" >&2
               exit 1
             }
             remote_state_sha256="$(state_sha256 "$state")"
@@ -621,22 +676,27 @@ jobs:
                 echo "coordinated release tags do not both name $GITHUB_SHA" >&2
                 exit 1
               }
-              normalized_state="$(
+              normalized_tag_state="$(
                 printf '%s\n' "$state" | awk \
+                  -v main="refs/heads/main" \
                   -v sdk="$sdk_ref" \
                   -v sdk_peeled="$sdk_peeled_ref" \
                   -v go="$go_ref" \
                   -v go_peeled="$go_peeled_ref" \
-                  '$2 != sdk && $2 != sdk_peeled && $2 != go && $2 != go_peeled'
+                  '$2 != main && $2 != sdk && $2 != sdk_peeled && \
+                    $2 != go && $2 != go_peeled'
               )"
-              normalized_state_sha256="$(state_sha256 "$normalized_state")"
-              if [[ "$remote_state_sha256" == "$REMOTE_STATE_SHA256" || \
-                "$normalized_state_sha256" == "$REMOTE_STATE_SHA256" ]]; then
-                remote_release_state=published
-                return
-              fi
-              echo "remote refs changed beyond the exact coordinated tag post-state" >&2
-              exit 1
+              normalized_tag_state_sha256="$(
+                state_sha256 "$normalized_tag_state"
+              )"
+              [[ "$normalized_tag_state_sha256" == \
+                "$REMOTE_TAG_STATE_SHA256" ]] || {
+                echo "remote release tags changed during coordinated tag recovery" >&2
+                exit 1
+              }
+              verify_release_commit_on_main "$main_ref_sha"
+              remote_release_state=published
+              return
             fi
 
             [[ "$remote_state_sha256" == "$REMOTE_STATE_SHA256" ]] || {
