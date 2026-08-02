@@ -3,6 +3,17 @@ import Testing
 
 @testable import CmuxSimulatorUI
 
+@MainActor
+private enum CmuxRemoteFrameViewNotificationProbe {
+    static var receivedCount = 0
+}
+
+extension CmuxRemoteFrameView {
+    @objc fileprivate func recordUnrelatedTestNotification(_ notification: Notification) {
+        CmuxRemoteFrameViewNotificationProbe.receivedCount += 1
+    }
+}
+
 @Suite("Remote frame hit testing")
 @MainActor
 struct CmuxRemoteFrameViewHitTestingTests {
@@ -22,5 +33,35 @@ struct CmuxRemoteFrameViewHitTestingTests {
         )
 
         #expect(frameView.layer?.backgroundColor == NSColor.clear.cgColor)
+    }
+
+    @Test("Moving between windows preserves unrelated notifications")
+    func windowObservationRemovalIsScoped() {
+        let notificationCenter = NotificationCenter.default
+        let notificationName = Notification.Name(
+            "CmuxRemoteFrameViewHitTestingTests.unrelated"
+        )
+        let frameView = CmuxRemoteFrameView(frame: .zero)
+        CmuxRemoteFrameViewNotificationProbe.receivedCount = 0
+        notificationCenter.addObserver(
+            frameView,
+            selector: #selector(
+                CmuxRemoteFrameView.recordUnrelatedTestNotification(_:)
+            ),
+            name: notificationName,
+            object: nil
+        )
+        defer {
+            notificationCenter.removeObserver(frameView)
+            frameView.teardown()
+        }
+
+        let firstWindow = NSWindow()
+        firstWindow.contentView?.addSubview(frameView)
+        let secondWindow = NSWindow()
+        secondWindow.contentView?.addSubview(frameView)
+        notificationCenter.post(name: notificationName, object: nil)
+
+        #expect(CmuxRemoteFrameViewNotificationProbe.receivedCount == 1)
     }
 }
