@@ -230,6 +230,41 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
         for name in environment:
             self.assertNotIn("TOKEN", name.upper())
 
+    def test_accepts_matching_sha512_in_multi_entry_sri(self) -> None:
+        metadata = self.metadata()
+        metadata["versions"][self.version]["dist"]["integrity"] = " ".join((
+            "sha256-ignored",
+            self.integrity(),
+        ))
+        completed = (
+            subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+            subprocess.CompletedProcess(
+                [],
+                0,
+                stdout=json.dumps({"invalid": [], "missing": []}),
+                stderr="",
+            ),
+        )
+
+        for artifact in (self.artifact, None):
+            with self.subTest(artifact=artifact), mock.patch.object(
+                provenance,
+                "urlopen",
+                side_effect=self.registry_response(metadata=metadata),
+            ), mock.patch.object(
+                provenance.subprocess,
+                "run",
+                side_effect=completed,
+            ):
+                provenance.verify(
+                    self.package,
+                    self.version,
+                    self.repository_url,
+                    self.repository_directory,
+                    artifact,
+                    **self.verification_options(),
+                )
+
     def test_verifies_a_stable_github_actions_publisher(self) -> None:
         self.version = "1.0.0"
         self.workflow = ".github/workflows/sdk-release-cut.yml"
