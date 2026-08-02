@@ -122,8 +122,10 @@ extension MobileShellComposite {
                 }
                 return $0.id < $1.id
             }
-        for candidate in candidates {
-            guard !Task.isCancelled, await isScopeCurrent(scope) else { return }
+        candidateLoop: for candidate in candidates {
+            guard !Task.isCancelled, await isScopeCurrent(scope) else {
+                break candidateLoop
+            }
             guard pendingZeroTouchIrohCandidatesByPairingID[candidate.id]
                     == candidate else {
                 continue
@@ -144,7 +146,7 @@ extension MobileShellComposite {
                     candidate.macDeviceID
                 )
             case .superseded:
-                return
+                break candidateLoop
             }
         }
         if pendingZeroTouchIrohCandidatesByPairingID.isEmpty {
