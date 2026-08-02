@@ -348,6 +348,27 @@ impl DaemonRuntimeHandle {
         self.thread.as_ref().is_some_and(thread::JoinHandle::is_finished)
     }
 
+    #[cfg(test)]
+    pub(crate) fn from_test_thread(thread: thread::JoinHandle<anyhow::Result<()>>) -> Self {
+        let (shutdown, _) = watch::channel(false);
+        Self {
+            info: DaemonRuntimeInfo {
+                session: "test".into(),
+                state_dir: PathBuf::new(),
+                link_socket: PathBuf::new(),
+                admin_socket: PathBuf::new(),
+                daemon_fingerprint: String::new(),
+                routes: Vec::new(),
+                direct_websocket: None,
+                iroh_node_id: None,
+                lifecycle_id: None,
+                replaceable_sidecar: false,
+            },
+            shutdown,
+            thread: Some(thread),
+        }
+    }
+
     pub fn shutdown(mut self) -> anyhow::Result<()> {
         #[cfg(debug_assertions)]
         let shutdown_marker = std::env::var_os("CMUX_TUI_TEST_REMOTE_SHUTDOWN_MARKER");

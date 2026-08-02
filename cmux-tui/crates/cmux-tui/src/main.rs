@@ -1477,6 +1477,8 @@ struct ServerShutdownCleanup {
     changed: std::sync::Condvar,
     #[cfg(test)]
     shutdown_attempt: std::sync::Mutex<Option<ServerShutdownAttempt>>,
+    #[cfg(test)]
+    process_owner_timeout: std::sync::Mutex<Option<std::time::Duration>>,
 }
 
 impl ServerShutdownCleanup {
@@ -1500,6 +1502,8 @@ impl ServerShutdownCleanup {
             shutdown_attempt: std::sync::Mutex::new(
                 SERVER_SHUTDOWN_ATTEMPT_FOR_RUN.with(|slot| slot.borrow().clone()),
             ),
+            #[cfg(test)]
+            process_owner_timeout: std::sync::Mutex::new(None),
         }
     }
 
@@ -1520,6 +1524,12 @@ impl ServerShutdownCleanup {
     ) {
         *self.shutdown_attempt.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
             Some(Arc::new(attempt));
+    }
+
+    #[cfg(test)]
+    fn set_process_owner_timeout_for_test(&self, timeout: std::time::Duration) {
+        *self.process_owner_timeout.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(timeout);
     }
 
     fn run_once(&self) -> ServerShutdownCleanupOutcome {
@@ -2604,6 +2614,39 @@ mod tests {
     #[test]
     fn shutdown_panic_returns_to_caller() {
         assert_shutdown_attempt_returns(|| panic!("forced shutdown panic"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn server_process_owner_shutdown_obeys_cleanup_deadline() {
+        let process_owners = Arc::new(ServerProcessOwnersCleanup::new());
+        let (release, blocked) = std::sync::mpsc::channel();
+        let remote_thread = std::thread::spawn(move || {
+            let _ = blocked.recv();
+            Ok(())
+        });
+        process_owners
+            .register_remote(remote_runtime::DaemonRuntimeHandle::from_test_thread(remote_thread));
+        process_owners.seal();
+
+        let mux = Mux::new("bounded-process-owner-test", SurfaceOptions::default());
+        let cleanup = Arc::new(ServerShutdownCleanup::new_with_process_owners(mux, process_owners));
+        cleanup.set_shutdown_attempt_for_test(|| Ok(()));
+        cleanup.set_process_owner_timeout_for_test(std::time::Duration::from_millis(50));
+        let worker_cleanup = cleanup.clone();
+        let (returned, observed) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let _ = returned.send(worker_cleanup.run_until_complete());
+        });
+
+        let bounded = observed.recv_timeout(std::time::Duration::from_millis(350));
+        let _ = release.send(());
+        if bounded.is_ok() {
+            cleanup.prepare_retry(0);
+            cleanup.run_until_complete().unwrap();
+        }
+        worker.join().unwrap();
+        assert!(bounded.is_ok(), "server process-owner shutdown ignored the cleanup deadline");
     }
 
     #[test]
