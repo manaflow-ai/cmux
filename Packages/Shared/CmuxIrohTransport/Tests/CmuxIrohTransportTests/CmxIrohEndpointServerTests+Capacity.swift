@@ -142,7 +142,7 @@ extension CmxIrohEndpointServerTests {
     }
 
     @Test
-    func sameEndpointReconnectsPreserveOneBoundedOverlap() async throws {
+    func sameEndpointReconnectsReplaceOldestUnreadyConnectionAtBound() async throws {
         let localIdentity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "1", count: 64)
         )
@@ -190,7 +190,7 @@ extension CmxIrohEndpointServerTests {
             remoteIdentity: firstRemoteIdentity,
             bidirectionalStreams: []
         )
-        var excessCandidateCloses = await excessCandidate.closeEvents().makeAsyncIterator()
+        var firstCloses = await first.closeEvents().makeAsyncIterator()
 
         await endpoint.enqueue(first)
         #expect(await recorder.next().identity == firstRemoteIdentity)
@@ -199,19 +199,19 @@ extension CmxIrohEndpointServerTests {
         await endpoint.enqueue(excessCandidate)
         for _ in 0 ..< 100 {
             let recordedCount = await recorder.recordedCount()
-            let closeCount = await excessCandidate.observedCloseCallCount()
-            guard recordedCount == 2, closeCount == 0 else { break }
+            let firstCloseCount = await first.observedCloseCallCount()
+            guard recordedCount < 3, firstCloseCount == 0 else { break }
             await Task.yield()
         }
 
-        #expect(await recorder.recordedCount() == 2)
-        #expect(await first.observedCloseCallCount() == 0)
+        #expect(await recorder.recordedCount() == 3)
+        #expect(await first.observedCloseCallCount() == 1)
         #expect(await replacement.observedCloseCallCount() == 0)
-        let excessCloseCount = await excessCandidate.observedCloseCallCount()
-        #expect(excessCloseCount == 1)
-        if excessCloseCount == 1 {
-            let close = try #require(await excessCandidateCloses.next())
-            #expect(close.reason == "connection_identity_capacity")
+        #expect(await excessCandidate.observedCloseCallCount() == 0)
+        let firstCloseCount = await first.observedCloseCallCount()
+        if firstCloseCount == 1 {
+            let close = try #require(await firstCloses.next())
+            #expect(close.reason == "superseded_unready_connection")
         }
 
         await endpoint.enqueue(
