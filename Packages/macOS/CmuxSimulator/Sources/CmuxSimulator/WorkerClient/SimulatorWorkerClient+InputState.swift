@@ -42,7 +42,7 @@ extension SimulatorWorkerClient {
         case let .interactiveAction(requestID, action):
             pendingInteractiveRequestIdentifiers.insert(requestID)
             rememberInteractiveAction(action)
-        case .releaseInputs:
+        case .releaseInputs, .quiesceInput:
             rememberReleaseOfAllInputs()
         default:
             break

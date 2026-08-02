@@ -20,6 +20,9 @@ public protocol SimulatorPaneClient: Sendable {
     /// - Parameter message: The command to enqueue.
     func send(_ message: SimulatorWorkerInbound) async
 
+    /// Waits until earlier live input is handled and all worker-held input is released.
+    func quiesceInputDelivery() async throws
+
     /// Confirms that the host has opened the named frame transport, allowing
     /// older shared-memory names to be retired without racing host adoption.
     func acknowledgeFrameTransportAdoption(

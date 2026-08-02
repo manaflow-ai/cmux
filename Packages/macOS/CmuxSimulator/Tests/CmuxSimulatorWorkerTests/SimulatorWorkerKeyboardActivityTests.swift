@@ -1,4 +1,5 @@
 import CmuxSimulator
+import Foundation
 import Testing
 @testable import CmuxSimulatorWorker
 
@@ -41,5 +42,39 @@ struct SimulatorWorkerKeyboardActivityTests {
             if case .actionLog = message { return true }
             return false
         }.count == 1)
+    }
+
+    @Test("Input quiescence confirms ordered release")
+    @MainActor
+    func inputQuiescenceConfirmsRelease() async throws {
+        let fixture = try ToolOutputFixture()
+        let coordinator = SimulatorWorkerCoordinator(channel: fixture.worker)
+        var pointerEvents: [SimulatorPointerEvent] = []
+        coordinator.scrollWheel = SimulatorScrollWheelController(
+            sender: { pointerEvents.append($0); return true },
+            sleeper: BlockingWheelIdleSleeper(),
+            completion: { eventID in
+                coordinator.send(.scrollWheelEnded(eventID: eventID))
+            }
+        )
+        let scroll = SimulatorScrollWheelEvent(
+            id: UUID(),
+            anchor: SimulatorPoint(x: 0.5, y: 0.5),
+            deltaX: 0,
+            deltaY: 0.25
+        )
+        let requestIdentifier = UUID()
+
+        #expect(await coordinator.handle(.scrollWheel(scroll)))
+        #expect(pointerEvents.last?.phase == .moved)
+        #expect(await coordinator.handle(.quiesceInput(
+            requestID: requestIdentifier
+        )))
+
+        #expect(pointerEvents.last?.phase == .cancelled)
+        #expect(try fixture.receiveAvailable() == [
+            .scrollWheelEnded(eventID: scroll.id),
+            .inputQuiesced(requestID: requestIdentifier),
+        ])
     }
 }

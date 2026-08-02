@@ -31,6 +31,7 @@ actor RestartingEventClient: SimulatorPaneClient {
     }
 
     func send(_ message: SimulatorWorkerInbound) async {}
+    func quiesceInputDelivery() async throws {}
     func synchronizeOrientation(
         _ orientation: SimulatorOrientation
     ) async throws -> SimulatorDisplayMetadata? { nil }

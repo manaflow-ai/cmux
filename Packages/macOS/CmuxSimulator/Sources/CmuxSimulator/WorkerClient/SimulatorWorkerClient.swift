@@ -343,6 +343,20 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         }
     }
 
+    /// Places a correlated release behind every deferred input message and waits
+    /// for the worker to confirm that the ordered command was handled.
+    public func quiesceInputDelivery() async throws {
+        let requestIdentifier = UUID()
+        let _: Void = try await requestWorkerValue(
+            sending: .quiesceInput(requestID: requestIdentifier),
+            timeout: ackTimeout
+        ) { outbound in
+            guard case let .inputQuiesced(responseIdentifier) = outbound,
+                  responseIdentifier == requestIdentifier else { return nil }
+            return ()
+        }
+    }
+
     /// Retires shared-memory transports after the host adopts the replacement.
     public func acknowledgeFrameTransportAdoption(
         _ descriptor: SimulatorFrameTransportDescriptor

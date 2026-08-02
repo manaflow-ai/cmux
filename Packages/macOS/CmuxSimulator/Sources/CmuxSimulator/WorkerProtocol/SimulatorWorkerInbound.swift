@@ -96,6 +96,8 @@ public enum SimulatorWorkerInbound: Codable, Equatable, Sendable {
     case sendWebInspectorMessage(requestID: UUID, json: String)
     /// Release every touch and key held by the host session.
     case releaseInputs
+    /// Release input after every earlier worker command and confirm completion.
+    case quiesceInput(requestID: UUID)
     /// Intentionally terminate the renderer in DEBUG builds for diagnostics.
     case terminateRenderer
     /// Stop capture and exit cleanly.
@@ -119,6 +121,7 @@ extension SimulatorWorkerInbound {
              let .requestPrivacy(requestID, _, _),
              let .reloadReactNative(requestID),
              let .setAccessibilityHighlight(requestID, _, _),
+             let .quiesceInput(requestID),
              let .requestAccessibility(requestID),
              let .requestForegroundApplication(requestID),
              let .requestWebInspectorTargets(requestID, _),
@@ -138,7 +141,8 @@ extension SimulatorWorkerInbound {
         case .pointer, .key, .keySequence, .scrollWheel, .typeText,
              .interactiveAction, .button, .hidButton, .rotate, .digitalCrown,
              .toggleSoftwareKeyboard, .memoryWarning, .setPrivateInterface,
-             .setPrivatePrivacy, .reloadReactNative, .releaseInputs:
+             .setPrivatePrivacy, .reloadReactNative, .releaseInputs,
+             .quiesceInput:
             true
         case .ping, .attach, .resize, .setFramebufferPublishing,
              .acknowledgeFrameTransport, .setHIDCapture, .coreAnimationDiagnostic,

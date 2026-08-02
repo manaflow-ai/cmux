@@ -37,6 +37,7 @@ actor LocationLifecyclePaneClient: SimulatorPaneClient {
 
     func subscribe() async -> SimulatorWorkerEventStream { stream }
     func send(_ message: SimulatorWorkerInbound) async {}
+    func quiesceInputDelivery() async throws {}
     func synchronizeOrientation(
         _ orientation: SimulatorOrientation
     ) async throws -> SimulatorDisplayMetadata? { nil }

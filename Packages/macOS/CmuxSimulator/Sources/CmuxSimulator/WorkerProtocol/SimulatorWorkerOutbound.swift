@@ -41,6 +41,8 @@ public enum SimulatorWorkerOutbound: Codable, Equatable, Sendable {
     case scrollWheelEnded(eventID: UUID)
     /// Confirms a correlated native input or diagnostic action.
     case interactiveAction(requestID: UUID, succeeded: Bool)
+    /// Confirms that earlier worker input was handled and all held input was released.
+    case inputQuiesced(requestID: UUID)
     /// Confirms a source-independent camera mirror update.
     case cameraMirror(requestID: UUID, succeeded: Bool)
     /// Confirms camera source setup, injection, and target validation.
@@ -87,6 +89,7 @@ extension SimulatorWorkerOutbound {
              let .textInput(requestID, _),
              let .cameraTargetResolved(requestID, _),
              let .interactiveAction(requestID, _),
+             let .inputQuiesced(requestID),
              let .cameraMirror(requestID, _),
              let .cameraConfiguration(requestID, _, _),
              let .cameraStatus(requestID, _),

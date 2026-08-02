@@ -105,4 +105,65 @@ extension SimulatorWorkerClientTests {
         #expect(!replacement.inboundMessages().contains(request))
         await client.stop()
     }
+
+    @Test("Input quiescence waits behind deferred live input and releases last")
+    func inputQuiescenceFencesDeferredLiveInput() async throws {
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(launcher: launcher)
+        try await client.recover()
+        let endpoint = try #require(launcher.endpoint(at: 0))
+        let resize = SimulatorWorkerInbound.resize(SimulatorSurfaceGeometry(
+            width: 800,
+            height: 600,
+            scale: 2
+        ))
+        try await client.sendRequired(resize)
+        let messagesWithBlockingPing = try #require(await endpoint.waitForInboundMessages {
+            $0.contains { if case .ping = $0 { true } else { false } }
+        })
+        let pingSequences: [UInt64] = messagesWithBlockingPing.compactMap {
+            guard case let .ping(sequence) = $0 else { return nil }
+            return sequence
+        }
+        let blockingSequence = try #require(pingSequences.last)
+        let scroll = SimulatorWorkerInbound.scrollWheel(SimulatorScrollWheelEvent(
+            id: UUID(),
+            anchor: SimulatorPoint(x: 0.5, y: 0.5),
+            deltaX: 0,
+            deltaY: 0.25
+        ))
+        try await client.sendRequired(scroll)
+        let operation = Task { try await client.quiesceInputDelivery() }
+        for _ in 0..<10_000 {
+            if await client.deferredMessages.contains(where: {
+                if case .quiesceInput = $0 { true } else { false }
+            }) { break }
+            await Task.yield()
+        }
+
+        #expect(!endpoint.inboundMessages().contains(scroll))
+        #expect(!endpoint.inboundMessages().contains {
+            if case .quiesceInput = $0 { true } else { false }
+        })
+        endpoint.setResponder { message in
+            switch message {
+            case let .ping(sequence):
+                .ack(sequence)
+            case let .quiesceInput(requestID):
+                .inputQuiesced(requestID: requestID)
+            default:
+                nil
+            }
+        }
+        endpoint.emit(.ack(blockingSequence))
+        try await operation.value
+
+        let delivered = endpoint.inboundMessages()
+        let scrollIndex = try #require(delivered.firstIndex(of: scroll))
+        let fenceIndex = try #require(delivered.firstIndex {
+            if case .quiesceInput = $0 { true } else { false }
+        })
+        #expect(scrollIndex < fenceIndex)
+        await client.stop()
+    }
 }

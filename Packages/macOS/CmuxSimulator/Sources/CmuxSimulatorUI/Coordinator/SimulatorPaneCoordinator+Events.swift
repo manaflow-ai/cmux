@@ -141,6 +141,11 @@ extension SimulatorPaneCoordinator {
               outgoingDeliveryGeneration == deliveryGeneration else {
             throw simulatorInputDeliveryUnavailable()
         }
+        try await client.quiesceInputDelivery()
+        guard !closed, !outgoingOverflowed,
+              outgoingDeliveryGeneration == deliveryGeneration else {
+            throw simulatorInputDeliveryUnavailable()
+        }
     }
 
     func finishOutgoingDeliveryReceipts() {
@@ -218,7 +223,7 @@ extension SimulatorPaneCoordinator {
 
     private func receive(_ message: SimulatorWorkerOutbound) {
         switch message {
-        case .ack:
+        case .ack, .inputQuiesced:
             break
         case let .frameTransport(frameTransport):
             if frameIsVisible { self.frameTransport = frameTransport }

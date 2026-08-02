@@ -494,6 +494,11 @@ final class SimulatorWorkerCoordinator {
             scrollWheel?.cancel()
             hid?.releaseInputs()
             hidCapture.setMode(.none, device: attachedDevice)
+        case let .quiesceInput(requestIdentifier):
+            scrollWheel?.cancel()
+            hid?.releaseInputs()
+            hidCapture.setMode(.none, device: attachedDevice)
+            send(.inputQuiesced(requestID: requestIdentifier))
         case .terminateRenderer:
             #if DEBUG
                 _exit(86)
