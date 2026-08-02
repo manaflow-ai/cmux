@@ -74,6 +74,55 @@ import Testing
         )
     }
 
+    @Test func testApplicationSurfaceValueFlagsPreservePresentationLikeValues()
+        throws
+    {
+        let cliPath = try bundledCLIPath()
+        let socketPath =
+            "/tmp/cmux-app-options-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"surface_id":"surface:1","pane_id":"pane:1"}}"#
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let cases = [
+            (
+                option: "--native-window-id",
+                error: "--native-window-id must be a positive integer"
+            ),
+            (
+                option: "--process-id",
+                error: "--process-id must be a positive integer"
+            ),
+            (
+                option: "--frame-rate",
+                error: "--frame-rate must be between 1 and 120"
+            ),
+        ]
+
+        for testCase in cases {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "--socket", socketPath,
+                    "new-surface", "--type", "terminal",
+                    testCase.option, "--json",
+                ],
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stdout)
+            XCTAssertNotEqual(result.status, 0, result.stdout)
+            XCTAssertTrue(
+                result.stdout.contains(testCase.error),
+                result.stdout
+            )
+        }
+    }
+
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-ios-routing-\(UUID().uuidString.prefix(8)).sock"
