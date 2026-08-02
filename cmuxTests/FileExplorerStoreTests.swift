@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCore
 import Testing
 
 #if canImport(cmux_DEV)
@@ -271,6 +272,53 @@ struct FileExplorerStoreTests {
 
         #expect(sshSession?.destination == "dev@example.internal")
         #expect(eternalTerminalSession == nil)
+    }
+
+    @Test
+    func sshSessionMonitorPublishesDetectionAndClearsWhenDisabled() async {
+        let session = DetectedSSHSession(
+            destination: "dev@example.internal",
+            port: nil,
+            identityFile: nil,
+            configFile: nil,
+            jumpHost: nil,
+            controlPath: nil,
+            useIPv4: false,
+            useIPv6: false,
+            forwardAgent: false,
+            compressionEnabled: false,
+            sshOptions: []
+        )
+        let workspaceId = UUID()
+        let monitor = FileExplorerSSHSessionMonitor(
+            pollInterval: .seconds(60),
+            detector: { ttyName in
+                ttyName == "ttys001" ? session : nil
+            }
+        )
+        let updates = await monitor.updates()
+        var iterator = updates.makeAsyncIterator()
+
+        let initialEvent = await iterator.next()
+        #expect(initialEvent != nil)
+        #expect(initialEvent.flatMap { $0 } == nil)
+
+        await monitor.update(
+            isEnabled: true,
+            workspaceId: workspaceId,
+            ttyName: "/dev/ttys001"
+        )
+        let detectedEvent = await iterator.next()
+        let snapshot = detectedEvent.flatMap { $0 }
+        #expect(snapshot?.workspaceId == workspaceId)
+        #expect(snapshot?.ttyName == "/dev/ttys001")
+        #expect(snapshot?.session == session)
+
+        await monitor.update(isEnabled: false, workspaceId: nil, ttyName: nil)
+        let clearedEvent = await iterator.next()
+        #expect(clearedEvent != nil)
+        #expect(clearedEvent.flatMap { $0 } == nil)
+        await monitor.stop()
     }
 
     @Test

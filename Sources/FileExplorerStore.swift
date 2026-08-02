@@ -255,28 +255,76 @@ struct SSHFileExplorerConnection: Equatable, Sendable {
     }
 
     init(detectedSSHSession session: DetectedSSHSession) {
+        var options = session.sshOptions
+        if let jumpHost = session.jumpHost?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !jumpHost.isEmpty,
+           !Self.containsOption(options, key: "ProxyJump") {
+            options.append("ProxyJump=\(jumpHost)")
+        }
+        if let controlPath = session.controlPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !controlPath.isEmpty,
+           !Self.containsOption(options, key: "ControlPath") {
+            options.append("ControlPath=\(controlPath)")
+        }
+
         self.init(
             destination: session.destination,
             port: session.port,
             identityFile: session.identityFile,
-            sshOptions: session.sshOptions
+            configFile: session.configFile,
+            useIPv4: session.useIPv4,
+            useIPv6: session.useIPv6,
+            forwardAgent: session.forwardAgent,
+            compressionEnabled: session.compressionEnabled,
+            sshOptions: options
         )
     }
 
     func sshArguments(command: String) -> [String] {
         var arguments = SSHHostConfiguredRemoteCommand().overrideArguments
+        if useIPv4 {
+            arguments.append("-4")
+        } else if useIPv6 {
+            arguments.append("-6")
+        }
+        if forwardAgent {
+            arguments.append("-A")
+        }
+        if compressionEnabled {
+            arguments.append("-C")
+        }
+        if let configFile = configFile?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !configFile.isEmpty {
+            arguments += ["-F", configFile]
+        }
         if let port {
             arguments += ["-p", String(port)]
         }
-        if let identityFile {
+        if let identityFile = identityFile?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !identityFile.isEmpty {
             arguments += ["-i", identityFile]
         }
-        for option in sshOptions {
+        for option in sshOptions where Self.optionKey(option) != "batchmode" {
             arguments += ["-o", option]
         }
         arguments += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
         arguments += [destination, command]
         return arguments
+    }
+
+    private static func containsOption(_ options: [String], key: String) -> Bool {
+        let normalizedKey = key.lowercased()
+        return options.contains { optionKey($0) == normalizedKey }
+    }
+
+    private static func optionKey(_ option: String) -> String? {
+        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+            .first
+            .map(String.init)?
+            .lowercased()
     }
 }
 
@@ -797,6 +845,10 @@ final class FileExplorerStore: ObservableObject {
         self.gitStatusProvider = gitStatusProvider
     }
 
+    var usesRemoteProvider: Bool {
+        provider is SSHFileExplorerProvider
+    }
+
     var displayRootPath: String {
         if let sshProvider = provider as? SSHFileExplorerProvider {
             guard !rootPath.isEmpty else {
@@ -867,15 +919,12 @@ final class FileExplorerStore: ObservableObject {
         }
         let path = rootPath
         if let sshProvider = provider as? SSHFileExplorerProvider {
-            let dest = sshProvider.destination
-            let port = sshProvider.port
-            let identity = sshProvider.identityFile
-            let opts = sshProvider.sshOptions
+            let connection = sshProvider.connection
             let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
                 let status = gitStatusProvider.fetchStatusSSH(
-                    directory: path, destination: dest, port: port,
-                    identityFile: identity, sshOptions: opts
+                    directory: path,
+                    connection: connection
                 )
                 DispatchQueue.main.async { [weak self] in
                     self?.gitStatusByPath = status

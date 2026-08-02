@@ -415,7 +415,23 @@ enum TerminalSSHSessionDetector {
     }
 
     static func detectSSH(forTTY ttyName: String) -> DetectedSSHSession? {
-        nil
+        let normalizedTTY = normalizeTTYName(ttyName)
+        guard !normalizedTTY.isEmpty else { return nil }
+        let processes = processSnapshots(forTTY: normalizedTTY)
+        guard !processes.isEmpty else { return nil }
+
+        var argumentsByPID: [Int32: [String]] = [:]
+        for process in processes where isForegroundSSHProcess(process, ttyName: normalizedTTY) {
+            if let arguments = commandLineArguments(forPID: process.pid) {
+                argumentsByPID[process.pid] = arguments
+            }
+        }
+
+        return detectSSHForTesting(
+            ttyName: normalizedTTY,
+            processes: processes,
+            argumentsByPID: argumentsByPID
+        )
     }
 
     static func detectSSHForTesting(
@@ -423,7 +439,25 @@ enum TerminalSSHSessionDetector {
         processes: [ProcessSnapshot],
         argumentsByPID: [Int32: [String]]
     ) -> DetectedSSHSession? {
-        nil
+        let normalizedTTY = normalizeTTYName(ttyName)
+        guard !normalizedTTY.isEmpty else { return nil }
+
+        let candidates = processes
+            .filter { isForegroundSSHProcess($0, ttyName: normalizedTTY) }
+            .sorted { lhs, rhs in
+                if lhs.pid != rhs.pid { return lhs.pid > rhs.pid }
+                return lhs.pgid > rhs.pgid
+            }
+
+        for candidate in candidates {
+            guard let arguments = argumentsByPID[candidate.pid],
+                  let session = parseCommandLine(arguments, for: .ssh) else {
+                continue
+            }
+            return session
+        }
+
+        return nil
     }
 
     static func detectForTesting(
@@ -469,6 +503,14 @@ enum TerminalSSHSessionDetector {
     private static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
         normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
             RemoteShellTransport(executableName: process.executableName) != nil &&
+            process.pgid > 0 &&
+            process.tpgid > 0 &&
+            process.pgid == process.tpgid
+    }
+
+    private static func isForegroundSSHProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
+        normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
+            RemoteShellTransport(executableName: process.executableName) == .ssh &&
             process.pgid > 0 &&
             process.tpgid > 0 &&
             process.pgid == process.tpgid
