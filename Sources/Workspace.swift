@@ -473,7 +473,11 @@ extension Workspace {
             let agentWasRunning: Bool? = {
                 if let resumeBinding, resumeBinding.isAgentHookBinding {
                     guard let bindingKindValue = Self.normalizedResumeBindingValue(resumeBinding.kind),
-                          let bindingKind = RestorableAgentKind(rawValue: bindingKindValue),
+                          let bindingKind = RestorableAgentKind(
+                              persistedRawValue: bindingKindValue,
+                              registration: effectiveRestorableAgent?.registration
+                                  ?? restorableAgentObservation?.snapshot.registration
+                          ),
                           let bindingSessionId = Self.normalizedResumeBindingValue(resumeBinding.checkpointId) else {
                         return false
                     }
@@ -490,11 +494,19 @@ extension Workspace {
                         return true
                     }
                     guard let effectiveRestorableAgent,
-                          effectiveRestorableAgent.kind == bindingKind,
-                          effectiveRestorableAgent.sessionId == bindingSessionId,
+                          effectiveRestorableAgent.kind.rawValue == bindingKind.rawValue,
+                          ManagedAgentSessionIdentity.sessionIDsMatch(
+                              kind: bindingKind.rawValue,
+                              lhs: effectiveRestorableAgent.sessionId,
+                              rhs: bindingSessionId
+                          ),
                           let restorableAgentObservation,
-                          restorableAgentObservation.snapshot.kind == bindingKind,
-                          restorableAgentObservation.snapshot.sessionId == bindingSessionId else {
+                          restorableAgentObservation.snapshot.kind.rawValue == bindingKind.rawValue,
+                          ManagedAgentSessionIdentity.sessionIDsMatch(
+                              kind: bindingKind.rawValue,
+                              lhs: restorableAgentObservation.snapshot.sessionId,
+                              rhs: bindingSessionId
+                          ) else {
                         return false
                     }
                     return restorableAgentObservation.processLiveness
@@ -982,12 +994,20 @@ extension Workspace {
         guard let binding, binding.isAgentHookBinding, let restorableAgent else {
             return binding
         }
-        guard binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) == restorableAgent.sessionId else {
+        guard let checkpointId = normalizedResumeBindingValue(binding.checkpointId),
+              ManagedAgentSessionIdentity.sessionIDsMatch(
+                  kind: restorableAgent.kind.rawValue,
+                  lhs: checkpointId,
+                  rhs: restorableAgent.sessionId
+              ) else {
             return binding
         }
         if let bindingKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
            !bindingKind.isEmpty,
-           RestorableAgentKind(rawValue: bindingKind) != restorableAgent.kind {
+           RestorableAgentKind(
+               persistedRawValue: bindingKind,
+               registration: restorableAgent.registration
+           )?.rawValue != restorableAgent.kind.rawValue {
             return binding
         }
 
@@ -1016,12 +1036,19 @@ extension Workspace {
         }
 
         if let checkpointId = normalizedResumeBindingValue(resumeBinding.checkpointId),
-           checkpointId != restorableAgent.sessionId {
+           !ManagedAgentSessionIdentity.sessionIDsMatch(
+               kind: restorableAgent.kind.rawValue,
+               lhs: checkpointId,
+               rhs: restorableAgent.sessionId
+           ) {
             return nil
         }
         if let kindValue = normalizedResumeBindingValue(resumeBinding.kind) {
-            guard let bindingKind = RestorableAgentKind(rawValue: kindValue),
-                  bindingKind == restorableAgent.kind else {
+            guard let bindingKind = RestorableAgentKind(
+                persistedRawValue: kindValue,
+                registration: restorableAgent.registration
+            ),
+                  bindingKind.rawValue == restorableAgent.kind.rawValue else {
                 return nil
             }
         }
