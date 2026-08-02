@@ -368,6 +368,109 @@ struct SimulatorUIAutomationExecutorWaitTests {
         await coordinator.close()
     }
 
+    @Test("Gone waits fail closed when matching text is truncated")
+    func goneWaitRejectsTruncatedMatchingText() async {
+        let snapshot = Self.fieldTruncatedSnapshot()
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let wait = ControlSimulatorUIWait(
+            predicate: "gone",
+            elementRef: nil,
+            identifier: "status",
+            label: nil,
+            role: nil,
+            value: nil,
+            text: "Loading",
+            timeoutMilliseconds: 0,
+            pollIntervalMilliseconds: 100,
+            settledDurationMilliseconds: 0
+        )
+
+        do {
+            _ = try await SimulatorUIAutomationExecutor().perform(
+                .uiWait(wait),
+                coordinator: coordinator
+            )
+            Issue.record("Expected truncated matching text to be rejected")
+        } catch let failure as SimulatorUIAutomationFailure {
+            #expect(failure.code == "snapshot_truncated")
+        } catch {
+            Issue.record("Expected snapshot_truncated, got \(error)")
+        }
+        await coordinator.close()
+    }
+
+    @Test("Settled waits fail closed when visible text is truncated")
+    func settledWaitRejectsTruncatedVisibleText() async {
+        let snapshot = Self.fieldTruncatedSnapshot()
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let wait = ControlSimulatorUIWait(
+            predicate: "settled",
+            elementRef: nil,
+            identifier: nil,
+            label: nil,
+            role: nil,
+            value: nil,
+            text: nil,
+            timeoutMilliseconds: 0,
+            pollIntervalMilliseconds: 100,
+            settledDurationMilliseconds: 0
+        )
+
+        do {
+            _ = try await SimulatorUIAutomationExecutor().perform(
+                .uiWait(wait),
+                coordinator: coordinator
+            )
+            Issue.record("Expected truncated visible text to prevent settling")
+        } catch let failure as SimulatorUIAutomationFailure {
+            #expect(failure.code == "snapshot_truncated")
+        } catch {
+            Issue.record("Expected snapshot_truncated, got \(error)")
+        }
+        await coordinator.close()
+    }
+
+    @Test("Snapshots with truncated text are never reported unchanged")
+    func truncatedTextSnapshotDoesNotReportUnchanged() async throws {
+        let snapshot = Self.fieldTruncatedSnapshot()
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let scheduler = AdvancingActionScheduler(nowMilliseconds: 1_000)
+        let record = try await coordinator.recordUIAutomationSnapshot(
+            snapshot,
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+
+        let result = try await SimulatorUIAutomationExecutor(
+            scheduler: scheduler
+        ).perform(
+            .uiSnapshot(sinceScreenHash: record.snapshot.screenHash),
+            coordinator: coordinator
+        )
+
+        guard case let .object(payload) = result else {
+            Issue.record("Expected a snapshot object, got \(result)")
+            await coordinator.close()
+            return
+        }
+        #expect(payload["type"] == .string("runtime-snapshot"))
+        #expect(payload["truncated_fields"] == .array([.string("label")]))
+        await coordinator.close()
+    }
+
     @Test("Read-only waits preserve refs from an unchanged published snapshot")
     func unchangedWaitPreservesPublishedRef() async throws {
         let snapshot = Self.actionSnapshot()
@@ -620,6 +723,36 @@ struct SimulatorUIAutomationExecutorWaitTests {
             display: snapshot.display,
             nodeCount: snapshot.nodeCount,
             isTruncated: true
+        )
+    }
+
+    private static func fieldTruncatedSnapshot() -> SimulatorAccessibilitySnapshot {
+        SimulatorAccessibilitySnapshot(
+            roots: [SimulatorAccessibilityNode(
+                id: "root",
+                role: "Application",
+                label: "Example",
+                value: nil,
+                frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                isEnabled: true,
+                children: [SimulatorAccessibilityNode(
+                    id: "status",
+                    identifier: "status",
+                    role: "StaticText",
+                    label: "Loading " + String(repeating: "x", count: 512),
+                    isLabelTruncated: true,
+                    value: nil,
+                    frame: SimulatorRect(x: 20, y: 100, width: 300, height: 44),
+                    isEnabled: true,
+                    children: []
+                )]
+            )],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
         )
     }
 
