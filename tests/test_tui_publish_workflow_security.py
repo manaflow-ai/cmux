@@ -226,6 +226,51 @@ def test_registry_setup_disables_long_lived_publish_credentials() -> None:
     assert 'crate.get("trustpub_only") is not True' in verifier
 
 
+def test_bootstrap_tokens_are_isolated_from_package_code() -> None:
+    npm = workflow("sdk-bootstrap-npm.yml")
+    crates = workflow("sdk-bootstrap-crates.yml")
+
+    for text, token, package_commands in (
+        (npm, "NPM_BOOTSTRAP_TOKEN", ("npm ci", "npm test")),
+        (crates, "CARGO_BOOTSTRAP_TOKEN", ("cargo test",)),
+    ):
+        build = workflow_job(text, "build")
+        preflight = workflow_job(text, "preflight")
+        publish = workflow_job(text, "publish")
+        verify = workflow_job(text, "verify")
+
+        assert token not in build
+        assert token not in preflight
+        assert token in publish
+        assert token not in verify
+        assert "actions/checkout@" not in publish
+        assert "actions/download-artifact@" in publish
+        assert "continue-on-error: true" in publish
+        assert publish.rstrip().endswith("--no-verify") or publish.rstrip().endswith(
+            "--access public"
+        )
+        for command in package_commands:
+            assert command in build
+            assert command not in publish
+
+    npm_build = workflow_job(npm, "build")
+    npm_publish = workflow_job(npm, "publish")
+    assert "id-token: write" not in npm_build
+    assert "id-token: write" in npm_publish
+    assert "name: npm-bootstrap" in npm_publish
+    assert "npm publish" in npm_publish
+    assert "--ignore-scripts" in npm_publish
+    assert "npm lifecycle scripts are disabled" in npm_publish
+
+    crates_publish = workflow_job(crates, "publish")
+    crates_verify = workflow_job(crates, "verify")
+    assert "name: crates-bootstrap" in crates_publish
+    assert "cmp \"$BOOTSTRAP_ARTIFACT\" \"$REPACKED_ARTIFACT\"" in crates_publish
+    assert "cargo package" in crates_publish
+    assert "cargo publish" in crates_publish
+    assert "--retry-missing-project" in crates_verify
+
+
 def test_all_registry_names_are_owned_before_release_tags() -> None:
     release = workflow("sdk-release-cut.yml")
     registry = workflow_job(release, "registry-preflight")

@@ -272,6 +272,41 @@ class RegistryArtifactTests(unittest.TestCase):
             status.call_args_list[1].kwargs["retry_missing_project"]
         )
 
+    def test_crates_bootstrap_check_retries_new_project_convergence(self) -> None:
+        with mock.patch.object(
+            reconcile,
+            "wait_for_status",
+            return_value=reconcile.MATCH,
+        ) as status:
+            result = reconcile.main([
+                "check",
+                "--registry", "crates",
+                "--package", "cmux-sidebar",
+                "--version", "0.0.0-bootstrap.0",
+                "--artifact", str(self.artifact),
+                "--retry-missing-project",
+                "--wait-seconds", "300",
+                "--require-match",
+            ])
+
+        self.assertEqual(result, 0)
+        self.assertTrue(status.call_args.kwargs["retry_missing_project"])
+
+    def test_missing_project_retry_is_limited_to_bootstrap_verification(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(SystemExit, "bootstrap verification"):
+            reconcile.main([
+                "check",
+                "--registry", "crates",
+                "--package", "cmux-client",
+                "--version", "1.0.0",
+                "--artifact", str(self.artifact),
+                "--retry-missing-project",
+                "--wait-seconds", "300",
+                "--require-match",
+            ])
+
     def test_npm_uses_the_registry_integrity_digest(self) -> None:
         metadata = {
             "dist-tags": {"latest": "1.0.0"},
