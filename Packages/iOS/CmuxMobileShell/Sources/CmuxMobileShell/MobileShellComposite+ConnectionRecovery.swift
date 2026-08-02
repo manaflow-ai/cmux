@@ -103,6 +103,7 @@ extension MobileShellComposite {
         if multiMacAggregationEnabled,
            trigger.reschedulesSecondaryAggregation,
            connectionState == .connected,
+           remoteClient != nil,
            !connectionRecoveryOwner.isRedialingOrValidating {
             scheduleSecondaryAggregation()
         }
