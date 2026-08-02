@@ -150,6 +150,7 @@ class PackagedConsumerTests(unittest.TestCase):
                         capture_output=True,
                         text=True,
                     )
+                    self.assertTrue((installed / "cmux" / "py.typed").is_file())
                     environment = dict(os.environ)
                     environment["PYTHONPATH"] = str(installed)
                     environment["CMUX_EXPECTED_SDK_VERSION"] = PROJECT_VERSION

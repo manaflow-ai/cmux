@@ -888,6 +888,20 @@ def test_go_public_tag_probe_retries_proxy_propagation() -> None:
     assert "export GONOSUMDB=none" in public_probe
 
 
+def test_go_public_tag_probe_binds_downloaded_tree_to_release_commit() -> None:
+    go = workflow("sdk-publish-go.yml")
+    public_probe = workflow_job(go, "verify-versioned-go-module")
+
+    verifier = public_probe.index("verify_go_module_source.py")
+    assert 'module_dir="$(go list -m -f' in public_probe
+    assert '--repository "$GITHUB_WORKSPACE"' in public_probe
+    assert '--commit "$GITHUB_SHA"' in public_probe
+    assert "--module-subdir cmux-tui/bindings/go" in public_probe
+    assert '--downloaded-root "$module_dir"' in public_probe
+    assert public_probe.index("go mod download") < verifier
+    assert verifier < public_probe.index("go test")
+
+
 def test_workflow_trigger_guard_parses_flow_style_yaml() -> None:
     triggers = workflow_triggers(
         "name: fixture\non: {push: {tags: ['v*']}, workflow_dispatch: {}}\n"
