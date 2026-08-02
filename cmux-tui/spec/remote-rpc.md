@@ -1,6 +1,6 @@
 # Remote workspace RPC contract
 
-Status: normative schema for remote protocol 4.
+Status: normative schema for remote protocol 5.
 
 This contract describes the `workspace-rpc`, `process-stream`, and `tcp-tunnel` services. Rust enum variant names serialize as kebab-case `type` values. Struct field names remain snake_case. Identifier wrappers serialize as their underlying JSON string or unsigned integer.
 
@@ -129,7 +129,7 @@ Every field in the table is required unless marked optional or given a default.
 | `close-route` | `route:u64` | `closed` |
 | `computer-use-capabilities` | none | `computer-use-capabilities` |
 | `computer-use-capabilities-v1` | none | `computer-use-capabilities-v1` |
-| `invoke-computer-use` | `invocation:ComputerUseInvocation` | unavailable in protocol 4 |
+| `invoke-computer-use` | `invocation:ComputerUseInvocation` | unavailable in protocol 5 |
 | `cancel-computer-use` | `invocation:ComputerUseInvocationId` | `computer-use-canceled` with `accepted:false` |
 
 Common response objects have these fields:
@@ -168,7 +168,7 @@ Common response objects have these fields:
 | `computer-use-result` | `result:ComputerUseResult` |
 | `computer-use-canceled` | `invocation:ComputerUseInvocationId`, `accepted:bool` |
 
-Protocol 4 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-catalog-v1`, `process-pty-v1` and `process-terminal-snapshot-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `workspace-patch-v3`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, and `request-control-v1`. `workspace-patch-v3` indicates that `apply-patch.patch` accepts both unified diff and Codex native patch syntax.
+Protocol 5 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-catalog-v1`, `process-pty-v1` and `process-terminal-snapshot-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `workspace-patch-v3`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, and `request-control-v1`. `workspace-patch-v3` indicates that `apply-patch.patch` accepts both unified diff and Codex native patch syntax.
 
 ## Files, search, patch, and diff
 
@@ -331,7 +331,7 @@ The response is `{"type":"route-created","route":9,"host":"127.0.0.1","port":300
 
 `computer-use-capabilities-v1` returns entries with `feature` and `version`. Feature strings are `screenshot`, `accessibility-tree`, `pointer`, `keyboard`, `text-input`, and `scroll`. The default daemon returns an empty list.
 
-An `invoke-computer-use` request contains an `invocation` with a UUID-string `id`, optional `workspace`, optional `timeout_ms`, and an `action`. Action objects use the types `screenshot`, `accessibility-tree`, `pointer`, `keyboard`, `text-input`, or `scroll`. Protocol 4 returns `computer-use-unavailable` because no platform executor is wired. Future execution belongs on the separate `computer-use` service so media and long actions cannot block process input.
+An `invoke-computer-use` request contains an `invocation` with a UUID-string `id`, optional `workspace`, optional `timeout_ms`, and an `action`. Action objects use the types `screenshot`, `accessibility-tree`, `pointer`, `keyboard`, `text-input`, or `scroll`. Protocol 5 returns `computer-use-unavailable` because no platform executor is wired. Future execution belongs on the separate `computer-use` service so media and long actions cannot block process input.
 
 | Action `type` | Fields |
 | --- | --- |

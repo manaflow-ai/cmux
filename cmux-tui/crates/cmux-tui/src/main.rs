@@ -282,16 +282,16 @@ const USAGE: &str = "\
 cmux - terminal multiplexer and resource client
 
 USAGE
-  cmux [OPTIONS]            Start a session
-  cmux daemon [OPTIONS]     Start a headless session and remote daemon
-  cmux connect <ROUTE>      Attach through an authenticated remote route
-  cmux ssh <HOST>           Bootstrap and attach over direct SSH
-  cmux forward <ROUTE>      Forward a workspace TCP service locally
-  cmux rpc <ROUTE>          Run workspace coding-agent RPC requests
-  cmux enroll <ACTION>      Enroll, approve, list, or revoke devices
-  cmux known-daemons        List client-pinned daemon identities and routes
-  cmux attach [OPTIONS]     Attach to a session or one terminal
-  cmux relay [OPTIONS]      Relay protocol bytes over stdio
+  cmux [OPTIONS]           Start a session
+  cmux daemon [OPTIONS]    Start a headless session and remote daemon
+  cmux connect <ROUTE>     Attach through an authenticated remote route
+  cmux ssh <HOST>          Bootstrap and attach over direct SSH
+  cmux forward <ROUTE>     Forward a workspace TCP service locally
+  cmux rpc <ROUTE>         Run workspace coding-agent RPC requests
+  cmux enroll <ACTION>     Enroll, approve, list, or revoke devices
+  cmux known-daemons       List client-pinned daemon identities and routes
+  cmux attach [OPTIONS]    Attach to a session or one terminal
+  cmux relay [OPTIONS]     Relay protocol bytes over stdio
   {machine_agent_usage}
   cmux <scope> --help      Discover resource commands
 
@@ -323,7 +323,7 @@ START OPTIONS
   --remote-admin-socket <path> Override the owner-only admin socket.
   --remote-resume-lease-seconds <seconds>
                     Retain crashed-client replay state for 1-86400 seconds.
-  --relay <url> --relay-slot <routing-key> --relay-ticket <ticket>
+  --relay <url> --relay-slot <routing-key>
                     Register with a relay; repeat up to four groups.
   --relay-ticket-file <path>  Refresh the relay ticket from a file.
   --relay-ticket-command <program> [--relay-ticket-command-arg <arg>]
@@ -388,7 +388,6 @@ struct Args {
 
 #[derive(Clone, PartialEq, Eq)]
 enum RelayCredentialArg {
-    Ticket(String),
     File(PathBuf),
     Command { program: String, args: Vec<String> },
 }
@@ -396,7 +395,6 @@ enum RelayCredentialArg {
 impl std::fmt::Debug for RelayCredentialArg {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Ticket(_) => formatter.debug_tuple("Ticket").field(&"<redacted>").finish(),
             Self::File(path) => formatter.debug_tuple("File").field(path).finish(),
             Self::Command { program, args } => formatter
                 .debug_struct("Command")
@@ -612,10 +610,10 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 out.remote = true;
             }
             "--relay-ticket" => {
-                out.relay_credentials.push(RelayCredentialArg::Ticket(
-                    args.next().unwrap_or_else(|| usage_exit("--relay-ticket needs a value")),
-                ));
-                out.remote = true;
+                return Err(localization::catalog()
+                    .remote_client
+                    .inline_relay_ticket_rejected
+                    .to_string());
             }
             "--relay-ticket-file" => {
                 out.relay_credentials.push(RelayCredentialArg::File(
@@ -1164,9 +1162,6 @@ fn relay_daemon_options(
         .zip(credentials)
         .map(|((endpoint, slot), credentials)| {
             let credentials = match credentials {
-                RelayCredentialArg::Ticket(ticket) => {
-                    cmux_remote::provider::RelayCredentialSource::static_ticket(ticket)?
-                }
                 RelayCredentialArg::File(path) => {
                     cmux_remote::provider::RelayCredentialSource::file(path)
                 }
@@ -1805,8 +1800,8 @@ mod remote_args_tests {
                 "relay+wss://relay.example",
                 "--relay-slot",
                 "native-route-key",
-                "--relay-ticket",
-                "native-ticket",
+                "--relay-ticket-command",
+                "native-ticket-command",
                 "--relay",
                 "relay+do://worker.example",
                 "--relay-slot",
@@ -1823,6 +1818,50 @@ mod remote_args_tests {
         assert_eq!(relays.len(), 2);
         assert_eq!(relays[0].endpoint.as_str(), "relay+wss://relay.example");
         assert_eq!(relays[1].endpoint.as_str(), "relay+do://worker.example");
+    }
+
+    #[test]
+    fn daemon_rejects_inline_relay_ticket() {
+        const CHILD_ENV: &str = "CMUX_DAEMON_RELAY_TICKET_LOCALE_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("remote_args_tests::daemon_rejects_inline_relay_ticket")
+                .arg("--exact")
+                .arg("--nocapture")
+                .env(CHILD_ENV, "1")
+                .env("LC_ALL", "ja_JP.UTF-8")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "Japanese daemon relay-ticket rejection child failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let marker = "inline-daemon-secret-marker";
+        let error = parse_args_result(
+            [
+                "daemon",
+                "--relay",
+                "relay+wss://relay.example",
+                "--relay-slot",
+                "routing-key",
+                "--relay-ticket",
+                marker,
+            ]
+            .map(str::to_string),
+        )
+        .expect_err("inline daemon relay ticket was accepted");
+        assert!(!error.contains(marker));
+        assert_eq!(
+            error,
+            localization::catalog_for_locale("ja_JP.UTF-8")
+                .remote_client
+                .inline_relay_ticket_rejected
+        );
     }
 
     #[test]
@@ -1845,8 +1884,8 @@ mod remote_args_tests {
     fn malformed_relay_endpoint_errors_do_not_echo_credentials() {
         let error = relay_daemon_options(
             vec!["relay+wss://dont-leak-me@[".into()],
-            vec!["relay-route-key".into()],
-            vec![RelayCredentialArg::Ticket("ticket".into())],
+            vec!["routing-key".into()],
+            vec![RelayCredentialArg::File("/tmp/relay-ticket".into())],
         )
         .expect_err("malformed relay endpoint should fail");
 
