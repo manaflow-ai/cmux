@@ -1658,7 +1658,13 @@ struct ApplicationSurfaceTests {
             select: false
         )
         destination.isRemoteTmuxMirror = true
+        let sourceSurfaceID = try #require(
+            source.surfaceIdFromPanelId(panel.id)
+        )
         let destinationPanelIDs = Set(destination.panels.keys)
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+        let lifecycleSequence = CmuxEventBus.shared.latestSequence
 
         #expect(!app.moveSurface(
             panelId: panel.id,
@@ -1667,9 +1673,10 @@ struct ApplicationSurfaceTests {
             focusWindow: false
         ))
         #expect(source.panels[panel.id] as? ApplicationPanel === panel)
-        #expect(source.surfaceIdFromPanelId(panel.id) != nil)
+        #expect(source.surfaceIdFromPanelId(panel.id) == sourceSurfaceID)
         #expect(destination.panels[panel.id] == nil)
         #expect(Set(destination.panels.keys) == destinationPanelIDs)
+        #expect(CmuxEventBus.shared.latestSequence == lifecycleSequence)
         panel.close()
     }
 
