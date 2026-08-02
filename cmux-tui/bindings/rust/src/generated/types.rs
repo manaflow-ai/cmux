@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR a9918d4cebc182e832fc2e08c8808125a7e4d4f6e4ed389f10b4cbb1478245aa.
+// cmux-tui mux protocol 10, IR 56597ffacc6ef7d83023966ca55a6f176ebc27d34f45256d41dff5985684105d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -298,6 +298,8 @@ pub struct IdentifyResult {
     pub protocol: u32,
     pub registry_id: String,
     pub session: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub shutdown_cleanup: Option<ShutdownCleanupStatus>,
     pub terminal_revision: u64,
     pub version: String,
     pub workspace_revision: u64,
@@ -712,6 +714,14 @@ pub struct Screen {
 pub struct SetCellPixelsResult {
     pub failures: Vec<CellPixelFailure>,
     pub resizes: Vec<CellPixelResize>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShutdownCleanupStatus {
+    pub degraded: bool,
+    pub pending: u64,
+    pub retrying: bool,
 }
 
 #[rustfmt::skip]

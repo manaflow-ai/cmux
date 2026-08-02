@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
-inline constexpr std::string_view kProtocolIrSha256 = "a9918d4cebc182e832fc2e08c8808125a7e4d4f6e4ed389f10b4cbb1478245aa";
+inline constexpr std::string_view kProtocolIrSha256 = "56597ffacc6ef7d83023966ca55a6f176ebc27d34f45256d41dff5985684105d";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -84,6 +84,7 @@ struct ResolveTerminalResult;
 struct RunResult;
 struct Screen;
 struct SetCellPixelsResult;
+struct ShutdownCleanupStatus;
 struct ShutdownDaemonResult;
 struct SidebarPluginResult;
 struct Size;
@@ -1062,6 +1063,13 @@ struct IdentifyRequest {
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
 };
 
+struct ShutdownCleanupStatus {
+    bool degraded{};
+    std::uint64_t pending{};
+    bool retrying{};
+    friend bool operator==(const ShutdownCleanupStatus&, const ShutdownCleanupStatus&) = default;
+};
+
 struct IdentifyResult {
     Field<std::string> build_commit{};
     std::optional<std::vector<std::string>> capabilities{};
@@ -1071,6 +1079,7 @@ struct IdentifyResult {
     std::uint32_t protocol{};
     std::string registry_id{};
     std::string session{};
+    std::optional<ShutdownCleanupStatus> shutdown_cleanup{};
     std::uint64_t terminal_revision{};
     std::string version{};
     std::uint64_t workspace_revision{};
@@ -2676,6 +2685,12 @@ template <>
 struct Codec<SetCellPixelsResult> {
     static Result<Json> encode(const SetCellPixelsResult& value);
     static Result<SetCellPixelsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ShutdownCleanupStatus> {
+    static Result<Json> encode(const ShutdownCleanupStatus& value);
+    static Result<ShutdownCleanupStatus> decode(const Json& value);
 };
 
 template <>

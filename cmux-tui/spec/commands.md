@@ -187,12 +187,14 @@ Params: none.
 Result:
 
 ```text
-object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,registry_id:string,generation:string,workspace_revision:uint64}
+object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,registry_id:string,generation:string,workspace_revision:uint64,terminal_revision:uint64,daemon_handoff:1,shutdown_cleanup?:object{pending:uint64,retrying:boolean,degraded:boolean}}
 ```
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. Current source builds derive them from the repository and terminal-engine checkout. A dirty source build appends a deterministic content fingerprint. Distribution builds may override both stamps explicitly. Older binaries can omit the fields or return `null`, so clients must preserve compatibility with those identities.
 
 `capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `server-shutdown-v1` advertises atomic destructive shutdown; clients may use the compatibility cleanup path only when this capability is absent.
+
+`shutdown_cleanup` reports unresolved terminal cleanup, whether a retry is active, and whether cleanup has exhausted its automatic retries. It is an additive protocol 10 field, so clients must accept its absence from older protocol 10 servers.
 
 Errors:
 
@@ -214,7 +216,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","daemon-handoff-force-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","provider-managed-workspace-authority-v2","server-shutdown-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","daemon-handoff-force-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","provider-managed-workspace-authority-v2","server-shutdown-v1"],"session":"main","pid":12345,"registry_id":"registry-123","generation":"generation-456","workspace_revision":12,"terminal_revision":34,"daemon_handoff":1,"shutdown_cleanup":{"pending":0,"retrying":false,"degraded":false}}}
 ```
 
 The current server reports protocol `10` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, and protocol 10 before using per-surface client sizing.

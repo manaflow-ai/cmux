@@ -19,6 +19,7 @@ public final class IdentifyResult implements WireValue {
     private final long protocol;
     private final String registryId;
     private final String session;
+    private final Field<ShutdownCleanupStatus> shutdownCleanup;
     private final UInt64 terminalRevision;
     private final String version;
     private final UInt64 workspaceRevision;
@@ -37,6 +38,7 @@ public final class IdentifyResult implements WireValue {
         this.registryId = Wire.nonNull(builder.registryId, "registry_id");
         if (!builder.sessionSet) throw new IllegalArgumentException("session is required");
         this.session = Wire.nonNull(builder.session, "session");
+        this.shutdownCleanup = builder.shutdownCleanup;
         if (!builder.terminalRevisionSet) throw new IllegalArgumentException("terminal_revision is required");
         this.terminalRevision = Wire.nonNull(builder.terminalRevision, "terminal_revision");
         if (!builder.versionSet) throw new IllegalArgumentException("version is required");
@@ -57,6 +59,7 @@ public final class IdentifyResult implements WireValue {
     public long protocol() { return protocol; }
     public String registryId() { return registryId; }
     public String session() { return session; }
+    public Field<ShutdownCleanupStatus> shutdownCleanup() { return shutdownCleanup; }
     public UInt64 terminalRevision() { return terminalRevision; }
     public String version() { return version; }
     public UInt64 workspaceRevision() { return workspaceRevision; }
@@ -90,6 +93,10 @@ public final class IdentifyResult implements WireValue {
         builder.registryId(Wire.string(rawRegistryId, "IdentifyResult.registry_id"));
         Object rawSession = Wire.required(object, "session");
         builder.session(Wire.string(rawSession, "IdentifyResult.session"));
+        Object rawShutdownCleanup = Wire.optional(object, "shutdown_cleanup");
+        if (!Wire.isMissing(rawShutdownCleanup)) {
+            builder.shutdownCleanup(ShutdownCleanupStatus.fromWire(rawShutdownCleanup));
+        }
         Object rawTerminalRevision = Wire.required(object, "terminal_revision");
         builder.terminalRevision(Wire.uint64(rawTerminalRevision, "IdentifyResult.terminal_revision"));
         Object rawVersion = Wire.required(object, "version");
@@ -112,6 +119,7 @@ public final class IdentifyResult implements WireValue {
         Wire.put(object, "protocol", protocol);
         Wire.put(object, "registry_id", registryId);
         Wire.put(object, "session", session);
+        Wire.put(object, "shutdown_cleanup", shutdownCleanup);
         Wire.put(object, "terminal_revision", terminalRevision);
         Wire.put(object, "version", version);
         Wire.put(object, "workspace_revision", workspaceRevision);
@@ -121,11 +129,11 @@ public final class IdentifyResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof IdentifyResult that)) return false;
-        return Objects.equals(buildCommit, that.buildCommit) && Objects.equals(capabilities, that.capabilities) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(buildCommit, that.buildCommit) && Objects.equals(capabilities, that.capabilities) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(shutdownCleanup, that.shutdownCleanup) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(buildCommit, capabilities, generation, ghosttyCommit, pid, protocol, registryId, session, terminalRevision, version, workspaceRevision); }
+    public int hashCode() { return Objects.hash(buildCommit, capabilities, generation, ghosttyCommit, pid, protocol, registryId, session, shutdownCleanup, terminalRevision, version, workspaceRevision); }
 
     @Override
     public String toString() { return "IdentifyResult" + toWire(); }
@@ -144,6 +152,7 @@ public final class IdentifyResult implements WireValue {
         private boolean registryIdSet;
         private String session;
         private boolean sessionSet;
+        private Field<ShutdownCleanupStatus> shutdownCleanup = Field.omitted();
         private UInt64 terminalRevision;
         private boolean terminalRevisionSet;
         private String version;
@@ -186,6 +195,10 @@ public final class IdentifyResult implements WireValue {
         public Builder session(String value) {
             this.session = value;
             this.sessionSet = true;
+            return this;
+        }
+        public Builder shutdownCleanup(ShutdownCleanupStatus value) {
+            this.shutdownCleanup = Field.of(value);
             return this;
         }
         public Builder terminalRevision(UInt64 value) {

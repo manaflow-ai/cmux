@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 10;
-pub const ir_sha256 = "a9918d4cebc182e832fc2e08c8808125a7e4d4f6e4ed389f10b4cbb1478245aa";
+pub const ir_sha256 = "56597ffacc6ef7d83023966ca55a6f176ebc27d34f45256d41dff5985684105d";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -350,12 +350,14 @@ pub const IdentifyResult = struct {
     protocol: u32,
     registry_id: []const u8,
     session: []const u8,
+    shutdown_cleanup: ?ShutdownCleanupStatus = null,
     terminal_revision: u64,
     version: []const u8,
     workspace_revision: u64,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "capabilities",
+        "shutdown_cleanup",
     };
 };
 
@@ -823,6 +825,12 @@ pub const Screen = struct {
 pub const SetCellPixelsResult = struct {
     failures: []const CellPixelFailure,
     resizes: []const CellPixelResize,
+};
+
+pub const ShutdownCleanupStatus = struct {
+    degraded: bool,
+    pending: u64,
+    retrying: bool,
 };
 
 pub const ShutdownDaemonResult = struct {

@@ -467,8 +467,8 @@
     },
     {
       "path": "IdentifyResult.java",
-      "sha256": "c15df399314639229bf9e16b856613e1690f0a6e1b1f94450696c30d6e3be3ec",
-      "size": 10038
+      "sha256": "7eca17b7d1ee7967fe3ca60175312ca169c9bf1251a848187fd68660907a0532",
+      "size": 10847
     },
     {
       "path": "IdsRequest.java",
@@ -737,7 +737,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "10bb781385b0b61f6951cf8de0f09c9229c44a9c6c5a6aec154cb94b52bb2bd7",
+      "sha256": "cb2ba912ffe131f6a3796cfe8fe1eb62c0914ec82fbc7340971c22ab8566d33d",
       "size": 3967
     },
     {
@@ -1024,6 +1024,11 @@
       "path": "SetWindowTitleRequest.java",
       "sha256": "5eac6261d6384c422c517ca06b9f05034be307b9b8747830dcbb7f1c1ad8e9f5",
       "size": 2021
+    },
+    {
+      "path": "ShutdownCleanupStatus.java",
+      "sha256": "92f639034ae93e376ac02c7d935a5190ce177757cb32418af096cdaf7f74b545",
+      "size": 3389
     },
     {
       "path": "ShutdownDaemonRequest.java",
@@ -1317,7 +1322,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "a9918d4cebc182e832fc2e08c8808125a7e4d4f6e4ed389f10b4cbb1478245aa",
+  "ir_sha256": "56597ffacc6ef7d83023966ca55a6f176ebc27d34f45256d41dff5985684105d",
   "language": "java",
   "mux_protocol": 10,
   "schema_version": 2

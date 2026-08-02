@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR a9918d4cebc182e832fc2e08c8808125a7e4d4f6e4ed389f10b4cbb1478245aa. */
+/* cmux-tui mux protocol 10, IR 56597ffacc6ef7d83023966ca55a6f176ebc27d34f45256d41dff5985684105d. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -170,6 +170,7 @@ export type IdentifyResult = {
   "protocol": number;
   "registry_id": string;
   "session": string;
+  "shutdown_cleanup"?: ShutdownCleanupStatus;
   "terminal_revision": bigint;
   "version": string;
   "workspace_revision": bigint;
@@ -448,6 +449,12 @@ export type Screen = {
 export type SetCellPixelsResult = {
   "failures": Array<CellPixelFailure>;
   "resizes": Array<CellPixelResize>;
+};
+
+export type ShutdownCleanupStatus = {
+  "degraded": boolean;
+  "pending": bigint;
+  "retrying": boolean;
 };
 
 export type ShutdownDaemonResult = {

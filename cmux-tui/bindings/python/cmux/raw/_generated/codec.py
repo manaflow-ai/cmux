@@ -72,6 +72,7 @@ MODEL_BY_PATH = {
     'types/RunResult': models.RunResult,
     'types/Screen': models.Screen,
     'types/SetCellPixelsResult': models.SetCellPixelsResult,
+    'types/ShutdownCleanupStatus': models.ShutdownCleanupStatus,
     'types/ShutdownDaemonResult': models.ShutdownDaemonResult,
     'types/SidebarPluginResult': models.SidebarPluginResult,
     'types/Size': models.Size,

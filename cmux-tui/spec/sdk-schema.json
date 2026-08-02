@@ -1230,6 +1230,36 @@
       },
       "additional_properties": false
     },
+    "ShutdownCleanupStatus": {
+      "kind": "object",
+      "fields": {
+        "pending": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "retrying": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "degraded": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
     "IdentifyResult": {
       "kind": "object",
       "fields": {
@@ -1345,6 +1375,15 @@
           "presence": "required",
           "nullable": false,
           "since": 9
+        },
+        "shutdown_cleanup": {
+          "type": {
+            "kind": "ref",
+            "name": "ShutdownCleanupStatus"
+          },
+          "presence": "optional",
+          "nullable": false,
+          "since": 10
         }
       },
       "additional_properties": false
