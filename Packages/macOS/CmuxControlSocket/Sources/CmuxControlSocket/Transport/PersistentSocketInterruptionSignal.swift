@@ -79,8 +79,14 @@ final class PersistentSocketInterruptionSignal: Sendable {
                 Darwin.close(duplicate)
                 return false
             }
-            if interruptionSocketDescriptor(from: current) != nil {
-                Darwin.close(duplicate)
+            if let installedSocket = interruptionSocketDescriptor(from: current) {
+                guard state.compareExchangeAcquiringAndReleasing(
+                    expected: current,
+                    desired: desired
+                ) else {
+                    continue
+                }
+                Darwin.close(installedSocket)
                 return true
             }
             guard status == noInterruptionSocket else {
