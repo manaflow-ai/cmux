@@ -35593,6 +35593,64 @@
         }
       }
     },
+    "cli.events.help.snapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Print the subscription snapshot and exit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購読スナップショットを表示して終了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독 스냅샷을 출력하고 종료"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вивести знімок підписки та завершити роботу"
+          }
+        }
+      }
+    },
+    "cli.events.help.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit unsuccessfully if no matching event arrives before the deadline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "期限までに一致するイベントが届かない場合はエラーで終了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제한 시간 전에 일치하는 이벤트가 도착하지 않으면 오류로 종료"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершити з помилкою, якщо відповідна подія не надійде до кінцевого терміну"
+          }
+        }
+      }
+    },
     "cli.forwarding.error.allocateArguments": {
       "extractionState": "manual",
       "localizations": {

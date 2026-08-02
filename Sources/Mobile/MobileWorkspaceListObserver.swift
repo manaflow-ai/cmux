@@ -245,16 +245,15 @@ final class MobileWorkspaceListObserver {
         )
         var symbols: [UUID: String] = [:]
         symbols.reserveCapacity(groups.count)
+        let controller = TerminalController.shared
         for group in groups {
             let anchorCwd = currentDirectoryByWorkspaceID[
                 group.anchorWorkspaceId
             ] ?? nil
-            let configured = configStore?
-                .resolveWorkspaceGroupConfig(forCwd: anchorCwd)?
-                .iconSymbol
-            symbols[group.id] = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
-                explicit: group.iconSymbol,
-                configured: configured
+            symbols[group.id] = controller.mobileWorkspaceGroupEffectiveIconSymbol(
+                group,
+                anchorCwd: anchorCwd,
+                configStore: configStore
             )
         }
         return symbols

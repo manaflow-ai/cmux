@@ -1940,7 +1940,7 @@ import Testing
         #expect(try await pollUntil {
             shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-permanent-refresh", instanceTag: "permanent-tag")] == nil
         })
-        await closeGate.waitUntilCloseStarted()
+        #expect(await closeGate.waitUntilCloseStarted())
         #expect(
             shell.secondaryMacDrainReservations[MacPairingKey(macDeviceID: "mac-permanent-refresh", instanceTag: "permanent-tag")]
                 != nil
@@ -2038,7 +2038,7 @@ import Testing
             displayName: "Authority Replacement Mac"
         )
         await shell.refreshSecondaryMacWorkspaces()
-        await closeGate.waitUntilCloseStarted()
+        #expect(await closeGate.waitUntilCloseStarted())
 
         #expect(
             await router.count(of: "mobile.host.status")
@@ -2122,7 +2122,7 @@ import Testing
         shell.macSwitchAttemptID = UUID()
 
         #expect(shell.beginSecondaryMacDrainReservation(subscription))
-        await closeGate.waitUntilCloseStarted()
+        #expect(await closeGate.waitUntilCloseStarted())
         let first = try #require(subscription.transportDrainOperation)
         let retry = shell.secondaryMacTransportDrainOperation(subscription)
 
@@ -2838,7 +2838,7 @@ import Testing
         let preparation = Task { @MainActor in
             await shell.prepareFocusedConnectionForHandoff(connection)
         }
-        await closeGate.waitUntilCloseStarted()
+        #expect(await closeGate.waitUntilCloseStarted())
         #expect(shell.remoteClient === client)
         do {
             _ = try await client.sendRequest(
@@ -4866,7 +4866,7 @@ import Testing
                 pairedMacDeviceID: ticket.macDeviceID
             )
         }
-        await closeGate.waitUntilCloseStarted()
+        #expect(await closeGate.waitUntilCloseStarted())
         #expect(await router.waitForCount(
             of: "workspace.list",
             atLeast: initialWorkspaceRequests + 1

@@ -37,7 +37,7 @@ final class MobileIrohConnectionReadinessOwner {
     private var retryAccountID: String?
     private var retryAt: Date?
     private var consecutiveFailureCount = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     init(
         retrySchedule: CmxIrohRetrySchedule = CmxIrohRetrySchedule(
@@ -143,13 +143,22 @@ final class MobileIrohConnectionReadinessOwner {
         now: @escaping @MainActor () -> Date
     ) async -> MobileIrohConnectionReadinessOutcome {
         while isPending {
-            await withCheckedContinuation { continuation in
-                guard isPending else {
-                    continuation.resume()
-                    return
+            guard !Task.isCancelled else { return .inactive }
+            let waiterID = UUID()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    guard isPending, !Task.isCancelled else {
+                        continuation.resume()
+                        return
+                    }
+                    waiters[waiterID] = continuation
                 }
-                waiters.append(continuation)
+            } onCancel: {
+                Task { @MainActor [weak self] in
+                    self?.cancelWaiter(waiterID)
+                }
             }
+            guard !Task.isCancelled else { return .inactive }
         }
         guard case let .failed(failure) = settledOutcome,
               let retryAt else {
@@ -166,10 +175,14 @@ final class MobileIrohConnectionReadinessOwner {
     }
 
     private func resumeWaiters() {
-        let continuations = waiters
+        let continuations = Array(waiters.values)
         waiters.removeAll()
         for continuation in continuations {
             continuation.resume()
         }
+    }
+
+    private func cancelWaiter(_ id: UUID) {
+        waiters.removeValue(forKey: id)?.resume()
     }
 }

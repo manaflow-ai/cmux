@@ -261,6 +261,36 @@ extension MobileHostAuthorizationTests {
         await runTask.value
     }
 
+    @Test func testMobileHostDoesNotPublishReadinessForUnsubscribedStream() async throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+        let transport = ScriptedMobileHostByteTransport()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                request.method == "workspace.list"
+                    ? .ok(["workspaces": [["id": "workspace-a"]]])
+                    : .ok([:])
+            },
+            onClose: { _ in }
+        )
+        let runTask = Task { await session.run() }
+
+        await transport.enqueue(try Self.mobileHostTerminalSubscribeFrame(id: "subscribe"))
+        _ = await transport.waitForSentBufferCount(1)
+        await transport.enqueue(try Self.mobileHostUnsubscribeFrame(id: "unsubscribe"))
+        _ = await transport.waitForSentBufferCount(2)
+        await transport.enqueue(try Self.mobileHostWorkspaceListFrame(id: "workspace"))
+        _ = await transport.waitForSentBufferCount(3)
+
+        #expect(Self.retainedUsableSessionEvents().isEmpty)
+        await transport.finishReceiving()
+        await runTask.value
+    }
+
     @Test func testMobileHostPublishesReadinessOnlyAfterSubscriptionAckWrites() async throws {
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }
@@ -307,6 +337,14 @@ extension MobileHostAuthorizationTests {
                 """
                 {"id":"\(id)","method":"mobile.events.subscribe","params":{"client_id":"phone-a","stream_id":"events","topics":["workspace.updated","mobile.sync.delta","terminal.render_grid"]}}
                 """.utf8
+            )
+        )
+    }
+
+    private static func mobileHostUnsubscribeFrame(id: String) throws -> Data {
+        try MobileSyncFrameCodec.encodeFrame(
+            Data(
+                "{\"id\":\"\(id)\",\"method\":\"mobile.events.unsubscribe\",\"params\":{\"stream_id\":\"events\"}}".utf8
             )
         )
     }

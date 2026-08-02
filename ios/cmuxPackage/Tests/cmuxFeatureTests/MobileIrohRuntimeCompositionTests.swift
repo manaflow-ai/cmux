@@ -178,6 +178,20 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func cancelledConnectionReadinessWaiterReturnsInactive() async {
+        let readiness = MobileIrohConnectionReadinessOwner()
+        readiness.begin(revision: 1)
+        let waiter = Task {
+            await readiness.wait(now: { Date(timeIntervalSince1970: 100) })
+        }
+
+        waiter.cancel()
+
+        #expect(await waiter.value == .inactive)
+        #expect(readiness.complete(revision: 1))
+    }
+
+    @Test
     func connectionReadinessReadsClockAfterActivationSettles() async throws {
         let start = Date(timeIntervalSince1970: 100)
         var observedNow = start

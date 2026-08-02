@@ -669,6 +669,7 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceGroupRenameUsesAlert() throws {
+        guard #available(iOS 26.0, *) else { return }
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
@@ -724,6 +725,7 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceGroupMenuExcludesAnchorWorkspaceActions() throws {
+        guard #available(iOS 26.0, *) else { return }
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
@@ -735,6 +737,7 @@ final class cmuxUITests: XCTestCase {
         let groupName = app.buttons["Group 2"]
         XCTAssertTrue(groupName.waitForExistence(timeout: 8))
         groupName.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["Pin Group"].waitForExistence(timeout: 3))
 
         for actionIdentifier in [
             "MobileWorkspacePinButton-workspace-seed-4",
@@ -752,6 +755,7 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceGroupContextMenuUsesGroupActionsOnly() throws {
+        guard #available(iOS 26.0, *) else { return }
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
@@ -763,6 +767,7 @@ final class cmuxUITests: XCTestCase {
         let groupName = app.buttons["Group 2"]
         XCTAssertTrue(groupName.waitForExistence(timeout: 8))
         groupName.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["Pin Group"].waitForExistence(timeout: 3))
 
         for actionLabel in [
             "Pin Group",
@@ -780,6 +785,7 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceListNewWorkspaceMenuPreservesGroupCreation() throws {
+        guard #available(iOS 26.0, *) else { return }
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
@@ -804,6 +810,7 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceGroupFullSwipeMarksRead() throws {
+        guard #available(iOS 26.0, *) else { return }
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
@@ -837,6 +844,7 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceGroupTrailingSwipeRequestsAnchorDelete() throws {
+        guard #available(iOS 26.0, *) else { return }
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",

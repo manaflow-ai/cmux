@@ -28,7 +28,7 @@ public enum CmxIrohTrustBrokerClientError:
         case .rateLimited:
             return true
         case let .rejected(statusCode, _):
-            // 401/403: an unauthorized rejection here already survived the
+            // A 401 here already survived the
             // broker client's single force-refresh retry, so it is a session
             // transition still settling (rotation race, locked token store) or
             // a server-side availability condition — not a trust change. The
@@ -38,7 +38,6 @@ public enum CmxIrohTrustBrokerClientError:
             // through the coordinator, which stops the runtime through the
             // lifecycle owner instead.
             return statusCode == 401
-                || statusCode == 403
                 || statusCode == 408
                 || statusCode == 425
                 || statusCode == 429
@@ -64,12 +63,9 @@ public enum CmxIrohTrustBrokerClientError:
         case let .rejected(statusCode, _):
             // A server failure cannot establish trust, so retrying the request
             // is safe while the lifecycle-owned start task remains current.
-            // 401 joins the retriable set: it already survived the broker
-            // client's single force-refresh retry, so it is a session
-            // transition still settling; a dead session exits through the auth
-            // coordinator's state clear, not through this loop.
-            return statusCode == 401
-                || statusCode == 408
+            // An authentication rejection cannot establish initial trust. It
+            // must return to the auth lifecycle instead of retrying forever.
+            return statusCode == 408
                 || statusCode == 425
                 || statusCode == 429
                 || (500...599).contains(statusCode)

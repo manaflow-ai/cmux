@@ -387,9 +387,22 @@ public struct WorkspaceListLayoutPreviewView: View {
                     model.groups[index].name = newName
                 }
             } : nil,
-            setGroupPinned: reorderEnabled ? { _, _ in } : nil,
-            ungroupWorkspaceGroup: reorderEnabled ? { _ in } : nil,
-            deleteWorkspaceGroup: reorderEnabled ? { _ in } : nil,
+            setGroupPinned: reorderEnabled ? { id, pinned in
+                if let index = model.groups.firstIndex(where: { $0.id == id }) {
+                    model.groups[index].isPinned = pinned
+                }
+            } : nil,
+            ungroupWorkspaceGroup: reorderEnabled ? { id in
+                for index in model.workspaces.indices
+                where model.workspaces[index].groupID == id {
+                    model.workspaces[index].groupID = nil
+                }
+                model.groups.removeAll { $0.id == id }
+            } : nil,
+            deleteWorkspaceGroup: reorderEnabled ? { id in
+                model.workspaces.removeAll { $0.groupID == id }
+                model.groups.removeAll { $0.id == id }
+            } : nil,
             toggleGroupCollapsed: reorderEnabled ? { groupID, isCollapsed in
                 guard let index = model.groups.firstIndex(where: { $0.id == groupID }) else {
                     return

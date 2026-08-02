@@ -53,11 +53,11 @@ extension ReconnectRouteSelectionTests {
             expectedClient: firstClient
         )
 
-        await closeGate.waitUntilCloseStarted()
-        for _ in 0 ..< 10 { await Task.yield() }
+        #expect(await closeGate.waitUntilCloseStarted())
         #expect(fixture.factory.attemptedKinds() == [.iroh])
 
         await closeGate.release()
+        #expect(await fixture.factory.waitForAttemptCount(2))
         #expect(try await pollUntil {
             guard let replacement = fixture.store.remoteClient else { return false }
             return replacement !== firstClient
@@ -640,7 +640,6 @@ private final class SequencedKindTransportFactory: CmxByteTransportFactory, @unc
     private var connectFailure: DiagnosticFailureKind?
     private var heldReleased = false
     private var heldWaiters: [CheckedContinuation<Void, Never>] = []
-    private var attemptWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
 
     init(
         router: LivenessHostRouter,
@@ -658,9 +657,6 @@ private final class SequencedKindTransportFactory: CmxByteTransportFactory, @unc
         let (attempt, connectFailure) = lock.withLock { () -> (Int, DiagnosticFailureKind?) in
             kinds.append(route.kind)
             let count = kinds.count
-            let ready = attemptWaiters.filter { $0.0 <= count }
-            attemptWaiters.removeAll { $0.0 <= count }
-            for (_, waiter) in ready { waiter.resume() }
             return (count, self.connectFailure)
         }
         let transport = SequencedLivenessTransport(
@@ -687,17 +683,17 @@ private final class SequencedKindTransportFactory: CmxByteTransportFactory, @unc
         lock.withLock { connectFailure = failure }
     }
 
-    func waitForAttemptCount(_ count: Int) async -> Bool {
-        if lock.withLock({ kinds.count >= count }) { return true }
-        await withCheckedContinuation { continuation in
-            let immediate = lock.withLock { () -> Bool in
-                if kinds.count >= count { return true }
-                attemptWaiters.append((count, continuation))
-                return false
-            }
-            if immediate { continuation.resume() }
+    func waitForAttemptCount(
+        _ count: Int,
+        timeout: Duration = .seconds(2)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if lock.withLock({ kinds.count >= count }) { return true }
+            await Task.yield()
         }
-        return true
+        return lock.withLock { kinds.count >= count }
     }
 
     func waitForHeldRelease() async {

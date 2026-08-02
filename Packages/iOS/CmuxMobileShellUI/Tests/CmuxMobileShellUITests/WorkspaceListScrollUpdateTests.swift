@@ -362,6 +362,28 @@ import UIKit
         )
     }
 
+    @Test func workspaceReloadsNativeActionsWhenReadStateChanges() {
+        let read = configuration(
+            workspaceIDs: ["workspace-1"],
+            items: [.workspace("workspace-1", indented: false)],
+            workspaceHasUnread: false
+        )
+        let unread = configuration(
+            workspaceIDs: ["workspace-1"],
+            items: [.workspace("workspace-1", indented: false)],
+            workspaceHasUnread: true
+        )
+        let coordinator = WorkspaceListTableCoordinator(configuration: read)
+
+        #expect(
+            coordinator.nativeActionPayloadChanged(
+                .workspace("workspace-1", indented: false),
+                previous: read,
+                next: unread
+            )
+        )
+    }
+
     @Test func groupHeaderDefersNativeActionReloadUntilSwipeEditingEnds() {
         let group = MobileWorkspaceGroupPreview(
             id: "group-1",

@@ -18,7 +18,7 @@ struct MobileIrohRuntimeCompositionCooldownTests {
     /// main actor with wall-clock sleeps.
     private func settleActivation(
         _ fixture: MobileIrohCooldownFixture,
-        until condition: @escaping () async -> Bool
+        expecting condition: @escaping () async -> Bool
     ) async {
         await fixture.composition.prepareForConnection()
         if !(await condition()) {

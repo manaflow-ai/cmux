@@ -751,18 +751,31 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         previous: WorkspaceListTable,
         next: WorkspaceListTable
     ) -> Bool {
-        guard case .groupHeader(let id) = item else { return false }
-        let previousAnchorID = previous.groupsByID[id]?.anchorWorkspaceID
-        let nextAnchorID = next.groupsByID[id]?.anchorWorkspaceID
-        let previousAnchor = previousAnchorID.flatMap { previous.workspacesByID[$0] }
-        let nextAnchor = nextAnchorID.flatMap { next.workspacesByID[$0] }
-        return previousAnchorID != nextAnchorID
-            || previousAnchor?.hasUnread != nextAnchor?.hasUnread
-            || previousAnchor?.actionCapabilities.supportsReadStateActions
-                != nextAnchor?.actionCapabilities.supportsReadStateActions
-            || previousAnchor?.actionCapabilities.supportsCloseActions
-                != nextAnchor?.actionCapabilities.supportsCloseActions
-            || nativeActionAvailabilityChanged(previous: previous, next: next)
+        switch item {
+        case .workspace(let id, _):
+            let previousWorkspace = previous.workspacesByID[id]
+            let nextWorkspace = next.workspacesByID[id]
+            return previousWorkspace?.hasUnread != nextWorkspace?.hasUnread
+                || previousWorkspace?.actionCapabilities.supportsReadStateActions
+                    != nextWorkspace?.actionCapabilities.supportsReadStateActions
+                || previousWorkspace?.actionCapabilities.supportsCloseActions
+                    != nextWorkspace?.actionCapabilities.supportsCloseActions
+                || nativeActionAvailabilityChanged(previous: previous, next: next)
+        case .groupHeader(let id):
+            let previousAnchorID = previous.groupsByID[id]?.anchorWorkspaceID
+            let nextAnchorID = next.groupsByID[id]?.anchorWorkspaceID
+            let previousAnchor = previousAnchorID.flatMap { previous.workspacesByID[$0] }
+            let nextAnchor = nextAnchorID.flatMap { next.workspacesByID[$0] }
+            return previousAnchorID != nextAnchorID
+                || previousAnchor?.hasUnread != nextAnchor?.hasUnread
+                || previousAnchor?.actionCapabilities.supportsReadStateActions
+                    != nextAnchor?.actionCapabilities.supportsReadStateActions
+                || previousAnchor?.actionCapabilities.supportsCloseActions
+                    != nextAnchor?.actionCapabilities.supportsCloseActions
+                || nativeActionAvailabilityChanged(previous: previous, next: next)
+        case .chrome, .groupFooter, .filterEmpty:
+            return false
+        }
     }
 
     func tableView(
