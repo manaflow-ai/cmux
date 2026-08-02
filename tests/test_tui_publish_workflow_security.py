@@ -160,6 +160,14 @@ def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
     assert "sdk-bootstrap-pypi.yml" in releasing
     assert "0.0.0a0" in releasing
 
+    publish = workflow_job(bootstrap, "publish")
+    publisher = "gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b"
+    assert '[[ "$GITHUB_REPOSITORY" == "manaflow-ai/cmux" ]]' in publish
+    assert '[[ "$GITHUB_REF" == "refs/heads/main" ]]' in publish
+    assert "git ls-remote" in publish
+    assert '[[ "$main_sha" == "$GITHUB_SHA" ]]' in publish
+    assert publish.index("git ls-remote") < publish.index(publisher)
+
     registry = workflow_job(release, "registry-preflight")
     cut_tags = release.index("  cut-tags:")
     ownership = release.index("Verify the PyPI ownership bootstrap")
