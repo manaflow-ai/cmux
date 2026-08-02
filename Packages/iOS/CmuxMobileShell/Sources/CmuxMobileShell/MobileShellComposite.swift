@@ -1049,6 +1049,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var secondaryAggregationTask: Task<Void, Never>?
     private var secondaryAggregationTaskGeneration = UUID()
     private var secondaryAggregationPending = false
+    /// Live zero-touch rows that still need endpoint authentication before
+    /// they can enter the paired store. The existing aggregation task owns
+    /// these dials so sign-out and account changes cancel the whole operation.
+    @ObservationIgnored
+    var pendingZeroTouchIrohCandidatesByPairingID:
+        [String: MobilePairedMac] = [:]
+    @ObservationIgnored
+    var pendingZeroTouchIrohCandidateScope: MobileShellScopeSnapshot?
     /// Incremental presence edges are reconciled only for their affected Macs.
     /// One coalesced task drains the pending id set without widening each edge
     /// into a pool-wide workspace refresh.
@@ -2609,6 +2617,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            !connectionRequiresReauth,
            attemptedAutomaticIroh {
             recordTransientAutomaticReconnectBackoff(accountID: scope.userID)
+        }
+        if connectionState == .connected {
+            stageZeroTouchIrohCandidatesForSecondaryAuthentication(
+                zeroTouchCandidates,
+                scope: scope
+            )
         }
         return connectionState == .connected ? .connected : lastDialOutcome
     }
@@ -4330,6 +4344,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             authenticatedInstanceTag: macInstanceTagAuthority.normalize(
                 status.macInstanceTag
             ),
+            authenticatedDisplayName: status.macDisplayName,
             supportedHostCapabilities: capabilities,
             actionCapabilities: Self.workspaceActionCapabilities(
                 from: capabilities,
@@ -4530,6 +4545,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if onlyMacDeviceIDs == nil,
            let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: scope.userID)
+        }
+        guard await isAggregationScopeValid(scope) else { return }
+        if allowsNewConnections {
+            await authenticatePendingZeroTouchIrohCandidates(scope: scope)
         }
         guard await isAggregationScopeValid(scope) else { return }
         let rawRequestedCanonicalIDs = onlyMacDeviceIDs.map {
@@ -6296,6 +6315,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryAggregationTask = nil
         secondaryAggregationTaskGeneration = UUID()
         secondaryAggregationPending = false
+        pendingZeroTouchIrohCandidatesByPairingID = [:]
+        pendingZeroTouchIrohCandidateScope = nil
         secondaryPresenceAggregationTask?.cancel()
         secondaryPresenceAggregationTask = nil
         secondaryPresenceAggregationTaskGeneration = UUID()

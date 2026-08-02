@@ -579,7 +579,9 @@ private struct ZeroTouchFixture {
     let directory: URL
 
     func cleanup() {
-        Task { await shell.remoteClient?.disconnect() }
+        let remoteClient = shell.remoteClient
+        shell.signOut()
+        Task { await remoteClient?.disconnect() }
         try? FileManager.default.removeItem(at: directory)
     }
 }
