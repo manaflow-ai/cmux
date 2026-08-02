@@ -93,6 +93,16 @@ import Testing
             JSONSerialization.jsonObject(with: data) as? [String: Any]
         )
         #expect(object["windows"] as? [[String: Any]] != nil)
+        let screenRecordingAuthorized = try #require(
+            object["screen_recording_authorized"] as? Bool
+        )
+        if screenRecordingAuthorized {
+            #expect(object["warning"] == nil)
+        } else {
+            #expect(
+                (object["warning"] as? String)?.isEmpty == false
+            )
+        }
     }
 
     @Test func testApplicationSurfaceValueFlagsPreservePresentationLikeValues()
