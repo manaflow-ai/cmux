@@ -502,8 +502,8 @@ final class ApplicationPanel: Panel {
     }
 
     private func applyCaptureVisibility() {
-        let shouldCapture = captureEligibleForCurrentVisibility
-        if !shouldCapture, captureTarget != nil {
+        let captureEligible = captureEligibleForCurrentVisibility
+        if !captureEligible, captureTarget != nil {
             switch captureState {
             case .starting, .streaming:
                 setCaptureState(.suspended)
@@ -511,7 +511,23 @@ final class ApplicationPanel: Panel {
                 break
             }
         }
-        hostedView?.setCaptureActive(shouldCapture)
+        hostedView?.setCaptureActive(Self.shouldRequestCaptureActivation(
+            captureEligible: captureEligible,
+            state: captureState
+        ))
+    }
+
+    nonisolated static func shouldRequestCaptureActivation(
+        captureEligible: Bool,
+        state: ApplicationCaptureState
+    ) -> Bool {
+        guard captureEligible else { return false }
+        switch state {
+        case .starting, .streaming, .suspended:
+            return true
+        case .permissionRequired, .windowUnavailable, .failed:
+            return false
+        }
     }
 
     private func setCaptureState(

@@ -76,8 +76,26 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
     private var expectedTerminationProcessIdentifiers: Set<pid_t> = []
 
+    private var requiredHelperProfiles: Set<ComputerUseDaemonProfile> {
+        Self.desiredHelperProfiles(
+            computerUseEnabled: computerUseEnabled,
+            hasApplicationSurfaceLeases:
+                !applicationSurfaceLeaseIdentifiers.isEmpty
+        )
+    }
+
     private var desiredEnabled: Bool {
-        computerUseEnabled || !applicationSurfaceLeaseIdentifiers.isEmpty
+        !requiredHelperProfiles.isEmpty
+    }
+
+    nonisolated static func desiredHelperProfiles(
+        computerUseEnabled: Bool,
+        hasApplicationSurfaceLeases: Bool
+    ) -> Set<ComputerUseDaemonProfile> {
+        if computerUseEnabled {
+            return Set(ComputerUseDaemonProfile.allCases)
+        }
+        return hasApplicationSurfaceLeases ? [.native] : []
     }
 
     init(
@@ -186,12 +204,15 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     /// Reconciles the helper daemon with the live `computerUse.enabled` setting.
     func setEnabled(_ newValue: Bool) async {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
+        let previousProfiles = requiredHelperProfiles
         permissionRefreshGeneration &+= 1
         permissionPhase = permissionPhase.applying(.setEnabled(newValue))
         computerUseEnabled = newValue
         if desiredEnabled {
             cancelFinalHelperCleanup()
-            await startIfNeeded()
+            await reconcileHelperProfilesAfterDemandChange(
+                previousProfiles: previousProfiles
+            )
             startMonitoringHelperHealth()
         } else {
             cancelReadinessPublication()
@@ -314,7 +335,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             else {
                 return .unknown
             }
-            await self.startIfNeededWithinLifecycle()
+            await self.startIfNeededWithinLifecycle(profiles: [.native])
             guard
                 !Task.isCancelled,
                 let expectedPeerIdentity = self.processIdentity(for: .native),
@@ -376,7 +397,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         applicationSurfaceSessionIDsByLease[identifier] = []
         cancelFinalHelperCleanup()
         permissionRefreshGeneration &+= 1
-        await startIfNeeded()
+        await startIfNeeded(profiles: [.native])
         startMonitoringHelperHealth()
         guard
             applicationSurfaceLeaseIdentifiers.contains(identifier),
@@ -1011,12 +1032,13 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             else {
                 return .unavailable
             }
-            await self.startIfNeededWithinLifecycle()
+            let profiles = self.requiredHelperProfiles
+            await self.startIfNeededWithinLifecycle(profiles: profiles)
             guard !Task.isCancelled else {
                 return .unavailable
             }
             let expectedPeerIdentities = Dictionary(
-                uniqueKeysWithValues: ComputerUseDaemonProfile.allCases
+                uniqueKeysWithValues: profiles
                     .compactMap { profile in
                         self.processIdentity(for: profile).map {
                             (profile, $0)
@@ -1026,22 +1048,28 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             return await Self.verifyDirectScreenCaptureOutcomes(
                 paths: self.paths,
                 transport: self.transport,
-                expectedPeerIdentities: expectedPeerIdentities
+                expectedPeerIdentities: expectedPeerIdentities,
+                profiles: profiles
             )
         }
     }
 
-    /// Verifies every helper profile that can perform a real capture. Tahoe's
-    /// direct-capture consent can be process-generation scoped, so validating
-    /// only the native daemon lets the Codex compatibility daemon prompt later
-    /// during the first actual Computer Use call.
+    /// Verifies every currently required helper profile that can capture.
+    /// Tahoe's direct-capture consent can be process-generation scoped, so the
+    /// compatibility profile is included whenever full Computer Use is active.
     nonisolated static func verifyDirectScreenCaptureOutcomes(
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport = SocketTransport(),
         expectedPeerIdentities:
-            [ComputerUseDaemonProfile: AgentPIDProcessIdentity]
+            [ComputerUseDaemonProfile: AgentPIDProcessIdentity],
+        profiles: Set<ComputerUseDaemonProfile> = Set(
+            ComputerUseDaemonProfile.allCases
+        )
     ) async -> ComputerUseDirectScreenCaptureVerification {
-        for profile in ComputerUseDaemonProfile.allCases {
+        guard !profiles.isEmpty else { return .unavailable }
+        for profile in ComputerUseDaemonProfile.allCases where
+            profiles.contains(profile)
+        {
             guard
                 let expectedPeerIdentity = expectedPeerIdentities[profile],
                 AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
@@ -1293,10 +1321,44 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }
     }
 
-    private func startIfNeeded() async {
+    private func startIfNeeded(
+        profiles: Set<ComputerUseDaemonProfile>
+    ) async {
+        guard !profiles.isEmpty else { return }
         await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
             guard let self else { return }
-            await self.startIfNeededWithinLifecycle()
+            await self.startIfNeededWithinLifecycle(profiles: profiles)
+        }
+    }
+
+    private func reconcileHelperProfilesAfterDemandChange(
+        previousProfiles: Set<ComputerUseDaemonProfile>
+    ) async {
+        await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
+            guard let self else { return }
+            let requiredProfiles = self.requiredHelperProfiles
+            self.pendingHelperRecoveryProfiles.formIntersection(
+                requiredProfiles
+            )
+            self.pendingForcedHelperRestartIdentities =
+                self.pendingForcedHelperRestartIdentities.filter {
+                    requiredProfiles.contains($0.key)
+                }
+            self.missedHelperHealthChecks =
+                self.missedHelperHealthChecks.filter {
+                    requiredProfiles.contains($0.key)
+                }
+
+            for profile in ComputerUseDaemonProfile.allCases where
+                previousProfiles.contains(profile)
+                    && !requiredProfiles.contains(profile)
+            {
+                _ = await self.stopDaemon(profile: profile)
+            }
+            guard !requiredProfiles.isEmpty else { return }
+            await self.startIfNeededWithinLifecycle(
+                profiles: requiredProfiles
+            )
         }
     }
 
@@ -1504,18 +1566,24 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     }
 
     private func startIfNeededWithinLifecycle(
-        profiles: Set<ComputerUseDaemonProfile> = Set(
-            ComputerUseDaemonProfile.allCases
-        ),
+        profiles: Set<ComputerUseDaemonProfile>,
         forcedRestartIdentities:
             [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
     ) async {
-        guard acceptsNewLaunches, !Task.isCancelled else { return }
+        let requiredProfiles = requiredHelperProfiles
+        let requestedProfiles = profiles.intersection(requiredProfiles)
+        guard
+            acceptsNewLaunches,
+            !Task.isCancelled,
+            !requestedProfiles.isEmpty
+        else {
+            return
+        }
         guard let installation = await ensureStandaloneHelperInstalledWithinLifecycle() else { return }
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         let profilesToEnsure = installation.invalidatedAllProfiles
-            ? Set(ComputerUseDaemonProfile.allCases)
-            : profiles
+            ? requiredHelperProfiles
+            : requestedProfiles.intersection(requiredHelperProfiles)
         for profile in ComputerUseDaemonProfile.allCases where
             profilesToEnsure.contains(profile)
         {
@@ -2009,7 +2077,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             else {
                 return
             }
-            await self.startIfNeeded()
+            await self.startIfNeeded(profiles: self.requiredHelperProfiles)
             guard
                 !Task.isCancelled,
                 generation == self.readinessPublicationGeneration
@@ -2437,38 +2505,69 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     }
 
     private func checkHelperHealth() async {
-        async let nativePeerIdentity = Self.daemonPeerIdentity(
-            paths: paths,
-            transport: transport,
-            socketURL: paths.daemonSocketURL
+        let requiredProfiles = requiredHelperProfiles
+        let peerIdentities: (
+            native: AgentPIDProcessIdentity?,
+            codexCompatibility: AgentPIDProcessIdentity?
         )
-        async let codexPeerIdentity = Self.daemonPeerIdentity(
-            paths: paths,
-            transport: transport,
-            socketURL: paths.codexDaemonSocketURL
-        )
-        let peerIdentities = await (
-            nativePeerIdentity,
-            codexPeerIdentity
-        )
+        switch (
+            requiredProfiles.contains(.native),
+            requiredProfiles.contains(.codexCompatibility)
+        ) {
+        case (true, true):
+            async let native = Self.daemonPeerIdentity(
+                paths: paths,
+                transport: transport,
+                socketURL: paths.daemonSocketURL
+            )
+            async let codexCompatibility = Self.daemonPeerIdentity(
+                paths: paths,
+                transport: transport,
+                socketURL: paths.codexDaemonSocketURL
+            )
+            peerIdentities = await (native, codexCompatibility)
+        case (true, false):
+            peerIdentities = (
+                await Self.daemonPeerIdentity(
+                    paths: paths,
+                    transport: transport,
+                    socketURL: paths.daemonSocketURL
+                ),
+                nil
+            )
+        case (false, true):
+            peerIdentities = (
+                nil,
+                await Self.daemonPeerIdentity(
+                    paths: paths,
+                    transport: transport,
+                    socketURL: paths.codexDaemonSocketURL
+                )
+            )
+        case (false, false):
+            peerIdentities = (nil, nil)
+        }
         guard !Task.isCancelled else { return }
         let nativeIdentity = processIdentity(for: .native)
         let codexIdentity = processIdentity(for: .codexCompatibility)
-        let nativeHealthy = Self.helperProfileOwnsListeningPeer(
-            trackedIdentity: nativeIdentity.flatMap {
-                AgentPIDProcessIdentity(pid: $0.pid) == $0 ? $0 : nil
-            },
-            peerIdentity: peerIdentities.0
-        )
-        let codexHealthy = Self.helperProfileOwnsListeningPeer(
-            trackedIdentity: codexIdentity.flatMap {
-                AgentPIDProcessIdentity(pid: $0.pid) == $0 ? $0 : nil
-            },
-            peerIdentity: peerIdentities.1
-        )
+        let nativeHealthy = !requiredProfiles.contains(.native)
+            || Self.helperProfileOwnsListeningPeer(
+                trackedIdentity: nativeIdentity.flatMap {
+                    AgentPIDProcessIdentity(pid: $0.pid) == $0 ? $0 : nil
+                },
+                peerIdentity: peerIdentities.native
+            )
+        let codexHealthy = !requiredProfiles.contains(.codexCompatibility)
+            || Self.helperProfileOwnsListeningPeer(
+                trackedIdentity: codexIdentity.flatMap {
+                    AgentPIDProcessIdentity(pid: $0.pid) == $0 ? $0 : nil
+                },
+                peerIdentity: peerIdentities.codexCompatibility
+            )
         let unavailableProfiles = Self.helperProfilesNeedingRecovery(
             nativeHealthy: nativeHealthy,
-            codexCompatibilityHealthy: codexHealthy
+            codexCompatibilityHealthy: codexHealthy,
+            requiredProfiles: requiredProfiles
         )
         var profilesReadyForRecovery: Set<ComputerUseDaemonProfile> = []
         for profile in ComputerUseDaemonProfile.allCases {
@@ -2485,7 +2584,9 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             }
         }
 
-        if nativeHealthy, let identity = nativeIdentity {
+        if requiredProfiles.contains(.native),
+           nativeHealthy,
+           let identity = nativeIdentity {
             await retryPendingApplicationSurfaceStops(
                 expectedPeerIdentity: identity
             )
@@ -2508,12 +2609,17 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         forcedRestartIdentities:
             [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
     ) -> Task<Void, Never>? {
-        guard desiredEnabled, acceptsNewLaunches, !profiles.isEmpty else {
+        let requestedProfiles = profiles.intersection(requiredHelperProfiles)
+        guard
+            desiredEnabled,
+            acceptsNewLaunches,
+            !requestedProfiles.isEmpty
+        else {
             return nil
         }
-        pendingHelperRecoveryProfiles.formUnion(profiles)
+        pendingHelperRecoveryProfiles.formUnion(requestedProfiles)
         for (profile, identity) in forcedRestartIdentities where
-            profiles.contains(profile)
+            requestedProfiles.contains(profile)
         {
             pendingForcedHelperRestartIdentities[profile] = identity
         }
@@ -2531,6 +2637,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
                 !self.pendingHelperRecoveryProfiles.isEmpty
             {
                 let profiles = self.pendingHelperRecoveryProfiles
+                    .intersection(self.requiredHelperProfiles)
                 self.pendingHelperRecoveryProfiles.removeAll()
                 var forcedRestartIdentities:
                     [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
@@ -2589,13 +2696,17 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
 
     nonisolated static func helperProfilesNeedingRecovery(
         nativeHealthy: Bool,
-        codexCompatibilityHealthy: Bool
+        codexCompatibilityHealthy: Bool,
+        requiredProfiles: Set<ComputerUseDaemonProfile> = Set(
+            ComputerUseDaemonProfile.allCases
+        )
     ) -> Set<ComputerUseDaemonProfile> {
         var profiles: Set<ComputerUseDaemonProfile> = []
-        if !nativeHealthy {
+        if requiredProfiles.contains(.native), !nativeHealthy {
             profiles.insert(.native)
         }
-        if !codexCompatibilityHealthy {
+        if requiredProfiles.contains(.codexCompatibility),
+           !codexCompatibilityHealthy {
             profiles.insert(.codexCompatibility)
         }
         return profiles
