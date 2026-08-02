@@ -113,6 +113,20 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         runtimeOwnershipAdmission.reserve()
     }
 
+    nonisolated func reserveRuntimeSurfaceOwnership(
+        recoveryID: UUID,
+        onRecovery: @escaping TerminalSurfaceRuntimeOwnershipRecovery
+    ) -> TerminalSurfaceRuntimeOwnershipReservation? {
+        runtimeOwnershipAdmission.reserve(
+            recoveryID: recoveryID,
+            onRecovery: onRecovery
+        )
+    }
+
+    nonisolated func cancelRuntimeSurfaceOwnershipRecovery(_ recoveryID: UUID) {
+        runtimeOwnershipAdmission.cancelRecovery(recoveryID)
+    }
+
     nonisolated func cancelRuntimeSurfaceOwnership(
         _ reservation: TerminalSurfaceRuntimeOwnershipReservation
     ) {

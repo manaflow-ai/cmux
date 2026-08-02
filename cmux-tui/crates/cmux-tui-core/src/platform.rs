@@ -780,7 +780,7 @@ pub mod transport {
             );
         }
 
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(all(unix, not(target_os = "linux")))]
         #[test]
         fn deadline_connect_confines_inheritable_descriptor_to_process_barrier() {
             use std::os::fd::AsRawFd as _;

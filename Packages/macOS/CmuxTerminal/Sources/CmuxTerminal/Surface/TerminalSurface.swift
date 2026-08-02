@@ -278,6 +278,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         RuntimeSurfaceCreationSource?
     weak var configurationReloadDeferredRuntimeSurfaceView:
         (any TerminalSurfaceNativeViewing)?
+    var runtimeSurfaceAdmissionDeferredCreationSource:
+        RuntimeSurfaceCreationSource?
+    weak var runtimeSurfaceAdmissionDeferredCreationView:
+        (any TerminalSurfaceNativeViewing)?
     var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
     /// Bounded ownership of the live native surface. Transferred to the

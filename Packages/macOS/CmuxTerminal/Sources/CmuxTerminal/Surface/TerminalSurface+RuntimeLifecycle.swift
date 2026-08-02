@@ -208,6 +208,7 @@ extension TerminalSurface {
         guard portalLifecycleState != .closing else { return }
         recordTeardownRequest(reason: reason)
         portalLifecycleState = .closing
+        cancelRuntimeSurfaceCreationAfterAdmissionRecovery()
         // Parked wake-ups are for re-anchoring live content; a closing surface
         // has none, and the park guard refuses new entries from here on.
         clearPortalHostVacancyRetries()
@@ -224,6 +225,7 @@ extension TerminalSurface {
     func markPortalLifecycleClosed(reason: String) {
         guard portalLifecycleState != .closed else { return }
         portalLifecycleState = .closed
+        cancelRuntimeSurfaceCreationAfterAdmissionRecovery()
         portalLifecycleGeneration &+= 1
         clearPortalHostVacancyRetries()
 #if DEBUG
@@ -382,6 +384,7 @@ extension TerminalSurface {
         _ = fontSizeLineageSnapshot()
         mobileViewportFontFitState = nil
         runtimeSurfaceSuspendedForAgentHibernation = true
+        cancelRuntimeSurfaceCreationAfterAdmissionRecovery()
         backgroundSurfaceStartQueued = false
         backgroundSurfaceStartSource = .normal
         cancelClaudeCommandShimInstallLifecycle()
@@ -696,6 +699,55 @@ extension TerminalSurface {
     }
 
     @MainActor
+    private func reserveRuntimeSurfaceOwnershipForCreation(
+        view: any TerminalSurfaceNativeViewing,
+        source: RuntimeSurfaceCreationSource
+    ) -> TerminalSurfaceRuntimeOwnershipReservation? {
+        runtimeSurfaceAdmissionDeferredCreationSource =
+            (
+                runtimeSurfaceAdmissionDeferredCreationSource
+                ?? source
+            ).promoted(with: source)
+        runtimeSurfaceAdmissionDeferredCreationView = view
+        guard let reservation =
+                runtimeTeardown.reserveRuntimeSurfaceOwnership(
+                    recoveryID: id,
+                    onRecovery: { [weak self] in
+                        self?
+                            .resumeRuntimeSurfaceCreationAfterAdmissionRecovery()
+                    }
+                ) else {
+            return nil
+        }
+        runtimeSurfaceAdmissionDeferredCreationSource = nil
+        runtimeSurfaceAdmissionDeferredCreationView = nil
+        return reservation
+    }
+
+    @MainActor
+    private func resumeRuntimeSurfaceCreationAfterAdmissionRecovery() {
+        let source =
+            runtimeSurfaceAdmissionDeferredCreationSource
+            ?? .normal
+        let view =
+            runtimeSurfaceAdmissionDeferredCreationView
+            ?? attachedView
+            ?? surfaceView
+        runtimeSurfaceAdmissionDeferredCreationSource = nil
+        runtimeSurfaceAdmissionDeferredCreationView = nil
+        guard allowsRuntimeSurfaceCreation(), surface == nil else {
+            return
+        }
+        createSurface(for: view, source: source)
+    }
+
+    private func cancelRuntimeSurfaceCreationAfterAdmissionRecovery() {
+        runtimeTeardown.cancelRuntimeSurfaceOwnershipRecovery(id)
+        runtimeSurfaceAdmissionDeferredCreationSource = nil
+        runtimeSurfaceAdmissionDeferredCreationView = nil
+    }
+
+    @MainActor
     func createSurface(for view: any TerminalSurfaceNativeViewing, source: RuntimeSurfaceCreationSource) {
         guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
@@ -734,24 +786,30 @@ extension TerminalSurface {
         Self.surfaceLog("createSurface start surface=\(id.uuidString) tab=\(tabId.uuidString) bounds=\(view.bounds) inWindow=\(view.window != nil) resources=\(resourcesDir) terminfo=\(terminfo) xdg=\(xdg) manpath=\(manpath)")
         #endif
 
-        guard let app = engine.runtimeApp else {
-            #if DEBUG
-            logDebugEvent("ghostty.surface.create.failed reason=appNotInitialized surface=\(id.uuidString)")
-            #endif
-            #if DEBUG
-            Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty app not initialized")
-            #endif
-            return
-        }
-
         guard let runtimeOwnershipReservation =
-                runtimeTeardown.reserveRuntimeSurfaceOwnership() else {
+                reserveRuntimeSurfaceOwnershipForCreation(
+                    view: view,
+                    source: source
+                ) else {
 #if DEBUG
             logDebugEvent(
                 "ghostty.surface.create.failed reason=teardownAdmissionDegraded " +
                 "surface=\(id.uuidString)"
             )
 #endif
+            return
+        }
+
+        guard let app = engine.runtimeApp else {
+            runtimeTeardown.cancelRuntimeSurfaceOwnership(
+                runtimeOwnershipReservation
+            )
+            #if DEBUG
+            logDebugEvent("ghostty.surface.create.failed reason=appNotInitialized surface=\(id.uuidString)")
+            #endif
+            #if DEBUG
+            Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty app not initialized")
+            #endif
             return
         }
 
