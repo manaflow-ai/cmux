@@ -25,6 +25,7 @@ public actor CmxConnectivityEngine {
     private var endpointGeneration: UInt64?
     private var localIdentity: CmxIrohPeerIdentity?
     private var routeRevision: UInt64?
+    private var routeContent: CmxConnectivityRouteContent?
     private var endpointEventTask: Task<Void, Never>?
     private var routeSyncOperation: RouteSyncOperation?
     private var peers: [CmxConnectivityPeerID: CmxConnectivityPeerSession] = [:]
@@ -240,10 +241,22 @@ public actor CmxConnectivityEngine {
     }
 
     /// Records the last route revision installed atomically by the composition root.
-    public func didInstallRouteRevision(_ revision: UInt64) async {
-        guard routeRevision != revision else { return }
-        await invalidateAllPeers(failure: .superseded)
+    ///
+    /// Peers whose material route content is unchanged keep their live
+    /// sessions; every other peer is invalidated before the new revision
+    /// becomes visible.
+    public func didInstallRouteRevision(
+        _ revision: UInt64,
+        routes: CmxIrohDiscoveryResponse
+    ) async {
+        let content = CmxConnectivityRouteContent(snapshot: routes)
+        guard routeRevision != revision else {
+            routeContent = content
+            return
+        }
+        await invalidatePeersSuperseded(by: content)
         routeRevision = revision
+        routeContent = content
         publishSnapshot()
     }
 
@@ -678,10 +691,36 @@ public actor CmxConnectivityEngine {
                 throw CmxConnectivityEngineError.superseded
             }
         }
+        let content = response.snapshot.map(CmxConnectivityRouteContent.init)
         if routeRevision != response.revision {
-            await invalidateAllPeers(failure: .superseded)
+            await invalidatePeersSuperseded(by: content)
             routeRevision = response.revision
+            routeContent = content
             publishSnapshot()
+        } else if let content {
+            routeContent = content
+        }
+    }
+
+    /// Invalidates peers whose authoritative route material changed.
+    ///
+    /// A missing baseline or replacement fails closed and tears down every
+    /// peer, preserving the pre-content-tracking behavior.
+    private func invalidatePeersSuperseded(
+        by content: CmxConnectivityRouteContent?
+    ) async {
+        guard let previous = routeContent,
+              let content,
+              previous.account == content.account else {
+            await invalidateAllPeers(failure: .superseded)
+            return
+        }
+        for (peerID, peer) in peers {
+            guard let previousRoute = previous.peerRoute(for: peerID),
+                  previousRoute == content.peerRoute(for: peerID) else {
+                await peer.invalidate(failure: .superseded)
+                continue
+            }
         }
     }
 
