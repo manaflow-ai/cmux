@@ -299,6 +299,35 @@ struct MobileShellForegroundConnectionRecoveryTests {
 }
 
 @MainActor
+@Test func foregroundResumeDoesNotAggregateWithoutLiveForegroundClient() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let (store, directory) = try await makeForegroundRecoveryStore(
+        router: router,
+        box: box,
+        clock: clock
+    )
+    defer {
+        Task { await router.releaseAllHeld() }
+        try? FileManager.default.removeItem(at: directory)
+    }
+    store.connectionState = .connected
+    store.clearRemoteConnectionContext()
+    let attachTicketCount = await router.count(of: "mobile.attach_ticket.create")
+
+    store.resumeForegroundRefresh()
+
+    let aggregated = await router.waitForCount(
+        of: "mobile.attach_ticket.create",
+        atLeast: attachTicketCount + 1,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!aggregated)
+}
+
+@MainActor
 @Test func foregroundResumeDoesNotRedialWhenReauthenticationIsRequired() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
