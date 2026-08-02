@@ -57,10 +57,28 @@ jobs:
             exit 1
           }
 
+          sdk_tag="cmux-sdk-v$VERSION"
+          go_tag="cmux-tui/bindings/go/v$VERSION"
+          sdk_ref="$(git rev-parse -q --verify "refs/tags/$sdk_tag" || true)"
+          go_ref="$(git rev-parse -q --verify "refs/tags/$go_tag" || true)"
+          sdk_existing_sha="$(
+            git rev-parse -q --verify "refs/tags/$sdk_tag^{commit}" || true
+          )"
+          go_existing_sha="$(
+            git rev-parse -q --verify "refs/tags/$go_tag^{commit}" || true
+          )"
+          if [[ -n "$sdk_ref" || -n "$go_ref" ]]; then
+            [[ "$sdk_existing_sha" == "$GITHUB_SHA" && \
+              "$go_existing_sha" == "$GITHUB_SHA" ]] || {
+              echo "existing coordinated SDK tags must both name $GITHUB_SHA" >&2
+              exit 1
+            }
+          fi
+
           git tag --list 'cmux-sdk-v*' | \
             python3 cmux-tui/bindings/validate_release_version.py \
               --version "$VERSION" \
-              --require-newer-than-tags
+              --require-latest-tag
 
           python3 cmux-tui/bindings/check-versions.py \
             --published-only \
@@ -83,8 +101,6 @@ jobs:
               )
           PY
 
-          sdk_tag="cmux-sdk-v$VERSION"
-          go_tag="cmux-tui/bindings/go/v$VERSION"
           {
             echo "version=$VERSION"
             echo "sdk_tag=$sdk_tag"
@@ -343,6 +359,9 @@ jobs:
     environment:
       name: sdk-release
     outputs:
+      authorization_run_attempt: ${{ steps.revalidate.outputs.authorization_run_attempt }}
+      authorization_run_id: ${{ steps.revalidate.outputs.authorization_run_id }}
+      authorized_at: ${{ steps.revalidate.outputs.authorized_at }}
       remote_state_sha256: ${{ steps.revalidate.outputs.remote_state_sha256 }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -443,7 +462,25 @@ jobs:
             echo "remote release state digest is malformed" >&2
             exit 1
           }
-          echo "remote_state_sha256=$remote_state_sha256" >> "$GITHUB_OUTPUT"
+          [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ ]] || {
+            echo "workflow run id is malformed" >&2
+            exit 1
+          }
+          [[ "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]] || {
+            echo "workflow run attempt is malformed" >&2
+            exit 1
+          }
+          authorized_at="$(date +%s)"
+          [[ "$authorized_at" =~ ^[1-9][0-9]*$ ]] || {
+            echo "release authorization timestamp is malformed" >&2
+            exit 1
+          }
+          {
+            echo "authorization_run_attempt=$GITHUB_RUN_ATTEMPT"
+            echo "authorization_run_id=$GITHUB_RUN_ID"
+            echo "authorized_at=$authorized_at"
+            echo "remote_state_sha256=$remote_state_sha256"
+          } >> "$GITHUB_OUTPUT"
 
   cut-tags:
     needs:
@@ -456,7 +493,11 @@ jobs:
       name: sdk-release-credentials
     steps:
       - name: Verify fresh release authority and prepare tags
+        id: prepare
         env:
+          AUTHORIZATION_RUN_ATTEMPT: ${{ needs.revalidate-tags.outputs.authorization_run_attempt }}
+          AUTHORIZATION_RUN_ID: ${{ needs.revalidate-tags.outputs.authorization_run_id }}
+          AUTHORIZED_AT: ${{ needs.revalidate-tags.outputs.authorized_at }}
           CONFIRM_PUBLISH: ${{ github.event.client_payload.confirm_publish }}
           DISPATCH_VERSION: ${{ github.event.client_payload.version }}
           GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
@@ -511,10 +552,35 @@ jobs:
                 'refs/tags/cmux-tui/bindings/go/v*'
             } | LC_ALL=C sort
           }
+          state_sha256() {
+            printf '%s\n' "$1" | sha256sum | cut -d ' ' -f 1
+          }
+          ref_count() {
+            printf '%s\n' "$1" | \
+              awk -v ref="$2" '$2 == ref { count += 1 } END { print count + 0 }'
+          }
+          ref_sha() {
+            printf '%s\n' "$1" | awk -v ref="$2" '$2 == ref { print $1 }'
+          }
           verify_remote_state() {
             local state
             local remote_state_sha256
             local main_ref_count
+            local sdk_ref
+            local sdk_peeled_ref
+            local go_ref
+            local go_peeled_ref
+            local sdk_ref_count
+            local sdk_peeled_count
+            local go_ref_count
+            local go_peeled_count
+            local expected_ref_count
+            local sdk_ref_sha
+            local sdk_peeled_sha
+            local go_ref_sha
+            local go_peeled_sha
+            local normalized_state
+            local normalized_state_sha256
             state="$(remote_state)"
             main_ref_count="$(
               printf '%s\n' "$state" | grep -c $'\trefs/heads/main$' || true
@@ -523,15 +589,91 @@ jobs:
               echo "remote release state does not contain exactly one main ref" >&2
               exit 1
             }
-            remote_state_sha256="$(
-              printf '%s\n' "$state" | sha256sum | cut -d ' ' -f 1
-            )"
+            remote_state_sha256="$(state_sha256 "$state")"
+
+            sdk_ref="refs/tags/$SDK_TAG"
+            sdk_peeled_ref="$sdk_ref^{}"
+            go_ref="refs/tags/$GO_TAG"
+            go_peeled_ref="$go_ref^{}"
+            sdk_ref_count="$(ref_count "$state" "$sdk_ref")"
+            sdk_peeled_count="$(ref_count "$state" "$sdk_peeled_ref")"
+            go_ref_count="$(ref_count "$state" "$go_ref")"
+            go_peeled_count="$(ref_count "$state" "$go_peeled_ref")"
+            expected_ref_count=$((
+              sdk_ref_count + sdk_peeled_count + go_ref_count + go_peeled_count
+            ))
+            if (( expected_ref_count > 0 )); then
+              [[ "$sdk_ref_count" == 1 && "$sdk_peeled_count" == 1 && \
+                "$go_ref_count" == 1 && "$go_peeled_count" == 1 ]] || {
+                echo "coordinated release tags are only partially present" >&2
+                exit 1
+              }
+              sdk_ref_sha="$(ref_sha "$state" "$sdk_ref")"
+              sdk_peeled_sha="$(ref_sha "$state" "$sdk_peeled_ref")"
+              go_ref_sha="$(ref_sha "$state" "$go_ref")"
+              go_peeled_sha="$(ref_sha "$state" "$go_peeled_ref")"
+              [[ "$sdk_ref_sha" =~ ^[0-9a-f]{40}$ && \
+                "$go_ref_sha" =~ ^[0-9a-f]{40}$ && \
+                "$sdk_peeled_sha" == "$GITHUB_SHA" && \
+                "$go_peeled_sha" == "$GITHUB_SHA" ]] || {
+                echo "coordinated release tags do not both name $GITHUB_SHA" >&2
+                exit 1
+              }
+              normalized_state="$(
+                printf '%s\n' "$state" | awk \
+                  -v sdk="$sdk_ref" \
+                  -v sdk_peeled="$sdk_peeled_ref" \
+                  -v go="$go_ref" \
+                  -v go_peeled="$go_peeled_ref" \
+                  '$2 != sdk && $2 != sdk_peeled && $2 != go && $2 != go_peeled'
+              )"
+              normalized_state_sha256="$(state_sha256 "$normalized_state")"
+              if [[ "$remote_state_sha256" == "$REMOTE_STATE_SHA256" || \
+                "$normalized_state_sha256" == "$REMOTE_STATE_SHA256" ]]; then
+                remote_release_state=published
+                return
+              fi
+              echo "remote refs changed beyond the exact coordinated tag post-state" >&2
+              exit 1
+            fi
+
             [[ "$remote_state_sha256" == "$REMOTE_STATE_SHA256" ]] || {
               echo "remote release refs changed after final revalidation" >&2
               exit 1
             }
+            remote_release_state=unpublished
+          }
+          require_fresh_authorization() {
+            local now
+            local authorization_age
+            [[ "$AUTHORIZATION_RUN_ID" =~ ^[1-9][0-9]*$ && \
+              "$AUTHORIZATION_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ && \
+              "$AUTHORIZED_AT" =~ ^[1-9][0-9]*$ ]] || {
+                echo "release authorization identity is malformed" >&2
+                exit 1
+              }
+            [[ "$AUTHORIZATION_RUN_ID" == "$GITHUB_RUN_ID" ]] || {
+              echo "release authorization came from another workflow run" >&2
+              exit 1
+            }
+            [[ "$AUTHORIZATION_RUN_ATTEMPT" == "$GITHUB_RUN_ATTEMPT" ]] || {
+              echo "release authorization is stale; re-run all jobs" >&2
+              exit 1
+            }
+            now="$(date +%s)"
+            authorization_age=$((now - AUTHORIZED_AT))
+            (( authorization_age >= 0 && authorization_age <= 900 )) || {
+              echo "release authorization is older than 15 minutes; re-run all jobs" >&2
+              exit 1
+            }
           }
           verify_remote_state
+          if [[ "$remote_release_state" == published ]]; then
+            echo "both coordinated tags already name the release commit"
+            echo "tags_exist=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          require_fresh_authorization
 
           release_dir="$RUNNER_TEMP/cmux-sdk-release"
           mkdir -m 700 "$release_dir"
@@ -578,9 +720,16 @@ jobs:
             }
           done
           verify_remote_state
+          if [[ "$remote_release_state" == published ]]; then
+            echo "both coordinated tags appeared during preparation"
+            echo "tags_exist=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags_exist=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Mint the SDK release GitHub App token
         id: release_app_token
+        if: steps.prepare.outputs.tags_exist != 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ vars.SDK_RELEASE_APP_CLIENT_ID }}
@@ -588,6 +737,7 @@ jobs:
           permission-contents: write
 
       - name: Push protected release tags
+        if: steps.prepare.outputs.tags_exist != 'true'
         env:
           GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
           RELEASE_TOKEN: ${{ steps.release_app_token.outputs.token }}

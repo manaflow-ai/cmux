@@ -58,7 +58,8 @@ definitions and source revision from the default branch. The `sdk-release`
 approval gates credential-free final revalidation. A fresh GitHub-hosted job
 then checks that the remote ref snapshot is unchanged, prepares the two tags
 without checking out repository files, and accesses `sdk-release-credentials`
-only to mint the short-lived token used for the atomic push.
+only to mint the short-lived token used for the atomic push. The approved
+authorization is valid for the same workflow run attempt and 15 minutes.
 
 - npm: the package must exist before npm allows a trusted publisher. Create the
   `npm-bootstrap` GitHub environment with a temporary `NPM_BOOTSTRAP_TOKEN`
@@ -210,9 +211,12 @@ job repeats those provenance checks for the exact npm archive, wheel, and source
 distribution after every publisher finishes.
 
 The cut workflow holds one cross-version concurrency lock until the Go check and
-all registry jobs finish. If one publish job fails, use GitHub's **Re-run failed
-jobs** action so successful crates, Python distributions, npm packages, and the
-tag step are not repeated.
+all registry jobs finish. If tag creation fails before both coordinated tags
+exist, use GitHub's **Re-run all jobs** action so approval-fresh registry checks
+run again. A failed-job retry accepts the exact coordinated tag post-state when
+an atomic push succeeded but its response was lost; otherwise it rejects stale
+authorization. After tag creation succeeds, use **Re-run failed jobs** for a
+publisher failure so successful registry writes are not repeated.
 
 ## Verification after publishing
 
