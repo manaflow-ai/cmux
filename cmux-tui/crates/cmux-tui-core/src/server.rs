@@ -4167,6 +4167,8 @@ pub struct WebSocketServer {
     shutdown: Arc<AtomicBool>,
     connections: Arc<Mutex<HashMap<u64, TcpStream>>>,
     thread: Option<JoinHandle<()>>,
+    #[cfg(test)]
+    accept_attempts: Arc<AtomicU64>,
 }
 
 impl WebSocketServer {
@@ -4218,11 +4220,17 @@ pub fn serve_websocket(
     let connections = Arc::new(Mutex::new(HashMap::new()));
     let next_connection = Arc::new(AtomicU64::new(1));
     let active_connections = Arc::new(AtomicU64::new(0));
+    #[cfg(test)]
+    let accept_attempts = Arc::new(AtomicU64::new(0));
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
+    #[cfg(test)]
+    let thread_accept_attempts = accept_attempts.clone();
     let render_service = Arc::new(RenderService::new());
     let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
         while !thread_shutdown.load(Ordering::Acquire) {
+            #[cfg(test)]
+            thread_accept_attempts.fetch_add(1, Ordering::Release);
             let (stream, peer) = match cmux_tui_process::tcp::accept_stream(&listener) {
                 Ok(connection) => connection,
                 Err(_) => {
@@ -4270,7 +4278,14 @@ pub fn serve_websocket(
             }
         }
     })?;
-    Ok(WebSocketServer { local_addr, shutdown, connections, thread: Some(thread) })
+    Ok(WebSocketServer {
+        local_addr,
+        shutdown,
+        connections,
+        thread: Some(thread),
+        #[cfg(test)]
+        accept_attempts,
+    })
 }
 
 pub fn window_title_osc(title: &str) -> Vec<u8> {
@@ -10425,6 +10440,75 @@ mod tests {
     use ghostty_vt::{Callbacks, RenderState, Terminal};
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
+
+    #[test]
+    fn websocket_listener_shutdown_does_not_depend_on_a_wakeup_connection() {
+        let mux = Mux::new("websocket-listener-shutdown-test", SurfaceOptions::default());
+        let server =
+            serve_websocket(mux.clone(), "127.0.0.1:0".parse().unwrap(), None, false).unwrap();
+
+        let accept_deadline = Instant::now() + Duration::from_secs(1);
+        while server.accept_attempts.load(Ordering::Acquire) == 0
+            && Instant::now() < accept_deadline
+        {
+            std::thread::yield_now();
+        }
+        assert_ne!(
+            server.accept_attempts.load(Ordering::Acquire),
+            0,
+            "WebSocket listener never attempted to accept"
+        );
+        server.shutdown.store(true, Ordering::Release);
+        let deadline = Instant::now() + STREAM_DISCONNECT_POLL + STREAM_DISCONNECT_POLL;
+        while !server.thread.as_ref().unwrap().is_finished() && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        let stopped_without_wakeup = server.thread.as_ref().unwrap().is_finished();
+        if !stopped_without_wakeup {
+            let _ = cmux_tui_process::tcp::connect_stream_timeout(
+                &server.local_addr,
+                Duration::from_millis(100),
+            );
+        }
+        drop(server);
+        let _ = mux.shutdown();
+
+        assert!(
+            stopped_without_wakeup,
+            "WebSocket listener shutdown required a self-connect to wake accept"
+        );
+    }
+
+    #[test]
+    fn websocket_drop_does_not_join_an_unfinished_listener() {
+        let (release, blocked) = std::sync::mpsc::channel();
+        let (worker_finished, observed_worker) = std::sync::mpsc::channel();
+        let listener_thread = std::thread::spawn(move || {
+            let _ = blocked.recv();
+            let _ = worker_finished.send(());
+        });
+        let server = WebSocketServer {
+            local_addr: "127.0.0.1:0".parse().unwrap(),
+            shutdown: Arc::new(AtomicBool::new(false)),
+            connections: Arc::new(Mutex::new(HashMap::new())),
+            thread: Some(listener_thread),
+            accept_attempts: Arc::new(AtomicU64::new(0)),
+        };
+        let (dropped, observed_drop) = std::sync::mpsc::channel();
+        let dropper = std::thread::spawn(move || {
+            drop(server);
+            let _ = dropped.send(());
+        });
+
+        let completed_promptly = observed_drop.recv_timeout(Duration::from_millis(100)).is_ok();
+        let _ = release.send(());
+        observed_worker
+            .recv_timeout(Duration::from_secs(1))
+            .expect("synthetic listener did not finish after release");
+        dropper.join().unwrap();
+
+        assert!(completed_promptly, "WebSocket owner drop joined an unfinished listener thread");
+    }
 
     #[test]
     fn default_socket_path_preserves_compatible_runtime_dir() {
