@@ -265,6 +265,7 @@ public actor CmxIrohEndpointServer {
             $0.remoteIdentity == remoteIdentity && !$0.isUsable
         }
         let canReserveReplacement = pendingForIdentity == 0
+            && maximumConnectionsPerIdentity > 1
             && activeForIdentity >= maximumConnectionsPerIdentity
             && hasReplaceableConnection
         guard pendingAdmissions.count + activeConnections.count < maximumConnections

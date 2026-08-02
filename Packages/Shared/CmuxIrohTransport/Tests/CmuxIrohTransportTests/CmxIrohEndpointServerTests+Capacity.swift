@@ -200,11 +200,12 @@ extension CmxIrohEndpointServerTests {
         for _ in 0 ..< 100 {
             let recordedCount = await recorder.recordedCount()
             let firstCloseCount = await first.observedCloseCallCount()
-            guard recordedCount < 3, firstCloseCount == 0 else { break }
+            if recordedCount == 3, firstCloseCount == 1 { break }
             await Task.yield()
         }
 
         #expect(await recorder.recordedCount() == 3)
+        #expect(await recorder.next().identity == firstRemoteIdentity)
         #expect(await first.observedCloseCallCount() == 1)
         #expect(await replacement.observedCloseCallCount() == 0)
         #expect(await excessCandidate.observedCloseCallCount() == 0)
