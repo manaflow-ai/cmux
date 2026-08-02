@@ -190,7 +190,12 @@ struct SimulatorAgentCursorTests {
     @Test("HID dispatch waits for the cursor to reach a timed gesture origin")
     func cursorReachesGestureOriginBeforeInputDispatch() async throws {
         let client = SimulatorPaneClientSpy(devices: [])
-        let coordinator = SimulatorPaneCoordinator(client: client)
+        let sleeper = ManuallyAdvancingProcessSleeper()
+        let coordinator = SimulatorPaneCoordinator(
+            client: client,
+            webInspectorSleeper: ImmediateProcessSleeper(),
+            agentCursorSleeper: sleeper
+        )
         coordinator.ensureAgentCursorPresentation()
         let origin = SimulatorPoint(x: 0.9, y: 0.9)
         let destination = SimulatorPoint(x: 0.1, y: 0.1)
@@ -205,16 +210,12 @@ struct SimulatorAgentCursorTests {
         let operation = Task { @MainActor in
             try await coordinator.perform(action)
         }
-        guard await waitForCursorTravel(coordinator, destination: origin) else {
-            operation.cancel()
-            _ = try? await operation.value
-            Issue.record("Cursor travel did not start")
-            return
-        }
+        await sleeper.waitForCallCount(1)
 
         #expect(await client.actions().isEmpty)
         #expect(coordinator.agentCursorPresentation?.destination == origin)
 
+        await sleeper.advance()
         _ = try await operation.value
         #expect(await client.actions() == [action])
         await coordinator.close()
@@ -223,7 +224,12 @@ struct SimulatorAgentCursorTests {
     @Test("A selection change during cursor travel prevents HID dispatch")
     func selectionChangeDuringCursorTravelPreventsInputDispatch() async throws {
         let client = SimulatorPaneClientSpy(devices: [])
-        let coordinator = SimulatorPaneCoordinator(client: client)
+        let sleeper = ManuallyAdvancingProcessSleeper()
+        let coordinator = SimulatorPaneCoordinator(
+            client: client,
+            webInspectorSleeper: ImmediateProcessSleeper(),
+            agentCursorSleeper: sleeper
+        )
         coordinator.ensureAgentCursorPresentation()
         let point = SimulatorPoint(x: 0.9, y: 0.9)
         let action = SimulatorControlAction.interactive(.gesture([
@@ -234,13 +240,9 @@ struct SimulatorAgentCursorTests {
         let operation = Task { @MainActor in
             try await coordinator.perform(action)
         }
-        guard await waitForCursorTravel(coordinator, destination: point) else {
-            operation.cancel()
-            _ = try? await operation.value
-            Issue.record("Cursor travel did not start")
-            return
-        }
+        await sleeper.waitForCallCount(1)
         coordinator.selectionGeneration &+= 1
+        await sleeper.advance()
 
         await #expect(throws: CancellationError.self) {
             try await operation.value
@@ -322,18 +324,4 @@ struct SimulatorAgentCursorTests {
         #expect(coordinator.agentCursorPresentation?.destination == SimulatorPoint(x: 0.5, y: 0.5))
     }
 
-    private func waitForCursorTravel(
-        _ coordinator: SimulatorPaneCoordinator,
-        destination: SimulatorPoint
-    ) async -> Bool {
-        for _ in 0..<100 {
-            if coordinator.agentCursorPresentation?.destination == destination,
-               coordinator.agentCursorPresentation?.phase == .resting,
-               coordinator.agentCursorPresentation?.durationMilliseconds ?? 0 > 0 {
-                return true
-            }
-            await Task.yield()
-        }
-        return false
-    }
 }

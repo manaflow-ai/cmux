@@ -96,6 +96,7 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored let client: any SimulatorPaneClient
     @ObservationIgnored let filePicker: any SimulatorFilePicking
     @ObservationIgnored let webInspectorSleeper: any SimulatorProcessSleeper
+    @ObservationIgnored let agentCursorSleeper: any SimulatorProcessSleeper
     @ObservationIgnored let capabilityResolutionSleeper: any SimulatorProcessSleeper
     @ObservationIgnored let preferredDeviceID: String?
     @ObservationIgnored let preferredRuntimeIdentifier: String?
@@ -208,6 +209,7 @@ public final class SimulatorPaneCoordinator {
         requiresExplicitDeviceSelection: Bool = false,
         filePicker: any SimulatorFilePicking = NativeSimulatorFilePicker(),
         webInspectorSleeper: any SimulatorProcessSleeper,
+        agentCursorSleeper: any SimulatorProcessSleeper = ContinuousSimulatorProcessSleeper(),
         capabilityResolutionSleeper: any SimulatorProcessSleeper =
             ContinuousSimulatorProcessSleeper(),
         locationRouteSleeper: any SimulatorProcessSleeper = ContinuousSimulatorProcessSleeper(),
@@ -216,6 +218,7 @@ public final class SimulatorPaneCoordinator {
         self.client = client
         self.filePicker = filePicker
         self.webInspectorSleeper = webInspectorSleeper
+        self.agentCursorSleeper = agentCursorSleeper
         self.capabilityResolutionSleeper = capabilityResolutionSleeper
         self.locationRouteSleeper = locationRouteSleeper
         self.locationRouteNow = locationRouteNow

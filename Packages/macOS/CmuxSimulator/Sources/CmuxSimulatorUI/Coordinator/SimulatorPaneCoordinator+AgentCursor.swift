@@ -25,7 +25,7 @@ extension SimulatorPaneCoordinator {
                 phase: .resting,
                 clickPhaseDelayMilliseconds: 0
             )
-            try await ContinuousClock().sleep(
+            try await agentCursorSleeper.sleep(
                 for: .milliseconds(travelDurationMilliseconds)
             )
             try Task.checkCancellation()
