@@ -339,6 +339,11 @@ pub struct DaemonRuntimeHandle {
     thread: Option<thread::JoinHandle<anyhow::Result<()>>>,
 }
 
+pub(crate) enum DaemonRuntimeShutdown {
+    Complete(anyhow::Result<()>),
+    Pending,
+}
+
 impl DaemonRuntimeHandle {
     pub fn info(&self) -> &DaemonRuntimeInfo {
         &self.info
@@ -346,6 +351,40 @@ impl DaemonRuntimeHandle {
 
     pub fn is_finished(&self) -> bool {
         self.thread.as_ref().is_some_and(thread::JoinHandle::is_finished)
+    }
+
+    fn request_shutdown(&self) {
+        let _ = self.shutdown.send(true);
+    }
+
+    pub(crate) fn shutdown_until(&mut self, deadline: std::time::Instant) -> DaemonRuntimeShutdown {
+        self.request_shutdown();
+        loop {
+            let Some(worker) = self.thread.as_ref() else {
+                return DaemonRuntimeShutdown::Complete(Err(anyhow!(
+                    "remote daemon runtime thread is absent"
+                )));
+            };
+            if worker.is_finished() {
+                return DaemonRuntimeShutdown::Complete(self.join_runtime_thread());
+            }
+            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return DaemonRuntimeShutdown::Pending;
+            };
+            thread::sleep(remaining.min(Duration::from_millis(10)));
+        }
+    }
+
+    fn join_runtime_thread(&mut self) -> anyhow::Result<()> {
+        match self
+            .thread
+            .take()
+            .ok_or_else(|| anyhow!("remote daemon runtime thread is absent"))?
+            .join()
+        {
+            Ok(result) => result,
+            Err(_) => Err(anyhow!("remote daemon runtime thread panicked")),
+        }
     }
 
     #[cfg(test)]
@@ -383,11 +422,8 @@ impl DaemonRuntimeHandle {
         {
             thread::sleep(Duration::from_millis(milliseconds));
         }
-        let _ = self.shutdown.send(true);
-        let result = match self.thread.take().expect("daemon runtime thread is present").join() {
-            Ok(result) => result,
-            Err(_) => Err(anyhow!("remote daemon runtime thread panicked")),
-        };
+        self.request_shutdown();
+        let result = self.join_runtime_thread();
         #[cfg(debug_assertions)]
         if let Some(marker) = shutdown_marker {
             let _ = fs::write(marker, b"complete");

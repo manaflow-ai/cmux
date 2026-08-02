@@ -8423,9 +8423,14 @@ impl Mux {
     /// absolute deadline guarantees an accepted daemon handoff cannot wedge
     /// the old process or its socket forever.
     pub fn shutdown(&self) -> anyhow::Result<()> {
+        self.shutdown_until(Instant::now() + self.shutdown_total_timeout())
+    }
+
+    /// Finish cleanup within a caller-owned absolute deadline so surrounding
+    /// process owners and mux resources share one bounded handoff window.
+    pub fn shutdown_until(&self, overall_deadline: Instant) -> anyhow::Result<()> {
         let cleanup_lifecycle = self.shutdown_cleanup_lifecycle.begin();
         self.shutdown_owner_reconciler.stop();
-        let overall_deadline = Instant::now() + self.shutdown_total_timeout();
         let mut retry_delay = SERVER_EXIT_RETRY_INITIAL_DELAY;
         let mut last_error = None;
         loop {

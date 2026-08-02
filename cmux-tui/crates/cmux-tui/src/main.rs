@@ -1312,16 +1312,29 @@ struct ServerProcessOwners {
 }
 
 impl ServerProcessOwners {
-    fn shutdown(mut self) -> anyhow::Result<()> {
+    fn shutdown_until(&mut self, deadline: std::time::Instant) -> ServerProcessOwnersShutdown {
         #[cfg(target_os = "linux")]
         drop(self.provider_management.take());
         drop(self.websocket.take());
         #[cfg(unix)]
-        if let Some(remote) = self.remote.take() {
-            remote.shutdown()?;
+        if let Some(remote) = self.remote.as_mut() {
+            match remote.shutdown_until(deadline) {
+                remote_runtime::DaemonRuntimeShutdown::Complete(result) => {
+                    self.remote.take();
+                    return ServerProcessOwnersShutdown::Complete(result);
+                }
+                remote_runtime::DaemonRuntimeShutdown::Pending => {
+                    return ServerProcessOwnersShutdown::Pending;
+                }
+            }
         }
-        Ok(())
+        ServerProcessOwnersShutdown::Complete(Ok(()))
     }
+}
+
+enum ServerProcessOwnersShutdown {
+    Complete(anyhow::Result<()>),
+    Pending,
 }
 
 enum ServerProcessOwnersState {
@@ -1329,6 +1342,11 @@ enum ServerProcessOwnersState {
     Ready(ServerProcessOwners),
     Running,
     Complete(Option<String>),
+}
+
+enum ServerProcessOwnersCleanupOutcome {
+    Complete { error: Option<String> },
+    Incomplete { message: String },
 }
 
 struct ServerProcessOwnersCleanup {
@@ -1403,13 +1421,38 @@ impl ServerProcessOwnersCleanup {
         }
     }
 
-    fn run_once(&self) -> anyhow::Result<()> {
+    fn run_once_until(&self, deadline: std::time::Instant) -> ServerProcessOwnersCleanupOutcome {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let owners = loop {
+        let mut owners = loop {
             match &*state {
                 ServerProcessOwnersState::Registering(_) | ServerProcessOwnersState::Running => {
-                    state =
-                        self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let Some(remaining) =
+                        deadline.checked_duration_since(std::time::Instant::now())
+                    else {
+                        return ServerProcessOwnersCleanupOutcome::Incomplete {
+                            message:
+                                "server process owner registration exceeded the shutdown deadline"
+                                    .into(),
+                        };
+                    };
+                    let (next, timeout) = self
+                        .changed
+                        .wait_timeout(state, remaining)
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    state = next;
+                    if timeout.timed_out()
+                        && matches!(
+                            &*state,
+                            ServerProcessOwnersState::Registering(_)
+                                | ServerProcessOwnersState::Running
+                        )
+                    {
+                        return ServerProcessOwnersCleanupOutcome::Incomplete {
+                            message:
+                                "server process owner registration exceeded the shutdown deadline"
+                                    .into(),
+                        };
+                    }
                 }
                 ServerProcessOwnersState::Ready(_) => {
                     let ServerProcessOwnersState::Ready(owners) =
@@ -1420,22 +1463,37 @@ impl ServerProcessOwnersCleanup {
                     break owners;
                 }
                 ServerProcessOwnersState::Complete(error) => {
-                    return error
-                        .as_ref()
-                        .map(|message| Err(anyhow::anyhow!(message.clone())))
-                        .unwrap_or(Ok(()));
+                    return ServerProcessOwnersCleanupOutcome::Complete { error: error.clone() };
                 }
             }
         };
         drop(state);
 
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| owners.shutdown()))
-            .unwrap_or_else(|_| Err(anyhow::anyhow!("server process owner cleanup panicked")));
-        let error = result.as_ref().err().map(|error| format!("{error:#}"));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            owners.shutdown_until(deadline)
+        }));
         state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        *state = ServerProcessOwnersState::Complete(error);
+        let outcome = match result {
+            Ok(ServerProcessOwnersShutdown::Complete(result)) => {
+                let error = result.as_ref().err().map(|error| format!("{error:#}"));
+                *state = ServerProcessOwnersState::Complete(error.clone());
+                ServerProcessOwnersCleanupOutcome::Complete { error }
+            }
+            Ok(ServerProcessOwnersShutdown::Pending) => {
+                *state = ServerProcessOwnersState::Ready(owners);
+                ServerProcessOwnersCleanupOutcome::Incomplete {
+                    message: "remote daemon cleanup exceeded the shutdown deadline".into(),
+                }
+            }
+            Err(_) => {
+                *state = ServerProcessOwnersState::Ready(owners);
+                ServerProcessOwnersCleanupOutcome::Incomplete {
+                    message: "server process owner cleanup panicked".into(),
+                }
+            }
+        };
         self.changed.notify_all();
-        result
+        outcome
     }
 }
 
@@ -1507,14 +1565,14 @@ impl ServerShutdownCleanup {
         }
     }
 
-    fn attempt_mux_shutdown(&self) -> anyhow::Result<()> {
+    fn attempt_mux_shutdown_until(&self, deadline: std::time::Instant) -> anyhow::Result<()> {
         #[cfg(test)]
         if let Some(attempt) =
             self.shutdown_attempt.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
         {
             return attempt();
         }
-        self.mux.shutdown()
+        self.mux.shutdown_until(deadline)
     }
 
     #[cfg(test)]
@@ -1530,6 +1588,16 @@ impl ServerShutdownCleanup {
     fn set_process_owner_timeout_for_test(&self, timeout: std::time::Duration) {
         *self.process_owner_timeout.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
             Some(timeout);
+    }
+
+    fn cleanup_deadline(&self) -> std::time::Instant {
+        #[cfg(test)]
+        if let Some(timeout) =
+            *self.process_owner_timeout.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        {
+            return std::time::Instant::now() + timeout;
+        }
+        std::time::Instant::now() + cmux_tui_core::server::SERVER_SHUTDOWN_TIMEOUT
     }
 
     fn run_once(&self) -> ServerShutdownCleanupOutcome {
@@ -1563,39 +1631,56 @@ impl ServerShutdownCleanup {
         };
         drop(state);
 
-        // Runtime and listener owners join exactly once before Mux::shutdown.
-        // A mux failure retains the socket until another explicit request,
-        // while a joined runtime error is terminal and remains reportable.
-        let process_owner_error =
-            self.process_owners.run_once().err().map(|error| format!("{error:#}"));
-        let result =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.attempt_mux_shutdown()));
-        let outcome = match result {
-            Ok(Ok(())) => ServerShutdownCleanupOutcome::Complete { error: process_owner_error },
-            Ok(Err(error)) => ServerShutdownCleanupOutcome::Degraded {
-                attempt,
-                message: format!(
-                    "{}: {error:#}{}",
-                    localization::catalog().server.shutdown_cleanup_incomplete,
-                    process_owner_error
-                        .as_deref()
-                        .map(|owner| format!("; process owner cleanup: {owner}"))
-                        .unwrap_or_default()
-                ),
-                retry,
-            },
-            Err(_) => ServerShutdownCleanupOutcome::Degraded {
-                attempt,
-                message: format!(
-                    "{}{}",
-                    localization::catalog().server.shutdown_cleanup_incomplete,
-                    process_owner_error
-                        .as_deref()
-                        .map(|owner| format!("; process owner cleanup: {owner}"))
-                        .unwrap_or_default()
-                ),
-                retry,
-            },
+        // Runtime owners and mux resources share one absolute deadline. If an
+        // owner is still live, retain it and the published socket until an
+        // explicit retry instead of starting a second cleanup budget.
+        let deadline = self.cleanup_deadline();
+        let process_owner_outcome = self.process_owners.run_once_until(deadline);
+        let outcome = match process_owner_outcome {
+            ServerProcessOwnersCleanupOutcome::Incomplete { message } => {
+                ServerShutdownCleanupOutcome::Degraded {
+                    attempt,
+                    message: format!(
+                        "{}: {message}",
+                        localization::catalog().server.shutdown_cleanup_incomplete
+                    ),
+                    retry,
+                }
+            }
+            ServerProcessOwnersCleanupOutcome::Complete { error: process_owner_error } => {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    self.attempt_mux_shutdown_until(deadline)
+                }));
+                match result {
+                    Ok(Ok(())) => {
+                        ServerShutdownCleanupOutcome::Complete { error: process_owner_error }
+                    }
+                    Ok(Err(error)) => ServerShutdownCleanupOutcome::Degraded {
+                        attempt,
+                        message: format!(
+                            "{}: {error:#}{}",
+                            localization::catalog().server.shutdown_cleanup_incomplete,
+                            process_owner_error
+                                .as_deref()
+                                .map(|owner| format!("; process owner cleanup: {owner}"))
+                                .unwrap_or_default()
+                        ),
+                        retry,
+                    },
+                    Err(_) => ServerShutdownCleanupOutcome::Degraded {
+                        attempt,
+                        message: format!(
+                            "{}{}",
+                            localization::catalog().server.shutdown_cleanup_incomplete,
+                            process_owner_error
+                                .as_deref()
+                                .map(|owner| format!("; process owner cleanup: {owner}"))
+                                .unwrap_or_default()
+                        ),
+                        retry,
+                    },
+                }
+            }
         };
         let next_state = match &outcome {
             ServerShutdownCleanupOutcome::Complete { error } => {
@@ -2640,13 +2725,18 @@ mod tests {
         });
 
         let bounded = observed.recv_timeout(std::time::Duration::from_millis(350));
+        let returned_in_time = bounded.is_ok();
+        let returned_incomplete = matches!(&bounded, Ok(Err(_)));
+        let retained_remote_owner = !cleanup.process_owners.remote_is_finished();
         let _ = release.send(());
-        if bounded.is_ok() {
+        if returned_in_time {
             cleanup.prepare_retry(0);
             cleanup.run_until_complete().unwrap();
         }
         worker.join().unwrap();
-        assert!(bounded.is_ok(), "server process-owner shutdown ignored the cleanup deadline");
+        assert!(returned_in_time, "server process-owner shutdown ignored the cleanup deadline");
+        assert!(returned_incomplete, "bounded owner cleanup did not request an explicit retry");
+        assert!(retained_remote_owner, "bounded owner cleanup discarded the live remote runtime");
     }
 
     #[test]
