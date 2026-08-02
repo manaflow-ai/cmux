@@ -53,6 +53,9 @@ import Testing
     /// the local ControlMaster exit as success, so this exercises the production
     /// close route without opening a network connection.
     @Test func socketCloseOfLiveLastMirrorDetachesWithoutKillingSession() async throws {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
         let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("remote-tmux-close-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -63,9 +66,26 @@ import Testing
             at: sshURL,
             contents: """
             #!/bin/sh
+            is_control_client=0
+            is_control_master_exit=0
+            previous=
             for arg in "$@"; do
               printf 'ARG=%s\\n' "$arg" >> "${CMUX_PR7264_SSH_LOG:?}"
+              if [ "$previous" = "-O" ] && [ "$arg" = "exit" ]; then
+                is_control_master_exit=1
+              fi
+              case "$arg" in
+                *"-CC"*) is_control_client=1 ;;
+              esac
+              previous=$arg
             done
+            if [ "$is_control_master_exit" -eq 1 ]; then
+              exit 0
+            fi
+            if [ "$is_control_client" -eq 1 ]; then
+              printf '\\033P1000p%%begin 1 1 0\\n%%end 1 1 0\\n'
+              cat >/dev/null
+            fi
             exit 0
             """
         )
@@ -130,6 +150,19 @@ import Testing
         #expect(!log.contains("kill-session"), Comment(rawValue: log))
         #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
         #expect(connection.exited)
+        let closedHistory = ClosedItemHistoryStore.shared.menuSnapshot()
+        #expect(closedHistory.totalItemCount == 1)
+        #expect(closedHistory.items.map(\.title) == ["dev"])
+
+        #expect(harness.appDelegate.reopenMostRecentlyClosedItem(shouldActivate: false))
+        let reattachedMirror = try await waitForRemoteMirror(
+            host: host,
+            sessionName: "dev",
+            controller: controller
+        )
+        #expect(reattachedMirror.mirroredWorkspace != nil)
+        try await waitForHistoryItemCount(0)
+
     }
 
     /// Explicit detach of a mirror opened in its own window must close that
@@ -274,6 +307,144 @@ import Testing
         #expect(harness.manager.tabs.map(\.id) == [harness.workspace.id])
         #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
         #expect(connection.exited)
+    }
+
+    @Test func recentlyClosedRemoteMirrorCoalescesWithLiveMirrorBeforeRestoringOlderLocalWorkspace() async throws {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("remote-tmux-reopen-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logURL = root.appendingPathComponent("ssh.log")
+        let sshURL = root.appendingPathComponent("ssh")
+        try writeExecutable(
+            at: sshURL,
+            contents: """
+            #!/bin/sh
+            is_control_client=0
+            is_control_master_exit=0
+            previous=
+            for arg in "$@"; do
+              printf 'ARG=%s\\n' "$arg" >> "${CMUX_PR7264_SSH_LOG:?}"
+              if [ "$previous" = "-O" ] && [ "$arg" = "exit" ]; then
+                is_control_master_exit=1
+              fi
+              case "$arg" in
+                *"-CC"*) is_control_client=1 ;;
+              esac
+              previous=$arg
+            done
+            if [ "$is_control_master_exit" -eq 1 ]; then
+              exit 0
+            fi
+            if [ "$is_control_client" -eq 1 ]; then
+              printf '\\033P1000p%%begin 1 1 0\\n%%end 1 1 0\\n'
+              cat >/dev/null
+            fi
+            exit 0
+            """
+        )
+        let previousSSH = environmentValue(for: sshOverrideKey)
+        let previousLog = environmentValue(for: sshLogKey)
+        setenv(sshOverrideKey, sshURL.path, 1)
+        setenv(sshLogKey, logURL.path, 1)
+        defer {
+            restoreEnvironment(sshOverrideKey, previousValue: previousSSH)
+            restoreEnvironment(sshLogKey, previousValue: previousLog)
+        }
+
+        let harness = try Harness()
+        defer { harness.tearDown() }
+
+        let localTitle = "Older Local Workspace"
+        let localWorkspace = harness.manager.addWorkspace(
+            title: localTitle,
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
+        let closedLocalPanelCount = localWorkspace.panels.count
+        harness.manager.closeWorkspace(localWorkspace, recordHistory: true)
+        #expect(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount == 1)
+
+        let host = RemoteTmuxHost(destination: "reopen-\(UUID().uuidString)@example.test")
+        let sessionName = "dev"
+        let controller = harness.controller
+        defer {
+            if controller.sessionMirror(host: host, sessionName: sessionName) != nil {
+                controller.detach(host: host, sessionName: sessionName)
+            }
+        }
+
+        #expect(try controller.mirrorSession(
+            host: host,
+            sessionName: sessionName,
+            into: harness.manager
+        ))
+        let closedMirrorWorkspace = try #require(
+            harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror })
+        )
+
+        harness.manager.closeWorkspace(closedMirrorWorkspace, recordHistory: true)
+
+        let detachLog = try await waitForSSHArgument("exit", at: logURL)
+        #expect(!detachLog.contains("kill-session"), Comment(rawValue: detachLog))
+        #expect(controller.sessionMirror(host: host, sessionName: sessionName) == nil)
+        let historyAfterRemoteClose = ClosedItemHistoryStore.shared.menuSnapshot()
+        #expect(historyAfterRemoteClose.totalItemCount == 2)
+        #expect(Set(historyAfterRemoteClose.items.map(\.title)) == Set([sessionName, localTitle]))
+
+        #expect(harness.appDelegate.reopenMostRecentlyClosedItem(
+            preferredTabManager: harness.manager,
+            shouldActivate: true
+        ))
+        let reattachedMirror = try await waitForRemoteMirror(
+            host: host,
+            sessionName: sessionName,
+            controller: controller
+        )
+        let reattachedWorkspace = try #require(reattachedMirror.mirroredWorkspace)
+        #expect(harness.manager.selectedTabId == reattachedWorkspace.id)
+        #expect(reattachedWorkspace.id != closedMirrorWorkspace.id)
+        #expect(harness.manager.tabs.filter(\.isRemoteTmuxMirror).count == 1)
+        #expect(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount == 1)
+
+        harness.manager.closeWorkspace(reattachedWorkspace, recordHistory: true)
+        #expect(controller.sessionMirror(host: host, sessionName: sessionName) == nil)
+        #expect(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount == 2)
+
+        #expect(try controller.mirrorSession(
+            host: host,
+            sessionName: sessionName,
+            into: harness.manager
+        ))
+        let existingMirrorWorkspaceId = try #require(
+            controller.sessionMirror(host: host, sessionName: sessionName)?.mirroredWorkspaceId
+        )
+        #expect(harness.manager.tabs.filter(\.isRemoteTmuxMirror).count == 1)
+
+        #expect(harness.appDelegate.reopenMostRecentlyClosedItem(
+            preferredTabManager: harness.manager,
+            shouldActivate: false
+        ))
+        #expect(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount == 1)
+        #expect(harness.manager.tabs.filter(\.isRemoteTmuxMirror).count == 1)
+        #expect(
+            controller.sessionMirror(host: host, sessionName: sessionName)?.mirroredWorkspaceId
+                == existingMirrorWorkspaceId
+        )
+
+        #expect(harness.appDelegate.reopenMostRecentlyClosedItem(
+            preferredTabManager: harness.manager,
+            shouldActivate: false
+        ))
+        let restoredLocalWorkspace = try #require(
+            harness.manager.tabs.first(where: { $0.customTitle == localTitle })
+        )
+        #expect(!restoredLocalWorkspace.isRemoteTmuxMirror)
+        #expect(restoredLocalWorkspace.panels.count == closedLocalPanelCount)
+        #expect(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount == 0)
     }
 
     @Test func windowCreationFailureUsesLocalErrorMessage() {
@@ -459,6 +630,31 @@ import Testing
         let log = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
         Issue.record("Timed out waiting for fake SSH argument '\(argument)': \(log)")
         return log
+    }
+
+    private func waitForRemoteMirror(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        controller: RemoteTmuxController
+    ) async throws -> RemoteTmuxSessionMirror {
+        for _ in 0..<200 {
+            if let mirror = controller.sessionMirror(host: host, sessionName: sessionName) {
+                return mirror
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("Timed out waiting for the remote tmux mirror to reattach")
+        return try #require(controller.sessionMirror(host: host, sessionName: sessionName))
+    }
+
+    private func waitForHistoryItemCount(_ count: Int) async throws {
+        for _ in 0..<200 {
+            if ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount == count {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount == count)
     }
 
     @MainActor

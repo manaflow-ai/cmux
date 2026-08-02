@@ -21,8 +21,18 @@ extension TabManager {
         guard let appDelegate = AppDelegate.shared,
               let windowId = appDelegate.windowId(for: self),
               appDelegate.mainWindow(for: windowId) != nil else { return false }
+        let remoteHistoryEntry = recordHistory && workspace.isRemoteTmuxMirror
+            ? appDelegate.remoteTmuxController.closedMirrorHistoryEntry(
+                workspaceId: workspace.id,
+                windowId: windowId,
+                workspaceIndex: 0
+            )
+            : nil
         if workspace.isRemoteTmuxMirror {
             appDelegate.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: workspace.id)
+            if let remoteHistoryEntry {
+                ClosedItemHistoryStore.shared.pushRemoteTmuxMirror(remoteHistoryEntry)
+            }
         }
         guard appDelegate.closeMainWindow(windowId: windowId, recordHistory: recordHistory) else {
             return false
