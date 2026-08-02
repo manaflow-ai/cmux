@@ -1,14 +1,35 @@
 import AppKit
 
+/// Marks an interactive view subtree whose active responder must keep keyboard
+/// focus even while a terminal remains the selected panel. This is intentionally
+/// a shared opt-in instead of a preview-specific check so any embedded surface
+/// can participate without teaching terminal focus repair about its concrete type.
+protocol TerminalFocusRepairExclusionRegion: AnyObject {
+    var excludesTerminalFocusRepair: Bool { get }
+}
+
+@MainActor
+private func isInsideTerminalFocusRepairExclusionRegion(_ responder: NSResponder) -> Bool {
+    guard var view = responder as? NSView else { return false }
+    while true {
+        if let region = view as? TerminalFocusRepairExclusionRegion,
+           region.excludesTerminalFocusRepair {
+            return true
+        }
+        guard let superview = view.superview else { return false }
+        view = superview
+    }
+}
+
 /// Whether an active terminal surface should *yield* to `firstResponder` instead of taking first
 /// responder itself when reconciling focus (used by `GhosttySurfaceScrollView.ensureFocus` and the
 /// find-overlay focus apply).
 ///
 /// A terminal yields only to a *legitimate* focus owner: a focused text editor (`NSText` field
-/// editor) or a right-sidebar / dock / feed host whose window is either `window` or an attached
-/// child of `window`. AppKit hosts popover field editors in an `_NSPopoverWindow` child while
-/// leaving the main window as key, so child-window membership is the designed arrangement for
-/// popover typing.
+/// editor), a responder inside a ``TerminalFocusRepairExclusionRegion``, or a right-sidebar / dock /
+/// feed host whose window is either `window` or an attached child of `window`. AppKit hosts popover
+/// field editors in an `_NSPopoverWindow` child while leaving the main window as key, so child-window
+/// membership is the designed arrangement for popover typing.
 ///
 /// cmux hosts terminal surfaces through a portal that reparents views between windows; a focus owner
 /// can be reparented out of a window without resigning, leaving `window.firstResponder` pointing at
@@ -44,7 +65,9 @@ func shouldRespectForeignFirstResponder(
     // belongs to this window and must not block the terminal from reclaiming first responder.
     guard let responderWindow = (firstResponder as? NSView)?.window,
           window.containsAttachedWindow(responderWindow) else { return false }
-    return firstResponder is NSText || isRightSidebarOwner(firstResponder)
+    return firstResponder is NSText
+        || isInsideTerminalFocusRepairExclusionRegion(firstResponder)
+        || isRightSidebarOwner(firstResponder)
 }
 
 fileprivate extension NSWindow {

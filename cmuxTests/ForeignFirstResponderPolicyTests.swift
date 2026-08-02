@@ -98,6 +98,27 @@ import WebKit
         )
     }
 
+    @Test func reclaimsFromWebContentThatCannotAcquireFocus() throws {
+        let window = makeWindow()
+        let contentView = try #require(window.contentView)
+        let webView = CmuxWebView(
+            frame: contentView.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        let webContentResponder = NSView(frame: webView.bounds)
+        webView.allowsFirstResponderAcquisition = false
+        contentView.addSubview(webView)
+        webView.addSubview(webContentResponder)
+
+        #expect(
+            !shouldRespectForeignFirstResponder(
+                webContentResponder,
+                in: window,
+                isRightSidebarOwner: neverSidebarOwner
+            )
+        )
+    }
+
     /// The #5269 regression for the sidebar/dock flavor: a sidebar host stranded in another window
     /// must NOT be respected. Without the window-membership check this returns `true`.
     @Test func reclaimsFromStrandedRightSidebarOwner() {

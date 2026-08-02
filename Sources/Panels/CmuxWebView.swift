@@ -9,7 +9,7 @@ import WebKit
 /// Route app/menu shortcuts first, but allow browser content to try browser-local
 /// Find shortcuts. The configured shortcut stays app-owned so cmux can choose browser
 /// find or right-sidebar file search from the current focus owner.
-final class CmuxWebView: WKWebView {
+final class CmuxWebView: WKWebView, TerminalFocusRepairExclusionRegion {
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
 
@@ -312,6 +312,11 @@ final class CmuxWebView: WKWebView {
     ])
     var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
+    }
+    /// Keep terminal key repair aligned with the same focus policy that admits
+    /// WebKit first responder changes. Unfocused/background panes remain reclaimable.
+    var excludesTerminalFocusRepair: Bool {
+        allowsFirstResponderAcquisitionEffective
     }
     var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
 
