@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxSimulatorUI
 
@@ -53,6 +54,26 @@ struct SimulatorFrameSourceFailureTests {
         #expect(!hasFallbackPresentationTimer(controller))
     }
 
+    @Test("Releasing a controller releases its active fallback timer")
+    func releasingControllerReleasesFallbackTimer() {
+        weak var retainedTimer: AnyObject?
+        autoreleasepool {
+            var controller: SimulatorFramePresentationController? =
+                SimulatorFramePresentationController(
+                    source: EmptySimulatorFrameSurfaceSource(),
+                    presentationDidComplete: { _ in },
+                    sourceFailureDidOccur: {}
+                )
+            controller?.startPresenting(maximumFramesPerSecond: 120)
+            retainedTimer = fallbackPresentationTimer(controller)
+
+            #expect(retainedTimer != nil)
+            controller = nil
+        }
+
+        #expect(retainedTimer == nil)
+    }
+
     private func hasFallbackPresentationTimer(
         _ controller: SimulatorFramePresentationController
     ) -> Bool {
@@ -61,5 +82,19 @@ struct SimulatorFrameSourceFailureTests {
         }
         guard let timer else { return false }
         return !Mirror(reflecting: timer.value).children.isEmpty
+    }
+
+    private func fallbackPresentationTimer(
+        _ controller: SimulatorFramePresentationController?
+    ) -> AnyObject? {
+        guard let controller,
+              let timer = Mirror(reflecting: controller).children.first(where: {
+                  $0.label == "presentationTimer"
+              }),
+              let value = Mirror(reflecting: timer.value).children.first?.value
+        else {
+            return nil
+        }
+        return value as AnyObject
     }
 }

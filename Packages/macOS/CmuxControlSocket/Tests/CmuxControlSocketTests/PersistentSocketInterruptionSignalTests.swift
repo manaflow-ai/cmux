@@ -74,4 +74,30 @@ import Testing
 
         #expect(signal.retire(generation: generation))
     }
+
+    @Test func republishingWithinAGenerationInterruptsTheNewestSocket() throws {
+        let first = try UnixSocketFixture.makeSocketPair()
+        let second = try UnixSocketFixture.makeSocketPair()
+        defer {
+            Darwin.close(first.reader)
+            Darwin.close(first.writer)
+            Darwin.close(second.reader)
+            Darwin.close(second.writer)
+        }
+        #expect(Darwin.fcntl(first.reader, F_SETFL, O_NONBLOCK) == 0)
+        #expect(Darwin.fcntl(second.reader, F_SETFL, O_NONBLOCK) == 0)
+
+        let signal = PersistentSocketInterruptionSignal()
+        let generation = signal.begin()
+        #expect(signal.install(socket: first.writer, generation: generation))
+        #expect(signal.install(socket: second.writer, generation: generation))
+
+        signal.trigger(generation: generation)
+
+        var byte: UInt8 = 0
+        #expect(Darwin.read(second.reader, &byte, 1) == 0)
+        #expect(Darwin.read(first.reader, &byte, 1) == -1)
+        #expect(errno == EAGAIN || errno == EWOULDBLOCK)
+        #expect(signal.retire(generation: generation))
+    }
 }

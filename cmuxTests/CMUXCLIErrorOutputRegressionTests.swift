@@ -74,6 +74,27 @@ import Testing
         )
     }
 
+    @Test func testListApplicationWindowsAcceptsDocumentedJSONFlag() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-application-windows", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        XCTAssertNotNil(object["windows"] as? [[String: Any]])
+    }
+
     @Test func testApplicationSurfaceValueFlagsPreservePresentationLikeValues()
         throws
     {
