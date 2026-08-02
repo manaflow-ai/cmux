@@ -152,6 +152,52 @@ struct CmxConnectivityEngineTests {
 
     @Test("account route revision alone preserves an authorized peer session")
     func accountRouteRevisionAlonePreservesAuthorizedPeerSession() async throws {
+        let fixture = try await Self.connectedEngineFixture()
+
+        await fixture.engine.didInstallRouteSnapshot(
+            try Self.routeSnapshot(
+                revision: 2,
+                remoteIdentity: fixture.remoteIdentity,
+                includesRemoteBinding: true
+            )
+        )
+
+        #expect(await fixture.connection.observedCloseCallCount() == 0)
+        #expect(await fixture.engine.snapshot().peers.first?.phase == .connected)
+        await fixture.engine.releaseControl(
+            for: fixture.request,
+            ownerID: fixture.ownerID
+        )
+        await fixture.engine.stop()
+    }
+
+    @Test("route snapshot removal retires only the no-longer-authorized peer")
+    func routeSnapshotRemovalRetiresUnauthorizedPeer() async throws {
+        let fixture = try await Self.connectedEngineFixture()
+
+        await fixture.engine.didInstallRouteSnapshot(
+            try Self.routeSnapshot(
+                revision: 2,
+                remoteIdentity: fixture.remoteIdentity,
+                includesRemoteBinding: false
+            )
+        )
+
+        #expect(await fixture.connection.observedCloseCallCount() == 1)
+        try await Self.waitUntil {
+            await fixture.engine.snapshot().peers.first?.phase == .failed
+        }
+        #expect(await fixture.engine.snapshot().peers.first?.phase == .failed)
+        await fixture.engine.stop()
+    }
+
+    private static func connectedEngineFixture() async throws -> (
+        engine: CmxConnectivityEngine,
+        request: CmxByteTransportRequest,
+        connection: TestIrohConnection,
+        remoteIdentity: CmxIrohPeerIdentity,
+        ownerID: UUID
+    ) {
         let localIdentity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "a", count: 64)
         )
@@ -195,13 +241,51 @@ struct CmxConnectivityEngineTests {
         let ownerID = UUID()
         try await engine.start()
         _ = try await engine.acquireControl(for: request, ownerID: ownerID)
+        return (engine, request, connection, remoteIdentity, ownerID)
+    }
 
-        await engine.didInstallRouteRevision(2)
-
-        #expect(await connection.observedCloseCallCount() == 0)
-        #expect(await engine.snapshot().peers.first?.phase == .connected)
-        await engine.releaseControl(for: request, ownerID: ownerID)
-        await engine.stop()
+    private static func routeSnapshot(
+        revision: UInt64,
+        remoteIdentity: CmxIrohPeerIdentity,
+        includesRemoteBinding: Bool
+    ) throws -> CmxIrohDiscoveryResponse {
+        let bindings = includesRemoteBinding ? """
+        [{
+          "binding_id": "123e4567-e89b-42d3-a456-426614174001",
+          "device_id": "123e4567-e89b-42d3-a456-426614174999",
+          "app_instance_id": "123e4567-e89b-42d3-a456-426614174002",
+          "tag": "conrdy",
+          "platform": "mac",
+          "display_name": "Test Mac",
+          "endpoint_id": "\(remoteIdentity.endpointID)",
+          "identity_generation": 1,
+          "pairing_enabled": true,
+          "capabilities": ["terminal"],
+          "path_hints": [],
+          "direct_ports": null,
+          "last_seen_at": "2026-08-01T00:00:00Z"
+        }]
+        """ : "[]"
+        return try JSONDecoder().decode(
+            CmxIrohDiscoveryResponse.self,
+            from: Data("""
+            {
+              "route_contract_version": 1,
+              "revision": \(revision),
+              "bindings": \(bindings),
+              "relay_fleet": ["https://relay.example.com/"],
+              "lan_rendezvous": {
+                "generation": 1,
+                "key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              },
+              "grant_verification_keys": {
+                "version": 1,
+                "current_kid": "current",
+                "keys": []
+              }
+            }
+            """.utf8)
+        )
     }
 
     private static func endpointConfiguration() throws -> CmxIrohEndpointConfiguration {

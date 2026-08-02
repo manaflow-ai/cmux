@@ -240,9 +240,35 @@ public actor CmxConnectivityEngine {
     }
 
     /// Records the last route revision installed atomically by the composition root.
-    public func didInstallRouteRevision(_ revision: UInt64) async {
+    ///
+    /// An account-wide revision alone does not make an admitted peer session
+    /// stale. Relay credential rotation and another device's reachability update
+    /// both advance this revision while the current connection remains valid.
+    public func didInstallRouteRevision(_ revision: UInt64) {
         guard routeRevision != revision else { return }
-        await invalidateAllPeers(failure: .superseded)
+        routeRevision = revision
+        publishSnapshot()
+    }
+
+    /// Records a verified route snapshot and retires only peers it no longer authorizes.
+    ///
+    /// Existing QUIC sessions survive path-hint, relay-credential, and unrelated
+    /// account churn. Removing a peer or changing its endpoint or device identity
+    /// still closes that exact pooled session before the new revision becomes current.
+    public func didInstallRouteSnapshot(
+        _ snapshot: CmxIrohDiscoveryResponse
+    ) async {
+        guard let revision = snapshot.revision,
+              routeRevision != revision else { return }
+        let authorizedPeers = Set(snapshot.bindings.map {
+            CmxConnectivityPeerID(identity: $0.endpointID, deviceID: $0.deviceID)
+        })
+        let stalePeers = peers.compactMap { peerID, peer in
+            authorizedPeers.contains(peerID) ? nil : peer
+        }
+        for peer in stalePeers {
+            await peer.invalidate(failure: .superseded)
+        }
         routeRevision = revision
         publishSnapshot()
     }
@@ -677,11 +703,10 @@ public actor CmxConnectivityEngine {
                   lifecycleRevision == expectedLifecycleRevision else {
                 throw CmxConnectivityEngineError.superseded
             }
+            await didInstallRouteSnapshot(snapshot)
         }
         if routeRevision != response.revision {
-            await invalidateAllPeers(failure: .superseded)
-            routeRevision = response.revision
-            publishSnapshot()
+            didInstallRouteRevision(response.revision)
         }
     }
 
