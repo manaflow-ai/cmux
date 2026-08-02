@@ -2136,6 +2136,32 @@ struct ComputerUseUXTests {
     }
 
     @Test
+    func applicationWindowDescriptorsRejectNonIntegralOrBooleanIdentifiers() {
+        let valid: [String: Any] = [
+            "window_id": NSNumber(value: 42),
+            "process_id": NSNumber(value: 43),
+            "owner": "Dictionary",
+            "title": "Dictionary",
+            "width": NSNumber(value: 800),
+            "height": NSNumber(value: 600),
+        ]
+
+        for key in ["window_id", "process_id"] {
+            for malformedIdentifier in [
+                NSNumber(value: 42.9),
+                NSNumber(value: true),
+            ] {
+                var invalid = valid
+                invalid[key] = malformedIdentifier
+                #expect(
+                    ComputerUseRuntimeService
+                        .applicationWindowDescriptor(invalid) == nil
+                )
+            }
+        }
+    }
+
+    @Test
     func applicationSurfaceResponseErrorsUseStructuredCodes() {
         let cases: [(String, ApplicationSurfaceRuntimeError)] = [
             ("permission_required", .permissionRequired),
