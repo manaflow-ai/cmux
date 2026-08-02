@@ -428,7 +428,6 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(failureCount == 1)
 
         cmux_simulator_atomic_store_u64_release(publication, 0)
-        #expect(view.adopt(descriptor))
         let input = try #require(IOSurfaceCreate([
             kIOSurfaceWidth: 2,
             kIOSurfaceHeight: 2,
@@ -436,6 +435,7 @@ struct SimulatorRemoteSurfaceLifecycleTests {
             kIOSurfacePixelFormat: kCVPixelFormatType_32BGRA,
         ] as CFDictionary))
         try producer.publish(input)
+        #expect(view.adopt(descriptor))
 
         try await waitUntil { view.presentedFrameSequence == 1 }
         #expect(view.presentedFrameSequence == 1)

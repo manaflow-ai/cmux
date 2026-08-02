@@ -89,7 +89,11 @@ public final class CmuxRemoteFrameView: NSView {
                 self?.render(presentation)
             },
             sourceFailureDidOccur: { [weak self] in
-                self?.onTransportFailure?(.producerFailed)
+                guard let self else { return }
+                // Keep the last owned frame visible, but revoke descriptor
+                // equality so a restarted producer can reuse the same ring.
+                frameTransportDescriptor = nil
+                onTransportFailure?(.producerFailed)
             }
         )
         frameTransportDescriptor = descriptor
