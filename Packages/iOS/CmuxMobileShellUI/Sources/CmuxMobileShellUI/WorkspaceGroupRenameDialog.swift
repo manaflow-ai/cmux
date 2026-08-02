@@ -176,8 +176,10 @@ private final class WorkspaceGroupRenameAlertViewController: UIViewController {
             return
         }
         let completion = onSave
-        finishPresentation()
+        // The presentation binding also owns the pending group ID. Deliver the
+        // rename before clearing it so the shared list action keeps its target.
         completion?(trimmed)
+        finishPresentation()
     }
 
     private func finishPresentation() {
