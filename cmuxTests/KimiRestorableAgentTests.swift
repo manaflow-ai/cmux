@@ -449,6 +449,7 @@ struct RestorableAgentPersistedKindDecodingTests {
             registration: CmuxVaultAgentRegistration(
                 id: "ollama",
                 name: "Custom Ollama",
+                detect: CmuxVaultAgentDetectRule(processName: "ollama"),
                 sessionIdSource: .argvOption("--session"),
                 resumeCommand: "custom-ollama --resume {{sessionId}}"
             )
