@@ -254,7 +254,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
 }
 
 @MainActor
-@Test func foregroundResumeWaitsForScheduledClientTeardownBeforeRedial() async throws {
+@Test func foregroundResumeKeepsDisconnectedRecoveryForegroundOnly() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
@@ -278,10 +278,10 @@ struct MobileShellForegroundConnectionRecoveryTests {
     store.applyConnectionRecoveryOwnerState()
     store.didFinishStoredMacReconnectAttempt = true
     let workspaceListCount = await router.count(of: "workspace.list")
+    let attachTicketCount = await router.count(of: "mobile.attach_ticket.create")
 
-    // `clearRemoteConnectionContext()` schedules the old client's teardown.
-    // Foreground recovery must wait for that teardown to transfer the shared
-    // route lease before the replacement reaches route admission.
+    // Clearing the foreground identity must not make its stored Mac eligible
+    // for secondary aggregation while foreground recovery redials that Mac.
     store.resumeForegroundRefresh()
 
     #expect(await router.waitForCount(
@@ -292,6 +292,10 @@ struct MobileShellForegroundConnectionRecoveryTests {
         store.connectionState == .connected
             && store.macConnectionStatus == .connected
     })
+    #expect(
+        await router.count(of: "mobile.attach_ticket.create")
+            == attachTicketCount + 1
+    )
 }
 
 @MainActor
