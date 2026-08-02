@@ -1,6 +1,36 @@
+[package]
+name = "cmux-tui-source-watch"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build-support/source-watch-build.rs"
+
+[lib]
+path = "build-support/source-watch.rs"
+
+[lints]
+workspace = true
+
 [workspace]
 resolver = "2"
 members = [
+    "bindings/rust",
+    "bindings/rust-sidebar",
+    "crates/ghostty-vt-sys",
+    "crates/ghostty-vt",
+    "crates/cmux-tui-cdp",
+    "crates/cmux-tui-core",
+    "crates/cmux-pty",
+    "crates/cmux-remote-protocol",
+    "crates/cmux-remote",
+    "crates/cmux-relay",
+    "crates/cmux-tui-machine-agent-protocol",
+    "crates/cmux-tui-machine-protocol",
+    "crates/cmux-tui",
+]
+default-members = [
     "bindings/rust",
     "bindings/rust-sidebar",
     "crates/ghostty-vt-sys",
@@ -71,15 +101,21 @@ terminput-crossterm = { version = "=0.4.7", default-features = false, features =
 futures-util = "0.3"
 hmac = "0.12"
 http = "1"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["service", "tokio"] }
 iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring"] }
 subtle = "2.6.1"
 parking_lot = "0.12"
-rusqlite = { version = "0.40.1", default-features = false, features = ["bundled"] }
+# rusqlite 0.40's libsqlite3-sys build script requires Rust 1.95 without
+# declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.
+rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled"] }
 sha2 = "0.10"
 socket2 = { version = "0.5", features = ["all"] }
 snow = "0.10"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["timeout"] }
 url = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
 x25519-dalek = { version = "2", features = ["static_secrets"] }

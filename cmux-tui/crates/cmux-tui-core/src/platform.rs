@@ -668,7 +668,7 @@ pub fn home_dir() -> Option<PathBuf> {
 /// surface's original working directory when this returns `None`.
 pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
     let plain = Path::new(value);
-    if plain.is_absolute() {
+    if terminal_pwd_path_is_safe(plain) {
         return Some(plain.to_owned());
     }
 
@@ -684,7 +684,31 @@ pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
     if url.host_str().is_some() {
         url.set_host(Some("localhost")).ok()?;
     }
-    url.to_file_path().ok().filter(|path| path.is_absolute())
+    url.to_file_path().ok().filter(|path| terminal_pwd_path_is_safe(path))
+}
+
+fn terminal_pwd_path_is_safe(path: &Path) -> bool {
+    if !path.is_absolute() {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        path.to_str().is_some_and(windows_path_is_rooted_local_drive)
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
+}
+
+/// Windows namespaces can make an "absolute" path name a network share or
+/// device. OSC 7 inheritance only needs ordinary drive-rooted directories.
+#[cfg(any(windows, test))]
+fn windows_path_is_rooted_local_drive(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.first().is_some_and(|byte| byte.is_ascii_alphabetic())
+        && bytes.get(1) == Some(&b':')
+        && bytes.get(2).is_some_and(|separator| matches!(*separator, b'\\' | b'/'))
 }
 
 fn terminal_pwd_host_is_local(host: &str) -> bool {
@@ -810,6 +834,54 @@ mod tests {
             packaged_installation.resources_dir.as_deref(),
             Some(Path::new("/tmp/cmux-browser.app/Contents/Resources/ghostty"))
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn terminal_pwd_rejects_unc_verbatim_and_device_paths() {
+        for path in [
+            r"\\server\share\src",
+            "//server/share/src",
+            r"\\?\UNC\server\share\src",
+            r"\\.\PhysicalDrive0",
+            r"\\?\C:\src",
+            r"\??\C:\src",
+            r"C:drive-relative",
+            r"\rooted-without-drive",
+            "file://server/share/src",
+            "file:////server/share/src",
+        ] {
+            assert_eq!(terminal_pwd_to_local_path(path), None, "{path}");
+        }
+        assert_eq!(
+            terminal_pwd_to_local_path(r"C:\Users\alice\src"),
+            Some(PathBuf::from(r"C:\Users\alice\src"))
+        );
+        assert_eq!(
+            terminal_pwd_to_local_path("file:///C:/Users/alice/src"),
+            Some(PathBuf::from(r"C:\Users\alice\src"))
+        );
+    }
+
+    #[test]
+    fn windows_path_classifier_accepts_only_rooted_local_drives() {
+        for path in [r"C:\Users\alice\src", "z:/src/cmux", r"D:\"] {
+            assert!(windows_path_is_rooted_local_drive(path), "{path}");
+        }
+        for path in [
+            r"\\server\share\src",
+            "//server/share/src",
+            r"\\?\UNC\server\share\src",
+            r"\\.\PhysicalDrive0",
+            r"\\?\C:\src",
+            r"\??\C:\src",
+            r"C:drive-relative",
+            r"\rooted-without-drive",
+            "/unix/absolute",
+            "",
+        ] {
+            assert!(!windows_path_is_rooted_local_drive(path), "{path}");
+        }
     }
 
     #[test]
