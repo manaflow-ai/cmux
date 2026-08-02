@@ -1,5 +1,7 @@
 import AppKit
 import CmuxSimulator
+import CmuxSimulatorSystem
+import Darwin
 import IOSurface
 import Testing
 
@@ -375,6 +377,69 @@ struct SimulatorRemoteSurfaceLifecycleTests {
 
         view.adopt(secondRing.descriptor)
         #expect(view.framePixelSize == CGSize(width: 640, height: 480))
+    }
+
+    @Test("A failed remote frame view can readopt the same transport")
+    func failedRemoteFrameViewReadoptsSameTransport() async throws {
+        let producer = try SimulatorFramebufferSurfaceRing(width: 2, height: 2)
+        defer { producer.releaseResources() }
+        let descriptor = producer.descriptor
+        let layout = try SimulatorFrameSharedMemoryLayout(descriptor: descriptor)
+        let handle = try simulatorOpenSharedMemory(
+            named: descriptor.sharedMemoryName,
+            flags: O_RDWR
+        )
+        #expect(handle >= 0)
+        let mapping = try #require(mmap(
+            nil,
+            layout.totalByteCount,
+            PROT_READ | PROT_WRITE,
+            MAP_SHARED,
+            handle,
+            0
+        ))
+        #expect(mapping != MAP_FAILED)
+        defer {
+            munmap(mapping, layout.totalByteCount)
+            close(handle)
+        }
+
+        let view = CmuxRemoteFrameView(frame: .zero)
+        defer { view.teardown() }
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 900))
+        let window = NSWindow(
+            contentRect: root.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = root
+        view.frame = root.bounds
+        root.addSubview(view)
+        var failureCount = 0
+        view.onTransportFailure = { _ in failureCount += 1 }
+
+        let publication = layout.publishedWordPointer(in: mapping)
+        cmux_simulator_atomic_store_u64_release(
+            publication,
+            UInt64(bitPattern: Int64.min)
+        )
+        #expect(view.adopt(descriptor))
+        #expect(failureCount == 1)
+
+        cmux_simulator_atomic_store_u64_release(publication, 0)
+        #expect(view.adopt(descriptor))
+        let input = try #require(IOSurfaceCreate([
+            kIOSurfaceWidth: 2,
+            kIOSurfaceHeight: 2,
+            kIOSurfaceBytesPerElement: 4,
+            kIOSurfacePixelFormat: kCVPixelFormatType_32BGRA,
+        ] as CFDictionary))
+        try producer.publish(input)
+
+        try await waitUntil { view.presentedFrameSequence == 1 }
+        #expect(view.presentedFrameSequence == 1)
+        withExtendedLifetime(window) {}
     }
 
     @Test("The managed frame layer preserves one-to-one backing pixels")
