@@ -1611,6 +1611,12 @@ struct ApplicationSurfaceTests {
             key: "return",
             authorization: authorization
         )
+        let sendTextResolution = controller.controlSurfaceSendText(
+            routing: routing,
+            surfaceID: panel.id,
+            hasSurfaceIDParam: true,
+            text: "must remain terminal-only"
+        )
 
         #expect(createResolution == .applicationControlUnavailable(
             message: TerminalController.applicationSurfaceSocketControlUnavailableMessage
@@ -1619,6 +1625,7 @@ struct ApplicationSurfaceTests {
             panel.id,
             message: TerminalController.applicationSurfaceSocketControlUnavailableMessage
         ))
+        #expect(sendTextResolution == .surfaceNotTerminal(panel.id))
     }
 
     @Test func implicitSendKeyTargetsFocusedApplicationSurface() throws {

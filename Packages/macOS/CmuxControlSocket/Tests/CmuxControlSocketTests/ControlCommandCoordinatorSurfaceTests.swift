@@ -333,6 +333,27 @@ struct ControlCommandCoordinatorSurfaceTests {
         ))
     }
 
+    @Test func nonApplicationCreateDropsApplicationCaptureParameters() {
+        let (coordinator, context) = coordinator(
+            createResolution: .createFailed
+        )
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("terminal"),
+                "window_id_native": .int(42),
+                "process_id": .int(43),
+                "frame_rate": .int(60),
+            ]
+        ))
+
+        #expect(context.lastCreateInputs?.applicationWindowID == nil)
+        #expect(context.lastCreateInputs?.applicationProcessID == nil)
+        #expect(context.lastCreateInputs?.applicationFrameRate == nil)
+    }
+
     @Test func surfaceSplitRejectsApplicationType() {
         let (coordinator, context) = makeCoordinator()
         let result = coordinator.handle(ControlRequest(
