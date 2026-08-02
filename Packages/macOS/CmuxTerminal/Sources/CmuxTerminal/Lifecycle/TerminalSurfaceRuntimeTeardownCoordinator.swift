@@ -6,6 +6,32 @@ internal import Dispatch
 internal import CMUXDebugLog
 #endif
 
+private func makeTerminalSurfaceRuntimeCloseTeardownQueues()
+    -> [DispatchQueue] {
+    (
+        0..<TerminalSurfaceRuntimeTeardownCoordinator
+            .maximumConcurrentCloseTeardownCount
+    ).map { executionSlot in
+        DispatchQueue(
+            label: "com.cmux.terminal-surface-close-teardown.\(executionSlot)",
+            qos: .utility
+        )
+    }
+}
+
+private func makeTerminalSurfaceRuntimeHibernationTeardownQueues()
+    -> [DispatchQueue] {
+    (
+        0..<TerminalSurfaceRuntimeTeardownCoordinator
+            .maximumIsolatedHibernationTeardownCount
+    ).map { executionSlot in
+        DispatchQueue(
+            label: "com.cmux.terminal-surface-hibernation-teardown.\(executionSlot)",
+            qos: .utility
+        )
+    }
+}
+
 /// Coordinates native `ghostty_surface_free` calls off the close/deinit paths.
 ///
 /// Close/deinit frees use two independently startable utility slots. Each slot
@@ -65,8 +91,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         availableCloseExecutionSlots = Set(
             0..<Self.maximumConcurrentCloseTeardownCount
         )
-        closeTeardownQueues = Self.makeCloseTeardownQueues()
-        isolatedHibernationQueues = Self.makeIsolatedHibernationQueues()
+        closeTeardownQueues = makeTerminalSurfaceRuntimeCloseTeardownQueues()
+        isolatedHibernationQueues =
+            makeTerminalSurfaceRuntimeHibernationTeardownQueues()
     }
 
     init(
@@ -81,31 +108,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         availableCloseExecutionSlots = Set(
             0..<Self.maximumConcurrentCloseTeardownCount
         )
-        closeTeardownQueues = Self.makeCloseTeardownQueues()
-        isolatedHibernationQueues = Self.makeIsolatedHibernationQueues()
-    }
-
-    private nonisolated static func makeCloseTeardownQueues() -> [DispatchQueue] {
-        (
-            0..<Self.maximumConcurrentCloseTeardownCount
-        ).map { executionSlot in
-            DispatchQueue(
-                label: "com.cmux.terminal-surface-close-teardown.\(executionSlot)",
-                qos: .utility
-            )
-        }
-    }
-
-    private nonisolated static func makeIsolatedHibernationQueues()
-        -> [DispatchQueue] {
-        (
-            0..<Self.maximumIsolatedHibernationTeardownCount
-        ).map { executionSlot in
-            DispatchQueue(
-                label: "com.cmux.terminal-surface-hibernation-teardown.\(executionSlot)",
-                qos: .utility
-            )
-        }
+        closeTeardownQueues = makeTerminalSurfaceRuntimeCloseTeardownQueues()
+        isolatedHibernationQueues =
+            makeTerminalSurfaceRuntimeHibernationTeardownQueues()
     }
 
     nonisolated func reserveRuntimeSurfaceOwnership()
@@ -407,7 +412,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     ) async {
         do {
             // Genuine teardown deadline: report a stuck native free without blocking close.
-            try await Task.sleep(for: closeTeardownTimeout)
+            try await ContinuousClock().sleep(for: closeTeardownTimeout)
         } catch {
             return
         }

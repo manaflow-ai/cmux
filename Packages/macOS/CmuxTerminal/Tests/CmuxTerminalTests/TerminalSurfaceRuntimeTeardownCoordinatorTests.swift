@@ -59,9 +59,6 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
     }
 }
 
-@MainActor
-private final class RuntimeOwnershipRecoveryProbe {}
-
 private func requireTeardownTicket(
     _ ticket: TerminalSurfaceRuntimeTeardownTicket?
 ) throws -> TerminalSurfaceRuntimeTeardownTicket {
@@ -289,8 +286,7 @@ private func requireTeardownTicket(
         )
         let firstOwner = try #require(admission.reserve())
         let secondOwner = try #require(admission.reserve())
-        var staleProbe: RuntimeOwnershipRecoveryProbe? =
-            RuntimeOwnershipRecoveryProbe()
+        var staleProbe: NSObject? = NSObject()
         weak let releasedProbe = staleProbe
         let staleRecoveryID = UUID()
         let nextRecoveryID = UUID()
