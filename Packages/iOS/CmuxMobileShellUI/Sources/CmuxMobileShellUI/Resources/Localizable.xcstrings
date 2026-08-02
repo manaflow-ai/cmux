@@ -1105,6 +1105,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "安全なチャネルの確立に失敗" } }
       }
     },
+    "mobile.iroh.diagnostics.failure.routeGated" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Route Gated" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路が一時的に制限されています" } }
+      }
+    },
     "mobile.iroh.diagnostics.failure.sendQueueOverflow" : {
       "extractionState" : "manual",
       "localizations" : {
