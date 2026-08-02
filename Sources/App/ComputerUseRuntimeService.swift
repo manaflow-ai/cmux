@@ -2522,7 +2522,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         transport: SocketTransport,
         timeout: TimeInterval,
         socketURL: URL,
-        persistentConnection: PersistentSocketLineConnection
+        persistentConnection: PersistentSocketLineConnection? = nil
     ) async -> [String: Any]? {
         await sendDaemonRequest(
             request,
@@ -2573,21 +2573,17 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
                 return current == expected
             } ?? true
         }
-        let probe: (response: String, peerProcessID: pid_t?)?
-        if let persistentConnection {
-            probe = await persistentConnection.command(
-                line,
-                at: socketPath,
-                timeout: timeout,
-                validatingPeer: validatePeer
-            )
-        } else {
-            probe = transport.probeCommandWithPeerProcessID(
-                line,
-                at: socketPath,
-                timeout: timeout,
-                validatingPeer: validatePeer
-            )
+        let ownsConnection = persistentConnection == nil
+        let connection = persistentConnection
+            ?? PersistentSocketLineConnection(transport: transport)
+        let probe = await connection.command(
+            line,
+            at: socketPath,
+            timeout: timeout,
+            validatingPeer: validatePeer
+        )
+        if ownsConnection {
+            await connection.invalidate()
         }
         guard
             let probe,

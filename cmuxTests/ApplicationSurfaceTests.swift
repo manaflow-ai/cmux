@@ -31,6 +31,69 @@ struct ApplicationSurfaceTests {
         #expect(!serviceSource.contains("probeCommandWithPeerProcessID"))
     }
 
+    @Test func cancelledWindowListInterruptsDefaultHelperRead() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-application-list-cancel-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmux-app-list-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: sockets)
+        }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: sockets,
+            withIntermediateDirectories: true
+        )
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: root,
+            socketRootDirectoryURL: sockets,
+            environment: ["CMUX_TAG": "cancel-window-list"],
+            authenticationToken: "cancel-list-token"
+        )
+        try FileManager.default.createDirectory(
+            at: paths.runtimeDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let responder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":true,"result":{"windows":[]}}"#,
+            responseDelay: 2
+        )
+        defer { responder.stop() }
+        let request = Task {
+            await ComputerUseRuntimeService.sendDaemonRequestForTesting(
+                ["method": "application_windows"],
+                paths: paths,
+                transport: SocketTransport(),
+                timeout: 5,
+                socketURL: paths.daemonSocketURL
+            )
+        }
+        let requestDeadline = ContinuousClock.now + .seconds(1)
+        while responder.receivedRequests.isEmpty,
+              ContinuousClock.now < requestDeadline {
+            try await ContinuousClock().sleep(for: .milliseconds(10))
+        }
+        #expect(!responder.receivedRequests.isEmpty)
+        let cancelledAt = ContinuousClock.now
+
+        request.cancel()
+        let response = await request.value
+
+        #expect(response == nil)
+        #expect(ContinuousClock.now - cancelledAt < .milliseconds(500))
+    }
+
     @Test func cancelledPaneRequestInterruptsPersistentHelperRead() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
