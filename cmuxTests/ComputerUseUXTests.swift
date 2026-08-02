@@ -1682,6 +1682,27 @@ struct ComputerUseUXTests {
         ))
     }
 
+    @Test func applicationSurfaceDemandRequiresOnlyTheNativeHelperProfile() {
+        let applicationProfiles =
+            ComputerUseRuntimeService.desiredHelperProfiles(
+                computerUseEnabled: false,
+                hasApplicationSurfaceLeases: true
+            )
+        let computerUseProfiles =
+            ComputerUseRuntimeService.desiredHelperProfiles(
+                computerUseEnabled: true,
+                hasApplicationSurfaceLeases: false
+            )
+
+        #expect(applicationProfiles == [.native])
+        #expect(computerUseProfiles == Set(ComputerUseDaemonProfile.allCases))
+        #expect(ComputerUseRuntimeService.helperProfilesNeedingRecovery(
+            nativeHealthy: true,
+            codexCompatibilityHealthy: false,
+            requiredProfiles: applicationProfiles
+        ).isEmpty)
+    }
+
     @Test func untrackedReboundHelperDoesNotPassProfileHealthOwnership() {
         let tracked = AgentPIDProcessIdentity(
             pid: 101,

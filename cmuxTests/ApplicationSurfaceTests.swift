@@ -1137,6 +1137,34 @@ struct ApplicationSurfaceTests {
         panel.close()
     }
 
+    @Test func failedCaptureRequiresExplicitRetryBeforeVisibilityCanReactivateIt() {
+        for state in [
+            ApplicationCaptureState.permissionRequired,
+            .windowUnavailable,
+            .failed,
+        ] {
+            #expect(!ApplicationPanel.shouldRequestCaptureActivation(
+                captureEligible: true,
+                state: state
+            ))
+        }
+
+        for state in [
+            ApplicationCaptureState.starting,
+            .streaming,
+            .suspended,
+        ] {
+            #expect(ApplicationPanel.shouldRequestCaptureActivation(
+                captureEligible: true,
+                state: state
+            ))
+        }
+        #expect(!ApplicationPanel.shouldRequestCaptureActivation(
+            captureEligible: false,
+            state: .suspended
+        ))
+    }
+
     @Test func captureFailurePreservesLocalizedRuntimeDetailUntilRetry() {
         let panel = ApplicationPanel(
             workspaceId: UUID(),
