@@ -365,6 +365,43 @@ struct PortScannerProcessCaptureTests {
         #expect(arguments == [["-t", "ttys001,ttys011", "-o", "pid=,tty="]])
     }
 
+    @Test("A vanished TTY alongside an unreadable one keeps the scan incomplete")
+    func mixedVanishedAndUnreadableDiagnosticsStayIncomplete() async {
+        let runner = ScriptedCommandRunner(results: [
+            CommandResult(
+                stdout: "",
+                stderr: """
+                ps: /dev/ttys011: No such file or directory
+                ps: /dev/ttys001: Permission denied
+
+                """,
+                exitStatus: 1,
+                timedOut: false,
+                executionError: nil
+            ),
+            CommandResult(
+                stdout: "",
+                stderr: "ps: /dev/ttys001: Permission denied\n",
+                exitStatus: 1,
+                timedOut: false,
+                executionError: nil
+            )
+        ])
+
+        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys001,ttys011")
+        let arguments = await runner.recordedArguments
+
+        // The vanished terminal must not launder the unreadable one into
+        // completeness: only the unreadable terminal is re-queried, and its
+        // persisting diagnostic leaves the scan incomplete.
+        #expect(scan.values.isEmpty)
+        #expect(scan.completeness == .incomplete)
+        #expect(arguments == [
+            ["-t", "ttys001,ttys011", "-o", "pid=,tty="],
+            ["-t", "ttys001", "-o", "pid=,tty="]
+        ])
+    }
+
     @Test("The two-device diagnostic form still identifies the vanished TTY")
     func combinedDeviceDiagnosticIdentifiesVanishedTTY() async {
         // `ps` stats both /dev/tty<name> and /dev/<name> for a name that does
