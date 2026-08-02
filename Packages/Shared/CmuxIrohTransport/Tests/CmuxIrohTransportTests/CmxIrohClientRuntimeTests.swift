@@ -828,7 +828,7 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
-    func foregroundTerminalBrokerFailureRevokesLocalPolicy() async throws {
+    func foregroundUnauthorizedBrokerFailurePreservesLocalPolicy() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let broker = TestIrohClientBroker(
@@ -858,14 +858,13 @@ struct CmxIrohClientRuntimeTests {
         )
         await broker.setRegistrationError(terminal)
 
-        await #expect(throws: terminal) {
-            try await runtime.didBecomeActive()
-        }
+        try await runtime.didBecomeActive()
 
-        #expect(await runtime.snapshot().state == .failed)
-        #expect(await endpoint.observedCloseCallCount() == 1)
-        #expect(await offlineStore.deleteAllCount() == 1)
-        #expect(await recorder.observedPolicyInvalidationCount() == 1)
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await endpoint.observedCloseCallCount() == 0)
+        #expect(await offlineStore.deleteAllCount() == 0)
+        #expect(await recorder.observedPolicyInvalidationCount() == 0)
+        await runtime.stop()
     }
 
     @Test
