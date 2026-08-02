@@ -159,6 +159,50 @@ struct SimulatorAccessibilityRequestSchedulingTests {
         await executor.releaseAccessibilityRead()
     }
 
+    @Test("Cancelling one coalesced accessibility request preserves the other")
+    @MainActor
+    func scopedCancellationPreservesCoalescedAccessibilityRequest() async throws {
+        let executor = GatedAccessibilityExecutor()
+        let fixture = try WorkerOutputFixture()
+        let coordinator = SimulatorWorkerCoordinator(
+            channel: fixture.worker,
+            accessibilityExecutor: executor
+        )
+        coordinator.currentDeviceIdentifier = "DEVICE"
+        coordinator.currentDisplay = Self.display
+        let cancelledRequestIdentifier = UUID()
+        let retainedRequestIdentifier = UUID()
+
+        #expect(await coordinator.handle(.requestAccessibility(
+            cancelledRequestIdentifier
+        )))
+        #expect(await coordinator.handle(.requestAccessibility(
+            retainedRequestIdentifier
+        )))
+        await executor.waitForAccessibilityReadCount(1)
+
+        let cancellationData = Data("""
+        {"cancelAccessibilitySnapshotRequest":{"_0":"\(cancelledRequestIdentifier.uuidString)"}}
+        """.utf8)
+        let cancellation = try JSONDecoder().decode(
+            SimulatorWorkerInbound.self,
+            from: cancellationData
+        )
+        #expect(await coordinator.handle(cancellation))
+
+        #expect(coordinator.accessibilitySnapshotTask != nil)
+        #expect(coordinator.accessibilitySnapshotGeneration != nil)
+        #expect(coordinator.accessibilitySnapshotRequestIdentifiers == [
+            retainedRequestIdentifier
+        ])
+
+        await executor.releaseAccessibilityRead()
+        #expect(try await fixture.receiveAsync() == .accessibility(
+            requestID: retainedRequestIdentifier,
+            GatedAccessibilityExecutor.snapshot
+        ))
+    }
+
     @Test("A cancellation-blind accessibility read terminates after its hard deadline")
     @MainActor
     func accessibilityHardDeadlineTerminatesWorker() async throws {

@@ -165,13 +165,22 @@ struct SimulatorAccessibilityWorkerClientTests {
 
         #expect(endpoint.terminationCountValue() == 0)
         #expect(launcher.endpoint(at: 1) == nil)
-        let timeoutPayloads = try endpoint.inboundMessages()
+        let timeoutMessages = endpoint.inboundMessages()
             .dropFirst(inboundCountBeforeRead)
+        let requestIdentifier = try #require(timeoutMessages.compactMap {
+            message -> UUID? in
+            guard case let .requestAccessibility(requestIdentifier) = message else {
+                return nil
+            }
+            return requestIdentifier
+        }.first)
+        let timeoutPayloads = try timeoutMessages
             .map { message in
                 String(decoding: try JSONEncoder().encode(message), as: UTF8.self)
             }
         #expect(timeoutPayloads.contains {
-            $0.contains("cancelAccessibilitySnapshotRequests")
+            $0.contains("cancelAccessibilitySnapshotRequest")
+                && $0.contains(requestIdentifier.uuidString)
         })
         await client.stop()
     }

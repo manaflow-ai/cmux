@@ -16,7 +16,7 @@ struct SimulatorControlServiceTests {
         #expect(deadlines.webInspectorReadiness >= deadlines.selectDevice)
         #expect(
             deadlines.clientTimeout(for: deadlines.inspectionRead)
-                == deadlines.selectDevice + 45
+                == deadlines.selectDevice + 60
         )
         #expect(SimulatorOperationDeadlines(selectDevice: 600).textInputReadiness == 600)
         #expect(SimulatorOperationDeadlines(selectDevice: 600).webInspectorReadiness == 600)

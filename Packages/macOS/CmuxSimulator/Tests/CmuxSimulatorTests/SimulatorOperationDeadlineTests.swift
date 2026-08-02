@@ -13,10 +13,10 @@ struct SimulatorOperationDeadlineTests {
             clientReceiptMargin: 10
         )
 
-        #expect(deadlines.inspectionRead == 125)
+        #expect(deadlines.inspectionRead == 140)
         #expect(deadlines.uiAutomationAction == 230)
         #expect(
-            deadlines.clientTimeout(for: deadlines.inspectionRead) == 135
+            deadlines.clientTimeout(for: deadlines.inspectionRead) == 150
         )
         #expect(
             deadlines.clientTimeout(for: deadlines.uiAutomationAction) == 240
@@ -34,7 +34,7 @@ struct SimulatorOperationDeadlineTests {
             timeoutMilliseconds: 120_000
         )
 
-        #expect(receiptTimeout == 245)
-        #expect(deadlines.clientTimeout(for: receiptTimeout) == 255)
+        #expect(receiptTimeout == 260)
+        #expect(deadlines.clientTimeout(for: receiptTimeout) == 270)
     }
 }
