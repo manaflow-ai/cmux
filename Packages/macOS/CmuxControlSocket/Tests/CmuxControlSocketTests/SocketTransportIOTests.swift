@@ -59,6 +59,38 @@ private final class ResultBox: @unchecked Sendable {
         #expect(finished.wait(timeout: .now() + 5.0) == .success)
         #expect(result.value == false)
     }
+
+    @Test func deadlineWriteSeparatesDeliveryFromFlagRestoreFailure() throws {
+        let sockets = try UnixSocketFixture.makeSocketPair()
+        defer {
+            Darwin.close(sockets.reader)
+            Darwin.close(sockets.writer)
+        }
+        let payload = Data("delivered\n".utf8)
+        var setCallCount = 0
+
+        let outcome = transport.writeAll(
+            payload,
+            to: sockets.writer,
+            deadline: ProcessInfo.processInfo.systemUptime + 1,
+            isInterrupted: { false },
+            setStatusFlags: { socket, flags in
+                setCallCount += 1
+                if setCallCount == 2 {
+                    Darwin.__error().pointee = EIO
+                    return -1
+                }
+                return Darwin.fcntl(socket, F_SETFL, flags)
+            }
+        )
+
+        #expect(outcome.didWriteAllBytes)
+        #expect(!outcome.socketIsReusable)
+        var received = [UInt8](repeating: 0, count: payload.count)
+        let count = Darwin.read(sockets.reader, &received, received.count)
+        #expect(count == payload.count)
+        #expect(Data(received) == payload)
+    }
 }
 
 @Suite struct SocketTransportProbeCommandTests {
