@@ -294,18 +294,25 @@ private func requireTeardownTicket(
         weak let releasedProbe = staleProbe
         let staleRecoveryID = UUID()
         let nextRecoveryID = UUID()
+        var staleRecoveryDeclined = false
         var nextRecoveryRan = false
 
         let staleReservation = admission.reserve(
             recoveryID: staleRecoveryID,
-            onRecovery: { [weak staleProbe] in
-                _ = staleProbe
+            onRecovery: { [weak staleProbe] reservation in
+                guard staleProbe != nil else {
+                    staleRecoveryDeclined = true
+                    admission.release(reservation)
+                    return
+                }
+                admission.release(reservation)
             }
         )
         let nextReservation = admission.reserve(
             recoveryID: nextRecoveryID,
-            onRecovery: {
+            onRecovery: { reservation in
                 nextRecoveryRan = true
+                admission.release(reservation)
             }
         )
         #expect(staleReservation == nil)
@@ -318,6 +325,7 @@ private func requireTeardownTicket(
             await Task.yield()
         }
 
+        #expect(staleRecoveryDeclined)
         #expect(
             nextRecoveryRan,
             "a stale dequeued recovery callback stranded the next waiter despite free capacity"

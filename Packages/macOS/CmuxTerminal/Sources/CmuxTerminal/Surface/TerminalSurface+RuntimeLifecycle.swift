@@ -709,12 +709,20 @@ extension TerminalSurface {
                 ?? source
             ).promoted(with: source)
         runtimeSurfaceAdmissionDeferredCreationView = view
+        let teardownCoordinator = runtimeTeardown
         guard let reservation =
-                runtimeTeardown.reserveRuntimeSurfaceOwnership(
+                teardownCoordinator.reserveRuntimeSurfaceOwnership(
                     recoveryID: id,
-                    onRecovery: { [weak self] in
-                        self?
-                            .resumeRuntimeSurfaceCreationAfterAdmissionRecovery()
+                    onRecovery: { [weak self, teardownCoordinator] reservation in
+                        guard let self else {
+                            teardownCoordinator.cancelRuntimeSurfaceOwnership(
+                                reservation
+                            )
+                            return
+                        }
+                        self.resumeRuntimeSurfaceCreationAfterAdmissionRecovery(
+                            reservation: reservation
+                        )
                     }
                 ) else {
             return nil
@@ -725,7 +733,9 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func resumeRuntimeSurfaceCreationAfterAdmissionRecovery() {
+    private func resumeRuntimeSurfaceCreationAfterAdmissionRecovery(
+        reservation: TerminalSurfaceRuntimeOwnershipReservation
+    ) {
         let source =
             runtimeSurfaceAdmissionDeferredCreationSource
             ?? .normal
@@ -735,10 +745,11 @@ extension TerminalSurface {
             ?? surfaceView
         runtimeSurfaceAdmissionDeferredCreationSource = nil
         runtimeSurfaceAdmissionDeferredCreationView = nil
-        guard allowsRuntimeSurfaceCreation(), surface == nil else {
-            return
-        }
-        createSurface(for: view, source: source)
+        createSurface(
+            for: view,
+            source: source,
+            recoveredOwnershipReservation: reservation
+        )
     }
 
     private func cancelRuntimeSurfaceCreationAfterAdmissionRecovery() {
@@ -749,6 +760,27 @@ extension TerminalSurface {
 
     @MainActor
     func createSurface(for view: any TerminalSurfaceNativeViewing, source: RuntimeSurfaceCreationSource) {
+        createSurface(
+            for: view,
+            source: source,
+            recoveredOwnershipReservation: nil
+        )
+    }
+
+    @MainActor
+    private func createSurface(
+        for view: any TerminalSurfaceNativeViewing,
+        source: RuntimeSurfaceCreationSource,
+        recoveredOwnershipReservation: TerminalSurfaceRuntimeOwnershipReservation?
+    ) {
+        var recoveredOwnershipReservation = recoveredOwnershipReservation
+        defer {
+            if let recoveredOwnershipReservation {
+                runtimeTeardown.cancelRuntimeSurfaceOwnership(
+                    recoveredOwnershipReservation
+                )
+            }
+        }
         guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
             logDebugEvent(
@@ -786,11 +818,16 @@ extension TerminalSurface {
         Self.surfaceLog("createSurface start surface=\(id.uuidString) tab=\(tabId.uuidString) bounds=\(view.bounds) inWindow=\(view.window != nil) resources=\(resourcesDir) terminfo=\(terminfo) xdg=\(xdg) manpath=\(manpath)")
         #endif
 
-        guard let runtimeOwnershipReservation =
-                reserveRuntimeSurfaceOwnershipForCreation(
-                    view: view,
-                    source: source
-                ) else {
+        let runtimeOwnershipReservation: TerminalSurfaceRuntimeOwnershipReservation
+        if let recoveredReservation = recoveredOwnershipReservation {
+            runtimeOwnershipReservation = recoveredReservation
+            recoveredOwnershipReservation = nil
+        } else if let reservation = reserveRuntimeSurfaceOwnershipForCreation(
+            view: view,
+            source: source
+        ) {
+            runtimeOwnershipReservation = reservation
+        } else {
 #if DEBUG
             logDebugEvent(
                 "ghostty.surface.create.failed reason=teardownAdmissionDegraded " +

@@ -2,7 +2,7 @@ import Foundation
 internal import os
 
 typealias TerminalSurfaceRuntimeOwnershipRecovery =
-    @MainActor @Sendable () -> Void
+    @MainActor @Sendable (TerminalSurfaceRuntimeOwnershipReservation) -> Void
 
 /// Synchronous, bounded admission for native-surface ownership.
 ///
@@ -12,6 +12,11 @@ typealias TerminalSurfaceRuntimeOwnershipRecovery =
 /// worker returns, preventing repeated create/close cycles from growing an
 /// unbounded retained teardown backlog.
 final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
+    private struct RecoveryGrant: Sendable {
+        let action: TerminalSurfaceRuntimeOwnershipRecovery
+        let reservation: TerminalSurfaceRuntimeOwnershipReservation
+    }
+
     private struct RecoveryEntry {
         var action: TerminalSurfaceRuntimeOwnershipRecovery
         var previousID: UUID?
@@ -136,31 +141,38 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
 
     private func takeAvailableRecoveryActions(
         from state: inout State
-    ) -> [TerminalSurfaceRuntimeOwnershipRecovery] {
+    ) -> [RecoveryGrant] {
         guard !state.closeTeardownDegraded else { return [] }
         let availableCount = maximumOwnerCount - state.reservationIDs.count
         guard availableCount > 0, state.recoveryHeadID != nil else {
             return []
         }
-        var recoveryActions: [TerminalSurfaceRuntimeOwnershipRecovery] = []
-        while recoveryActions.count < availableCount,
+        var recoveryGrants: [RecoveryGrant] = []
+        while recoveryGrants.count < availableCount,
               let recoveryID = state.recoveryHeadID {
             if let recoveryAction = removeRecoveryAction(
                 recoveryID,
                 from: &state
             ) {
-                recoveryActions.append(recoveryAction)
+                let reservation = TerminalSurfaceRuntimeOwnershipReservation()
+                state.reservationIDs.insert(reservation.id)
+                recoveryGrants.append(
+                    RecoveryGrant(
+                        action: recoveryAction,
+                        reservation: reservation
+                    )
+                )
             }
         }
-        return recoveryActions
+        return recoveryGrants
     }
 
     private func schedule(
-        _ recoveryActions: [TerminalSurfaceRuntimeOwnershipRecovery]
+        _ recoveryGrants: [RecoveryGrant]
     ) {
-        for recoveryAction in recoveryActions {
+        for recoveryGrant in recoveryGrants {
             Task { @MainActor in
-                recoveryAction()
+                recoveryGrant.action(recoveryGrant.reservation)
             }
         }
     }
