@@ -7,4 +7,5 @@ struct TerminalSurfaceRuntimeOwnershipAdmissionState {
         [UUID: TerminalSurfaceRuntimeOwnershipRecoveryEntry] = [:]
     var recoveryHeadID: UUID?
     var recoveryTailID: UUID?
+    var recoveryGrantIsScheduled = false
 }

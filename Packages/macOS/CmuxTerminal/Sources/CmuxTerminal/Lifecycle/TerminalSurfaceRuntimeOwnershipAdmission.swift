@@ -56,19 +56,19 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     }
 
     func release(_ reservation: TerminalSurfaceRuntimeOwnershipReservation) {
-        let recoveryActions = state.withLock { state in
+        let recoveryGrant = state.withLock { state in
             _ = state.reservationIDs.remove(reservation.id)
-            return takeAvailableRecoveryActions(from: &state)
+            return takeNextRecoveryGrant(from: &state)
         }
-        schedule(recoveryActions)
+        schedule(recoveryGrant)
     }
 
     func setCloseTeardownDegraded(_ degraded: Bool) {
-        let recoveryActions = state.withLock { state in
+        let recoveryGrant = state.withLock { state in
             state.closeTeardownDegraded = degraded
-            return takeAvailableRecoveryActions(from: &state)
+            return takeNextRecoveryGrant(from: &state)
         }
-        schedule(recoveryActions)
+        schedule(recoveryGrant)
     }
 
     func cancelRecovery(_ recoveryID: UUID) {
@@ -123,42 +123,44 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         state.recoveryTailID = recoveryID
     }
 
-    private func takeAvailableRecoveryActions(
+    private func takeNextRecoveryGrant(
         from state: inout TerminalSurfaceRuntimeOwnershipAdmissionState
-    ) -> [TerminalSurfaceRuntimeOwnershipRecoveryGrant] {
-        guard !state.closeTeardownDegraded else { return [] }
-        let availableCount = maximumOwnerCount - state.reservationIDs.count
-        guard availableCount > 0, state.recoveryHeadID != nil else {
-            return []
+    ) -> TerminalSurfaceRuntimeOwnershipRecoveryGrant? {
+        guard !state.closeTeardownDegraded,
+              !state.recoveryGrantIsScheduled,
+              state.reservationIDs.count < maximumOwnerCount,
+              let recoveryID = state.recoveryHeadID,
+              let recoveryAction = removeRecoveryAction(
+                  recoveryID,
+                  from: &state
+              ) else {
+            return nil
         }
-        var recoveryGrants: [TerminalSurfaceRuntimeOwnershipRecoveryGrant] = []
-        while recoveryGrants.count < availableCount,
-              let recoveryID = state.recoveryHeadID {
-            if let recoveryAction = removeRecoveryAction(
-                recoveryID,
-                from: &state
-            ) {
-                let reservation = TerminalSurfaceRuntimeOwnershipReservation()
-                state.reservationIDs.insert(reservation.id)
-                recoveryGrants.append(
-                    TerminalSurfaceRuntimeOwnershipRecoveryGrant(
-                        action: recoveryAction,
-                        reservation: reservation
-                    )
-                )
-            }
-        }
-        return recoveryGrants
+        let reservation = TerminalSurfaceRuntimeOwnershipReservation()
+        state.reservationIDs.insert(reservation.id)
+        state.recoveryGrantIsScheduled = true
+        return TerminalSurfaceRuntimeOwnershipRecoveryGrant(
+            action: recoveryAction,
+            reservation: reservation
+        )
     }
 
     private func schedule(
-        _ recoveryGrants: [TerminalSurfaceRuntimeOwnershipRecoveryGrant]
+        _ recoveryGrant: TerminalSurfaceRuntimeOwnershipRecoveryGrant?
     ) {
-        for recoveryGrant in recoveryGrants {
-            Task { @MainActor in
-                recoveryGrant.action(recoveryGrant.reservation)
-            }
+        guard let recoveryGrant else { return }
+        Task { @MainActor in
+            recoveryGrant.action(recoveryGrant.reservation)
+            recoveryGrantDidComplete()
         }
+    }
+
+    private func recoveryGrantDidComplete() {
+        let recoveryGrant = state.withLock { state in
+            state.recoveryGrantIsScheduled = false
+            return takeNextRecoveryGrant(from: &state)
+        }
+        schedule(recoveryGrant)
     }
 
 #if DEBUG

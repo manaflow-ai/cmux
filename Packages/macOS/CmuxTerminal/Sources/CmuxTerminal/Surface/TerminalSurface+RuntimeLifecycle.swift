@@ -745,6 +745,14 @@ extension TerminalSurface {
             ?? surfaceView
         runtimeSurfaceAdmissionDeferredCreationSource = nil
         runtimeSurfaceAdmissionDeferredCreationView = nil
+        if requiresRestoreSpawnPacing, source == .scheduledRestore {
+            // The failed attempt already consumed its prior restore cadence
+            // slot. Return admission ownership and use the shared normal
+            // entrypoint to queue a fresh paced slot before retrying Ghostty.
+            runtimeTeardown.cancelRuntimeSurfaceOwnership(reservation)
+            createSurface(for: view, source: .normal)
+            return
+        }
         createSurface(
             for: view,
             source: source,

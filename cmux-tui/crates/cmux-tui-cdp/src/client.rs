@@ -437,7 +437,7 @@ fn run_resolver_child_reaper(
             let _ = request.child.kill();
             match resolver_child_try_wait(request) {
                 Ok(Some(_)) => false,
-                Err(error) if error.kind() != std::io::ErrorKind::Interrupted => false,
+                Err(error) if resolver_child_wait_lost_ownership(&error) => false,
                 Ok(None) | Err(_) => {
                     if now >= request.retry_deadline {
                         degraded.store(true, Ordering::Release);
@@ -452,6 +452,18 @@ fn run_resolver_child_reaper(
         if pending.is_empty() {
             degraded.store(false, Ordering::Release);
         }
+    }
+}
+
+fn resolver_child_wait_lost_ownership(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        error.raw_os_error() == Some(libc::ECHILD)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = error;
+        false
     }
 }
 
