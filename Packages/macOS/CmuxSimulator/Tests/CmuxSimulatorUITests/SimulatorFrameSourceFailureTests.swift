@@ -52,6 +52,8 @@ struct SimulatorFrameSourceFailureTests {
 
         #expect(failureCount == 1)
         #expect(!hasFallbackPresentationTimer(controller))
+        controller.startPresenting(maximumFramesPerSecond: 120)
+        #expect(!hasFallbackPresentationTimer(controller))
     }
 
     @Test("Releasing a controller releases its active fallback timer")

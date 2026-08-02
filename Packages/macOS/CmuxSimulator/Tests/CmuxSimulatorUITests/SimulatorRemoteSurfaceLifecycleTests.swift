@@ -202,6 +202,51 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(reportedFailure?.isRecoverable == true)
     }
 
+    @Test("A failed Simulator frame view can readopt the same transport")
+    func failedSimulatorFrameViewReadoptsSameTransport() async throws {
+        let descriptor = simulatorFrameTransportDescriptor(53)
+        let recoveredSource = EmptySimulatorFrameSurfaceSource(
+            snapshot: simulatorFrameSnapshot(
+                pixel: 0xFF_65_43_21,
+                sequence: 1
+            )
+        )
+        var sourceCount = 0
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: { _ in
+            sourceCount += 1
+            return sourceCount == 1
+                ? FailedSimulatorFrameSurfaceSource()
+                : recoveredSource
+        })
+        defer { view.teardown() }
+        var failureCount = 0
+        view.onFrameTransportFailure = { _, _ in failureCount += 1 }
+
+        view.update(
+            frameTransport: descriptor,
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        view.renderLatestFrame()
+        #expect(failureCount == 1)
+
+        view.update(
+            frameTransport: descriptor,
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        try await waitUntil {
+            simulatorFrameImageFirstPixel(view.frameLayer?.contents)
+                == 0xFF_65_43_21
+        }
+
+        #expect(sourceCount == 2)
+        #expect(
+            simulatorFrameImageFirstPixel(view.frameLayer?.contents)
+                == 0xFF_65_43_21
+        )
+    }
+
     @Test("Frame publication signals wake a static pipeline without display polling")
     func publicationSignalsWakeStaticPipeline() async throws {
         let source = SignaledSimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
