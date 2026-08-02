@@ -697,6 +697,30 @@ class RegistryArtifactTests(unittest.TestCase):
                 )
         status.assert_not_called()
 
+    def test_main_reports_external_cancellation_with_exit_code_130(self) -> None:
+        cancellation = threading.Event()
+        with mock.patch.object(
+            reconcile,
+            "wait_for_status",
+            side_effect=reconcile.RegistryCancellation("cancelled"),
+        ):
+            result = reconcile.main(
+                [
+                    "check",
+                    "--registry",
+                    "npm",
+                    "--package",
+                    "cmux-sdk",
+                    "--version",
+                    "1.0.0",
+                    "--artifact",
+                    str(self.artifact),
+                ],
+                cancel_event=cancellation,
+            )
+
+        self.assertEqual(result, 130)
+
     def test_registry_wait_retries_response_body_transport_failures(self) -> None:
         metadata = {
             "dist-tags": {"latest": "1.0.0"},

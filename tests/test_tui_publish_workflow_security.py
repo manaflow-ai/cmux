@@ -979,6 +979,18 @@ def test_python_preflight_provisions_the_declared_build_backend() -> None:
     assert backend < package_tests
 
 
+def test_python_preflight_pins_the_interpreter_before_installing_tools() -> None:
+    preflight = workflow("sdk-publish-python.yml")
+    setup_action = "actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405"
+
+    for name in ("bindings-e2e-python", "build"):
+        job = workflow_job(preflight, name)
+        setup = job.index(setup_action)
+        install = job.index("python3 -m pip install")
+        assert 'python-version: "3.12.8"' in job
+        assert setup < install
+
+
 def test_typescript_spec_uses_the_sdk_registry_name() -> None:
     spec = (ROOT / "cmux-tui" / "spec" / "bindings.md").read_text()
     typescript = spec.split("### TypeScript", 1)[1].split("### Go", 1)[0]

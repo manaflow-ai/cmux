@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -246,6 +247,62 @@ class WaitForGoModuleTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "\ufffd")
+
+    def test_main_reports_cancellation_with_the_signal_exit_code(self) -> None:
+        cancellation = waiter.threading.Event()
+        with mock.patch.object(
+            waiter,
+            "wait_for_module",
+            side_effect=waiter.GoModuleCancellation("cancelled"),
+        ) as wait_for_module:
+            result = waiter.main(
+                [
+                    "--module",
+                    self.module,
+                    "--version",
+                    self.version,
+                    "--wait-seconds",
+                    "30",
+                ],
+                cancel_event=cancellation,
+            )
+
+        self.assertEqual(result, 130)
+        self.assertIs(
+            wait_for_module.call_args.kwargs["cancel_event"],
+            cancellation,
+        )
+
+    def test_cli_signals_set_cancellation_and_restore_handlers(self) -> None:
+        handlers: dict[int, object] = {}
+        previous = {
+            signal.SIGINT: object(),
+            signal.SIGTERM: object(),
+        }
+        restored: dict[int, object] = {}
+
+        def install(signum: int, handler: object) -> object:
+            if signum not in handlers:
+                handlers[signum] = handler
+                return previous[signum]
+            restored[signum] = handler
+            return handlers[signum]
+
+        def main(*, cancel_event: waiter.threading.Event) -> int:
+            handler = handlers[signal.SIGTERM]
+            assert callable(handler)
+            handler(signal.SIGTERM, None)
+            self.assertTrue(cancel_event.is_set())
+            return 130
+
+        with mock.patch.object(
+            waiter.signal,
+            "signal",
+            side_effect=install,
+        ), mock.patch.object(waiter, "main", side_effect=main):
+            self.assertEqual(waiter._run_cli(), 130)
+
+        self.assertEqual(restored, previous)
 
 
 if __name__ == "__main__":
