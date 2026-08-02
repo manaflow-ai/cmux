@@ -92,7 +92,7 @@ import Testing
         let object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: data) as? [String: Any]
         )
-        XCTAssertNotNil(object["windows"] as? [[String: Any]])
+        #expect(object["windows"] as? [[String: Any]] != nil)
     }
 
     @Test func testApplicationSurfaceValueFlagsPreservePresentationLikeValues()
