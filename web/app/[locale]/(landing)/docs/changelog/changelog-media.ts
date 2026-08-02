@@ -26,6 +26,31 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.20": {
+    title: "Native AppKit Sidebar, Browser Design Mode, TUI Mouse Forwarding",
+    features: [
+      {
+        title: "Native AppKit Sidebar",
+        description:
+          "The workspace sidebar is rebuilt on native AppKit rows and is now on by default: faster scrolling in large workspace lists, precise hover and selection, and full fidelity with your sidebar settings.",
+      },
+      {
+        title: "Browser Design Mode",
+        description:
+          "Visually edit pages inside the browser pane, annotate elements, and hand the annotated changes straight to an agent to implement.",
+      },
+      {
+        title: "Mouse Input for TUI Apps",
+        description:
+          "cmux now forwards mouse input to TUI applications running in the terminal, so tools that own the pointer respond to clicks, drags, and scrolls as expected.",
+      },
+      {
+        title: "Stability and Performance",
+        description:
+          "Codex YOLO mode and Pi sessions survive restore, typing latency from title churn is fixed, sidebar scroll livelocks and popover resize crashes are gone, and remote ssh-tmux panes size and focus correctly.",
+      },
+    ],
+  },
   "0.64.18": {
     title:
       "Saved Workspace Layouts, Fork Conversation, Per-Monitor Window Memory",

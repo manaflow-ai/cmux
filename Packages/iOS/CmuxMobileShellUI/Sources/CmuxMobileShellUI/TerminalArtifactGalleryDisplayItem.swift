@@ -10,6 +10,8 @@ struct TerminalArtifactGalleryDisplayItem: Identifiable, Equatable {
     let size: Int64?
     let modifiedAt: Date?
     let exists: Bool
+    let childCount: Int?
+    let childCountIsCapped: Bool
     let subtitle: String?
 
     var id: String { path }
@@ -21,6 +23,8 @@ struct TerminalArtifactGalleryDisplayItem: Identifiable, Equatable {
         size = reference.size
         modifiedAt = reference.modifiedAt
         exists = true
+        childCount = nil
+        childCountIsCapped = false
         subtitle = nil
     }
 
@@ -31,6 +35,8 @@ struct TerminalArtifactGalleryDisplayItem: Identifiable, Equatable {
         size = galleryItem.size
         modifiedAt = galleryItem.modifiedAt
         exists = galleryItem.exists
+        childCount = galleryItem.childCount
+        childCountIsCapped = galleryItem.childCountIsCapped
         self.subtitle = subtitle
     }
 }

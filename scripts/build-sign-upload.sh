@@ -111,6 +111,7 @@ echo "App notarized"
 
 # --- Create and notarize DMG ---
 echo "Creating DMG..."
+./scripts/verify-app-bundle-licenses.sh "$APP_PATH"
 rm -f cmux-macos.dmg
 create-dmg --codesign "$SIGN_HASH" cmux-macos.dmg "$APP_PATH"
 echo "Notarizing DMG..."

@@ -885,7 +885,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testDisablingPullRequestSidebarClearsCachedPullRequestsWithoutClearingBranches() throws {
+    func testHidingPullRequestSidebarPreservesPassiveReportsWithoutPolling() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         let previousShowPullRequests = defaults.object(forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
@@ -921,21 +921,37 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
 
         XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "issue-2746-rate-limit")
-        XCTAssertNil(workspace.panelPullRequests[panelId])
-        XCTAssertNil(workspace.pullRequest)
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 2746)
+        XCTAssertEqual(workspace.pullRequest?.number, 2746)
         XCTAssertTrue(
             manager.workspacePullRequestTrackedPanelIdsForTesting(workspaceId: workspace.id).isEmpty,
-            "Disabling PR visibility should clear PR state and polling without disabling branch metadata."
+            "Hiding PR rows should stop PR polling without discarding passive metadata."
+        )
+
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+        let response = TerminalController.shared.handleSocketLine(
+            "report_pr 2747 https://github.com/manaflow-ai/cmux/pull/2747 --label=PR --state=open --branch=issue-2746-rate-limit --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
+        )
+        XCTAssertEqual(response, "OK")
+        TerminalMutationBus.shared.drainForTesting()
+        XCTAssertEqual(
+            workspace.panelPullRequests[panelId]?.number,
+            2747,
+            "Hidden PR rows should continue accepting passive reports."
         )
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
         manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
 
         XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "issue-2746-rate-limit")
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 2747)
         XCTAssertEqual(
             manager.workspacePullRequestTrackedPanelIdsForTesting(workspaceId: workspace.id),
             Set([panelId]),
-            "Re-enabling PR visibility should restart PR polling from preserved branch metadata."
+            "Showing PR rows again should restart polling without losing passive metadata."
         )
     }
 

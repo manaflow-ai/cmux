@@ -79,7 +79,9 @@ struct ClientRuntimeTestFixture {
     static func discovery(
         binding: CmxIrohBrokerBinding,
         overrideAppInstanceID: String? = nil,
-        relayURLs: [String] = relayURLs
+        includeBinding: Bool = true,
+        relayURLs: [String] = relayURLs,
+        revision: UInt64? = nil
     ) throws -> CmxIrohDiscoveryResponse {
         let bindingObject = try JSONSerialization.jsonObject(
             with: bindingJSON(
@@ -89,9 +91,9 @@ struct ClientRuntimeTestFixture {
                 appInstanceID: overrideAppInstanceID ?? binding.appInstanceID
             )
         )
-        let object: [String: Any] = [
+        var object: [String: Any] = [
             "route_contract_version": 1,
-            "bindings": [bindingObject],
+            "bindings": includeBinding ? [bindingObject] : [],
             "relay_fleet": relayURLs,
             "lan_rendezvous": [
                 "generation": 1,
@@ -107,6 +109,9 @@ struct ClientRuntimeTestFixture {
                 ]],
             ],
         ]
+        if let revision {
+            object["revision"] = revision
+        }
         return try JSONDecoder().decode(
             CmxIrohDiscoveryResponse.self,
             from: JSONSerialization.data(withJSONObject: object)

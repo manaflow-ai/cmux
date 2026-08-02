@@ -2,7 +2,11 @@ import CMUXMobileCore
 import Foundation
 
 /// Defers transport construction until the signed-in runtime finishes activation.
-actor CmxIrohDeferredByteTransport: CmxByteTransport {
+actor CmxIrohDeferredByteTransport:
+    CmxByteTransport,
+    CmxByteTransportClosureObserving,
+    CmxByteTransportContinuityIdentifying
+{
     private let request: CmxByteTransportRequest
     private let provider: any CmxIrohDeferredTransportProviding
     private var connectTask: Task<any CmxByteTransport, any Error>?
@@ -78,5 +82,19 @@ actor CmxIrohDeferredByteTransport: CmxByteTransport {
         let closing = transport
         transport = nil
         await closing?.close()
+    }
+
+    func transportContinuityID() async -> UInt64? {
+        guard let identifying = transport as? any CmxByteTransportContinuityIdentifying else {
+            return nil
+        }
+        return await identifying.transportContinuityID()
+    }
+
+    func transportClosureObservation() async -> CmxTransportClosureObservation? {
+        guard let observing = transport as? any CmxByteTransportClosureObserving else {
+            return nil
+        }
+        return await observing.transportClosureObservation()
     }
 }

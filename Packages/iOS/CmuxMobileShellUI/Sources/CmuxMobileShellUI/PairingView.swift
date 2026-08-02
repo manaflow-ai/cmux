@@ -13,6 +13,7 @@ import AppKit
 
 struct PairingView: View {
     @Binding var pairingCode: String
+    let initialPresentation: PairingPresentation
     let connectionError: String?
     /// A shorter, actionable next-step line shown beneath ``connectionError``
     /// (for example "Check that the selected private route is active"). `nil`
@@ -25,7 +26,7 @@ struct PairingView: View {
     let cancelPairing: () -> Void
     let cancel: () -> Void
 
-    @State private var isShowingScanner = false
+    @State private var isShowingScanner: Bool
     @State private var deviceName = UITestConfig.addDeviceName
         ?? L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac")
     @State private var host = UITestConfig.addDeviceHost ?? ""
@@ -37,6 +38,31 @@ struct PairingView: View {
     @State private var pairingTaskID: UUID?
     @State private var pairingTask: Task<Void, Never>?
     @FocusState private var focusedField: AddDeviceField?
+
+    init(
+        pairingCode: Binding<String>,
+        initialPresentation: PairingPresentation = .manual,
+        connectionError: String?,
+        connectionErrorGuidance: String?,
+        versionWarning: String?,
+        connectPairingCode: @escaping () async -> Void,
+        acceptVersionWarning: @escaping () async -> Void,
+        connectManualHost: @escaping (String, String, Int) async -> Void,
+        cancelPairing: @escaping () -> Void,
+        cancel: @escaping () -> Void
+    ) {
+        _pairingCode = pairingCode
+        self.initialPresentation = initialPresentation
+        self.connectionError = connectionError
+        self.connectionErrorGuidance = connectionErrorGuidance
+        self.versionWarning = versionWarning
+        self.connectPairingCode = connectPairingCode
+        self.acceptVersionWarning = acceptVersionWarning
+        self.connectManualHost = connectManualHost
+        self.cancelPairing = cancelPairing
+        self.cancel = cancel
+        _isShowingScanner = State(initialValue: initialPresentation.showsScanner)
+    }
 
     var body: some View {
         NavigationStack {
@@ -229,34 +255,81 @@ struct PairingView: View {
                 #endif
             }
         }
+        .accessibilityIdentifier("MobilePairingView")
         #if os(iOS)
         .sheet(isPresented: $isShowingScanner) {
-            MobilePairingScannerSheet { scannedCode in
-                pairingCode = scannedCode
-                isShowingScanner = false
-                startPairingTask {
-                    await connectPairingCode()
-                }
-            }
+            scannerSheet
         }
         .onAppear {
-            analytics.capture("ios_pairing_screen_viewed", ["entry": .string("post_sign_in")])
+            analytics.capture(
+                "ios_pairing_screen_viewed",
+                ["entry": .string(initialPresentation.analyticsEntry)]
+            )
+        }
+        .onChange(of: initialPresentation) { _, presentation in
+            if isPairing {
+                cancelActivePairingTask()
+                cancelPairing()
+            }
+            isShowingScanner = presentation.showsScanner
+            analytics.capture(
+                "ios_pairing_screen_viewed",
+                ["entry": .string(presentation.analyticsEntry)]
+            )
         }
         #endif
     }
 
     private var cancelButton: some View {
         Button {
-            pairingTask?.cancel()
-            pairingTaskID = nil
-            pairingTask = nil
-            isPairing = false
+            cancelActivePairingTask()
             cancelPairing()
             cancel()
         } label: {
             Text(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
         }
     }
+
+    private func cancelActivePairingTask() {
+        pairingTask?.cancel()
+        pairingTaskID = nil
+        pairingTask = nil
+        isPairing = false
+    }
+
+    #if os(iOS)
+    private var scannerSheet: some View {
+        MobilePairingScannerSheet(
+            previewEnabled: scannerPreviewEnabled,
+            onCancel: scannerCancelAction,
+            onEnterManually: scannerManualEntryAction
+        ) { scannedCode in
+            pairingCode = scannedCode
+            isShowingScanner = false
+            startPairingTask {
+                await connectPairingCode()
+            }
+        }
+    }
+
+    private var scannerCancelAction: (() -> Void)? {
+        guard initialPresentation.showsScanner else { return nil }
+        return { cancelDirectScanner() }
+    }
+
+    private var scannerManualEntryAction: (() -> Void)? {
+        guard initialPresentation.showsScanner else { return nil }
+        return { isShowingScanner = false }
+    }
+
+    private var scannerPreviewEnabled: Bool {
+        #if DEBUG
+        return UITestConfig.pairingScannerPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+    #endif
 
     private var errorText: String? {
         validationError ?? connectionError
@@ -349,6 +422,10 @@ struct PairingView: View {
             await operation()
         }
         pairingTask = task
+    }
+
+    private func cancelDirectScanner() {
+        cancel()
     }
 }
 

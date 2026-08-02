@@ -42,6 +42,43 @@ import Testing
 }
 
 @MainActor
+@Test func staleStreamTerminationDoesNotUnregisterReplacementStream() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+
+    let oldCollector = OutputCollector()
+    oldCollector.mount(store: store, surfaceID: surfaceID)
+    let oldMounted = try await pollUntil {
+        store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
+    }
+    #expect(oldMounted)
+    let oldToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
+
+    let currentCollector = OutputCollector()
+    currentCollector.mount(store: store, surfaceID: surfaceID)
+    let replacementMounted = try await pollUntil {
+        guard let token = store.terminalOutputStreamTokensBySurfaceID[surfaceID] else { return false }
+        return token != oldToken
+    }
+    #expect(replacementMounted)
+    let replacementToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
+
+    oldCollector.unmount()
+    for _ in 0..<20 {
+        await Task.yield()
+    }
+
+    #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] == replacementToken)
+    store.deliverTerminalBytes(Data("current".utf8), surfaceID: surfaceID)
+    let replacementReceivedOutput = try await pollUntil {
+        currentCollector.lines.contains("current")
+    }
+    #expect(replacementReceivedOutput)
+
+    currentCollector.unmount()
+}
+
+@MainActor
 @Test func terminalReplayBarrierDropsStalledBacklogAndInvalidatesOldAcks() async throws {
     let store = MobileShellComposite.preview()
     let surfaceID = "terminal"
@@ -786,6 +823,7 @@ private func waitForReplayRequestCount(
     let latestTheme = TerminalOutputDelivery(theme: latestFrame)
     let latestViewport = TerminalOutputDelivery(renderGrid: latestFrame, replaceable: true)
 
+    #expect(latestTheme.endSequence == nil)
     #expect(queue.enqueue(inFlight) == inFlight)
     #expect(queue.enqueue(TerminalOutputDelivery(theme: oldFrame)) == nil)
     #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: oldFrame, replaceable: true)) == nil)

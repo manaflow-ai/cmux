@@ -12,7 +12,7 @@ private func githubAuthorizationFingerprint(for authHeader: String) -> Data {
 /// coalescing, and a bounded transport pool. Keeping these concerns here
 /// prevents per-window pollers from independently consuming the same GitHub
 /// rate-limit pool.
-actor GitHubPullRequestRequestCoordinator {
+public actor GitHubPullRequestRequestCoordinator {
     private static let maximumConcurrentTransportCount = 3
     private static let maximumRateLimitIdentityCount = 32
 
@@ -28,8 +28,12 @@ actor GitHubPullRequestRequestCoordinator {
 
     internal struct InFlightRequest: Sendable {
         let id: UUID
-        let task: Task<WorkspacePullRequestHTTPResponse?, Never>
-        var waiterIDs: Set<UUID>
+        let task: Task<Void, Never>
+        var waiterContinuations: [UUID: CheckedContinuation<WorkspacePullRequestHTTPResponse?, Never>]
+
+        var waiterIDs: Set<UUID> {
+            Set(waiterContinuations.keys)
+        }
     }
 
     internal struct QueuedTransport: Sendable {
@@ -49,6 +53,16 @@ actor GitHubPullRequestRequestCoordinator {
     internal var queuedTransports: [QueuedTransport] = []
     private var rateLimitRetryDateByAuthorizationFingerprint: [Data: Date] = [:]
     private var rateLimitAuthorizationFingerprintsInInsertionOrder: [Data] = []
+
+    /// Creates a coordinator with the default shared-transport configuration.
+    ///
+    /// Exposed so callers in other modules can supply their own instance to
+    /// `PullRequestProbeService(requestCoordinator:)`. The session and cache
+    /// tuning knobs stay internal (tests reach that initializer through
+    /// `@testable import`), keeping the public surface to a plain default.
+    public init() {
+        self.init(session: nil)
+    }
 
     init(
         session: URLSession? = nil,
@@ -87,44 +101,45 @@ actor GitHubPullRequestRequestCoordinator {
         guard !Task.isCancelled else { return nil }
 
         let waiterID = UUID()
-        let requestID: UUID
-        let task: Task<WorkspacePullRequestHTTPResponse?, Never>
-        if var inFlight = inFlightRequestByRequestKey[requestKey] {
-            inFlight.waiterIDs.insert(waiterID)
-            inFlightRequestByRequestKey[requestKey] = inFlight
-            requestID = inFlight.id
-            task = inFlight.task
-        } else {
-            requestID = UUID()
-            task = Task<WorkspacePullRequestHTTPResponse?, Never> { [weak self] in
-                guard !Task.isCancelled, let self else { return nil }
-                return await self.executeRequest(
-                    requestID: requestID,
-                    requestKey: requestKey,
-                    authHeader: authHeader
+        return await withTaskCancellationHandler {
+            let response = await withCheckedContinuation {
+                (continuation: CheckedContinuation<WorkspacePullRequestHTTPResponse?, Never>) in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                if var inFlight = inFlightRequestByRequestKey[requestKey] {
+                    inFlight.waiterContinuations[waiterID] = continuation
+                    inFlightRequestByRequestKey[requestKey] = inFlight
+                    return
+                }
+
+                let requestID = UUID()
+                let task = Task<Void, Never> { [weak self] in
+                    guard !Task.isCancelled, let self else { return }
+                    let response = await self.executeRequest(
+                        requestID: requestID,
+                        requestKey: requestKey,
+                        authHeader: authHeader
+                    )
+                    await self.completeRequest(
+                        response,
+                        requestID: requestID,
+                        requestKey: requestKey
+                    )
+                }
+                inFlightRequestByRequestKey[requestKey] = InFlightRequest(
+                    id: requestID,
+                    task: task,
+                    waiterContinuations: [waiterID: continuation]
                 )
             }
-            inFlightRequestByRequestKey[requestKey] = InFlightRequest(
-                id: requestID,
-                task: task,
-                waiterIDs: [waiterID]
-            )
-        }
-
-        return await withTaskCancellationHandler {
-            let response = await task.value
-            releaseWaiter(
-                waiterID,
-                requestID: requestID,
-                requestKey: requestKey
-            )
             return Task.isCancelled ? nil : response
         } onCancel: { [weak self] in
             guard let self else { return }
             Task {
-                await self.releaseWaiter(
+                await self.cancelWaiter(
                     waiterID,
-                    requestID: requestID,
                     requestKey: requestKey
                 )
             }
@@ -160,8 +175,9 @@ actor GitHubPullRequestRequestCoordinator {
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("cmux-workspace-pr-poller", forHTTPHeaderField: "User-Agent")
         request.setValue(authHeader, forHTTPHeaderField: "Authorization")
-        if let etag = cachedResponseByRequestKey[requestKey]?.etag {
-            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        let cachedResponse = cachedResponseByRequestKey[requestKey]
+        if let cachedResponse {
+            request.setValue(cachedResponse.etag, forHTTPHeaderField: "If-None-Match")
         }
 
         do {
@@ -174,8 +190,7 @@ actor GitHubPullRequestRequestCoordinator {
                 authorizationFingerprint: requestKey.authorizationFingerprint
             )
 
-            if httpResponse.statusCode == 304,
-               let cachedResponse = cachedResponseByRequestKey[requestKey] {
+            if httpResponse.statusCode == 304, let cachedResponse {
                 return WorkspacePullRequestHTTPResponse(statusCode: 200, data: cachedResponse.data)
             }
 
@@ -192,23 +207,34 @@ actor GitHubPullRequestRequestCoordinator {
         }
     }
 
-    private func releaseWaiter(
+    private func cancelWaiter(
         _ waiterID: UUID,
-        requestID: UUID,
         requestKey: RequestKey
     ) {
         guard var inFlight = inFlightRequestByRequestKey[requestKey],
-              inFlight.id == requestID,
-              inFlight.waiterIDs.remove(waiterID) != nil else {
+              let continuation = inFlight.waiterContinuations.removeValue(forKey: waiterID) else {
             return
         }
-        guard inFlight.waiterIDs.isEmpty else {
+        if inFlight.waiterContinuations.isEmpty {
+            inFlightRequestByRequestKey.removeValue(forKey: requestKey)
+            inFlight.task.cancel()
+        } else {
             inFlightRequestByRequestKey[requestKey] = inFlight
-            return
         }
+        continuation.resume(returning: nil)
+    }
 
+    private func completeRequest(
+        _ response: WorkspacePullRequestHTTPResponse?,
+        requestID: UUID,
+        requestKey: RequestKey
+    ) {
+        guard let inFlight = inFlightRequestByRequestKey[requestKey],
+              inFlight.id == requestID else { return }
         inFlightRequestByRequestKey.removeValue(forKey: requestKey)
-        inFlight.task.cancel()
+        for continuation in inFlight.waiterContinuations.values {
+            continuation.resume(returning: response)
+        }
     }
 
     private func acquireTransportPermit(requestID: UUID) async -> Bool {

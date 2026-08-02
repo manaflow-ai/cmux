@@ -102,8 +102,8 @@ export const accountDeletionTombstones = pgTable(
 
 /**
  * The last server-configured relay catalog accepted by this database.
- * Persisting its sequence and digest prevents an older or conflicting deploy
- * from signing a rollback after a newer catalog has already been served.
+ * Persisting its complete non-secret body lets activation enforce add-before-
+ * remove rotation under the same lock that prevents sequence rollback.
  */
 export const irohRelayCatalogState = pgTable(
   "iroh_relay_catalog_state",
@@ -111,6 +111,10 @@ export const irohRelayCatalogState = pgTable(
     id: text("id").primaryKey(),
     catalogSequence: bigint("catalog_sequence", { mode: "number" }).notNull(),
     catalogDigest: text("catalog_digest").notNull(),
+    // Nullable for rolling compatibility with an older web process. The new
+    // process backfills only an exact sequence/digest match and refuses to
+    // advance until the prior catalog body is authoritative.
+    catalog: jsonb("catalog"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -169,6 +173,21 @@ export const accountAnalyticsForwardLeases = pgTable(
     index("account_analytics_forward_leases_expiry_idx").on(table.expiresAt),
     index("account_analytics_forward_leases_user_expiry_idx").on(table.userIdHash, table.expiresAt),
     index("account_analytics_forward_leases_operation_idx").on(table.operationId),
+  ],
+);
+
+export const accountMutationLeases = pgTable(
+  "account_mutation_leases",
+  {
+    userIdHash: text("user_id_hash").primaryKey(),
+    operationId: uuid("operation_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("account_mutation_leases_expiry_idx").on(table.expiresAt),
+    index("account_mutation_leases_operation_idx").on(table.operationId),
   ],
 );
 
@@ -430,6 +449,24 @@ export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const proWelcomeFulfillments = pgTable(
+  "pro_welcome_fulfillments",
+  {
+    checkoutSessionId: text("checkout_session_id").primaryKey(),
+    stackUserId: text("stack_user_id").notNull(),
+    deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
+    attemptLeaseExpiresAt: timestamp("attempt_lease_expires_at", {
+      withTimezone: true,
+    }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("pro_welcome_fulfillments_stack_user_idx").on(table.stackUserId),
+  ],
+);
+
 export const billingEmailClaims = pgTable(
   "billing_email_claims",
   {
@@ -556,6 +593,7 @@ export const vaultCliAuthRequests = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     deviceCodeHash: text("device_code_hash").notNull(),
     userCode: text("user_code").notNull(),
+    client: text("client").notNull().default("cmux-vault"),
     status: text("status").notNull(),
     userId: text("user_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
@@ -565,6 +603,10 @@ export const vaultCliAuthRequests = pgTable(
     uniqueIndex("vault_cli_auth_requests_device_hash_unique").on(table.deviceCodeHash),
     index("vault_cli_auth_requests_expires_idx").on(table.expiresAt),
     index("vault_cli_auth_requests_user_code_idx").on(table.userCode),
+    check(
+      "vault_cli_auth_requests_client_check",
+      sql`${table.client} in ('cmux-vault', 'subrouter')`,
+    ),
   ],
 );
 
@@ -692,11 +734,13 @@ export const irohAccountSecurityStates = pgTable(
   {
     userId: text("user_id").primaryKey(),
     lanDiscoveryGeneration: integer("lan_discovery_generation").notNull().default(1),
+    routeRevision: bigint("route_revision", { mode: "number" }).notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check("iroh_account_security_states_generation_check", sql`${table.lanDiscoveryGeneration} >= 1`),
+    check("iroh_account_security_states_route_revision_check", sql`${table.routeRevision} >= 0`),
   ],
 );
 
@@ -719,6 +763,8 @@ export const irohEndpointBindings = pgTable(
     identityGeneration: integer("identity_generation").notNull(),
     pairingEnabled: boolean("pairing_enabled").notNull().default(false),
     capabilities: jsonb("capabilities").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    directPortV4: integer("direct_port_v4"),
+    directPortV6: integer("direct_port_v6"),
     pathHints: jsonb("path_hints").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
     pathHintsNextExpiry: timestamp("path_hints_next_expiry", { withTimezone: true }),
     deviceLimitOverrideUsed: boolean("device_limit_override_used").notNull().default(false),
@@ -735,18 +781,28 @@ export const irohEndpointBindings = pgTable(
     check("iroh_endpoint_bindings_platform_check", sql`${table.platform} in ('mac', 'ios')`),
     check("iroh_endpoint_bindings_display_name_check", sql`${table.displayName} is null or ${table.displayName} !~ '[[:cntrl:]]'`),
     check("iroh_endpoint_bindings_capabilities_check", sql`jsonb_typeof(${table.capabilities}) = 'array' and jsonb_array_length(${table.capabilities}) <= 32`),
+    check("iroh_endpoint_bindings_direct_port_v4_check", sql`${table.directPortV4} is null or ${table.directPortV4} between 1 and 65535`),
+    check("iroh_endpoint_bindings_direct_port_v6_check", sql`${table.directPortV6} is null or ${table.directPortV6} between 1 and 65535`),
     check("iroh_endpoint_bindings_path_hints_check", sql`jsonb_typeof(${table.pathHints}) = 'array' and jsonb_array_length(${table.pathHints}) <= 16`),
     uniqueIndex("iroh_endpoint_bindings_active_endpoint_unique")
       .on(table.endpointId)
       .where(sql`${table.revokedAt} is null`),
-    uniqueIndex("iroh_endpoint_bindings_active_app_instance_unique")
-      .on(table.appInstanceId)
+    // One active binding per (user, device, tag) slot. A reinstall, sign-out/in,
+    // or key rotation overwrites that slot in place instead of stacking a new row.
+    // Contract: deviceUuid MUST be stable across app reinstalls, or a reinstall
+    // mints a fresh slot and orphans the old row (it stays active, wasting a
+    // sanity-cap slot and lingering in discovery until it is revoked or expires).
+    // The DB cannot enforce this; the client owns it. iOS derives deviceUuid from
+    // a Keychain-backed identity (kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
+    // that survives reinstall, NOT a UserDefaults value that a reinstall clears.
+    uniqueIndex("iroh_endpoint_bindings_active_slot_unique")
+      .on(table.userId, table.deviceUuid, table.tag)
       .where(sql`${table.revokedAt} is null`),
     index("iroh_endpoint_bindings_user_active_idx")
       .on(table.userId, table.updatedAt)
       .where(sql`${table.revokedAt} is null`),
-    index("iroh_endpoint_bindings_user_device_active_idx")
-      .on(table.userId, table.deviceUuid)
+    index("iroh_endpoint_bindings_user_active_page_idx")
+      .on(table.userId, table.id)
       .where(sql`${table.revokedAt} is null`),
     index("iroh_endpoint_bindings_user_idx")
       .on(table.userId),

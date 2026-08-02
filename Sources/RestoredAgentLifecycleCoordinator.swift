@@ -100,6 +100,28 @@ final class RestoredAgentLifecycleCoordinator {
         completedGenerationsByPanelId[panelId]
     }
 
+    /// Shell integration has observed the restored launch enter its command
+    /// phase and has not subsequently reported the prompt returning.
+    func confirmsRunningRestoredCommand(panelId: UUID) -> Bool {
+        switch resumeStatesByPanelId[panelId] {
+        case .autoResumeCommandRunning, .observedAgentCommandRunning:
+            true
+        case .manualResumeAvailable, .awaitingAutoResumeCommand, .completedAgentExit, nil:
+            false
+        }
+    }
+
+    /// The restored launch still owns its binding while startup input is
+    /// queued, even though only a later shell callback can prove it is running.
+    func ownsInFlightRestoredCommand(panelId: UUID) -> Bool {
+        switch resumeStatesByPanelId[panelId] {
+        case .awaitingAutoResumeCommand, .autoResumeCommandRunning, .observedAgentCommandRunning:
+            true
+        case .manualResumeAvailable, .completedAgentExit, nil:
+            false
+        }
+    }
+
     func seedTransferredState(
         panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot?,

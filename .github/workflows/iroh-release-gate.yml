@@ -1,0 +1,125 @@
+name: Iroh release gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or SHA to verify
+        required: false
+        default: ""
+      mode:
+        description: Iroh transport mode
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - automatic
+          - relay-only
+          - relay-expiry
+          - direct-only
+          - private-path
+
+permissions:
+  contents: read
+
+jobs:
+  tailscale-version-skew:
+    name: Tailscale version-skew compatibility
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    timeout-minutes: 75
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+      CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS: "45"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download pre-built GhosttyKit
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Run deterministic version-skew gate
+        run: ./scripts/ci/run-iroh-tailscale-compatibility-gate.sh
+
+  simulator-e2e:
+    needs: tailscale-version-skew
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: ${{ fromJSON(inputs.mode == 'all' && '["automatic","relay-only","relay-expiry","direct-only","private-path"]' || format('["{0}"]', inputs.mode)) }}
+    runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'warp-macos-15-arm64-6x' }}
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Ensure iOS Simulator runtime
+        if: ${{ matrix.mode != 'private-path' }}
+        run: |
+          xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
+
+      - name: Install app build dependencies
+        if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}
+        run: |
+          ./scripts/install-zig-ci.sh
+          ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
+
+      - name: Materialize isolated staging account
+        if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [[ -n "${CMUX_DOGFOOD_STACK_EMAIL:-}" ]] || { echo "::error::missing staging email"; exit 1; }
+          [[ -n "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ]] || { echo "::error::missing staging password"; exit 1; }
+          mkdir -p "$HOME/.secrets"
+          {
+            printf 'CMUX_DOGFOOD_STACK_EMAIL=%s\n' "$CMUX_DOGFOOD_STACK_EMAIL"
+            printf 'CMUX_DOGFOOD_STACK_PASSWORD=%s\n' "$CMUX_DOGFOOD_STACK_PASSWORD"
+          } > "$HOME/.secrets/cmuxterm-dev.env"
+          chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
+
+      - name: Run staging Iroh gate
+        run: |
+          set -euo pipefail
+          case "${{ matrix.mode }}" in
+            automatic) TAG=irgaut ;;
+            relay-only) TAG=irgrel ;;
+            relay-expiry) TAG=irgexp ;;
+            direct-only) TAG=irgdir ;;
+            private-path) TAG=irgprv ;;
+          esac
+          ./scripts/run-iroh-release-gate.sh \
+            --mode "${{ matrix.mode }}" \
+            --tag "$TAG" \
+            --report-output "$RUNNER_TEMP/iroh-release-gate-${{ matrix.mode }}.json"
+
+      - name: Upload redacted verdict
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: iroh-release-gate-${{ matrix.mode }}
+          path: ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}.json
+          if-no-files-found: warn
+          retention-days: 7

@@ -4,6 +4,7 @@
 import type { KeyObject } from "node:crypto";
 
 import { checkRateLimit } from "@vercel/firewall";
+import * as Effect from "effect/Effect";
 
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import {
@@ -19,13 +20,20 @@ import {
   relaySigningKey,
   type ManagedRelayCredentialGrant,
 } from "../../../../services/relay/token";
-import { RelayConfigurationError } from "../../../../services/relay/errors";
+import {
+  RelayConfigurationError,
+  RelayDatabaseError,
+} from "../../../../services/relay/errors";
 import {
   productionRelayWorkflowConfig,
   signedRelayPolicy,
   type SignedRelayPolicyResult,
 } from "../../../../services/relay/workflows";
 import { runRelayRepositoryEffect } from "../../../../services/relay/repository";
+import {
+  IrohRepository,
+  IrohRepositoryLive,
+} from "../../../../services/iroh/repository";
 import {
   unauthorized,
   verifyRequest,
@@ -53,9 +61,15 @@ export interface RelayTokenDeps {
     readonly key: KeyObject;
     readonly nowSeconds: number;
   }) => readonly ManagedRelayCredentialGrant[];
+  readonly isEndpointBound: (input: {
+    readonly accountId: string;
+    readonly endpointId: string;
+    readonly nowSeconds: number;
+  }) => Promise<boolean>;
   readonly checkRateLimit: RelayRateLimitCheck;
   readonly rateLimitRuleId: () => string | undefined;
   readonly isVercel: () => boolean;
+  readonly credentialSigningRequired: () => boolean;
 }
 
 const productionDeps: RelayTokenDeps = {
@@ -76,9 +90,27 @@ const productionDeps: RelayTokenDeps = {
     key: input.key,
     nowSeconds: input.nowSeconds,
   }),
+  isEndpointBound: async (input) => await runRelayEffect(
+    Effect.gen(function* () {
+      const repository = yield* IrohRepository;
+      const binding = yield* repository.findActiveBindingByEndpoint(
+        input.accountId,
+        input.endpointId,
+      );
+      return binding !== null;
+    }).pipe(
+      Effect.provide(IrohRepositoryLive),
+      Effect.mapError((cause) => new RelayDatabaseError({
+        operation: "irohBinding.findByEndpoint",
+        cause,
+      })),
+    ),
+  ),
   checkRateLimit,
   rateLimitRuleId: () => process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID,
   isVercel: () => process.env.VERCEL === "1",
+  credentialSigningRequired: () =>
+    process.env.VERCEL === "1" && process.env.VERCEL_ENV !== "preview",
 };
 
 export async function handleRelayTokenRequest(
@@ -89,18 +121,7 @@ export async function handleRelayTokenRequest(
   if (!user) return unauthorized();
 
   try {
-    await runRelayEffect(enforceRelayRateLimit({
-      request,
-      accountId: user.id,
-      ruleId: deps.rateLimitRuleId(),
-      check: deps.checkRateLimit,
-      isVercel: deps.isVercel(),
-      retryAfterSeconds: RELAY_TOKEN_RATE_LIMIT_RETRY_AFTER_SECONDS,
-    }));
-
     const key = deps.signingKey();
-    if (!key) return jsonResponse({ error: "relay_token_not_configured" }, 503);
-
     const body = await readBoundedJsonObject(request, MAX_BODY_BYTES);
     if (!body.ok) {
       return jsonResponse(
@@ -113,23 +134,56 @@ export async function handleRelayTokenRequest(
       return jsonResponse({ error: "invalid_endpoint_id" }, 400);
     }
 
+    // Rate limited per account+endpoint so one storming device only starves
+    // itself; runs after validation so malformed requests never consume the
+    // per-device budget.
+    await runRelayEffect(enforceRelayRateLimit({
+      request,
+      accountId: user.id,
+      devicePartition: rawEndpointId.toLowerCase(),
+      ruleId: deps.rateLimitRuleId(),
+      check: deps.checkRateLimit,
+      isVercel: deps.isVercel(),
+      retryAfterSeconds: RELAY_TOKEN_RATE_LIMIT_RETRY_AFTER_SECONDS,
+    }));
+
     const nowSeconds = deps.nowSeconds();
     const policy = await deps.signedPolicy(user.id, nowSeconds);
+    if (!key && deps.credentialSigningRequired()) {
+      return jsonResponse({ error: "relay_token_not_configured" }, 503);
+    }
     const relayUrls = policy.payload.relays.map((relay) => relay.url);
-    const relayCredentials = deps.issueCredentials({
+    const endpointId = rawEndpointId.toLowerCase();
+    const isEndpointBound = await deps.isEndpointBound({
       accountId: user.id,
-      endpointId: rawEndpointId,
-      relayUrls,
-      key,
+      endpointId,
       nowSeconds,
     });
-    if (!hasExactCredentialSet(relayCredentials, relayUrls, nowSeconds)) {
+    // Local and preview runtimes intentionally operate without the private
+    // relay JWT signer. They still return the signed fleet policy so clients
+    // install one coherent account preference and continue with direct/LAN
+    // paths. Deployed non-preview runtimes fail closed above.
+    const relayCredentials = isEndpointBound && key
+      ? deps.issueCredentials({
+        accountId: user.id,
+        endpointId,
+        relayUrls,
+        key,
+        nowSeconds,
+      })
+      : undefined;
+    if (
+      relayCredentials !== undefined &&
+      !hasExactCredentialSet(relayCredentials, relayUrls, nowSeconds)
+    ) {
       throw new RelayConfigurationError({ code: "credential_set_invalid" });
     }
-    const legacy = homogeneousLegacyCredential(relayCredentials);
+    const legacy = relayCredentials
+      ? homogeneousLegacyCredential(relayCredentials)
+      : null;
     return jsonResponse({
-      endpointId: rawEndpointId.toLowerCase(),
-      relayCredentials,
+      endpointId,
+      ...(relayCredentials ? { relayCredentials } : {}),
       // Homogeneous fleets retain the old fields during client migration.
       ...(legacy
         ? {

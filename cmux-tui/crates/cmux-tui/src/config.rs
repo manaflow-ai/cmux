@@ -29,10 +29,25 @@
 //!   "sidebar": {
 //!     "view": "files",
 //!     "width": 22,
+//!     "compact_width": 10,
 //!     "max_width": 0,
 //!     "plugin": {
 //!       "command": ["/path/to/plugin-binary"],
 //!       "cwd": "/optional"
+//!     }
+//!   },
+//!   "machine_sidebar": {
+//!     "enabled": false,
+//!     "width": 22,
+//!     "max_width": 0
+//!   },
+//!   "machine_provider": {
+//!     "cloud": {
+//!       "enabled": false,
+//!       "host": "cmux.cloud",
+//!       "user": null,
+//!       "port": null,
+//!       "identity_file": null
 //!     }
 //!   },
 //!   "browser": {
@@ -49,6 +64,9 @@
 //!   "scrollbar": {
 //!     "position": "column"
 //!   },
+//!   "viewport": {
+//!     "animation": true
+//!   },
 //!   "server": {
 //!     "ws": "127.0.0.1:7681",
 //!     "ws_token": "replace-with-a-secret"
@@ -56,10 +74,11 @@
 //!   "keys": {
 //!     "prefix": "ctrl+b",
 //!     "alt_shortcuts": true,
-//!     "new-tab": ["t", "alt+t"],
+//!     "super_shortcuts": true,
+//!     "new-tab": ["t", "alt+t", "cmd+t"],
 //!     "next-tab": "tab",
 //!     "prev-tab": "backtab",
-//!     "select-screen-1": "1",
+//!     "select-screen-0": "0",
 //!     "browser-edit-url": "u"
 //!   }
 //! }
@@ -75,31 +94,34 @@
 //! chord string, an array of chord strings, or `"none"`. Overrides replace
 //! all default chords for that action. Action names are:
 //! `new-tab`, `new-browser-tab` (alias: `new_browser_tab`),
-//! `new-pane-smart`, `next-tab`, `prev-tab`, `select-tab-1` through
+//! `new-pane-smart`, `next-tab`, `prev-tab`, `select-tab-0` through
 //! `select-tab-9`, `split-right`, `split-down`, `close-tab`,
 //! `close-pane`, `rename-tab` (alias: `rename-pane`), `rename-screen`,
 //! `rename-workspace`, `close-screen`, `prev-screen`, `next-screen`,
 //! `select-screen-0` through `select-screen-9`, `new-screen`,
-//! `next-workspace`, `new-workspace`, `toggle-sidebar`, `toggle-sidebar-view`, `focus-sidebar`,
+//! `prev-workspace`, `next-workspace`, `new-workspace`, `close-workspace`,
+//! `send-prefix`, `toggle-sidebar`, `toggle-sidebar-compact`,
+//! `toggle-sidebar-view`, `focus-sidebar`, `new-pane-right`, `undo-layout`,
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
-//! `resize-shrink`, `scroll-up`, `scroll-down`, `browser-back`,
-//! `browser-forward`, `browser-reload`, `browser-edit-url`, and `detach`.
+//! `resize-shrink`, `scroll-up`, `scroll-down`, `clear-history`, `browser-back`,
+//! `browser-forward`, `browser-reload`, `browser-edit-url`, `show-shortcuts`,
+//! and `detach`.
 //!
 //! The defaults intentionally match tmux where cmux has the same
-//! capability. `x` closes the active pane and `X` closes the active tab;
-//! set `"close-pane": "X"` and `"close-tab": "x"` to restore the old
-//! cmux defaults. Screens are visibly numbered from 1, so
-//! `select-screen-1` selects the first visible screen, ..., and
-//! `select-screen-0` selects the tenth visible screen. Zellij's modal
+//! capability, except that `x` closes the more commonly managed tab and
+//! `X` closes its containing pane. Both actions remain independently
+//! configurable. Screen positions are zero-based, so each
+//! `select-screen-N` action selects the screen at index `N`. Zellij's modal
 //! `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a
 //! deliberate non-goal because they conflict with shell/editor control
 //! keys.
 
-use std::collections::HashMap;
-use std::io::Write;
+use std::collections::{HashMap, HashSet};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::BrowserMode;
 use cmux_tui_core::SidebarPluginOptions;
@@ -111,6 +133,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
+
+use crate::localization::catalog;
 
 /// For a field typed `Option<Option<T>>`: makes an explicit `null` in the
 /// input deserialize to `Some(None)` rather than the `None` an absent key
@@ -133,14 +157,23 @@ struct RawConfig {
     #[serde(default)]
     sidebar: RawSidebar,
     #[serde(default)]
+    machine_sidebar: RawMachineSidebar,
+    #[serde(default)]
+    machine_provider: RawMachineProvider,
+    #[serde(default)]
+    machines: Vec<RawMachine>,
+    #[serde(default)]
     browser: RawBrowser,
     #[serde(default)]
     scrollbar: RawScrollbar,
     #[serde(default)]
+    viewport: RawViewport,
+    #[serde(default)]
     server: RawServer,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
     /// a chord string, an array of chord strings, `"none"`, or
-    /// `"alt_shortcuts": false`.
+    /// `"alt_shortcuts": false`, `"super_shortcuts": false`, or the host
+    /// input mode `"macos_option_as_alt": false`.
     #[serde(default)]
     keys: HashMap<String, Value>,
 }
@@ -150,6 +183,23 @@ struct RawConfig {
 struct RawServer {
     ws: Option<String>,
     ws_token: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMachineProvider {
+    #[serde(default)]
+    cloud: RawCloudProvider,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawCloudProvider {
+    enabled: Option<bool>,
+    host: Option<String>,
+    user: Option<String>,
+    port: Option<u16>,
+    identity_file: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -232,6 +282,9 @@ pub struct ChromeTheme {
     pub browser_message_fg: Color,
     pub scrollbar_thumb_fg: Color,
     pub scrollbar_thumb_active_fg: Color,
+    pub foreign_viewport_bg: Color,
+    pub foreign_viewport_boundary_fg: Color,
+    pub foreign_viewport_hint_fg: Color,
 }
 
 impl ChromeTheme {
@@ -284,6 +337,9 @@ impl ChromeTheme {
             browser_message_fg: Color::Indexed(244),
             scrollbar_thumb_fg: Color::Indexed(246),
             scrollbar_thumb_active_fg: Color::Indexed(252),
+            foreign_viewport_bg: Color::Indexed(235),
+            foreign_viewport_boundary_fg: Color::Indexed(240),
+            foreign_viewport_hint_fg: Color::Indexed(244),
         }
     }
 
@@ -336,6 +392,9 @@ impl ChromeTheme {
             browser_message_fg: Color::Indexed(242),
             scrollbar_thumb_fg: Color::Indexed(246),
             scrollbar_thumb_active_fg: Color::Indexed(240),
+            foreign_viewport_bg: Color::Indexed(250),
+            foreign_viewport_boundary_fg: Color::Indexed(246),
+            foreign_viewport_hint_fg: Color::Indexed(242),
         }
     }
 
@@ -370,6 +429,7 @@ struct RawTabs {
 struct RawSidebar {
     view: Option<String>,
     width: Option<u16>,
+    compact_width: Option<u16>,
     max_width: Option<u16>,
     plugin: Option<RawSidebarPlugin>,
 }
@@ -379,6 +439,107 @@ struct RawSidebar {
 struct RawSidebarPlugin {
     command: Option<Vec<String>>,
     cwd: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMachineSidebar {
+    enabled: Option<bool>,
+    width: Option<u16>,
+    max_width: Option<u16>,
+}
+
+#[derive(Debug)]
+struct RawMachine {
+    id: String,
+    name: String,
+    subtitle: String,
+    target: RawMachineTarget,
+}
+
+#[derive(Debug)]
+enum RawMachineTarget {
+    Unix {
+        socket: String,
+    },
+    Ssh {
+        host: String,
+        user: Option<String>,
+        port: Option<u16>,
+        identity_file: Option<String>,
+        session: Option<String>,
+        binary: Option<String>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum RawMachineTransport {
+    Unix,
+    Ssh,
+}
+
+/// The public machine shape stays flat for compatibility, while this wire
+/// type gives serde one exact field set to validate before transport-specific
+/// checks run. `flatten` and `deny_unknown_fields` cannot safely be combined.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMachineWire {
+    id: String,
+    name: String,
+    #[serde(default)]
+    subtitle: String,
+    transport: RawMachineTransport,
+    socket: Option<String>,
+    host: Option<String>,
+    user: Option<String>,
+    port: Option<u16>,
+    identity_file: Option<String>,
+    session: Option<String>,
+    binary: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for RawMachine {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawMachineWire::deserialize(deserializer)?;
+        let target = match raw.transport {
+            RawMachineTransport::Unix => {
+                if raw.host.is_some()
+                    || raw.user.is_some()
+                    || raw.port.is_some()
+                    || raw.identity_file.is_some()
+                    || raw.session.is_some()
+                    || raw.binary.is_some()
+                {
+                    return Err(serde::de::Error::custom(
+                        "SSH fields are not valid for a unix machine transport",
+                    ));
+                }
+                RawMachineTarget::Unix {
+                    socket: raw.socket.ok_or_else(|| serde::de::Error::missing_field("socket"))?,
+                }
+            }
+            RawMachineTransport::Ssh => {
+                if raw.socket.is_some() {
+                    return Err(serde::de::Error::custom(
+                        "socket is not valid for an ssh machine transport",
+                    ));
+                }
+                RawMachineTarget::Ssh {
+                    host: raw.host.ok_or_else(|| serde::de::Error::missing_field("host"))?,
+                    user: raw.user,
+                    port: raw.port,
+                    identity_file: raw.identity_file,
+                    session: raw.session,
+                    binary: raw.binary,
+                }
+            }
+        };
+        Ok(Self { id: raw.id, name: raw.name, subtitle: raw.subtitle, target })
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -417,6 +578,12 @@ struct RawScrollbar {
     position: Option<ScrollbarPosition>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawViewport {
+    animation: Option<bool>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ScrollbarPosition {
@@ -432,6 +599,17 @@ pub struct Scrollbar {
 impl Default for Scrollbar {
     fn default() -> Self {
         Scrollbar { position: ScrollbarPosition::Column }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Viewport {
+    pub animation: bool,
+}
+
+impl Default for Viewport {
+    fn default() -> Self {
+        Self { animation: true }
     }
 }
 
@@ -523,13 +701,84 @@ pub struct Sidebar {
     /// Built-in view used when `plugin` is unset. The default is the file browser.
     pub view: SidebarView,
     pub width: u16,
+    pub compact_width: u16,
     pub max_width: u16,
     pub plugin: Option<SidebarPluginOptions>,
 }
 
 impl Default for Sidebar {
     fn default() -> Self {
-        Sidebar { view: SidebarView::Workspaces, width: 22, max_width: 0, plugin: None }
+        Sidebar {
+            view: SidebarView::Workspaces,
+            width: 22,
+            compact_width: 10,
+            max_width: 0,
+            plugin: None,
+        }
+    }
+}
+
+/// Optional client-local rail listing connection targets. It is disabled for
+/// ordinary local cmux sessions and enabled by a machine provider or config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineSidebar {
+    pub enabled: bool,
+    pub width: u16,
+    pub max_width: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MachineProviderConfig {
+    pub cloud: CloudProviderConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudProviderConfig {
+    pub enabled: bool,
+    pub host: String,
+    pub user: Option<String>,
+    pub port: Option<u16>,
+    pub identity_file: Option<PathBuf>,
+}
+
+impl Default for CloudProviderConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            host: "cmux.cloud".to_string(),
+            user: None,
+            port: None,
+            identity_file: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineConfig {
+    pub id: String,
+    pub name: String,
+    pub subtitle: String,
+    pub target: MachineTargetConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MachineTargetConfig {
+    Unix {
+        socket: PathBuf,
+    },
+    Ssh {
+        host: String,
+        user: Option<String>,
+        port: Option<u16>,
+        identity_file: Option<PathBuf>,
+        session: String,
+        binary: String,
+    },
+}
+
+impl Default for MachineSidebar {
+    fn default() -> Self {
+        Self { enabled: false, width: 22, max_width: 0 }
     }
 }
 
@@ -588,15 +837,31 @@ impl Default for Browser {
     }
 }
 
+/// A validated zero-based index for the ten directly selectable tabs and
+/// screens. Its private field prevents unregistered numbered actions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ActionIndex(u8);
+
+impl ActionIndex {
+    pub const fn new(value: u8) -> Option<Self> {
+        if value <= 9 { Some(Self(value)) } else { None }
+    }
+
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+}
+
 /// Every prefix-key action, so bindings are configurable end to end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
+    SendPrefix,
     NewTab,
     NewBrowserTab,
     NewPaneSmart,
     NextTab,
     PrevTab,
-    SelectTab(u8),
+    SelectTab(ActionIndex),
     SplitRight,
     SplitDown,
     CloseTab,
@@ -607,13 +872,18 @@ pub enum Action {
     CloseScreen,
     PrevScreen,
     NextScreen,
-    SelectScreen(u8),
+    SelectScreen(ActionIndex),
     NewScreen,
+    PrevWorkspace,
     NextWorkspace,
     NewWorkspace,
+    CloseWorkspace,
     ToggleSidebar,
+    ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
+    NewPaneRight,
+    UndoLayout,
     FocusLeft,
     FocusRight,
     FocusUp,
@@ -626,70 +896,874 @@ pub enum Action {
     ResizeShrink,
     ScrollUp,
     ScrollDown,
+    ClearHistory,
     BrowserBack,
     BrowserForward,
     BrowserReload,
     BrowserEditUrl,
+    ShowShortcuts,
     Detach,
 }
 
-impl Action {
-    fn config_key(&self) -> String {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+pub(crate) enum ActionExecution {
+    SendPrefix,
+    NewTab,
+    NewBrowserTab,
+    NewPaneSmart,
+    NextTab,
+    PrevTab,
+    SelectTab(ActionIndex),
+    SplitRight,
+    SplitDown,
+    CloseTab,
+    ClosePane,
+    RenameTab,
+    RenameScreen,
+    RenameWorkspace,
+    CloseScreen,
+    PrevScreen,
+    NextScreen,
+    SelectScreen(ActionIndex),
+    NewScreen,
+    PrevWorkspace,
+    NextWorkspace,
+    NewWorkspace,
+    CloseWorkspace,
+    ToggleSidebar,
+    ToggleSidebarCompact,
+    ToggleSidebarView,
+    FocusSidebar,
+    NewPaneRight,
+    UndoLayout,
+    FocusLeft,
+    FocusRight,
+    FocusUp,
+    FocusDown,
+    FocusNextPane,
+    SwapPanePrev,
+    SwapPaneNext,
+    ZoomPane,
+    ResizeGrow,
+    ResizeShrink,
+    ScrollUp,
+    ScrollDown,
+    ClearHistory,
+    BrowserBack,
+    BrowserForward,
+    BrowserReload,
+    BrowserEditUrl,
+    ShowShortcuts,
+    Detach,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+enum ActionClassification {
+    Direct,
+    Composite,
+    PresentationOnly,
+}
+
+#[cfg(test)]
+impl ActionClassification {
+    const fn inventory_name(self) -> &'static str {
         match self {
-            Action::NewTab => "new-tab".to_string(),
-            Action::NewBrowserTab => "new-browser-tab".to_string(),
-            Action::NewPaneSmart => "new-pane-smart".to_string(),
-            Action::NextTab => "next-tab".to_string(),
-            Action::PrevTab => "prev-tab".to_string(),
-            Action::SelectTab(number) => format!("select-tab-{number}"),
-            Action::SplitRight => "split-right".to_string(),
-            Action::SplitDown => "split-down".to_string(),
-            Action::CloseTab => "close-tab".to_string(),
-            Action::ClosePane => "close-pane".to_string(),
-            Action::RenameTab => "rename-tab".to_string(),
-            Action::RenameScreen => "rename-screen".to_string(),
-            Action::RenameWorkspace => "rename-workspace".to_string(),
-            Action::CloseScreen => "close-screen".to_string(),
-            Action::PrevScreen => "prev-screen".to_string(),
-            Action::NextScreen => "next-screen".to_string(),
-            Action::SelectScreen(number) => format!("select-screen-{number}"),
-            Action::NewScreen => "new-screen".to_string(),
-            Action::NextWorkspace => "next-workspace".to_string(),
-            Action::NewWorkspace => "new-workspace".to_string(),
-            Action::ToggleSidebar => "toggle-sidebar".to_string(),
-            Action::ToggleSidebarView => "toggle-sidebar-view".to_string(),
-            Action::FocusSidebar => "focus-sidebar".to_string(),
-            Action::FocusLeft => "focus-left".to_string(),
-            Action::FocusRight => "focus-right".to_string(),
-            Action::FocusUp => "focus-up".to_string(),
-            Action::FocusDown => "focus-down".to_string(),
-            Action::FocusNextPane => "focus-next-pane".to_string(),
-            Action::SwapPanePrev => "swap-pane-prev".to_string(),
-            Action::SwapPaneNext => "swap-pane-next".to_string(),
-            Action::ZoomPane => "zoom-pane".to_string(),
-            Action::ResizeGrow => "resize-grow".to_string(),
-            Action::ResizeShrink => "resize-shrink".to_string(),
-            Action::ScrollUp => "scroll-up".to_string(),
-            Action::ScrollDown => "scroll-down".to_string(),
-            Action::BrowserBack => "browser-back".to_string(),
-            Action::BrowserForward => "browser-forward".to_string(),
-            Action::BrowserReload => "browser-reload".to_string(),
-            Action::BrowserEditUrl => "browser-edit-url".to_string(),
-            Action::Detach => "detach".to_string(),
+            Self::Direct => "direct",
+            Self::Composite => "composite",
+            Self::PresentationOnly => "presentation-only",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+enum WorkspaceOwnershipSource {
+    ActiveWorkspaceSession,
+}
+
+#[cfg(test)]
+impl WorkspaceOwnershipSource {
+    const fn inventory_name(self) -> &'static str {
+        match self {
+            Self::ActiveWorkspaceSession => "active-workspace-session",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+enum ActionRouteTarget {
+    MuxCommand(&'static str),
+    MachineProviderRequest(&'static str),
+}
+
+#[cfg(test)]
+impl ActionRouteTarget {
+    const fn inventory_kind(self) -> &'static str {
+        match self {
+            Self::MuxCommand(_) => "mux-command",
+            Self::MachineProviderRequest(_) => "machine-provider-request",
+        }
+    }
+
+    const fn operation(self) -> &'static str {
+        match self {
+            Self::MuxCommand(operation) | Self::MachineProviderRequest(operation) => operation,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+enum UnknownOwnership {
+    Reject,
+}
+
+#[cfg(test)]
+impl UnknownOwnership {
+    const fn inventory_name(self) -> &'static str {
+        match self {
+            Self::Reject => "reject",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+enum ActionRoute {
+    Static(&'static str),
+    WorkspaceOwnership {
+        source: WorkspaceOwnershipSource,
+        session_owned: ActionRouteTarget,
+        provider_owned: ActionRouteTarget,
+        unknown: UnknownOwnership,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+pub(crate) struct ActionMetadata {
+    key: &'static str,
+    classification: ActionClassification,
+    route: ActionRoute,
+    execution: ActionExecution,
+}
+
+#[cfg(test)]
+impl ActionMetadata {
+    const fn new(
+        key: &'static str,
+        classification: ActionClassification,
+        route: &'static str,
+        execution: ActionExecution,
+    ) -> Self {
+        Self { key, classification, route: ActionRoute::Static(route), execution }
+    }
+
+    const fn workspace_ownership(
+        key: &'static str,
+        classification: ActionClassification,
+        source: WorkspaceOwnershipSource,
+        session_owned: ActionRouteTarget,
+        provider_owned: ActionRouteTarget,
+        unknown: UnknownOwnership,
+        execution: ActionExecution,
+    ) -> Self {
+        Self {
+            key,
+            classification,
+            route: ActionRoute::WorkspaceOwnership {
+                source,
+                session_owned,
+                provider_owned,
+                unknown,
+            },
+            execution,
+        }
+    }
+
+    pub(crate) fn execution(self) -> ActionExecution {
+        debug_assert!(!self.key.is_empty());
+        debug_assert!(!self.classification.inventory_name().is_empty());
+        match self.route {
+            ActionRoute::Static(route) => debug_assert!(!route.is_empty()),
+            ActionRoute::WorkspaceOwnership { source, session_owned, provider_owned, unknown } => {
+                debug_assert!(!source.inventory_name().is_empty());
+                debug_assert_eq!(session_owned.inventory_kind(), "mux-command");
+                debug_assert!(!session_owned.operation().is_empty());
+                debug_assert_eq!(provider_owned.inventory_kind(), "machine-provider-request");
+                debug_assert!(!provider_owned.operation().is_empty());
+                debug_assert_eq!(unknown.inventory_name(), "reject");
+            }
+        }
+        self.execution
+    }
+}
+
+/// One executable TUI action and the metadata shared by key configuration,
+/// context menus, shortcut help, and future command surfaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActionDefinition {
+    pub action: Action,
+    pub config_key: &'static str,
+    pub label_en: &'static str,
+    pub label_ja: &'static str,
+}
+
+macro_rules! action_definition {
+    ($action:expr, $config_key:literal, $label_en:literal, $label_ja:literal) => {
+        ActionDefinition {
+            action: $action,
+            config_key: $config_key,
+            label_en: $label_en,
+            label_ja: $label_ja,
+        }
+    };
+}
+
+macro_rules! define_named_action_definitions {
+    ($( $name:ident => ($action:expr, $config_key:literal, $label_en:literal, $label_ja:literal); )+) => {
+        $(
+            static $name: ActionDefinition =
+                action_definition!($action, $config_key, $label_en, $label_ja);
+        )+
+    };
+}
+
+define_named_action_definitions! {
+    SEND_PREFIX_DEFINITION => (Action::SendPrefix, "send-prefix", "Send prefix", "プレフィックスを送信");
+    NEW_TAB_DEFINITION => (Action::NewTab, "new-tab", "New tab", "新しいタブ");
+    NEW_BROWSER_TAB_DEFINITION => (Action::NewBrowserTab, "new-browser-tab", "New browser tab", "新しいブラウザタブ");
+    NEW_PANE_SMART_DEFINITION => (Action::NewPaneSmart, "new-pane-smart", "New pane", "新しいペイン");
+    NEXT_TAB_DEFINITION => (Action::NextTab, "next-tab", "Next tab", "次のタブ");
+    PREV_TAB_DEFINITION => (Action::PrevTab, "prev-tab", "Previous tab", "前のタブ");
+    SPLIT_RIGHT_DEFINITION => (Action::SplitRight, "split-right", "Split right", "右に分割");
+    SPLIT_DOWN_DEFINITION => (Action::SplitDown, "split-down", "Split down", "下に分割");
+    CLOSE_TAB_DEFINITION => (Action::CloseTab, "close-tab", "Close tab", "タブを閉じる");
+    CLOSE_PANE_DEFINITION => (Action::ClosePane, "close-pane", "Close pane", "ペインを閉じる");
+    RENAME_TAB_DEFINITION => (Action::RenameTab, "rename-tab", "Rename tab", "タブ名を変更");
+    RENAME_SCREEN_DEFINITION => (Action::RenameScreen, "rename-screen", "Rename screen", "スクリーン名を変更");
+    RENAME_WORKSPACE_DEFINITION => (Action::RenameWorkspace, "rename-workspace", "Rename workspace", "ワークスペース名を変更");
+    CLOSE_SCREEN_DEFINITION => (Action::CloseScreen, "close-screen", "Close screen", "スクリーンを閉じる");
+    PREV_SCREEN_DEFINITION => (Action::PrevScreen, "prev-screen", "Previous screen", "前のスクリーン");
+    NEXT_SCREEN_DEFINITION => (Action::NextScreen, "next-screen", "Next screen", "次のスクリーン");
+    NEW_SCREEN_DEFINITION => (Action::NewScreen, "new-screen", "New screen", "新しいスクリーン");
+    PREV_WORKSPACE_DEFINITION => (Action::PrevWorkspace, "prev-workspace", "Previous workspace", "前のワークスペース");
+    NEXT_WORKSPACE_DEFINITION => (Action::NextWorkspace, "next-workspace", "Next workspace", "次のワークスペース");
+    NEW_WORKSPACE_DEFINITION => (Action::NewWorkspace, "new-workspace", "New workspace", "新しいワークスペース");
+    CLOSE_WORKSPACE_DEFINITION => (Action::CloseWorkspace, "close-workspace", "Close workspace", "ワークスペースを閉じる");
+    TOGGLE_SIDEBAR_DEFINITION => (Action::ToggleSidebar, "toggle-sidebar", "Show or hide sidebar", "サイドバーの表示を切り替え");
+    TOGGLE_SIDEBAR_COMPACT_DEFINITION => (Action::ToggleSidebarCompact, "toggle-sidebar-compact", "Compact or expand sidebar", "サイドバーの幅を切り替え");
+    TOGGLE_SIDEBAR_VIEW_DEFINITION => (Action::ToggleSidebarView, "toggle-sidebar-view", "Switch sidebar view", "サイドバー表示を切り替え");
+    FOCUS_SIDEBAR_DEFINITION => (Action::FocusSidebar, "focus-sidebar", "Focus sidebar", "サイドバーにフォーカス");
+    NEW_PANE_RIGHT_DEFINITION => (Action::NewPaneRight, "new-pane-right", "New column to the right", "右に新しい列");
+    UNDO_LAYOUT_DEFINITION => (Action::UndoLayout, "undo-layout", "Undo layout", "レイアウトを元に戻す");
+    FOCUS_LEFT_DEFINITION => (Action::FocusLeft, "focus-left", "Focus left", "左へフォーカス");
+    FOCUS_RIGHT_DEFINITION => (Action::FocusRight, "focus-right", "Focus right", "右へフォーカス");
+    FOCUS_UP_DEFINITION => (Action::FocusUp, "focus-up", "Focus up", "上へフォーカス");
+    FOCUS_DOWN_DEFINITION => (Action::FocusDown, "focus-down", "Focus down", "下へフォーカス");
+    FOCUS_NEXT_PANE_DEFINITION => (Action::FocusNextPane, "focus-next-pane", "Focus next pane", "次のペインにフォーカス");
+    SWAP_PANE_PREV_DEFINITION => (Action::SwapPanePrev, "swap-pane-prev", "Move pane backward", "ペインを前へ移動");
+    SWAP_PANE_NEXT_DEFINITION => (Action::SwapPaneNext, "swap-pane-next", "Move pane forward", "ペインを後ろへ移動");
+    ZOOM_PANE_DEFINITION => (Action::ZoomPane, "zoom-pane", "Maximize or restore pane", "ペインを最大化または復元");
+    RESIZE_GROW_DEFINITION => (Action::ResizeGrow, "resize-grow", "Grow pane", "ペインを拡大");
+    RESIZE_SHRINK_DEFINITION => (Action::ResizeShrink, "resize-shrink", "Shrink pane", "ペインを縮小");
+    SCROLL_UP_DEFINITION => (Action::ScrollUp, "scroll-up", "Scroll up", "上にスクロール");
+    SCROLL_DOWN_DEFINITION => (Action::ScrollDown, "scroll-down", "Scroll down", "下にスクロール");
+    CLEAR_HISTORY_DEFINITION => (Action::ClearHistory, "clear-history", "Clear terminal history", "ターミナル履歴を消去");
+    BROWSER_BACK_DEFINITION => (Action::BrowserBack, "browser-back", "Browser back", "ブラウザで戻る");
+    BROWSER_FORWARD_DEFINITION => (Action::BrowserForward, "browser-forward", "Browser forward", "ブラウザで進む");
+    BROWSER_RELOAD_DEFINITION => (Action::BrowserReload, "browser-reload", "Reload browser", "ブラウザを再読み込み");
+    BROWSER_EDIT_URL_DEFINITION => (Action::BrowserEditUrl, "browser-edit-url", "Edit browser URL", "ブラウザ URL を編集");
+    SHOW_SHORTCUTS_DEFINITION => (Action::ShowShortcuts, "show-shortcuts", "Keyboard shortcuts", "キーボードショートカット");
+    DETACH_DEFINITION => (Action::Detach, "detach", "Detach", "デタッチ");
+}
+
+static SELECT_TAB_DEFINITIONS: [ActionDefinition; 10] = [
+    action_definition!(
+        Action::select_tab(0).unwrap(),
+        "select-tab-0",
+        "Select tab 0",
+        "タブ 0 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(1).unwrap(),
+        "select-tab-1",
+        "Select tab 1",
+        "タブ 1 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(2).unwrap(),
+        "select-tab-2",
+        "Select tab 2",
+        "タブ 2 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(3).unwrap(),
+        "select-tab-3",
+        "Select tab 3",
+        "タブ 3 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(4).unwrap(),
+        "select-tab-4",
+        "Select tab 4",
+        "タブ 4 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(5).unwrap(),
+        "select-tab-5",
+        "Select tab 5",
+        "タブ 5 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(6).unwrap(),
+        "select-tab-6",
+        "Select tab 6",
+        "タブ 6 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(7).unwrap(),
+        "select-tab-7",
+        "Select tab 7",
+        "タブ 7 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(8).unwrap(),
+        "select-tab-8",
+        "Select tab 8",
+        "タブ 8 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(9).unwrap(),
+        "select-tab-9",
+        "Select tab 9",
+        "タブ 9 を選択"
+    ),
+];
+
+static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
+    action_definition!(
+        Action::select_screen(0).unwrap(),
+        "select-screen-0",
+        "Select screen 0",
+        "スクリーン 0 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(1).unwrap(),
+        "select-screen-1",
+        "Select screen 1",
+        "スクリーン 1 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(2).unwrap(),
+        "select-screen-2",
+        "Select screen 2",
+        "スクリーン 2 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(3).unwrap(),
+        "select-screen-3",
+        "Select screen 3",
+        "スクリーン 3 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(4).unwrap(),
+        "select-screen-4",
+        "Select screen 4",
+        "スクリーン 4 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(5).unwrap(),
+        "select-screen-5",
+        "Select screen 5",
+        "スクリーン 5 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(6).unwrap(),
+        "select-screen-6",
+        "Select screen 6",
+        "スクリーン 6 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(7).unwrap(),
+        "select-screen-7",
+        "Select screen 7",
+        "スクリーン 7 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(8).unwrap(),
+        "select-screen-8",
+        "Select screen 8",
+        "スクリーン 8 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(9).unwrap(),
+        "select-screen-9",
+        "Select screen 9",
+        "スクリーン 9 を選択"
+    ),
+];
+
+/// The canonical action catalog. Presentation surfaces derive their labels
+/// and ordering from these named definitions instead of positional offsets.
+pub fn action_definitions() -> &'static [&'static ActionDefinition] {
+    static DEFINITIONS: [&ActionDefinition; 66] = [
+        &SEND_PREFIX_DEFINITION,
+        &NEW_TAB_DEFINITION,
+        &NEW_BROWSER_TAB_DEFINITION,
+        &NEW_PANE_SMART_DEFINITION,
+        &NEXT_TAB_DEFINITION,
+        &PREV_TAB_DEFINITION,
+        &SELECT_TAB_DEFINITIONS[0],
+        &SELECT_TAB_DEFINITIONS[1],
+        &SELECT_TAB_DEFINITIONS[2],
+        &SELECT_TAB_DEFINITIONS[3],
+        &SELECT_TAB_DEFINITIONS[4],
+        &SELECT_TAB_DEFINITIONS[5],
+        &SELECT_TAB_DEFINITIONS[6],
+        &SELECT_TAB_DEFINITIONS[7],
+        &SELECT_TAB_DEFINITIONS[8],
+        &SELECT_TAB_DEFINITIONS[9],
+        &SPLIT_RIGHT_DEFINITION,
+        &SPLIT_DOWN_DEFINITION,
+        &CLOSE_TAB_DEFINITION,
+        &CLOSE_PANE_DEFINITION,
+        &RENAME_TAB_DEFINITION,
+        &RENAME_SCREEN_DEFINITION,
+        &RENAME_WORKSPACE_DEFINITION,
+        &CLOSE_SCREEN_DEFINITION,
+        &PREV_SCREEN_DEFINITION,
+        &NEXT_SCREEN_DEFINITION,
+        &SELECT_SCREEN_DEFINITIONS[0],
+        &SELECT_SCREEN_DEFINITIONS[1],
+        &SELECT_SCREEN_DEFINITIONS[2],
+        &SELECT_SCREEN_DEFINITIONS[3],
+        &SELECT_SCREEN_DEFINITIONS[4],
+        &SELECT_SCREEN_DEFINITIONS[5],
+        &SELECT_SCREEN_DEFINITIONS[6],
+        &SELECT_SCREEN_DEFINITIONS[7],
+        &SELECT_SCREEN_DEFINITIONS[8],
+        &SELECT_SCREEN_DEFINITIONS[9],
+        &NEW_SCREEN_DEFINITION,
+        &PREV_WORKSPACE_DEFINITION,
+        &NEXT_WORKSPACE_DEFINITION,
+        &NEW_WORKSPACE_DEFINITION,
+        &CLOSE_WORKSPACE_DEFINITION,
+        &TOGGLE_SIDEBAR_DEFINITION,
+        &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
+        &TOGGLE_SIDEBAR_VIEW_DEFINITION,
+        &FOCUS_SIDEBAR_DEFINITION,
+        &NEW_PANE_RIGHT_DEFINITION,
+        &UNDO_LAYOUT_DEFINITION,
+        &FOCUS_LEFT_DEFINITION,
+        &FOCUS_RIGHT_DEFINITION,
+        &FOCUS_UP_DEFINITION,
+        &FOCUS_DOWN_DEFINITION,
+        &FOCUS_NEXT_PANE_DEFINITION,
+        &SWAP_PANE_PREV_DEFINITION,
+        &SWAP_PANE_NEXT_DEFINITION,
+        &ZOOM_PANE_DEFINITION,
+        &RESIZE_GROW_DEFINITION,
+        &RESIZE_SHRINK_DEFINITION,
+        &SCROLL_UP_DEFINITION,
+        &SCROLL_DOWN_DEFINITION,
+        &CLEAR_HISTORY_DEFINITION,
+        &BROWSER_BACK_DEFINITION,
+        &BROWSER_FORWARD_DEFINITION,
+        &BROWSER_RELOAD_DEFINITION,
+        &BROWSER_EDIT_URL_DEFINITION,
+        &SHOW_SHORTCUTS_DEFINITION,
+        &DETACH_DEFINITION,
+    ];
+    &DEFINITIONS
+}
+
+impl Action {
+    /// Compiled source of truth for programmability classification and
+    /// execution routing. The specification inventory checker reads this
+    /// exhaustive catalog.
+    #[cfg(test)]
+    pub(crate) fn metadata(&self) -> ActionMetadata {
+        match self {
+            Action::SendPrefix => ActionMetadata::new(
+                "send-prefix",
+                ActionClassification::Composite,
+                "frontend prefix config + active surface + send-key",
+                ActionExecution::SendPrefix,
+            ),
+            Action::NewTab => ActionMetadata::new(
+                "new-tab",
+                ActionClassification::Direct,
+                "new-tab",
+                ActionExecution::NewTab,
+            ),
+            Action::NewBrowserTab => ActionMetadata::new(
+                "new-browser-tab",
+                ActionClassification::Composite,
+                "frontend omnibar + new-browser-tab",
+                ActionExecution::NewBrowserTab,
+            ),
+            Action::NewPaneSmart => ActionMetadata::new(
+                "new-pane-smart",
+                ActionClassification::Composite,
+                "list-workspaces + new-pane",
+                ActionExecution::NewPaneSmart,
+            ),
+            Action::NextTab => ActionMetadata::new(
+                "next-tab",
+                ActionClassification::Direct,
+                "select-tab delta:+1",
+                ActionExecution::NextTab,
+            ),
+            Action::PrevTab => ActionMetadata::new(
+                "prev-tab",
+                ActionClassification::Direct,
+                "select-tab delta:-1",
+                ActionExecution::PrevTab,
+            ),
+            Action::SelectTab(index) => ActionMetadata::new(
+                "select-tab-{number}",
+                ActionClassification::Direct,
+                "select-tab index",
+                ActionExecution::SelectTab(*index),
+            ),
+            Action::SplitRight => ActionMetadata::new(
+                "split-right",
+                ActionClassification::Direct,
+                "split dir:right",
+                ActionExecution::SplitRight,
+            ),
+            Action::SplitDown => ActionMetadata::new(
+                "split-down",
+                ActionClassification::Direct,
+                "split dir:down",
+                ActionExecution::SplitDown,
+            ),
+            Action::CloseTab => ActionMetadata::new(
+                "close-tab",
+                ActionClassification::Direct,
+                "close-surface",
+                ActionExecution::CloseTab,
+            ),
+            Action::ClosePane => ActionMetadata::new(
+                "close-pane",
+                ActionClassification::Direct,
+                "close-pane",
+                ActionExecution::ClosePane,
+            ),
+            Action::RenameTab => ActionMetadata::new(
+                "rename-tab",
+                ActionClassification::Composite,
+                "frontend prompt + rename-surface",
+                ActionExecution::RenameTab,
+            ),
+            Action::RenameScreen => ActionMetadata::new(
+                "rename-screen",
+                ActionClassification::Composite,
+                "frontend prompt + rename-screen",
+                ActionExecution::RenameScreen,
+            ),
+            Action::RenameWorkspace => ActionMetadata::new(
+                "rename-workspace",
+                ActionClassification::Composite,
+                "frontend prompt + rename-workspace",
+                ActionExecution::RenameWorkspace,
+            ),
+            Action::CloseScreen => ActionMetadata::new(
+                "close-screen",
+                ActionClassification::Direct,
+                "close-screen",
+                ActionExecution::CloseScreen,
+            ),
+            Action::PrevScreen => ActionMetadata::new(
+                "prev-screen",
+                ActionClassification::Direct,
+                "select-screen delta:-1",
+                ActionExecution::PrevScreen,
+            ),
+            Action::NextScreen => ActionMetadata::new(
+                "next-screen",
+                ActionClassification::Direct,
+                "select-screen delta:+1",
+                ActionExecution::NextScreen,
+            ),
+            Action::SelectScreen(index) => ActionMetadata::new(
+                "select-screen-{number}",
+                ActionClassification::Direct,
+                "select-screen index",
+                ActionExecution::SelectScreen(*index),
+            ),
+            Action::NewScreen => ActionMetadata::new(
+                "new-screen",
+                ActionClassification::Direct,
+                "new-screen",
+                ActionExecution::NewScreen,
+            ),
+            Action::PrevWorkspace => ActionMetadata::new(
+                "prev-workspace",
+                ActionClassification::Direct,
+                "select-workspace delta:-1",
+                ActionExecution::PrevWorkspace,
+            ),
+            Action::NextWorkspace => ActionMetadata::new(
+                "next-workspace",
+                ActionClassification::Direct,
+                "select-workspace delta:+1",
+                ActionExecution::NextWorkspace,
+            ),
+            Action::NewWorkspace => ActionMetadata::workspace_ownership(
+                "new-workspace",
+                ActionClassification::Composite,
+                WorkspaceOwnershipSource::ActiveWorkspaceSession,
+                ActionRouteTarget::MuxCommand("new-workspace"),
+                ActionRouteTarget::MachineProviderRequest("create_workspace"),
+                UnknownOwnership::Reject,
+                ActionExecution::NewWorkspace,
+            ),
+            Action::CloseWorkspace => ActionMetadata::workspace_ownership(
+                "close-workspace",
+                ActionClassification::Composite,
+                WorkspaceOwnershipSource::ActiveWorkspaceSession,
+                ActionRouteTarget::MuxCommand("close-workspace"),
+                ActionRouteTarget::MachineProviderRequest("delete_workspace"),
+                UnknownOwnership::Reject,
+                ActionExecution::CloseWorkspace,
+            ),
+            Action::ToggleSidebar => ActionMetadata::new(
+                "toggle-sidebar",
+                ActionClassification::PresentationOnly,
+                "frontend action adapter",
+                ActionExecution::ToggleSidebar,
+            ),
+            Action::ToggleSidebarCompact => ActionMetadata::new(
+                "toggle-sidebar-compact",
+                ActionClassification::PresentationOnly,
+                "frontend action adapter",
+                ActionExecution::ToggleSidebarCompact,
+            ),
+            Action::ToggleSidebarView => ActionMetadata::new(
+                "toggle-sidebar-view",
+                ActionClassification::PresentationOnly,
+                "frontend action adapter",
+                ActionExecution::ToggleSidebarView,
+            ),
+            Action::FocusSidebar => ActionMetadata::new(
+                "focus-sidebar",
+                ActionClassification::PresentationOnly,
+                "frontend action adapter",
+                ActionExecution::FocusSidebar,
+            ),
+            Action::NewPaneRight => ActionMetadata::new(
+                "new-pane-right",
+                ActionClassification::Direct,
+                "new-pane-right",
+                ActionExecution::NewPaneRight,
+            ),
+            Action::UndoLayout => ActionMetadata::new(
+                "undo-layout",
+                ActionClassification::Direct,
+                "undo-layout",
+                ActionExecution::UndoLayout,
+            ),
+            Action::FocusLeft => ActionMetadata::new(
+                "focus-left",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusLeft,
+            ),
+            Action::FocusRight => ActionMetadata::new(
+                "focus-right",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusRight,
+            ),
+            Action::FocusUp => ActionMetadata::new(
+                "focus-up",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusUp,
+            ),
+            Action::FocusDown => ActionMetadata::new(
+                "focus-down",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusDown,
+            ),
+            Action::FocusNextPane => ActionMetadata::new(
+                "focus-next-pane",
+                ActionClassification::Composite,
+                "list-workspaces + focus-pane",
+                ActionExecution::FocusNextPane,
+            ),
+            Action::SwapPanePrev => ActionMetadata::new(
+                "swap-pane-prev",
+                ActionClassification::Composite,
+                "list-workspaces + swap-pane",
+                ActionExecution::SwapPanePrev,
+            ),
+            Action::SwapPaneNext => ActionMetadata::new(
+                "swap-pane-next",
+                ActionClassification::Composite,
+                "list-workspaces + swap-pane",
+                ActionExecution::SwapPaneNext,
+            ),
+            Action::ZoomPane => ActionMetadata::new(
+                "zoom-pane",
+                ActionClassification::Direct,
+                "zoom-pane",
+                ActionExecution::ZoomPane,
+            ),
+            Action::ResizeGrow => ActionMetadata::new(
+                "resize-grow",
+                ActionClassification::Composite,
+                "list-workspaces + set-split-ratio",
+                ActionExecution::ResizeGrow,
+            ),
+            Action::ResizeShrink => ActionMetadata::new(
+                "resize-shrink",
+                ActionClassification::Composite,
+                "list-workspaces + set-split-ratio",
+                ActionExecution::ResizeShrink,
+            ),
+            Action::ScrollUp => ActionMetadata::new(
+                "scroll-up",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter; scroll-surface for shared local viewport",
+                ActionExecution::ScrollUp,
+            ),
+            Action::ScrollDown => ActionMetadata::new(
+                "scroll-down",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter; scroll-surface for shared local viewport",
+                ActionExecution::ScrollDown,
+            ),
+            Action::ClearHistory => ActionMetadata::new(
+                "clear-history",
+                ActionClassification::Direct,
+                "clear-history",
+                ActionExecution::ClearHistory,
+            ),
+            Action::BrowserBack => ActionMetadata::new(
+                "browser-back",
+                ActionClassification::Direct,
+                "browser-back",
+                ActionExecution::BrowserBack,
+            ),
+            Action::BrowserForward => ActionMetadata::new(
+                "browser-forward",
+                ActionClassification::Direct,
+                "browser-forward",
+                ActionExecution::BrowserForward,
+            ),
+            Action::BrowserReload => ActionMetadata::new(
+                "browser-reload",
+                ActionClassification::Direct,
+                "browser-reload",
+                ActionExecution::BrowserReload,
+            ),
+            Action::BrowserEditUrl => ActionMetadata::new(
+                "browser-edit-url",
+                ActionClassification::Composite,
+                "frontend prompt + browser-navigate",
+                ActionExecution::BrowserEditUrl,
+            ),
+            Action::ShowShortcuts => ActionMetadata::new(
+                "show-shortcuts",
+                ActionClassification::PresentationOnly,
+                "frontend shortcut overlay",
+                ActionExecution::ShowShortcuts,
+            ),
+            Action::Detach => ActionMetadata::new(
+                "detach",
+                ActionClassification::PresentationOnly,
+                "close frontend transport",
+                ActionExecution::Detach,
+            ),
+        }
+    }
+}
+
+impl Action {
+    pub fn definition(self) -> &'static ActionDefinition {
+        match self {
+            Action::SendPrefix => &SEND_PREFIX_DEFINITION,
+            Action::NewTab => &NEW_TAB_DEFINITION,
+            Action::NewBrowserTab => &NEW_BROWSER_TAB_DEFINITION,
+            Action::NewPaneSmart => &NEW_PANE_SMART_DEFINITION,
+            Action::NextTab => &NEXT_TAB_DEFINITION,
+            Action::PrevTab => &PREV_TAB_DEFINITION,
+            Action::SelectTab(index) => &SELECT_TAB_DEFINITIONS[index.get() as usize],
+            Action::SplitRight => &SPLIT_RIGHT_DEFINITION,
+            Action::SplitDown => &SPLIT_DOWN_DEFINITION,
+            Action::CloseTab => &CLOSE_TAB_DEFINITION,
+            Action::ClosePane => &CLOSE_PANE_DEFINITION,
+            Action::RenameTab => &RENAME_TAB_DEFINITION,
+            Action::RenameScreen => &RENAME_SCREEN_DEFINITION,
+            Action::RenameWorkspace => &RENAME_WORKSPACE_DEFINITION,
+            Action::CloseScreen => &CLOSE_SCREEN_DEFINITION,
+            Action::PrevScreen => &PREV_SCREEN_DEFINITION,
+            Action::NextScreen => &NEXT_SCREEN_DEFINITION,
+            Action::SelectScreen(index) => &SELECT_SCREEN_DEFINITIONS[index.get() as usize],
+            Action::NewScreen => &NEW_SCREEN_DEFINITION,
+            Action::PrevWorkspace => &PREV_WORKSPACE_DEFINITION,
+            Action::NextWorkspace => &NEXT_WORKSPACE_DEFINITION,
+            Action::NewWorkspace => &NEW_WORKSPACE_DEFINITION,
+            Action::CloseWorkspace => &CLOSE_WORKSPACE_DEFINITION,
+            Action::ToggleSidebar => &TOGGLE_SIDEBAR_DEFINITION,
+            Action::ToggleSidebarCompact => &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
+            Action::ToggleSidebarView => &TOGGLE_SIDEBAR_VIEW_DEFINITION,
+            Action::FocusSidebar => &FOCUS_SIDEBAR_DEFINITION,
+            Action::NewPaneRight => &NEW_PANE_RIGHT_DEFINITION,
+            Action::UndoLayout => &UNDO_LAYOUT_DEFINITION,
+            Action::FocusLeft => &FOCUS_LEFT_DEFINITION,
+            Action::FocusRight => &FOCUS_RIGHT_DEFINITION,
+            Action::FocusUp => &FOCUS_UP_DEFINITION,
+            Action::FocusDown => &FOCUS_DOWN_DEFINITION,
+            Action::FocusNextPane => &FOCUS_NEXT_PANE_DEFINITION,
+            Action::SwapPanePrev => &SWAP_PANE_PREV_DEFINITION,
+            Action::SwapPaneNext => &SWAP_PANE_NEXT_DEFINITION,
+            Action::ZoomPane => &ZOOM_PANE_DEFINITION,
+            Action::ResizeGrow => &RESIZE_GROW_DEFINITION,
+            Action::ResizeShrink => &RESIZE_SHRINK_DEFINITION,
+            Action::ScrollUp => &SCROLL_UP_DEFINITION,
+            Action::ScrollDown => &SCROLL_DOWN_DEFINITION,
+            Action::ClearHistory => &CLEAR_HISTORY_DEFINITION,
+            Action::BrowserBack => &BROWSER_BACK_DEFINITION,
+            Action::BrowserForward => &BROWSER_FORWARD_DEFINITION,
+            Action::BrowserReload => &BROWSER_RELOAD_DEFINITION,
+            Action::BrowserEditUrl => &BROWSER_EDIT_URL_DEFINITION,
+            Action::ShowShortcuts => &SHOW_SHORTCUTS_DEFINITION,
+            Action::Detach => &DETACH_DEFINITION,
+        }
+    }
+
+    pub const fn select_screen(number: u8) -> Option<Self> {
+        match ActionIndex::new(number) {
+            Some(index) => Some(Self::SelectScreen(index)),
+            None => None,
+        }
+    }
+
+    pub const fn select_tab(number: u8) -> Option<Self> {
+        match ActionIndex::new(number) {
+            Some(index) => Some(Self::SelectTab(index)),
+            None => None,
         }
     }
 
     pub fn screen_index(&self) -> Option<usize> {
         match self {
-            Action::SelectScreen(0) => Some(9),
-            Action::SelectScreen(number @ 1..=9) => Some((*number as usize) - 1),
+            Action::SelectScreen(number) => Some(number.get() as usize),
             _ => None,
         }
     }
 
     pub fn tab_index(&self) -> Option<usize> {
         match self {
-            Action::SelectTab(number @ 1..=9) => Some((*number as usize) - 1),
+            Action::SelectTab(number) => Some(number.get() as usize),
             _ => None,
         }
     }
@@ -702,18 +1776,80 @@ pub struct Chord {
     pub mods: KeyModifiers,
 }
 
+fn normalize_chord(code: KeyCode, mut mods: KeyModifiers) -> (KeyCode, KeyModifiers) {
+    match code {
+        KeyCode::Tab if mods.contains(KeyModifiers::SHIFT) => {
+            mods.remove(KeyModifiers::SHIFT);
+            (KeyCode::BackTab, mods)
+        }
+        KeyCode::Char(c) if mods.contains(KeyModifiers::SHIFT) => {
+            let Some(shifted) = crate::keys::shifted_ascii_char(c) else {
+                return (code, mods);
+            };
+            mods.remove(KeyModifiers::SHIFT);
+            (KeyCode::Char(shifted), mods)
+        }
+        KeyCode::BackTab => {
+            // Crossterm reports BackTab with an implied Shift modifier.
+            mods.remove(KeyModifiers::SHIFT);
+            (KeyCode::BackTab, mods)
+        }
+        _ => (code, mods),
+    }
+}
+
 impl Chord {
     pub fn matches(&self, key: &KeyEvent) -> bool {
-        // Shift is implied by uppercase/symbol chars; compare it only
-        // for non-char codes.
-        let mods_match = if matches!(self.code, KeyCode::Char(_)) {
-            key.modifiers.contains(self.mods & !KeyModifiers::SHIFT)
-        } else {
-            const TRACKED: KeyModifiers =
-                KeyModifiers::CONTROL.union(KeyModifiers::ALT).union(KeyModifiers::SHIFT);
-            key.modifiers & TRACKED == self.mods & TRACKED
+        const TRACKED: KeyModifiers = KeyModifiers::CONTROL
+            .union(KeyModifiers::ALT)
+            .union(KeyModifiers::SHIFT)
+            .union(KeyModifiers::SUPER)
+            .union(KeyModifiers::HYPER)
+            .union(KeyModifiers::META);
+        let (configured_code, configured_mods) = normalize_chord(self.code, self.mods);
+        let (event_code, event_mods) = normalize_chord(key.code, key.modifiers);
+        configured_code == event_code && configured_mods & TRACKED == event_mods & TRACKED
+    }
+
+    /// Human-readable form used beside context-menu actions. Keep this
+    /// derived from the resolved chord so config overrides teach the keys
+    /// that are actually active.
+    pub fn display_label(&self) -> Option<String> {
+        let mut modifiers = Vec::new();
+        if self.mods.contains(KeyModifiers::CONTROL) {
+            modifiers.push("Ctrl");
+        }
+        if self.mods.contains(KeyModifiers::ALT) {
+            modifiers.push("Alt");
+        }
+        if self.mods.contains(KeyModifiers::SHIFT) {
+            modifiers.push("Shift");
+        }
+        if self.mods.contains(KeyModifiers::SUPER) {
+            modifiers.push("Super");
+        }
+        let key = match self.code {
+            KeyCode::Char(' ') => "Space".to_string(),
+            KeyCode::Char(character) => character.to_string(),
+            KeyCode::Tab => "Tab".to_string(),
+            KeyCode::BackTab => "BackTab".to_string(),
+            KeyCode::Enter => "Enter".to_string(),
+            KeyCode::Esc => "Esc".to_string(),
+            KeyCode::Left => "Left".to_string(),
+            KeyCode::Right => "Right".to_string(),
+            KeyCode::Up => "Up".to_string(),
+            KeyCode::Down => "Down".to_string(),
+            KeyCode::PageUp => "PageUp".to_string(),
+            KeyCode::PageDown => "PageDown".to_string(),
+            KeyCode::Home => "Home".to_string(),
+            KeyCode::End => "End".to_string(),
+            _ => return None,
         };
-        self.code == key.code && mods_match
+        if modifiers.is_empty() {
+            Some(key)
+        } else {
+            Some(format!("{}-{key}", modifiers.join("-")))
+        }
     }
 }
 
@@ -721,6 +1857,9 @@ impl Chord {
 #[derive(Debug, Clone)]
 pub struct Keys {
     pub prefix: Chord,
+    /// Resolve empty-text Alt character events using the host terminal's
+    /// macOS Option mode instead of guessing from each event.
+    pub macos_option_as_alt: bool,
     bindings: Vec<(Chord, Action)>,
 }
 
@@ -728,9 +1867,13 @@ impl Default for Keys {
     fn default() -> Self {
         let bind = |code, action| (Chord { code, mods: KeyModifiers::NONE }, action);
         let alt = |code, action| (Chord { code, mods: KeyModifiers::ALT }, action);
+        let command = |code, action| (Chord { code, mods: KeyModifiers::SUPER }, action);
+        let prefix = Chord { code: KeyCode::Char('b'), mods: KeyModifiers::CONTROL };
         Keys {
-            prefix: Chord { code: KeyCode::Char('b'), mods: KeyModifiers::CONTROL },
+            prefix,
+            macos_option_as_alt: true,
             bindings: vec![
+                (prefix, Action::SendPrefix),
                 bind(KeyCode::Char('t'), Action::NewTab),
                 alt(KeyCode::Char('t'), Action::NewTab),
                 bind(KeyCode::Char('B'), Action::NewBrowserTab),
@@ -739,8 +1882,8 @@ impl Default for Keys {
                 bind(KeyCode::BackTab, Action::PrevTab),
                 bind(KeyCode::Char('%'), Action::SplitRight),
                 bind(KeyCode::Char('"'), Action::SplitDown),
-                bind(KeyCode::Char('x'), Action::ClosePane),
-                bind(KeyCode::Char('X'), Action::CloseTab),
+                bind(KeyCode::Char('x'), Action::CloseTab),
+                bind(KeyCode::Char('X'), Action::ClosePane),
                 bind(KeyCode::Char(','), Action::RenameScreen),
                 bind(KeyCode::Char('$'), Action::RenameWorkspace),
                 bind(KeyCode::Char('&'), Action::CloseScreen),
@@ -748,22 +1891,30 @@ impl Default for Keys {
                 alt(KeyCode::Char('['), Action::PrevScreen),
                 bind(KeyCode::Char('n'), Action::NextScreen),
                 alt(KeyCode::Char(']'), Action::NextScreen),
-                bind(KeyCode::Char('1'), Action::SelectScreen(1)),
-                bind(KeyCode::Char('2'), Action::SelectScreen(2)),
-                bind(KeyCode::Char('3'), Action::SelectScreen(3)),
-                bind(KeyCode::Char('4'), Action::SelectScreen(4)),
-                bind(KeyCode::Char('5'), Action::SelectScreen(5)),
-                bind(KeyCode::Char('6'), Action::SelectScreen(6)),
-                bind(KeyCode::Char('7'), Action::SelectScreen(7)),
-                bind(KeyCode::Char('8'), Action::SelectScreen(8)),
-                bind(KeyCode::Char('9'), Action::SelectScreen(9)),
-                bind(KeyCode::Char('0'), Action::SelectScreen(0)),
+                bind(KeyCode::Char('1'), Action::select_screen(1).unwrap()),
+                bind(KeyCode::Char('2'), Action::select_screen(2).unwrap()),
+                bind(KeyCode::Char('3'), Action::select_screen(3).unwrap()),
+                bind(KeyCode::Char('4'), Action::select_screen(4).unwrap()),
+                bind(KeyCode::Char('5'), Action::select_screen(5).unwrap()),
+                bind(KeyCode::Char('6'), Action::select_screen(6).unwrap()),
+                bind(KeyCode::Char('7'), Action::select_screen(7).unwrap()),
+                bind(KeyCode::Char('8'), Action::select_screen(8).unwrap()),
+                bind(KeyCode::Char('9'), Action::select_screen(9).unwrap()),
+                bind(KeyCode::Char('0'), Action::select_screen(0).unwrap()),
                 bind(KeyCode::Char('c'), Action::NewScreen),
+                bind(KeyCode::Char('('), Action::PrevWorkspace),
+                alt(KeyCode::Char('{'), Action::PrevWorkspace),
                 bind(KeyCode::Char('w'), Action::NextWorkspace),
+                bind(KeyCode::Char(')'), Action::NextWorkspace),
+                alt(KeyCode::Char('}'), Action::NextWorkspace),
                 bind(KeyCode::Char('W'), Action::NewWorkspace),
+                bind(KeyCode::Char('D'), Action::CloseWorkspace),
                 bind(KeyCode::Char('s'), Action::ToggleSidebar),
+                bind(KeyCode::Char('m'), Action::ToggleSidebarCompact),
                 bind(KeyCode::Char('e'), Action::ToggleSidebarView),
                 bind(KeyCode::Char('S'), Action::FocusSidebar),
+                bind(KeyCode::Char('g'), Action::NewPaneRight),
+                bind(KeyCode::Char('U'), Action::UndoLayout),
                 bind(KeyCode::Char('o'), Action::FocusNextPane),
                 bind(KeyCode::Char('h'), Action::FocusLeft),
                 bind(KeyCode::Left, Action::FocusLeft),
@@ -789,10 +1940,12 @@ impl Default for Keys {
                 bind(KeyCode::Char('['), Action::ScrollUp),
                 bind(KeyCode::PageUp, Action::ScrollUp),
                 bind(KeyCode::PageDown, Action::ScrollDown),
+                command(KeyCode::Char('k'), Action::ClearHistory),
                 bind(KeyCode::Char('<'), Action::BrowserBack),
                 bind(KeyCode::Char('>'), Action::BrowserForward),
                 bind(KeyCode::Char('r'), Action::BrowserReload),
                 bind(KeyCode::Char('u'), Action::BrowserEditUrl),
+                bind(KeyCode::Char('?'), Action::ShowShortcuts),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
         }
@@ -800,40 +1953,127 @@ impl Default for Keys {
 }
 
 impl Keys {
+    fn is_modeless_binding(&self, chord: &Chord, action: Action) -> bool {
+        if action == Action::SendPrefix && *chord == self.prefix {
+            return false;
+        }
+        chord.mods.intersects(KeyModifiers::ALT | KeyModifiers::SUPER)
+            || (action == Action::ClearHistory && chord.mods.contains(KeyModifiers::CONTROL))
+    }
+
+    fn shortcut_label_for_chord(&self, action: Action, chord: &Chord) -> Option<String> {
+        let chord_label = chord.display_label()?;
+        if self.is_modeless_binding(chord, action) {
+            Some(chord_label)
+        } else {
+            Some(format!("{} {chord_label}", self.prefix.display_label()?))
+        }
+    }
+
     /// The action bound to a key event (after the prefix).
     pub fn action_for(&self, key: &KeyEvent) -> Option<Action> {
         self.bindings.iter().find(|(chord, _)| chord.matches(key)).map(|(_, a)| *a)
     }
 
-    /// The modeless action bound to a key event. Only Alt-modified
-    /// chords are modeless; non-Alt chords remain prefix-only.
+    /// The modeless action bound to a key event. Alt- and Super-modified
+    /// chords are modeless, as are Control-modified clear-history chords;
+    /// other chords remain prefix-only.
     pub fn modeless_action_for(&self, key: &KeyEvent) -> Option<Action> {
         self.bindings
             .iter()
-            .find(|(chord, _)| chord.mods.contains(KeyModifiers::ALT) && chord.matches(key))
+            .find(|(chord, action)| self.is_modeless_binding(chord, *action) && chord.matches(key))
             .map(|(_, a)| *a)
+    }
+
+    /// The first configured shortcut for an action, including the prefix
+    /// for prefix-only chords. Returns `None` when the action is unbound.
+    pub fn shortcut_label(&self, action: Action) -> Option<String> {
+        self.shortcut_labels(action).into_iter().next()
+    }
+
+    /// Every configured shortcut for an action. Prefix-only chords include
+    /// the resolved prefix, while Alt chords are shown as modeless shortcuts.
+    pub fn shortcut_labels(&self, action: Action) -> Vec<String> {
+        self.bindings
+            .iter()
+            .filter(|(_, bound)| *bound == action)
+            .filter_map(|(chord, _)| self.shortcut_label_for_chord(action, chord))
+            .collect()
+    }
+
+    /// The first suffix key that invokes an action after the prefix. Used by
+    /// the prefix help bar, which must not advertise modeless-only bindings.
+    pub fn prefixed_key_label(&self, action: Action) -> Option<String> {
+        self.bindings
+            .iter()
+            .find(|(chord, bound)| *bound == action && !self.is_modeless_binding(chord, action))
+            .and_then(|(chord, _)| chord.display_label())
+    }
+
+    /// Bound actions in canonical catalog order, ready for shortcut help and
+    /// future command surfaces.
+    pub fn resolved_shortcuts(&self) -> Vec<(&'static ActionDefinition, Vec<String>)> {
+        let mut shortcuts_by_action = HashMap::<Action, Vec<String>>::new();
+        for (chord, action) in &self.bindings {
+            if let Some(label) = self.shortcut_label_for_chord(*action, chord) {
+                shortcuts_by_action.entry(*action).or_default().push(label);
+            }
+        }
+        action_definitions()
+            .iter()
+            .copied()
+            .filter_map(|definition| {
+                shortcuts_by_action
+                    .remove(&definition.action)
+                    .filter(|shortcuts| !shortcuts.is_empty())
+                    .map(|shortcuts| (definition, shortcuts))
+            })
+            .collect()
     }
 
     /// Apply config overrides: `"prefix"` rebinds the prefix; any action
     /// name rebinds that action (replacing ALL default chords for it).
     fn apply(&mut self, raw: &HashMap<String, Value>) {
+        if let Some(value) = raw.get("macos_option_as_alt") {
+            if let Some(value) = value.as_bool() {
+                self.macos_option_as_alt = value;
+            } else {
+                let value = format!("{value:?}");
+                eprintln!("{}", catalog().config.invalid_macos_option_as_alt(&value));
+            }
+        }
         if raw.get("alt_shortcuts").and_then(Value::as_bool) == Some(false) {
             self.bindings.retain(|(chord, _)| !chord.mods.contains(KeyModifiers::ALT));
         }
-        for (name, value) in raw {
-            if name == "alt_shortcuts" {
-                continue;
-            }
-            if name == "prefix" {
-                let Some(value) = value.as_str() else {
-                    eprintln!("cmux-tui: ignoring non-string prefix binding {value:?}");
-                    continue;
-                };
-                let Some(chord) = parse_chord(value) else {
-                    eprintln!("cmux-tui: ignoring unparseable key binding prefix = {value:?}");
-                    continue;
-                };
+        if raw.get("super_shortcuts").and_then(Value::as_bool) == Some(false) {
+            self.bindings.retain(|(chord, _)| !chord.mods.contains(KeyModifiers::SUPER));
+        }
+        if let Some(value) = raw.get("prefix") {
+            if let Some(value) = value.as_str()
+                && let Some(chord) = parse_chord(value)
+            {
+                let previous_prefix = self.prefix;
                 self.prefix = chord;
+                if !raw.contains_key(Action::SendPrefix.definition().config_key)
+                    && let Some((send_prefix, _)) =
+                        self.bindings.iter_mut().find(|(binding, action)| {
+                            *action == Action::SendPrefix && *binding == previous_prefix
+                        })
+                {
+                    *send_prefix = chord;
+                }
+            } else if value.as_str().is_some() {
+                eprintln!("cmux-tui: ignoring unparseable key binding prefix = {value:?}");
+            } else {
+                eprintln!("cmux-tui: ignoring non-string prefix binding {value:?}");
+            }
+        }
+        for (name, value) in raw {
+            if name == "macos_option_as_alt"
+                || name == "alt_shortcuts"
+                || name == "super_shortcuts"
+                || name == "prefix"
+            {
                 continue;
             }
             // The numbered families accept both spellings: select-screen-N /
@@ -844,13 +2084,13 @@ impl Keys {
                 } else {
                     name.clone()
                 };
-            match all_actions().iter().find(|a| {
-                a.config_key() == normalized.as_str()
-                    || (**a == Action::RenameTab && name == "rename-pane")
-                    || (**a == Action::NewBrowserTab && name == "new_browser_tab")
+            match action_definitions().iter().find(|definition| {
+                definition.config_key == normalized.as_str()
+                    || (definition.action == Action::RenameTab && name == "rename-pane")
+                    || (definition.action == Action::NewBrowserTab && name == "new_browser_tab")
             }) {
-                Some(action) => {
-                    self.bindings.retain(|(_, a)| a != action);
+                Some(definition) => {
+                    self.bindings.retain(|(_, action)| *action != definition.action);
                     for raw_chord in key_values(value) {
                         if raw_chord.eq_ignore_ascii_case("none") {
                             continue;
@@ -861,13 +2101,26 @@ impl Keys {
                             );
                             continue;
                         };
+                        if chord == self.prefix && definition.action != Action::SendPrefix {
+                            eprintln!(
+                                "cmux-tui: ignoring key binding {name} = {raw_chord:?} because it conflicts with the prefix"
+                            );
+                            continue;
+                        }
                         self.bindings.retain(|(existing, _)| existing != &chord);
-                        self.bindings.push((chord, *action));
+                        self.bindings.push((chord, definition.action));
                     }
                 }
                 None => eprintln!("cmux-tui: ignoring unknown key action {name:?}"),
             }
         }
+        let prefix = self.prefix;
+        self.bindings.retain(|(chord, action)| *action == Action::SendPrefix || *chord != prefix);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn apply_for_test(&mut self, raw: &HashMap<String, Value>) {
+        self.apply(raw);
     }
 }
 
@@ -879,68 +2132,6 @@ fn key_values(value: &Value) -> Vec<&str> {
     }
 }
 
-fn all_actions() -> &'static [Action] {
-    &[
-        Action::NewTab,
-        Action::NewBrowserTab,
-        Action::NewPaneSmart,
-        Action::NextTab,
-        Action::PrevTab,
-        Action::SelectTab(1),
-        Action::SelectTab(2),
-        Action::SelectTab(3),
-        Action::SelectTab(4),
-        Action::SelectTab(5),
-        Action::SelectTab(6),
-        Action::SelectTab(7),
-        Action::SelectTab(8),
-        Action::SelectTab(9),
-        Action::SplitRight,
-        Action::SplitDown,
-        Action::CloseTab,
-        Action::ClosePane,
-        Action::RenameTab,
-        Action::RenameScreen,
-        Action::RenameWorkspace,
-        Action::CloseScreen,
-        Action::PrevScreen,
-        Action::NextScreen,
-        Action::SelectScreen(0),
-        Action::SelectScreen(1),
-        Action::SelectScreen(2),
-        Action::SelectScreen(3),
-        Action::SelectScreen(4),
-        Action::SelectScreen(5),
-        Action::SelectScreen(6),
-        Action::SelectScreen(7),
-        Action::SelectScreen(8),
-        Action::SelectScreen(9),
-        Action::NewScreen,
-        Action::NextWorkspace,
-        Action::NewWorkspace,
-        Action::ToggleSidebar,
-        Action::ToggleSidebarView,
-        Action::FocusSidebar,
-        Action::FocusLeft,
-        Action::FocusRight,
-        Action::FocusUp,
-        Action::FocusDown,
-        Action::FocusNextPane,
-        Action::SwapPanePrev,
-        Action::SwapPaneNext,
-        Action::ZoomPane,
-        Action::ResizeGrow,
-        Action::ResizeShrink,
-        Action::ScrollUp,
-        Action::ScrollDown,
-        Action::BrowserBack,
-        Action::BrowserForward,
-        Action::BrowserReload,
-        Action::BrowserEditUrl,
-        Action::Detach,
-    ]
-}
-
 /// Parse "c", "%", "ctrl+b", "alt+enter", "tab", "pageup", ...
 fn parse_chord(s: &str) -> Option<Chord> {
     let mut mods = KeyModifiers::NONE;
@@ -950,6 +2141,7 @@ fn parse_chord(s: &str) -> Option<Chord> {
         match part.to_lowercase().as_str() {
             "ctrl" | "control" => mods |= KeyModifiers::CONTROL,
             "alt" | "option" => mods |= KeyModifiers::ALT,
+            "cmd" | "command" | "super" => mods |= KeyModifiers::SUPER,
             "shift" => mods |= KeyModifiers::SHIFT,
             "tab" => code = Some(KeyCode::Tab),
             "backtab" => code = Some(KeyCode::BackTab),
@@ -975,11 +2167,11 @@ fn parse_chord(s: &str) -> Option<Chord> {
             }
         }
     }
-    let mut code = code?;
-    if code == KeyCode::Tab && mods.contains(KeyModifiers::SHIFT) {
-        code = KeyCode::BackTab;
-        mods.remove(KeyModifiers::SHIFT);
-    }
+
+    let code = code?;
+    // Store a shifted ASCII result so `D` and `shift+d` stay equivalent.
+    // Shift stays explicit when the character itself cannot represent it.
+    let (code, mods) = normalize_chord(code, mods);
     Some(Chord { code, mods })
 }
 
@@ -988,13 +2180,18 @@ fn parse_chord(s: &str) -> Option<Chord> {
 pub struct Config {
     pub theme: Theme,
     pub theme_overrides: ThemeOverrides,
+    pub terminal_defaults: DefaultColors,
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
     pub chrome: ChromeMode,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
+    pub machine_sidebar: MachineSidebar,
+    pub machine_provider: MachineProviderConfig,
+    pub machines: Vec<MachineConfig>,
     pub browser: Browser,
     pub scrollbar: Scrollbar,
+    pub viewport: Viewport,
     pub server: Server,
     pub keys: Keys,
 }
@@ -1034,18 +2231,19 @@ pub struct SidebarPluginConfig {
 pub fn load() -> Config {
     let mut config = Config::default();
 
-    if let Some(defaults) = ghostty_defaults() {
-        if let Some(bg) = defaults.selection_bg {
-            config.theme.selection_bg = bg;
-            config.theme_overrides.selection = true;
-        }
-        if defaults.selection_fg.is_some() {
-            config.theme_overrides.selection = true;
-        }
-        config.theme.selection_fg = defaults.selection_fg;
-        config.cursor_style = defaults.cursor_style;
-        config.cursor_blink = defaults.cursor_blink;
+    let defaults = ghostty_defaults();
+    config.terminal_defaults = defaults;
+    if let Some(bg) = defaults.selection_bg {
+        config.theme.selection_bg = Color::Rgb(bg.r, bg.g, bg.b);
+        config.theme_overrides.selection = true;
     }
+    if defaults.selection_fg.is_some() {
+        config.theme_overrides.selection = true;
+    }
+    config.theme.selection_fg =
+        defaults.selection_fg.map(|color| Color::Rgb(color.r, color.g, color.b));
+    config.cursor_style = defaults.cursor_style;
+    config.cursor_blink = defaults.cursor_blink;
 
     let raw = load_raw_config();
     let t = &raw.theme;
@@ -1118,6 +2316,10 @@ pub fn load() -> Config {
     if let Some(w) = raw.sidebar.width {
         config.sidebar.width = w.clamp(10, 60);
     }
+    if let Some(w) = raw.sidebar.compact_width {
+        config.sidebar.compact_width = w.clamp(10, 60);
+    }
+    config.sidebar.compact_width = config.sidebar.compact_width.min(config.sidebar.width);
     if let Some(view) = raw.sidebar.view {
         match parse_sidebar_view(&view) {
             Ok(view) => config.sidebar.view = view,
@@ -1142,6 +2344,79 @@ pub fn load() -> Config {
                 cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
             });
         }
+    }
+    if let Some(enabled) = raw.machine_sidebar.enabled {
+        config.machine_sidebar.enabled = enabled;
+    }
+    if let Some(width) = raw.machine_sidebar.width {
+        config.machine_sidebar.width = width.clamp(10, 60);
+    }
+    if let Some(max_width) = raw.machine_sidebar.max_width {
+        config.machine_sidebar.max_width = max_width;
+    }
+    let cloud = raw.machine_provider.cloud;
+    if let Some(enabled) = cloud.enabled {
+        config.machine_provider.cloud.enabled = enabled;
+    }
+    if let Some(host) = cloud.host {
+        let host = host.trim();
+        if host.is_empty() {
+            eprintln!("cmux-tui: ignoring empty machine_provider.cloud.host");
+        } else {
+            config.machine_provider.cloud.host = host.to_string();
+        }
+    }
+    config.machine_provider.cloud.user =
+        cloud.user.map(|user| user.trim().to_string()).filter(|user| !user.is_empty());
+    config.machine_provider.cloud.port = match cloud.port {
+        Some(0) => {
+            eprintln!("cmux-tui: ignoring zero machine_provider.cloud.port");
+            None
+        }
+        port => port,
+    };
+    config.machine_provider.cloud.identity_file = cloud
+        .identity_file
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from);
+    let mut machine_ids = HashSet::new();
+    for machine in raw.machines {
+        let id = machine.id.trim().to_string();
+        let name = machine.name.trim().to_string();
+        if id.is_empty() || name.is_empty() || !machine_ids.insert(id.clone()) {
+            eprintln!("cmux-tui: ignoring machine with an empty or duplicate id/name");
+            continue;
+        }
+        let target = match machine.target {
+            RawMachineTarget::Unix { socket } if !socket.trim().is_empty() => {
+                MachineTargetConfig::Unix { socket: PathBuf::from(socket) }
+            }
+            RawMachineTarget::Ssh { host, user, port, identity_file, session, binary }
+                if !host.trim().is_empty() =>
+            {
+                let port = normalize_ssh_machine_port(&id, port);
+                MachineTargetConfig::Ssh {
+                    host: host.trim().to_string(),
+                    user: user.filter(|value| !value.trim().is_empty()),
+                    port,
+                    identity_file: identity_file
+                        .filter(|value| !value.trim().is_empty())
+                        .map(PathBuf::from),
+                    session: session
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or_else(|| "main".to_string()),
+                    binary: binary
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or_else(|| "cmux-tui".to_string()),
+                }
+            }
+            _ => {
+                eprintln!("cmux-tui: ignoring machine {id:?} with an empty transport target");
+                continue;
+            }
+        };
+        config.machines.push(MachineConfig { id, name, subtitle: machine.subtitle, target });
     }
     config.browser.chrome_binary = raw.browser.chrome_binary.filter(|s| !s.trim().is_empty());
     if let Some(mode) = raw.browser.mode {
@@ -1182,10 +2457,23 @@ pub fn load() -> Config {
     if let Some(position) = raw.scrollbar.position {
         config.scrollbar.position = position;
     }
+    if let Some(animation) = raw.viewport.animation {
+        config.viewport.animation = animation;
+    }
     config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
     config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
     config.keys.apply(&raw.keys);
     config
+}
+
+fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {
+    match port {
+        Some(0) => {
+            eprintln!("cmux-tui: ignoring zero SSH machine port for {id:?}");
+            None
+        }
+        port => port,
+    }
 }
 
 pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOptions) {
@@ -1200,7 +2488,7 @@ pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOp
     options.browser_capture_scale = config.browser.capture_scale;
 }
 
-/// The label for a tab: user name if set, otherwise its 1-based number
+/// The label for a tab: user name if set, otherwise its zero-based index
 /// plus a recognized agent program name (or the full title when
 /// `show_titles` is on).
 pub fn tab_label(tabs: &Tabs, index: usize, title: &str, name: Option<&str>) -> String {
@@ -1209,7 +2497,7 @@ pub fn tab_label(tabs: &Tabs, index: usize, title: &str, name: Option<&str>) -> 
     {
         return name.to_string();
     }
-    let number = index + 1;
+    let number = index;
     let suffix = if tabs.show_titles {
         (!title.is_empty()).then(|| title.to_string())
     } else {
@@ -1338,44 +2626,232 @@ fn parse_color(s: &str) -> Option<Color> {
     s.parse::<u8>().ok().map(Color::Indexed)
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct GhosttyDefaults {
-    selection_bg: Option<Color>,
-    selection_fg: Option<Color>,
-    cursor_style: Option<CursorShape>,
-    cursor_blink: Option<bool>,
+/// The user's relevant Ghostty settings with non-optional application defaults
+/// resolved for values that the low-level terminal otherwise leaves unset.
+fn ghostty_defaults() -> DefaultColors {
+    let parsed = resolved_ghostty_defaults()
+        .or_else(|| {
+            let text = platform::ghostty_config_paths()
+                .iter()
+                .find_map(|path| std::fs::read_to_string(path).ok())?;
+            Some(parse_ghostty_defaults(&text))
+        })
+        .unwrap_or_default();
+    resolve_ghostty_application_defaults(parsed)
 }
 
-/// The user's relevant Ghostty defaults, if a Ghostty config exists.
-fn ghostty_defaults() -> Option<GhosttyDefaults> {
-    let text =
-        platform::ghostty_config_paths().iter().find_map(|p| std::fs::read_to_string(p).ok())?;
-    Some(parse_ghostty_defaults(&text))
+fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
+    defaults.cursor_style.get_or_insert(CursorShape::Block);
+    // `cursor-style-blink = null` is semantically different from `true` in
+    // Ghostty: both start blinking, but only the unset form lets DEC mode 12
+    // control the live cursor. Keep that absence intact for the terminal
+    // application boundary to resolve without losing its provenance.
+    defaults
+}
+
+/// Ask Ghostty to resolve its configuration so cmux-tui inherits precisely the
+/// same theme-loading behavior as the graphical terminal. A failed or slow
+/// invocation is deliberately ignored; startup then uses the file fallback.
+fn resolved_ghostty_defaults() -> Option<DefaultColors> {
+    resolved_ghostty_defaults_from(&platform::ghostty_installations())
+}
+
+fn resolved_ghostty_defaults_from(
+    installations: &[platform::GhosttyInstallation],
+) -> Option<DefaultColors> {
+    resolved_ghostty_defaults_from_with(installations, run_ghostty_show_config)
+}
+
+fn resolved_ghostty_defaults_from_with(
+    installations: &[platform::GhosttyInstallation],
+    mut resolve: impl FnMut(&platform::GhosttyInstallation) -> Option<String>,
+) -> Option<DefaultColors> {
+    installations.iter().find_map(|installation| {
+        let text = resolve(installation)?;
+        let defaults = parse_resolved_ghostty_defaults(&text);
+        // `+show-config` serializes Ghostty's effective application defaults,
+        // including both colors. An executable that exits successfully but
+        // emits no resolved config (for example a packaging stub) is not a
+        // usable resolver and must not suppress later pinned candidates.
+        (defaults.fg.is_some() && defaults.bg.is_some()).then_some(defaults)
+    })
+}
+
+fn ghostty_show_config_command(installation: &platform::GhosttyInstallation) -> Command {
+    let mut command = Command::new(&installation.binary);
+    command
+        .args(["+show-config", "--no-pager"])
+        .env_remove("GHOSTTY_RESOURCES_DIR")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    if let Some(resources_dir) = installation.resources_dir.as_deref() {
+        command.env("GHOSTTY_RESOURCES_DIR", resources_dir);
+    }
+    command
+}
+
+fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Option<String> {
+    let mut command = ghostty_show_config_command(installation);
+    let mut child = command.spawn().ok()?;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let status = loop {
+        match child.try_wait().ok()? {
+            Some(status) => break status,
+            None if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            None => std::thread::sleep(Duration::from_millis(10)),
+        }
+    };
+    if !status.success() {
+        return None;
+    }
+
+    let mut output = String::new();
+    child.stdout.take()?.read_to_string(&mut output).ok()?;
+    Some(output)
 }
 
 /// Parse the subset of Ghostty's `key = value` config used by cmux-tui.
-/// Later entries win, including invalid later entries clearing a value.
-fn parse_ghostty_defaults(text: &str) -> GhosttyDefaults {
-    let mut defaults = GhosttyDefaults::default();
+///
+/// When the Ghostty executable is unavailable, a theme is only accepted if
+/// its file can be read. This preserves Ghostty's fail-soft behavior: a
+/// later theme entries are ignored, matching Ghostty's first-theme-wins
+/// behavior.
+pub(crate) fn parse_ghostty_defaults(text: &str) -> DefaultColors {
+    parse_ghostty_defaults_with_theme_dirs(text, &platform::ghostty_theme_dirs())
+}
+
+fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) -> DefaultColors {
+    let mut overrides = DefaultColors::default();
+    let mut theme = None;
     for line in text.lines() {
         let line = line.trim();
         let Some((key, value)) = line.split_once('=') else { continue };
-        match key.trim() {
-            "selection-background" => defaults.selection_bg = parse_color(value.trim()),
-            "selection-foreground" => defaults.selection_fg = parse_color(value.trim()),
-            "cursor-style" => {
-                defaults.cursor_style = match value.trim() {
-                    "block" => Some(CursorShape::Block),
-                    "underline" => Some(CursorShape::Underline),
-                    "bar" => Some(CursorShape::Bar),
-                    _ => None,
-                }
+        if key.trim() == "theme" {
+            if theme.is_none()
+                && let Some(theme_defaults) = load_ghostty_theme(value.trim(), theme_dirs)
+            {
+                theme = Some(theme_defaults);
             }
-            "cursor-style-blink" => defaults.cursor_blink = value.trim().parse::<bool>().ok(),
-            _ => {}
+        } else {
+            apply_ghostty_default(&mut overrides, key.trim(), value.trim());
         }
     }
+
+    let mut defaults = theme.unwrap_or_default();
+    overlay_ghostty_defaults(&mut defaults, overrides);
     defaults
+}
+
+/// Parse the fully resolved `ghostty +show-config` output. Theme lines are
+/// intentionally ignored because the output already contains their resolved
+/// color and cursor settings.
+fn parse_resolved_ghostty_defaults(text: &str) -> DefaultColors {
+    let mut defaults = DefaultColors::default();
+    for line in text.lines() {
+        let line = line.trim();
+        let Some((key, value)) = line.split_once('=') else { continue };
+        apply_ghostty_default(&mut defaults, key.trim(), value.trim());
+    }
+    defaults
+}
+
+fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, value: &str) {
+    let value = value.strip_prefix('"').and_then(|value| value.strip_suffix('"')).unwrap_or(value);
+    match key {
+        "foreground" => {
+            if let Some(color) = ghostty_vt::parse_color(value) {
+                defaults.fg = Some(color);
+            }
+        }
+        "background" => {
+            if let Some(color) = ghostty_vt::parse_color(value) {
+                defaults.bg = Some(color);
+            }
+        }
+        "cursor-color" => {
+            if let Some(color) = ghostty_vt::parse_color(value) {
+                defaults.cursor = Some(color);
+            }
+        }
+        "selection-background" => {
+            if let Some(color) = ghostty_vt::parse_color(value) {
+                defaults.selection_bg = Some(color);
+            }
+        }
+        "selection-foreground" => {
+            if let Some(color) = ghostty_vt::parse_color(value) {
+                defaults.selection_fg = Some(color);
+            }
+        }
+        "cursor-style" => {
+            let style = match value {
+                "block" => Some(CursorShape::Block),
+                "underline" => Some(CursorShape::Underline),
+                "bar" => Some(CursorShape::Bar),
+                _ => None,
+            };
+            if style.is_some() {
+                defaults.cursor_style = style;
+            }
+        }
+        "cursor-style-blink" => {
+            if let Ok(blink) = value.parse::<bool>() {
+                defaults.cursor_blink = Some(blink);
+            }
+        }
+        "palette" => {
+            if let Some((index, color)) = ghostty_vt::parse_palette_entry(value) {
+                defaults.palette[index as usize] = Some(color);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn load_ghostty_theme(value: &str, theme_dirs: &[PathBuf]) -> Option<DefaultColors> {
+    let theme = value.trim_matches('"');
+    let path = if Path::new(theme).is_absolute() {
+        PathBuf::from(theme)
+    } else if Path::new(theme).file_name().is_some_and(|name| name == theme) {
+        theme_dirs.iter().map(|dir| dir.join(theme)).find(|path| path.is_file())?
+    } else {
+        return None;
+    };
+    let text = std::fs::read_to_string(path).ok()?;
+    Some(parse_resolved_ghostty_defaults(&text))
+}
+
+fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColors) {
+    if overrides.fg.is_some() {
+        defaults.fg = overrides.fg;
+    }
+    if overrides.bg.is_some() {
+        defaults.bg = overrides.bg;
+    }
+    if overrides.cursor.is_some() {
+        defaults.cursor = overrides.cursor;
+    }
+    if overrides.selection_bg.is_some() {
+        defaults.selection_bg = overrides.selection_bg;
+    }
+    if overrides.selection_fg.is_some() {
+        defaults.selection_fg = overrides.selection_fg;
+    }
+    if overrides.cursor_style.is_some() {
+        defaults.cursor_style = overrides.cursor_style;
+    }
+    if overrides.cursor_blink.is_some() {
+        defaults.cursor_blink = overrides.cursor_blink;
+    }
+    for (default, override_) in defaults.palette.iter_mut().zip(overrides.palette) {
+        if override_.is_some() {
+            *default = override_;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1422,8 +2898,259 @@ mod tests {
              cursor-style = beam\n\
              cursor-style-blink = sometimes\n",
         );
-        assert_eq!(invalid.cursor_style, None);
-        assert_eq!(invalid.cursor_blink, None);
+        assert_eq!(invalid.cursor_style, Some(CursorShape::Underline));
+        assert_eq!(invalid.cursor_blink, Some(true));
+
+        let quoted = parse_ghostty_defaults(
+            "cursor-style = \"bar\"\n\
+             cursor-style-blink = \"false\"\n",
+        );
+        assert_eq!(quoted.cursor_style, Some(CursorShape::Bar));
+        assert_eq!(quoted.cursor_blink, Some(false));
+    }
+
+    #[test]
+    fn resolves_ghostty_cursor_defaults_without_erasing_nullable_blink_semantics() {
+        let absent = resolve_ghostty_application_defaults(parse_ghostty_defaults(""));
+        assert_eq!(absent.cursor_style, Some(CursorShape::Block));
+        assert_eq!(absent.cursor_blink, None);
+
+        for (value, expected) in [("true", true), ("false", false)] {
+            let explicit = resolve_ghostty_application_defaults(parse_ghostty_defaults(&format!(
+                "cursor-style-blink = {value}\n"
+            )));
+            assert_eq!(explicit.cursor_blink, Some(expected));
+        }
+    }
+
+    #[test]
+    fn parses_ghostty_terminal_colors_and_palette_with_later_valid_entry_wins() {
+        let defaults = parse_ghostty_defaults(
+            "foreground = #010203\n\
+             background = 131415\n\
+             selection-background = #223344\n\
+             selection-foreground = GhostWhite\n\
+             palette = 1=#112233\n\
+             palette = 15=#abcdef\n\
+             palette = 1=#445566\n\
+             palette = 1=not-a-color\n\
+             palette = 256=#ffffff\n\
+             palette = malformed\n",
+        );
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
+        assert_eq!(defaults.selection_bg, Some(Rgb { r: 0x22, g: 0x33, b: 0x44 }));
+        assert_eq!(defaults.selection_fg, Some(Rgb { r: 0xf8, g: 0xf8, b: 0xff }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0x44, g: 0x55, b: 0x66 }));
+        assert_eq!(defaults.palette[15], Some(Rgb { r: 0xab, g: 0xcd, b: 0xef }));
+        assert!(defaults.palette[2..15].iter().all(Option::is_none));
+        assert!(defaults.palette[16..].iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn parses_resolved_ghostty_show_config_output() {
+        let defaults = parse_resolved_ghostty_defaults(
+            "# Ghostty resolved configuration\n\
+             theme = \"Monokai Classic\"\n\
+             background = #272822\n\
+             foreground = #fdfff1\n\
+             selection-background = #57584f\n\
+             selection-foreground = #fdfff1\n\
+             cursor-color = #c0c1b5\n\
+             cursor-style = bar\n\
+             cursor-style-blink = false\n\
+             palette = 0=#272822\n\
+             palette = 1=#f92672\n\
+             palette = 15=#fdfff1\n",
+        );
+
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        assert_eq!(defaults.selection_bg, Some(Rgb { r: 0x57, g: 0x58, b: 0x4f }));
+        assert_eq!(defaults.selection_fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        assert_eq!(defaults.cursor, Some(Rgb { r: 0xc0, g: 0xc1, b: 0xb5 }));
+        assert_eq!(defaults.cursor_style, Some(CursorShape::Bar));
+        assert_eq!(defaults.cursor_blink, Some(false));
+        assert_eq!(defaults.palette[0], Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0xf9, g: 0x26, b: 0x72 }));
+        assert_eq!(defaults.palette[15], Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn packaged_ghostty_resolver_receives_matching_resources() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-resolver-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let resources = root.join("ghostty");
+        let binary = root.join("ghostty-config-helper");
+        std::fs::create_dir_all(&resources).unwrap();
+        std::fs::write(
+            &binary,
+            "#!/bin/sh\n\
+             printf 'resource-path = %s\\n' \"$GHOSTTY_RESOURCES_DIR\"\n\
+             printf 'background = #272822\\nforeground = #fdfff1\\n'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let output = ghostty_show_config_command(&platform::GhosttyInstallation {
+            binary,
+            resources_dir: Some(resources.clone()),
+        })
+        .output()
+        .unwrap();
+        assert!(output.status.success());
+        let output = String::from_utf8(output.stdout).unwrap();
+        assert!(output.contains(&format!("resource-path = {}", resources.display())));
+        let defaults = parse_resolved_ghostty_defaults(&output);
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn unusable_packaged_ghostty_resolver_falls_through() {
+        let broken = PathBuf::from("/cmux-test/copied-app-binary");
+        let working = PathBuf::from("/cmux-test/standalone-cli-helper");
+        let installations = [
+            platform::GhosttyInstallation { binary: broken.clone(), resources_dir: None },
+            platform::GhosttyInstallation { binary: working.clone(), resources_dir: None },
+        ];
+        let mut visited = Vec::new();
+        let defaults = resolved_ghostty_defaults_from_with(&installations, |installation| {
+            visited.push(installation.binary.clone());
+            if installation.binary == broken {
+                Some(String::new())
+            } else {
+                Some("background = #272822\nforeground = #fdfff1\n".to_owned())
+            }
+        })
+        .unwrap();
+
+        assert_eq!(visited, vec![broken, working]);
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+    }
+
+    #[test]
+    fn fallback_theme_selection_matches_ghostty_first_theme_wins() {
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-theme-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Monokai Classic"),
+            "background = #272822\nforeground = #fdfff1\npalette = 1=#f92672\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("Aizen Light"),
+            "background = #f0f2f6\nforeground = #1f2329\npalette = 1=#cc3768\n",
+        )
+        .unwrap();
+
+        let defaults = parse_ghostty_defaults_with_theme_dirs(
+            "theme = \"Monokai Classic\"\ntheme = \"Aizen Light\"\n",
+            std::slice::from_ref(&dir),
+        );
+
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0xf9, g: 0x26, b: 0x72 }));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn injected_ghostty_defaults_drive_headless_render_state() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::time::Duration;
+
+        use cmux_tui_core::platform::transport;
+        use cmux_tui_core::{Mux, SurfaceOptions, server};
+
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let defaults = parse_ghostty_defaults(
+            "foreground = #010203\n\
+             background = #131415\n\
+             selection-background = #223344\n\
+             selection-foreground = #fefefe\n\
+             cursor-color = #c0c1b5\n\
+             cursor-style = bar\n\
+             cursor-style-blink = false\n\
+             palette = 1=#445566\n",
+        );
+        let session = format!(
+            "headless-config-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        let mux = Mux::new(
+            session,
+            SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() },
+        );
+        mux.set_default_colors(defaults);
+        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+        surface
+            .try_with_terminal(|term| {
+                term.vt_write(b"\x1b[31mR");
+                term.vt_write(b"\x1b_Ga=T,t=d,f=32,i=75,p=1,s=1,v=1,c=1,r=1,q=2;/wAAfw==\x1b\\");
+            })
+            .unwrap();
+        // Re-applying through the mux exercises the existing-surface path and
+        // publishes a fresh immutable render frame for the protocol server.
+        mux.set_default_colors(defaults);
+
+        let socket = server::serve(mux.clone(), None).unwrap();
+        let stream = transport::connect(&socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut writer = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(stream);
+        writeln!(
+            writer,
+            r#"{{"id":1,"cmd":"attach-surface","surface":{},"mode":"render"}}"#,
+            surface.id
+        )
+        .unwrap();
+
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let state: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(state["event"], "render-state");
+        assert_eq!(state["default_fg"], "#010203");
+        assert_eq!(state["default_bg"], "#131415");
+        assert_eq!(state["cursor"]["color"], "#c0c1b5");
+        assert_eq!(state["cursor"]["style"], "bar");
+        assert_eq!(state["cursor"]["blink"], false);
+        let red_run = state["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|row| row["runs"].as_array().into_iter().flatten())
+            .find(|run| run["text"].as_str().is_some_and(|text| text.contains('R')))
+            .expect("configured palette run");
+        assert_eq!(red_run["fg"], "#445566");
+        assert_eq!(state["graphics"]["images"][0]["id"], 75);
+        assert_eq!(state["graphics"]["images"][0]["format"], "rgba");
+        assert_eq!(state["graphics"]["images"][0]["data"], "/wAAfw==");
+        assert_eq!(state["graphics"]["placements"][0]["image_id"], 75);
+
+        let colors = surface.attach_stream().unwrap().colors;
+        assert_eq!(colors.selection_bg, Some(Rgb { r: 0x22, g: 0x33, b: 0x44 }));
+        assert_eq!(colors.selection_fg, Some(Rgb { r: 0xfe, g: 0xfe, b: 0xfe }));
+
+        mux.close_surface(surface.id).unwrap();
+        mux.shutdown();
+        server::cleanup(&socket);
     }
 
     #[test]
@@ -1495,8 +3222,11 @@ mod tests {
         std::fs::create_dir_all(&ghostty_dir).unwrap();
         std::fs::write(
             ghostty_dir.join("config"),
-            "selection-background = #445566\n\
+            "foreground = #010203\n\
+             background = #131415\n\
+             selection-background = #445566\n\
              selection-foreground = #abcdef\n\
+             palette = 1=#778899\n\
              cursor-style = bar\n\
              cursor-style-blink = false\n",
         )
@@ -1517,6 +3247,35 @@ mod tests {
         assert_eq!(config.theme.selection_fg, Some(Color::Rgb(0xab, 0xcd, 0xef)));
         assert_eq!(config.cursor_style, Some(CursorShape::Bar));
         assert_eq!(config.cursor_blink, Some(false));
+        assert_eq!(config.terminal_defaults.fg, Some(Rgb { r: 1, g: 2, b: 3 }));
+        assert_eq!(config.terminal_defaults.bg, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
+        assert_eq!(config.terminal_defaults.palette[1], Some(Rgb { r: 0x77, g: 0x88, b: 0x99 }));
+    }
+
+    #[test]
+    fn omitted_ghostty_cursor_blink_remains_unspecified() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+        let dir =
+            std::env::temp_dir().join(format!("mux-ghostty-cursor-default-{}", std::process::id()));
+        let ghostty_dir = dir.join("ghostty");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::write(ghostty_dir.join("config"), "cursor-style = \"bar\"\n").unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
+
+        let config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        restore_env_var("XDG_CONFIG_HOME", old_xdg_config_home);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(config.terminal_defaults.cursor_style, Some(CursorShape::Bar));
+        assert_eq!(config.terminal_defaults.cursor_blink, None);
+        assert_eq!(config.cursor_blink, None);
     }
 
     #[test]
@@ -1562,12 +3321,41 @@ mod tests {
     }
 
     #[test]
+    fn machine_config_rejects_misspelled_and_cross_transport_fields() {
+        for invalid in [
+            r#"{"machines":[{"id":"mini","name":"Mini","transport":"ssh","host":"mini","sesion":"main"}]}"#,
+            r#"{"machines":[{"id":"mini","name":"Mini","transport":"ssh","host":"mini","socket":"/tmp/mux.sock"}]}"#,
+            r#"{"machines":[{"id":"mini","name":"Mini","transport":"unix","socket":"/tmp/mux.sock","host":"mini"}]}"#,
+        ] {
+            assert!(serde_json::from_str::<RawConfig>(invalid).is_err(), "accepted {invalid}");
+        }
+    }
+
+    #[test]
+    fn zero_static_ssh_port_falls_back_to_the_ssh_default() {
+        assert_eq!(normalize_ssh_machine_port("mini", Some(0)), None);
+        assert_eq!(normalize_ssh_machine_port("mini", Some(22)), Some(22));
+        assert_eq!(normalize_ssh_machine_port("mini", None), None);
+    }
+
+    #[test]
     fn parses_websocket_server_config() {
         let raw: RawConfig =
             serde_json::from_str(r#"{"server":{"ws":"127.0.0.1:7681","ws_token":"secret"}}"#)
                 .unwrap();
         assert_eq!(raw.server.ws.as_deref(), Some("127.0.0.1:7681"));
         assert_eq!(raw.server.ws_token.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn cloud_provider_defaults_are_inert_and_target_cmux_cloud() {
+        let config = Config::default();
+
+        assert!(!config.machine_provider.cloud.enabled);
+        assert_eq!(config.machine_provider.cloud.host, "cmux.cloud");
+        assert_eq!(config.machine_provider.cloud.user, None);
+        assert_eq!(config.machine_provider.cloud.port, None);
+        assert_eq!(config.machine_provider.cloud.identity_file, None);
     }
 
     #[test]
@@ -1593,20 +3381,27 @@ mod tests {
     #[test]
     fn tab_labels_are_numbers_except_agents() {
         let tabs = Tabs::default();
-        assert_eq!(tab_label(&tabs, 0, "", None), "1");
-        assert_eq!(tab_label(&tabs, 1, "zsh", None), "2");
-        assert_eq!(tab_label(&tabs, 2, "vim src/main.rs", None), "3");
+        assert_eq!(tab_label(&tabs, 0, "", None), "0");
+        assert_eq!(tab_label(&tabs, 1, "zsh", None), "1");
+        assert_eq!(tab_label(&tabs, 2, "vim src/main.rs", None), "2");
         // Recognized agent programs surface in the label.
-        assert_eq!(tab_label(&tabs, 0, "claude", None), "1 claude");
-        assert_eq!(tab_label(&tabs, 3, "✳ Codex CLI", None), "4 codex");
-        assert_eq!(tab_label(&tabs, 4, "opencode - fix bug", None), "5 opencode");
+        assert_eq!(tab_label(&tabs, 0, "claude", None), "0 claude");
+        assert_eq!(tab_label(&tabs, 3, "✳ Codex CLI", None), "3 codex");
+        assert_eq!(tab_label(&tabs, 4, "opencode - fix bug", None), "4 opencode");
         // "pi" matches only as a word, not inside other words.
-        assert_eq!(tab_label(&tabs, 5, "pick a file", None), "6");
-        assert_eq!(tab_label(&tabs, 5, "pi chat", None), "6 pi");
+        assert_eq!(tab_label(&tabs, 5, "pick a file", None), "5");
+        assert_eq!(tab_label(&tabs, 5, "pi chat", None), "5 pi");
         assert_eq!(tab_label(&tabs, 5, "pi chat", Some("api")), "api");
 
         let titled = Tabs { show_titles: true, ..Tabs::default() };
-        assert_eq!(tab_label(&titled, 1, "zsh", None), "2 zsh");
+        assert_eq!(tab_label(&titled, 1, "zsh", None), "1 zsh");
+    }
+
+    #[test]
+    fn tab_selection_actions_use_zero_based_indexes() {
+        assert_eq!(Action::select_tab(0).unwrap().tab_index(), Some(0));
+        assert_eq!(Action::select_tab(9).unwrap().tab_index(), Some(9));
+        assert!(Action::select_tab(10).is_none());
     }
 
     #[test]
@@ -1629,18 +3424,46 @@ mod tests {
                 "sidebar": {
                     "view": "workspaces",
                     "width": 30,
+                    "compact_width": 12,
                     "max_width": 38,
                     "plugin": {
                         "command": ["/tmp/sidebar-plugin", "--mode", "test"],
                         "cwd": "/tmp"
                     }
                 },
+                "machine_sidebar": {
+                    "enabled": true,
+                    "width": 26,
+                    "max_width": 34
+                },
+                "machine_provider": {
+                    "cloud": {
+                        "enabled": true,
+                        "host": "edge.example.com",
+                        "user": "lawrence",
+                        "port": 2200,
+                        "identity_file": "/tmp/cloud-key"
+                    }
+                },
+                "machines": [
+                    {
+                        "id": "mini",
+                        "name": "Mac mini",
+                        "subtitle": "studio",
+                        "transport": "ssh",
+                        "host": "mini.local",
+                        "user": "lawrence",
+                        "session": "main"
+                    }
+                ],
                 "scrollbar": {"position": "border"},
+                "viewport": {"animation": false},
                 "keys": {
                     "alt_shortcuts": false,
                     "rename-pane": "r",
                     "focus-left": ["left", "alt+h"],
                     "next-tab": "none",
+                    "select-tab-0": "q",
                     "browser-edit-url": "u"
                 }
             }"##,
@@ -1663,17 +3486,45 @@ mod tests {
         assert_eq!(config.tabs.min_width, 9);
         assert!(!config.tabs.solid_background);
         assert_eq!(config.sidebar.width, 30);
+        assert_eq!(config.sidebar.compact_width, 12);
         assert_eq!(config.sidebar.max_width, 38);
         assert_eq!(config.sidebar.view, SidebarView::Workspaces);
+        assert_eq!(
+            config.machine_sidebar,
+            MachineSidebar { enabled: true, width: 26, max_width: 34 }
+        );
+        assert_eq!(
+            config.machine_provider.cloud,
+            CloudProviderConfig {
+                enabled: true,
+                host: "edge.example.com".into(),
+                user: Some("lawrence".into()),
+                port: Some(2200),
+                identity_file: Some(PathBuf::from("/tmp/cloud-key")),
+            }
+        );
+        assert_eq!(config.machines.len(), 1);
+        assert_eq!(config.machines[0].id, "mini");
+        assert_eq!(config.machines[0].name, "Mac mini");
+        assert!(matches!(
+            &config.machines[0].target,
+            MachineTargetConfig::Ssh { host, user: Some(user), session, .. }
+                if host == "mini.local" && user == "lawrence" && session == "main"
+        ));
         let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
         assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
+        assert!(!config.viewport.animation);
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
             Some(Action::RenameTab)
         );
         assert_eq!(config.keys.action_for(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)), None);
+        assert_eq!(
+            config.keys.action_for(&KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+            Action::select_tab(0)
+        );
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE)),
             Some(Action::BrowserEditUrl)
@@ -1708,6 +3559,21 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("unknown variant `stealth`"), "{err}");
+    }
+
+    #[test]
+    fn viewport_animation_defaults_on_and_can_be_disabled() {
+        let raw: RawConfig = serde_json::from_str(r#"{}"#).unwrap();
+        assert!(raw.viewport.animation.is_none());
+        assert!(Config::default().viewport.animation);
+
+        let raw: RawConfig = serde_json::from_str(r#"{"viewport":{"animation":false}}"#).unwrap();
+        assert_eq!(raw.viewport.animation, Some(false));
+
+        let error = serde_json::from_str::<RawConfig>(r#"{"viewport":{"animation":"slow"}}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("invalid type"), "{error}");
     }
 
     #[test]
@@ -1760,6 +3626,21 @@ mod tests {
     }
 
     #[test]
+    fn macos_option_as_alt_is_an_explicit_input_mode() {
+        let mut keys = Keys::default();
+        assert!(keys.macos_option_as_alt);
+
+        keys.apply(&HashMap::from([("macos_option_as_alt".to_string(), Value::Bool(false))]));
+        assert!(!keys.macos_option_as_alt);
+
+        keys.apply(&HashMap::from([(
+            "macos_option_as_alt".to_string(),
+            Value::String("guess".to_string()),
+        )]));
+        assert!(!keys.macos_option_as_alt);
+    }
+
+    #[test]
     fn default_key_table_has_no_duplicate_chords_or_reserved_alt_words() {
         let keys = Keys::default();
         for (i, (left, _)) in keys.bindings.iter().enumerate() {
@@ -1768,16 +3649,115 @@ mod tests {
                 "duplicate default chord: {left:?}"
             );
         }
-        assert!(
-            !keys.bindings.iter().any(|(chord, _)| chord == &keys.prefix),
-            "default binding shadows prefix passthrough: {:?}",
-            keys.prefix
+        assert_eq!(
+            keys.bindings
+                .iter()
+                .filter(|(chord, action)| chord == &keys.prefix && *action == Action::SendPrefix)
+                .count(),
+            1,
+            "the prefix chord must resolve only to the send-prefix action"
         );
         for c in ['b', 'f', 'd', '.'] {
             assert_eq!(
                 keys.modeless_action_for(&KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)),
                 None
             );
+        }
+    }
+
+    #[test]
+    fn default_terminal_clear_shortcuts_keep_ctrl_l_child_owned() {
+        let keys = Keys::default();
+        let action = |code, modifiers| keys.modeless_action_for(&KeyEvent::new(code, modifiers));
+        assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER), Some(Action::ClearHistory));
+        assert_eq!(action(KeyCode::Char('l'), KeyModifiers::CONTROL), None);
+        assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER | KeyModifiers::CONTROL), None);
+        assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER | KeyModifiers::ALT), None);
+        assert_eq!(action(KeyCode::Char('t'), KeyModifiers::SUPER), None);
+        assert_eq!(action(KeyCode::Char('w'), KeyModifiers::SUPER), None);
+        assert_eq!(action(KeyCode::Char('d'), KeyModifiers::SUPER), None);
+    }
+
+    #[test]
+    fn super_shortcuts_can_be_disabled_or_configured_explicitly() {
+        let mut keys = Keys::default();
+        keys.apply(&HashMap::from([("super_shortcuts".to_string(), Value::Bool(false))]));
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)),
+            None
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)),
+            None
+        );
+
+        keys.apply(&HashMap::from([(
+            "clear-history".to_string(),
+            Value::String("command+l".to_string()),
+        )]));
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('l'), KeyModifiers::SUPER)),
+            Some(Action::ClearHistory)
+        );
+        assert_eq!(
+            parse_chord("cmd+shift+d"),
+            Some(Chord { code: KeyCode::Char('D'), mods: KeyModifiers::SUPER })
+        );
+        assert_eq!(
+            parse_chord("super+shift+["),
+            Some(Chord { code: KeyCode::Char('{'), mods: KeyModifiers::SUPER })
+        );
+    }
+
+    #[test]
+    fn ordinary_binding_collision_preserves_doubled_prefix_passthrough() {
+        let mut keys = Keys::default();
+        let mut raw = HashMap::new();
+        raw.insert(
+            "new-tab".to_string(),
+            Value::Array(vec![Value::String("ctrl+b".to_string()), Value::String("f".to_string())]),
+        );
+
+        keys.apply(&raw);
+
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
+            Some(Action::SendPrefix)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+            Some(Action::NewTab)
+        );
+    }
+
+    #[test]
+    fn shifted_character_chords_match_enhanced_base_key_events() {
+        let shifted_letter = parse_chord("super+shift+d").unwrap();
+        assert!(shifted_letter.matches(&KeyEvent::new(
+            KeyCode::Char('d'),
+            KeyModifiers::SUPER | KeyModifiers::SHIFT,
+        )));
+
+        let shifted_symbol = parse_chord("super+shift+[").unwrap();
+        assert!(shifted_symbol.matches(&KeyEvent::new(
+            KeyCode::Char('['),
+            KeyModifiers::SUPER | KeyModifiers::SHIFT,
+        )));
+
+        let plain_letter = parse_chord("super+d").unwrap();
+        assert!(!plain_letter.matches(&KeyEvent::new(
+            KeyCode::Char('d'),
+            KeyModifiers::SUPER | KeyModifiers::SHIFT,
+        )));
+    }
+
+    #[test]
+    fn shift_is_preserved_without_a_shifted_ascii_character() {
+        for (raw, character) in [("shift+space", ' '), ("shift+é", 'é')] {
+            let chord = parse_chord(raw).unwrap();
+            assert_eq!(chord, Chord { code: KeyCode::Char(character), mods: KeyModifiers::SHIFT });
+            assert!(chord.matches(&KeyEvent::new(KeyCode::Char(character), KeyModifiers::SHIFT,)));
+            assert!(!chord.matches(&KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE,)));
         }
     }
 
@@ -1797,15 +3777,79 @@ mod tests {
     }
 
     #[test]
-    fn tmux_close_pane_flip_is_default() {
+    fn close_tab_uses_the_primary_lowercase_binding() {
         let keys = Keys::default();
         assert_eq!(
             keys.action_for(&KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
-            Some(Action::ClosePane)
+            Some(Action::CloseTab)
         );
         assert_eq!(
             keys.action_for(&KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT)),
+            Some(Action::ClosePane)
+        );
+    }
+
+    #[test]
+    fn close_tab_and_pane_bindings_are_configurable_independently() {
+        let mut keys = Keys::default();
+        let mut raw = HashMap::new();
+        raw.insert("close-tab".to_string(), Value::String("q".to_string()));
+        raw.insert("close-pane".to_string(), Value::String("Q".to_string()));
+        keys.apply(&raw);
+
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
             Some(Action::CloseTab)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::SHIFT)),
+            Some(Action::ClosePane)
+        );
+        assert_eq!(keys.action_for(&KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)), None);
+        assert_eq!(keys.action_for(&KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT)), None);
+    }
+
+    #[test]
+    fn workspace_defaults_cover_previous_next_create_and_close() {
+        let keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('('), KeyModifiers::SHIFT)),
+            Some(Action::PrevWorkspace)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char(')'), KeyModifiers::SHIFT)),
+            Some(Action::NextWorkspace)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(
+                KeyCode::Char('{'),
+                KeyModifiers::ALT | KeyModifiers::SHIFT,
+            )),
+            Some(Action::PrevWorkspace)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(
+                KeyCode::Char('}'),
+                KeyModifiers::ALT | KeyModifiers::SHIFT,
+            )),
+            Some(Action::NextWorkspace)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('W'), KeyModifiers::SHIFT)),
+            Some(Action::NewWorkspace)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('D'), KeyModifiers::SHIFT)),
+            Some(Action::CloseWorkspace)
+        );
+    }
+
+    #[test]
+    fn layout_undo_has_a_default_prefix_binding() {
+        let keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('U'), KeyModifiers::SHIFT)),
+            Some(Action::UndoLayout)
         );
     }
 
@@ -1817,7 +3861,14 @@ mod tests {
             ("swap-pane-prev", Action::SwapPanePrev),
             ("swap-pane-next", Action::SwapPaneNext),
             ("scroll-up", Action::ScrollUp),
+            ("toggle-sidebar-compact", Action::ToggleSidebarCompact),
             ("toggle-sidebar-view", Action::ToggleSidebarView),
+            ("new-pane-right", Action::NewPaneRight),
+            ("undo-layout", Action::UndoLayout),
+            ("show-shortcuts", Action::ShowShortcuts),
+            ("send-prefix", Action::SendPrefix),
+            ("prev-workspace", Action::PrevWorkspace),
+            ("close-workspace", Action::CloseWorkspace),
         ];
         for (name, action) in cases {
             let mut keys = Keys::default();
@@ -1835,10 +3886,10 @@ mod tests {
     #[test]
     fn select_screen_action_names_round_trip_and_parse() {
         for number in 0..=9 {
-            let action = Action::SelectScreen(number);
+            let action = Action::select_screen(number).unwrap();
             let name = format!("select-screen-{number}");
-            assert_eq!(action.config_key(), name);
-            assert!(all_actions().contains(&action));
+            assert_eq!(action.definition().config_key, name);
+            assert!(action_definitions().iter().any(|definition| definition.action == action));
 
             let mut keys = Keys::default();
             let mut raw = HashMap::new();
@@ -1862,9 +3913,10 @@ mod tests {
             );
         }
 
-        assert_eq!(Action::SelectScreen(1).screen_index(), Some(0));
-        assert_eq!(Action::SelectScreen(9).screen_index(), Some(8));
-        assert_eq!(Action::SelectScreen(0).screen_index(), Some(9));
+        assert_eq!(Action::select_screen(0).unwrap().screen_index(), Some(0));
+        assert_eq!(Action::select_screen(1).unwrap().screen_index(), Some(1));
+        assert_eq!(Action::select_screen(9).unwrap().screen_index(), Some(9));
+        assert!(Action::select_screen(10).is_none());
     }
 
     #[test]
@@ -1876,6 +3928,106 @@ mod tests {
         let plain_left = Chord { code: KeyCode::Left, mods: KeyModifiers::NONE };
         assert!(plain_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)));
         assert!(!plain_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT)));
+    }
+
+    #[test]
+    fn shortcut_labels_follow_resolved_bindings_and_prefix() {
+        let mut keys = Keys::default();
+        assert_eq!(keys.shortcut_label(Action::SendPrefix).as_deref(), Some("Ctrl-b Ctrl-b"));
+        assert_eq!(keys.shortcut_label(Action::ZoomPane).as_deref(), Some("Ctrl-b z"));
+        assert_eq!(keys.shortcut_label(Action::NewPaneSmart).as_deref(), Some("Alt-n"));
+        assert_eq!(keys.shortcut_label(Action::ClearHistory).as_deref(), Some("Super-k"));
+        assert_eq!(keys.prefixed_key_label(Action::ClearHistory), None);
+        assert_eq!(keys.prefixed_key_label(Action::ShowShortcuts).as_deref(), Some("?"));
+        assert_eq!(
+            keys.shortcut_labels(Action::FocusLeft),
+            ["Ctrl-b h", "Ctrl-b Left", "Alt-h", "Alt-Left"]
+        );
+
+        let mut raw = HashMap::new();
+        raw.insert("prefix".to_string(), Value::String("ctrl+a".to_string()));
+        raw.insert("zoom-pane".to_string(), Value::String("f".to_string()));
+        raw.insert("toggle-sidebar".to_string(), Value::String("none".to_string()));
+        keys.apply(&raw);
+
+        assert_eq!(keys.shortcut_label(Action::SendPrefix).as_deref(), Some("Ctrl-a Ctrl-a"));
+        assert_eq!(keys.shortcut_label(Action::ZoomPane).as_deref(), Some("Ctrl-a f"));
+        assert_eq!(keys.shortcut_label(Action::ToggleSidebar), None);
+        assert!(
+            keys.resolved_shortcuts()
+                .iter()
+                .all(|(definition, shortcuts)| definition.action != Action::ToggleSidebar
+                    && !shortcuts.is_empty())
+        );
+
+        let mut collision = Keys::default();
+        let mut raw = HashMap::new();
+        raw.insert("prefix".to_string(), Value::String("alt+n".to_string()));
+        collision.apply(&raw);
+        assert_eq!(
+            collision.shortcut_labels(Action::NewPaneSmart),
+            Vec::<String>::new(),
+            "the prefix chord must not remain advertised as a modeless action"
+        );
+        assert_eq!(collision.shortcut_label(Action::SendPrefix).as_deref(), Some("Alt-n Alt-n"));
+    }
+
+    #[test]
+    fn default_backtab_accepts_crossterm_implied_shift() {
+        let keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT)),
+            Some(Action::PrevTab)
+        );
+    }
+
+    #[test]
+    fn action_catalog_has_unique_actions_keys_and_complete_localized_labels() {
+        let mut actions = HashSet::new();
+        let mut keys = HashSet::new();
+        for &definition in action_definitions() {
+            assert!(actions.insert(definition.action), "duplicate action: {:?}", definition.action);
+            assert!(keys.insert(definition.config_key), "duplicate key: {}", definition.config_key);
+            assert!(!definition.label_en.is_empty());
+            assert!(!definition.label_ja.is_empty());
+            assert_eq!(definition.action.definition(), definition);
+            let metadata = definition.action.metadata();
+            let metadata_key = metadata.key;
+            let _execution = metadata.execution();
+            let resolved_metadata_key = match definition.action {
+                Action::SelectTab(index) | Action::SelectScreen(index) => {
+                    metadata_key.replace("{number}", &index.get().to_string())
+                }
+                _ => metadata_key.to_string(),
+            };
+            assert_eq!(
+                resolved_metadata_key, definition.config_key,
+                "action catalog and programmability metadata disagree for {:?}",
+                definition.action
+            );
+        }
+        for (_, action) in Keys::default().bindings {
+            assert!(actions.contains(&action), "default binding is not registered: {action:?}");
+        }
+        assert!(actions.contains(&Action::NewPaneSmart));
+        assert!(actions.contains(&Action::ShowShortcuts));
+    }
+
+    #[test]
+    fn every_catalog_action_can_be_rebound() {
+        for &definition in action_definitions() {
+            let mut keys = Keys::default();
+            let mut raw = HashMap::new();
+            raw.insert(definition.config_key.to_string(), Value::String("f".to_string()));
+            keys.apply(&raw);
+
+            assert_eq!(
+                keys.action_for(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+                Some(definition.action),
+                "{} did not rebind through the central action catalog",
+                definition.config_key
+            );
+        }
     }
 
     #[test]

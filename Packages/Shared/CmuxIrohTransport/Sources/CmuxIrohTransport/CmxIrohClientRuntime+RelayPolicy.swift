@@ -40,7 +40,7 @@ extension CmxIrohClientRuntime {
             throw CmxIrohClientRuntimeError.relayFleetMismatch
         }
         let revision = lifecycleRevision
-        try await supervisor.replaceRelayProfile(
+        try await connectivityEngine.replaceRelayProfile(
             profile,
             expectedIdentity: binding.endpointID
         )
@@ -70,17 +70,32 @@ extension CmxIrohClientRuntime {
                 localBinding: binding
             )
         }
-        let provider = CmxIrohRegistryContextProvider(
-            supervisor: supervisor,
-            broker: broker,
-            localBindingExpectation: expectation,
-            managedRelayURLs: replacementManagedURLs,
-            allowedRouteRelayURLs: profile.allowedRelayURLs,
-            networkPathSnapshot: networkPathSnapshot,
-            offlinePolicy: offlinePolicy,
-            lanFallback: lanFallback,
-            now: now
-        )
+        let provider: CmxIrohRegistryContextProvider
+        if let registryContextProvider {
+            await registryContextProvider.updatePolicy(
+                localBindingExpectation: expectation,
+                managedRelayURLs: replacementManagedURLs,
+                allowedRouteRelayURLs: profile.allowedRelayURLs,
+                offlinePolicy: offlinePolicy
+            )
+            provider = registryContextProvider
+        } else {
+            provider = CmxIrohRegistryContextProvider(
+                localEndpointIdentity: { [connectivityEngine] in
+                    try await connectivityEngine.localEndpointIdentity()
+                },
+                broker: broker,
+                localBindingExpectation: expectation,
+                managedRelayURLs: replacementManagedURLs,
+                allowedRouteRelayURLs: profile.allowedRelayURLs,
+                networkPathSnapshot: networkPathSnapshot,
+                offlinePolicy: offlinePolicy,
+                lanFallback: lanFallback,
+                customPrivateFallback: customPrivateFallback,
+                now: now
+            )
+            registryContextProvider = provider
+        }
         await contextRouter.install(provider)
         try requireCurrent(revision)
 
@@ -89,10 +104,12 @@ extension CmxIrohClientRuntime {
         guard profile.source == .managed,
               !profile.allowedRelayURLs.isEmpty else { return }
         let coordinator = CmxIrohRelayCredentialCoordinator(
-            supervisor: supervisor,
+            supervisor: connectivityEngine,
             broker: broker,
             managedRelayURLs: replacementManagedURLs,
             selectedRelayURLs: profile.allowedRelayURLs,
+            retrySchedule: .foregroundClient,
+            automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
             credentialDidInstall: { [handleRelayCredential] response in
                 await handleRelayCredential(response, binding)
             }

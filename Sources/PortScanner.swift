@@ -29,6 +29,7 @@ final class PortScanner: @unchecked Sendable {
     let queue = DispatchQueue(label: "com.cmux.port-scanner", qos: .utility)
     let processIdentityProvider: @Sendable (pid_t) -> AgentPIDProcessIdentity?
     let processPresenceProvider: @Sendable (pid_t) -> PIDPresence
+    @MainActor let ttySessionIdentityProvider: @MainActor @Sendable (String) -> TerminalTTYSessionIdentity?
 
     private var ttyNames: [PanelKey: String] = [:]
     private var panelRevisionByKey: [PanelKey: UInt64] = [:]
@@ -72,17 +73,25 @@ final class PortScanner: @unchecked Sendable {
         },
         processPresenceProvider: @escaping @Sendable (pid_t) -> PIDPresence = {
             PIDPresence.current(pid: $0)
+        },
+        ttySessionIdentityProvider: @escaping @MainActor @Sendable (String) -> TerminalTTYSessionIdentity? = {
+            TerminalTTYSessionIdentity(ttyName: $0)
         }
     ) {
         self.commandRunner = commandRunner
         self.processIdentityProvider = processIdentityProvider
         self.processPresenceProvider = processPresenceProvider
+        self.ttySessionIdentityProvider = ttySessionIdentityProvider
     }
 
     @MainActor
     func registerTTY(workspaceId: UUID, panelId: UUID, ttyName: String) {
         let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
-        guard let revision = publicationState.replacePanelLifecycle(key: key, ttyName: ttyName) else {
+        guard let revision = publicationState.replacePanelLifecycle(
+            key: key,
+            ttyName: ttyName,
+            sessionIdentity: ttySessionIdentityProvider(ttyName)
+        ) else {
             return
         }
         queue.async { [self] in
@@ -108,6 +117,16 @@ final class PortScanner: @unchecked Sendable {
             pendingKicks.remove(key)
             panelPortSnapshot.remove(keys: [key])
         }
+    }
+
+    @MainActor
+    func freshReportedTTYName(workspaceId: UUID, panelId: UUID) -> String? {
+        let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+        guard let ttyName = publicationState.registeredPanelTTYName(for: key),
+              let sessionIdentity = ttySessionIdentityProvider(ttyName) else {
+            return nil
+        }
+        return publicationState.currentPanelTTYName(for: key, sessionIdentity: sessionIdentity)
     }
 
     func kick(workspaceId: UUID, panelId: UUID) {

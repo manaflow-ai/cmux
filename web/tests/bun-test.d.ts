@@ -34,5 +34,6 @@ declare module "bun:test" {
     objectContaining: (value: unknown) => unknown;
   };
   export const mock: Mock;
+  export const setSystemTime: (time?: Date | number) => void;
   export const test: TestFunction;
 }

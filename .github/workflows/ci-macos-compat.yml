@@ -18,7 +18,7 @@ jobs:
             expected_arch: x86_64
             expected_os_major: "14"
           - os: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-            timeout: 30
+            timeout: 60
             run_unit_tests: true
             startup_smoke: true
             virtual_display: true
@@ -26,7 +26,7 @@ jobs:
             expected_arch: ""
             expected_os_major: ""
           - os: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-            timeout: 30
+            timeout: 60
             run_unit_tests: true
             startup_smoke: true
             virtual_display: false
@@ -153,6 +153,12 @@ jobs:
           ./scripts/ci/run-swift-testing-suites.sh Packages/Shared/CMUXMobileCore
           ./scripts/ci/run-swift-testing-suites.sh Packages/Shared/CmuxIrohTransport
 
+      - name: Run mobile transport tests in x86_64 iOS Simulator on Intel Sonoma
+        if: matrix.expected_arch == 'x86_64'
+        env:
+          CMUX_EXPECTED_SIMULATOR_ARCH: ${{ matrix.expected_arch }}
+        run: ./scripts/ci/run-iroh-ios-simulator-package-tests.sh
+
       - name: Run unit tests
         if: matrix.run_unit_tests
         env:
@@ -166,6 +172,7 @@ jobs:
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
+              COMPILER_INDEX_STORE_ENABLE=NO \
               test 2>&1
           }
 
@@ -225,7 +232,9 @@ jobs:
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
-            -destination "platform=macOS" build
+            -destination "platform=macOS" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build
 
       - name: Smoke test
         if: matrix.startup_smoke

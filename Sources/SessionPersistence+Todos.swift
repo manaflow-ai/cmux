@@ -28,6 +28,49 @@ struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
     var text: String
     var state: String
     var origin: String
+    var attachments: [WorkspaceChecklistAttachment] = []
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case text
+        case state
+        case origin
+        case attachments
+    }
+
+    init(
+        id: UUID,
+        text: String,
+        state: String,
+        origin: String,
+        attachments: [WorkspaceChecklistAttachment] = []
+    ) {
+        self.id = id
+        self.text = text
+        self.state = state
+        self.origin = origin
+        self.attachments = attachments
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.text = try container.decode(String.self, forKey: .text)
+        self.state = try container.decode(String.self, forKey: .state)
+        self.origin = try container.decode(String.self, forKey: .origin)
+        self.attachments = (try? container.decode(LossySessionChecklistAttachments.self, forKey: .attachments))?.attachments ?? []
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(text, forKey: .text)
+        try container.encode(state, forKey: .state)
+        try container.encode(origin, forKey: .origin)
+        if !attachments.isEmpty {
+            try container.encode(attachments, forKey: .attachments)
+        }
+    }
 }
 
 extension SessionChecklistItemSnapshot {
@@ -37,7 +80,8 @@ extension SessionChecklistItemSnapshot {
             id: item.id,
             text: item.text,
             state: item.state.rawValue,
-            origin: item.origin.rawValue
+            origin: item.origin.rawValue,
+            attachments: item.attachments
         )
     }
 
@@ -50,9 +94,31 @@ extension SessionChecklistItemSnapshot {
             id: id,
             text: normalizedText,
             state: WorkspaceChecklistItem.State(rawValue: state) ?? .pending,
-            origin: WorkspaceChecklistItem.Origin(rawValue: origin) ?? .user
+            origin: WorkspaceChecklistItem.Origin(rawValue: origin) ?? .user,
+            attachments: attachments
         )
     }
+}
+
+private struct LossySessionChecklistAttachments: Decodable {
+    var attachments: [WorkspaceChecklistAttachment]
+
+    init(from decoder: any Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        var attachments: [WorkspaceChecklistAttachment] = []
+        while !container.isAtEnd {
+            if let attachment = try? container.decode(WorkspaceChecklistAttachment.self) {
+                attachments.append(attachment)
+            } else {
+                _ = try container.decode(DiscardedSessionChecklistAttachment.self)
+            }
+        }
+        self.attachments = attachments
+    }
+}
+
+private struct DiscardedSessionChecklistAttachment: Decodable {
+    init(from decoder: any Decoder) throws {}
 }
 
 extension SessionWorkspaceSnapshot {

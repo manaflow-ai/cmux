@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 import Foundation
 import os
 
@@ -18,12 +19,14 @@ enum PairedMacInstanceTagUpdate {
 @MainActor
 extension MobileShellComposite {
     /// Persist a connection only with authority proven by authenticated status.
-    /// Returns false when a no-tag fresh attach finds an existing tagged owner.
+    /// Returns false when persistence fails or a no-tag fresh attach finds an
+    /// existing tagged owner.
     @discardableResult
     func persistPairedMacFromTicket(
         _ ticket: CmxAttachTicket,
         instanceTagUpdate: PairedMacInstanceTagUpdate = .preserve,
         displayNameOverride: String? = nil,
+        userAuthorizedTailscaleRoutes: [CmxAttachRoute] = [],
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
         guard let pairedMacStore,
@@ -40,7 +43,35 @@ extension MobileShellComposite {
             let scopedMacs = (try? await pairedMacStore.loadAll(
                 stackUserID: stackUserID, teamID: scope?.teamID
             )) ?? []
-            let existing = scopedMacs.first { $0.macDeviceID == ticket.macDeviceID }
+            let expectedStoredTag: String?
+            switch instanceTagUpdate {
+            case .preserve:
+                expectedStoredTag = self.activeMacInstanceTag
+            case .preserveOnlyIfUnclaimed:
+                expectedStoredTag = nil
+            case .replace(let reportedTag):
+                expectedStoredTag = reportedTag
+            }
+            let exactExisting = scopedMacs.first {
+                $0.macDeviceID == ticket.macDeviceID
+                    && $0.instanceTag == expectedStoredTag
+            }
+            let physicalMatches = scopedMacs.filter {
+                $0.macDeviceID == ticket.macDeviceID
+            }
+            let existing: MobilePairedMac?
+            if let exactExisting {
+                existing = exactExisting
+            } else if case .preserve = instanceTagUpdate,
+                      expectedStoredTag == nil {
+                // Before the foreground status probe reports its tag, the
+                // selected row is the only safe authority fallback. Never pick
+                // an arbitrary sibling merely because it was seen more recently.
+                existing = physicalMatches.first(where: \.isActive)
+                    ?? (physicalMatches.count == 1 ? physicalMatches[0] : nil)
+            } else {
+                existing = nil
+            }
             let storedTag = existing?.instanceTag
             var displayName = ticketDisplayName ?? existing?.displayName
             if displayName == nil {
@@ -96,9 +127,32 @@ extension MobileShellComposite {
                         now: Date()
                     )
                 }
-                await self.clearForgottenMacDeviceID(ticket.macDeviceID, scope: scope)
+                if !userAuthorizedTailscaleRoutes.isEmpty {
+                    // The user just proved control of this Mac by entering its
+                    // pairing code; record the device-local grant so later
+                    // preference-ordered dials use the evidence path.
+                    do {
+                        try await pairedMacStore.authorizeUserTailscaleRoutes(
+                            macDeviceID: ticket.macDeviceID,
+                            instanceTag: instanceTag,
+                            stackUserID: stackUserID,
+                            teamID: scope?.teamID,
+                            routes: userAuthorizedTailscaleRoutes
+                        )
+                    } catch {
+                        pairedMacPersistenceLog.error(
+                            "user tailscale grant persist failed: \(String(describing: error), privacy: .public)"
+                        )
+                    }
+                }
+                await self.clearHiddenMacDeviceID(
+                    ticket.macDeviceID,
+                    instanceTag: instanceTag,
+                    scope: scope
+                )
                 self.hasKnownPairedMac = true
             } catch {
+                accepted = false
                 pairedMacPersistenceLog.error(
                     "paired mac upsert failed: \(String(describing: error), privacy: .public)"
                 )

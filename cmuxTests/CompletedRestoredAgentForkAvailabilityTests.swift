@@ -11,7 +11,7 @@ import Testing
 @MainActor
 struct CompletedRestoredAgentForkAvailabilityTests {
     @Test
-    func completedRestoredAgentCannotDriveForkActions() throws {
+    func completedRestoredAgentCannotDriveForkActions() async throws {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
         let snapshot = forkableClaudeSnapshot()
@@ -27,12 +27,11 @@ struct CompletedRestoredAgentForkAvailabilityTests {
         #expect(workspace.restoredAgentSnapshotsByPanelId[panel.id] != nil)
         #expect(workspace.forkAgentConversationContextMenuAvailability(forPanelId: panel.id) == .noAgentSnapshot)
         #expect(workspace.forkAgentConversationContextMenuOpenSelection(forPanelId: panel.id).snapshot == nil)
-        #expect(
-            !workspace.forkAgentConversationFromContextMenu(
-                fromPanelId: panel.id,
-                destination: .newTab
-            )
+        let didForkFromCompletedAgent = await workspace.forkAgentConversationFromContextMenu(
+            fromPanelId: panel.id,
+            destination: .newTab
         )
+        #expect(!didForkFromCompletedAgent)
 
         let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
             workspaceId: workspace.id,

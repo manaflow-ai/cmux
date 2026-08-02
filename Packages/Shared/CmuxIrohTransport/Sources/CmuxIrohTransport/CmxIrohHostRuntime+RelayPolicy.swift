@@ -30,7 +30,7 @@ extension CmxIrohHostRuntime {
         relayBootstrap: CmxIrohRelayTokenResponse?
     ) async throws {
         guard lifecyclePhase == .active,
-              let supervisor,
+              let connectivityEngine,
               let binding = localBinding else {
             throw CmxIrohHostRuntimeError.inactive
         }
@@ -42,7 +42,7 @@ extension CmxIrohHostRuntime {
             throw CmxIrohHostRuntimeError.relayFleetMismatch
         }
         let revision = lifecycleRevision
-        try await supervisor.replaceRelayProfile(
+        try await connectivityEngine.replaceRelayProfile(
             profile,
             expectedIdentity: binding.endpointID
         )
@@ -53,12 +53,14 @@ extension CmxIrohHostRuntime {
         await admissionController?.updateManagedRelayURLs(replacementManagedURLs)
         try requireCurrent(revision)
 
+        relayActivationTask?.cancel()
+        relayActivationTask = nil
         await relayCoordinator?.deactivate()
         relayCoordinator = nil
         guard profile.source == .managed,
               !profile.allowedRelayURLs.isEmpty else { return }
         let coordinator = CmxIrohRelayCredentialCoordinator(
-            supervisor: supervisor,
+            supervisor: connectivityEngine,
             broker: broker,
             managedRelayURLs: replacementManagedURLs,
             selectedRelayURLs: profile.allowedRelayURLs,

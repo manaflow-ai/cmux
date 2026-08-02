@@ -4,7 +4,7 @@
 // The web API is the token issuer: it holds the Ed25519 PRIVATE signing key
 // (`CMUX_RELAY_JWT_PRIVATE_KEY_PEM`); every relay VM holds only the matching
 // PUBLIC key and verifies tokens offline. A minted token is a short-TTL EdDSA
-// JWT with `iss=cmux`, `aud=cmux-relay`, `sub=<user>`, and an optional
+// JWT with `iss=cmux`, `aud=cmux-relay`, `sub=<user>`, and a required
 // `endpoint_id` binding (so a leaked token cannot be replayed from another key).
 
 import { createPrivateKey, sign as edSign, type KeyObject } from "node:crypto";

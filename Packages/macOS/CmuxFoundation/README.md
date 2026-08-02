@@ -15,6 +15,15 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
 
 - `String.javaScriptStringLiteral` — the string encoded as a quoted JavaScript string literal.
 - `SSHAgentSocketResolver` — OpenSSH option parsing and SSH agent socket path normalization.
+- `MoshTerminalCommandBuilder` — a pure Mosh startup-command builder with explicit SSH fallback.
+- `RemoteTmuxCommandBuilder` — shared remote `tmux` resolution and argv preservation.
+- `WorkspaceRemoteTerminalProfile` — durable shell-or-named-tmux terminal intent.
+- `WorkspaceRemoteTerminalTransport` — the persisted SSH-or-Mosh interactive terminal preference.
+- `CLISocketSentryPolicy`: trusted Codex sandbox provenance for CLI socket `EPERM` filtering.
+- `MainActorDeferredActionScheduler` — replaceable clock-driven main-actor work
+  whose queued actions cannot retain prior scheduled actions.
+- `MainActorCoalescingDeadlineTimer` — one persistent timer handle for hot,
+  synchronous streams of deadline updates.
 
 ## Usage
 
@@ -25,9 +34,49 @@ let literal = userText?.javaScriptStringLiteral ?? "null"
 webView.evaluateJavaScript("setValue(\(literal))")
 ```
 
+Callers supply complete SSH argv prefixes and localized diagnostics to the Mosh builder, which
+keeps process execution and localization outside this dependency-free package:
+
+```swift
+let command = MoshTerminalCommandBuilder(
+    capabilityProbeSSHArguments: ["ssh", "-o", "RemoteCommand=none"],
+    sessionSSHArguments: ["ssh", "-o", "RemoteCommand=none", "-p", "2222"],
+    destination: "dev@example.com",
+    remoteCommandArguments: [],
+    sshFallbackCommand: "ssh -p 2222 dev@example.com",
+    localMoshMissingMessage: "Mosh is unavailable locally; using SSH.",
+    localMoshUnsupportedMessage: "Mosh is too old for shared SSH setup; using SSH.",
+    remoteMoshMissingMessage: "mosh-server is unavailable remotely; using SSH.",
+    remoteMoshProbeFailedMessage: "Mosh capability check failed; using SSH."
+).command()
+```
+
+Transport and terminal program are orthogonal values, so a Mosh workspace can durably
+restore a named tmux session without moving daemon or proxy traffic away from SSH:
+
+```swift
+let profile = WorkspaceRemoteTerminalProfile(kind: .tmux, tmuxSessionName: "agent-main")
+let remoteArguments = profile?.remoteCommandArguments
+```
+
+CLI telemetry may suppress socket-connect `EPERM` only when the process
+environment contains a known restricted `CODEX_SANDBOX` value:
+
+```swift
+let policy = CLISocketSentryPolicy(environment: ProcessInfo.processInfo.environment)
+let isExpected = SentryNoiseFilter().isExpectedCLISocketTransportFailure(
+    stage: stage,
+    message: errorMessage,
+    allowSandboxPolicyDenial: policy.allowsSandboxPolicyDenial
+)
+```
+
+Pass the process environment directly. Missing, unknown, and unrestricted
+`CODEX_SANDBOX` values keep the error visible.
+
 ## Testing
 
-Everything here is a pure value transform, so tests need no app, no AppKit, and no filesystem:
+Tests need no app, AppKit lifecycle, or user-owned state:
 
 ```swift
 import Testing
@@ -35,5 +84,15 @@ import CmuxFoundation
 
 @Test func plainStringIsQuoted() {
     #expect("hello".javaScriptStringLiteral == "\"hello\"")
+}
+```
+
+Deferred-action tests inject a controllable `Clock<Duration>` and advance it
+instead of waiting for wall time:
+
+```swift
+let scheduler = MainActorDeferredActionScheduler(clock: testClock)
+scheduler.schedule(after: .milliseconds(50)) {
+    receivedAction = true
 }
 ```

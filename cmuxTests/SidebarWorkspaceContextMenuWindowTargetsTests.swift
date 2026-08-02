@@ -153,7 +153,10 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
                 addItem: { _ in },
                 editItem: { _, _ in },
                 moveItem: { _, _ in },
-                openPane: {}
+                openPane: {},
+                addAttachments: { _ in },
+                removeAttachment: { _, _ in },
+                openAttachments: { _, _ in }
             ),
             onDragStart: { NSItemProvider() },
             bonsplitSourceWorkspaceId: { _ in nil },

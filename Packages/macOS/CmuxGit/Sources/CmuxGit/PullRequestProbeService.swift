@@ -41,14 +41,19 @@ public struct PullRequestProbeService: Sendable {
     ///
     /// - Parameters:
     ///   - commandRunner: Runs `gh auth token`; tests pass a fake.
+    ///   - requestCoordinator: Shared GitHub transport/cache/backoff policy.
+    ///     Defaults to a process-scoped coordinator; injected (like
+    ///     `commandRunner`) so tests can supply one backed by a stub
+    ///     `URLSession` without contacting GitHub.
     ///   - debugLog: Optional diagnostics sink; defaults to a no-op.
     public init(
         commandRunner: any CommandRunning = CommandRunner(),
+        requestCoordinator: GitHubPullRequestRequestCoordinator? = nil,
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
         self.commandRunner = commandRunner
         self.authHeaderCache = GitHubAuthHeaderCache()
-        self.requestCoordinator = GitHubPullRequestRequestCoordinator()
+        self.requestCoordinator = requestCoordinator ?? GitHubPullRequestRequestCoordinator()
         self.debugLog = debugLog
     }
 
@@ -56,10 +61,8 @@ public struct PullRequestProbeService: Sendable {
 
     /// How long a fetched repo cache entry satisfies periodic refreshes.
     static let repoCacheLifetime: TimeInterval = 15
-    /// REST page size for the recent-PRs fetch.
+    /// REST page size for per-branch `head=` pull-request lookups.
     static let repoPageSize = 100
-    /// Maximum REST pages fetched per repository.
-    static let repoPageLimit = 2
     /// Per-request timeout for GitHub API calls and the `gh auth token` probe.
     static let probeTimeout: TimeInterval = 5.0
     /// Merged PRs older than this no longer earn a badge.

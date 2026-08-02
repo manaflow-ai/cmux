@@ -15,6 +15,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         case pairingEnabled = "pairing_enabled"
         case capabilities
         case pathHints = "path_hints"
+        case directPorts = "direct_ports"
         case lastSeenAt = "last_seen_at"
     }
 
@@ -29,6 +30,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
     public let pairingEnabled: Bool
     public let capabilities: [String]
     public let pathHints: [CmxIrohPathHint]
+    public let directPorts: CmxIrohDirectPorts?
     public let lastSeenAt: String
 
     public init(from decoder: any Decoder) throws {
@@ -42,6 +44,10 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         let capabilities = try container.decode([String].self, forKey: .capabilities)
         let displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
         let pathHints = try container.decode([CmxIrohPathHint].self, forKey: .pathHints)
+        let directPorts = try container.decodeIfPresent(
+            CmxIrohDirectPorts.self,
+            forKey: .directPorts
+        )
         let lastSeenAt = try container.decode(String.self, forKey: .lastSeenAt)
         guard Self.isCanonicalUUID(bindingID),
               Self.isCanonicalUUID(deviceID),
@@ -74,6 +80,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         pairingEnabled = try container.decode(Bool.self, forKey: .pairingEnabled)
         self.capabilities = capabilities
         self.pathHints = pathHints
+        self.directPorts = directPorts
         self.lastSeenAt = lastSeenAt
     }
 
@@ -90,6 +97,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         try container.encode(pairingEnabled, forKey: .pairingEnabled)
         try container.encode(capabilities, forKey: .capabilities)
         try container.encode(pathHints, forKey: .pathHints)
+        try container.encodeIfPresent(directPorts, forKey: .directPorts)
         try container.encode(lastSeenAt, forKey: .lastSeenAt)
     }
 
@@ -208,6 +216,11 @@ public struct CmxIrohLANRendezvous: Codable, Equatable, Sendable {
 /// Authenticated registry snapshot used for endpoint discovery and grant verification.
 public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
     public let routeContractVersion: Int
+    /// Monotonic account route revision returned by revision-aware brokers.
+    ///
+    /// This remains optional while installed clients can still reach a
+    /// pre-connectivity-v2 development backend.
+    public let revision: UInt64?
     public let bindings: [CmxIrohBrokerBinding]
     public let relayFleet: [String]
     public let lanRendezvous: CmxIrohLANRendezvous
@@ -215,6 +228,7 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case routeContractVersion = "route_contract_version"
+        case revision
         case bindings
         case relayFleet = "relay_fleet"
         case lanRendezvous = "lan_rendezvous"
@@ -224,10 +238,10 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let routeContractVersion = try container.decode(Int.self, forKey: .routeContractVersion)
+        let revision = try container.decodeIfPresent(UInt64.self, forKey: .revision)
         let bindings = try container.decode([CmxIrohBrokerBinding].self, forKey: .bindings)
         let relayFleet = try container.decode([String].self, forKey: .relayFleet)
-        guard bindings.count <= 32,
-              Set(bindings.map(\.bindingID)).count == bindings.count,
+        guard Set(bindings.map(\.bindingID)).count == bindings.count,
               (1 ... CmxIrohRelayPolicyVerifier.maximumRelayCount).contains(
                   relayFleet.count
               ),
@@ -238,6 +252,7 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
             )
         }
         self.routeContractVersion = routeContractVersion
+        self.revision = revision
         self.bindings = bindings
         self.relayFleet = relayFleet
         lanRendezvous = try container.decode(CmxIrohLANRendezvous.self, forKey: .lanRendezvous)
@@ -245,6 +260,22 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
             CmxIrohGrantVerificationKeySet.self,
             forKey: .grantVerificationKeys
         )
+    }
+
+    init(
+        routeContractVersion: Int,
+        revision: UInt64?,
+        bindings: [CmxIrohBrokerBinding],
+        relayFleet: [String],
+        lanRendezvous: CmxIrohLANRendezvous,
+        grantVerificationKeys: CmxIrohGrantVerificationKeySet
+    ) {
+        self.routeContractVersion = routeContractVersion
+        self.revision = revision
+        self.bindings = bindings
+        self.relayFleet = relayFleet
+        self.lanRendezvous = lanRendezvous
+        self.grantVerificationKeys = grantVerificationKeys
     }
 
     private static func isCanonicalRelayURL(_ value: String) -> Bool {
@@ -267,8 +298,26 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
 
 /// Registration response. Relay bootstrap failure never rolls back the binding.
 public struct CmxIrohRegistrationResponse: Decodable, Equatable, Sendable {
+    /// Monotonic account route revision after this registration commit.
+    public let revision: UInt64?
     public let binding: CmxIrohBrokerBinding
     public let relay: CmxIrohRegistrationRelay
+    /// The authoritative post-registration account snapshot when supplied by
+    /// connectivity v2. Older brokers omit it and retain the separate sync.
+    public let discovery: CmxIrohDiscoveryResponse?
+
+    /// Creates a registration response for alternate brokers and tests.
+    public init(
+        revision: UInt64? = nil,
+        binding: CmxIrohBrokerBinding,
+        relay: CmxIrohRegistrationRelay,
+        discovery: CmxIrohDiscoveryResponse? = nil
+    ) {
+        self.revision = revision
+        self.binding = binding
+        self.relay = relay
+        self.discovery = discovery
+    }
 }
 
 /// Result of the registration route's best-effort initial relay mint.

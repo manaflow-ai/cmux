@@ -77,6 +77,7 @@ final class MobileHostIrohRuntime {
     let appInstances: CmxIrohAppInstanceRepository
     let identities: CmxIrohIdentityRepository
     let brokerCredentials: CmxIrohBrokerCredentialRepository
+    let brokerBackpressureGate: CmxIrohBrokerBackpressureGate
     let hostPolicies: CmxIrohHostPolicyCache
     let pendingRevocations: CmxIrohPendingRevocationOutbox
     let customRelayProfiles: CmxIrohCustomRelayProfileStore
@@ -85,6 +86,9 @@ final class MobileHostIrohRuntime {
     let customRelayCredentials: CmxIrohCustomRelayCredentialStore
     let relayPolicyTrustRoot: CmxIrohRelayPolicyTrustRoot?
     let lanPublisher: CmxIrohLANHostPublisher
+    /// Release-safe, bounded host-side connection timeline. Event payloads are
+    /// fixed numeric categories, never peer identities, addresses, or tokens.
+    let diagnosticLog: DiagnosticLog
     let authObserver = MobileHostIrohAuthObserver()
     let bindingPersistenceQueue = MobileHostIrohPersistenceQueue()
 
@@ -112,21 +116,37 @@ final class MobileHostIrohRuntime {
     var signOutPreparationTask: Task<Void, Never>?
     var signOutPreparationRevision: UInt64 = 0
     var lifecycleRevision: UInt64 = 0
+    var nextDiagnosticSessionID = 0
+    var failureRecoveryTask: Task<Void, Never>?
+    var retryInspectionTask: Task<Void, Never>?
+    var retryInspectionRevision: UInt64 = 0
+    var failureRecoveryFailureCount = 0
+    var failureRecoveryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+    var failureRecoverySchedule = CmxIrohRetrySchedule()
+    /// Single-flight owner for revision reconciliation: one task in flight,
+    /// later signals coalesce at the greatest observed revision.
+    var serverSignalRefreshTask: Task<Void, Never>?
+    var serverSignalPendingRevision: UInt64?
 
     private init() {
-        appInstances = CmxIrohAppInstanceRepository()
+        let installState = CmxIrohUserDefaultsInstallStateStore()
+        diagnosticLog = Self.hostDiagnosticLog
+        appInstances = CmxIrohAppInstanceRepository(store: installState)
+        brokerBackpressureGate = CmxIrohBrokerBackpressureGate(store: installState)
         #if DEBUG
         identities = CmxIrohIdentityRepository(
             secureStore: CmxIrohDevelopmentFileIdentityStore(
                 directory: Self.developmentStoreDirectory(service: "identity")
-            )
+            ),
+            installState: installState
         )
         brokerCredentials = CmxIrohBrokerCredentialRepository(
             secureStore: CmxIrohDevelopmentFileCredentialStore(
                 directory: Self.developmentStoreDirectory(
                     service: "broker-credentials"
                 )
-            )
+            ),
+            installState: installState
         )
         hostPolicies = CmxIrohHostPolicyCache(
             secureStore: CmxIrohDevelopmentFileCredentialStore(
@@ -161,8 +181,10 @@ final class MobileHostIrohRuntime {
             )
         )
         #else
-        identities = CmxIrohIdentityRepository()
-        brokerCredentials = CmxIrohBrokerCredentialRepository()
+        identities = CmxIrohIdentityRepository(installState: installState)
+        brokerCredentials = CmxIrohBrokerCredentialRepository(
+            installState: installState
+        )
         hostPolicies = CmxIrohHostPolicyCache()
         pendingRevocations = CmxIrohPendingRevocationOutbox(
             secureStore: CmxIrohKeychainCredentialStore(
@@ -180,12 +202,30 @@ final class MobileHostIrohRuntime {
         lanPublisher = CmxIrohLANHostPublisher()
     }
 
+    /// The host diagnostic ring, deliberately `nonisolated` so read paths like
+    /// the `iroh_diag` socket verb can snapshot it without a main-actor hop:
+    /// the ring must stay exportable even when the main thread is wedged,
+    /// which is exactly when connection diagnostics matter most.
+    nonisolated static let hostDiagnosticLog = DiagnosticLog(
+        buildStamp: MobileHostIrohRuntime.diagnosticBuildStamp,
+        role: .macHost
+    )
+
+    private nonisolated static var diagnosticBuildStamp: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let name = info["CFBundleName"] as? String ?? "cmux"
+        let version = info["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        return "\(name) \(version) (\(build))"
+    }
+
     @discardableResult
     func scheduleReconcile(
         eraseAccountState: Bool,
         restartActiveRuntime: Bool = false
     ) -> Task<Void, Never> {
         lifecycleRevision &+= 1
+        cancelRetryInspection()
         bindingPersistenceQueue.cancel()
         let revision = lifecycleRevision
         let previous = transitionTask
@@ -215,6 +255,10 @@ final class MobileHostIrohRuntime {
         restartActiveRuntime: Bool,
         revision: UInt64
     ) async {
+        // Each transition re-derives failure recovery from its own outcome:
+        // success resets the backoff ladder, failure re-arms it, and a
+        // deactivating transition ends the need for it.
+        cancelFailureRecovery(resetBackoff: false)
         if eraseAccountState {
             await quarantineForSignOut()
         } else if restartActiveRuntime
@@ -227,6 +271,12 @@ final class MobileHostIrohRuntime {
             activeAccountID = nil
             activeAppInstanceID = nil
             await previousRuntime?.stop()
+            if previousRuntime != nil {
+                diagnosticLog.record(DiagnosticEvent(
+                    .endpointStopped,
+                    a: DiagnosticTransportKind.iroh.rawValue
+                ))
+            }
             await lanPublisher.stop()
             clearRelayPolicyRuntimeState()
         }
@@ -238,14 +288,85 @@ final class MobileHostIrohRuntime {
               let targetAccountID,
               runtime == nil else { return }
 
+        diagnosticLog.record(DiagnosticEvent(
+            .endpointStarting,
+            a: DiagnosticTransportKind.iroh.rawValue
+        ))
         do {
             try await activate(accountID: targetAccountID, revision: revision)
+            failureRecoveryFailureCount = 0
         } catch is CancellationError {
             return
         } catch {
+            diagnosticLog.record(DiagnosticEvent(
+                .endpointFailed,
+                a: DiagnosticTransportKind.iroh.rawValue,
+                b: Self.diagnosticFailureKind(for: error).rawValue
+            ))
             mobileHostIrohLog.error(
                 "Iroh host activation failed: \(String(describing: error), privacy: .private)"
             )
+            scheduleFailureRecovery()
         }
+    }
+
+    nonisolated static func diagnosticFailureKind(
+        for error: any Error
+    ) -> DiagnosticFailureKind {
+        DiagnosticFailureKind.classify(error)
+    }
+
+    /// An account-scoped invalidation says a newer authoritative route
+    /// revision exists. One owned task performs a read-only v2 reconciliation;
+    /// bursts coalesce at the greatest revision instead of creating one waiter
+    /// per frame. Terminal evidence rebuilds through the shared lifecycle path.
+    func reconcileConnectivityFromServerSignal(revision: UInt64) {
+        if serverSignalRefreshTask != nil {
+            serverSignalPendingRevision = max(
+                serverSignalPendingRevision ?? revision,
+                revision
+            )
+            return
+        }
+        guard let signalRuntime = runtime else {
+            retryIfNeeded()
+            return
+        }
+        serverSignalRefreshTask = Task { @MainActor [weak self] in
+            _ = await signalRuntime.reconcileConnectivityRevision(revision)
+            guard let self else { return }
+            self.serverSignalRefreshTask = nil
+            let replayRevision = self.serverSignalPendingRevision
+            self.serverSignalPendingRevision = nil
+            guard self.runtime === signalRuntime,
+                  self.desiredActive,
+                  !self.signOutIntentActive,
+                  self.transitionTask == nil else { return }
+            if await signalRuntime.snapshot().state == .failed {
+                guard self.runtime === signalRuntime,
+                      self.desiredActive,
+                      !self.signOutIntentActive,
+                      self.transitionTask == nil else { return }
+                self.scheduleReconcile(
+                    eraseAccountState: false,
+                    restartActiveRuntime: true
+                )
+                return
+            }
+            if let replayRevision {
+                self.reconcileConnectivityFromServerSignal(
+                    revision: replayRevision
+                )
+            }
+        }
+    }
+
+    func makeDiagnosticSessionID() -> Int {
+        if nextDiagnosticSessionID == Int.max {
+            nextDiagnosticSessionID = 1
+        } else {
+            nextDiagnosticSessionID += 1
+        }
+        return nextDiagnosticSessionID
     }
 }

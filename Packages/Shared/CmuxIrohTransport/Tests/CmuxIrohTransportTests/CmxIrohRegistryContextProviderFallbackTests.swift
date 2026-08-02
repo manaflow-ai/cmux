@@ -89,7 +89,10 @@ extension CmxIrohRegistryContextProviderTests {
                 )
             )
         }
-        let discovery = try fixture.discovery(targetHints: unusableRegistryHints)
+        let discovery = try fixture.discovery(
+            targetHints: unusableRegistryHints,
+            targetDirectPorts: ["ipv4": 4_242]
+        )
         let response = try fixture.pairGrantResponse(
             issuedAt: fixture.nowSeconds,
             expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60

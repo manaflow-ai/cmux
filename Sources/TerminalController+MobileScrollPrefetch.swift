@@ -16,13 +16,19 @@ extension TerminalController {
         terminalPanel: TerminalPanel,
         surfaceID: UUID,
         seq: UInt64,
-        scrollbackLines: Int = TerminalController.mobileReplayScrollbackLineBudget
+        scrollbackLines: Int = TerminalController.mobileReplayScrollbackLineBudget,
+        anchor: MobileTerminalRenderGridFrame.Anchor = .viewport
     ) -> MobileTerminalRenderGridFrame? {
         guard surfaceID == terminalPanel.id else { return nil }
+        let renderCapture = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(surfaceID: surfaceID)
         guard let frame = terminalPanel.surface.mobileRenderGridFrame(
             stateSeq: seq,
-            scrollbackLines: scrollbackLines
+            renderEpoch: renderCapture.epoch,
+            renderRevision: renderCapture.revision,
+            scrollbackLines: scrollbackLines,
+            anchor: anchor
         )?.frame else { return nil }
+        MobileTerminalRenderObserver.shared.adoptReplayBaseline(frame, surfaceID: surfaceID)
         return MobileTerminalRenderObserver.shared.decorateReplayFrame(frame)
     }
 

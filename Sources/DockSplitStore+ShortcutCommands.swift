@@ -12,6 +12,15 @@ enum DockShortcutCommand {
     case focusHistoryBack
     case focusHistoryForward
     case triggerFlash
+
+    var isFocusHistoryNavigation: Bool {
+        switch self {
+        case .focusHistoryBack, .focusHistoryForward:
+            true
+        default:
+            false
+        }
+    }
 }
 
 extension DockSplitStore {
@@ -46,7 +55,7 @@ extension DockSplitStore {
             return focusHistoryNavigation.navigateForward()
         case .triggerFlash:
             guard let focusedPanelId else { return false }
-            triggerFocusFlash(panelId: focusedPanelId)
+            triggerUserInitiatedFocusFlash(panelId: focusedPanelId)
             return true
         }
     }

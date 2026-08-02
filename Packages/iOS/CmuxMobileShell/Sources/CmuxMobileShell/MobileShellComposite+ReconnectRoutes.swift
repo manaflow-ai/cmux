@@ -20,27 +20,51 @@ struct ReconnectRefreshSnapshot: Sendable {
         let deviceID: String
         let instanceTag: String?
 
-        init(deviceID: String, instanceTag: String?) {
+        init(
+            deviceID: String,
+            instanceTag: String?,
+            macInstanceTagAuthority: MobileMacInstanceTagAuthority
+        ) {
             self.deviceID = deviceID
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-            self.instanceTag = MobileMacInstanceTagAuthority.normalized(instanceTag)
+            self.instanceTag = macInstanceTagAuthority.normalize(instanceTag)
         }
     }
 
     private let pairedMacsByAuthority: [Authority: [MobilePairedMac]]
     private let registryRoutes: DeviceRegistryRouteIndex?
+    private let macInstanceTagAuthority: MobileMacInstanceTagAuthority
 
-    init(pairedMacs: [MobilePairedMac], registryDevices: [RegistryDevice]?) {
+    init(
+        pairedMacs: [MobilePairedMac],
+        registryDevices: [RegistryDevice]?,
+        macInstanceTagAuthority: MobileMacInstanceTagAuthority =
+            MobileMacInstanceTagAuthority()
+    ) {
+        self.macInstanceTagAuthority = macInstanceTagAuthority
         pairedMacsByAuthority = Dictionary(grouping: pairedMacs) {
-            Authority(deviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
+            Authority(
+                deviceID: $0.macDeviceID,
+                instanceTag: $0.instanceTag,
+                macInstanceTagAuthority: macInstanceTagAuthority
+            )
         }
-        registryRoutes = registryDevices.map(DeviceRegistryRouteIndex.init(devices:))
+        registryRoutes = registryDevices.map {
+            DeviceRegistryRouteIndex(
+                devices: $0,
+                macInstanceTagAuthority: macInstanceTagAuthority
+            )
+        }
     }
 
     func currentMac(for captured: MobilePairedMac) -> MobilePairedMac? {
         let matches = pairedMacsByAuthority[
-            Authority(deviceID: captured.macDeviceID, instanceTag: captured.instanceTag)
+            Authority(
+                deviceID: captured.macDeviceID,
+                instanceTag: captured.instanceTag,
+                macInstanceTagAuthority: macInstanceTagAuthority
+            )
         ] ?? []
         return matches.count == 1 ? matches[0] : nil
     }
@@ -55,6 +79,44 @@ struct ReconnectRefreshSnapshot: Sendable {
 
 @MainActor
 extension MobileShellComposite {
+    /// Resolves one immutable pre-Iroh capability for an exact raw Tailscale
+    /// route. Fresh registry/manual routes cannot create this evidence; they
+    /// must match a route retained by the local schema migration.
+    static func legacyTailscaleAuthorizationEvidence(
+        for route: CmxAttachRoute,
+        macDeviceID: String,
+        persistedRoutes: [CmxAttachRoute]
+    ) -> CmxLegacyTailscaleAuthorizationEvidence? {
+        guard route.kind == .tailscale,
+              case let .hostPort(host, port) = route.endpoint else {
+            return nil
+        }
+        for persistedRoute in persistedRoutes where persistedRoute.kind == .tailscale {
+            guard case let .hostPort(persistedHost, persistedPort) = persistedRoute.endpoint,
+                  let evidence = try? CmxLegacyTailscaleAuthorizationEvidence(
+                      macDeviceID: macDeviceID,
+                      host: persistedHost,
+                      port: persistedPort
+                  ),
+                  evidence.authorizes(
+                      macDeviceID: macDeviceID,
+                      host: host,
+                      port: port
+                  ) else {
+                continue
+            }
+            return evidence
+        }
+        return nil
+    }
+
+    /// The Tailscale ordering preference for one paired Mac: which grant routes
+    /// may promote an exact stored Tailscale route ahead of the Iroh pin.
+    struct TailscaleRoutePreference {
+        let macDeviceID: String
+        let grantRoutes: [CmxAttachRoute]
+    }
+
     /// Supported routes for reconnecting an already-paired Mac.
     ///
     /// Unlike the legacy host/port helper, this preserves Iroh peer routes. Once
@@ -64,10 +126,17 @@ extension MobileShellComposite {
     /// still carry Iroh without receiving a Stack bearer. Otherwise an admission
     /// or revocation failure could silently downgrade around the Iroh device
     /// grant. Pairings without an authenticated Iroh identity remain fail-closed.
+    ///
+    /// `tailscalePreference` (the user's explicit Tailscale connection-method
+    /// choice) relaxes only the ORDER of that pin: stored Tailscale routes that
+    /// carry a device-local grant dial first, and the Iroh routes stay as the
+    /// fallback instead of being exclusive. Unauthorized Tailscale routes are
+    /// still never dialable, so a preference flip alone grants nothing.
     static func storedReconnectRoutes(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool = false
+        preferNonLoopback: Bool = false,
+        tailscalePreference: TailscaleRoutePreference? = nil
     ) -> [CmxAttachRoute] {
         let supportedKinds = Set(supportedKinds)
         var ordered = CmxAttachRoute.addingIrohPrivatePaths(
@@ -76,14 +145,50 @@ extension MobileShellComposite {
         )
             .filter { supportedKinds.isEmpty || supportedKinds.contains($0.kind) }
             .sorted(by: Self.routeSortsBefore)
-        if preferNonLoopback, ordered.contains(where: { $0.kind != .debugLoopback }) {
+        if preferNonLoopback {
             ordered.removeAll { $0.kind == .debugLoopback }
         }
         let irohRoutes = ordered.filter { $0.kind == .iroh }
+        if let tailscalePreference {
+            let authorizedTailscale = ordered.filter { route in
+                legacyTailscaleAuthorizationEvidence(
+                    for: route,
+                    macDeviceID: tailscalePreference.macDeviceID,
+                    persistedRoutes: tailscalePreference.grantRoutes
+                ) != nil
+            }
+            if !authorizedTailscale.isEmpty {
+                let rest = ordered.filter { route in
+                    route.kind != .iroh && route.kind != .tailscale
+                }
+                return authorizedTailscale + irohRoutes + rest
+            }
+        }
         if !irohRoutes.isEmpty {
             return irohRoutes
         }
         return ordered
+    }
+
+    /// The dial order for one stored Mac, honoring the user's connection-method
+    /// choice. With the default automatic method this is exactly
+    /// ``storedReconnectRoutes(_:supportedKinds:preferNonLoopback:tailscalePreference:)``
+    /// without a preference.
+    func orderedReconnectRoutes(
+        for mac: MobilePairedMac,
+        supportedKinds: [CmxAttachTransportKind]
+    ) -> [CmxAttachRoute] {
+        Self.storedReconnectRoutes(
+            mac.routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            tailscalePreference: connectionMethodStore?.method == .tailscale
+                ? TailscaleRoutePreference(
+                    macDeviceID: mac.macDeviceID,
+                    grantRoutes: mac.legacyTailscaleRoutes ?? []
+                )
+                : nil
+        )
     }
 
     /// Refresh the active row only while its account, device, and authenticated
@@ -108,7 +213,11 @@ extension MobileShellComposite {
             ), let self else { return }
             await self.performSerializedPairedMacWrite(ifStillCurrent: nil) {
                 guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(macDeviceID, scope: scope) else { return }
+                      await !self.isHiddenMacDeviceID(
+                        macDeviceID,
+                        instanceTag: capturedInstanceTag,
+                        scope: scope
+                      ) else { return }
                 let activeMac: MobilePairedMac?
                 do {
                     activeMac = try await pairedMacStore.activeMac(
@@ -120,7 +229,11 @@ extension MobileShellComposite {
                     return
                 }
                 guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(macDeviceID, scope: scope),
+                      await !self.isHiddenMacDeviceID(
+                        macDeviceID,
+                        instanceTag: capturedInstanceTag,
+                        scope: scope
+                      ),
                       DeviceRegistryService.shouldApplyRegistryRefresh(
                         isSignedIn: self.isSignedIn,
                         capturedUserID: scope.userID,
@@ -146,9 +259,14 @@ extension MobileShellComposite {
                     reconnectRouteLog.debug("registry refresh upsert failed: \(String(describing: error), privacy: .public)")
                     return
                 }
-                if await self.isForgottenMacDeviceID(macDeviceID, scope: scope) {
+                if await self.isHiddenMacDeviceID(
+                    macDeviceID,
+                    instanceTag: capturedInstanceTag,
+                    scope: scope
+                ) {
                     try? await pairedMacStore.remove(
                         macDeviceID: macDeviceID,
+                        instanceTag: capturedInstanceTag,
                         stackUserID: scope.userID,
                         teamID: scope.teamID
                     )
@@ -183,16 +301,26 @@ extension MobileShellComposite {
 
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
+        foregroundRefreshIsActive = true
+        foregroundResumeEpoch &+= 1
         startObservingNetworkPathChanges()
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
         evaluatePresenceSubscription()
         let shouldResync = shouldResyncTerminalOutputOnForeground()
         lastBackgroundedAt = nil
-        if shouldResync {
+        // Persisted connections let the recovery owner probe first. Restarting
+        // their listener here can make a dead MobileCoreRPCClient reopen its old
+        // transport before the probe decides to replace it, creating two owners
+        // for one foreground transition. Preview/legacy clients have no stored
+        // route to redial, so retain their same-client resubscribe fallback.
+        if shouldResync, pairedMacStore == nil {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
         }
-        recoverForegroundConnectionIfNeeded()
+        restartActiveMobileBrowserStreams()
+        recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
+        recoverDisconnectedOnForegroundIfNeeded()
+        recoverPendingInactiveRecoveryIfNeeded()
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
@@ -204,8 +332,33 @@ extension MobileShellComposite {
 
     /// Record that the app left the active scene phase.
     public func suspendForegroundRefresh() {
+        foregroundRefreshIsActive = false
+        if connectionRecoveryOwner.cancelProbing() {
+            applyConnectionRecoveryOwnerState()
+        }
         guard lastBackgroundedAt == nil else { return }
         lastBackgroundedAt = runtime?.now() ?? Date()
+        stopActiveMobileBrowserStreamsForBackground()
+    }
+
+    /// A foreground return while disconnected redials the stored Mac
+    /// immediately. Covers a recovery that failed while the app was
+    /// backgrounded (its deadline burns during suspension): without this
+    /// the user sits on "Connection lost" until a network change, presence
+    /// push, or backoff timer fires. Gated on a finished startup reconnect
+    /// so it cannot race the launch path, and excluded for reauth-required
+    /// states where a redial cannot help.
+    func recoverDisconnectedOnForegroundIfNeeded() {
+        guard connectionState != .connected,
+              isSignedIn,
+              pairedMacStore != nil,
+              !connectionRequiresReauth,
+              !isReconnectingStoredMac,
+              didFinishStoredMacReconnectAttempt,
+              !connectionRecoveryOwner.isActive else {
+            return
+        }
+        recoverMobileConnection(trigger: .foreground)
     }
 
     func loadReconnectRefreshSnapshot(
@@ -234,7 +387,8 @@ extension MobileShellComposite {
         }
         return ReconnectRefreshSnapshot(
             pairedMacs: pairedMacs,
-            registryDevices: registryDevices
+            registryDevices: registryDevices,
+            macInstanceTagAuthority: macInstanceTagAuthority
         )
     }
 
@@ -255,9 +409,14 @@ extension MobileShellComposite {
               await isScopeCurrent(scope),
               let currentMac = ReconnectRefreshSnapshot(
                   pairedMacs: pairedMacs,
-                  registryDevices: nil
+                  registryDevices: nil,
+                  macInstanceTagAuthority: macInstanceTagAuthority
               ).currentMac(for: captured),
-              await !isForgottenMacDeviceID(captured.macDeviceID, scope: scope) else {
+              await !isHiddenMacDeviceID(
+                  captured.macDeviceID,
+                  instanceTag: captured.instanceTag,
+                  scope: scope
+              ) else {
             return false
         }
         return currentMac.routes.contains { $0.kind == .tailscale }
@@ -272,10 +431,18 @@ extension MobileShellComposite {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let snapshot,
               await isScopeCurrent(scope),
-              await !isForgottenMacDeviceID(mac.macDeviceID, scope: scope),
+              await !isHiddenMacDeviceID(
+                  mac.macDeviceID,
+                  instanceTag: mac.instanceTag,
+                  scope: scope
+              ),
               let currentMac = snapshot.currentMac(for: mac),
               await isScopeCurrent(scope),
-              await !isForgottenMacDeviceID(mac.macDeviceID, scope: scope) else {
+              await !isHiddenMacDeviceID(
+                  mac.macDeviceID,
+                  instanceTag: mac.instanceTag,
+                  scope: scope
+              ) else {
             return .inconclusive
         }
         let localRoutes = Self.storedReconnectRoutes(
@@ -365,17 +532,26 @@ extension MobileShellComposite {
         didFinishStoredMacReconnectAttempt = true
     }
 
+    /// Returns the completed result when an async stored reconnect must stop.
+    /// A newer generation owns the work (`false`); an already-live foreground
+    /// client satisfies the request without another dial (`true`).
+    func storedMacReconnectInterruptionResult(generation: Int) -> Bool? {
+        guard generation == storedMacReconnectGeneration else { return false }
+        guard !hasActiveMacConnection else {
+            finishStoredMacReconnectAttempt(generation: generation)
+            return true
+        }
+        return nil
+    }
+
     /// Ordered host/port reconnect candidates for a Mac, preserving the single-route
     /// preference policy but keeping fallbacks available for the same Mac.
     ///
-    /// With `preferNonLoopback` (physical devices) the list NEVER contains a
-    /// `.debugLoopback` route while any real candidate exists — not even as a
-    /// trailing fallback. Callers iterate every candidate, so a loopback tail
-    /// entry would get dialed once the real routes fail; on a phone that
-    /// reaches whatever local process is listening on 127.0.0.1, and the
-    /// manual attach-ticket path treats loopback as trusted. Loopback stays
-    /// reachable only as the sole supported route (the on-device XCUITest
-    /// mock host).
+    /// With `preferNonLoopback` (real physical devices) the list never contains
+    /// a `.debugLoopback` route. Callers iterate every candidate, so keeping
+    /// loopback as either a tail fallback or the sole route would dial the
+    /// phone's own `127.0.0.1`, never the saved Mac. Explicit mock/simulator
+    /// harnesses pass `false` and retain loopback for their in-process host.
     static func reconnectHostPortRoutes(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
@@ -418,9 +594,7 @@ extension MobileShellComposite {
                 return Self.isIPLiteralHost(host)
             }, to: &candidates)
             appendCandidates(where: { $0.kind != .debugLoopback }, to: &candidates)
-            // Any real candidate found: stop here so loopback is unreachable
-            // even as a dial-everything fallback (see the doc comment).
-            guard candidates.isEmpty else { return candidates }
+            return candidates
         }
         appendCandidates(where: { _ in true }, to: &candidates)
         return candidates

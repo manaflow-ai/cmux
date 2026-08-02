@@ -42,6 +42,7 @@ strip_if_macho() {
 
 strip_if_macho "$APP_PATH/Contents/MacOS/cmux"
 strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux"
+strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar"
 
 if [ -d "$APP_PATH/Contents/PlugIns" ]; then
   while IFS= read -r -d '' binary; do
