@@ -124,6 +124,27 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         #expect(current.surfaceTypeRawValue == PanelType.terminal.rawValue)
     }
 
+    @Test func defaultTargetUsesLiveOuterTerminalWhileRemotePanesPopulate() throws {
+        let harness = try Harness(
+            activeTmuxPaneID: nil,
+            populatePaneSurfaces: false
+        )
+        defer { harness.tearDown() }
+
+        let keyboardTarget = try #require(
+            harness.workspace.focusedTerminalInputTarget(),
+            "The remote container must retain its live terminal during mirror startup"
+        )
+        let controlTarget = try #require(
+            harness.workspace.controlDefaultSurfaceTarget(paneID: nil),
+            "Default control commands must retain the live startup terminal fallback"
+        )
+
+        #expect(keyboardTarget.surfaceID == harness.outerPanelID)
+        #expect(controlTarget.surfaceID == keyboardTarget.surfaceID)
+        #expect(controlTarget.panel === keyboardTarget.panel)
+    }
+
     @Test func defaultTriggerFlashProjectsTheActiveInnerPane() throws {
         do {
             let harness = try Harness()
@@ -348,7 +369,8 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
             activeTmuxPaneID: Int? = 22,
             connectedTransport: Bool = false,
             geometryScale: CGFloat = 2,
-            mirrorLayout: RemoteTmuxLayoutNode? = nil
+            mirrorLayout: RemoteTmuxLayoutNode? = nil,
+            populatePaneSurfaces: Bool = true
         ) throws {
             appDelegate = try #require(AppDelegate.shared)
             windowID = appDelegate.createMainWindow()
@@ -424,7 +446,8 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
                 geometrySource: { geometry },
                 controlPaneID: { [paneIDs] in paneIDs[$0] },
                 makePanel: { [workspace] _ in
-                    workspace.makeRemoteTmuxPanePanel(onInput: { _ in })
+                    guard populatePaneSurfaces else { return nil }
+                    return workspace.makeRemoteTmuxPanePanel(onInput: { _ in })
                 }
             )
             if let activeTmuxPaneID {

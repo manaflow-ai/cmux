@@ -1682,6 +1682,32 @@ struct ComputerUseUXTests {
         ))
     }
 
+    @Test func untrackedReboundHelperDoesNotPassProfileHealthOwnership() {
+        let tracked = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 10,
+            startMicroseconds: 20
+        )
+        let rebound = AgentPIDProcessIdentity(
+            pid: 202,
+            startSeconds: 30,
+            startMicroseconds: 40
+        )
+
+        #expect(ComputerUseRuntimeService.helperProfileOwnsListeningPeer(
+            trackedIdentity: tracked,
+            peerIdentity: tracked
+        ))
+        #expect(!ComputerUseRuntimeService.helperProfileOwnsListeningPeer(
+            trackedIdentity: nil,
+            peerIdentity: rebound
+        ))
+        #expect(!ComputerUseRuntimeService.helperProfileOwnsListeningPeer(
+            trackedIdentity: tracked,
+            peerIdentity: rebound
+        ))
+    }
+
     @Test func codexCompatibilityOutageKeepsNativeApplicationSurfaceIdentity() {
         let profiles = ComputerUseRuntimeService.helperProfilesNeedingRecovery(
             nativeListening: true,
