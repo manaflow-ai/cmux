@@ -163,6 +163,7 @@ jobs:
             --version "$BOOTSTRAP_VERSION" \
             --artifact "${artifacts[0]}" \
             --require-match
+          sleep 1
           python3 cmux-tui/bindings/verify_crates_ownership.py \
             --package cmux-sidebar \
             --repository https://github.com/manaflow-ai/cmux \
@@ -356,6 +357,7 @@ jobs:
             --retry-missing-project \
             --wait-seconds 300 \
             --require-match
+          sleep 1
           python3 cmux-tui/bindings/verify_crates_ownership.py \
             --package cmux-sidebar \
             --repository https://github.com/manaflow-ai/cmux \
