@@ -1,5 +1,6 @@
-import Foundation
 import AppKit
+import Dispatch
+import Foundation
 import GhosttyKit
 import Testing
 import CmuxTerminalCore
@@ -187,6 +188,81 @@ import CmuxTerminalCore
 
         #expect(scheduler.scheduledSurfaceIds.isEmpty)
         #expect(surface.runtimeSurfacePointer == nil)
+    }
+
+    @Test func runtimeCreationRetriesAfterTeardownAdmissionRecovers() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            closeTeardownTimeout: .milliseconds(50),
+            maximumRuntimeSurfaceOwnerCount: 4
+        )
+        let retainedSurfaces = (0..<2).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        defer { for retainedSurface in retainedSurfaces { retainedSurface.deallocate() } }
+        let freeStarted = AsyncStream<Void>.makeStream()
+        let releaseFrees = DispatchSemaphore(value: 0)
+        defer {
+            releaseFrees.signal()
+            releaseFrees.signal()
+            freeStarted.continuation.finish()
+        }
+
+        let tickets = try retainedSurfaces.enumerated().map { index, retainedSurface in
+            let ticket = coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.creationRetry.\(index)",
+                surface: retainedSurface,
+                callbackContext: nil,
+                freeSurface: { _ in
+                    freeStarted.continuation.yield()
+                    releaseFrees.wait()
+                }
+            )
+            return try #require(ticket)
+        }
+        var freeStartedIterator = freeStarted.stream.makeAsyncIterator()
+        _ = await freeStartedIterator.next()
+        _ = await freeStartedIterator.next()
+
+        let degradationDeadline = ContinuousClock.now + .seconds(1)
+        while await !coordinator.debugCloseTeardownDegraded,
+              ContinuousClock.now < degradationDeadline {
+            await Task.yield()
+        }
+        #expect(await coordinator.debugCloseTeardownDegraded)
+
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let surface = makeSurface(
+            runtimeSpawnPolicy: .immediate,
+            scheduler: RecordingRestoreSpawnScheduler(),
+            nativeView: nativeView,
+            paneHost: paneHost,
+            runtimeTeardown: coordinator
+        )
+        surface.claudeCommandShimInstallCompleted = true
+
+        surface.createSurface(for: nativeView)
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
+
+        releaseFrees.signal()
+        let retryDeadline = ContinuousClock.now + .seconds(1)
+        while surface.debugRuntimeSurfaceCreateAttemptCountForTesting() < 2,
+              ContinuousClock.now < retryDeadline {
+            await Task.yield()
+        }
+
+        #expect(
+            surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 2,
+            "surface creation was not retried after native ownership admission recovered"
+        )
+        releaseFrees.signal()
+        for ticket in tickets {
+            #expect(await ticket.wait(timeout: .seconds(1)))
+        }
     }
 
     @Test func configurationReloadDefersAndPromotesRuntimeCreation() {
@@ -402,6 +478,8 @@ import CmuxTerminalCore
         nativeView: FakeTerminalSurfaceNativeView,
         paneHost: FakeTerminalSurfacePaneHost,
         engine: FakeTerminalEngine = FakeTerminalEngine(),
+        runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator =
+            TerminalSurfaceRuntimeTeardownCoordinator(),
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem = TerminalSurfaceRuntimeFilesystem(
             claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
             installClaudeCommandShim: { _, _, _ in nil },
@@ -421,7 +499,7 @@ import CmuxTerminalCore
                 byteTee: FakeTerminalByteTee(),
                 rendererRealization: FakeRendererRealizationScheduler(),
                 hibernationRecorder: FakeHibernationRecorder(),
-                runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
+                runtimeTeardown: runtimeTeardown,
                 restoreSpawnScheduler: scheduler,
                 runtimeFilesystem: runtimeFilesystem,
                 sessionPortBase: 40_000,
