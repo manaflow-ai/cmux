@@ -206,22 +206,4 @@ struct SimulatorAccessibilityRequestSchedulingTests {
         orientation: .portrait,
         scale: 3
     )
-
-    private actor AccessibilityWatchdogSleeper: SimulatorHIDSleeping {
-        private var deadlineContinuation: CheckedContinuation<Void, Never>?
-
-        var deadlineIsArmed: Bool {
-            deadlineContinuation != nil
-        }
-
-        func sleep(for duration: Duration) async throws {
-            guard duration == .seconds(30) else { return }
-            await withCheckedContinuation { deadlineContinuation = $0 }
-        }
-
-        func fireDeadline() {
-            deadlineContinuation?.resume()
-            deadlineContinuation = nil
-        }
-    }
 }
