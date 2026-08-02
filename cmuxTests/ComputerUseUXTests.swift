@@ -1755,6 +1755,34 @@ struct ComputerUseUXTests {
         ])
     }
 
+    @Test @MainActor
+    func reboundHelperRecoveryDoesNotAdoptAnUnvalidatedPeer() async {
+        let tracked = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 10,
+            startMicroseconds: 20
+        )
+        let foreign = AgentPIDProcessIdentity(
+            pid: 303,
+            startSeconds: 50,
+            startMicroseconds: 60
+        )
+        var adoptedIdentity: AgentPIDProcessIdentity?
+
+        let result = await ComputerUseRuntimeService
+            .reconcileReboundHelperProfile(
+                trackedIdentity: tracked,
+                peerIdentity: foreign,
+                terminateTracked: { _ in true },
+                reprobePeer: { foreign },
+                validatePeer: { _ in false },
+                adoptPeer: { adoptedIdentity = $0 }
+            )
+
+        #expect(result == .blocked)
+        #expect(adoptedIdentity == nil)
+    }
+
     @Test func codexCompatibilityOutageKeepsNativeApplicationSurfaceIdentity() {
         let profiles = ComputerUseRuntimeService.helperProfilesNeedingRecovery(
             nativeHealthy: true,

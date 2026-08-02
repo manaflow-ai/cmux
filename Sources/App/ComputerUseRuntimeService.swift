@@ -18,6 +18,13 @@ enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {
 /// LaunchServices, and reads permission status exclusively over the daemon UDS.
 @MainActor
 final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
+    enum ReboundHelperProfileReconciliation: Equatable {
+        case unchanged
+        case noListeningPeer
+        case ownedPeer(AgentPIDProcessIdentity)
+        case blocked
+    }
+
     static let helperAppName = "cmux Computer Use"
     nonisolated private static let helperExecutableName = "cmux Computer Use"
     nonisolated private static let maximumApplicationWindowDimension =
@@ -1587,14 +1594,53 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     private func stopDaemon(profile: ComputerUseDaemonProfile) async -> Bool {
         let helperURL = installedHelperURL ?? paths.installedHelperAppURL
         let socketURL = socketURL(for: profile)
-        let trackedIdentity = processIdentity(for: profile).flatMap {
+        var trackedIdentity = processIdentity(for: profile).flatMap {
             AgentPIDProcessIdentity(pid: $0.pid) == $0 ? $0 : nil
         }
-        let peerIdentity = await Self.daemonPeerIdentity(
+        var peerIdentity = await Self.daemonPeerIdentity(
             paths: paths,
             transport: transport,
             socketURL: socketURL
         )
+        let rebound = await Self.reconcileReboundHelperProfile(
+            trackedIdentity: trackedIdentity,
+            peerIdentity: peerIdentity,
+            terminateTracked: { identity in
+                await self.terminateTrackedHelperGeneration(
+                    identity,
+                    profile: profile
+                )
+            },
+            reprobePeer: {
+                await Self.daemonPeerIdentity(
+                    paths: self.paths,
+                    transport: self.transport,
+                    socketURL: socketURL
+                )
+            },
+            validatePeer: { identity in
+                let ownedBySibling = self.runningHelperProcesses.contains {
+                    $0.key != profile && $0.value == identity
+                }
+                return !ownedBySibling
+                    && self.helperProcess(identity, matches: helperURL)
+            },
+            adoptPeer: { identity in
+                self.runningHelperProcesses[profile] = identity
+            }
+        )
+        switch rebound {
+        case .unchanged:
+            break
+        case .noListeningPeer:
+            trackedIdentity = nil
+            peerIdentity = nil
+        case .ownedPeer(let identity):
+            trackedIdentity = identity
+            peerIdentity = identity
+        case .blocked:
+            return false
+        }
         let daemonListening: Bool
         if peerIdentity != nil {
             daemonListening = true
@@ -1609,13 +1655,6 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         // A listening socket without a kernel-authenticated peer is ambiguous.
         // Leave it untouched instead of risking another profile or process.
         guard !daemonListening || peerIdentity != nil else { return false }
-        // The tracked launch and the socket must identify the same process
-        // generation. A mismatch can be the sibling profile or a replacement
-        // that raced this recovery, neither of which this stop owns.
-        if let trackedIdentity, let peerIdentity,
-           trackedIdentity != peerIdentity {
-            return false
-        }
 
         var targetIdentities: Set<AgentPIDProcessIdentity> = []
         if let trackedIdentity {
@@ -1680,6 +1719,63 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         )
         guard terminated else { return false }
         return await clearStoppedHelperProfileRuntime(profile)
+    }
+
+    static func reconcileReboundHelperProfile(
+        trackedIdentity: AgentPIDProcessIdentity?,
+        peerIdentity: AgentPIDProcessIdentity?,
+        terminateTracked:
+            (AgentPIDProcessIdentity) async -> Bool,
+        reprobePeer: () async -> AgentPIDProcessIdentity?,
+        validatePeer: (AgentPIDProcessIdentity) -> Bool,
+        adoptPeer: (AgentPIDProcessIdentity) -> Void
+    ) async -> ReboundHelperProfileReconciliation {
+        guard
+            let trackedIdentity,
+            let peerIdentity,
+            trackedIdentity != peerIdentity
+        else {
+            return .unchanged
+        }
+        guard await terminateTracked(trackedIdentity) else {
+            return .blocked
+        }
+        guard let reprobedPeer = await reprobePeer() else {
+            return .noListeningPeer
+        }
+        guard validatePeer(reprobedPeer) else {
+            return .blocked
+        }
+        adoptPeer(reprobedPeer)
+        return .ownedPeer(reprobedPeer)
+    }
+
+    private func terminateTrackedHelperGeneration(
+        _ identity: AgentPIDProcessIdentity,
+        profile: ComputerUseDaemonProfile
+    ) async -> Bool {
+        if AgentPIDProcessIdentity(pid: identity.pid) == identity {
+            expectedTerminationProcessIdentifiers.insert(identity.pid)
+            if Darwin.kill(identity.pid, SIGKILL) != 0, errno != ESRCH {
+                expectedTerminationProcessIdentifiers.remove(identity.pid)
+                return false
+            }
+            guard await waitForHelperProcessIdentitiesToExit(
+                [identity],
+                attempts: 20
+            ) else {
+                return false
+            }
+        }
+        if processIdentity(for: profile) == identity {
+            clearTrackedHelperProcess(for: profile)
+        }
+        if Self.helperTerminationInvalidatesApplicationSurfaces(
+            profile: profile
+        ) {
+            clearApplicationSurfaceSessionsAfterHelperExit()
+        }
+        return true
     }
 
     private func stopDaemon() async -> Bool {
