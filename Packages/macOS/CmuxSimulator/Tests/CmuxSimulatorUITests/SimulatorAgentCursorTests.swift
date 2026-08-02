@@ -182,12 +182,9 @@ struct SimulatorAgentCursorTests {
         ])))
 
         let presentation = try #require(coordinator.agentCursorPresentation)
-        #expect(presentation.durationMilliseconds > 50)
+        #expect(presentation.durationMilliseconds == 323)
         #expect(presentation.phase == .clicked)
-        #expect(
-            presentation.clickPhaseDelayMilliseconds
-                == presentation.durationMilliseconds - 50
-        )
+        #expect(presentation.clickPhaseDelayMilliseconds == 273)
     }
 
     @Test("A device reattachment preserves the workspace cursor")
