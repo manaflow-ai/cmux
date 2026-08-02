@@ -660,6 +660,23 @@ def test_tag_cut_retry_requires_fresh_authority_or_safe_poststate() -> None:
     assert "release commit remains an ancestor" in releasing
 
 
+def test_revalidation_snapshot_excludes_current_coordinated_tags() -> None:
+    release = workflow("sdk-release-cut.yml")
+    revalidate_tags = workflow_job(release, "revalidate-tags")
+    snapshot_start = revalidate_tags.index('remote_tag_state="$(')
+    snapshot_end = revalidate_tags.index(
+        'remote_tag_state_sha256="$(',
+        snapshot_start,
+    )
+    snapshot = revalidate_tags[snapshot_start:snapshot_end]
+
+    assert 'sdk_ref="refs/tags/$SDK_TAG"' in revalidate_tags
+    assert 'go_ref="refs/tags/$GO_TAG"' in revalidate_tags
+    for ref in ("sdk_ref", "sdk_peeled_ref", "go_ref", "go_peeled_ref"):
+        assert f'-v {ref}="${ref}"' in snapshot
+        assert f"$2 != {ref}" in snapshot
+
+
 def test_tag_cut_retry_behavior_accepts_tags_after_main_advances() -> None:
     document = yaml.safe_load(workflow("sdk-release-cut.yml"))
     prepare_script = next(
