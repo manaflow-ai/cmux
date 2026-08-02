@@ -4169,6 +4169,8 @@ pub struct WebSocketServer {
     thread: Option<JoinHandle<()>>,
     #[cfg(test)]
     accept_attempts: Arc<AtomicU64>,
+    #[cfg(all(test, target_os = "macos"))]
+    accepted_stream_mode: Arc<AtomicU64>,
 }
 
 impl WebSocketServer {
@@ -4256,10 +4258,14 @@ pub fn serve_websocket(
     let active_connections = Arc::new(AtomicU64::new(0));
     #[cfg(test)]
     let accept_attempts = Arc::new(AtomicU64::new(0));
+    #[cfg(all(test, target_os = "macos"))]
+    let accepted_stream_mode = Arc::new(AtomicU64::new(0));
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
     #[cfg(test)]
     let thread_accept_attempts = accept_attempts.clone();
+    #[cfg(all(test, target_os = "macos"))]
+    let thread_accepted_stream_mode = accepted_stream_mode.clone();
     let render_service = Arc::new(RenderService::new());
     let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
         while !thread_shutdown.load(Ordering::Acquire) {
@@ -4277,6 +4283,11 @@ pub fn serve_websocket(
                     continue;
                 }
             };
+            #[cfg(all(test, target_os = "macos"))]
+            thread_accepted_stream_mode.store(
+                if tcp_stream_is_nonblocking_for_test(&stream) { 2 } else { 1 },
+                Ordering::Release,
+            );
             if stream.set_nodelay(true).is_err() {
                 continue;
             }
@@ -4324,7 +4335,19 @@ pub fn serve_websocket(
         thread: Some(thread),
         #[cfg(test)]
         accept_attempts,
+        #[cfg(all(test, target_os = "macos"))]
+        accepted_stream_mode,
     })
+}
+
+#[cfg(all(test, target_os = "macos"))]
+fn tcp_stream_is_nonblocking_for_test(stream: &TcpStream) -> bool {
+    use std::os::fd::AsRawFd as _;
+
+    // SAFETY: F_GETFL only reads flags from this live TCP descriptor.
+    let flags = unsafe { libc::fcntl(stream.as_raw_fd(), libc::F_GETFL) };
+    assert!(flags >= 0, "failed to read accepted WebSocket stream flags");
+    flags & libc::O_NONBLOCK != 0
 }
 
 pub fn window_title_osc(title: &str) -> Vec<u8> {
@@ -10532,6 +10555,8 @@ mod tests {
             connections: Arc::new(Mutex::new(HashMap::new())),
             thread: Some(listener_thread),
             accept_attempts: Arc::new(AtomicU64::new(0)),
+            #[cfg(target_os = "macos")]
+            accepted_stream_mode: Arc::new(AtomicU64::new(0)),
         };
         let (dropped, observed_drop) = std::sync::mpsc::channel();
         let dropper = std::thread::spawn(move || {
@@ -10561,6 +10586,8 @@ mod tests {
             connections: Arc::new(Mutex::new(HashMap::new())),
             thread: Some(listener_thread),
             accept_attempts: Arc::new(AtomicU64::new(0)),
+            #[cfg(target_os = "macos")]
+            accepted_stream_mode: Arc::new(AtomicU64::new(0)),
         };
 
         let first = server.shutdown_until(Instant::now() + Duration::from_millis(25)).unwrap();
@@ -10572,6 +10599,34 @@ mod tests {
         assert!(retained, "pending WebSocket shutdown discarded listener ownership");
         assert!(second, "WebSocket listener did not complete after release");
         assert!(server.thread.is_none(), "completed WebSocket listener retained its join handle");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn websocket_accept_restores_blocking_mode_before_protocol_reads() {
+        let mux = Mux::new("websocket-blocking-accept-test", SurfaceOptions::default());
+        let server =
+            serve_websocket(mux.clone(), "127.0.0.1:0".parse().unwrap(), None, false).unwrap();
+        let client = cmux_tui_process::tcp::connect_stream_timeout(
+            &server.local_addr,
+            Duration::from_secs(1),
+        )
+        .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while server.accepted_stream_mode.load(Ordering::Acquire) == 0 && Instant::now() < deadline
+        {
+            std::thread::yield_now();
+        }
+        let accepted_stream_mode = server.accepted_stream_mode.load(Ordering::Acquire);
+        drop(client);
+        drop(server);
+        let _ = mux.shutdown();
+
+        assert_eq!(
+            accepted_stream_mode, 1,
+            "accepted WebSocket stream remained nonblocking before protocol reads"
+        );
     }
 
     #[test]
