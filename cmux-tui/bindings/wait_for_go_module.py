@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -230,7 +231,11 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(
+    argv: Optional[Sequence[str]] = None,
+    *,
+    cancel_event: Optional[threading.Event] = None,
+) -> int:
     args = _parser().parse_args(argv)
     try:
         metadata = wait_for_module(
@@ -238,7 +243,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             args.version,
             wait_seconds=args.wait_seconds,
             retry_seconds=args.retry_seconds,
+            cancel_event=cancel_event,
         )
+    except GoModuleCancellation:
+        print("public Go module verification cancelled", file=sys.stderr)
+        return 130
     except GoModuleError as error:
         print(f"public Go module verification failed: {error}", file=sys.stderr)
         return 1
@@ -249,5 +258,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     return 0
 
 
+def _run_cli() -> int:
+    cancellation = threading.Event()
+
+    def cancel(_signum: int, _frame: object) -> None:
+        cancellation.set()
+
+    previous_handlers = {
+        signum: signal.signal(signum, cancel)
+        for signum in (signal.SIGINT, signal.SIGTERM)
+    }
+    try:
+        return main(cancel_event=cancellation)
+    except KeyboardInterrupt:
+        cancellation.set()
+        return 130
+    finally:
+        for signum, previous in previous_handlers.items():
+            signal.signal(signum, previous)
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(_run_cli())

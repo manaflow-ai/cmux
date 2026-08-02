@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import PurePath
+from pathlib import PurePosixPath
 import re
 import subprocess
 import sys
@@ -85,7 +85,7 @@ def _release_urls(metadata: dict[str, Any]) -> dict[str, str]:
         if (
             parsed.scheme != "https"
             or parsed.hostname != "files.pythonhosted.org"
-            or PurePath(parsed.path).name != filename
+            or PurePosixPath(parsed.path).name != filename
         ):
             raise ProvenanceError("PyPI release metadata contains an unsafe file URL")
         urls[filename] = url

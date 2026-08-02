@@ -776,6 +776,9 @@ def main(
                 file=sys.stderr,
             )
         return result.returncode or 1
+    except RegistryCancellation:
+        print("registry reconciliation cancelled", file=sys.stderr)
+        return 130
     except RegistryError as error:
         print(f"registry reconciliation failed: {error}", file=sys.stderr)
         return 1
