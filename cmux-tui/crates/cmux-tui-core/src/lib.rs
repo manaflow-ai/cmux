@@ -16,6 +16,7 @@ mod pairing;
 #[cfg(unix)]
 pub mod process_session;
 pub mod provider_management;
+mod publication;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;
@@ -56,6 +57,7 @@ pub use mux::{
     WorkspacePlacement, ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use publication::PublicationGuard;
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;

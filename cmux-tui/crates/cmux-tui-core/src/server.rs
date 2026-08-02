@@ -33,7 +33,6 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use fs4::FileExt;
 use ghostty_vt::{
     Dirty, KeyAction, KeyEncoder, KeyInput, KittyReplayState, Mods, StyledRun, UnderlineStyle,
     key_input_from_chord, rows_to_runs, sys,
@@ -48,6 +47,7 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::{Message, WebSocket, accept_with_config};
 use zeroize::Zeroize;
 
+use crate::PublicationGuard;
 use crate::browser::{
     BrowserAttachUpdate, BrowserFrameUpdate, BrowserMouseDispatch, BrowserPointerOwner,
 };
@@ -3924,253 +3924,6 @@ fn socket_publication_hook(path: &Path, stage: SocketPublicationStage) {
     }
 }
 
-fn socket_publication_lock_path(path: &Path) -> std::io::Result<PathBuf> {
-    let parent = path.parent().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "server socket has no parent directory",
-        )
-    })?;
-    let file_name = path.file_name().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::InvalidInput, "server socket has no file name")
-    })?;
-    let mut lock_name = std::ffi::OsString::from(".");
-    lock_name.push(file_name);
-    lock_name.push(".publish.lock");
-    Ok(parent.join(lock_name))
-}
-
-#[cfg(unix)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct SocketPublicationLockIdentity {
-    device: u64,
-    inode: u64,
-}
-
-#[cfg(unix)]
-static SOCKET_PUBLICATION_LOCAL_STATE: std::sync::OnceLock<(
-    Mutex<HashSet<SocketPublicationLockIdentity>>,
-    Condvar,
-)> = std::sync::OnceLock::new();
-
-#[cfg(unix)]
-struct SocketPublicationLocalGuard {
-    identity: SocketPublicationLockIdentity,
-}
-
-#[cfg(unix)]
-impl SocketPublicationLocalGuard {
-    fn acquire(
-        identity: SocketPublicationLockIdentity,
-        path: &Path,
-        deadline: Instant,
-    ) -> std::io::Result<Self> {
-        let (held, changed) = SOCKET_PUBLICATION_LOCAL_STATE.get_or_init(Default::default);
-        let mut held = held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        loop {
-            if held.insert(identity) {
-                return Ok(Self { identity });
-            }
-            let remaining = deadline
-                .checked_duration_since(Instant::now())
-                .filter(|remaining| !remaining.is_zero())
-                .ok_or_else(|| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        format!("timed out waiting to publish server socket {}", path.display()),
-                    )
-                })?;
-            held = match changed.wait_timeout(held, remaining) {
-                Ok((held, _)) => held,
-                Err(error) => error.into_inner().0,
-            };
-        }
-    }
-}
-
-#[cfg(unix)]
-impl Drop for SocketPublicationLocalGuard {
-    fn drop(&mut self) {
-        let (held, changed) = SOCKET_PUBLICATION_LOCAL_STATE.get_or_init(Default::default);
-        held.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&self.identity);
-        changed.notify_all();
-    }
-}
-
-/// Exclusive authority to mutate one local server socket publication.
-///
-/// The lock is released by closing its file descriptor. On Unix, callers can
-/// deliberately inherit that descriptor into a helper process so publication
-/// ownership survives a parent-process exit without an unlocked interval.
-#[must_use = "dropping the guard releases socket publication ownership"]
-pub struct SocketPublicationGuard {
-    // Rust drops fields in declaration order. Close this process's file-lock
-    // reference before reopening local admission for another thread.
-    file: std::fs::File,
-    #[cfg(unix)]
-    _local: SocketPublicationLocalGuard,
-}
-
-impl SocketPublicationGuard {
-    pub fn acquire(path: &Path, deadline: Instant) -> std::io::Result<Self> {
-        let lock_path = socket_publication_lock_path(path)?;
-        let mut options = std::fs::OpenOptions::new();
-        options.create(true).truncate(false).read(true).write(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-
-            options.mode(0o600).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
-        }
-        let file = options.open(&lock_path)?;
-        #[cfg(unix)]
-        let local = {
-            use std::os::unix::fs::{MetadataExt, PermissionsExt};
-
-            let metadata = file.metadata()?;
-            if !metadata.file_type().is_file() || metadata.nlink() != 1 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "server socket publication lock is not a single regular file",
-                ));
-            }
-            // SAFETY: geteuid has no preconditions and returns the effective
-            // user that owns files created by this process.
-            let current_user = unsafe { libc::geteuid() };
-            if metadata.uid() != current_user {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "server socket publication lock is owned by another user",
-                ));
-            }
-            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-            SocketPublicationLocalGuard::acquire(
-                SocketPublicationLockIdentity { device: metadata.dev(), inode: metadata.ino() },
-                path,
-                deadline,
-            )?
-        };
-        #[cfg(not(unix))]
-        platform::restrict_file(&lock_path)?;
-        loop {
-            match FileExt::try_lock(&file) {
-                Ok(()) => {
-                    return Ok(Self {
-                        file,
-                        #[cfg(unix)]
-                        _local: local,
-                    });
-                }
-                Err(fs4::TryLockError::WouldBlock) if Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                Err(fs4::TryLockError::WouldBlock) => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        format!("timed out waiting to publish server socket {}", path.display()),
-                    ));
-                }
-                Err(fs4::TryLockError::Error(error)) => return Err(error),
-            }
-        }
-    }
-
-    /// Arrange for this guard's lock descriptor to survive `exec` in `command`.
-    ///
-    /// The returned descriptor number must be passed to the child, which
-    /// should validate and adopt it with [`Self::adopt_inherited`]. The parent
-    /// descriptor remains close-on-exec and continues to own the same lock.
-    #[cfg(unix)]
-    pub fn inherit_into(&self, command: &mut std::process::Command) -> std::os::fd::RawFd {
-        use std::os::fd::AsRawFd as _;
-        use std::os::unix::process::CommandExt as _;
-
-        let descriptor = self.file.as_raw_fd();
-        // SAFETY: fcntl is async-signal-safe, and this only clears
-        // close-on-exec on the guard-owned descriptor in the child between
-        // fork and exec. The parent descriptor remains close-on-exec.
-        unsafe {
-            command.pre_exec(move || {
-                let flags = libc::fcntl(descriptor, libc::F_GETFD);
-                if flags == -1 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                if libc::fcntl(descriptor, libc::F_SETFD, flags & !libc::FD_CLOEXEC) == -1 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
-        descriptor
-    }
-
-    /// Validate and adopt a publication descriptor inherited across `exec`.
-    ///
-    /// # Safety
-    ///
-    /// `descriptor` must be a valid, uniquely owned child-process descriptor
-    /// produced by [`Self::inherit_into`]. The caller must not use or close it
-    /// after this function takes ownership.
-    #[cfg(unix)]
-    pub unsafe fn adopt_inherited(
-        path: &Path,
-        descriptor: std::os::fd::RawFd,
-        deadline: Instant,
-    ) -> std::io::Result<Self> {
-        use std::os::fd::{AsRawFd as _, FromRawFd as _};
-        use std::os::unix::fs::MetadataExt as _;
-
-        if descriptor <= libc::STDERR_FILENO {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "server socket publication descriptor is invalid",
-            ));
-        }
-        // SAFETY: F_GETFD only validates the caller-owned descriptor.
-        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
-        if flags == -1 {
-            return Err(std::io::Error::last_os_error());
-        }
-        // SAFETY: the function contract transfers unique ownership of this
-        // inherited child descriptor into the returned guard.
-        let file = unsafe { std::fs::File::from_raw_fd(descriptor) };
-        // Do not leak publication ownership into any subprocess the helper
-        // might launch after adoption.
-        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFD, flags | libc::FD_CLOEXEC) } == -1 {
-            return Err(std::io::Error::last_os_error());
-        }
-        let metadata = file.metadata()?;
-        let lock_path = socket_publication_lock_path(path)?;
-        let published_metadata = std::fs::symlink_metadata(&lock_path)?;
-        if !metadata.file_type().is_file()
-            || metadata.nlink() != 1
-            || metadata.dev() != published_metadata.dev()
-            || metadata.ino() != published_metadata.ino()
-        {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "inherited server socket publication descriptor has the wrong identity",
-            ));
-        }
-        let local = SocketPublicationLocalGuard::acquire(
-            SocketPublicationLockIdentity { device: metadata.dev(), inode: metadata.ino() },
-            path,
-            deadline,
-        )?;
-        // An inherited duplicate shares the already-locked open file
-        // description. A separately opened descriptor conflicts while the
-        // legitimate owner is alive, so this also proves lock ownership.
-        match FileExt::try_lock(&file) {
-            Ok(()) => Ok(Self { file, _local: local }),
-            Err(fs4::TryLockError::WouldBlock) => Err(std::io::Error::new(
-                std::io::ErrorKind::WouldBlock,
-                "inherited server socket publication descriptor does not own the lock",
-            )),
-            Err(fs4::TryLockError::Error(error)) => Err(error),
-        }
-    }
-}
-
 #[cfg(any(not(unix), test))]
 fn cleanup_without_stable_identity(_path: &Path) {
     // Windows does not expose a race-free socket publication identity through
@@ -4253,7 +4006,7 @@ impl PublishedSocket {
 
     #[cfg(unix)]
     fn cleanup_unix(&self) -> std::io::Result<()> {
-        let _publication_lock = SocketPublicationGuard::acquire(
+        let _publication_lock = PublicationGuard::acquire(
             &self.path,
             Instant::now() + LOCAL_SOCKET_CONNECT_TIMEOUT + LOCAL_SOCKET_CONNECT_TIMEOUT,
         )?;
@@ -4350,7 +4103,7 @@ pub fn serve_owned(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Publi
         std::fs::create_dir_all(dir)?;
         platform::restrict_directory(dir)?;
     }
-    let _publication_lock = SocketPublicationGuard::acquire(
+    let _publication_lock = PublicationGuard::acquire(
         &path,
         Instant::now() + LOCAL_SOCKET_CONNECT_TIMEOUT + LOCAL_SOCKET_CONNECT_TIMEOUT,
     )?;
@@ -10715,8 +10468,7 @@ mod tests {
         let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
         let published = PublishedSocket::claim(path.clone()).unwrap();
         let publication_lock =
-            SocketPublicationGuard::acquire(&path, Instant::now() + Duration::from_secs(1))
-                .unwrap();
+            PublicationGuard::acquire(&path, Instant::now() + Duration::from_secs(1)).unwrap();
         let (finished, observed) = std::sync::mpsc::channel();
         let cleanup = std::thread::spawn(move || {
             published.cleanup();
@@ -10733,7 +10485,7 @@ mod tests {
         cleanup.join().unwrap();
         drop(listener);
         let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(socket_publication_lock_path(&path).unwrap());
+        let _ = std::fs::remove_file(crate::publication::publication_lock_path(&path).unwrap());
         std::fs::remove_dir(&directory).unwrap();
 
         assert!(!completed_while_locked, "socket cleanup bypassed the concurrent publication lock");
@@ -10797,7 +10549,7 @@ mod tests {
             // SAFETY: the parent passed the unique descriptor copy prepared
             // for this exec child and retains no child-side alias.
             let guard = unsafe {
-                SocketPublicationGuard::adopt_inherited(
+                PublicationGuard::adopt_inherited(
                     &path,
                     descriptor,
                     Instant::now() + Duration::from_secs(2),
@@ -10825,8 +10577,8 @@ mod tests {
             .join(format!("cmux-publication-transfer-{}-{sequence:x}", std::process::id()));
         std::fs::create_dir(&directory).unwrap();
         let path = directory.join("server.sock");
-        let guard = SocketPublicationGuard::acquire(&path, Instant::now() + Duration::from_secs(1))
-            .unwrap();
+        let guard =
+            PublicationGuard::acquire(&path, Instant::now() + Duration::from_secs(1)).unwrap();
         let mut command = std::process::Command::new(std::env::current_exe().unwrap());
         let descriptor = guard.inherit_into(&mut command);
         command
@@ -10841,15 +10593,14 @@ mod tests {
         let ready = wait_for_marker(&mut child, &directory.join("ready"));
         drop(guard);
         let competing =
-            SocketPublicationGuard::acquire(&path, Instant::now() + Duration::from_millis(150));
+            PublicationGuard::acquire(&path, Instant::now() + Duration::from_millis(150));
         let child_retained_lock =
             matches!(&competing, Err(error) if error.kind() == std::io::ErrorKind::TimedOut);
         drop(competing);
 
         std::fs::write(directory.join("release"), []).unwrap();
         let dropped = wait_for_marker(&mut child, &directory.join("dropped"));
-        let reacquired =
-            SocketPublicationGuard::acquire(&path, Instant::now() + Duration::from_secs(1));
+        let reacquired = PublicationGuard::acquire(&path, Instant::now() + Duration::from_secs(1));
         let child_released_lock = reacquired.is_ok();
         drop(reacquired);
         std::fs::write(directory.join("finish"), []).unwrap();
@@ -10858,7 +10609,7 @@ mod tests {
         for marker in ["ready", "release", "dropped", "finish"] {
             let _ = std::fs::remove_file(directory.join(marker));
         }
-        let _ = std::fs::remove_file(socket_publication_lock_path(&path).unwrap());
+        let _ = std::fs::remove_file(crate::publication::publication_lock_path(&path).unwrap());
         std::fs::remove_dir(&directory).unwrap();
 
         ready.unwrap();
@@ -10882,11 +10633,11 @@ mod tests {
         let target = directory.join("target");
         std::fs::write(&target, b"target").unwrap();
         std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
-        let lock_path = socket_publication_lock_path(&socket_path).unwrap();
+        let lock_path = crate::publication::publication_lock_path(&socket_path).unwrap();
         symlink(&target, &lock_path).unwrap();
 
         let result =
-            SocketPublicationGuard::acquire(&socket_path, Instant::now() + Duration::from_secs(1));
+            PublicationGuard::acquire(&socket_path, Instant::now() + Duration::from_secs(1));
         let target_mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o777;
         let rejected = result.is_err();
         drop(result);
@@ -11003,7 +10754,7 @@ mod tests {
             publication.cleanup();
         }
         let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(socket_publication_lock_path(&path).unwrap());
+        let _ = std::fs::remove_file(crate::publication::publication_lock_path(&path).unwrap());
         std::fs::remove_dir(&directory).unwrap();
 
         assert_eq!(

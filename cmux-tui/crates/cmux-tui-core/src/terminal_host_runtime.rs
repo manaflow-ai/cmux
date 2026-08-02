@@ -1706,11 +1706,29 @@ mod unix {
         state_root.join(format!("terminal-hosts-{}", stable_token(session)))
     }
 
-    /// Strip every descriptor except the private bootstrap stdio before the
-    /// hidden host starts any threads or opens its endpoint. This runs inside
-    /// the freshly exec'd `__terminal-host`, so descriptor enumeration is
-    /// race-free and cannot affect the daemon's own open files.
-    pub fn isolate_terminal_host_process_fds() -> anyhow::Result<()> {
+    fn terminal_host_publication_descriptor(args: &[String]) -> anyhow::Result<Option<RawFd>> {
+        if args.first().map(String::as_str) != Some("--bootstrap-stdio") {
+            anyhow::bail!("hidden mode requires --bootstrap-stdio");
+        }
+        match &args[1..] {
+            [] => Ok(None),
+            [flag, descriptor] if flag == "--publication-fd" => descriptor
+                .parse::<RawFd>()
+                .ok()
+                .filter(|descriptor| *descriptor > libc::STDERR_FILENO)
+                .map(Some)
+                .ok_or_else(|| anyhow::anyhow!("terminal-host publication descriptor is invalid")),
+            _ => anyhow::bail!("hidden mode received unsupported arguments"),
+        }
+    }
+
+    /// Strip every descriptor except the private bootstrap stdio and the
+    /// explicitly inherited publication guard before the hidden host starts
+    /// any threads or opens its endpoint. This runs inside the freshly exec'd
+    /// `__terminal-host`, so descriptor enumeration is race-free and cannot
+    /// affect the daemon's own open files.
+    pub fn isolate_terminal_host_process_fds(args: &[String]) -> anyhow::Result<()> {
+        let publication_descriptor = terminal_host_publication_descriptor(args)?;
         let mut last_error = None;
         let mut inherited = None;
         for directory in ["/proc/self/fd", "/dev/fd"] {
@@ -1736,6 +1754,9 @@ mod unix {
             )
         })?;
         for descriptor in descriptors {
+            if Some(descriptor) == publication_descriptor {
+                continue;
+            }
             // SAFETY: descriptors came from this single-threaded process's
             // descriptor filesystem snapshot. stdio 0/1/2 is excluded.
             if unsafe { libc::close(descriptor) } != 0 {
@@ -1779,13 +1800,14 @@ mod unix {
         cancelled: &dyn Fn() -> bool,
     ) -> anyhow::Result<HostAttachment> {
         let terminal_id = TerminalId::random()?;
+        let publication_guard = acquire_terminal_host_publication(root, &terminal_id.to_hex())?;
         launch_terminal_host_with_identity_cancellable(
             options,
             root,
             default_colors,
             cell_pixels,
             kitty_graphics_limits,
-            terminal_id,
+            (terminal_id, publication_guard),
             cancelled,
         )
     }
@@ -1801,13 +1823,14 @@ mod unix {
         kitty_graphics_limits: KittyGraphicsLimits,
         terminal_id: TerminalId,
     ) -> anyhow::Result<HostAttachment> {
+        let publication_guard = acquire_terminal_host_publication(root, &terminal_id.to_hex())?;
         launch_terminal_host_with_identity_cancellable(
             options,
             root,
             default_colors,
             cell_pixels,
             kitty_graphics_limits,
-            terminal_id,
+            (terminal_id, publication_guard),
             &|| false,
         )
     }
@@ -1818,9 +1841,10 @@ mod unix {
         default_colors: DefaultColors,
         cell_pixels: (u16, u16),
         kitty_graphics_limits: KittyGraphicsLimits,
-        terminal_id: TerminalId,
+        ownership: (TerminalId, crate::PublicationGuard),
         cancelled: &dyn Fn() -> bool,
     ) -> anyhow::Result<HostAttachment> {
+        let (terminal_id, publication_guard) = ownership;
         prepare_private_dir(root)?;
         let owner_token = CapabilityToken::random()?;
         let terminal_hex = encode_hex(terminal_id.as_bytes());
@@ -1833,6 +1857,10 @@ mod unix {
         prepare_private_dir(&endpoint_root)?;
         let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
         let record_path = root.join(format!("{terminal_hex}.json"));
+        anyhow::ensure!(
+            publication_guard.target() == record_path,
+            "terminal-host publication ownership has the wrong target"
+        );
         if record_path.exists() || endpoint.exists() {
             anyhow::bail!("terminal host identity already exists");
         }
@@ -1878,6 +1906,8 @@ mod unix {
                 if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
             });
         }
+        let publication_descriptor = publication_guard.inherit_into(&mut command);
+        command.args(["--publication-fd", &publication_descriptor.to_string()]);
         let reaper = reserve_host_process_reaper()
             .context("reserve bounded terminal-host process cleanup")?;
         let child = cmux_tui_process::spawn(&mut command).context("spawn terminal-host process")?;
@@ -2412,6 +2442,25 @@ mod unix {
         )
     }
 
+    fn terminal_host_record_path(root: &Path, terminal_id: &str) -> anyhow::Result<PathBuf> {
+        let terminal = TerminalId::from_hex(terminal_id)
+            .ok_or_else(|| anyhow::anyhow!("terminal-host id is not a canonical UUIDv4"))?;
+        anyhow::ensure!(terminal.to_hex() == terminal_id, "terminal-host id is not canonical");
+        Ok(root.join(format!("{terminal_id}.json")))
+    }
+
+    /// Exclude a still-launching host before treating its absent canonical
+    /// record as proof that no PTY owner can publish later.
+    pub(crate) fn acquire_terminal_host_publication(
+        root: &Path,
+        terminal_id: &str,
+    ) -> anyhow::Result<crate::PublicationGuard> {
+        prepare_private_dir(root)?;
+        let path = terminal_host_record_path(root, terminal_id)?;
+        crate::PublicationGuard::acquire(&path, Instant::now() + TERMINAL_HOST_RECORD_SCAN_TIMEOUT)
+            .with_context(|| format!("wait for terminal-host publication {}", path.display()))
+    }
+
     /// Load the one canonical discovery record for `terminal_id` without
     /// scanning unrelated hosts. A missing record means there is no discovery
     /// owner to terminate; malformed or unreadable records remain errors so a
@@ -2420,10 +2469,7 @@ mod unix {
         root: &Path,
         terminal_id: &str,
     ) -> anyhow::Result<Option<(PathBuf, TerminalHostRecord)>> {
-        let terminal = TerminalId::from_hex(terminal_id)
-            .ok_or_else(|| anyhow::anyhow!("terminal-host id is not a canonical UUIDv4"))?;
-        anyhow::ensure!(terminal.to_hex() == terminal_id, "terminal-host id is not canonical");
-        let path = root.join(format!("{terminal_id}.json"));
+        let path = terminal_host_record_path(root, terminal_id)?;
         match read_terminal_host_record_until(
             &path,
             Instant::now() + TERMINAL_HOST_RECORD_SCAN_TIMEOUT,
@@ -4614,9 +4660,7 @@ mod unix {
         reader: &mut impl Read,
         writer: &mut impl Write,
     ) -> anyhow::Result<()> {
-        if args.iter().map(String::as_str).ne(["--bootstrap-stdio"]) {
-            anyhow::bail!("hidden mode requires --bootstrap-stdio");
-        }
+        let publication_descriptor = terminal_host_publication_descriptor(args)?;
         if let Ok(delay) = std::env::var("CMUX_TUI_TEST_BOOTSTRAP_READY_DELAY_MS")
             && let Ok(delay) = delay.parse::<u64>()
             && delay > 0
@@ -4640,6 +4684,18 @@ mod unix {
             anyhow::bail!("expected terminal-host Launch, received {:?}", launch_frame.kind);
         }
         let launch = HostLaunch::decode(&launch_frame.payload)?;
+        let publication_descriptor = publication_descriptor
+            .ok_or_else(|| anyhow::anyhow!("terminal-host launch omitted publication ownership"))?;
+        // SAFETY: the private launcher passes one unique child descriptor,
+        // and fd isolation preserves only that descriptor beyond stdio.
+        let publication_guard = unsafe {
+            crate::PublicationGuard::adopt_inherited(
+                Path::new(&launch.record_path),
+                publication_descriptor,
+                Instant::now() + HOST_LAUNCH_TIMEOUT,
+            )
+        }
+        .context("adopt terminal-host record publication ownership")?;
         let shared = spawn_host_runtime(&launch, &bootstrapped)?;
 
         let endpoint = PathBuf::from(&launch.endpoint);
@@ -4687,6 +4743,7 @@ mod unix {
         // leave behind an undiscoverable terminal process.
         write_record(Path::new(&launch.record_path), &record)?;
         guard.published = true;
+        drop(publication_guard);
 
         // Integration failure-injection seam for the narrow record-before-
         // Ready crash window. It is inherited only by explicitly configured
@@ -8717,8 +8774,8 @@ mod unix {
 #[cfg(unix)]
 pub(crate) use unix::{
     ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
-    adopt_terminal_host_with_kitty_limits, decode_host_resize_payload_for_version,
-    load_terminal_host_record,
+    acquire_terminal_host_publication, adopt_terminal_host_with_kitty_limits,
+    decode_host_resize_payload_for_version, load_terminal_host_record,
 };
 #[cfg(unix)]
 pub use unix::{
@@ -8741,7 +8798,7 @@ pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
 }
 
 #[cfg(not(unix))]
-pub fn isolate_terminal_host_process_fds() -> anyhow::Result<()> {
+pub fn isolate_terminal_host_process_fds(_args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 

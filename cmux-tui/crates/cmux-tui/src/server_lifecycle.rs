@@ -12,11 +12,12 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use cmux_tui_core::PublicationGuard;
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::release::{LAUNCHER_COMMAND_ENV, ReleaseIdentity};
 use cmux_tui_core::server::{
     LOCAL_SOCKET_CONNECT_TIMEOUT, PROTOCOL_VERSION, SERVER_SHUTDOWN_CAPABILITY,
-    SERVER_SHUTDOWN_INCOMPLETE_ERROR, SERVER_SHUTDOWN_TIMEOUT, SocketPublicationGuard,
+    SERVER_SHUTDOWN_INCOMPLETE_ERROR, SERVER_SHUTDOWN_TIMEOUT,
 };
 use serde_json::{Value, json};
 
@@ -118,7 +119,7 @@ struct LegacySocketQuarantine {
     device: u64,
     inode: u64,
     armed: bool,
-    publication_guard: SocketPublicationGuard,
+    publication_guard: PublicationGuard,
 }
 
 #[cfg(unix)]
@@ -133,7 +134,7 @@ impl LegacySocketQuarantine {
     ) -> std::io::Result<Self> {
         use std::os::unix::fs::{FileTypeExt as _, MetadataExt as _};
 
-        let publication_guard = SocketPublicationGuard::acquire(
+        let publication_guard = PublicationGuard::acquire(
             original,
             Instant::now() + LOCAL_SOCKET_CONNECT_TIMEOUT + LOCAL_SOCKET_CONNECT_TIMEOUT,
         )?;
@@ -210,7 +211,7 @@ impl LegacySocketQuarantine {
         quarantined: PathBuf,
         device: u64,
         inode: u64,
-        publication_guard: SocketPublicationGuard,
+        publication_guard: PublicationGuard,
     ) -> std::io::Result<Self> {
         let quarantine =
             Self { original, quarantined, device, inode, armed: true, publication_guard };
@@ -603,20 +604,19 @@ impl ServerIdentity {
             .filter_map(Value::as_str)
             .map(str::to_string)
             .collect();
-        let cleanup = data.get("shutdown_cleanup");
-        let shutdown_cleanup = ShutdownCleanupStatus {
-            pending: cleanup
-                .and_then(|cleanup| cleanup.get("pending"))
-                .and_then(Value::as_u64)
-                .unwrap_or(0),
-            retrying: cleanup
-                .and_then(|cleanup| cleanup.get("retrying"))
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-            degraded: cleanup
-                .and_then(|cleanup| cleanup.get("degraded"))
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+        let shutdown_cleanup = match data.get("shutdown_cleanup") {
+            None => ShutdownCleanupStatus::default(),
+            Some(cleanup) => ShutdownCleanupStatus {
+                pending: cleanup.get("pending").and_then(Value::as_u64).ok_or_else(|| {
+                    anyhow::anyhow!(crate::localization::catalog().server.endpoint_invalid)
+                })?,
+                retrying: cleanup.get("retrying").and_then(Value::as_bool).ok_or_else(|| {
+                    anyhow::anyhow!(crate::localization::catalog().server.endpoint_invalid)
+                })?,
+                degraded: cleanup.get("degraded").and_then(Value::as_bool).ok_or_else(|| {
+                    anyhow::anyhow!(crate::localization::catalog().server.endpoint_invalid)
+                })?,
+            },
         };
         Ok(Self {
             release: ReleaseIdentity::from_protocol_data(data),
@@ -1222,9 +1222,9 @@ pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
     let deadline = Instant::now() + timeout;
     ensure_legacy_helper_active()?;
     // SAFETY: this private exec mode receives the unique child copy created by
-    // `SocketPublicationGuard::inherit_into` and never aliases that raw fd.
+    // `PublicationGuard::inherit_into` and never aliases that raw fd.
     let publication_guard = unsafe {
-        SocketPublicationGuard::adopt_inherited(
+        PublicationGuard::adopt_inherited(
             Path::new(original_path),
             publication_descriptor,
             deadline,

@@ -3273,9 +3273,14 @@ impl Mux {
             if let Some(root) = options.terminal_host_root.as_deref() {
                 // The directory scan deliberately tolerates malformed debris.
                 // Before converting a durable live row into record absence,
-                // probe its exact canonical path so unreadable ownership or a
-                // record published during the scan fails startup without
-                // changing the terminal lifecycle.
+                // exclude its launcher through the same transferable guard
+                // held until the child publishes. The exact canonical probe
+                // then either observes that publication, rejects unreadable
+                // ownership, or proves no child can publish after absence.
+                let _publication = crate::terminal_host_runtime::acquire_terminal_host_publication(
+                    root,
+                    &terminal.terminal_id,
+                )?;
                 let exact_record = crate::terminal_host_runtime::load_terminal_host_record(
                     root,
                     &terminal.terminal_id,
@@ -6178,7 +6183,7 @@ impl Mux {
         #[cfg(all(not(test), unix))]
         let use_host_runtime = true;
         #[cfg(unix)]
-        if let (Some(_), Some(workspace_key), true) =
+        if let (Some(host_root), Some(workspace_key), true) =
             (opts.terminal_host_root.as_ref(), workspace_key, use_host_runtime)
         {
             let terminal_id = reservation
@@ -6187,6 +6192,14 @@ impl Mux {
                 .map(Ok)
                 .unwrap_or_else(TerminalId::random)?;
             let terminal_hex = terminal_id.to_hex();
+            // Acquire before the durable Launching commit. A replacement can
+            // therefore finalize record absence only after this parent dies
+            // before spawn or the inherited child finishes publication.
+            let publication_guard =
+                crate::terminal_host_runtime::acquire_terminal_host_publication(
+                    host_root,
+                    &terminal_hex,
+                )?;
             let launch_spec = terminal_launch_spec(&opts);
             let terminal = RegistryTerminal {
                 terminal_id: terminal_hex.clone(),
@@ -6234,7 +6247,8 @@ impl Mux {
                 id,
                 opts,
                 Arc::downgrade(self),
-                Some(terminal_id),
+                terminal_id,
+                publication_guard,
                 cell_pixels,
             ) {
                 Ok(surface) => surface,
@@ -8569,8 +8583,11 @@ impl Mux {
         let (unpublished_pending, unpublished_degraded) = (0, false);
         let lifecycle = self.shutdown_cleanup_lifecycle.snapshot();
         let state = self.shutdown_owner_reconciler.state.lock().unwrap();
-        let owner_retrying = owner_pending != 0 && state.worker_started && !state.degraded;
-        let owner_degraded = owner_pending != 0 && (state.degraded || !state.worker_started);
+        let synchronous_retry = lifecycle.pending && lifecycle.retrying && !lifecycle.degraded;
+        let owner_retrying =
+            owner_pending != 0 && (synchronous_retry || (state.worker_started && !state.degraded));
+        let owner_degraded =
+            owner_pending != 0 && !synchronous_retry && (state.degraded || !state.worker_started);
         let degraded = lifecycle.degraded || owner_degraded || unpublished_degraded;
         ShutdownCleanupHealth {
             pending: owner_pending
@@ -26350,11 +26367,9 @@ mod tests {
         let host_root = crate::terminal_host_runtime::terminal_host_root(&root, SESSION);
         std::fs::create_dir_all(&host_root).unwrap();
         let record_path = host_root.join(format!("{TERMINAL}.json"));
-        let publication = crate::server::SocketPublicationGuard::acquire(
-            &record_path,
-            Instant::now() + Duration::from_secs(1),
-        )
-        .unwrap();
+        let publication =
+            crate::PublicationGuard::acquire(&record_path, Instant::now() + Duration::from_secs(1))
+                .unwrap();
         let options =
             SurfaceOptions { terminal_host_root: Some(host_root), ..SurfaceOptions::default() };
         let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
