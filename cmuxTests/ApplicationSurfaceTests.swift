@@ -16,6 +16,21 @@ import Testing
 @MainActor
 @Suite("Application surfaces", .serialized)
 struct ApplicationSurfaceTests {
+    @Test func runtimeDaemonRequestsCannotUseUnboundedOneShotReads() throws {
+        let serviceSourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                "Sources/App/ComputerUseRuntimeService.swift"
+            )
+        let serviceSource = try String(
+            contentsOf: serviceSourceURL,
+            encoding: .utf8
+        )
+
+        #expect(!serviceSource.contains("probeCommandWithPeerProcessID"))
+    }
+
     @Test func cancelledPaneRequestInterruptsPersistentHelperRead() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
