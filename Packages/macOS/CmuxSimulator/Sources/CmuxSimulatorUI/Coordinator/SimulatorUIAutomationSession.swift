@@ -30,6 +30,7 @@ final class SimulatorUIAutomationSession {
         try Task.checkCancellation()
         return try await Self.$transactionToken.withValue(token) {
             try await beforeOperation()
+            try Task.checkCancellation()
             return try await operation()
         }
     }

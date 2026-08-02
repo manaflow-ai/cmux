@@ -523,6 +523,13 @@ extension CMUXCLI {
                 defaultValue: 500
             ),
         ]
+        let hasSemanticSelector = arguments.accessibilityIdentifier != nil
+            || arguments.accessibilityLabel != nil
+            || arguments.accessibilityRole != nil
+            || arguments.optionValue != nil
+        guard arguments.elementRef == nil || !hasSemanticSelector else {
+            throw simulatorArgumentsError("wait")
+        }
         if let ref = arguments.elementRef { params["element_ref"] = ref }
         if let identifier = arguments.accessibilityIdentifier {
             params["identifier"] = identifier
@@ -533,11 +540,7 @@ extension CMUXCLI {
         }
         if let value = arguments.optionValue { params["value"] = value }
         if let text = arguments.option("text") { params["text"] = text }
-        let hasSelector = arguments.elementRef != nil
-            || arguments.accessibilityIdentifier != nil
-            || arguments.accessibilityLabel != nil
-            || arguments.accessibilityRole != nil
-            || arguments.optionValue != nil
+        let hasSelector = arguments.elementRef != nil || hasSemanticSelector
         let text = arguments.option("text")
         guard predicate != "settled" || (!hasSelector && text == nil) else {
             throw simulatorArgumentsError("wait")

@@ -271,8 +271,10 @@ extension ControlCommandCoordinator {
               value.isValid, text.isValid else {
             return nil
         }
-        let hasSelector = elementRef != nil || identifier.value != nil || label.value != nil
+        let hasSemanticSelector = identifier.value != nil || label.value != nil
             || role.value != nil || value.value != nil
+        guard elementRef == nil || !hasSemanticSelector else { return nil }
+        let hasSelector = elementRef != nil || hasSemanticSelector
         guard predicate != "settled" || (!hasSelector && text.value == nil) else {
             return nil
         }

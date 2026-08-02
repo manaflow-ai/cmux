@@ -109,7 +109,7 @@ extension SimulatorPaneCoordinator {
         }
         let generation = selectionGeneration
         let cursorPlan = SimulatorAgentCursorPlan(action: action, display: display)
-        let cursorToken = cursorPlan.map(beginAgentCursorPresentation)
+        var cursorToken: UInt64?
         activeControlActions += 1
         isPerformingControlAction = true
         defer {
@@ -117,6 +117,13 @@ extension SimulatorPaneCoordinator {
             isPerformingControlAction = activeControlActions > 0
         }
         do {
+            if let cursorPlan {
+                cursorToken = try await beginAgentCursorPresentation(cursorPlan)
+            }
+            try Task.checkCancellation()
+            guard generation == selectionGeneration, !closed else {
+                throw CancellationError()
+            }
             if action.invalidatesUIAutomationSnapshot {
                 clearUIAutomationSnapshot()
             }

@@ -1,6 +1,11 @@
 import Foundation
 
 extension SimulatorUIAutomationSnapshotRecord {
+    /// Whether any visible selector field was clipped by the worker.
+    public var hasTruncatedVisibleFields: Bool {
+        !snapshot.truncatedFields.isEmpty
+    }
+
     /// Whether clipped visible text makes semantic stability unprovable.
     public var hasTruncatedVisibleText: Bool {
         snapshot.truncatedFields.contains(.label)
@@ -156,10 +161,10 @@ extension SimulatorUIAutomationSnapshotRecord {
         return matches.dropFirst().allSatisfy { $0 == first }
     }
 
-    /// Converts one current ref into selector fields that survive a refreshed snapshot.
+    /// Converts one current ref into an exact identifier selector.
     ///
     /// - Parameter elementRef: The current snapshot-scoped reference.
-    /// - Returns: The strongest stable selector available, or `nil` when none exists.
+    /// - Returns: An identifier-only selector, or `nil` when none exists.
     public func stableSelector(
         for elementRef: String
     ) -> SimulatorUIAutomationSelector? {
@@ -381,24 +386,7 @@ extension SimulatorUIAutomationElement {
     }
 
     var stableSelector: SimulatorUIAutomationSelector? {
-        if let stableInputSelector {
-            return stableInputSelector
-        }
-        if let label, let role {
-            return SimulatorUIAutomationSelector(
-                sourceElementRef: ref,
-                label: label,
-                role: role
-            )
-        }
-        if let value, let role {
-            return SimulatorUIAutomationSelector(
-                sourceElementRef: ref,
-                role: role,
-                value: value
-            )
-        }
-        return nil
+        stableInputSelector
     }
 }
 

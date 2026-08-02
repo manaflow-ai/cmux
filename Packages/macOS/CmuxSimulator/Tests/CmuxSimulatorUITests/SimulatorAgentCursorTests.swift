@@ -147,7 +147,7 @@ struct SimulatorAgentCursorTests {
         #expect(coordinator.agentCursorPresentation == cursor)
     }
 
-    @Test("Consecutive taps travel from the last visible cursor position")
+    @Test("Consecutive taps persist the last action point")
     func consecutiveTapsUseLastPosition() async throws {
         let coordinator = SimulatorPaneCoordinator(
             client: SimulatorPaneClientSpy(devices: [])
@@ -164,11 +164,11 @@ struct SimulatorAgentCursorTests {
             SimulatorPointerEvent(phase: .ended, primary: second),
         ])))
 
-        #expect(coordinator.agentCursorPresentation?.origin == first)
+        #expect(coordinator.agentCursorPresentation?.origin == second)
         #expect(coordinator.agentCursorPresentation?.destination == second)
     }
 
-    @Test("A distant tap delays its click phase until cursor travel finishes")
+    @Test("A distant tap presents its click with the matching HID duration")
     func distantTapDelaysClickedPhase() async throws {
         let coordinator = SimulatorPaneCoordinator(
             client: SimulatorPaneClientSpy(devices: [])
@@ -182,9 +182,9 @@ struct SimulatorAgentCursorTests {
         ])))
 
         let presentation = try #require(coordinator.agentCursorPresentation)
-        #expect(presentation.durationMilliseconds == 323)
+        #expect(presentation.durationMilliseconds == 50)
         #expect(presentation.phase == .clicked)
-        #expect(presentation.clickPhaseDelayMilliseconds == 273)
+        #expect(presentation.clickPhaseDelayMilliseconds == 0)
     }
 
     @Test("HID dispatch waits for the cursor to reach a timed gesture origin")

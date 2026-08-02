@@ -693,11 +693,19 @@ public struct SimulatorUIAutomationExecutor {
         elementRef: String?,
         coordinator: SimulatorPaneCoordinator
     ) async throws {
+        // A clipped selector field has no complete identity digest, so equal
+        // public hashes cannot prove that the referenced control is unchanged.
+        guard !sourceRecord.snapshot.isTruncated,
+              !sourceRecord.hasTruncatedVisibleFields else {
+            throw simulatorUIStateChangedFailure(elementRef: elementRef)
+        }
         let refreshed = try await captureSimulatorUIAutomationSnapshot(
             coordinator: coordinator,
             retryingUntil: simulatorUIMonotonicNowMilliseconds() + 2_500
         )
-        guard refreshed.snapshot.screenHash == sourceRecord.snapshot.screenHash else {
+        guard !refreshed.snapshot.isTruncated,
+              !refreshed.hasTruncatedVisibleFields,
+              refreshed.snapshot.screenHash == sourceRecord.snapshot.screenHash else {
             throw simulatorUIStateChangedFailure(elementRef: elementRef)
         }
     }
@@ -761,6 +769,17 @@ public struct SimulatorUIAutomationExecutor {
         _ wait: ControlSimulatorUIWait,
         coordinator: SimulatorPaneCoordinator
     ) async throws -> JSONValue {
+        guard wait.elementRef == nil || (
+            wait.identifier == nil
+                && wait.label == nil
+                && wait.role == nil
+                && wait.value == nil
+        ) else {
+            throw invalidSimulatorOperation(String(
+                localized: "cli.simulator.error.uiOperationInvalid",
+                defaultValue: "The Simulator UI automation operation is invalid"
+            ))
+        }
         try requireSimulatorCapability(.accessibility, coordinator: coordinator)
         let startedAt = simulatorUIMonotonicNowMilliseconds()
         let deadline = startedAt + Int64(wait.timeoutMilliseconds)
@@ -967,8 +986,8 @@ public struct SimulatorUIAutomationExecutor {
         mutationGeneration: UInt64,
         coordinator: SimulatorPaneCoordinator
     ) -> SimulatorUIAutomationSnapshotRecord? {
-        guard !published.hasTruncatedVisibleText,
-              !captured.hasTruncatedVisibleText,
+        guard !published.hasTruncatedVisibleFields,
+              !captured.hasTruncatedVisibleFields,
               coordinator.uiAutomationMutationGeneration == mutationGeneration,
               simulatorUIWallTimeNowMilliseconds()
                   <= published.snapshot.expiresAtMilliseconds,

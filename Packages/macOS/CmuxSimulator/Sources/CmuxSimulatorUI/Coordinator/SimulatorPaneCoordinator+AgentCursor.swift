@@ -6,33 +6,60 @@ extension SimulatorPaneCoordinator {
     ///
     /// The coordinator belongs to one `SimulatorPanel`, which belongs to one
     /// workspace. No process-global cursor registry is used.
-    func beginAgentCursorPresentation(_ plan: SimulatorAgentCursorPlan) -> UInt64 {
+    func beginAgentCursorPresentation(
+        _ plan: SimulatorAgentCursorPlan
+    ) async throws -> UInt64 {
+        let currentPosition = agentCursorPresentation?.destination ?? plan.origin
+        let travelDurationMilliseconds = agentCursorTravelDurationMilliseconds(
+            from: currentPosition,
+            to: plan.origin
+        )
+        if travelDurationMilliseconds > 0 {
+            agentCursorGeneration &+= 1
+            let travelGeneration = agentCursorGeneration
+            agentCursorPresentation = SimulatorAgentCursorPresentation(
+                generation: travelGeneration,
+                origin: currentPosition,
+                destination: plan.origin,
+                durationMilliseconds: travelDurationMilliseconds,
+                phase: .resting,
+                clickPhaseDelayMilliseconds: 0
+            )
+            try await ContinuousClock().sleep(
+                for: .milliseconds(travelDurationMilliseconds)
+            )
+            try Task.checkCancellation()
+            guard agentCursorPresentation?.generation == travelGeneration,
+                  !closed else {
+                throw CancellationError()
+            }
+        }
+
+        try Task.checkCancellation()
         agentCursorGeneration &+= 1
         let generation = agentCursorGeneration
-        let origin = agentCursorPresentation?.destination ?? plan.origin
-        let distance = hypot(
-            plan.destination.x - origin.x,
-            plan.destination.y - origin.y
-        )
-        let durationMilliseconds: Int
-        if distance > 0.002 {
-            let travelMilliseconds = Int(140 + min(distance, 1) * 260)
-            durationMilliseconds = max(plan.durationMilliseconds, travelMilliseconds)
-        } else {
-            durationMilliseconds = plan.durationMilliseconds
-        }
         let phase: SimulatorAgentCursorPhase = plan.beginsTouch ? .pressed : .clicked
         agentCursorPresentation = SimulatorAgentCursorPresentation(
             generation: generation,
-            origin: origin,
+            origin: plan.origin,
             destination: plan.destination,
-            durationMilliseconds: durationMilliseconds,
+            durationMilliseconds: plan.durationMilliseconds,
             phase: phase,
-            clickPhaseDelayMilliseconds: phase == .clicked
-                ? max(0, durationMilliseconds - plan.durationMilliseconds)
-                : 0
+            clickPhaseDelayMilliseconds: 0
         )
         return generation
+    }
+
+    private func agentCursorTravelDurationMilliseconds(
+        from origin: SimulatorPoint,
+        to destination: SimulatorPoint
+    ) -> Int {
+        let distance = hypot(
+            destination.x - origin.x,
+            destination.y - origin.y
+        )
+        guard distance > 0.002 else { return 0 }
+        return Int(140 + min(distance, 1) * 260)
     }
 
     /// Completes the current pointer presentation without overriding newer work.

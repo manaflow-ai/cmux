@@ -73,30 +73,40 @@ extension SimulatorWorkerClient {
         timeout: Duration
     ) async throws -> SimulatorControlResult {
         let requestIdentifier = UUID()
-        do {
-            guard let result = try await performAccessibilityAction(
-                .readAccessibility,
-                accessibilityTimeout: timeout,
-                accessibilityTimeoutRecovery: .preserveWorker,
-                accessibilityRequestIdentifier: requestIdentifier
-            ) else {
-                throw SimulatorControlError(
-                    code: "accessibility_unavailable",
-                    arguments: [],
-                    message: String(
-                        localized: "simulator.failure.accessibilityCapability",
-                        defaultValue: "The simulator worker does not support accessibility inspection."
+        return try await withTaskCancellationHandler {
+            do {
+                guard let result = try await performAccessibilityAction(
+                    .readAccessibility,
+                    accessibilityTimeout: timeout,
+                    accessibilityTimeoutRecovery: .preserveWorker,
+                    accessibilityRequestIdentifier: requestIdentifier
+                ) else {
+                    throw SimulatorControlError(
+                        code: "accessibility_unavailable",
+                        arguments: [],
+                        message: String(
+                            localized: "simulator.failure.accessibilityCapability",
+                            defaultValue: "The simulator worker does not support accessibility inspection."
+                        )
                     )
-                )
+                }
+                return result
+            } catch let error as SimulatorControlError
+                where error.code == "worker_response_timed_out" {
+                await cancelAccessibilitySnapshotRequest(requestIdentifier)
+                throw error
             }
-            return result
-        } catch let error as SimulatorControlError
-            where error.code == "worker_response_timed_out" {
-            try? await sendRequired(
-                .cancelAccessibilitySnapshotRequest(requestIdentifier),
-                probe: false
-            )
-            throw error
+        } onCancel: {
+            Task {
+                await self.cancelAccessibilitySnapshotRequest(requestIdentifier)
+            }
         }
+    }
+
+    private func cancelAccessibilitySnapshotRequest(_ requestIdentifier: UUID) async {
+        try? await sendRequired(
+            .cancelAccessibilitySnapshotRequest(requestIdentifier),
+            probe: false
+        )
     }
 }

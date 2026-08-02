@@ -242,7 +242,7 @@ struct SimulatorUIAutomationSnapshotTests {
             $0.role == .textField
         })
 
-        #expect(record.stableSelector(for: textField.ref) != nil)
+        #expect(record.stableSelector(for: textField.ref) == nil)
         #expect(!textField.actions.contains(.typeText))
         #expect(!record.snapshot.actions.contains { $0.action == .typeText })
     }

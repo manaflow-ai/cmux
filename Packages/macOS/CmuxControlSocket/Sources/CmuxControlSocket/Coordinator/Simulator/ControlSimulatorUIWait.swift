@@ -2,7 +2,7 @@
 public struct ControlSimulatorUIWait: Sendable, Equatable {
     /// The normalized predicate name.
     public let predicate: String
-    /// An optional process-scoped element reference.
+    /// An optional process-scoped element reference, exclusive with selector fields.
     public let elementRef: String?
     /// An optional exact accessibility identifier.
     public let identifier: String?

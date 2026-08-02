@@ -52,7 +52,7 @@ cmux ios button apple-pay --surface surface:1
 
 Snapshots include normalized roles, visible state, supported actions, a sequence number, and a screen hash. Pass `--since-screen-hash` to avoid retransmitting an unchanged tree. Refs belong to one pane session and snapshot, expire after 60 seconds, and are invalidated by input or other UI mutations. Each ref action verifies that the screen hash still matches after its pre-action delay and before sending coordinate input, so app-driven changes fail with `UI_STATE_CHANGED` instead of tapping stale geometry. Successful JSON action results include the resolved action, a refreshed settled snapshot, and whether the screen hash changed.
 
-Wait predicates are `exists`, `gone`, `enabled`, `focused`, `text-contains`, and `settled`. Select by ref or exact `--identifier`, `--label`, `--role`, and `--value` fields. A ref-based wait converts the ref to stable semantic fields before polling.
+Wait predicates are `exists`, `gone`, `enabled`, `focused`, `text-contains`, and `settled`. Select by ref or exact `--identifier`, `--label`, `--role`, and `--value` fields. Do not combine a ref with those selector fields. A ref-based wait requires the source element to have an exact runtime identifier and reuses only that identifier while polling.
 
 JSON failures include a machine-readable `ui_error` with an uppercase code, a recovery hint, and relevant refs, candidates, snapshot age, or timeout. Candidate lists are capped at 64 elements. Partial-text waits fail as ambiguous when matching elements contain different visible strings.
 
