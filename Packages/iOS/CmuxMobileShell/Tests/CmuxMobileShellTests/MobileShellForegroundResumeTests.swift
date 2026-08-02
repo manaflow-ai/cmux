@@ -254,7 +254,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
 }
 
 @MainActor
-@Test func foregroundResumeRedialsFinishedDisconnectedRecovery() async throws {
+@Test func foregroundResumeWaitsForScheduledClientTeardownBeforeRedial() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
@@ -279,6 +279,9 @@ struct MobileShellForegroundConnectionRecoveryTests {
     store.didFinishStoredMacReconnectAttempt = true
     let workspaceListCount = await router.count(of: "workspace.list")
 
+    // `clearRemoteConnectionContext()` schedules the old client's teardown.
+    // Foreground recovery must wait for that teardown to transfer the shared
+    // route lease before the replacement reaches route admission.
     store.resumeForegroundRefresh()
 
     #expect(await router.waitForCount(
