@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -75,6 +76,26 @@ import Testing
         let view = NSView(frame: .zero)
         window.contentView?.addSubview(view)
         #expect(shouldRespectForeignFirstResponder(view, in: window, isRightSidebarOwner: alwaysSidebarOwner))
+    }
+
+    @Test func respectsInWindowWebContentResponder() throws {
+        let window = makeWindow()
+        let contentView = try #require(window.contentView)
+        let webView = CmuxWebView(
+            frame: contentView.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        let webContentResponder = NSView(frame: webView.bounds)
+        contentView.addSubview(webView)
+        webView.addSubview(webContentResponder)
+
+        #expect(
+            shouldRespectForeignFirstResponder(
+                webContentResponder,
+                in: window,
+                isRightSidebarOwner: neverSidebarOwner
+            )
+        )
     }
 
     /// The #5269 regression for the sidebar/dock flavor: a sidebar host stranded in another window
