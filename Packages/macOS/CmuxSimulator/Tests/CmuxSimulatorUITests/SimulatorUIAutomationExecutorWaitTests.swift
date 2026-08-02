@@ -438,6 +438,42 @@ struct SimulatorUIAutomationExecutorWaitTests {
         await coordinator.close()
     }
 
+    @Test("Settled waits sample at their required stability time")
+    func settledWaitSchedulesStabilityTarget() async throws {
+        let snapshot = Self.actionSnapshot()
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let scheduler = AdvancingActionScheduler(nowMilliseconds: 1_000)
+        let wait = ControlSimulatorUIWait(
+            predicate: "settled",
+            elementRef: nil,
+            identifier: nil,
+            label: nil,
+            role: nil,
+            value: nil,
+            text: nil,
+            timeoutMilliseconds: 500,
+            pollIntervalMilliseconds: 250,
+            settledDurationMilliseconds: 400
+        )
+
+        let result = try await SimulatorUIAutomationExecutor(
+            scheduler: scheduler
+        ).perform(.uiWait(wait), coordinator: coordinator)
+
+        guard case let .object(payload) = result else {
+            Issue.record("Expected a wait result, got \(result)")
+            await coordinator.close()
+            return
+        }
+        #expect(payload["completed"] == .bool(true))
+        #expect(scheduler.monotonicNowMilliseconds() == 1_400)
+        await coordinator.close()
+    }
+
     @Test("Snapshots with truncated text are never reported unchanged")
     func truncatedTextSnapshotDoesNotReportUnchanged() async throws {
         let snapshot = Self.fieldTruncatedSnapshot()

@@ -255,6 +255,11 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
             ]),
             ("simulator.wait_for_ui", [
                 "predicate": .string("settled"),
+                "timeout_milliseconds": .int(500),
+                "settled_duration_milliseconds": .int(500),
+            ]),
+            ("simulator.wait_for_ui", [
+                "predicate": .string("settled"),
                 "label": .string("Ignored target"),
             ]),
             ("simulator.button", [
