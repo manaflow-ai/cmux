@@ -673,6 +673,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--write-github-output", action="store_true")
     parser.add_argument("--github-output-name", default="status")
     parser.add_argument("--allow-missing-project", action="store_true")
+    parser.add_argument("--retry-missing-project", action="store_true")
     return parser
 
 
@@ -705,6 +706,18 @@ def main(
             "--allow-missing-project is limited to the cmux-sidebar "
             "crates.io bootstrap prerelease"
         )
+    if args.retry_missing_project and (
+        args.mode != "check"
+        or args.registry != "crates"
+        or args.package != "cmux-sidebar"
+        or args.version != CRATES_BOOTSTRAP_VERSION
+        or not args.require_match
+        or args.wait_seconds <= 0
+    ):
+        raise SystemExit(
+            "--retry-missing-project is limited to bounded cmux-sidebar "
+            "crates.io bootstrap verification"
+        )
 
     try:
         try:
@@ -717,6 +730,7 @@ def main(
                 allowed_artifacts=args.allowed_artifact,
                 cancel_event=cancel_event,
                 wait_for_match=args.mode == "check" and args.require_match,
+                retry_missing_project=args.retry_missing_project,
             )
         except RegistryProjectMissing:
             if not args.allow_missing_project:

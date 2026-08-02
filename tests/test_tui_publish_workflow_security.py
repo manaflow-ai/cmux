@@ -197,8 +197,10 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
     assert "CARGO_BOOTSTRAP_TOKEN" in bootstrap
     assert "cargo test --manifest-path" in bootstrap
     assert "cargo package --manifest-path" in bootstrap
-    assert "reconcile_registry_artifact.py publish" in bootstrap
-    assert "--allow-missing-project" in bootstrap
+    assert bootstrap.count("reconcile_registry_artifact.py check") == 2
+    assert "--retry-missing-project" in bootstrap
+    assert "--allow-missing-project" not in bootstrap
+    assert 'cmp "$BOOTSTRAP_ARTIFACT" "$REPACKED_ARTIFACT"' in bootstrap
     assert "cargo publish" in bootstrap
     assert manifest["package"]["name"] == "cmux-sidebar"
     assert manifest["package"]["version"] == "0.0.0-bootstrap.0"
@@ -259,12 +261,14 @@ def test_bootstrap_tokens_are_isolated_from_package_code() -> None:
     assert "id-token: write" in npm_publish
     assert "name: npm-bootstrap" in npm_publish
     assert "npm publish" in npm_publish
-    assert "--ignore-scripts" in npm_publish
+    assert npm_publish.count("--ignore-scripts") == 2
     assert "npm lifecycle scripts are disabled" in npm_publish
 
     crates_publish = workflow_job(crates, "publish")
     crates_verify = workflow_job(crates, "verify")
     assert "name: crates-bootstrap" in crates_publish
+    assert "member.isfile()" in crates_publish
+    assert "archive.extractfile(member)" in crates_publish
     assert "cmp \"$BOOTSTRAP_ARTIFACT\" \"$REPACKED_ARTIFACT\"" in crates_publish
     assert "cargo package" in crates_publish
     assert "cargo publish" in crates_publish

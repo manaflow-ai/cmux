@@ -71,9 +71,12 @@ authorization is valid for the same workflow run attempt and 15 minutes.
     -F 'client_payload[confirm_bootstrap]=true'
   ```
 
-  The workflow tests and packs `0.0.0-bootstrap.0` on
-  a GitHub-hosted runner, publishes that exact artifact with provenance under
-  the `bootstrap` tag, and refuses to claim `latest`. Configure repository
+  A credential-free job tests and packs `0.0.0-bootstrap.0`, then uploads the
+  exact archive. A fresh job downloads and digest-checks that archive before
+  its final step receives the temporary token. That step disables npm
+  lifecycle scripts, publishes with provenance under the `bootstrap` tag, and
+  cannot claim `latest`. A separate credential-free job reconciles the exact
+  archive and provenance after an ambiguous publish result. Configure repository
   `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, and the `npm` environment
   as the trusted publisher. In the package's **Settings > Publishing access**,
   select **Require two-factor authentication and disallow tokens**. This still
@@ -82,8 +85,9 @@ authorization is valid for the same workflow run attempt and 15 minutes.
   coordinated OIDC release. Every release verifies the npm bootstrap
   provenance from `.github/workflows/sdk-bootstrap-npm.yml` on `main` and
   requires npm user `lawrencechen` to remain the sole package maintainer. A
-  rerun after an ambiguous bootstrap publish accepts only the exact tested
-  archive with matching provenance.
+  **Re-run all jobs** after an ambiguous bootstrap result. The credential-free
+  preflight skips publication only for the exact tested archive with matching
+  provenance.
 - PyPI: create the `pypi-bootstrap` GitHub environment, then add a pending
   trusted publisher for project `cmux-sdk`, repository `manaflow-ai/cmux`,
   workflow `sdk-bootstrap-pypi.yml`, environment `pypi-bootstrap`. Dispatch it
@@ -112,9 +116,16 @@ authorization is valid for the same workflow run attempt and 15 minutes.
     -F 'client_payload[confirm_bootstrap]=true'
   ```
 
-  The workflow installs Cargo 1.95.0, tests and packages the source-controlled
-  minimal crate outside the Git checkout, and publishes byte-checked
-  `cmux-sidebar` `0.0.0-bootstrap.0`. It never consumes stable version `1.0.0`.
+  A credential-free job installs Cargo 1.95.0, tests the source-controlled
+  minimal crate, and uploads its packaged archive. A fresh job checks the
+  archive digest and allowlisted paths, reconstructs the original manifest,
+  and proves Cargo reproduces the exact bytes. Its final step receives the
+  temporary token and publishes with package verification disabled, so crate
+  code never runs beside the credential. A separate credential-free job
+  reconciles the uploaded bytes after an ambiguous result. The bootstrap uses
+  `cmux-sidebar` `0.0.0-bootstrap.0` and preserves stable version `1.0.0`.
+  **Re-run all jobs** after a failed or ambiguous bootstrap result so the
+  credential-free registry preflight decides whether another publish is safe.
   Configure a trusted publisher for `cmux-sidebar` with owner `manaflow-ai`,
   repository `cmux`, workflow `sdk-release-cut.yml`, environment `crates-io`.
   On its crate settings page, enable **Require trusted publishing for all new
