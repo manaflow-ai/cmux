@@ -51,4 +51,47 @@ if [ "$runner_marker_count" -eq 0 ] || [ "$runner_marker_count" -ne "$invocation
   exit 1
 fi
 
-echo "PASS: app-host xcodebuild wrapper retries idle timeouts"
+cat > "$TMP_DIR/xcodebuild" <<'SH'
+#!/usr/bin/env bash
+attempt=0
+if [ -f "$CMUX_CAPTURE_XCODEBUILD_ATTEMPT" ]; then
+  attempt="$(<"$CMUX_CAPTURE_XCODEBUILD_ATTEMPT")"
+fi
+attempt=$((attempt + 1))
+printf '%s\n' "$attempt" > "$CMUX_CAPTURE_XCODEBUILD_ATTEMPT"
+if [ "$attempt" -eq 1 ]; then
+  echo "The test runner crashed before establishing connection: cmux DEV at <external symbol>"
+  exit 65
+fi
+echo "SocketControlServer: Listening on /tmp/cmux-debug-test.sock"
+SH
+chmod +x "$TMP_DIR/xcodebuild"
+
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$TMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ATTEMPT="$TMP_DIR/startup-crash-attempt.log" \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=2 \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test >"$TMP_DIR/startup-crash-output.log" 2>&1
+status=$?
+set -e
+
+if [ "$status" -ne 0 ]; then
+  cat "$TMP_DIR/startup-crash-output.log"
+  echo "FAIL: expected wrapper to recover from a pre-bootstrap test-runner crash, got $status"
+  exit 1
+fi
+
+if ! grep -Fq "Retrying app-host xcodebuild after test runner startup crash (attempt 1/2)" "$TMP_DIR/startup-crash-output.log"; then
+  cat "$TMP_DIR/startup-crash-output.log"
+  echo "FAIL: wrapper did not retry after a pre-bootstrap test-runner crash"
+  exit 1
+fi
+
+if [ "$(<"$TMP_DIR/startup-crash-attempt.log")" -ne 2 ]; then
+  cat "$TMP_DIR/startup-crash-attempt.log"
+  echo "FAIL: expected startup crash recovery on the second attempt"
+  exit 1
+fi
+
+echo "PASS: app-host xcodebuild wrapper retries transient startup failures"
