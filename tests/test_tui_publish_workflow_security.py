@@ -1,5 +1,10 @@
+import hashlib
 import json
+import os
 import re
+import subprocess
+import tempfile
+import time
 import tomllib
 import unittest
 from pathlib import Path
@@ -311,7 +316,11 @@ def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
     assert 'existing_sha="$(git rev-parse' in release
     assert '"$existing_sha" != "$GITHUB_SHA"' in release
     assert "validate_release_version.py" in release
-    assert "--require-newer-than-tags" in release
+    assert "--require-newer-than-tags" not in validation
+    assert "--require-latest-tag" in validation
+    assert "sdk_existing_sha" in validation
+    assert "go_existing_sha" in validation
+    assert "existing coordinated SDK tags must both name $GITHUB_SHA" in validation
     assert "git tag --list 'cmux-sdk-v*'" in release
     assert "check-spec-inventory.py" in validation
     assert "codegen/generate.py --check" in validation
@@ -562,6 +571,135 @@ def test_tag_cut_revalidates_release_order_after_its_final_fetch() -> None:
     assert compare < create < push
 
 
+def test_tag_cut_retry_requires_fresh_authority_or_exact_poststate() -> None:
+    release = workflow("sdk-release-cut.yml")
+    revalidate_tags = workflow_job(release, "revalidate-tags")
+    cut_tags = workflow_job(release, "cut-tags")
+    releasing = (
+        ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
+    ).read_text()
+
+    for output in (
+        "authorization_run_id",
+        "authorization_run_attempt",
+        "authorized_at",
+        "remote_state_sha256",
+    ):
+        assert output in revalidate_tags
+        assert output.upper() in cut_tags
+    assert '[[ "$AUTHORIZATION_RUN_ID" == "$GITHUB_RUN_ID" ]]' in cut_tags
+    assert (
+        '[[ "$AUTHORIZATION_RUN_ATTEMPT" == "$GITHUB_RUN_ATTEMPT" ]]'
+        in cut_tags
+    )
+    assert "authorization_age" in cut_tags
+    assert "authorization_age <= 900" in cut_tags
+    assert "normalized_state_sha256" in cut_tags
+    assert "remote_release_state=published" in cut_tags
+    assert "both coordinated tags already name the release commit" in cut_tags
+    assert "id: prepare" in cut_tags
+    assert cut_tags.count(
+        "if: steps.prepare.outputs.tags_exist != 'true'"
+    ) == 2
+    assert "**Re-run all jobs**" in releasing
+    assert "exact coordinated tag post-state" in releasing
+
+
+def test_tag_cut_retry_behavior_rejects_stale_prewrites_and_accepts_exact_poststate() -> None:
+    document = yaml.safe_load(workflow("sdk-release-cut.yml"))
+    prepare_script = next(
+        step["run"]
+        for step in document["jobs"]["cut-tags"]["steps"]
+        if step.get("id") == "prepare"
+    )
+
+    def git(*arguments: str, cwd: Path) -> str:
+        return subprocess.run(
+            ("git", *arguments),
+            cwd=cwd,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ).stdout.strip()
+
+    with tempfile.TemporaryDirectory(prefix="cmux-sdk-tag-retry-") as raw:
+        temporary = Path(raw)
+        source = temporary / "source"
+        remote = temporary / "remote.git"
+        source.mkdir()
+        git("init", "-b", "main", cwd=source)
+        git("config", "user.name", "cmux release test", cwd=source)
+        git("config", "user.email", "release-test@cmux.dev", cwd=source)
+        git("commit", "--allow-empty", "-m", "release", cwd=source)
+        release_sha = git("rev-parse", "HEAD", cwd=source)
+        git("init", "--bare", str(remote), cwd=temporary)
+        git("remote", "add", "origin", str(remote), cwd=source)
+        git("push", "origin", "main", cwd=source)
+
+        prestate = f"{release_sha}\trefs/heads/main\n"
+        prestate_sha256 = hashlib.sha256(prestate.encode()).hexdigest()
+
+        def prepare(attempt: int) -> tuple[subprocess.CompletedProcess[str], str, Path]:
+            run_root = temporary / f"run-{attempt}"
+            run_root.mkdir()
+            output_path = run_root / "output"
+            output_path.touch()
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "AUTHORIZATION_RUN_ATTEMPT": "1",
+                    "AUTHORIZATION_RUN_ID": "123456789",
+                    "AUTHORIZED_AT": str(int(time.time()) - 3600),
+                    "CONFIRM_PUBLISH": "true",
+                    "DISPATCH_VERSION": "1.0.1",
+                    "GITHUB_OUTPUT": str(output_path),
+                    "GITHUB_REF": "refs/heads/main",
+                    "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                    "GITHUB_RUN_ATTEMPT": "2",
+                    "GITHUB_RUN_ID": "123456789",
+                    "GITHUB_SHA": release_sha,
+                    "GO_TAG": "cmux-tui/bindings/go/v1.0.1",
+                    "REMOTE_STATE_SHA256": prestate_sha256,
+                    "RUNNER_TEMP": str(run_root),
+                    "SDK_TAG": "cmux-sdk-v1.0.1",
+                    "VERSION": "1.0.1",
+                    "GIT_CONFIG_COUNT": "1",
+                    "GIT_CONFIG_KEY_0": f"url.{remote.as_uri()}.insteadOf",
+                    "GIT_CONFIG_VALUE_0": "https://github.com/manaflow-ai/cmux.git",
+                }
+            )
+            result = subprocess.run(
+                ("bash",),
+                input=prepare_script,
+                env=environment,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            return result, output_path.read_text(), run_root
+
+        stale, stale_output, stale_root = prepare(1)
+        assert stale.returncode != 0
+        assert "release authorization is stale" in stale.stdout
+        assert stale_output == ""
+        assert not (stale_root / "cmux-sdk-release").exists()
+
+        for tag, message in (
+            ("cmux-sdk-v1.0.1", "cmux SDK 1.0.1"),
+            ("cmux-tui/bindings/go/v1.0.1", "cmux Go SDK 1.0.1"),
+        ):
+            git("tag", "-a", tag, "-m", message, cwd=source)
+            git("push", "origin", f"refs/tags/{tag}", cwd=source)
+
+        recovered, recovered_output, recovered_root = prepare(2)
+        assert recovered.returncode == 0, recovered.stdout
+        assert "both coordinated tags already name the release commit" in recovered.stdout
+        assert recovered_output == "tags_exist=true\n"
+        assert not (recovered_root / "cmux-sdk-release").exists()
+
+
 def test_go_publisher_uses_the_nested_module_semver_tag() -> None:
     go = workflow("sdk-publish-go.yml")
     java = workflow("sdk-publish-java.yml")
@@ -594,7 +732,7 @@ def test_sdk_preflight_workflows_cannot_write_to_registries() -> None:
     release = workflow("sdk-release-cut.yml")
     assert release.count("id-token: write") == 5
     assert release.count("Require the coordinated release source") == 5
-    assert release.count("--require-latest-tag") == 6
+    assert release.count("--require-latest-tag") == 7
 
     go = workflow("sdk-publish-go.yml")
     assert "push:\n    tags:" not in go
