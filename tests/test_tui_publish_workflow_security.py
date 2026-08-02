@@ -659,7 +659,7 @@ def test_tag_cut_retry_requires_fresh_authority_or_exact_poststate() -> None:
     assert "exact coordinated tag post-state" in releasing
 
 
-def test_tag_cut_retry_behavior_rejects_stale_prewrites_and_accepts_exact_poststate() -> None:
+def test_tag_cut_retry_behavior_accepts_tags_after_main_advances() -> None:
     document = yaml.safe_load(workflow("sdk-release-cut.yml"))
     prepare_script = next(
         step["run"]
@@ -746,6 +746,9 @@ def test_tag_cut_retry_behavior_rejects_stale_prewrites_and_accepts_exact_postst
         ):
             git("tag", "-a", tag, "-m", message, cwd=source)
             git("push", "origin", f"refs/tags/{tag}", cwd=source)
+
+        git("commit", "--allow-empty", "-m", "advance main", cwd=source)
+        git("push", "origin", "main", cwd=source)
 
         recovered, recovered_output, recovered_root = prepare(2)
         assert recovered.returncode == 0, recovered.stdout
