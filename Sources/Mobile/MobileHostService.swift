@@ -1194,6 +1194,7 @@ final class MobileHostService {
         authorization: MobileHostConnectionAuthorizationContext,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
+        promoteUsableSession: @escaping @Sendable () async -> Bool = { true },
         isCurrent: @escaping @Sendable () async -> Bool
     ) async -> CmxIrohAdmittedConnectionExit {
         let expectedExit = CmxIrohAdmittedConnectionExit(
@@ -1229,6 +1230,7 @@ final class MobileHostService {
                 await MobileHostService.shared.recordClientID(clientID, for: id)
             },
             onUsableSession: {
+                guard await promoteUsableSession() else { return }
                 await Self.retireSupersededIrohConnections(
                     newestConnectionID: id
                 )
