@@ -386,6 +386,67 @@ extension SimulatorWorkerClientTests {
         await client.stop()
     }
 
+    @Test("Cancelling a correlated down-only touch releases the worker contact")
+    func interactiveTouchCancellationRecovery() async throws {
+        let launcher = TestWorkerLauncher()
+        launcher.setResponder { message in
+            switch message {
+            case .attach: .status(.streaming)
+            case let .ping(sequence): .ack(sequence)
+            default: nil
+            }
+        }
+        let client = makeClient(launcher: launcher)
+        await client.send(.attach(udid: "DEVICE", geometry: nil))
+        let worker = try #require(launcher.endpoint(at: 0))
+        let point = SimulatorPoint(x: 0.3, y: 0.7)
+        let task = Task {
+            try await client.perform(.interactive(.touch(
+                events: [.init(phase: .began, primary: point)],
+                holdMilliseconds: 0
+            )))
+        }
+        try await awaitInboundInteractive(worker)
+
+        task.cancel()
+        _ = await task.result
+
+        for _ in 0..<1_000 {
+            if worker.inboundMessages().contains(.releaseInputs) { break }
+            await Task.yield()
+        }
+        #expect(worker.inboundMessages().contains(.releaseInputs))
+        await client.stop()
+    }
+
+    @Test("A failed down-only touch releases the worker contact")
+    func interactiveTouchFailureRecovery() async throws {
+        let launcher = TestWorkerLauncher()
+        launcher.setResponder { message in
+            switch message {
+            case .attach: .status(.streaming)
+            case let .ping(sequence): .ack(sequence)
+            case let .interactiveAction(requestID, _):
+                .interactiveAction(requestID: requestID, succeeded: false)
+            default: nil
+            }
+        }
+        let client = makeClient(launcher: launcher)
+        await client.send(.attach(udid: "DEVICE", geometry: nil))
+        let worker = try #require(launcher.endpoint(at: 0))
+        let point = SimulatorPoint(x: 0.3, y: 0.7)
+
+        await #expect(throws: SimulatorControlError.self) {
+            try await client.perform(.interactive(.touch(
+                events: [.init(phase: .began, primary: point)],
+                holdMilliseconds: 0
+            )))
+        }
+
+        #expect(worker.inboundMessages().contains(.releaseInputs))
+        await client.stop()
+    }
+
     @Test("Process worker drops ambient credentials and keeps required launch values")
     func processWorkerEnvironmentIsAllowlisted() {
         let environment = simulatorWorkerEnvironment(

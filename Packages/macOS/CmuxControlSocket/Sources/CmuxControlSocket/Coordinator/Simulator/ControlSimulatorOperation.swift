@@ -8,8 +8,16 @@ public enum ControlSimulatorOperation: Sendable, Equatable {
     case selectDevice(String)
     /// Restarts a failed or crash-fused Simulator worker for the selected device.
     case recover
+    /// Captures a compact runtime accessibility snapshot with process-scoped refs.
+    case uiSnapshot(sinceScreenHash: String?)
+    /// Waits for one runtime accessibility predicate.
+    case uiWait(ControlSimulatorUIWait)
+    /// Executes one semantic runtime UI action and refreshes its snapshot.
+    case uiAction(ControlSimulatorUIAction)
     /// Sends an ordered sequence of normalized touch events.
     case gesture([ControlSimulatorTouch])
+    /// Resolves one visible accessibility element and taps its center.
+    case accessibilityTap(label: String?, identifier: String?, role: String?)
     /// Presses a named simulated hardware button.
     case hardwareButton(String)
     /// Rotates the simulated device to a named orientation.
@@ -53,9 +61,11 @@ public enum ControlSimulatorOperation: Sendable, Equatable {
     public var commitsExternalMutation: Bool {
         switch self {
         case .context, .eventLog, .cameraStatus, .permissionsRead,
-             .interfaceStatus, .accessibility, .foregroundApplication:
+             .interfaceStatus, .accessibility, .foregroundApplication,
+             .uiSnapshot, .uiWait:
             false
-        case .prepareScreenshot, .selectDevice, .recover, .gesture,
+        case .prepareScreenshot, .selectDevice, .recover, .uiAction,
+             .gesture, .accessibilityTap,
              .hardwareButton, .rotate,
              .coreAnimation, .memoryWarning, .tools, .cameraConfigure,
              .cameraSwitch, .cameraMirror, .permissionsSet, .interfaceSet:

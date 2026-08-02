@@ -2,7 +2,10 @@ import Foundation
 
 extension SimulatorWorkerClient {
     func performAccessibilityAction(
-        _ action: SimulatorControlAction
+        _ action: SimulatorControlAction,
+        accessibilityTimeout: Duration = .seconds(30),
+        accessibilityTimeoutRecovery: SimulatorWorkerRequestTimeoutRecovery = .restartWorker,
+        accessibilityRequestIdentifier: UUID? = nil
     ) async throws -> SimulatorControlResult? {
         switch action {
         case .readAccessibility:
@@ -12,15 +15,15 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.accessibilityCapability",
-                        defaultValue: "The active Xcode worker did not negotiate accessibility inspection."
+                        defaultValue: "The simulator worker does not support accessibility inspection."
                     )
                 )
             }
-            let requestID = UUID()
+            let requestID = accessibilityRequestIdentifier ?? UUID()
             let response: Result<SimulatorAccessibilitySnapshot, SimulatorFailure> = try await requestWorkerValue(
                 sending: .requestAccessibility(requestID),
-                timeout: .seconds(30),
-                timeoutRecovery: .restartWorker
+                timeout: accessibilityTimeout,
+                timeoutRecovery: accessibilityTimeoutRecovery
             ) { message in
                 switch message {
                 case let .accessibility(responseID, snapshot) where responseID == requestID:
@@ -39,7 +42,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.foregroundCapability",
-                        defaultValue: "The active Xcode worker did not negotiate foreground-app inspection."
+                        defaultValue: "The simulator worker does not support foreground-app inspection."
                     )
                 )
             }
@@ -63,5 +66,47 @@ extension SimulatorWorkerClient {
         default:
             return nil
         }
+    }
+
+    /// Reads one bounded accessibility snapshot from the attached Simulator.
+    public func readAccessibility(
+        timeout: Duration
+    ) async throws -> SimulatorControlResult {
+        let requestIdentifier = UUID()
+        return try await withTaskCancellationHandler {
+            do {
+                guard let result = try await performAccessibilityAction(
+                    .readAccessibility,
+                    accessibilityTimeout: timeout,
+                    accessibilityTimeoutRecovery: .preserveWorker,
+                    accessibilityRequestIdentifier: requestIdentifier
+                ) else {
+                    throw SimulatorControlError(
+                        code: "accessibility_unavailable",
+                        arguments: [],
+                        message: String(
+                            localized: "simulator.failure.accessibilityCapability",
+                            defaultValue: "The simulator worker does not support accessibility inspection."
+                        )
+                    )
+                }
+                return result
+            } catch let error as SimulatorControlError
+                where error.code == "worker_response_timed_out" {
+                await cancelAccessibilitySnapshotRequest(requestIdentifier)
+                throw error
+            }
+        } onCancel: {
+            Task {
+                await self.cancelAccessibilitySnapshotRequest(requestIdentifier)
+            }
+        }
+    }
+
+    private func cancelAccessibilitySnapshotRequest(_ requestIdentifier: UUID) async {
+        try? await sendRequired(
+            .cancelAccessibilitySnapshotRequest(requestIdentifier),
+            probe: false
+        )
     }
 }

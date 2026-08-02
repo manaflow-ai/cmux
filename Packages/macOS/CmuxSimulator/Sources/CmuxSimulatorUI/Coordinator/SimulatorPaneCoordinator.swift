@@ -81,8 +81,12 @@ public final class SimulatorPaneCoordinator {
     }
     /// A monotonically increasing request observed by the AppKit input surface.
     public internal(set) var focusRequestGeneration: UInt64 = 0
+    /// A monotonically increasing reset observed by the AppKit input surface.
+    var rendererInputResetGeneration: UInt64 = 0
     /// Input currently captured by SimulatorKit inside the worker.
     public internal(set) var hidCaptureMode: SimulatorHIDCaptureMode = .none
+    /// Cursor rendered only inside this panel's owning workspace surface.
+    var agentCursorPresentation: SimulatorAgentCursorPresentation?
 
     /// The selected device snapshot used by panel persistence.
     public var selectedDevice: SimulatorDevice? {
@@ -92,17 +96,26 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored let client: any SimulatorPaneClient
     @ObservationIgnored let filePicker: any SimulatorFilePicking
     @ObservationIgnored let webInspectorSleeper: any SimulatorProcessSleeper
+    @ObservationIgnored let agentCursorSleeper: any SimulatorProcessSleeper
+    @ObservationIgnored let capabilityResolutionSleeper: any SimulatorProcessSleeper
     @ObservationIgnored let preferredDeviceID: String?
     @ObservationIgnored let preferredRuntimeIdentifier: String?
     @ObservationIgnored let preferredDeviceTypeIdentifier: String?
     /// Whether the user must choose a device before the coordinator starts.
     @ObservationIgnored public internal(set) var requiresExplicitDeviceSelection: Bool
-    @ObservationIgnored var outgoingStream: AsyncStream<SimulatorWorkerInbound>
-    @ObservationIgnored var outgoingContinuation: AsyncStream<SimulatorWorkerInbound>.Continuation
+    @ObservationIgnored var outgoingStream: AsyncStream<SimulatorPaneOutgoingItem>
+    @ObservationIgnored var outgoingContinuation: AsyncStream<SimulatorPaneOutgoingItem>.Continuation
     @ObservationIgnored var outgoingTask: Task<Void, Never>?
     @ObservationIgnored var outgoingRecoveryTask: Task<Void, Never>?
     @ObservationIgnored var outgoingRecoveryGeneration: UInt64 = 0
     @ObservationIgnored var outgoingOverflowed = false
+    @ObservationIgnored var admittedInput = SimulatorAdmittedInputStateMachine()
+    @ObservationIgnored var pendingLiveInputDeliveryCount = 0
+    @ObservationIgnored var outgoingDeliveryGeneration: UInt64 = 0
+    @ObservationIgnored var outgoingDeliveryReceipts: [
+        ObjectIdentifier: SimulatorOutgoingDeliveryReceipt
+    ] = [:]
+    @ObservationIgnored var rendererInputResetHandler: (@MainActor (UInt64) -> Void)?
     @ObservationIgnored var eventsTask: Task<Void, Never>?
     @ObservationIgnored var activationTask: Task<Void, Never>?
     @ObservationIgnored var startupTask: Task<Void, Never>?
@@ -111,6 +124,9 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var geometry: SimulatorSurfaceGeometry?
     @ObservationIgnored var selectionGeneration: UInt64 = 0
     @ObservationIgnored var explicitSelectionRequestGeneration: UInt64 = 0
+#if DEBUG
+    @ObservationIgnored var activationJoinGenerationForTesting: UInt64 = 0
+#endif
     @ObservationIgnored var deviceDiscoveryGeneration: UInt64 = 0
     @ObservationIgnored var activeControlActions = 0
     @ObservationIgnored var controlActionTasks: [String: Task<Void, Never>] = [:]
@@ -130,13 +146,18 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var retiredWebInspectorRequestIDs: Set<SimulatorWebInspectorJSONRequestID> = []
     @ObservationIgnored var accessibilityRefreshTask: Task<Void, Never>?
     @ObservationIgnored var accessibilityRefreshGeneration: UInt64 = 0
+    @ObservationIgnored let uiAutomationSession = SimulatorUIAutomationSession()
+    @ObservationIgnored var agentCursorGeneration: UInt64 = 0
     @ObservationIgnored var accessibilityOverlayIsVisible = false
     @ObservationIgnored var liveStatusTask: Task<Void, Never>?
     @ObservationIgnored var liveStatusGeneration: UInt64 = 0
     @ObservationIgnored var liveStatusIsVisible = false
     @ObservationIgnored var liveStatusPollingActive = false
-    @ObservationIgnored var capabilityHydrationCompleted = false
-    @ObservationIgnored var capabilityHydrationWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    @ObservationIgnored var capabilityResolutions: [SimulatorCapability: Bool] = [:]
+    @ObservationIgnored var capabilityResolutionWaiters: [
+        SimulatorCapability: [UUID: CheckedContinuation<Void, any Error>]
+    ] = [:]
+    @ObservationIgnored var capabilityResolutionTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored var paneIsVisible = false
     @ObservationIgnored var hostWindowIsVisible = true
     @ObservationIgnored var hostWindowVisibilityByObserverID: [UUID: Bool] = [:]
@@ -175,6 +196,7 @@ public final class SimulatorPaneCoordinator {
             requiresExplicitDeviceSelection: requiresExplicitDeviceSelection,
             filePicker: filePicker,
             webInspectorSleeper: ContinuousSimulatorProcessSleeper(),
+            capabilityResolutionSleeper: ContinuousSimulatorProcessSleeper(),
             locationRouteSleeper: ContinuousSimulatorProcessSleeper()
         )
     }
@@ -187,12 +209,17 @@ public final class SimulatorPaneCoordinator {
         requiresExplicitDeviceSelection: Bool = false,
         filePicker: any SimulatorFilePicking = NativeSimulatorFilePicker(),
         webInspectorSleeper: any SimulatorProcessSleeper,
+        agentCursorSleeper: any SimulatorProcessSleeper = ContinuousSimulatorProcessSleeper(),
+        capabilityResolutionSleeper: any SimulatorProcessSleeper =
+            ContinuousSimulatorProcessSleeper(),
         locationRouteSleeper: any SimulatorProcessSleeper = ContinuousSimulatorProcessSleeper(),
         locationRouteNow: @escaping @Sendable () -> Date = Date.init
     ) {
         self.client = client
         self.filePicker = filePicker
         self.webInspectorSleeper = webInspectorSleeper
+        self.agentCursorSleeper = agentCursorSleeper
+        self.capabilityResolutionSleeper = capabilityResolutionSleeper
         self.locationRouteSleeper = locationRouteSleeper
         self.locationRouteNow = locationRouteNow
         self.preferredDeviceID = preferredDeviceID
@@ -200,7 +227,7 @@ public final class SimulatorPaneCoordinator {
         self.preferredDeviceTypeIdentifier = preferredDeviceTypeIdentifier
         self.requiresExplicitDeviceSelection = requiresExplicitDeviceSelection
         let (stream, continuation) = AsyncStream.makeStream(
-            of: SimulatorWorkerInbound.self,
+            of: SimulatorPaneOutgoingItem.self,
             bufferingPolicy: .bufferingOldest(Self.maximumOutgoingMessageCount)
         )
         self.outgoingStream = stream
@@ -221,6 +248,9 @@ public final class SimulatorPaneCoordinator {
         outgoingContinuation.finish()
         for pending in pendingWebInspectorResponses.values {
             pending.timeoutTask.cancel()
+        }
+        for task in capabilityResolutionTimeoutTasks.values {
+            task.cancel()
         }
     }
 

@@ -5,7 +5,7 @@ import QuartzCore
 @MainActor
 final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     var simulatorOwnerID: ObjectIdentifier?
-    var onMessage: ((SimulatorWorkerInbound) -> Void)?
+    var onMessage: ((SimulatorWorkerInbound) -> Bool)?
     var onGeometry: ((SimulatorSurfaceGeometry) -> Void)?
     var onRequestPanelFocus: (() -> Void)?
     var onFrameTransportFailure: ((SimulatorFrameTransportDescriptor, SimulatorFailure) -> Void)?
@@ -32,6 +32,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     var pendingPointerEntry: SimulatorPendingPointerEntry?
     var pendingInputMotion: SimulatorWorkerInbound?
     private var pendingInputFlushTimer: DispatchSourceTimer?
+    private var inputRejectionGeneration: UInt64 = 0
     var stageHaloPointerActive = false
     var stagePointerMonitor: Any?
     private(set) var isPointerInputEnabled = false
@@ -39,6 +40,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     var hostKeyEquivalentHandler: (@MainActor (NSEvent) -> Bool)?
     var handledFocusGeneration: UInt64 = 0
     var pendingFocusGeneration: UInt64?
+    private(set) var handledInputResetGeneration: UInt64 = 0
 
     override init(frame frameRect: NSRect) {
         frameSourceFactory = { try SimulatorFrameSurfaceSource(descriptor: $0) }
@@ -482,13 +484,18 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     func send(_ messages: [SimulatorWorkerInbound]) {
+        let rejectionGeneration = inputRejectionGeneration
         for message in messages {
+            guard inputRejectionGeneration == rejectionGeneration else { return }
             switch message {
             case let .pointer(event) where event.phase == .moved:
                 if case .pointer? = pendingInputMotion {
                     pendingInputMotion = message
                 } else {
                     flushPendingInputMotion()
+                    guard inputRejectionGeneration == rejectionGeneration else {
+                        return
+                    }
                     pendingInputMotion = message
                 }
                 schedulePendingInputFlush()
@@ -502,12 +509,18 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
                     ))
                 } else {
                     flushPendingInputMotion()
+                    guard inputRejectionGeneration == rejectionGeneration else {
+                        return
+                    }
                     pendingInputMotion = message
                 }
                 schedulePendingInputFlush()
             default:
                 flushPendingInputMotion()
-                onMessage?(message)
+                guard inputRejectionGeneration == rejectionGeneration else {
+                    return
+                }
+                guard deliverInput(message) else { return }
             }
         }
     }
@@ -520,7 +533,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         self.pendingInputMotion = nil
         if case let .scrollWheel(event) = pendingInputMotion,
            event.deltaX == 0, event.deltaY == 0 { return }
-        onMessage?(pendingInputMotion)
+        _ = deliverInput(pendingInputMotion)
     }
 
     private func schedulePendingInputFlush() {
@@ -555,6 +568,36 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         needsDisplay = true
     }
 
+    func discardRejectedInputs() {
+        inputRejectionGeneration &+= 1
+        pendingInputFlushTimer?.setEventHandler(handler: nil)
+        pendingInputFlushTimer?.cancel()
+        pendingInputFlushTimer = nil
+        pendingInputMotion = nil
+        pendingPointerEntry = nil
+        stageHaloPointerActive = false
+        chromeButtonInput.discardAll()
+        input.discardAll()
+        activeChromeButton = nil
+        hoveredChromeButton = nil
+        needsDisplay = true
+    }
+
+    func resetInput(generation: UInt64) {
+        guard !isTornDown, generation > handledInputResetGeneration else { return }
+        discardRejectedInputs()
+        handledInputResetGeneration = generation
+    }
+
+    private func deliverInput(_ message: SimulatorWorkerInbound) -> Bool {
+        let admission = onMessage?(message)
+        guard admission != false else {
+            discardRejectedInputs()
+            return false
+        }
+        return true
+    }
+
     func chromeButtonIsPressed(_ button: SimulatorDeviceChromeProfile.Button) -> Bool {
         chromeButtonInput.isHeld(button)
     }
@@ -564,10 +607,13 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     @objc private func windowDidResignKey(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
         cancelInputs()
+        reconcileHostWindowVisibility()
     }
 
     @objc private func windowWillClose(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
         cancelInputs()
     }
 }

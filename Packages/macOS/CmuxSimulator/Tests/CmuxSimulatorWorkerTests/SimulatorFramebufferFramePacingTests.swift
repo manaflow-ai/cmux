@@ -48,7 +48,9 @@ struct SimulatorFramebufferFramePacingTests {
         let publisher = try await SimulatorFramebufferFramePublisher(
             initialSurface: surface,
             minimumFrameInterval: .seconds(10),
-            interactiveFrameInterval: .milliseconds(16),
+            // Zero makes the cadence choice deterministic under a saturated
+            // MainActor while still proving it did not use the 10-second idle interval.
+            interactiveFrameInterval: .zero,
             onFrameTransportChange: { _ in }
         )
         defer { publisher.cancel() }

@@ -3,11 +3,14 @@ import CmuxSimulator
 enum SimulatorHardwareButtonMapping: Equatable, Sendable {
     case legacy(eventSource: Int32)
     case arbitrary(page: UInt32, usage: UInt32)
+    case applePay
     case swipeHome
     case appSwitcher
 
     init(_ button: SimulatorHardwareButton) {
         switch button {
+        case .applePay:
+            self = .applePay
         case .home:
             self = .legacy(eventSource: 0)
         case .swipeHome:

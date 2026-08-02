@@ -7,6 +7,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private var devicesValue: [SimulatorDevice]
     private let applicationValues: [SimulatorInstalledApplication]
     private let delaysApplicationList: Bool
+    private let delaysAccessibilityRead: Bool
     private let delaysInvalidation: Bool
     private let delaysActivation: Bool
     private let delaysWebInspectorSend: Bool
@@ -14,15 +15,25 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private let failsCameraDisable: Bool
     private let failsWebInspectorHighlight: Bool
     private let failsWebInspectorRelease: Bool
+    private let failsInteractiveAction: Bool
+    private let failingInteractiveActionNumber: Int?
+    private let failsAccessibilityRead: Bool
     private let cancelsControlActionBeforeReturning: Bool
+    private let defersLiveInputDelivery: Bool
+    private let accessibilityResult: SimulatorControlResult
     private let eventStream: SimulatorWorkerEventStream
     private let eventContinuation: SimulatorWorkerEventStream.Continuation
     private var sentMessages: [SimulatorWorkerInbound] = []
+    private var workerDeliveredMessages: [SimulatorWorkerInbound] = []
+    private var deferredLiveInputMessages: [SimulatorWorkerInbound] = []
+    private var inputQuiescenceCountValue = 0
     private var activationValues: [Activation] = []
     private var stopValue = 0
     private var invalidationValue = 0
     private var actionValues: [SimulatorControlAction] = []
+    private var interactiveActionCount = 0
     private var delayedApplicationList: CheckedContinuation<SimulatorControlResult, Never>?
+    private var delayedAccessibilityRead: CheckedContinuation<SimulatorControlResult, Error>?
     private var delayedInvalidation: CheckedContinuation<Void, Never>?
     private var delayedActivation: CheckedContinuation<Void, Error>?
     private var activationCancellationValue = 0
@@ -33,6 +44,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         devices: [SimulatorDevice],
         applications: [SimulatorInstalledApplication] = [],
         delaysApplicationList: Bool = false,
+        delaysAccessibilityRead: Bool = false,
         delaysInvalidation: Bool = false,
         delaysActivation: Bool = false,
         delaysWebInspectorSend: Bool = false,
@@ -40,11 +52,17 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         failsCameraDisable: Bool = false,
         failsWebInspectorHighlight: Bool = false,
         failsWebInspectorRelease: Bool = false,
-        cancelsControlActionBeforeReturning: Bool = false
+        failsInteractiveAction: Bool = false,
+        failingInteractiveActionNumber: Int? = nil,
+        failsAccessibilityRead: Bool = false,
+        accessibilityResult: SimulatorControlResult = .none,
+        cancelsControlActionBeforeReturning: Bool = false,
+        defersLiveInputDelivery: Bool = false
     ) {
         self.devicesValue = devices
         self.applicationValues = applications
         self.delaysApplicationList = delaysApplicationList
+        self.delaysAccessibilityRead = delaysAccessibilityRead
         self.delaysInvalidation = delaysInvalidation
         self.delaysActivation = delaysActivation
         self.delaysWebInspectorSend = delaysWebInspectorSend
@@ -52,7 +70,12 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         self.failsCameraDisable = failsCameraDisable
         self.failsWebInspectorHighlight = failsWebInspectorHighlight
         self.failsWebInspectorRelease = failsWebInspectorRelease
+        self.failsInteractiveAction = failsInteractiveAction
+        self.failingInteractiveActionNumber = failingInteractiveActionNumber
+        self.failsAccessibilityRead = failsAccessibilityRead
+        self.accessibilityResult = accessibilityResult
         self.cancelsControlActionBeforeReturning = cancelsControlActionBeforeReturning
+        self.defersLiveInputDelivery = defersLiveInputDelivery
         let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 1_024 * 1_024,
             maximumBufferedEvents: 64,
@@ -94,6 +117,20 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
 
     func send(_ message: SimulatorWorkerInbound) async {
         sentMessages.append(message)
+        if defersLiveInputDelivery,
+           message.invalidatesUIAutomationSnapshot,
+           message != .releaseInputs {
+            deferredLiveInputMessages.append(message)
+        } else {
+            workerDeliveredMessages.append(message)
+        }
+    }
+
+    func quiesceInputDelivery() async throws {
+        inputQuiescenceCountValue += 1
+        workerDeliveredMessages.append(contentsOf: deferredLiveInputMessages)
+        deferredLiveInputMessages.removeAll()
+        workerDeliveredMessages.append(.releaseInputs)
     }
 
     func synchronizeOrientation(
@@ -101,6 +138,20 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     ) async throws -> SimulatorDisplayMetadata? {
         sentMessages.append(.rotate(orientation))
         return nil
+    }
+
+    func readAccessibility(timeout: Duration) async throws -> SimulatorControlResult {
+        _ = timeout
+        actionValues.append(.readAccessibility)
+        if failsAccessibilityRead {
+            throw SimulatorFailure(
+                code: "fixture_accessibility_failed",
+                message: "The fixture accessibility read failed.",
+                isRecoverable: true
+            )
+        }
+        guard delaysAccessibilityRead else { return accessibilityResult }
+        return try await withCheckedThrowingContinuation { delayedAccessibilityRead = $0 }
     }
 
     func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
@@ -149,6 +200,17 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
                 isRecoverable: true
             )
         }
+        if case .interactive = action {
+            interactiveActionCount += 1
+            if failsInteractiveAction
+                || interactiveActionCount == failingInteractiveActionNumber {
+                throw SimulatorFailure(
+                    code: "fixture_interactive_failed",
+                    message: "The fixture input failed.",
+                    isRecoverable: true
+                )
+            }
+        }
         if case .releaseWebInspector = action {
             return .webInspectorSession(.detached)
         }
@@ -176,6 +238,18 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
 
     func messages() -> [SimulatorWorkerInbound] {
         sentMessages
+    }
+
+    func deliveredMessages() -> [SimulatorWorkerInbound] {
+        workerDeliveredMessages
+    }
+
+    func inputQuiescenceCount() -> Int {
+        inputQuiescenceCountValue
+    }
+
+    func hasDeferredLiveInput() -> Bool {
+        !deferredLiveInputMessages.isEmpty
     }
 
     func activations() -> [Activation] {
@@ -243,5 +317,14 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     func resumeApplicationList(with applications: [SimulatorInstalledApplication]) {
         delayedApplicationList?.resume(returning: .applications(applications))
         delayedApplicationList = nil
+    }
+
+    func hasDelayedAccessibilityRead() -> Bool {
+        delayedAccessibilityRead != nil
+    }
+
+    func resumeAccessibilityRead() {
+        delayedAccessibilityRead?.resume(returning: accessibilityResult)
+        delayedAccessibilityRead = nil
     }
 }

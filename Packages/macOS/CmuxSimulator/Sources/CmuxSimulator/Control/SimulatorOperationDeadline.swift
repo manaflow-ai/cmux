@@ -13,8 +13,12 @@ public struct SimulatorOperationDeadlines: Sendable {
     public let interfaceMutation: TimeInterval
     /// Maximum duration for reading Simulator permission state.
     public let permissionRead: TimeInterval
-    /// Maximum duration for reading worker-backed inspection state.
+    /// Maximum duration for worker capability discovery after attachment.
+    public let capabilityHydration: TimeInterval
+    /// Maximum duration for readiness, capability discovery, and one inspection read.
     public let inspectionRead: TimeInterval
+    /// Maximum duration for readiness, a semantic UI action, and its refreshed snapshot.
+    public let uiAutomationAction: TimeInterval
     /// Maximum duration for mutating one Simulator permission.
     public let permissionMutation: TimeInterval
     /// Maximum duration for resetting all Simulator permissions.
@@ -33,7 +37,9 @@ public struct SimulatorOperationDeadlines: Sendable {
         interfaceRead: TimeInterval = 130,
         interfaceMutation: TimeInterval = 250,
         permissionRead: TimeInterval = 35,
+        capabilityHydration: TimeInterval = 15,
         inspectionRead: TimeInterval = 35,
+        uiAutomationAction: TimeInterval = 140,
         permissionMutation: TimeInterval = 70,
         permissionResetAll: TimeInterval = 190,
         textInputReadiness: TimeInterval? = nil,
@@ -45,7 +51,9 @@ public struct SimulatorOperationDeadlines: Sendable {
         self.interfaceRead = interfaceRead
         self.interfaceMutation = interfaceMutation
         self.permissionRead = permissionRead
-        self.inspectionRead = inspectionRead
+        self.capabilityHydration = capabilityHydration
+        self.inspectionRead = selectDevice + capabilityHydration + inspectionRead
+        self.uiAutomationAction = selectDevice + uiAutomationAction
         self.permissionMutation = permissionMutation
         self.permissionResetAll = permissionResetAll
         self.textInputReadiness = textInputReadiness ?? selectDevice
@@ -56,6 +64,13 @@ public struct SimulatorOperationDeadlines: Sendable {
     /// Keeps the CLI connection alive until the app has completed its receipt.
     public func clientTimeout(for receiptTimeout: TimeInterval) -> TimeInterval {
         receiptTimeout + clientReceiptMargin
+    }
+
+    /// Covers readiness, capability discovery, and one bounded UI observation wait.
+    public func uiWaitReceiptTimeout(timeoutMilliseconds: Int) -> TimeInterval {
+        selectDevice
+            + capabilityHydration
+            + min(160, Double(timeoutMilliseconds) / 1_000 + 35)
     }
 }
 

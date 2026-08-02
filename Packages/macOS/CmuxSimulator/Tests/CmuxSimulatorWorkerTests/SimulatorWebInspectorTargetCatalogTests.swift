@@ -30,7 +30,7 @@ struct SimulatorWebInspectorTargetCatalogTests {
         #expect(try #require(catalog.targets.first).isInUse == false)
     }
 
-    @Test("Target replacement and application disconnect remove closed pages")
+    @Test("Only one provisional empty listing preserves pages")
     func targetCloseCleanup() {
         var catalog = SimulatorWebInspectorTargetCatalog()
         catalog.apply(Self.applicationList(), ownConnectionIdentifier: "OURS")
@@ -38,13 +38,25 @@ struct SimulatorWebInspectorTargetCatalogTests {
         #expect(catalog.targets.count == 1)
 
         catalog.apply(Self.pageListing(connectionIdentifier: nil, pages: [:]), ownConnectionIdentifier: "OURS")
+        #expect(catalog.targets.count == 1)
+        #expect(catalog.target(id: "APP|7") != nil)
+        catalog.apply(Self.pageListing(connectionIdentifier: nil, pages: [:]), ownConnectionIdentifier: "OURS")
         #expect(catalog.targets.isEmpty)
         #expect(catalog.target(id: "APP|7") == nil)
+    }
+
+    @Test("A census refresh still requires one empty-listing confirmation")
+    func censusEmptyListingConfirmation() {
+        var catalog = SimulatorWebInspectorTargetCatalog()
+        catalog.apply(Self.applicationList(), ownConnectionIdentifier: "OURS")
         catalog.apply(Self.pageListing(connectionIdentifier: nil), ownConnectionIdentifier: "OURS")
-        catalog.apply([
-            "__selector": "_rpc_applicationDisconnected:",
-            "__argument": ["WIRApplicationIdentifierKey": "APP"],
-        ], ownConnectionIdentifier: "OURS")
+        #expect(catalog.targets.count == 1)
+
+        catalog.apply(Self.applicationList(), ownConnectionIdentifier: "OURS")
+        catalog.apply(Self.pageListing(connectionIdentifier: nil, pages: [:]), ownConnectionIdentifier: "OURS")
+        #expect(catalog.targets.count == 1)
+        catalog.apply(Self.pageListing(connectionIdentifier: nil, pages: [:]), ownConnectionIdentifier: "OURS")
+
         #expect(catalog.targets.isEmpty)
         #expect(catalog.target(id: "APP|7") == nil)
     }

@@ -14,7 +14,7 @@ extension SimulatorControlService {
                 arguments: ["simctl", "privacy", deviceID, action.rawValue, service.rawValue],
                 message: String(
                     localized: "simulator.control.privacyServiceUnavailable",
-                    defaultValue: "The active Xcode does not expose \(service.rawValue) through simctl; cmux will not mutate private TCC or BulletinBoard stores in the host process."
+                    defaultValue: "This simulator runtime does not support \(service.rawValue); cmux will not modify private permission databases."
                 )
             )
         }

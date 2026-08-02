@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxSimulator
 
 extension SimulatorWorkerClientTests {
-    @Test("A failed correlated hardware button still sends a raw up")
+    @Test("A failed correlated hardware button clears worker and raw holds")
     func interactiveButtonFailureRecovery() async throws {
         let launcher = TestWorkerLauncher()
         launcher.setResponder { message in
@@ -20,18 +20,26 @@ extension SimulatorWorkerClientTests {
         let worker = try #require(launcher.endpoint(at: 0))
 
         await #expect(throws: SimulatorControlError.self) {
-            try await client.perform(.interactive(.hardwareButton(.volumeUp)))
+            try await client.perform(.interactive(.hardwareButton(.home)))
         }
 
         let release = SimulatorWorkerInbound.hidButton(.init(
-            button: .init(page: 0x0C, usage: 0xE9),
+            button: .init(page: 0x0C, usage: 0x40),
             phase: .up
         ))
         for _ in 0..<1_000 {
-            if worker.inboundMessages().contains(release) { break }
+            let messages = worker.inboundMessages()
+            if messages.contains(.releaseInputs), messages.contains(release) { break }
             await Task.yield()
         }
-        #expect(worker.inboundMessages().contains(release))
+        let messages = worker.inboundMessages()
+        let actionIndex = try #require(messages.firstIndex(where: {
+            if case .interactiveAction = $0 { true } else { false }
+        }))
+        let recovery = messages[messages.index(after: actionIndex)...]
+        let resetIndex = try #require(recovery.firstIndex(of: .releaseInputs))
+        let rawReleaseIndex = try #require(recovery.firstIndex(of: release))
+        #expect(resetIndex < rawReleaseIndex)
         await client.stop()
     }
 

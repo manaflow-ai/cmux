@@ -49279,6 +49279,506 @@
         }
       }
     },
+    "cli.simulator.error.tapInputsExclusive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap coordinates and accessibility selectors are mutually exclusive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップ座標とアクセシビリティセレクタは同時に指定できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 좌표와 접근성 선택기는 상호 배타적입니다."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إحداثيات النقر ومحددات إمكانية الوصول متنافية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koordinate dodira i birači pristupačnosti se međusobno isključuju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trykkoordinater og tilgængelighedsvælgere udelukker hinanden"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Координаты касания и селекторы доступности являются взаимоисключающими."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប៉ះកូអរដោនេ និងឧបករណ៍ជ្រើសរើសភាពងាយស្រួលគឺផ្តាច់មុខទៅវិញទៅមក"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dokunma koordinatları ve erişilebilirlik seçicileri birbirini dışlar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击坐标和辅助功能选择器是互斥的"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Координати дотику та селектори доступності взаємовиключні"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พิกัดการแตะและตัวเลือกการเข้าถึงจะแยกจากกัน"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點擊座標和輔助功能選擇器是互斥的"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trykkkoordinater og tilgjengelighetsvelgere utelukker hverandre"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las coordenadas de toque y los selectores de accesibilidad son mutuamente excluyentes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le coordinate del tocco e i selettori di accessibilità si escludono a vicenda"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tippkoordinaten und Zugänglichkeitsselektoren schließen sich gegenseitig aus"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les coordonnées de toucher et les sélecteurs d’accessibilité s’excluent mutuellement"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Współrzędne dotknięcia i selektory dostępności wzajemnie się wykluczają"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As coordenadas de toque e os seletores de acessibilidade são mutuamente exclusivos"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.tapSelectorRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An accessibility tap requires a label or identifier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセシビリティタップにはラベルまたは識別子が必要です"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodir pristupačnosti zahtijeva oznaku ili identifikator"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für ein Tippen per Bedienungshilfe ist eine Beschriftung oder Kennung erforderlich"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب النقر عبر إمكانية الوصول تسمية أو معرّفًا"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et tilgængelighedstryk kræver en etiket eller identifikator"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un toque de accesibilidad requiere una etiqueta o un identificador"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un tocco di accessibilità richiede un'etichetta o un identificatore"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប៉ះភាពងាយស្រួលត្រូវការស្លាកសញ្ញា ឬឧបករណ៍កំណត់អត្តសញ្ញាណ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접근성 탭에는 라벨이나 식별자가 필요합니다."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un toucher d’accessibilité nécessite une étiquette ou un identifiant"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et tilgjengelighetstrykk krever en etikett eller identifikator"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um toque de acessibilidade requer um rótulo ou identificador"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแตะเพื่อการเข้าถึงต้องมีป้ายกำกับหรือตัวระบุ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "辅助功能轻点需要标签或标识符"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輔助功能點按需要標籤或識別符"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kliknięcie ułatwień dostępu wymaga etykiety lub identyfikatora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для нажатия кнопки доступности требуется метка или идентификатор."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для дотику через функції доступності потрібна мітка або ідентифікатор"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erişilebilirlik dokunuşu bir etiket veya tanımlayıcı gerektirir"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.tapTargetAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multiple visible Simulator elements matched; add --identifier or --role"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複数の表示中のSimulator要素が一致しました。--identifierまたは--roleを追加してください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تطابقت عدة عناصر مرئية في Simulator؛ أضف --identifier أو --role"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podudara se više vidljivih elemenata Simulatora; dodajte --identifier ili --role"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flere synlige Simulator-elementer matchede; tilføj --identifier eller --role"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mehrere sichtbare Simulator-Elemente stimmten überein; fügen Sie --identifier oder --role hinzu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Più elementi visibili del simulatore corrispondono; aggiungi --identifier o --role"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធាតុ Simulator ដែលមើលឃើញច្រើនត្រូវគ្នា; បន្ថែម --identifier ឬ --role"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopasowano wiele widocznych elementów symulatora; dodaj --identifier lub --role"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vários elementos visíveis do Simulador corresponderam; adicione --identifier ou --role"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Birden çok görünür Simülatör öğesi eşleşti; --identifier veya --role ekleyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збіглося кілька видимих елементів симулятора; додайте --identifier або --role"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coincidieron varios elementos visibles del simulador; añade --identifier o --role"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พบองค์ประกอบ Simulator ที่มองเห็นได้หลายรายการ; เพิ่ม --identifier หรือ --role"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plusieurs éléments visibles du simulateur correspondent; ajoutez --identifier ou --role"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比對到多個可見的模擬器元素；請加入 --identifier 或 --role"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匹配到多个可见的模拟器元素；请添加 --identifier 或 --role"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Совпало несколько видимых элементов симулятора; добавьте --identifier или --role"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flere synlige Simulator-elementer samsvarte; legg til --identifier eller --role"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여러 개의 보이는 시뮬레이터 요소가 일치합니다. --identifier 또는 --role을 추가하세요."
+          }
+        }
+      }
+    },
+    "cli.simulator.error.tapTargetNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No visible enabled Simulator element matched the accessibility selector"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセシビリティセレクタに一致する表示中で有効なSimulator要素がありません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد عنصر محاكي مرئي ممكّن يطابق محدد إمكانية الوصول"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ningún elemento visible del simulador habilitado coincidió con el selector de accesibilidad"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intet synligt aktiveret simulatorelement matchede tilgængelighedsvælgeren"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen synlig aktivert simulatorelement samsvarte med tilgjengelighetsvelgeren"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានធាតុកម្មវិធីត្រាប់តាមដែលបានបើកដែលមើលឃើញត្រូវនឹងឧបករណ៍ជ្រើសរើសភាពងាយស្រួលទេ។"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan vidljivi omogućeni element simulatora nije odgovarao biraču pristupačnosti"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żaden widoczny, włączony element symulatora nie pasował do selektora dostępności"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접근성 선택기와 일치하는 눈에 보이는 활성화된 시뮬레이터 요소가 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ни один видимый включенный элемент Simulator не соответствует селектору доступности."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun élément de simulateur activé visible ne correspond au sélecteur d'accessibilité"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีองค์ประกอบตัวจำลองที่เปิดใช้งานที่มองเห็นได้ซึ่งตรงกับตัวเลือกการเข้าถึง"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein sichtbares aktiviertes Simulatorelement stimmte mit der Barrierefreiheitsauswahl überein"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жоден видимий увімкнений елемент Симулятора не відповідав селектору доступності"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erişilebilirlik seçiciyle eşleşen görünür etkin Simülatör öğesi yok"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可見的啟用模擬器元素與輔助功能選擇器匹配"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun elemento visibile del simulatore abilitato corrispondeva al selettore di accessibilità"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum elemento do Simulador ativado e visível corresponde ao seletor de acessibilidade"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可见的启用模拟器元素与辅助功能选择器匹配"
+          }
+        }
+      }
+    },
     "cli.simulator.error.textEmpty": {
       "extractionState": "manual",
       "localizations": {
@@ -49343,6 +49843,2631 @@
           "stringUnit": {
             "state": "translated",
             "value": "Simulator入力を送信できません"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiAutomationBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI automation queue is at capacity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UIオートメーションの待機キューが上限に達しました"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وصلت قائمة انتظار أتمتة واجهة مستخدم Simulator إلى سعتها القصوى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Red za automatizaciju korisničkog sučelja Simulatora dostigao je kapacitet"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Køen til Simulator UI-automatisering har nået sin kapacitet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Warteschlange für die Simulator-UI-Automatisierung ist ausgelastet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cola de automatización de la interfaz del simulador ha alcanzado su capacidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La file d’attente de l’automatisation de l’interface du simulateur a atteint sa capacité maximale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La coda di automazione dell'interfaccia del simulatore ha raggiunto la capacità massima"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួររង់ចាំស្វ័យប្រវត្តិកម្ម UI របស់ Simulator បានដល់សមត្ថភាពអតិបរមា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 UI 자동화 대기열이 가득 찼습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Køen for Simulator UI-automatisering har nådd kapasiteten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolejka automatyzacji interfejsu symulatora osiągnęła limit"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A fila de automação da interface do Simulador atingiu a capacidade máxima"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очередь автоматизации пользовательского интерфейса симулятора заполнена."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คิวการทำงานอัตโนมัติของ UI Simulator เต็มแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör kullanıcı arayüzü otomasyon kuyruğu kapasitesine ulaştı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Черга автоматизації інтерфейсу симулятора заповнена"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器 UI 自动化队列已满"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器 UI 自動化佇列已滿"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiTouchAlreadyHeld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A Simulator touch is already being held"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorのタッチがすでに保持されています"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يوجد لمس مستمر بالفعل في Simulator"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodir u Simulatoru se već drži"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En Simulator-berøring holdes allerede nede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Simulator-Berührung wird bereits gehalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya se mantiene pulsado un toque en el simulador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un toucher est déjà maintenu dans le simulateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È già attivo un tocco mantenuto nel simulatore"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប៉ះ Simulator មួយកំពុងត្រូវបានសង្កត់រួចហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 터치가 이미 눌린 상태입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En Simulator-berøring holdes allerede nede"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dotknięcie w symulatorze jest już przytrzymywane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um toque no Simulador já está sendo mantido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В симуляторе уже удерживается касание."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีการแตะใน Simulator ค้างอยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir Simülatör dokunuşu zaten basılı tutuluyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У симуляторі вже утримується дотик"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器中已有一个触摸处于按住状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器中已有一個觸控處於按住狀態"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiDirectionInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI direction is invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UIの方向が無効です"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smjer korisničkog sučelja simulatora je nevažeći"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La direction de l'interface utilisateur du simulateur n'est pas valide"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Richtung der Simulator-Benutzeroberfläche ist ungültig"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-retningen er ugyldig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kierunek interfejsu użytkownika symulatora jest nieprawidłowy"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La direzione dell'interfaccia utente del simulatore non è valida"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اتجاه واجهة مستخدم Simulator غير صالح"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទិសដៅ UI របស់ Simulator គឺមិនត្រឹមត្រូវទេ។"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недопустимое направление пользовательского интерфейса симулятора."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-retningen er ugyldig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dirección de la interfaz de usuario del simulador no es válida"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A direção da interface do simulador é inválida"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 UI 방향이 잘못되었습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör kullanıcı arayüzünün yönü geçersiz"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器 UI 方向无效"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทิศทางของ Simulator UI ไม่ถูกต้อง"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器 UI 方向無效"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Напрямок інтерфейсу симулятора недійсний"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiElementRefInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI element reference is invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI要素参照が無効です"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرجع عنصر واجهة المستخدم Simulator غير صالح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Referenca UI elementa simulatora je nevažeća"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Referenz des Simulator-UI-Elements ist ungültig"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La référence de l'élément de l'interface utilisateur du simulateur n'est pas valide."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La referencia del elemento de la interfaz de usuario del simulador no es válida"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il riferimento all'elemento dell'interfaccia utente del simulatore non è valido"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-elementreferansen er ugyldig"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör kullanıcı arayüzü öğesi referansı geçersiz"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка на элемент пользовательского интерфейса симулятора недействительна."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A referência do elemento UI do Simulador é inválida"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odwołanie do elementu interfejsu użytkownika symulatora jest nieprawidłowe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-elementreferencen er ugyldig"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឯកសារយោងធាតុ UI របស់ Simulator គឺមិនត្រឹមត្រូវទេ។"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器 UI 元素引用無效"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 UI 요소 참조가 잘못되었습니다."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การอ้างอิงองค์ประกอบ Simulator UI ไม่ถูกต้อง"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посилання на елемент інтерфейсу симулятора недійсне"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器 UI 元素引用无效"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiElementRefNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%@' is not in the current Simulator UI snapshot"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のSimulator UIスナップショットに要素参照「%@」がありません"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%1$@' nije u trenutnom snimku korisničkog sučelja Simulatora"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرجع العنصر '%1$@' غير موجود في لقطة واجهة مستخدم Simulator الحالية"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%1$@' er ikke i det aktuelle øjebliksbillede af Simulator UI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La référence de l'élément '%1$@' n'est pas dans l'instantané actuel de l'interface utilisateur du simulateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il riferimento dell'elemento '%1$@' non è presente nello snapshot corrente dell'interfaccia utente del simulatore"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធាតុយោង '%1$@' មិននៅក្នុងរូបថត UI របស់ Simulator បច្ចុប្បន្នទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%1$@' er ikke i øyeblikksbildet av simulatorgrensesnittet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Elementreferenz „%1$@“ ist nicht im aktuellen Snapshot der Simulator-Benutzeroberfläche enthalten"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요소 참조 '%1$@'이(가) 현재 시뮬레이터 UI 스냅샷에 없습니다."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La referencia del elemento '%1$@' no está en la instantánea actual de la interfaz de usuario del simulador"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref „%1$@” nie znajduje się w bieżącej migawce interfejsu użytkownika symulatora"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O elemento ref '%1$@' não está no instantâneo atual da IU do Simulador"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%1$@' öğesi referansı mevcut Simülatör Kullanıcı Arayüzü anlık görüntüsünde değil"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "องค์ประกอบการอ้างอิง '%1$@' ไม่ได้อยู่ในสแนปชอต UI ของ Simulator ปัจจุบัน"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посилання на елемент \"%1$@\" відсутнє в поточному знімку інтерфейсу користувача симулятора"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка на элемент '%1$@' отсутствует в текущем снимке пользовательского интерфейса симулятора."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元素引用“%1$@”不在当前模拟器 UI 快照中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元素引用“%1$@”不在目前模擬器 UI 快照中"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiFocusUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The matched Simulator element does not expose focus state"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致したSimulator要素はフォーカス状態を公開していません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يكشف عنصر المحاكاة المطابق عن حالة التركيز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upareni element simulatora ne izlaže stanje fokusa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det matchede simulatorelement afslører ikke fokustilstand"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das übereinstimmende Simulatorelement legt den Fokusstatus nicht offen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El elemento del simulador coincidente no expone el estado de enfoque"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'élément du simulateur correspondant n'expose pas l'état du focus"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O elemento Simulador correspondente não expõe o estado de foco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соответствующий элемент Simulator не отображает состояние фокуса."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşen Simülatör öğesi odak durumunu göstermiyor"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធាតុ Simulator ដែលផ្គូផ្គងមិនបង្ហាញស្ថានភាពផ្តោត"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зібраний елемент Simulator не показує стан фокусу"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'elemento Simulator corrispondente non espone lo stato di attivazione"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det matchede simulatorelementet viser ikke fokustilstand"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일치하는 시뮬레이터 요소는 포커스 상태를 노출하지 않습니다."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopasowany element symulatora nie ujawnia stanu skupienia"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匹配的模拟器元素不公开焦点状态"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "องค์ประกอบ Simulator ที่ตรงกันไม่เปิดเผยสถานะโฟกัส"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相符的模擬器元素不公開焦點狀態"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiGesturePresetInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator gesture preset is invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorジェスチャープリセットが無効です"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإعداد المسبق لإيماءة Simulator غير صالح"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorbevægelsens forudindstilling er ugyldig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El ajuste preestablecido del gesto del simulador no es válido"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការកំណត់ជាមុនកាយវិការ Simulator មិនត្រឹមត្រូវទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 동작 사전 설정이 잘못되었습니다."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le préréglage de gestes du simulateur n'est pas valide"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Gestenvoreinstellung des Simulators ist ungültig"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorbevegelsens forhåndsinnstilling er ugyldig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wstępne ustawienie gestu symulatora jest nieprawidłowe"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör hareketi ön ayarı geçersiz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A predefinição de gesto do Simulador é inválida"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unaprijed postavljena gesta simulatora nije važeća"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La preimpostazione del gesto del simulatore non è valida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недопустимая предустановка жестов «Симулятор»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การตั้งค่าล่วงหน้าของท่าทางจำลองไม่ถูกต้อง"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попереднє налаштування жесту симулятора недійсне"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器手势预设无效"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器手勢預設無效"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiOperationInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI automation operation is invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI自動操作が無効です"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عملية أتمتة Simulator UI غير صالحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Operacija automatizacije korisničkog sučelja simulatora je nevažeća"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Automatisierungsvorgang der Simulator-Benutzeroberfläche ist ungültig"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-automatiseringshandlingen er ugyldig"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'operazione di automazione dell'interfaccia utente del simulatore non è valida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’opération d’automatisation de l’interface utilisateur du simulateur n’est pas valide"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រតិបត្តិការស្វ័យប្រវត្តិកម្ម Simulator UI មិនត្រឹមត្រូវទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 UI 자동화 작업이 잘못되었습니다."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Operacja automatyzacji interfejsu użytkownika symulatora jest nieprawidłowa"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La operación de automatización de la interfaz de usuario del simulador no es válida"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A operação de automação da IU do Simulador é inválida"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör kullanıcı arayüzü otomasyon işlemi geçersiz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Операція автоматизації інтерфейсу симулятора недійсна"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器UI自动化操作无效"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-automatiseringsoperasjonen er ugyldig"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การดำเนินการอัตโนมัติของ Simulator UI ไม่ถูกต้อง"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недопустимая операция автоматизации пользовательского интерфейса симулятора."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器UI自動化操作無效"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiDisplayChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator display changed while UI state was captured"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UI状態の取得中にSimulatorのディスプレイが変更されました"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تغيير عرض جهاز المحاكاة أثناء التقاط حالة واجهة المستخدم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaz simulatora se promijenio dok je snimljeno stanje korisničkog sučelja"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La visualizzazione del simulatore è cambiata durante l'acquisizione dello stato dell'interfaccia utente"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorskjermen endret seg mens UI-tilstanden ble registrert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pantalla del simulador cambió mientras se capturaba el estado de la interfaz de usuario"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបង្ហាញរបស់ Simulator បានផ្លាស់ប្តូរខណៈពេលដែលស្ថានភាព UI ត្រូវបានចាប់យក"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Simulatoranzeige hat sich geändert, während der UI-Status erfasst wurde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran symulatora zmienił się po przechwyceniu stanu interfejsu użytkownika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorvisningen ændrede sig, mens UI-tilstand blev registreret"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A exibição do Simulador mudou enquanto o estado da UI era capturado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отображение симулятора изменилось во время захвата состояния пользовательского интерфейса."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'affichage du simulateur a changé pendant la capture de l'état de l'interface utilisateur"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanıcı arayüzü durumu yakalanırken Simülatör ekranı değişti"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获 UI 状态时模拟器显示发生变化"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UI 상태가 캡처되는 동안 시뮬레이터 디스플레이가 변경되었습니다."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแสดง Simulator เปลี่ยนไปในขณะที่สถานะ UI ถูกจับ"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дисплей симулятора змінився під час запису стану інтерфейсу користувача"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕捉 UI 狀態時模擬器顯示發生變化"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiRoleInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI role is invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UIロールが無効です"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دور واجهة المستخدم المحاكية غير صالح"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-rollen er ugyldig"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uloga korisničkog sučelja simulatora je nevažeća"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Simulator-UI-Rolle ist ungültig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La función de la interfaz de usuario del simulador no es válida"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il ruolo dell'interfaccia utente del simulatore non è valido"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តួនាទី UI របស់ Simulator មិនត្រឹមត្រូវទេ។"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rola interfejsu użytkownika symulatora jest nieprawidłowa"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บทบาท UI ของเครื่องมือจำลองไม่ถูกต้อง"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 UI 역할이 잘못되었습니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Роль інтерфейсу симулятора недійсна"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Роль пользовательского интерфейса симулятора недействительна."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器 UI 角色無效"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le rôle de l'interface utilisateur du simulateur n'est pas valide"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-rollen er ugyldig"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A função da UI do Simulador é inválida"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器 UI 角色无效"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör kullanıcı arayüzü rolü geçersiz"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiSnapshotDidNotSettle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The refreshed Simulator UI snapshot did not settle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新したSimulator UIスナップショットが安定しませんでした"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم تسوية لقطة واجهة مستخدم Simulator المحدثة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La instantánea actualizada de la interfaz de usuario del simulador no se solucionó"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det opdaterede øjebliksbillede af Simulator UI blev ikke afgjort"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’instantané actualisé de l’interface utilisateur du simulateur n’a pas été réglé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'istantanea aggiornata dell'interfaccia utente del simulatore non è stata risolta"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der aktualisierte Schnappschuss der Simulator-Benutzeroberfläche wurde nicht angezeigt"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបថតអេក្រង់ UI របស់ Simulator ដែលបានធ្វើឱ្យស្រស់មិនបានដោះស្រាយទេ។"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osvježeni snimak korisničkog sučelja Simulatora nije se smirio"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det oppdaterte øyeblikksbildet av Simulator UI ble ikke avgjort"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odświeżona migawka interfejsu użytkownika symulatora nie została rozwiązana"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로 고쳐진 시뮬레이터 UI 스냅샷이 해결되지 않았습니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлений знімок інтерфейсу користувача Simulator не встановився"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yenilenen Simülatör Kullanıcı Arayüzü anlık görüntüsü çözümlenmedi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新后的模拟器 UI 快照未解决"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновленный снимок пользовательского интерфейса симулятора не стабилизировался."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O instantâneo atualizado da IU do Simulador não foi resolvido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新後的模擬器 UI 快照未解決"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สแนปชอต UI ของ Simulator UI ที่รีเฟรชไม่ได้รับการแก้ไข"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiSnapshotExpired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI snapshot expired after %lld ms; capture it again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UIスナップショットは%lldミリ秒後に期限切れになりました。もう一度取得してください"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimak korisničkog sučelja Simulatora je istekao nakon %1$lld ms;uhvatite ga ponovo"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Snapshot der Simulator-Benutzeroberfläche ist nach %1$lld ms abgelaufen;nimm es noch einmal auf"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'instantané de l'interface utilisateur du simulateur a expiré après %1$lld ms ;capture-le à nouveau"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت صلاحية لقطة واجهة المستخدم الخاصة بالمحاكاة بعد %1$lld مللي ثانية؛القبض عليه مرة أخرى"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបថត UI របស់ Simulator បានផុតកំណត់បន្ទាប់ពី %1$lld ms;ចាប់យកវាម្តងទៀត"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo snapshot dell'interfaccia utente del simulatore è scaduto dopo %1$lld ms;catturarlo di nuovo"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-øyeblikksbildet utløp etter %1$lld ms;ta det igjen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-øjebliksbilledet udløb efter %1$lld ms;fange det igen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O instantâneo da IU do Simulador expirou após %1$lld ms;capturá-lo novamente"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 UI 스냅샷은 %1$lld ms 후에 만료되었습니다.다시 캡쳐해"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La instantánea de la interfaz de usuario del simulador expiró después de %1$lld ms;capturarlo de nuevo"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Migawka interfejsu użytkownika symulatora wygasła po %1$lld ms;uchwycić go ponownie"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สแนปช็อต UI ของ Simulator หมดอายุหลังจาก %1$lld ms;จับมันอีกครั้ง"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Срок действия снимка пользовательского интерфейса симулятора истек через %1$lld мс;захватить это снова"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör kullanıcı arayüzü anlık görüntüsünün süresi %1$lld ms sonra doldu;tekrar yakala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знімок інтерфейсу користувача симулятора закінчився через %1$lld мс;захопити його знову"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器 UI 快照在 %1$lld 毫秒后过期；再次捕捉它"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器 UI 快照在 %1$lld 毫秒後過期；再次捕捉它"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiSnapshotMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run 'cmux ios snapshot' before using an element ref"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要素参照を使う前に「cmux ios snapshot」を実行してください"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Führen Sie „cmux ios snapshot“ aus, bevor Sie eine Elementreferenz verwenden"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kør 'cmux ios snapshot', før du bruger et element ref"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokrenite 'cmux ios snapshot' prije korištenja elementa ref"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ejecute 'cmux ios snapshot' antes de usar una referencia de elemento"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قم بتشغيل \"cmux ios snapshot\" قبل استخدام مرجع العنصر"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដំណើរការ 'cmux ios snapshot' មុនពេលប្រើធាតុ ref"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exécutez 'cmux ios snapshot' avant d'utiliser une référence d'élément"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kjør 'cmux ios snapshot' før du bruker et elementref"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esegui 'cmux ios snapshot' prima di utilizzare un elemento rif"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เรียกใช้ 'cmux ios snapshot' ก่อนที่จะใช้องค์ประกอบการอ้างอิง"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요소 참조를 사용하기 전에 'cmux ios snapshot'을 실행하세요."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uruchom „migawkę cmux ios” przed użyciem elementu ref"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запустите «снимок cmux ios» перед использованием ссылки на элемент."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Execute 'cmux ios snapshot' antes de usar um elemento ref"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir öğe ref'i kullanmadan önce 'cmux ios anlık görüntüsünü' çalıştırın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запустіть 'cmux ios snapshot' перед використанням елемента ref"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在使用元素引用之前运行“cmux ios snapshot”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在使用元素引用之前執行“cmux ios snapshot”"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiSnapshotViewportMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI snapshot has no usable foreground viewport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UIスナップショットに使用可能なフォアグラウンドビューポートがありません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تحتوي لقطة Simulator UI على إطار عرض أمامي قابل للاستخدام"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La instantánea de la interfaz de usuario del simulador no tiene una ventana gráfica de primer plano utilizable"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Snapshot der Simulator-Benutzeroberfläche verfügt über kein verwendbares Vordergrundansichtsfenster"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'instantané de l'interface utilisateur du simulateur n'a pas de fenêtre d'affichage au premier plan utilisable"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimak korisničkog sučelja Simulatora nema upotrebljiv okvir za prikaz u prednjem planu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'istantanea dell'interfaccia utente del simulatore non ha una finestra in primo piano utilizzabile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបថតអេក្រង់ UI របស់ Simulator មិនមានច្រកទិដ្ឋភាពផ្ទៃខាងមុខដែលអាចប្រើបានទេ។"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-øjebliksbilledet har ingen brugbar forgrundsvisning"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-øyeblikksbildet har ingen brukbar forgrunnsvisningsport"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 UI 스냅샷에는 사용 가능한 전경 뷰포트가 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O instantâneo da IU do Simulador não tem janela de visualização em primeiro plano utilizável"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器 UI 快照没有可用的前景视口"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör kullanıcı arayüzü anlık görüntüsünün kullanılabilir bir ön plan görünüm kapısı yok"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снимок пользовательского интерфейса симулятора не имеет пригодного для использования видового экрана переднего плана."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器 UI 快照沒有可用的前景視窗"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Migawka interfejsu użytkownika symulatora nie ma użytecznej rzutni na pierwszym planie"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สแนปชอต UI ของ Simulator ไม่มีวิวพอร์ตเบื้องหน้าที่ใช้งานได้"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знімок інтерфейсу інтерфейсу симулятора не має вікна перегляду переднього плану"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiStableSelectorUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%@' has no stable fields for a UI wait"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要素参照「%@」にはUI待機に使える安定したフィールドがありません"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%1$@' nema stabilna polja za čekanje korisničkog interfejsa"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធាតុយោង '%1$@' មិនមានវាលដែលមានស្ថេរភាពសម្រាប់ការរង់ចាំ UI ទេ។"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يحتوي مرجع العنصر '%1$@' على حقول ثابتة لانتظار واجهة المستخدم"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elementreferenz „%1$@“ hat keine stabilen Felder für eine UI-Wartezeit"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%1$@' har ingen stabile felt for en UI-venting"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il riferimento dell'elemento '%1$@' non ha campi stabili per un'attesa dell'interfaccia utente"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%1$@' har ingen stabile felter til en UI-ventetid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%1$@' nie ma stabilnych pól dla oczekiwania interfejsu użytkownika"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El elemento ref '%1$@' no tiene campos estables para una espera de UI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La référence de l'élément '%1$@' n'a pas de champs stables pour une attente d'interface utilisateur"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요소 참조 '%1$@'에 UI 대기에 대한 안정적인 필드가 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Элемент ref '%1$@' не имеет стабильных полей для ожидания пользовательского интерфейса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "องค์ประกอบอ้างอิง '%1$@' ไม่มีฟิลด์ที่เสถียรสำหรับการรอ UI"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посилання на елемент \"%1$@\" не має стабільних полів для очікування інтерфейсу користувача"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%1$@' öğesinde kullanıcı arayüzü beklemesi için kararlı alanlar yok"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O elemento ref '%1$@' não possui campos estáveis ​​para uma espera de UI"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元素引用“%1$@”没有可供 UI 等待的稳定字段"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元素引用“%1$@”沒有可供 UI 等待的穩定字段"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiStateChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI changed after the element ref was captured"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要素参照の取得後にSimulator UIが変更されました"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغيرت واجهة مستخدم Simulator بعد التقاط مرجع العنصر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korisničko sučelje simulatora se promijenilo nakon što je snimljen ref element"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator-brugergrænsefladen blev ændret, efter at elementreferen blev fanget"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La interfaz de usuario del simulador cambió después de que se capturó la referencia del elemento."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'interfaccia utente del simulatore è cambiata dopo l'acquisizione dell'elemento ref"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Simulator-Benutzeroberfläche wurde geändert, nachdem die Elementreferenz erfasst wurde"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UI របស់ Simulator បានផ្លាស់ប្តូរបន្ទាប់ពីការចាប់យកធាតុយោង"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'interface utilisateur du simulateur a changé après la capture de la référence de l'élément"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorgrensesnittet endret seg etter at elementref ble fanget"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요소 참조가 캡처된 후 시뮬레이터 UI가 변경되었습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пользовательский интерфейс симулятора изменился после захвата ссылки на элемент."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interfejs symulatora zmienił się po przechwyceniu odnośnika elementu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A IU do Simulador mudou depois que o elemento ref foi capturado"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інтерфейс симулятора змінився після того, як було захоплено посилання на елемент"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获元素引用后模拟器 UI 发生变化"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI เปลี่ยนไปหลังจากบันทึกการอ้างอิงองค์ประกอบแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatörün kullanıcı arayüzü, öğe referansı yakalandıktan sonra değişti"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕獲元素引用後模擬器 UI 發生變化"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiTargetNotActionable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%@' does not support the requested action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要素参照「%@」は要求された操作をサポートしていません"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%1$@' understøtter ikke den anmodede handling"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធាតុយោង '%1$@' មិនគាំទ្រសកម្មភាពដែលបានស្នើសុំទេ។"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%1$@' ne podržava traženu radnju"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العنصر المرجع '%1$@' لا يدعم الإجراء المطلوب"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Elementreferenz „%1$@“ unterstützt die angeforderte Aktion nicht"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요소 참조 '%1$@'은(는) 요청한 작업을 지원하지 않습니다."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il riferimento dell'elemento '%1$@' non supporta l'azione richiesta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La référence de l'élément '%1$@' ne prend pas en charge l'action demandée"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El elemento ref '%1$@' no admite la acción solicitada"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O elemento ref '%1$@' não suporta a ação solicitada"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%1$@' nie obsługuje żądanej akcji"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%1$@' støtter ikke den forespurte handlingen"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка на элемент '%1$@' не поддерживает запрошенное действие."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посилання на елемент \"%1$@\" не підтримує потрібну дію"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ref öğesi '%1$@' istenen eylemi desteklemiyor"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元素引用“%1$@”不支持请求的操作"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "องค์ประกอบอ้างอิง '%1$@' ไม่สนับสนุนการดำเนินการที่ร้องขอ"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元素引用“%1$@”不支援請求的操作"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiTextUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The text cannot be encoded by Simulator's US keyboard input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストをSimulatorの米国キーボード入力でエンコードできません"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teksten kan ikke kodes af Simulators amerikanske tastaturinput"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekst se ne može kodirati unosom sa američke tastature Simulatora"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن ترميز النص بواسطة إدخال لوحة المفاتيح الأمريكية الخاصة بـ Simulator"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Text kann nicht mit der US-Tastatureingabe des Simulators codiert werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El texto no se puede codificar mediante la entrada del teclado estadounidense del simulador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le texte ne peut pas être encodé par la saisie au clavier américain du simulateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il testo non può essere codificato tramite l'input della tastiera americana del simulatore"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터의 US 키보드 입력으로 텍스트를 인코딩할 수 없습니다."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekstu nie można zakodować za pomocą klawiatury amerykańskiej w symulatorze"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teksten kan ikke kodes av Simulators amerikanske tastaturinndata"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O texto não pode ser codificado pela entrada do teclado dos EUA do Simulador"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อความไม่สามารถเข้ารหัสโดยการป้อนข้อมูลด้วยแป้นพิมพ์ US ของ Simulator"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текст не может быть закодирован с помощью ввода с клавиатуры США в Simulator."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អត្ថបទមិនអាចត្រូវបានអ៊ិនកូដដោយការបញ្ចូលក្តារចុចអាមេរិករបស់ Simulator ទេ។"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текст не може бути закодований за допомогою американської клавіатури Simulator"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metin, Simulator'un ABD klavye girişiyle kodlanamaz"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器的美式鍵盤輸入無法對文字進行編碼"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器的美式键盘输入无法对文本进行编码"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiWaitPredicateInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI wait predicate is invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI待機条件が無効です"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predikat čekanja korisničkog sučelja simulatora je nevažeći"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El predicado de espera de la interfaz de usuario del simulador no es válido"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Warteprädikat der Simulator-Benutzeroberfläche ist ungültig"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le prédicat d'attente de l'interface utilisateur du simulateur n'est pas valide"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI wait-prædikatet er ugyldigt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il predicato di attesa dell'interfaccia utente del simulatore non è valido"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسند انتظار Simulator UI غير صالح"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 UI 대기 조건자가 잘못되었습니다."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការទន្ទឹងរង់ចាំរបស់ Simulator UI មិនត្រឹមត្រូវទេ។"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predykat oczekiwania w interfejsie użytkownika symulatora jest nieprawidłowy"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพรดิเคตการรอ Simulator UI ไม่ถูกต้อง"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O predicado de espera da UI do Simulador é inválido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предикат ожидания пользовательского интерфейса симулятора недействителен."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör kullanıcı arayüzü bekleme koşulu geçersiz"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI wait-predikatet er ugyldig"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器 UI 等待谓词无效"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предикат очікування інтерфейсу користувача симулятора недійсний"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器 UI 等待謂詞無效"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiWaitTargetAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI wait selector matched multiple elements"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI待機セレクタが複数の要素に一致しました"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطابق محدد انتظار Simulator UI مع عناصر متعددة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selektor čekanja korisničkog interfejsa Simulatora odgovara višestrukim elementima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-ventevælgeren matchede flere elementer"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីជ្រើសរើសការរង់ចាំ UI របស់ Simulator បានផ្គូផ្គងធាតុជាច្រើន។"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El selector de espera de la interfaz de usuario del simulador coincidió con varios elementos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le sélecteur d'attente de l'interface utilisateur du simulateur correspondait à plusieurs éléments"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il selettore di attesa dell'interfaccia utente del simulatore corrispondeva a più elementi"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-ventevelgeren matchet flere elementer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selektor oczekiwania w interfejsie symulatora pasował do wielu elementów"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Warteselektor der Simulator-Benutzeroberfläche stimmte mit mehreren Elementen überein"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O seletor de espera da IU do Simulador correspondeu a vários elementos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Селектор ожидания пользовательского интерфейса симулятора соответствует нескольким элементам"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 UI 대기 선택기가 여러 요소와 일치했습니다."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI 等待選擇器符合多個元素"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Селектор очікування інтерфейсу симулятора відповідав кільком елементам"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI 等待选择器匹配多个元素"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör kullanıcı arayüzü bekleme seçicisi birden fazla öğeyle eşleşti"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวเลือกการรอ UI ของ Simulator ตรงกับองค์ประกอบหลายรายการ"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiWaitTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out after %lld ms waiting for '%@' (%lld candidate(s))"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldミリ秒後に「%@」の待機がタイムアウトしました（候補%lld件）"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se agotó el tiempo de espera después de %1$lld ms esperando '%2$@' (%3$lld candidato(s))"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isteklo je nakon %1$lld ms čekanja na '%2$@' (%3$lld kandidata)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidsavbrudd etter %1$lld ms venter på '%2$@' (%3$lld kandidat(er))"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timeout efter %1$lld ms venter på '%2$@' (%3$lld kandidat(er))"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timeout dopo %1$lld ms in attesa di '%2$@' (%3$lld candidato(i))"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អស់ពេលបន្ទាប់ពី %1$lld ms កំពុងរង់ចាំ '%2$@' (បេក្ខជន %3$lld)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Délai expiré après %1$lld ms d'attente pour '%2$@' (%3$lld candidat(s))"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت المهلة بعد انتظار %1$lld مللي ثانية لـ '%2$@' (%3$lld مرشح (مرشحين))"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%2$@'(%3$lld 후보)을 기다리는 동안 %1$lldms 후에 시간이 초과되었습니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeitüberschreitung nach %1$lld ms Warten auf „%2$@“ (%3$lld Kandidaten)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upłynął limit czasu po %1$lld ms oczekiwania na „%2$@” (kandydaci: %3$lld)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время ожидания истекло после %1$lld мс ожидания '%2$@' (кандидатов: %3$lld))"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo limite esgotado após %1$lld ms aguardando por '%2$@' (%3$lld candidato(s))"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หมดเวลาหลังจาก %1$lld ms กำลังรอ '%2$@' (%3$lld ผู้สมัคร)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Час очікування минув після %1$lld мс очікування «%2$@» (%3$lld кандидатів)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%2$@' (%3$lld aday(lar)) için %1$lld ms bekledikten sonra zaman aşımına uğradı"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待“%2$@”（%3$lld 候选者）%1$lld 毫秒后超时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待“%2$@”（%3$lld 候選人）%1$lld 毫秒後超時"
           }
         }
       }
@@ -49891,6 +53016,381 @@
         }
       }
     },
+    "cli.simulator.output.uiSnapshotTruncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI snapshot reached its element limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UIスナップショットが要素数の上限に達しました"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وصلت لقطة Simulator UI إلى حد العناصر الخاص بها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimak korisničkog sučelja Simulatora dostigao je ograničenje elemenata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-øjebliksbilledet nåede sin elementgrænse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Snapshot der Simulator-Benutzeroberfläche hat sein Elementlimit erreicht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La instantánea de la interfaz de usuario del simulador alcanzó su límite de elementos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'instantané de l'interface utilisateur du simulateur a atteint sa limite d'éléments"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 UI 스냅샷이 요소 한도에 도달했습니다."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo snapshot dell'interfaccia utente del simulatore ha raggiunto il limite di elementi"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Migawka interfejsu użytkownika symulatora osiągnęła limit elementów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O snapshot da IU do Simulador atingiu seu limite de elementos"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สแนปชอต UI ของ Simulator ถึงขีดจำกัดองค์ประกอบแล้ว"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបថត UI របស់ Simulator បានឈានដល់ដែនកំណត់ធាតុរបស់វា។"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знімок інтерфейсу користувача симулятора досяг ліміту елементів"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI-øyeblikksbildet nådde elementgrensen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器 UI 快照達到其元素限制"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器 UI 快照达到其元素限制"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör kullanıcı arayüzü anlık görüntüsü öğe sınırına ulaştı"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снимок пользовательского интерфейса симулятора достиг предела количества элементов"
+          }
+        }
+      }
+    },
+    "cli.simulator.output.uiSnapshotUnchanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unchanged %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更なし %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uændret %1$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepromijenjeno %1$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unverändert %1$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ invariato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនផ្លាស់ប្តូរ %1$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتغير %1$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inchangé %1$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin cambios %1$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경되지 않음 %1$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uendret %1$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inalterado %1$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без изменений %1$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bez zmian %1$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่เปลี่ยนแปลง %1$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без змін %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不变%1$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ değiştirilmedi"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不變%1$@"
+          }
+        }
+      }
+    },
+    "cli.simulator.output.uiWaitMatched": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matched %@ with %lld element(s)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に%lld個の要素が一致しました"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usklađeno %1$@ sa %2$lld elementom(ima)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت مطابقة %1$@ مع %2$lld عنصر (عناصر)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matchede %1$@ med %2$lld element(er)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übereinstimmung mit %1$@ mit %2$lld Element(en)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ coincide con %2$lld elemento(s)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ corrispondente con %2$lld elemento/i"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ correspondant avec %2$lld élément(s)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្គូផ្គង %1$@ ជាមួយធាតុ %2$lld"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matchet %1$@ med %2$lld element(er)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ correspondente a %2$lld elemento(s)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopasowano %1$@ z elementami %2$lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@과 %2$lld 요소가 일치함"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соответствует %1$@ с элементом(ами) %2$lld"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збіг %1$@ з %2$lld елементом(ами)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จับคู่ %1$@ กับองค์ประกอบ %2$lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 %1$@ 与 %2$lld 元素相匹配"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將 %1$@ 與 %2$lld 元素相匹配"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$lld öğe(ler) ile eşleşti"
+          }
+        }
+      }
+    },
     "cli.simulator.permissions.usage": {
       "extractionState": "manual",
       "localizations": {
@@ -49904,6 +53404,631 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用方法:\n  cmux simulator permissions list [bundle-id] [--surface <id|ref|index>]\n  cmux simulator permissions grant <permission> <bundle-id> [--value <value>] [--surface <id|ref|index>]\n  cmux simulator permissions revoke <permission> <bundle-id> [--surface <id|ref|index>]\n  cmux simulator permissions reset <permission|all> <bundle-id> [--surface <id|ref|index>]\n\n値: photos は limited、notifications は critical、location は always、inuse、never。"
+          }
+        }
+      }
+    },
+    "cli.simulator.recovery.releaseHeldTouch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release the held Simulator touch before starting another"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタッチを開始する前に保持中のSimulatorタッチを解放してください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حرّر لمسة Simulator المستمرة قبل بدء لمسة أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otpustite zadržani dodir u Simulatoru prije pokretanja drugog"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slip den fastholdte Simulator-berøring, før du starter en ny"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lassen Sie die gehaltene Simulator-Berührung los, bevor Sie eine weitere starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suelte el toque mantenido en el simulador antes de iniciar otro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relâchez le toucher maintenu dans le simulateur avant d’en commencer un autre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rilascia il tocco mantenuto nel simulatore prima di avviarne un altro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លែងការប៉ះ Simulator ដែលកំពុងសង្កត់ មុនពេលចាប់ផ្តើមការប៉ះផ្សេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 터치를 시작하기 전에 눌린 시뮬레이터 터치를 놓으세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slipp den holdte Simulator-berøringen før du starter en ny"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwolnij przytrzymywane dotknięcie w symulatorze przed rozpoczęciem kolejnego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solte o toque mantido no Simulador antes de iniciar outro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отпустите удерживаемое касание в симуляторе перед началом следующего."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปล่อยการแตะใน Simulator ที่ค้างอยู่ก่อนเริ่มการแตะครั้งใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka bir dokunuş başlatmadan önce basılı tutulan Simülatör dokunuşunu bırakın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відпустіть утримуваний дотик у симуляторі, перш ніж починати інший"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始另一个触摸前，请先释放模拟器中按住的触摸"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始另一個觸控前，請先放開模擬器中按住的觸控"
+          }
+        }
+      }
+    },
+    "cli.simulator.recovery.retryAfterActiveOperation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry after the active Simulator UI operation finishes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のSimulator UI操作が完了してから再試行してください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعد المحاولة بعد انتهاء عملية واجهة مستخدم Simulator النشطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokušajte ponovo nakon završetka aktivne operacije korisničkog sučelja Simulatora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøv igen, når den aktive Simulator UI-handling er færdig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Versuchen Sie es erneut, nachdem der aktive Simulator-UI-Vorgang abgeschlossen ist"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vuelva a intentarlo cuando finalice la operación activa de la interfaz del simulador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réessayez une fois l’opération active de l’interface du simulateur terminée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprova al termine dell'operazione attiva dell'interfaccia del simulatore"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ព្យាយាមម្តងទៀត បន្ទាប់ពីប្រតិបត្តិការ UI របស់ Simulator ដែលកំពុងដំណើរការបានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "진행 중인 시뮬레이터 UI 작업이 끝난 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøv på nytt etter at den aktive Simulator UI-operasjonen er fullført"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spróbuj ponownie po zakończeniu aktywnej operacji interfejsu symulatora"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tente novamente após a conclusão da operação ativa da interface do Simulador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторите попытку после завершения активной операции интерфейса симулятора."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลองอีกครั้งหลังจากการทำงาน UI ของ Simulator ที่กำลังทำงานอยู่เสร็จสิ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etkin Simülatör kullanıcı arayüzü işlemi tamamlandıktan sonra yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторіть спробу після завершення активної операції інтерфейсу симулятора"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在当前模拟器 UI 操作完成后重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在目前的模擬器 UI 操作完成後重試"
+          }
+        }
+      }
+    },
+    "cli.simulator.recovery.captureSnapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture a fresh Simulator UI snapshot and retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいSimulator UIスナップショットを取得して再試行してください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التقط لقطة جديدة لواجهة مستخدم Simulator وأعد المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimite svježu sliku korisničkog sučelja Simulatora i pokušajte ponovo"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture una nueva instantánea de la interfaz de usuario del simulador y vuelva a intentarlo"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfassen Sie einen neuen Snapshot der Simulator-Benutzeroberfläche und versuchen Sie es erneut"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tag et nyt øjebliksbillede af Simulator UI, og prøv igen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturez un nouvel instantané de l'interface utilisateur du simulateur et réessayez"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាប់យករូបថត UI របស់ Simulator ថ្មី ហើយព្យាយាមម្តងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로운 시뮬레이터 UI 스냅샷을 캡처하고 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta et nytt øyeblikksbilde av Simulator UI og prøv på nytt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cattura una nuova istantanea dell'interfaccia utente del simulatore e riprova"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture um novo instantâneo da UI do Simulador e tente novamente"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จับภาพสแนปชอต UI ของ Simulator ใหม่แล้วลองอีกครั้ง"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сделайте свежий снимок пользовательского интерфейса симулятора и повторите попытку."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przechwyć nową migawkę interfejsu użytkownika symulatora i spróbuj ponownie"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зробіть новий знімок інтерфейсу симулятора та повторіть спробу"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni bir Simülatör Arayüzü anlık görüntüsü yakalayın ve yeniden deneyin"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获新的模拟器 UI 快照并重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕捉新的模擬器 UI 快照並重試"
+          }
+        }
+      }
+    },
+    "cli.simulator.recovery.chooseAdvertisedAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture a fresh snapshot and choose an advertised action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいスナップショットを取得し、表示された操作を選んでください"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimite novi snimak i odaberite oglašenu akciju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tag et nyt øjebliksbillede, og vælg en annonceret handling"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التقط لقطة جديدة واختر إجراءً معلنًا عنه"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machen Sie einen neuen Schnappschuss und wählen Sie eine angekündigte Aktion aus"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាប់យករូបថតថ្មីៗ ហើយជ្រើសរើសសកម្មភាពដែលបានផ្សាយពាណិជ្ជកម្ម"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture una instantánea nueva y elija una acción anunciada"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cattura una nuova istantanea e scegli un'azione pubblicizzata"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturez un nouvel instantané et choisissez une action annoncée"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로운 스냅샷을 캡처하고 광고된 작업을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta et nytt øyeblikksbilde og velg en annonsert handling"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture um novo instantâneo e escolha uma ação anunciada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сделайте свежий снимок и выберите рекламируемое действие"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni bir anlık görüntü yakalayın ve reklamı yapılan bir eylemi seçin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrób nową migawkę i wybierz reklamowaną akcję"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зробіть свіжий знімок і виберіть рекламовану дію"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获新快照并选择广告操作"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จับภาพใหม่และเลือกการกระทำที่โฆษณา"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擷取新快照並選擇廣告操作"
+          }
+        }
+      }
+    },
+    "cli.simulator.recovery.refineWait": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspect a fresh snapshot, refine the wait target, and retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいスナップショットを確認し、待機対象を絞り込んで再試行してください"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregledajte svježi snimak, precizirajte cilj čekanja i pokušajte ponovo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افحص لقطة جديدة، وقم بتحسين هدف الانتظار، ثم أعد المحاولة"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undersøg et nyt øjebliksbillede, finjuster ventemålet, og prøv igen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspeccione una instantánea nueva, refine el objetivo de espera y vuelva a intentarlo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esamina un nuovo snapshot, perfeziona l'obiettivo di attesa e riprova"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로운 스냅샷을 검사하고 대기 목표를 구체화한 후 다시 시도하세요."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Überprüfen Sie einen neuen Snapshot, verfeinern Sie das Warteziel und versuchen Sie es erneut"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspectez un nouvel instantané, affinez la cible d'attente et réessayez"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspiser et nytt øyeblikksbilde, avgrens ventemålet og prøv på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprawdź nową migawkę, doprecyzuj cel oczekiwania i spróbuj ponownie"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យមើលរូបថតថ្មីៗ កែលម្អគោលដៅរង់ចាំ ហើយព្យាយាមម្តងទៀត"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspecione um novo snapshot, refine o alvo de espera e tente novamente"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบสแน็ปช็อตใหม่ ปรับแต่งเป้าหมายการรอ และลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni bir anlık görüntüyü inceleyin, bekleme hedefini hassaslaştırın ve yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевірте свіжий знімок, уточніть ціль очікування та повторіть спробу"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверьте новый снимок, уточните цель ожидания и повторите попытку."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢查新快照，優化等待目標，然後重試"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查新快照，优化等待目标，然后重试"
           }
         }
       }
@@ -49942,6 +54067,131 @@
         }
       }
     },
+    "cli.simulator.usage.automation": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أتمتة واجهة المستخدم الدلالية:\n  snapshot [--since-screen-hash <hash>] التقط المراجع والأدوار والحالة والإجراءات\n  tap --ref <eN>                       اضغط على عنصر من أحدث لقطة\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        انقر فوق أحد عناصر إمكانية الوصول المرئية\n  touch --ref <eN> --down|--up         إرسال مراحل اللمس الدلالي\n  gesture-preset <name>                أرسل شاشة مسماة أو إيماءة حافة\n  swipe --ref <eN> <direction>         اسحب داخل العنصر الدلالي\n  drag --ref <eN> <direction>          اسحب من عنصر دلالي\n  long-press --ref <eN> <milliseconds> عقد عنصر الدلالي\n  type --ref <eN> [text]               ركز واكتب في حقل النص\n  key <hid-code>                       اضغط على مفتاح USB HID واحد\n  keys <code,...>                      اضغط على تسلسل مفاتيح USB HID\n  batch <json> [--stdin|--file]        قم بتشغيل خطوات النقر الدلالي لنفس اللقطة\n  wait <predicate> [selectors]         انتظر حالة واجهة المستخدم\n  recover                             أعد تشغيل عامل محاكاة فاشل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Semantička automatizacija korisničkog sučelja:\n  snapshot [--since-screen-hash <hash>] Snimite reference, uloge, stanje i akcije\n  tap --ref <eN>                       Dodirnite element sa najnovijeg snimka\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Dodirnite jedan vidljivi element pristupačnosti\n  touch --ref <eN> --down|--up         Šalji semantičke faze dodira\n  gesture-preset <name>                Pošaljite imenovani ekran ili pokret ivice\n  swipe --ref <eN> <direction>         Prevucite unutar semantičkog elementa\n  drag --ref <eN> <direction>          Prevucite iz semantičkog elementa\n  long-press --ref <eN> <milliseconds> Držite semantički element\n  type --ref <eN> [text]               Fokusirajte se i otkucajte u tekstualno polje\n  key <hid-code>                       Pritisnite jedan USB HID taster\n  keys <code,...>                      Pritisnite sekvencu USB HID tastera\n  batch <json> [--stdin|--file]        Pokrenite semantičke korake dodira istog snimka\n  wait <predicate> [selectors]         Sačekajte stanje korisničkog interfejsa\n  recover                             Ponovo pokrenite neuspjeli Simulator worker"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Semantisk UI-automatisering:\n  snapshot [--since-screen-hash <hash>] Fang refs, roller, tilstand og handlinger\n  tap --ref <eN>                       Tryk på et element fra det seneste øjebliksbillede\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Tryk på et synligt tilgængelighedselement\n  touch --ref <eN> --down|--up         Send semantiske berøringsfaser\n  gesture-preset <name>                Send en navngivet skærm eller kantbevægelse\n  swipe --ref <eN> <direction>         Stryg ind i et semantisk element\n  drag --ref <eN> <direction>          Træk fra et semantisk element\n  long-press --ref <eN> <milliseconds> Hold et semantisk element\n  type --ref <eN> [text]               Fokuser og skriv i et tekstfelt\n  key <hid-code>                       Tryk på én USB HID-nøgle\n  keys <code,...>                      Tryk på en USB HID-tastsekvens\n  batch <json> [--stdin|--file]        Kør semantiske tryktrin med samme øjebliksbillede\n  wait <predicate> [selectors]         Vent på UI-tilstand\n  recover                             Genstart en mislykket Simulator-arbejder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Semantische UI-Automatisierung:\n  snapshot [--since-screen-hash <hash>] Erfassen Sie Refs, Rollen, Status und Aktionen\n  tap --ref <eN>                       Tippen Sie auf ein Element aus dem neuesten Schnappschuss\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Tippen Sie auf ein sichtbares Barrierefreiheitselement\n  touch --ref <eN> --down|--up         Semantische Berührungsphasen senden\n  gesture-preset <name>                Senden Sie eine benannte Bildschirm- oder Kantengeste\n  swipe --ref <eN> <direction>         Wischen Sie innerhalb eines semantischen Elements\n  drag --ref <eN> <direction>          Ziehen Sie von einem semantischen Element\n  long-press --ref <eN> <milliseconds> Halten Sie ein semantisches Element\n  type --ref <eN> [text]               Konzentrieren Sie sich und geben Sie etwas in ein Textfeld ein\n  key <hid-code>                       Drücken Sie eine USB-HID-Taste\n  keys <code,...>                      Drücken Sie eine USB-HID-Tastenfolge\n  batch <json> [--stdin|--file]        Führen Sie semantische Tap-Schritte für den gleichen Snapshot aus\n  wait <predicate> [selectors]         Warten Sie auf den UI-Status\n  recover                             Starten Sie einen fehlgeschlagenen Simulator-Worker neu"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Semantic UI automation:\n  snapshot [--since-screen-hash <hash>] Capture refs, roles, state, and actions\n  tap --ref <eN>                       Tap an element from the latest snapshot\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Tap one visible accessibility element\n  touch --ref <eN> --down|--up         Send semantic touch phases\n  gesture-preset <name>                Send a named screen or edge gesture\n  swipe --ref <eN> <direction>         Swipe inside a semantic element\n  drag --ref <eN> <direction>          Drag from a semantic element\n  long-press --ref <eN> <milliseconds> Hold a semantic element\n  type --ref <eN> [text]               Focus and type into a text field\n  key <hid-code>                       Press one USB HID key\n  keys <code,...>                      Press a USB HID key sequence\n  batch <json> [--stdin|--file]        Run same-snapshot semantic tap steps\n  wait <predicate> [selectors]         Wait for UI state\n  recover                             Restart a failed Simulator worker"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatización de la interfaz de usuario semántica:\n  snapshot [--since-screen-hash <hash>] Capture referencias, roles, estados y acciones.\n  tap --ref <eN>                       Toca un elemento de la última instantánea.\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Toca un elemento de accesibilidad visible\n  touch --ref <eN> --down|--up         Enviar fases de contacto semántico\n  gesture-preset <name>                Enviar una pantalla con nombre o un gesto de borde\n  swipe --ref <eN> <direction>         Deslizar dentro de un elemento semántico\n  drag --ref <eN> <direction>          Arrastrar desde un elemento semántico\n  long-press --ref <eN> <milliseconds> Mantener un elemento semántico\n  type --ref <eN> [text]               Enfócate y escribe en un campo de texto.\n  key <hid-code>                       Presione una tecla USB HID\n  keys <code,...>                      Presione una secuencia de clave USB HID\n  batch <json> [--stdin|--file]        Ejecute pasos de toque semántico en la misma instantánea\n  wait <predicate> [selectors]         Espere el estado de la interfaz de usuario\n  recover                             Reiniciar un trabajador del simulador fallido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisation sémantique de l'interface utilisateur :\n  snapshot [--since-screen-hash <hash>] Capturez les références, les rôles, l'état et les actions\n  tap --ref <eN>                       Appuyez sur un élément du dernier instantané\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Appuyez sur un élément d'accessibilité visible\n  touch --ref <eN> --down|--up         Envoyer des phases de contact sémantique\n  gesture-preset <name>                Envoyer un geste d'écran ou de bord nommé\n  swipe --ref <eN> <direction>         Glissez à l’intérieur d’un élément sémantique\n  drag --ref <eN> <direction>          Glisser depuis un élément sémantique\n  long-press --ref <eN> <milliseconds> Contenir un élément sémantique\n  type --ref <eN> [text]               Concentrez-vous et tapez dans un champ de texte\n  key <hid-code>                       Appuyez sur une touche USB HID\n  keys <code,...>                      Appuyez sur une séquence de touches USB HID\n  batch <json> [--stdin|--file]        Exécuter les étapes de tapotement sémantique du même instantané\n  wait <predicate> [selectors]         Attendre l'état de l'interface utilisateur\n  recover                             Redémarrer un travailleur de simulateur ayant échoué"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automazione semantica dell'interfaccia utente:\n  snapshot [--since-screen-hash <hash>] Cattura riferimenti, ruoli, stato e azioni\n  tap --ref <eN>                       Tocca un elemento dell'ultima istantanea\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Tocca un elemento di accessibilità visibile\n  touch --ref <eN> --down|--up         Invia fasi di tocco semantico\n  gesture-preset <name>                Invia una schermata con nome o un gesto sul bordo\n  swipe --ref <eN> <direction>         Scorri all'interno di un elemento semantico\n  drag --ref <eN> <direction>          Trascina da un elemento semantico\n  long-press --ref <eN> <milliseconds> Contiene un elemento semantico\n  type --ref <eN> [text]               Metti a fuoco e digita in un campo di testo\n  key <hid-code>                       Premere una chiave USB HID\n  keys <code,...>                      Premere una sequenza di tasti USB HID\n  batch <json> [--stdin|--file]        Esegui passaggi di tocco semantici della stessa istantanea\n  wait <predicate> [selectors]         Attendi lo stato dell'interfaccia utente\n  recover                             Riavviare un simulatore di lavoro non riuscito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セマンティック UI 自動化:\n  snapshot [--since-screen-hash <hash>] 参照、ロール、状態、およびアクションをキャプチャする\n  tap --ref <eN>                       最新のスナップショットから要素をタップします\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        表示されているアクセシビリティ要素を 1 つタップします\n  touch --ref <eN> --down|--up         セマンティックタッチフェーズを送信する\n  gesture-preset <name>                名前付きの画面またはエッジ ジェスチャを送信する\n  swipe --ref <eN> <direction>         セマンティック要素内でスワイプする\n  drag --ref <eN> <direction>          セマンティック要素からドラッグする\n  long-press --ref <eN> <milliseconds> 意味要素を保持する\n  type --ref <eN> [text]               フォーカスしてテキストフィールドに入力します\n  key <hid-code>                       USB HID キーを 1 つ押します\n  keys <code,...>                      USB HID キー シーケンスを押します\n  batch <json> [--stdin|--file]        同じスナップショットのセマンティック タップ ステップを実行する\n  wait <predicate> [selectors]         UI 状態を待機する\n  recover                             失敗したシミュレータ ワーカーを再起動する"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិកម្ម UI អត្ថន័យ៖\n  snapshot [--since-screen-hash <hash>] ចាប់យកឯកសារយោង តួនាទី រដ្ឋ និងសកម្មភាព\n  tap --ref <eN>                       ប៉ះធាតុមួយពីរូបថតចុងក្រោយបំផុត។\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        ប៉ះធាតុភាពងាយស្រួលដែលអាចមើលឃើញមួយ។\n  touch --ref <eN> --down|--up         ផ្ញើដំណាក់កាលនៃការប៉ះតាមន័យ\n  gesture-preset <name>                ផ្ញើអេក្រង់ដែលមានឈ្មោះ ឬកាយវិការគែម\n  swipe --ref <eN> <direction>         អូសនៅខាងក្នុងធាតុអត្ថន័យ\n  drag --ref <eN> <direction>          ទាញ​ពី​ធាតុ​អត្ថន័យ\n  long-press --ref <eN> <milliseconds> កាន់ធាតុ semantic\n  type --ref <eN> [text]               ផ្ដោត ហើយវាយបញ្ចូលទៅក្នុងវាលអត្ថបទ\n  key <hid-code>                       ចុចគ្រាប់ចុច USB HID មួយ។\n  keys <code,...>                      ចុចលំដាប់គ្រាប់ចុច USB HID\n  batch <json> [--stdin|--file]        ដំណើរការ​ជំហាន​ការ​ប៉ះ​តាម​ន័យ​ធៀប​ដូច​គ្នា។\n  wait <predicate> [selectors]         រង់ចាំស្ថានភាព UI\n  recover                             ចាប់ផ្តើមអ្នកធ្វើការ Simulator ដែលបរាជ័យឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시맨틱 UI 자동화:\n  snapshot [--since-screen-hash <hash>] 참조, 역할, 상태 및 작업 캡처\n  tap --ref <eN>                       최신 스냅샷에서 요소를 탭하세요.\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        표시되는 접근성 요소 하나를 탭하세요.\n  touch --ref <eN> --down|--up         의미론적 터치 단계 보내기\n  gesture-preset <name>                이름이 지정된 화면 또는 엣지 동작 보내기\n  swipe --ref <eN> <direction>         의미 요소 내부로 스와이프\n  drag --ref <eN> <direction>          의미 요소에서 드래그\n  long-press --ref <eN> <milliseconds> 의미적 요소 보유\n  type --ref <eN> [text]               텍스트 필드에 초점을 맞추고 입력하세요.\n  key <hid-code>                       USB HID 키 하나를 누르세요.\n  keys <code,...>                      USB HID 키 시퀀스 누르기\n  batch <json> [--stdin|--file]        동일한 스냅샷 의미 체계 탭 단계 실행\n  wait <predicate> [selectors]         UI 상태를 기다립니다\n  recover                             실패한 시뮬레이터 작업자 다시 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Semantisk UI-automatisering:\n  snapshot [--since-screen-hash <hash>] Fang refs, roller, tilstand og handlinger\n  tap --ref <eN>                       Trykk på et element fra det siste øyeblikksbildet\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Trykk på ett synlig tilgjengelighetselement\n  touch --ref <eN> --down|--up         Send semantiske berøringsfaser\n  gesture-preset <name>                Send en navngitt skjerm eller kantbevegelse\n  swipe --ref <eN> <direction>         Sveip inn i et semantisk element\n  drag --ref <eN> <direction>          Dra fra et semantisk element\n  long-press --ref <eN> <milliseconds> Hold et semantisk element\n  type --ref <eN> [text]               Fokuser og skriv inn i et tekstfelt\n  key <hid-code>                       Trykk én USB HID-nøkkel\n  keys <code,...>                      Trykk på en USB HID-tastsekvens\n  batch <json> [--stdin|--file]        Kjør semantiske trykktrinn med samme øyeblikksbilde\n  wait <predicate> [selectors]         Vent på UI-tilstand\n  recover                             Start en mislykket simulatorarbeider på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatyzacja semantycznego interfejsu użytkownika:\n  snapshot [--since-screen-hash <hash>] Przechwytuj referencje, role, stan i działania\n  tap --ref <eN>                       Kliknij element z najnowszego zrzutu\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Kliknij jeden widoczny element dostępności\n  touch --ref <eN> --down|--up         Wysyłaj semantyczne fazy dotyku\n  gesture-preset <name>                Wyślij nazwany ekran lub gest krawędzi\n  swipe --ref <eN> <direction>         Przesuń palcem wewnątrz elementu semantycznego\n  drag --ref <eN> <direction>          Przeciągnij z elementu semantycznego\n  long-press --ref <eN> <milliseconds> Przytrzymaj element semantyczny\n  type --ref <eN> [text]               Skoncentruj się i wpisz tekst w polu tekstowym\n  key <hid-code>                       Naciśnij jeden klawisz USB HID\n  keys <code,...>                      Naciśnij sekwencję klawiszy USB HID\n  batch <json> [--stdin|--file]        Uruchom semantyczne kroki dotknięcia tej samej migawki\n  wait <predicate> [selectors]         Poczekaj na stan interfejsu użytkownika\n  recover                             Uruchom ponownie nieudany proces roboczy symulatora"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automação semântica da IU:\n  snapshot [--since-screen-hash <hash>] Capture referências, funções, estado e ações\n  tap --ref <eN>                       Toque em um elemento do instantâneo mais recente\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Toque em um elemento de acessibilidade visível\n  touch --ref <eN> --down|--up         Enviar fases de toque semântico\n  gesture-preset <name>                Envie uma tela nomeada ou gesto de borda\n  swipe --ref <eN> <direction>         Deslize dentro de um elemento semântico\n  drag --ref <eN> <direction>          Arrastar de um elemento semântico\n  long-press --ref <eN> <milliseconds> Segure um elemento semântico\n  type --ref <eN> [text]               Concentre-se e digite em um campo de texto\n  key <hid-code>                       Pressione uma tecla USB HID\n  keys <code,...>                      Pressione uma sequência de teclas USB HID\n  batch <json> [--stdin|--file]        Execute etapas de toque semântico no mesmo instantâneo\n  wait <predicate> [selectors]         Aguarde o estado da IU\n  recover                             Reinicie um trabalhador do Simulador com falha"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Семантическая автоматизация пользовательского интерфейса:\n  snapshot [--since-screen-hash <hash>] Захват ссылок, ролей, состояния и действий\n  tap --ref <eN>                       Коснитесь элемента из последнего снимка\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Коснитесь одного видимого элемента доступности.\n  touch --ref <eN> --down|--up         Отправка фаз семантического касания\n  gesture-preset <name>                Отправка именованного жеста экрана или края\n  swipe --ref <eN> <direction>         Проведите пальцем по смысловому элементу\n  drag --ref <eN> <direction>          Перетаскивание из семантического элемента\n  long-press --ref <eN> <milliseconds> Удерживайте смысловой элемент\n  type --ref <eN> [text]               Сфокусируйтесь и введите текст в текстовое поле\n  key <hid-code>                       Нажмите одну кнопку USB HID.\n  keys <code,...>                      Нажмите последовательность клавиш USB HID\n  batch <json> [--stdin|--file]        Выполнение шагов семантического касания того же моментального снимка\n  wait <predicate> [selectors]         Подождите состояния пользовательского интерфейса\n  recover                             Перезапустите неудавшийся рабочий симулятор."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบบอัตโนมัติของ UI ความหมาย:\n  snapshot [--since-screen-hash <hash>] จับผู้อ้างอิง บทบาท สถานะ และการกระทำ\n  tap --ref <eN>                       แตะองค์ประกอบจากสแนปชอตล่าสุด\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        แตะองค์ประกอบการเข้าถึงที่มองเห็นได้หนึ่งรายการ\n  touch --ref <eN> --down|--up         ส่งขั้นตอนการสัมผัสเชิงความหมาย\n  gesture-preset <name>                ส่งหน้าจอที่มีชื่อหรือท่าทางขอบ\n  swipe --ref <eN> <direction>         ปัดภายในองค์ประกอบความหมาย\n  drag --ref <eN> <direction>          ลากจากองค์ประกอบความหมาย\n  long-press --ref <eN> <milliseconds> ถือองค์ประกอบความหมาย\n  type --ref <eN> [text]               โฟกัสและพิมพ์ลงในช่องข้อความ\n  key <hid-code>                       กดปุ่ม USB HID หนึ่งปุ่ม\n  keys <code,...>                      กดลำดับคีย์ USB HID\n  batch <json> [--stdin|--file]        เรียกใช้ขั้นตอนการแตะความหมายสแนปชอตเดียวกัน\n  wait <predicate> [selectors]         รอสถานะ UI\n  recover                             รีสตาร์ทผู้ปฏิบัติงาน Simulator ที่ล้มเหลว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anlamsal kullanıcı arayüzü otomasyonu:\n  snapshot [--since-screen-hash <hash>] Referansları, rolleri, durumu ve eylemleri yakalayın\n  tap --ref <eN>                       En son anlık görüntüden bir öğeye dokunun\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Görünür bir erişilebilirlik öğesine dokunun\n  touch --ref <eN> --down|--up         Anlamsal dokunma aşamalarını gönder\n  gesture-preset <name>                Adlandırılmış bir ekran veya kenar hareketi gönderin\n  swipe --ref <eN> <direction>         Anlamsal bir öğenin içinde kaydırma\n  drag --ref <eN> <direction>          Anlamsal bir öğeden sürükleyin\n  long-press --ref <eN> <milliseconds> Anlamsal bir öğeyi tutun\n  type --ref <eN> [text]               Odaklanın ve bir metin alanına yazın\n  key <hid-code>                       Bir USB HID tuşuna basın\n  keys <code,...>                      Bir USB HID tuş dizisine basın\n  batch <json> [--stdin|--file]        Aynı anlık görüntü anlamsal dokunma adımlarını çalıştırın\n  wait <predicate> [selectors]         Kullanıcı arayüzü durumunu bekleyin\n  recover                             Başarısız bir Simülatör çalışanını yeniden başlatın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматизація семантичного інтерфейсу користувача:\n  snapshot [--since-screen-hash <hash>] Зберігайте посилання, ролі, стан і дії\n  tap --ref <eN>                       Торкніться елемента з останнього знімка\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Торкніться одного видимого елемента доступності\n  touch --ref <eN> --down|--up         Надіслати фази семантичного дотику\n  gesture-preset <name>                Надішліть іменований екран або жест на краї\n  swipe --ref <eN> <direction>         Проведіть пальцем всередині семантичного елемента\n  drag --ref <eN> <direction>          Перетягніть із семантичного елемента\n  long-press --ref <eN> <milliseconds> Зберігайте смисловий елемент\n  type --ref <eN> [text]               Перейдіть до текстового поля та введіть текст\n  key <hid-code>                       Натисніть один ключ USB HID\n  keys <code,...>                      Натисніть послідовність клавіш USB HID\n  batch <json> [--stdin|--file]        Виконайте кроки семантичного дотику того самого знімка\n  wait <predicate> [selectors]         Зачекайте стану інтерфейсу користувача\n  recover                             Перезапустіть несправний робочий симулятор"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语义 UI 自动化：\n  snapshot [--since-screen-hash <hash>] 捕获引用、角色、状态和操作\n  tap --ref <eN>                       点击最新快照中的一个元素\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        点击一个可见的辅助功能元素\n  touch --ref <eN> --down|--up         发送语义触摸阶段\n  gesture-preset <name>                发送指定屏幕或边缘手势\n  swipe --ref <eN> <direction>         在语义元素内滑动\n  drag --ref <eN> <direction>          从语义元素拖动\n  long-press --ref <eN> <milliseconds> 保留语义元素\n  type --ref <eN> [text]               聚焦并在文本字段中输入内容\n  key <hid-code>                       按一个 USB HID 密钥\n  keys <code,...>                      按 USB HID 按键序列\n  batch <json> [--stdin|--file]        运行相同快照语义点击步骤\n  wait <predicate> [selectors]         等待 UI 状态\n  recover                             重新启动失败的 Simulator Worker"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語意 UI 自動化：\n  snapshot [--since-screen-hash <hash>] 捕獲引用、角色、狀態和操作\n  tap --ref <eN>                       點選最新快照中的一個元素\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        點擊一個可見的輔助使用元素\n  touch --ref <eN> --down|--up         傳送語意觸摸階段\n  gesture-preset <name>                傳送指定螢幕或邊緣手勢\n  swipe --ref <eN> <direction>         在語意元素內滑動\n  drag --ref <eN> <direction>          從語意元素拖曳\n  long-press --ref <eN> <milliseconds> 保留語意元素\n  type --ref <eN> [text]               聚焦並在文字欄位中輸入內容\n  key <hid-code>                       按一個 USB HID 金鑰\n  keys <code,...>                      按 USB HID 按鍵序列\n  batch <json> [--stdin|--file]        執行相同快照語意點擊步驟\n  wait <predicate> [selectors]         等待 UI 狀態\n  recover                             重新啟動失敗的 Simulator Worker"
+          }
+        }
+      }
+    },
     "cli.simulator.usage.inspection": {
       "extractionState": "manual",
       "localizations": {
@@ -49955,6 +54205,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "追加の検査コマンド:\n  accessibility                       上限付きのネイティブアクセシビリティツリーを表示\n  foreground                          フォアグラウンドAppを表示"
+          }
+        }
+      }
+    },
+    "cli.simulator.warning.uiSnapshotRefreshFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The action succeeded, but the refreshed UI snapshot was unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作は成功しましたが、更新後のUIスナップショットを取得できませんでした"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نجح الإجراء، لكن لقطة واجهة المستخدم المحدثة لم تكن متاحة"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handlingen lykkedes, men det opdaterede UI-øjebliksbillede var ikke tilgængeligt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La acción se realizó correctamente, pero la instantánea de la interfaz de usuario actualizada no estaba disponible"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aktion war erfolgreich, aber der aktualisierte UI-Snapshot war nicht verfügbar"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'azione è riuscita, ma lo snapshot dell'interfaccia utente aggiornato non era disponibile"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'action a réussi, mais l'instantané actualisé de l'interface utilisateur n'était pas disponible"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업이 성공했지만 새로 고쳐진 UI 스냅샷을 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handlingen lyktes, men det oppdaterte øyeblikksbildet av brukergrensesnittet var utilgjengelig"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radnja je uspjela, ali osvježeni snimak korisničkog sučelja nije bio dostupan"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សកម្មភាពនេះបានទទួលជោគជ័យ ប៉ុន្តែរូបថត UI ដែលត្រូវបានធ្វើឱ្យស្រស់ឡើងវិញមិនអាចប្រើបានទេ។"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akcja się powiodła, ale odświeżona migawka interfejsu użytkownika była niedostępna"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Действие выполнено успешно, но обновленный снимок пользовательского интерфейса недоступен."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A ação foi bem-sucedida, mas o instantâneo da IU atualizado não estava disponível"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดำเนินการสำเร็จ แต่สแนปชอต UI ที่รีเฟรชไม่พร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İşlem başarılı oldu ancak yenilenen kullanıcı arayüzü anlık görüntüsü kullanılamadı"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作成功，但刷新的 UI 快照不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作成功，但刷新的 UI 快照不可用"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дія виконана успішно, але оновлений знімок інтерфейсу користувача був недоступний"
           }
         }
       }
@@ -223586,13 +227961,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The active Xcode does not expose %@ through simctl; cmux will not mutate private TCC or BulletinBoard stores in the host process."
+            "value": "This simulator runtime does not support %@; cmux will not modify private permission databases."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "有効なXcodeはsimctl経由の%@に対応していません。cmuxはホストプロセスから非公開のTCCまたはBulletinBoardストアを変更しません。"
+            "value": "このシミュレータ ランタイムは %1$@ をサポートしていません。cmux はプライベート権限データベースを変更しません。"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne simulator runtime understøtter ikke %1$@;cmux vil ikke ændre private tilladelsesdatabaser."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وقت تشغيل المحاكي هذا لا يدعم %1$@؛لن يقوم cmux بتعديل قواعد بيانات الأذونات الخاصة."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce runtime de simulateur ne prend pas en charge %1$@ ;cmux ne modifiera pas les bases de données d'autorisations privées."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលវេលាដំណើរការកម្មវិធីក្លែងធ្វើនេះមិនគាំទ្រ %1$@ ទេ។cmux នឹងមិនកែប្រែមូលដ្ឋានទិន្នន័យការអនុញ្ញាតឯកជនទេ។"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovo vrijeme izvođenja simulatora ne podržava %1$@;cmux neće mijenjati privatne baze podataka dozvola."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo runtime del simulatore non supporta %1$@;cmux non modificherà i database delle autorizzazioni private."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tiempo de ejecución del simulador no es compatible con %1$@;cmux no modificará bases de datos de permisos privados."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 시뮬레이터 런타임은 %1$@을 지원하지 않습니다.cmux는 개인 권한 데이터베이스를 수정하지 않습니다."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To środowisko wykonawcze symulatora nie obsługuje %1$@;cmux nie będzie modyfikować baz danych prywatnych uprawnień."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne simulatorens kjøretid støtter ikke %1$@;cmux vil ikke endre private tillatelsesdatabaser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Simulatorlaufzeit unterstützt %1$@ nicht;cmux ändert keine privaten Berechtigungsdatenbanken."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта среда выполнения симулятора не поддерживает %1$@;cmux не будет изменять базы данных частных разрешений."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tempo de execução do simulador não suporta %1$@;cmux não modificará bancos de dados de permissão privada."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รันไทม์ของตัวจำลองนี้ไม่รองรับ %1$@;cmux จะไม่แก้ไขฐานข้อมูลการอนุญาตส่วนตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu simülatör çalışma zamanı %1$@'ı desteklemiyor;cmux özel izin veritabanlarını değiştirmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це середовище виконання симулятора не підтримує %1$@;cmux не змінюватиме приватні бази даних дозволів."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该模拟器运行时不支持%1$@；cmux 不会修改私有权限数据库。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此模擬器運行時不支援%1$@; cmux 不會修改私有權限資料庫。"
           }
         }
       }
@@ -224096,13 +228579,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The active Xcode worker did not negotiate accessibility inspection."
+            "value": "The simulator worker does not support accessibility inspection."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "有効なXcodeワーカーはアクセシビリティ検査に対応していません。"
+            "value": "シミュレーター ワーカーはアクセシビリティ検査をサポートしていません。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El trabajador simulador no admite la inspección de accesibilidad."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يدعم عامل المحاكاة فحص إمكانية الوصول."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radnik na simulatoru ne podržava inspekciju pristupačnosti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorarbejderen understøtter ikke tilgængelighedsinspektion."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Simulator-Worker unterstützt keine Barrierefreiheitsprüfung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le travailleur du simulateur ne prend pas en charge l’inspection de l’accessibilité."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'operatore del simulatore non supporta l'ispezione dell'accessibilità."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 작업자는 접근성 검사를 지원하지 않습니다."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បុគ្គលិកក្លែងធ្វើមិនគាំទ្រការត្រួតពិនិត្យភាពងាយស្រួលទេ។"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O trabalhador do simulador não oferece suporte à inspeção de acessibilidade."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorarbeideren støtter ikke tilgjengelighetsinspeksjon."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pracownik symulatora nie obsługuje kontroli dostępności."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочий симулятор не поддерживает проверку доступности."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör çalışanı erişilebilirlik denetimini desteklemiyor."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผู้ปฏิบัติงานจำลองไม่รองรับการตรวจสอบการเข้าถึง"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочий симулятор не підтримує перевірку доступності."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器worker不支持可访问性检查。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器worker不支援可訪問性檢查。"
           }
         }
       }
@@ -224215,13 +228806,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The active Xcode worker did not negotiate an isolated camera adapter."
+            "value": "The simulator worker does not support camera injection."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "有効なXcodeワーカーは分離されたカメラアダプタに対応していません。"
+            "value": "シミュレーター ワーカーはカメラ インジェクションをサポートしていません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عامل المحاكاة لا يدعم حقن الكاميرا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radnik na simulatoru ne podržava ubrizgavanje kamere."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorarbejderen understøtter ikke kameraindsprøjtning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Simulator-Worker unterstützt keine Kamerainjektion."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El trabajador del simulador no admite la inyección de cámara."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le travailleur du simulateur ne prend pas en charge l’injection de caméra."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'operatore del simulatore non supporta l'inserimento della fotocamera."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorarbeideren støtter ikke kamerainjeksjon."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បុគ្គលិកក្លែងធ្វើមិនគាំទ្រការចាក់កាមេរ៉ាទេ។"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочий симулятор не поддерживает внедрение камеры."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 작업자는 카메라 삽입을 지원하지 않습니다."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pracownik symulatora nie obsługuje wstrzykiwania kamery."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O trabalhador do simulador não oferece suporte à injeção de câmera."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör çalışanı kamera enjeksiyonunu desteklemiyor."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผู้ปฏิบัติงานจำลองไม่รองรับการแทรกกล้อง"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочий симулятор не підтримує введення камери."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器worker不支持相机注入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器worker不支援相機注入。"
           }
         }
       }
@@ -224555,13 +229254,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The active Xcode worker did not negotiate foreground-app inspection."
+            "value": "The simulator worker does not support foreground-app inspection."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "有効なXcodeワーカーはフォアグラウンドApp検査に対応していません。"
+            "value": "シミュレーター ワーカーはフォアグラウンド アプリの検査をサポートしていません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يدعم عامل المحاكاة فحص التطبيق الأمامي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El trabajador del simulador no admite la inspección de aplicaciones en primer plano."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorarbejderen understøtter ikke forgrundsappinspektion."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Simulator-Worker unterstützt keine Vordergrund-App-Inspektion."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បុគ្គលិកក្លែងធ្វើមិនគាំទ្រការត្រួតពិនិត្យកម្មវិធីនៅខាងមុខទេ។"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radnik simulatora ne podržava inspekciju aplikacije u prednjem planu."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le travailleur du simulateur ne prend pas en charge l’inspection des applications de premier plan."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 작업자는 포그라운드 앱 검사를 지원하지 않습니다."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il simulatore di lavoro non supporta l'ispezione delle app in primo piano."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorarbeideren støtter ikke forgrunnsappinspeksjon."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочий симулятор не поддерживает проверку приложений на переднем плане."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proces roboczy symulatora nie obsługuje inspekcji aplikacji na pierwszym planie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O trabalhador do simulador não oferece suporte à inspeção de aplicativos em primeiro plano."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör çalışanı, ön plan uygulama incelemesini desteklemez."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผู้ปฏิบัติงานจำลองไม่รองรับการตรวจสอบแอปเบื้องหน้า"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочий симулятор не підтримує перевірку програми на передньому плані."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器工作人员不支持前台应用程序检查。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器工作人員不支援前台應用程式檢查。"
           }
         }
       }
@@ -224725,13 +229532,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The active Xcode worker did not negotiate a safe adapter for %@."
+            "value": "The simulator worker does not support %@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "有効なXcodeワーカーは%@用の安全なアダプタに対応していません。"
+            "value": "シミュレータ ワーカーは %1$@ をサポートしていません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عامل المحاكاة لا يدعم %1$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El trabajador del simulador no es compatible con %1$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Simulator-Worker unterstützt %1$@ nicht."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorarbejderen understøtter ikke %1$@."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 작업자는 %1$@을 지원하지 않습니다."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le travailleur du simulateur ne prend pas en charge %1$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorski radnik ne podržava %1$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il simulatore di lavoro non supporta %1$@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បុគ្គលិកក្លែងធ្វើមិនគាំទ្រ %1$@ ទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorarbeideren støtter ikke %1$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O trabalhador do simulador não suporta %1$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proces roboczy symulatora nie obsługuje %1$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผู้ปฏิบัติงานจำลองไม่สนับสนุน %1$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör çalışanı %1$@'ı desteklemiyor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочий симулятор не поддерживает %1$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочий симулятор не підтримує %1$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器工作人员不支持%1$@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器工作人員不支援%1$@。"
           }
         }
       }
@@ -224742,13 +229657,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The active Xcode worker did not negotiate permission readback."
+            "value": "The simulator worker does not support permission readback."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "有効なXcodeワーカーは権限状態の読み取りに対応していません。"
+            "value": "シミュレーター ワーカーは権限のリードバックをサポートしていません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يدعم عامل المحاكاة إعادة قراءة الإذن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radnik na simulatoru ne podržava čitanje dozvole."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorarbejderen understøtter ikke tilbagelæsning af tilladelser."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El trabajador del simulador no admite la lectura de permisos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le travailleur du simulateur ne prend pas en charge la relecture des autorisations."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Simulator-Worker unterstützt das Zurücklesen von Berechtigungen nicht."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il simulatore di lavoro non supporta la rilettura delle autorizzazioni."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកធ្វើការក្លែងធ្វើមិនគាំទ្រការអានការអនុញ្ញាតទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorarbeideren støtter ikke tilbakelesing av tillatelser."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 작업자는 권한 읽기를 지원하지 않습니다."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผู้ปฏิบัติงานจำลองไม่สนับสนุนการอ่านสิทธิ์อนุญาต"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proces roboczy symulatora nie obsługuje odczytywania uprawnień."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O trabalhador do simulador não oferece suporte à leitura de permissão."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simülatör çalışanı izinlerin geri okunmasını desteklemiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочий симулятор не підтримує зворотне читання дозволу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器worker不支持权限回读。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器worker不支援權限回讀。"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочий симулятор не поддерживает обратное чтение разрешений."
           }
         }
       }
@@ -224759,13 +229782,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reset All needs the active Xcode worker's isolated extended-permissions adapter."
+            "value": "Reset All is unavailable for this simulator runtime."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてをリセットするには、有効なXcodeワーカーの分離された拡張権限アダプタが必要です。"
+            "value": "このシミュレータ ランタイムでは [すべてリセット] は使用できません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تعيين الكل غير متاح لوقت تشغيل المحاكاة هذا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restablecer todo no está disponible para este tiempo de ejecución del simulador."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nulstil alt er ikke tilgængelig for denne simulatorkørsel."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Alles zurücksetzen“ ist für diese Simulatorlaufzeit nicht verfügbar."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resetiraj sve nije dostupno za ovo vrijeme rada simulatora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réinitialiser tout n’est pas disponible pour ce runtime de simulateur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina tutto non è disponibile per questo runtime del simulatore."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណត់ឡើងវិញទាំងអស់គឺមិនអាចប្រើបានសម្រាប់ការរត់កម្មវិធីត្រាប់តាមនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 시뮬레이터 런타임에서는 모두 재설정을 사용할 수 없습니다."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opcja Resetuj wszystko jest niedostępna w tym środowisku wykonawczym symulatora."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redefinir tudo não está disponível para este tempo de execução do simulador."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilbakestill alt er utilgjengelig for denne simulatorens kjøretid."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รีเซ็ตทั้งหมดไม่พร้อมใช้งานสำหรับรันไทม์จำลองนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tümünü Sıfırla bu simülatör çalışma zamanı için kullanılamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Функція «Скинути все» недоступна для цього середовища виконання симулятора."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Функция «Сбросить все» недоступна для этой среды выполнения симулятора."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“全部重置”对此模拟器运行时不可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「全部重置」對此模擬器運作時不可用。"
           }
         }
       }
@@ -225082,13 +230213,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The selected Simulator did not negotiate native Web Inspector access."
+            "value": "The selected Simulator does not support inspector access."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選択したSimulatorはネイティブWeb Inspectorアクセスに対応していません。"
+            "value": "選択したシミュレーターはインスペクターへのアクセスをサポートしていません。"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den valgte simulator understøtter ikke inspektøradgang."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يدعم جهاز المحاكاة المحدد وصول المفتش."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El simulador seleccionado no admite el acceso del inspector."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odabrani simulator ne podržava pristup inspektora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le simulateur sélectionné ne prend pas en charge l'accès aux inspecteurs."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der ausgewählte Simulator unterstützt keinen Inspektorzugriff."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il simulatore selezionato non supporta l'accesso da ispettore."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីក្លែងធ្វើដែលបានជ្រើសរើសមិនគាំទ្រការចូលប្រើអធិការទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den valgte simulatoren støtter ikke inspektørtilgang."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 시뮬레이터는 검사자 액세스를 지원하지 않습니다."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybrany symulator nie obsługuje dostępu inspektora."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Simulador selecionado não suporta acesso de inspetor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбранный симулятор не поддерживает доступ инспектора."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องจำลองที่เลือกไม่รองรับการเข้าถึงของผู้ตรวจสอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçilen Simülatör denetçi erişimini desteklemiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вибраний симулятор не підтримує доступ інспектора."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选模拟器不支持检查器访问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所選模擬器不支援檢查器存取。"
           }
         }
       }

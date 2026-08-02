@@ -1,4 +1,5 @@
 import Foundation
+import MachO
 
 struct MacSentryStartupPolicy: Sendable {
     let telemetryEnabled: Bool
@@ -30,9 +31,12 @@ struct MacSentryStartupPolicy: Sendable {
         telemetryEnabled && (!isRunningUnderXCTest || allowUnderXCTest)
     }
 
-    static func isRunningUnderXCTest(environment: [String: String]) -> Bool {
-        // xcodebuild strips TEST_RUNNER_ from variables forwarded to the test
-        // host, so the CI wrapper makes this available before XCTest connects.
+    static func isRunningUnderXCTest(
+        environment: [String: String],
+        loadedImageNames: [String]? = nil,
+        embeddedPlugInURLs: [URL]? = nil
+    ) -> Bool {
+        if environment["CMUX_XCTEST_APP_HOST"] == "1" { return true }
         if environment["CMUX_TEST_PROCESS"] == "1" { return true }
         if environment["XCTestConfigurationFilePath"] != nil { return true }
         if environment["XCTestBundlePath"] != nil { return true }
@@ -41,6 +45,40 @@ struct MacSentryStartupPolicy: Sendable {
         if environment["XCInjectBundleInto"] != nil { return true }
         if environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true { return true }
         if environment.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) { return true }
+        if containsEmbeddedXCTestBundle(
+            embeddedPlugInURLs ?? builtInPlugInURLs()
+        ) { return true }
+        if containsLoadedXCTestInjectionImage(
+            loadedImageNames ?? Self.loadedImageNames()
+        ) { return true }
         return false
+    }
+
+    static func containsEmbeddedXCTestBundle(_ plugInURLs: [URL]) -> Bool {
+        plugInURLs.contains {
+            $0.pathExtension.caseInsensitiveCompare("xctest") == .orderedSame
+        }
+    }
+
+    static func containsLoadedXCTestInjectionImage(
+        _ loadedImageNames: [String]
+    ) -> Bool {
+        loadedImageNames.contains {
+            ($0 as NSString).lastPathComponent == "libXCTestBundleInject.dylib"
+        }
+    }
+
+    private static func builtInPlugInURLs() -> [URL] {
+        guard let directory = Bundle.main.builtInPlugInsURL else { return [] }
+        return (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+    }
+
+    private static func loadedImageNames() -> [String] {
+        (0..<_dyld_image_count()).compactMap { imageIndex in
+            _dyld_get_image_name(imageIndex).map(String.init(cString:))
+        }
     }
 }

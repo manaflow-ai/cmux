@@ -10,9 +10,14 @@ let package = Package(
     products: [
         .library(name: "CmuxSimulator", targets: ["CmuxSimulator"]),
         .library(name: "CmuxSimulatorUI", targets: ["CmuxSimulatorUI"]),
+        .library(
+            name: "CmuxSimulatorUIAutomation",
+            targets: ["CmuxSimulatorUIAutomation"]
+        ),
         .library(name: "CmuxSimulatorWorker", targets: ["CmuxSimulatorWorker"]),
     ],
     dependencies: [
+        .package(path: "../CmuxControlSocket"),
         .package(path: "../CmuxFoundation"),
     ],
     targets: [
@@ -56,6 +61,20 @@ let package = Package(
                 .linkedFramework("QuartzCore"),
             ]
         ),
+        .target(
+            name: "CmuxSimulatorUIAutomation",
+            dependencies: [
+                "CmuxSimulator",
+                "CmuxSimulatorUI",
+                .product(
+                    name: "CmuxControlSocket",
+                    package: "CmuxControlSocket"
+                ),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
         .testTarget(
             name: "CmuxSimulatorTests",
             dependencies: ["CmuxSimulator"],
@@ -68,8 +87,16 @@ let package = Package(
             dependencies: [
                 "CmuxSimulatorSystem",
                 "CmuxSimulatorUI",
+                "CmuxSimulatorUIAutomation",
                 "CmuxSimulatorWorker",
             ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxSimulatorUIAutomationTests",
+            dependencies: ["CmuxSimulatorUIAutomation"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]

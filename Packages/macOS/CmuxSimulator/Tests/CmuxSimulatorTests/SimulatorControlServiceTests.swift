@@ -14,7 +14,10 @@ struct SimulatorControlServiceTests {
         #expect(deadlines.recover >= 483)
         #expect(deadlines.textInputReadiness >= deadlines.selectDevice)
         #expect(deadlines.webInspectorReadiness >= deadlines.selectDevice)
-        #expect(deadlines.clientTimeout(for: deadlines.inspectionRead) == 45)
+        #expect(
+            deadlines.clientTimeout(for: deadlines.inspectionRead)
+                == deadlines.selectDevice + 60
+        )
         #expect(SimulatorOperationDeadlines(selectDevice: 600).textInputReadiness == 600)
         #expect(SimulatorOperationDeadlines(selectDevice: 600).webInspectorReadiness == 600)
     }

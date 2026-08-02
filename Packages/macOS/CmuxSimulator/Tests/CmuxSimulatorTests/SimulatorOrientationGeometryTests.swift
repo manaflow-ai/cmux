@@ -67,6 +67,29 @@ struct SimulatorOrientationGeometryTests {
         )
     }
 
+    @Test(
+        "Raw and displayed point mappings are exact inverses",
+        arguments: [
+            SimulatorOrientation.portrait,
+            .portraitUpsideDown,
+            .landscapeLeft,
+            .landscapeRight,
+        ]
+    )
+    func pointMappingRoundTrip(orientation: SimulatorOrientation) {
+        let geometry = SimulatorOrientationGeometry(
+            rawWidth: 400,
+            rawHeight: 800,
+            requestedOrientation: orientation
+        )
+        let displayed = SimulatorPoint(x: 0.217, y: 0.683)
+
+        expectEqual(
+            geometry.displayPoint(for: geometry.rawPoint(for: displayed)),
+            displayed
+        )
+    }
+
     @Test("Presentation and HID mapping reconcile raw and requested orientation", arguments: cases)
     fileprivate func geometry(testCase: GeometryCase) {
         let geometry = SimulatorOrientationGeometry(

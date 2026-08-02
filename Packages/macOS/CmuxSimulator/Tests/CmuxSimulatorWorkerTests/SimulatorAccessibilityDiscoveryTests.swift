@@ -62,6 +62,48 @@ struct SimulatorAccessibilityDiscoveryTests {
         #expect(bounded.count == SimulatorAccessibilityBridge.maximumTextUTF8ByteCount / 4)
     }
 
+    @Test("Truncated accessibility selector fields carry explicit metadata")
+    func truncatedAccessibilitySelectorFieldsAreMarked() throws {
+        let element = NSAccessibilityElement()
+        let longValue = String(
+            repeating: "selector ",
+            count: SimulatorAccessibilityBridge.maximumTextUTF8ByteCount
+        )
+        element.setAccessibilityFrame(NSRect(x: 0, y: 0, width: 100, height: 44))
+        element.setAccessibilityRole(.textField)
+        element.setAccessibilityIdentifier(longValue)
+        element.setAccessibilityLabel(longValue)
+        element.setAccessibilityValue(longValue)
+        let bridge = SimulatorAccessibilityBridge()
+        var remaining = 1
+        var visited: Set<ObjectIdentifier> = []
+        var coverage = SimulatorAccessibilityCoverage()
+        var traversalTruncated = false
+
+        let node = try #require(bridge.serialize(
+            element,
+            path: "0",
+            token: "",
+            depth: 0,
+            remaining: &remaining,
+            visited: &visited,
+            coverage: &coverage,
+            traversalTruncated: &traversalTruncated
+        ))
+        let encoded = try JSONEncoder().encode(node)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+
+        #expect(object["isIdentifierTruncated"] as? Bool == true)
+        #expect(object["isLabelTruncated"] as? Bool == true)
+        #expect(object["isValueTruncated"] as? Bool == true)
+        #expect(node.id == "0")
+        #expect(node.identifier != longValue)
+        #expect(node.label != longValue)
+        #expect(node.value != longValue)
+    }
+
     @Test("Grid covers the full display while respecting its hard point cap")
     func boundedFullDisplayGrid() throws {
         let bounds = NSRect(x: 120, y: 40, width: 1_366, height: 1_024)
@@ -100,5 +142,17 @@ struct SimulatorAccessibilityDiscoveryTests {
         #expect(grid.points(
             in: NSRect(x: 0, y: 0, width: CGFloat.infinity, height: 10)
         ).isEmpty)
+    }
+
+    @Test("Detaching releases the SimDevice accessibility connection")
+    func detachReleasesAccessibilityConnection() {
+        let bridge = SimulatorAccessibilityBridge()
+        let device = SimulatorAccessibilityConnectionDevice()
+        _ = bridge.attach(device: device)
+        device.accessibilityConnection = NSObject()
+
+        bridge.detach()
+
+        #expect(device.accessibilityConnection == nil)
     }
 }

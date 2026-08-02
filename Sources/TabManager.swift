@@ -5797,6 +5797,12 @@ extension TabManager {
                     ),
                     into: &hasher
                 )
+                Self.hashSimulatorPanelSnapshot(
+                    workspace.panels[panelId].flatMap {
+                        workspace.simulatorSessionSnapshot(for: $0)
+                    },
+                    into: &hasher
+                )
                 if let terminalPanel = workspace.terminalPanel(for: panelId) {
                     Self.hashTextBoxDraftSnapshot(
                         terminalPanel.sessionTextBoxDraftSnapshot(),
@@ -5831,6 +5837,20 @@ extension TabManager {
         var hasher = Hasher()
         hashRestorableAgentSnapshot(snapshot, into: &hasher)
         return hasher.finalize()
+    }
+
+    nonisolated private static func hashSimulatorPanelSnapshot(
+        _ snapshot: SessionSimulatorPanelSnapshot?,
+        into hasher: inout Hasher
+    ) {
+        guard let snapshot else {
+            hasher.combine(false)
+            return
+        }
+        hasher.combine(true)
+        hashOptionalString(snapshot.deviceUDID, into: &hasher)
+        hashOptionalString(snapshot.runtimeIdentifier, into: &hasher)
+        hashOptionalString(snapshot.deviceTypeIdentifier, into: &hasher)
     }
 
     nonisolated private static func hashRestorableAgentSnapshot(

@@ -111,7 +111,7 @@ extension SimulatorWorkerClient {
                 arguments: [],
                 message: String(
                     localized: "simulator.failure.webInspectorCapability",
-                    defaultValue: "The selected Simulator did not negotiate native Web Inspector access."
+                    defaultValue: "The selected Simulator does not support inspector access."
                 )
             )
         }

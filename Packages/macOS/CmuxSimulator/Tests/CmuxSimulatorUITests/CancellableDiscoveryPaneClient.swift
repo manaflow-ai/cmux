@@ -36,6 +36,7 @@ actor CancellableDiscoveryPaneClient: SimulatorPaneClient {
     func shutdownDevice(id: String) async throws {}
     func subscribe() async -> SimulatorWorkerEventStream { eventStream }
     func send(_ message: SimulatorWorkerInbound) async {}
+    func quiesceInputDelivery() async throws {}
     func synchronizeOrientation(
         _ orientation: SimulatorOrientation
     ) async throws -> SimulatorDisplayMetadata? { nil }

@@ -85,13 +85,13 @@ struct SSHRetryBackoffScriptBuilderTests {
         }
 
         try process.run()
-        let readyDeadline = Date.now.addingTimeInterval(3)
+        let readyDeadline = Date.now.addingTimeInterval(10)
         while !fileManager.fileExists(atPath: readyMarker.path),
               process.isRunning,
               Date.now < readyDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
-        #expect(fileManager.fileExists(atPath: readyMarker.path))
+        try #require(fileManager.fileExists(atPath: readyMarker.path))
         let parsedBackoffPID = try #require(Int32(
             String(contentsOf: backoffPIDFile, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)

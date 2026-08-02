@@ -132,6 +132,119 @@ struct SimulatorAccessibilityWorkerClientTests {
         await client.stop()
     }
 
+    @Test("A caller-owned accessibility deadline preserves the healthy worker")
+    func callerOwnedAccessibilityTimeoutPreservesWorker() async throws {
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(
+            launcher: launcher,
+            sleeper: AccessibilityTimeoutSleeper()
+        )
+        let events = await client.subscribe()
+        var iterator = events.makeAsyncIterator()
+        await client.send(.attach(udid: "DEVICE", geometry: nil))
+        let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.status(.streaming))
+        endpoint.emit(.capabilities([.accessibility]))
+        endpoint.emit(.frameTransport(simulatorFrameTransportDescriptor(15)))
+        _ = await iterator.next()
+        _ = await iterator.next()
+        _ = await iterator.next()
+        endpoint.setResponder { message in
+            guard case let .ping(sequence) = message else { return nil }
+            return .ack(sequence)
+        }
+        endpoint.acknowledgeRecordedPings()
+        let inboundCountBeforeRead = endpoint.inboundMessages().count
+
+        do {
+            _ = try await client.readAccessibility(timeout: .milliseconds(100))
+            Issue.record("Expected the caller-owned accessibility timeout")
+        } catch let error as SimulatorControlError {
+            #expect(error.code == "worker_response_timed_out")
+        }
+
+        #expect(endpoint.terminationCountValue() == 0)
+        #expect(launcher.endpoint(at: 1) == nil)
+        let timeoutMessages = endpoint.inboundMessages()
+            .dropFirst(inboundCountBeforeRead)
+        let requestIdentifier = try #require(timeoutMessages.compactMap {
+            message -> UUID? in
+            guard case let .requestAccessibility(requestIdentifier) = message else {
+                return nil
+            }
+            return requestIdentifier
+        }.first)
+        let timeoutPayloads = try timeoutMessages
+            .map { message in
+                String(decoding: try JSONEncoder().encode(message), as: UTF8.self)
+            }
+        #expect(timeoutPayloads.contains {
+            $0.contains("cancelAccessibilitySnapshotRequest")
+                && $0.contains(requestIdentifier.uuidString)
+        })
+        await client.stop()
+    }
+
+    @Test("Cancelling an accessibility read cancels only its worker request")
+    func callerCancellationCancelsAccessibilityRequest() async throws {
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(launcher: launcher)
+        let events = await client.subscribe()
+        var iterator = events.makeAsyncIterator()
+        await client.send(.attach(udid: "DEVICE", geometry: nil))
+        let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.status(.streaming))
+        endpoint.emit(.capabilities([.accessibility]))
+        endpoint.emit(.frameTransport(simulatorFrameTransportDescriptor(16)))
+        _ = await iterator.next()
+        _ = await iterator.next()
+        _ = await iterator.next()
+        endpoint.setResponder { message in
+            guard case let .ping(sequence) = message else { return nil }
+            return .ack(sequence)
+        }
+        endpoint.acknowledgeRecordedPings()
+
+        let read = Task {
+            try await client.readAccessibility(timeout: .seconds(60))
+        }
+        var requestIdentifier: UUID?
+        for _ in 0..<100 where requestIdentifier == nil {
+            requestIdentifier = endpoint.inboundMessages().compactMap { message -> UUID? in
+                guard case let .requestAccessibility(identifier) = message else {
+                    return nil
+                }
+                return identifier
+            }.last
+            if requestIdentifier == nil {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        let capturedRequestIdentifier = try #require(requestIdentifier)
+
+        read.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await read.value
+        }
+
+        var cancellationWasSent = false
+        for _ in 0..<100 where !cancellationWasSent {
+            cancellationWasSent = endpoint.inboundMessages().contains { message in
+                guard case let .cancelAccessibilitySnapshotRequest(identifier) = message else {
+                    return false
+                }
+                return identifier == capturedRequestIdentifier
+            }
+            if !cancellationWasSent {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        #expect(cancellationWasSent)
+        #expect(endpoint.terminationCountValue() == 0)
+        #expect(launcher.endpoint(at: 1) == nil)
+        await client.stop()
+    }
+
     @Test("A foreground telemetry timeout restarts the isolated worker")
     func foregroundTimeoutRestartsWorker() async throws {
         let launcher = TestWorkerLauncher()

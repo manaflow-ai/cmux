@@ -90,3 +90,29 @@ public enum SimulatorControlAction: Equatable, Sendable {
     /// Send one raw JSON command through the attached Web Inspector session.
     case sendWebInspectorMessage(json: String)
 }
+
+extension SimulatorControlAction {
+    /// Whether execution can make an in-flight accessibility result stale.
+    public var invalidatesUIAutomationSnapshot: Bool {
+        switch self {
+        case .listApplications, .readClipboard, .readPrivacy,
+             .readInterfaceStatus, .screenshot, .prepareVideoRecording,
+             .recentLogs, .prepareLogStream, .readCameraStatus,
+             .readAccessibility, .readForegroundApplication,
+             .setAccessibilityHighlight, .refreshWebInspectorTargets,
+             .attachWebInspector, .releaseWebInspector,
+             .setWebInspectorHighlight:
+            false
+        case .interactive, .installApplication, .launchApplication,
+             .terminateApplication, .cleanupCameraApplication, .openURL,
+             .addMedia, .writeClipboard, .syncClipboardFromHost,
+             .setLocation, .clearLocation, .startLocationRoute,
+             .pushNotification, .setPrivacy, .overrideStatusBar,
+             .clearStatusBar, .setInterface, .configureCamera,
+             .switchCameraSource, .setCameraMirror, .reloadReactNative,
+             .pauseLocationRoute, .resumeLocationRoute, .stopLocationRoute,
+             .sendWebInspectorMessage:
+            true
+        }
+    }
+}

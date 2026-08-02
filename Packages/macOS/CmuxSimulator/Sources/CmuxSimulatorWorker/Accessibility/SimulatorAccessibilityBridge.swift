@@ -48,21 +48,62 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
     }
 
     func attach(device: NSObject) -> Bool {
+        detach()
         attachedDevice = device
         do {
             try loadTranslator()
-            return device.responds(
+            let isAvailable = device.responds(
                 to: NSSelectorFromString(
                     "sendAccessibilityRequestAsync:completionQueue:completionHandler:"
                 )
             )
+            if !isAvailable { detach() }
+            return isAvailable
         } catch {
+            detach()
             return false
         }
     }
 
     func detach() {
+        resetAccessibilityConnection()
         attachedDevice = nil
+    }
+
+    /// Drops CoreSimulator's lazily-created AX transport.
+    ///
+    /// A `SimDevice` retains this connection after a translation completes.
+    /// Leaving several pane workers attached to the same UDID poisons later
+    /// translation requests, including requests from AXe. Every bounded
+    /// operation now creates the connection while holding a per-device lease
+    /// and releases it before another process can use the device.
+    func resetAccessibilityConnection() {
+        guard let attachedDevice else { return }
+        let selector = NSSelectorFromString("setAccessibilityConnection:")
+        guard attachedDevice.responds(to: selector),
+              let implementation = class_getMethodImplementation(
+                  type(of: attachedDevice),
+                  selector
+              )
+        else { return }
+        typealias Function = @convention(c) (
+            AnyObject,
+            Selector,
+            AnyObject?
+        ) -> Void
+        unsafeBitCast(implementation, to: Function.self)(
+            attachedDevice,
+            selector,
+            nil
+        )
+    }
+
+    /// Verifies that private translation reaches a platform accessibility root.
+    func probeAccessibility() throws {
+        let (translation, token) = try frontmostTranslation()
+        stampToken(on: translation, token: token)
+        let root = try platformElement(from: translation)
+        stampNestedTranslation(on: root, token: token)
     }
 
     func accessibilitySnapshot(
@@ -70,30 +111,7 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
     ) throws -> SimulatorAccessibilitySnapshot {
         let (translation, token) = try frontmostTranslation()
         stampToken(on: translation, token: token)
-
-        let translator = try requireTranslator()
-        let selector = NSSelectorFromString("macPlatformElementFromTranslation:")
-        guard translator.responds(to: selector),
-              let implementation = class_getMethodImplementation(type(of: translator), selector)
-        else {
-            throw SimulatorWorkerFailure.accessibilityUnavailable(
-                "The accessibility translator cannot create a macOS platform element."
-            )
-        }
-        typealias Function = @convention(c) (
-            AnyObject,
-            Selector,
-            AnyObject
-        ) -> AnyObject?
-        guard let root = unsafeBitCast(implementation, to: Function.self)(
-            translator,
-            selector,
-            translation
-        ) as? NSObject else {
-            throw SimulatorWorkerFailure.accessibilityUnavailable(
-                "The Simulator did not return a frontmost accessibility element."
-            )
-        }
+        let root = try platformElement(from: translation)
 
         stampNestedTranslation(on: root, token: token)
         let rootFrame = (root as? NSAccessibilityElement)?.accessibilityFrame() ?? .zero
@@ -125,6 +143,33 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
             nodeCount: Self.maximumNodeCount - remaining,
             isTruncated: traversalTruncated
         )
+    }
+
+    private func platformElement(from translation: NSObject) throws -> NSObject {
+        let translator = try requireTranslator()
+        let selector = NSSelectorFromString("macPlatformElementFromTranslation:")
+        guard translator.responds(to: selector),
+              let implementation = class_getMethodImplementation(type(of: translator), selector)
+        else {
+            throw SimulatorWorkerFailure.accessibilityUnavailable(
+                "The accessibility translator cannot create a macOS platform element."
+            )
+        }
+        typealias Function = @convention(c) (
+            AnyObject,
+            Selector,
+            AnyObject
+        ) -> AnyObject?
+        guard let root = unsafeBitCast(implementation, to: Function.self)(
+            translator,
+            selector,
+            translation
+        ) as? NSObject else {
+            throw SimulatorWorkerFailure.accessibilityUnavailable(
+                "The Simulator did not return a frontmost accessibility element."
+            )
+        }
+        return root
     }
 
     private func loadTranslator() throws {
@@ -244,14 +289,25 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
         let role = rawRole.map { value in
             value.hasPrefix("AX") ? String(value.dropFirst(2)) : value
         }.map(boundedSimulatorAccessibilityText)
-        let label = element?.accessibilityLabel().map(boundedSimulatorAccessibilityText)
+        let labelField = element?.accessibilityLabel().map(
+            boundedSimulatorAccessibilityField
+        )
+        let label = labelField?.value
         let rawValue = element?.accessibilityValue()
-        let value = rawValue.map { boundedSimulatorAccessibilityText(String(describing: $0)) }
-        let identifier = element?.accessibilityIdentifier().map(boundedSimulatorAccessibilityText)
+        let valueField = rawValue.map {
+            boundedSimulatorAccessibilityField(String(describing: $0))
+        }
+        let value = valueField?.value
+        let identifierField = element?.accessibilityIdentifier().map(
+            boundedSimulatorAccessibilityField
+        )
+        let identifier = identifierField?.value
         let roleDescription = element?.accessibilityRoleDescription().map(
             boundedSimulatorAccessibilityText
         )
         let enabled = element?.isAccessibilityEnabled()
+        let focused = element?.isAccessibilityFocused()
+        let selected = element?.isAccessibilitySelected()
         let children = element?.accessibilityChildren() ?? []
 
         var serializedChildren: [SimulatorAccessibilityNode] = []
@@ -283,12 +339,23 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
             coverage.insertLeaf(resolvedFrame)
         }
 
-        let nodeIdentifier = identifier.flatMap { $0.isEmpty ? nil : $0 } ?? path
+        let identifierIsTruncated = identifierField?.isTruncated == true
+        let nodeIdentifier = if !identifierIsTruncated,
+                                let identifier,
+                                !identifier.isEmpty {
+            identifier
+        } else {
+            path
+        }
         return SimulatorAccessibilityNode(
             id: nodeIdentifier,
+            identifier: identifier,
+            isIdentifierTruncated: identifierIsTruncated,
             role: role,
             label: label,
+            isLabelTruncated: labelField?.isTruncated == true,
             value: value,
+            isValueTruncated: valueField?.isTruncated == true,
             roleDescription: roleDescription,
             frame: frame.map {
                 SimulatorRect(
@@ -299,6 +366,8 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
                 )
             },
             isEnabled: enabled,
+            isFocused: focused,
+            isSelected: selected,
             children: serializedChildren
         )
     }
@@ -365,8 +434,14 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
 }
 
 func boundedSimulatorAccessibilityText(_ value: String) -> String {
+    boundedSimulatorAccessibilityField(value).value
+}
+
+func boundedSimulatorAccessibilityField(
+    _ value: String
+) -> (value: String, isTruncated: Bool) {
     guard value.utf8.count > SimulatorAccessibilityBridge.maximumTextUTF8ByteCount else {
-        return value
+        return (value, false)
     }
     var result = ""
     var byteCount = 0
@@ -377,7 +452,7 @@ func boundedSimulatorAccessibilityText(_ value: String) -> String {
         result.unicodeScalars.append(scalar)
         byteCount += scalarByteCount
     }
-    return result
+    return (result, true)
 }
 
 private func isLikelySimulatorAccessibilityContainer(_ frame: NSRect) -> Bool {

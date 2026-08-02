@@ -10,8 +10,7 @@ struct SimulatorWebInspectorSessionRouter {
     private(set) var mode: Mode = .negotiating
     private var wrappedAcknowledgementCounts: [RequestIdentifier: Int] = [:]
     private var wrappedAcknowledgementCount = 0
-    private var wrapperIdentifierPrefix = UUID().uuidString
-    private var nextWrapperIdentifier: UInt64 = 0
+    private var nextWrapperIdentifier: Int64 = Self.firstWrapperIdentifier
     private var queuedMessages: [Data] = []
     private var queuedByteCount = 0
 
@@ -19,6 +18,8 @@ struct SimulatorWebInspectorSessionRouter {
     static let maximumQueuedCommandCount = 64
     static let maximumQueuedByteCount = 2 * 1024 * 1024
     static let maximumWrappedAcknowledgementCount = 1_024
+    static let firstWrapperIdentifier: Int64 = 8_000_000_000_000_000
+    static let lastWrapperIdentifier: Int64 = 9_000_000_000_000_000
 
     mutating func routeOutgoing(_ raw: Data) throws -> [Data] {
         guard raw.count <= Self.maximumCommandLength else {
@@ -30,7 +31,8 @@ struct SimulatorWebInspectorSessionRouter {
 
         if isTargetDomain,
            let identifier = simulatorWebInspectorRequestIdentifier(message["id"]),
-           wrappedAcknowledgementCounts[identifier] != nil {
+           identifier.numericValue.map({ $0 >= Self.firstWrapperIdentifier }) == true
+                || wrappedAcknowledgementCounts[identifier] != nil {
             throw SimulatorWebInspectorError.wrapperIdentifierCollision
         }
 
@@ -43,11 +45,10 @@ struct SimulatorWebInspectorSessionRouter {
             let wrapperIdentifier = makeWrapperIdentifier()
             wrappedAcknowledgementCounts[wrapperIdentifier] = 1
             wrappedAcknowledgementCount += 1
-            var parameters: [String: Any] = [
+            let parameters: [String: Any] = [
                 "message": String(decoding: raw, as: UTF8.self),
                 "targetId": innerTargetIdentifier,
             ]
-            if let identifier = message["id"] { parameters["id"] = identifier }
             let wrapped: [String: Any] = [
                 "id": wrapperIdentifier.foundationValue,
                 "method": "Target.sendMessageToTarget",
@@ -148,8 +149,7 @@ struct SimulatorWebInspectorSessionRouter {
         mode = .negotiating
         wrappedAcknowledgementCounts.removeAll()
         wrappedAcknowledgementCount = 0
-        wrapperIdentifierPrefix = UUID().uuidString
-        nextWrapperIdentifier = 0
+        nextWrapperIdentifier = Self.firstWrapperIdentifier
         queuedMessages.removeAll()
         queuedByteCount = 0
     }
@@ -182,8 +182,15 @@ struct SimulatorWebInspectorSessionRouter {
     }
 
     private mutating func makeWrapperIdentifier() -> RequestIdentifier {
-        defer { nextWrapperIdentifier &+= 1 }
-        return .string("cmux-wrapper-\(wrapperIdentifierPrefix)-\(nextWrapperIdentifier)")
+        while true {
+            let identifier = RequestIdentifier.number(String(nextWrapperIdentifier))
+            nextWrapperIdentifier = nextWrapperIdentifier == Self.lastWrapperIdentifier
+                ? Self.firstWrapperIdentifier
+                : nextWrapperIdentifier + 1
+            if wrappedAcknowledgementCounts[identifier] == nil {
+                return identifier
+            }
+        }
     }
 
     private mutating func consumeWrappedAcknowledgement(
@@ -196,6 +203,13 @@ struct SimulatorWebInspectorSessionRouter {
         else { wrappedAcknowledgementCounts[identifier] = count - 1 }
         wrappedAcknowledgementCount -= 1
         return true
+    }
+}
+
+private extension SimulatorWebInspectorRequestIdentifier {
+    var numericValue: Int64? {
+        guard case let .number(value) = self else { return nil }
+        return Int64(value)
     }
 }
 

@@ -64,6 +64,39 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
                         "bundle_path": "/Applications/Settings.app",
                     }
                 }
+            elif (
+                method == "simulator.tap"
+                and params.get("element_ref") == "e1_warning"
+            ):
+                result = {
+                    "completed": True,
+                    "snapshot_warning": (
+                        "The tap committed before snapshot refresh failed"
+                    ),
+                    "ui_error": {
+                        "code": "SNAPSHOT_CAPTURE_FAILED",
+                        "message": "Snapshot refresh failed",
+                    },
+                    "action": {
+                        "type": "tap",
+                        "element_ref": "e1_warning",
+                    },
+                }
+            elif (
+                method == "simulator.tap"
+                and params.get("element_ref") == "e1_incomplete"
+            ):
+                result = {
+                    "completed": False,
+                    "ui_error": {
+                        "code": "ACTION_INCOMPLETE",
+                        "message": "The tap committed only its pointer-down step",
+                    },
+                    "action": {
+                        "type": "tap",
+                        "element_ref": "e1_incomplete",
+                    },
+                }
             elif method in {"simulator.context", "simulator.prepare_screenshot"}:
                 result = {
                     "simulator_id": "SIMULATOR-1",
@@ -181,11 +214,22 @@ def assert_invalid(
     fake_home: Path,
     state: RecordingState,
     arguments: list[str],
+    expected_stderr: str | None = None,
 ) -> None:
     start = state.count()
     proc = run_cli(cli_path, socket_path, fake_home, arguments)
     if proc.returncode == 0:
         raise AssertionError(f"simulator {' '.join(arguments)} unexpectedly succeeded")
+    if proc.returncode < 0:
+        raise AssertionError(
+            f"simulator {' '.join(arguments)} crashed with signal {-proc.returncode}\n"
+            f"stdout={proc.stdout!r}\nstderr={proc.stderr!r}"
+        )
+    if expected_stderr is not None and expected_stderr not in proc.stderr:
+        raise AssertionError(
+            f"simulator {' '.join(arguments)} stderr was {proc.stderr!r}, "
+            f"expected it to contain {expected_stderr!r}"
+        )
     requests = state.requests_since(start)
     if requests:
         raise AssertionError(
@@ -213,6 +257,241 @@ def check_basic_actions(
         cli_path, socket_path, fake_home, state,
         ["ca", "Blended", "on"], "simulator.core_animation",
         {"diagnostic": "blended", "enabled": True},
+    )
+
+
+def check_ui_automation(
+    cli_path: str, socket_path: Path, fake_home: Path, state: RecordingState
+) -> None:
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["snapshot", "--since-screen-hash", "abc123"],
+        "simulator.snapshot_ui", {"since_screen_hash": "abc123"},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["tap", "--ref", "e1_2", "--pre-delay", "0.05", "--post-delay", "0.1"],
+        "simulator.tap",
+        {
+            "element_ref": "e1_2",
+            "pre_delay_milliseconds": 50,
+            "post_delay_milliseconds": 100,
+        },
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["tap", "--label", "Search", "--role", "TextField"],
+        "simulator.tap",
+        {"label": "Search", "role": "text-field"},
+    )
+    warning_result = assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["tap", "--ref", "e1_warning"],
+        "simulator.tap", {"element_ref": "e1_warning"},
+    )
+    warning_payload = json.loads(warning_result.stdout)
+    if warning_payload != {
+        "action": {"element_ref": "e1_warning", "type": "tap"},
+        "completed": True,
+        "snapshot_warning": "The tap committed before snapshot refresh failed",
+        "ui_error": {
+            "code": "SNAPSHOT_CAPTURE_FAILED",
+            "message": "Snapshot refresh failed",
+        },
+    }:
+        raise AssertionError(
+            "partial semantic tap output lost completion details: "
+            f"{warning_payload!r}"
+        )
+    incomplete_start = state.count()
+    incomplete_result = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        ["tap", "--ref", "e1_incomplete"],
+    )
+    if incomplete_result.returncode <= 0:
+        raise AssertionError(
+            "incomplete semantic tap did not return a positive failure status\n"
+            f"stdout={incomplete_result.stdout!r}\n"
+            f"stderr={incomplete_result.stderr!r}"
+        )
+    incomplete_requests = state.requests_since(incomplete_start)
+    if len(incomplete_requests) != 1:
+        raise AssertionError(
+            "incomplete semantic tap sent unexpected requests: "
+            f"{incomplete_requests!r}"
+        )
+    incomplete_request = incomplete_requests[0]
+    if incomplete_request.get("method") != "simulator.tap":
+        raise AssertionError(
+            "incomplete semantic tap used the wrong method: "
+            f"{incomplete_request!r}"
+        )
+    if (incomplete_request.get("params") or {}).get("element_ref") != "e1_incomplete":
+        raise AssertionError(
+            "incomplete semantic tap lost its element reference: "
+            f"{incomplete_request!r}"
+        )
+    incomplete_payload = json.loads(incomplete_result.stdout)
+    if incomplete_payload != {
+        "action": {"element_ref": "e1_incomplete", "type": "tap"},
+        "completed": False,
+        "ui_error": {
+            "code": "ACTION_INCOMPLETE",
+            "message": "The tap committed only its pointer-down step",
+        },
+    }:
+        raise AssertionError(
+            "incomplete semantic tap output lost failure details: "
+            f"{incomplete_payload!r}"
+        )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["touch", "--ref", "e1_3", "--down", "--up", "--delay", "0.25"],
+        "simulator.touch",
+        {
+            "element_ref": "e1_3", "down": True, "up": True,
+            "delay_milliseconds": 250,
+        },
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["swipe", "--ref", "e1_4", "up", "--duration", "0.4",
+         "--distance", "0.8", "--steps", "1000"],
+        "simulator.swipe",
+        {
+            "within_element_ref": "e1_4", "direction": "up",
+            "duration_milliseconds": 400, "distance": 0.8, "steps": 1000,
+        },
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["drag", "--ref", "e1_5", "right"],
+        "simulator.drag",
+        {"element_ref": "e1_5", "direction": "right"},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["long-press", "--ref", "e1_6", "750"],
+        "simulator.long_press",
+        {"element_ref": "e1_6", "duration_milliseconds": 750},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["type", "--ref", "e1_7", "hello", "--replace-existing"],
+        "simulator.type_text",
+        {"element_ref": "e1_7", "text": "hello", "replace_existing": True},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["key", "40", "--duration", "0.08"],
+        "simulator.key_press",
+        {"key_code": 40, "duration_milliseconds": 80},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["keys", "40,42", "--delay", "0.025"],
+        "simulator.key_sequence",
+        {"key_codes": [40, 42], "delay_milliseconds": 25},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["button", "apple-pay", "--duration", "0.1"],
+        "simulator.button",
+        {"button": "applePay", "duration_milliseconds": 100},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["gesture-preset", "swipe-from-left-edge", "--distance", "0.7"],
+        "simulator.gesture_preset",
+        {"preset": "swipe-from-left-edge", "distance": 0.7},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["batch", json.dumps([
+            {"action": "tap", "elementRef": "e1_2", "preDelay": 1},
+            {"action": "tap", "element_ref": "e1_3", "post_delay": 0.5},
+        ])],
+        "simulator.batch",
+        {"steps": [
+            {
+                "action": "tap", "element_ref": "e1_2",
+                "pre_delay_milliseconds": 1000,
+            },
+            {
+                "action": "tap", "element_ref": "e1_3",
+                "post_delay_milliseconds": 500,
+            },
+        ]},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["wait", "textContains", "--text", "General", "--timeout-ms", "8000"],
+        "simulator.wait_for_ui",
+        {
+            "predicate": "text-contains", "text": "General",
+            "timeout_milliseconds": 8000,
+        },
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["wait", "focused", "--label", "Search", "--role", "TextField"],
+        "simulator.wait_for_ui",
+        {"predicate": "focused", "label": "Search", "role": "text-field"},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["recover"], "simulator.recover", {},
+    )
+
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["swipe", "--ref", "e1_4", "up", "--duration", "0"],
+        "Invalid arguments for simulator swipe",
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["swipe", "--ref", "e1_4", "up", "--duration", "1e20"],
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["drag", "--ref", "e1_5", "diagonal"],
+        "Invalid arguments for simulator drag",
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["touch", "--ref", "e1_3", "--down", "--delay", "0.25"],
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["button", "home", "--replace-existing"],
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["tap", "0.5", "0.5", "--pre-delay", "1"],
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["batch", json.dumps([
+            {"action": "tap", "elementRef": "e1_2", "postDelay": "later"},
+        ])],
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["wait", "focused", "--text", "Search"],
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["wait", "settled", "--label", "Ignored target"],
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["keys", "40,not-a-key,42"],
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["button", "launch-missiles"],
     )
 
 
@@ -393,6 +672,7 @@ def main() -> int:
             thread.start()
             try:
                 check_basic_actions(cli_path, socket_path, fake_home, state)
+                check_ui_automation(cli_path, socket_path, fake_home, state)
                 check_permissions(cli_path, socket_path, fake_home, state)
                 check_interface(cli_path, socket_path, fake_home, state)
                 check_inspection(cli_path, socket_path, fake_home, state)
