@@ -14,6 +14,10 @@ from urllib.request import Request, urlopen
 
 REGISTRY = "https://crates.io/api/v1/crates"
 USER_AGENT = "cmux-sdk-ownership-verifier/1 (https://github.com/manaflow-ai/cmux)"
+BOOTSTRAP_PACKAGE = "cmux-sidebar"
+BOOTSTRAP_REPOSITORY = "https://github.com/manaflow-ai/cmux"
+BOOTSTRAP_OWNER_ID = 431397
+BOOTSTRAP_OWNER_LOGIN = "lawrencecchen"
 
 
 class OwnershipError(RuntimeError):
@@ -48,6 +52,7 @@ def _verify_package(
     repository: str,
     owner_id: int,
     owner_login: str,
+    require_trusted_publishing: bool,
 ) -> None:
     base = f"{REGISTRY}/{quote(package, safe='')}"
     metadata = _json(base)
@@ -58,7 +63,7 @@ def _verify_package(
         raise OwnershipError(f"crates.io project identity is malformed for {package}")
     if crate.get("repository") != repository:
         raise OwnershipError(f"crates.io repository does not match for {package}")
-    if crate.get("trustpub_only") is not True:
+    if require_trusted_publishing and crate.get("trustpub_only") is not True:
         raise OwnershipError(
             f"crates.io trusted publishing is not required for {package}"
         )
@@ -86,13 +91,21 @@ def verify(
     repository: str,
     owner_id: int,
     owner_login: str,
+    *,
+    require_trusted_publishing: bool = True,
 ) -> None:
     if not packages or not repository or owner_id <= 0 or not owner_login:
         raise OwnershipError("crates.io ownership inputs are invalid")
     if len(set(packages)) != len(packages) or any(not package for package in packages):
         raise OwnershipError("crates.io package names must be unique and non-empty")
     for package in packages:
-        _verify_package(package, repository, owner_id, owner_login)
+        _verify_package(
+            package,
+            repository,
+            owner_id,
+            owner_login,
+            require_trusted_publishing,
+        )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -101,17 +114,32 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--repository", required=True)
     parser.add_argument("--owner-id", required=True, type=int)
     parser.add_argument("--owner-login", required=True)
+    parser.add_argument(
+        "--bootstrap-ownership-only",
+        action="store_true",
+        help="verify the fixed cmux-sidebar reservation before trusted publishing is enabled",
+    )
     return parser
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        if args.bootstrap_ownership_only and (
+            args.package != [BOOTSTRAP_PACKAGE]
+            or args.repository != BOOTSTRAP_REPOSITORY
+            or args.owner_id != BOOTSTRAP_OWNER_ID
+            or args.owner_login != BOOTSTRAP_OWNER_LOGIN
+        ):
+            raise OwnershipError(
+                "bootstrap ownership-only mode is restricted to the cmux-sidebar reservation"
+            )
         verify(
             args.package,
             args.repository,
             args.owner_id,
             args.owner_login,
+            require_trusted_publishing=not args.bootstrap_ownership_only,
         )
     except OwnershipError as error:
         print(f"crates.io ownership verification failed: {error}", file=sys.stderr)

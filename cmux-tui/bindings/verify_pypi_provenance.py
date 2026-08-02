@@ -6,15 +6,21 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import PurePath
+import re
 import subprocess
 import sys
-from typing import Any, Optional, Sequence
+import tempfile
+from typing import Any, Mapping, Optional, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
 
 USER_AGENT = "cmux-sdk-pypi-provenance/1"
+SOURCE_REPOSITORY_DIGEST_OID = "1.3.6.1.4.1.57264.1.13"
+SOURCE_REPOSITORY_REF_OID = "1.3.6.1.4.1.57264.1.14"
+BUILD_CONFIG_URI_OID = "1.3.6.1.4.1.57264.1.18"
+BUILD_CONFIG_DIGEST_OID = "1.3.6.1.4.1.57264.1.19"
 
 
 class ProvenanceError(RuntimeError):
@@ -165,6 +171,59 @@ def _verify_publisher(
         raise ProvenanceError("PyPI provenance attestation set is malformed")
 
 
+def _certificate_claim_sets(metadata: dict[str, Any]) -> list[Mapping[str, str]]:
+    try:
+        from pypi_attestations import Provenance
+    except ImportError as error:
+        raise ProvenanceError("the pinned PyPI provenance verifier is unavailable") from error
+    try:
+        provenance = Provenance.model_validate(metadata)
+        claim_sets = [
+            attestation.certificate_claims
+            for bundle in provenance.attestation_bundles
+            for attestation in bundle.attestations
+        ]
+    except (AttributeError, TypeError, ValueError) as error:
+        raise ProvenanceError("PyPI certificate claims are malformed") from error
+    if not claim_sets or any(not isinstance(claims, dict) for claims in claim_sets):
+        raise ProvenanceError("PyPI certificate claims are malformed")
+    return claim_sets
+
+
+def _verify_stable_certificate_claims(
+    metadata: dict[str, Any],
+    repository: str,
+    workflow: str,
+    expected_commit: Optional[str],
+    expected_ref: Optional[str],
+) -> None:
+    if expected_commit is None and expected_ref is None:
+        return
+    if expected_commit is None or expected_ref is None:
+        raise ProvenanceError("expected PyPI commit and ref must be supplied together")
+    if re.fullmatch(r"[0-9a-f]{40}", expected_commit) is None:
+        raise ProvenanceError("expected PyPI commit must be a full lowercase Git SHA")
+    if not expected_ref.startswith("refs/") or any(
+        character.isspace() for character in expected_ref
+    ):
+        raise ProvenanceError("expected PyPI ref is invalid")
+
+    repository_url = f"https://github.com/{_repository_slug(repository)}"
+    expected = {
+        SOURCE_REPOSITORY_DIGEST_OID: expected_commit,
+        SOURCE_REPOSITORY_REF_OID: expected_ref,
+        BUILD_CONFIG_URI_OID: (
+            f"{repository_url}/.github/workflows/{workflow}@{expected_ref}"
+        ),
+        BUILD_CONFIG_DIGEST_OID: expected_commit,
+    }
+    for claims in _certificate_claim_sets(metadata):
+        if any(claims.get(oid) != value for oid, value in expected.items()):
+            raise ProvenanceError(
+                "PyPI certificate claims do not match the expected release commit and ref"
+            )
+
+
 def verify(
     package: str,
     version: str,
@@ -173,6 +232,8 @@ def verify(
     owners: Sequence[str],
     workflow: str,
     environment: str,
+    expected_commit: Optional[str] = None,
+    expected_ref: Optional[str] = None,
 ) -> None:
     expected = set(filenames)
     if not all((package, version, repository, workflow, environment)) or not expected:
@@ -181,33 +242,45 @@ def verify(
         )
     if len(expected) != len(filenames):
         raise ProvenanceError("expected PyPI filenames must be unique")
+    if (expected_commit is None) != (expected_ref is None):
+        raise ProvenanceError("expected PyPI commit and ref must be supplied together")
     metadata = _metadata(package, version)
     _verify_ownership(metadata, owners)
     urls = _release_urls(metadata)
     if set(urls) != expected:
         raise ProvenanceError("PyPI release files differ from the expected bootstrap set")
     for filename in sorted(expected):
+        provenance_metadata = _provenance(package, version, filename)
         _verify_publisher(
-            _provenance(package, version, filename),
+            provenance_metadata,
             repository,
             workflow,
             environment,
         )
         try:
-            result = subprocess.run(
-                [
-                    "pypi-attestations",
-                    "verify",
-                    "pypi",
-                    "--repository",
-                    repository,
-                    urls[filename],
-                ],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=60,
-            )
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                suffix=".json",
+            ) as provenance_file:
+                json.dump(provenance_metadata, provenance_file)
+                provenance_file.flush()
+                result = subprocess.run(
+                    [
+                        "pypi-attestations",
+                        "verify",
+                        "pypi",
+                        "--repository",
+                        repository,
+                        "--provenance-file",
+                        provenance_file.name,
+                        urls[filename],
+                    ],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=60,
+                )
         except (OSError, subprocess.TimeoutExpired) as error:
             raise ProvenanceError(
                 f"could not verify trusted-publisher provenance for {filename}"
@@ -216,6 +289,13 @@ def verify(
             raise ProvenanceError(
                 f"trusted-publisher provenance does not match for {filename}"
             )
+        _verify_stable_certificate_claims(
+            provenance_metadata,
+            repository,
+            workflow,
+            expected_commit,
+            expected_ref,
+        )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -227,6 +307,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--owner", action="append", required=True)
     parser.add_argument("--workflow", required=True)
     parser.add_argument("--environment", required=True)
+    parser.add_argument("--expected-commit")
+    parser.add_argument("--expected-ref")
     return parser
 
 
@@ -241,6 +323,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             args.owner,
             args.workflow,
             args.environment,
+            args.expected_commit,
+            args.expected_ref,
         )
     except ProvenanceError as error:
         print(f"PyPI provenance verification failed: {error}", file=sys.stderr)

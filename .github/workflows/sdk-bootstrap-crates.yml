@@ -159,6 +159,12 @@ jobs:
             --version "$BOOTSTRAP_VERSION" \
             --artifact "${artifacts[0]}" \
             --require-match
+          python3 cmux-tui/bindings/verify_crates_ownership.py \
+            --package cmux-sidebar \
+            --repository https://github.com/manaflow-ai/cmux \
+            --owner-id 431397 \
+            --owner-login lawrencecchen \
+            --bootstrap-ownership-only
 
       - name: Request publication for an unclaimed project
         id: decision
@@ -346,3 +352,9 @@ jobs:
             --retry-missing-project \
             --wait-seconds 300 \
             --require-match
+          python3 cmux-tui/bindings/verify_crates_ownership.py \
+            --package cmux-sidebar \
+            --repository https://github.com/manaflow-ai/cmux \
+            --owner-id 431397 \
+            --owner-login lawrencecchen \
+            --bootstrap-ownership-only

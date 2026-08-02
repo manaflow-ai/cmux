@@ -152,6 +152,8 @@ if (( ${#python_filenames[@]} > 0 )); then
     --owner lawrencecchen \
     --workflow sdk-release-cut.yml \
     --environment pypi \
+    --expected-commit "$expected_commit" \
+    --expected-ref refs/heads/main \
     "${python_filenames[@]}"
 fi
 
