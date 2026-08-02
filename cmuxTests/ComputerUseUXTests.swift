@@ -1708,6 +1708,53 @@ struct ComputerUseUXTests {
         ))
     }
 
+    @Test @MainActor
+    func reboundHelperRecoveryConvergesOnTheReprobedInstalledPeer() async {
+        let tracked = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 10,
+            startMicroseconds: 20
+        )
+        let rebound = AgentPIDProcessIdentity(
+            pid: 202,
+            startSeconds: 30,
+            startMicroseconds: 40
+        )
+        var operations: [String] = []
+        var adoptedIdentity: AgentPIDProcessIdentity?
+
+        let result = await ComputerUseRuntimeService
+            .reconcileReboundHelperProfile(
+                trackedIdentity: tracked,
+                peerIdentity: rebound,
+                terminateTracked: { identity in
+                    operations.append("terminate:\(identity.pid)")
+                    return identity == tracked
+                },
+                reprobePeer: {
+                    operations.append("reprobe")
+                    return rebound
+                },
+                validatePeer: { identity in
+                    operations.append("validate:\(identity.pid)")
+                    return identity == rebound
+                },
+                adoptPeer: { identity in
+                    operations.append("adopt:\(identity.pid)")
+                    adoptedIdentity = identity
+                }
+            )
+
+        #expect(result == .ownedPeer(rebound))
+        #expect(adoptedIdentity == rebound)
+        #expect(operations == [
+            "terminate:101",
+            "reprobe",
+            "validate:202",
+            "adopt:202",
+        ])
+    }
+
     @Test func codexCompatibilityOutageKeepsNativeApplicationSurfaceIdentity() {
         let profiles = ComputerUseRuntimeService.helperProfilesNeedingRecovery(
             nativeHealthy: true,
