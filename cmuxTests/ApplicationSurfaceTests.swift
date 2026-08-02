@@ -1488,8 +1488,8 @@ struct ApplicationSurfaceTests {
         )
 
         #expect(controller.socketServer.reconfigure(accessMode: .cmuxOnly))
-        #expect(!controller.applicationSurfaceSocketControlIsAuthorized(
-            staleAuthorization
+        #expect(!controller.applicationSurfaceControlIsAuthorized(
+            .socket(staleAuthorization)
         ))
         let staleCreateResolution = controller.controlSurfaceCreate(
             routing: ControlRoutingSelectors(
@@ -1518,7 +1518,7 @@ struct ApplicationSurfaceTests {
                 requestedPaneID: nil,
                 requestedFocus: false
             ),
-            authorization: staleAuthorization
+            requestOrigin: .socket(staleAuthorization)
         )
         #expect(staleCreateResolution == .applicationControlUnavailable(
             message: TerminalController.applicationSurfaceSocketControlUnavailableMessage
@@ -1529,8 +1529,8 @@ struct ApplicationSurfaceTests {
             generation: controller.socketServer.connectionAuthorizationGeneration,
             passwordAuthorization: SocketPasswordAuthorization()
         )
-        #expect(controller.applicationSurfaceSocketControlIsAuthorized(
-            currentAuthorization
+        #expect(controller.applicationSurfaceControlIsAuthorized(
+            .socket(currentAuthorization)
         ))
     }
 
@@ -1602,14 +1602,14 @@ struct ApplicationSurfaceTests {
                 requestedPaneID: nil,
                 requestedFocus: false
             ),
-            authorization: authorization
+            requestOrigin: .socket(authorization)
         )
         let sendKeyResolution = controller.controlSurfaceSendKey(
             routing: routing,
             surfaceID: panel.id,
             hasSurfaceIDParam: true,
             key: "return",
-            authorization: authorization
+            requestOrigin: .socket(authorization)
         )
         let sendTextResolution = controller.controlSurfaceSendText(
             routing: routing,
@@ -2107,6 +2107,6 @@ private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
 
 extension ControlCommandCoordinator {
     func handle(_ request: ControlRequest) -> ControlCallResult? {
-        handle(request, authorization: nil)
+        handle(request, requestOrigin: .inProcess)
     }
 }

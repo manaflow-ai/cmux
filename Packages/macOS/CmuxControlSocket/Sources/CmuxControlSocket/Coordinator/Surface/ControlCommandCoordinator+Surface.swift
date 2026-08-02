@@ -15,11 +15,11 @@ extension ControlCommandCoordinator {
     ///
     /// - Parameters:
     ///   - request: The decoded request envelope.
-    ///   - authorization: The socket authorization accepted for this request.
+    ///   - requestOrigin: The explicit request origin.
     /// - Returns: The command result, or `nil` if not a surface method.
     func handleSurface(
         _ request: ControlRequest,
-        authorization: ControlSocketRequestAuthorization?
+        requestOrigin: ControlRequestOrigin
     ) -> ControlCallResult? {
         switch request.method {
         case "surface.list":
@@ -36,7 +36,7 @@ extension ControlCommandCoordinator {
         case "surface.respawn":
             return surfaceRespawn(request.params)
         case "surface.create":
-            return surfaceCreate(request.params, authorization: authorization)
+            return surfaceCreate(request.params, requestOrigin: requestOrigin)
         case "surface.close":
             return surfaceClose(request.params)
         case "surface.move":
@@ -62,7 +62,7 @@ extension ControlCommandCoordinator {
             return surfaceSendKey(
                 request.params,
                 context: context,
-                authorization: authorization
+                requestOrigin: requestOrigin
             )
         case "surface.report_tty": return surfaceReportTTY(request.params)
         case "surface.report_pwd": return surfaceReportPWD(request.params)
@@ -537,7 +537,7 @@ extension ControlCommandCoordinator {
     /// `surface.create` — create a surface in a pane.
     func surfaceCreate(
         _ params: [String: JSONValue],
-        authorization: ControlSocketRequestAuthorization?
+        requestOrigin: ControlRequestOrigin
     ) -> ControlCallResult {
         let routing = routingSelectors(params)
         guard let context,
@@ -616,7 +616,7 @@ extension ControlCommandCoordinator {
         let resolution = context.controlSurfaceCreate(
             routing: routing,
             inputs: inputs,
-            authorization: authorization
+            requestOrigin: requestOrigin
         )
         switch resolution {
         case .tabManagerUnavailable:

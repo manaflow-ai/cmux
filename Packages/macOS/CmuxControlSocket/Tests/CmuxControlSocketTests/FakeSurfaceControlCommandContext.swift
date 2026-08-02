@@ -51,10 +51,14 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceCreateInputs,
-        authorization: ControlSocketRequestAuthorization?
+        requestOrigin: ControlRequestOrigin
     ) -> ControlSurfaceCreateResolution {
         lastCreateInputs = inputs
-        lastCreateAuthorization = authorization
+        if case .socket(let authorization) = requestOrigin {
+            lastCreateAuthorization = authorization
+        } else {
+            lastCreateAuthorization = nil
+        }
         return createResolution
     }
 
@@ -84,9 +88,13 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
         key: String,
-        authorization: ControlSocketRequestAuthorization?
+        requestOrigin: ControlRequestOrigin
     ) -> ControlSurfaceSendResolution {
-        lastSendKeyAuthorization = authorization
+        if case .socket(let authorization) = requestOrigin {
+            lastSendKeyAuthorization = authorization
+        } else {
+            lastSendKeyAuthorization = nil
+        }
         return sendKeyResolution
     }
 

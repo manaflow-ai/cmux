@@ -1052,7 +1052,7 @@ class TerminalController {
 
     private nonisolated func socketWorkerV2Response(
         handling parsedRequest: ControlRequest,
-        authorization: ControlSocketRequestAuthorization?
+        requestOrigin: ControlRequestOrigin
     ) -> String? {
         let request = V2SocketRequest(bridging: parsedRequest)
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
@@ -1068,7 +1068,7 @@ class TerminalController {
                         id: request.id,
                         method: request.method,
                         params: request.params,
-                        authorization: authorization
+                        requestOrigin: requestOrigin
                     )
                 }
                 switch outcome {
@@ -1089,7 +1089,7 @@ class TerminalController {
             if let coordinatorResult = controlCommandCoordinator.handleSocketWorkerV2(
                 parsedRequest,
                 context: self,
-                authorization: authorization
+                requestOrigin: requestOrigin
             ) {
                 return Self.v2Encoder.response(id: parsedRequest.id, coordinatorResult)
             }
@@ -1652,11 +1652,11 @@ class TerminalController {
 
         let response = processCommandUsingSocketExecutionPolicy(
             command,
-            authorization: ControlSocketRequestAuthorization(
+            requestOrigin: .socket(ControlSocketRequestAuthorization(
                 acceptedAccessMode: acceptedAccessMode,
                 generation: authorizationGeneration,
                 passwordAuthorization: nextPasswordAuthorization
-            )
+            ))
         )
 #if DEBUG
         if let response {
@@ -1921,7 +1921,7 @@ class TerminalController {
 
     private nonisolated func processCommandUsingSocketExecutionPolicy(
         _ command: String,
-        authorization: ControlSocketRequestAuthorization?
+        requestOrigin: ControlRequestOrigin
     ) -> String? {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -1949,10 +1949,10 @@ class TerminalController {
             if policy.runsOnSocketWorker {
                 return socketWorkerV2Response(
                     handling: request,
-                    authorization: authorization
+                    requestOrigin: requestOrigin
                 )
             }
-            return processParsedV2Command(request, authorization: authorization)
+            return processParsedV2Command(request, requestOrigin: requestOrigin)
         }
 
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
@@ -1988,7 +1988,7 @@ class TerminalController {
     nonisolated func handleSocketLine(_ line: String) -> String {
         return processCommandUsingSocketExecutionPolicy(
             line,
-            authorization: nil
+            requestOrigin: .inProcess
         ) ?? ""
     }
 
@@ -2220,7 +2220,7 @@ class TerminalController {
         case .failure(let parseError):
             return Self.v2Encoder.response(for: parseError)
         case .success(let request):
-            return processParsedV2Command(request, authorization: nil)
+            return processParsedV2Command(request, requestOrigin: .inProcess)
         }
     }
 
@@ -2240,7 +2240,7 @@ class TerminalController {
     /// via a single `v2MainSync` hop.
     private nonisolated func processParsedV2Command(
         _ request: ControlRequest,
-        authorization: ControlSocketRequestAuthorization?
+        requestOrigin: ControlRequestOrigin
     ) -> String {
         let bridged = V2SocketRequest(bridging: request)
         let id: Any? = bridged.id
@@ -2266,7 +2266,7 @@ class TerminalController {
                     id: id,
                     method: method,
                     params: params,
-                    authorization: authorization
+                    requestOrigin: requestOrigin
                 )
             }
             switch outcome {
@@ -2293,7 +2293,7 @@ class TerminalController {
         id: Any?,
         method: String,
         params: [String: Any],
-        authorization: ControlSocketRequestAuthorization?
+        requestOrigin: ControlRequestOrigin
     ) -> V2MainHopOutcome {
         v2RefreshKnownRefs()
 
@@ -2303,7 +2303,7 @@ class TerminalController {
         // everything else falls through to the legacy switch below.
         if let coordinatorResult = controlCommandCoordinator.handle(
             request,
-            authorization: authorization
+            requestOrigin: requestOrigin
         ) {
             return .callResult(coordinatorResult)
         }

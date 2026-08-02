@@ -249,7 +249,7 @@ extension ControlCommandCoordinator {
     nonisolated func surfaceSendKey(
         _ params: [String: JSONValue],
         context: (any ControlCommandContext)?,
-        authorization: ControlSocketRequestAuthorization?
+        requestOrigin: ControlRequestOrigin
     ) -> ControlCallResult {
         guard let context else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -266,7 +266,7 @@ extension ControlCommandCoordinator {
                 surfaceID: self.uuid(params, "surface_id"),
                 hasSurfaceIDParam: params["surface_id"] != nil,
                 key: key,
-                authorization: authorization
+                requestOrigin: requestOrigin
             )
             return .resolution(resolution, refs: self.surfaceSendRefs(resolution))
         }

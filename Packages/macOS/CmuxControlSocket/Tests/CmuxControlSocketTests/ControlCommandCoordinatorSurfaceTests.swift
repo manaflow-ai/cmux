@@ -148,7 +148,7 @@ struct ControlCommandCoordinatorSurfaceTests {
                 "title": .string("Preview"),
                 "frame_rate": .int(120),
             ]
-        ), authorization: authorization)
+        ), requestOrigin: .socket(authorization))
 
         #expect(context.lastCreateInputs?.applicationWindowID == 34599)
         #expect(context.lastCreateInputs?.applicationProcessID == 34401)
@@ -421,7 +421,7 @@ struct ControlCommandCoordinatorSurfaceTests {
                 ]
             ),
             context: context,
-            authorization: authorization
+            requestOrigin: .socket(authorization)
         )
 
         #expect(context.lastSendKeyAuthorization?.acceptedAccessMode == .password)

@@ -23,26 +23,28 @@ extension TerminalController {
         }
     }
 
-    func applicationSurfaceSocketControlIsAuthorized(
-        _ authorization: ControlSocketRequestAuthorization?
+    func applicationSurfaceControlIsAuthorized(
+        _ requestOrigin: ControlRequestOrigin
     ) -> Bool {
-        guard let authorization else {
+        switch requestOrigin {
+        case .inProcess:
             return Self.applicationSurfaceSocketControlIsAllowed(
                 accessMode: socketServer.accessMode
             )
+        case .socket(let authorization):
+            guard authorization.acceptedAccessMode == socketServer.accessMode,
+                  Self.applicationSurfaceSocketControlIsAllowed(
+                      accessMode: authorization.acceptedAccessMode
+                  ),
+                  socketServer.isConnectionAuthorizationCurrent(
+                      authorization.generation,
+                      passwordAuthorization: authorization.passwordAuthorization
+                  ) else {
+                return false
+            }
+            return authorization.acceptedAccessMode != .password
+                || authorization.passwordAuthorization.isAuthenticated
         }
-        guard authorization.acceptedAccessMode == socketServer.accessMode,
-              Self.applicationSurfaceSocketControlIsAllowed(
-                  accessMode: authorization.acceptedAccessMode
-              ),
-              socketServer.isConnectionAuthorizationCurrent(
-                  authorization.generation,
-                  passwordAuthorization: authorization.passwordAuthorization
-              ) else {
-            return false
-        }
-        return authorization.acceptedAccessMode != .password
-            || authorization.passwordAuthorization.isAuthenticated
     }
 
     nonisolated static var applicationSurfaceSocketControlUnavailableMessage: String {

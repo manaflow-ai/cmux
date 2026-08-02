@@ -442,7 +442,7 @@ extension ControlSurfaceContext {
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceCreateInputs,
-        authorization: ControlSocketRequestAuthorization?
+        requestOrigin: ControlRequestOrigin
     ) -> ControlSurfaceCreateResolution { .tabManagerUnavailable }
 
     func controlSurfaceClose(
@@ -498,7 +498,7 @@ extension ControlSurfaceContext {
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
         key: String,
-        authorization: ControlSocketRequestAuthorization?
+        requestOrigin: ControlRequestOrigin
     ) -> ControlSurfaceSendResolution { .tabManagerUnavailable }
 
     func controlSurfaceResumeSet(
@@ -573,7 +573,7 @@ extension ControlMobileHostContext {
 
 extension ControlCommandCoordinator {
     func handle(_ request: ControlRequest) -> ControlCallResult? {
-        handle(request, authorization: nil)
+        handle(request, requestOrigin: .inProcess)
     }
 
     nonisolated func handleSocketWorkerV2(
@@ -583,7 +583,7 @@ extension ControlCommandCoordinator {
         handleSocketWorkerV2(
             request,
             context: context,
-            authorization: nil
+            requestOrigin: .inProcess
         )
     }
 }
