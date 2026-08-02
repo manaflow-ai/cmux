@@ -311,7 +311,8 @@ struct RestorableAgentPersistedKindDecodingTests {
             persistedBinding,
             restorableAgent: liveSnapshot
         )
-        #expect(retargeted?.cwd == launchDirectory)
+        let expectedDirectory = testCase.kind.cwdNamespacing == .byDirectory ? launchDirectory : runtimeDirectory
+        #expect(retargeted?.cwd == expectedDirectory)
     }
 
     @Test("Native persisted binding kinds still match native snapshots", arguments: nativeCases)
@@ -342,7 +343,8 @@ struct RestorableAgentPersistedKindDecodingTests {
             persistedBinding,
             restorableAgent: liveSnapshot
         )
-        #expect(retargeted?.cwd == launchDirectory)
+        let expectedDirectory = testCase.kind.cwdNamespacing == .byDirectory ? launchDirectory : runtimeDirectory
+        #expect(retargeted?.cwd == expectedDirectory)
     }
 
     @Test("Kimi hook-store snapshots match persisted Kimi resume bindings")
