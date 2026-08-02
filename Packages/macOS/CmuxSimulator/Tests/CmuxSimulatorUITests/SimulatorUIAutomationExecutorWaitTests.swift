@@ -8,6 +8,49 @@ import Testing
 @MainActor
 @Suite("Simulator UI automation executor waits")
 struct SimulatorUIAutomationExecutorWaitTests {
+    @Test("A down-only touch returns before post-action settling")
+    func downOnlyTouchReturnsWithoutSettling() async throws {
+        let snapshot = Self.actionSnapshot()
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let record = try await coordinator.recordUIAutomationSnapshot(
+            snapshot,
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+        let elementRef = try #require(record.snapshot.elements.first {
+            $0.identifier == "continue"
+        }?.ref)
+        let scheduler = AdvancingActionScheduler(nowMilliseconds: 1_000)
+        let startedAt = scheduler.monotonicNowMilliseconds()
+
+        let result = try await SimulatorUIAutomationExecutor(
+            scheduler: scheduler
+        ).perform(
+            .uiAction(.touch(
+                elementRef: elementRef,
+                down: true,
+                up: false,
+                delayMilliseconds: 0
+            )),
+            coordinator: coordinator
+        )
+
+        #expect(scheduler.monotonicNowMilliseconds() == startedAt)
+        guard case let .object(payload) = result else {
+            Issue.record("Expected an object result, got \(result)")
+            await coordinator.close()
+            return
+        }
+        #expect(payload["capture"] == nil)
+        #expect(coordinator.hasHeldUIAutomationTouch)
+        await coordinator.close()
+    }
+
     @Test("An emitted snapshot ref is accepted by control command parsing")
     func emittedSnapshotRefRoutesThroughControlSocket() async throws {
         let snapshot = Self.twoButtonSnapshot()

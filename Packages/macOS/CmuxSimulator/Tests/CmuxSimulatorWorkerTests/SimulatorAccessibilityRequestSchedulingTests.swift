@@ -132,6 +132,33 @@ struct SimulatorAccessibilityRequestSchedulingTests {
         ))
     }
 
+    @Test("Interactive mutation invalidates an in-flight accessibility generation")
+    @MainActor
+    func interactiveMutationInvalidatesAccessibilityGeneration() async throws {
+        let executor = GatedAccessibilityExecutor()
+        let fixture = try WorkerOutputFixture()
+        let coordinator = SimulatorWorkerCoordinator(
+            channel: fixture.worker,
+            accessibilityExecutor: executor
+        )
+        coordinator.currentDeviceIdentifier = "DEVICE"
+        coordinator.currentDisplay = Self.display
+
+        #expect(await coordinator.handle(.requestAccessibility(UUID())))
+        await executor.waitForAccessibilityReadCount(1)
+        #expect(coordinator.accessibilitySnapshotTask != nil)
+
+        #expect(await coordinator.handle(.interactiveAction(
+            requestID: UUID(),
+            action: .memoryWarning
+        )))
+
+        #expect(coordinator.accessibilitySnapshotTask == nil)
+        #expect(coordinator.accessibilitySnapshotGeneration == nil)
+        #expect(coordinator.accessibilitySnapshotRequestIdentifiers.isEmpty)
+        await executor.releaseAccessibilityRead()
+    }
+
     @Test("A cancellation-blind accessibility read terminates after its hard deadline")
     @MainActor
     func accessibilityHardDeadlineTerminatesWorker() async throws {

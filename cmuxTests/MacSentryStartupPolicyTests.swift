@@ -88,6 +88,21 @@ import Testing
         )
     }
 
+    @Test func embeddedXCTestBundlePreventsSentryStartupBeforeInjection() {
+        #expect(MacSentryStartupPolicy.isRunningUnderXCTest(
+            environment: [:],
+            embeddedPlugInURLs: [URL(
+                fileURLWithPath: "/tmp/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest"
+            )]
+        ))
+        #expect(!MacSentryStartupPolicy.isRunningUnderXCTest(
+            environment: [:],
+            embeddedPlugInURLs: [URL(
+                fileURLWithPath: "/tmp/cmux DEV.app/Contents/PlugIns/CmuxDockTilePlugin.plugin"
+            )]
+        ))
+    }
+
     @Test func noLoadedXCTestInjectionImageIsNotATestRunMarker() {
         #expect(
             !MacSentryStartupPolicy.containsLoadedXCTestInjectionImage([])

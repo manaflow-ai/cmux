@@ -154,6 +154,7 @@ struct SimulatorAccessibilityWorkerClientTests {
             return .ack(sequence)
         }
         endpoint.acknowledgeRecordedPings()
+        let inboundCountBeforeRead = endpoint.inboundMessages().count
 
         do {
             _ = try await client.readAccessibility(timeout: .milliseconds(100))
@@ -164,6 +165,14 @@ struct SimulatorAccessibilityWorkerClientTests {
 
         #expect(endpoint.terminationCountValue() == 0)
         #expect(launcher.endpoint(at: 1) == nil)
+        let timeoutPayloads = try endpoint.inboundMessages()
+            .dropFirst(inboundCountBeforeRead)
+            .map { message in
+                String(decoding: try JSONEncoder().encode(message), as: UTF8.self)
+            }
+        #expect(timeoutPayloads.contains {
+            $0.contains("cancelAccessibilitySnapshotRequests")
+        })
         await client.stop()
     }
 
