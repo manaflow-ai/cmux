@@ -188,6 +188,27 @@ struct SimulatorUIAutomationSessionTests {
         }
     }
 
+    @Test("A ref-derived wait selector requires an exact runtime identifier")
+    func stableSelectorRejectsLabelOnlyIdentity() async throws {
+        let session = SimulatorUIAutomationSession()
+        let record = try await session.record(
+            snapshotWithoutIdentifiers(),
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: session.mutationGeneration
+        )
+        let ref = try #require(record.snapshot.elements.first {
+            $0.label == "Continue"
+        }?.ref)
+
+        #expect(throws: SimulatorUIAutomationReferenceError.stableSelectorUnavailable(ref)) {
+            _ = try session.stableSelector(
+                elementRef: ref,
+                nowMilliseconds: 1_001
+            )
+        }
+    }
+
     @Test("Recording and device reset preserve a monotonic sequence")
     func sequenceRemainsMonotonicAcrossReset() async throws {
         let session = SimulatorUIAutomationSession()
@@ -283,6 +304,36 @@ struct SimulatorUIAutomationSessionTests {
 
         await #expect(throws: CancellationError.self) {
             try await queued.value
+        }
+        #expect(!operationRan)
+        #expect(try await session.withTransaction { true })
+    }
+
+    @Test("Cancellation while quiescing cannot run the transaction operation")
+    func cancellationAfterQuiescingStartsDoesNotRun() async throws {
+        let session = SimulatorUIAutomationSession()
+        var quiescingStarted = false
+        var finishQuiescing = false
+        var operationRan = false
+        let transaction = Task { @MainActor in
+            try await session.withTransaction(beforeOperation: {
+                quiescingStarted = true
+                while !finishQuiescing {
+                    await Task.yield()
+                }
+            }) {
+                operationRan = true
+            }
+        }
+        while !quiescingStarted {
+            await Task.yield()
+        }
+
+        transaction.cancel()
+        finishQuiescing = true
+
+        await #expect(throws: CancellationError.self) {
+            try await transaction.value
         }
         #expect(!operationRan)
         #expect(try await session.withTransaction { true })
@@ -384,6 +435,38 @@ struct SimulatorUIAutomationSessionTests {
                             label: "Continue",
                             value: nil,
                             frame: SimulatorRect(x: 20, y: 160, width: 120, height: 44),
+                            isEnabled: true,
+                            children: []
+                        ),
+                    ]
+                ),
+            ],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+    }
+
+    private func snapshotWithoutIdentifiers() -> SimulatorAccessibilitySnapshot {
+        SimulatorAccessibilitySnapshot(
+            roots: [
+                SimulatorAccessibilityNode(
+                    id: "0",
+                    role: "Application",
+                    label: "Example",
+                    value: nil,
+                    frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                    isEnabled: true,
+                    children: [
+                        SimulatorAccessibilityNode(
+                            id: "0.0",
+                            role: "Button",
+                            label: "Continue",
+                            value: nil,
+                            frame: SimulatorRect(x: 20, y: 100, width: 120, height: 44),
                             isEnabled: true,
                             children: []
                         ),

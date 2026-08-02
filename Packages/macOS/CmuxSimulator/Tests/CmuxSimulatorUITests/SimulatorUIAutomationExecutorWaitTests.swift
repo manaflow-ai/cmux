@@ -376,6 +376,48 @@ struct SimulatorUIAutomationExecutorWaitTests {
         await coordinator.close()
     }
 
+    @Test("Ref actions reject visible field truncation before sending input")
+    func refActionRejectsTruncatedVisibleField() async throws {
+        let snapshot = Self.fieldTruncatedSnapshot()
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            accessibilityResult: .accessibility(snapshot)
+        )
+        let coordinator = Self.actionCoordinator(client: client, snapshot: snapshot)
+        let record = try await coordinator.recordUIAutomationSnapshot(
+            snapshot,
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+        let elementRef = try #require(record.snapshot.elements.first {
+            $0.identifier == "status"
+        }?.ref)
+
+        do {
+            _ = try await SimulatorUIAutomationExecutor(
+                scheduler: AdvancingActionScheduler(nowMilliseconds: 1_000)
+            ).perform(
+                .uiAction(.longPress(
+                    elementRef: elementRef,
+                    durationMilliseconds: 500
+                )),
+                coordinator: coordinator
+            )
+            Issue.record("Expected truncated fields to invalidate the element ref")
+        } catch let failure as SimulatorUIAutomationFailure {
+            #expect(failure.code == "ui_state_changed")
+        } catch {
+            Issue.record("Expected ui_state_changed, got \(error)")
+        }
+
+        #expect(!(await client.actions().contains { action in
+            if case .interactive = action { return true }
+            return false
+        }))
+        await coordinator.close()
+    }
+
     @Test("Selector waits fail closed on truncated snapshots")
     func truncatedSelectorWaitIsRejected() async {
         let snapshot = Self.truncated(Self.actionSnapshot())

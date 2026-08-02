@@ -250,6 +250,26 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
                 "predicate": .string("focused"),
             ]),
             ("simulator.wait_for_ui", [
+                "predicate": .string("exists"),
+                "element_ref": .string("e1_1"),
+                "identifier": .string("continue"),
+            ]),
+            ("simulator.wait_for_ui", [
+                "predicate": .string("exists"),
+                "element_ref": .string("e1_1"),
+                "label": .string("Continue"),
+            ]),
+            ("simulator.wait_for_ui", [
+                "predicate": .string("exists"),
+                "element_ref": .string("e1_1"),
+                "role": .string("button"),
+            ]),
+            ("simulator.wait_for_ui", [
+                "predicate": .string("exists"),
+                "element_ref": .string("e1_1"),
+                "value": .string("ready"),
+            ]),
+            ("simulator.wait_for_ui", [
                 "predicate": .string("settled"),
                 "poll_interval_milliseconds": .int(1),
             ]),

@@ -187,6 +187,58 @@ struct SimulatorAgentCursorTests {
         #expect(presentation.clickPhaseDelayMilliseconds == 273)
     }
 
+    @Test("HID dispatch waits for the cursor to reach a timed gesture origin")
+    func cursorReachesGestureOriginBeforeInputDispatch() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.ensureAgentCursorPresentation()
+        let origin = SimulatorPoint(x: 0.9, y: 0.9)
+        let destination = SimulatorPoint(x: 0.1, y: 0.1)
+        let action = SimulatorControlAction.interactive(.timedGesture(
+            events: [
+                SimulatorPointerEvent(phase: .began, primary: origin),
+                SimulatorPointerEvent(phase: .ended, primary: destination),
+            ],
+            durationMilliseconds: 400
+        ))
+
+        let operation = Task { @MainActor in
+            try await coordinator.perform(action)
+        }
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(await client.actions().isEmpty)
+        #expect(coordinator.agentCursorPresentation?.destination == origin)
+
+        _ = try await operation.value
+        #expect(await client.actions() == [action])
+        await coordinator.close()
+    }
+
+    @Test("A selection change during cursor travel prevents HID dispatch")
+    func selectionChangeDuringCursorTravelPreventsInputDispatch() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.ensureAgentCursorPresentation()
+        let point = SimulatorPoint(x: 0.9, y: 0.9)
+        let action = SimulatorControlAction.interactive(.gesture([
+            SimulatorPointerEvent(phase: .began, primary: point),
+            SimulatorPointerEvent(phase: .ended, primary: point),
+        ]))
+
+        let operation = Task { @MainActor in
+            try await coordinator.perform(action)
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        coordinator.selectionGeneration &+= 1
+
+        await #expect(throws: CancellationError.self) {
+            try await operation.value
+        }
+        #expect(await client.actions().isEmpty)
+        await coordinator.close()
+    }
+
     @Test("A device reattachment preserves the workspace cursor")
     func reattachmentPreservesCursor() async throws {
         let device = SimulatorDevice(

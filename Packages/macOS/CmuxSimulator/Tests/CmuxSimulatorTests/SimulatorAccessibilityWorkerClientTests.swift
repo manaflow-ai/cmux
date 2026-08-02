@@ -185,6 +185,66 @@ struct SimulatorAccessibilityWorkerClientTests {
         await client.stop()
     }
 
+    @Test("Cancelling an accessibility read cancels only its worker request")
+    func callerCancellationCancelsAccessibilityRequest() async throws {
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(launcher: launcher)
+        let events = await client.subscribe()
+        var iterator = events.makeAsyncIterator()
+        await client.send(.attach(udid: "DEVICE", geometry: nil))
+        let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.status(.streaming))
+        endpoint.emit(.capabilities([.accessibility]))
+        endpoint.emit(.frameTransport(simulatorFrameTransportDescriptor(16)))
+        _ = await iterator.next()
+        _ = await iterator.next()
+        _ = await iterator.next()
+        endpoint.setResponder { message in
+            guard case let .ping(sequence) = message else { return nil }
+            return .ack(sequence)
+        }
+        endpoint.acknowledgeRecordedPings()
+
+        let read = Task {
+            try await client.readAccessibility(timeout: .seconds(60))
+        }
+        var requestIdentifier: UUID?
+        for _ in 0..<100 where requestIdentifier == nil {
+            requestIdentifier = endpoint.inboundMessages().compactMap { message -> UUID? in
+                guard case let .requestAccessibility(identifier) = message else {
+                    return nil
+                }
+                return identifier
+            }.last
+            if requestIdentifier == nil {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        let capturedRequestIdentifier = try #require(requestIdentifier)
+
+        read.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await read.value
+        }
+
+        var cancellationWasSent = false
+        for _ in 0..<100 where !cancellationWasSent {
+            cancellationWasSent = endpoint.inboundMessages().contains { message in
+                guard case let .cancelAccessibilitySnapshotRequest(identifier) = message else {
+                    return false
+                }
+                return identifier == capturedRequestIdentifier
+            }
+            if !cancellationWasSent {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        #expect(cancellationWasSent)
+        #expect(endpoint.terminationCountValue() == 0)
+        #expect(launcher.endpoint(at: 1) == nil)
+        await client.stop()
+    }
+
     @Test("A foreground telemetry timeout restarts the isolated worker")
     func foregroundTimeoutRestartsWorker() async throws {
         let launcher = TestWorkerLauncher()
