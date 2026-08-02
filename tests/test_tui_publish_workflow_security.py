@@ -211,6 +211,14 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
     assert "sdk-bootstrap-crates.yml" in releasing
     assert "0.0.0-bootstrap.0" in releasing
     assert "publish `cmux-sidebar` interactively once" not in releasing
+    bootstrap_probe = bootstrap.split(
+        "- name: Inspect the crates.io bootstrap state",
+        1,
+    )[1].split("\n      - name:", 1)[0]
+    assert "--user-agent" in bootstrap_probe
+    assert "https://github.com/manaflow-ai/cmux" in bootstrap_probe
+    assert "--retry-delay 1" in bootstrap_probe
+    assert "sleep 1" in bootstrap_probe
 
 
 def test_registry_setup_disables_long_lived_publish_credentials() -> None:
@@ -521,6 +529,7 @@ def test_registry_state_is_revalidated_after_release_approval() -> None:
     assert "revalidate-tags" in cut_tags
     assert "verify_release_registry_state.sh" not in cut_tags
     assert verifier.count("reconcile_registry_artifact.py check") == 5
+    assert verifier.count("sleep 1") >= 2
     assert "verify_crates_ownership.py" in verifier
     assert "verify_npm_provenance.py" in verifier
     assert "verify_pypi_provenance.py" in verifier
@@ -597,6 +606,11 @@ def test_stable_registry_provenance_gates_recovery_and_completion() -> None:
     assert "name: cmux-python-dist" in stable
     assert "verify_npm_provenance.py" in stable
     assert "verify_pypi_provenance.py" in stable
+    assert "publish-crate-client" in stable
+    assert "publish-crate-sidebar" in stable
+    assert "verify_crates_ownership.py" in stable
+    assert "--package cmux-client" in stable
+    assert "--package cmux-sidebar" in stable
     assert "--publisher github-actions" in stable
     assert "--dist-tag latest" in stable
     assert "--workflow .github/workflows/sdk-release-cut.yml" in stable
