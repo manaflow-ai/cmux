@@ -25,6 +25,7 @@ use crate::process_diagnostics::BoundedDiagnosticBuffer;
 use crate::session::{
     REMOTE_CONTROL_MESSAGE_MAX_BYTES, RemoteMessageReader, RemoteMessageWriter, RemoteSession,
     RemoteTransport, RemoteTransportAbort, Session, read_bounded_json_line,
+    read_json_line_with_progress,
 };
 
 const SSH_DIAGNOSTIC_BYTES: usize = 4096;
@@ -446,6 +447,19 @@ struct ProcessReader {
     process: Arc<Process>,
 }
 
+impl ProcessReader {
+    fn receive_inner(&mut self, on_progress: &mut dyn FnMut(&[u8])) -> io::Result<Option<String>> {
+        let _keep_alive = &self.process;
+        let message = read_json_line_with_progress(&mut self.inner, on_progress)?;
+        if message.is_none()
+            && let Some(diagnostic) = self.process.diagnostic_after_stdout_eof()
+        {
+            return Err(io::Error::other(format!("ssh transport closed: {diagnostic}")));
+        }
+        Ok(message)
+    }
+}
+
 impl RemoteMessageReader for ProcessReader {
     fn receive(&mut self) -> io::Result<Option<String>> {
         let _keep_alive = &self.process;
@@ -456,6 +470,13 @@ impl RemoteMessageReader for ProcessReader {
             return Err(io::Error::other(format!("ssh transport closed: {diagnostic}")));
         }
         Ok(message)
+    }
+
+    fn receive_with_progress(
+        &mut self,
+        on_progress: &mut dyn FnMut(&[u8]),
+    ) -> io::Result<Option<String>> {
+        self.receive_inner(on_progress)
     }
 }
 

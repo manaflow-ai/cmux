@@ -245,8 +245,8 @@ public actor CmxIrohClientRuntime {
     /// The push frame is only a hint. This method fetches the complete
     /// connectivity-v2 snapshot, validates that the active local binding is
     /// still present, atomically replaces admission policy, persists the same
-    /// snapshot used by dials, and only then retires sessions whose exact peer
-    /// binding disappeared. Concurrent invalidations share one operation.
+    /// snapshot used by dials, and only then retires sessions from the prior
+    /// revision. Concurrent invalidations share one operation.
     public func reconcileConnectivityRevision(
         _ hintedRevision: UInt64
     ) async -> CmxIrohLiveDiscoveryRefreshOutcome {
@@ -376,7 +376,10 @@ public actor CmxIrohClientRuntime {
             guard published else {
                 return .failed(.superseded)
             }
-            await connectivityEngine.didInstallRouteSnapshot(discovery)
+            await connectivityEngine.didInstallRouteRevision(
+                discoveredRevision,
+                routes: discovery
+            )
             liveDiscoveryGeneration &+= 1
             return .refreshed
         } catch {
@@ -518,7 +521,12 @@ public actor CmxIrohClientRuntime {
                 let published = await handleBinding(policy.binding, discovery)
                 try requireCurrent(revision)
                 if published {
-                    await connectivityEngine.didInstallRouteSnapshot(discovery)
+                    if let routeRevision = discovery.revision {
+                        await connectivityEngine.didInstallRouteRevision(
+                            routeRevision,
+                            routes: discovery
+                        )
+                    }
                     liveDiscoveryGeneration &+= 1
                 }
             } else if let lanRendezvous = policy.cachedLANRendezvous {

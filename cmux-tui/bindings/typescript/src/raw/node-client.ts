@@ -6,6 +6,7 @@ import type { CmuxAuthority } from "./generated/metadata.js";
 import { defaultSocketPath, envSocketPath, UnixSocketTransport } from "../node-transport.js";
 import { validateRequestTimeout } from "../internal/request-timeout.js";
 import type { Transport } from "../transport.js";
+import { RENDER_ATTACH_MAX_ENCODED_CHARS } from "../transport-limits.js";
 
 /** Node.js client configuration, including Unix-socket defaults. */
 export interface ClientOptions {
@@ -13,6 +14,7 @@ export interface ClientOptions {
   session?: string;
   /** Command acknowledgement timeout. */
   timeoutMs?: number;
+  attachHandshakeTimeoutMs?: number;
   /**
    * Command authorities enabled for this client.
    * Node Unix clients default to control, frontend, and local-admin.
@@ -39,18 +41,22 @@ export class CmuxClient extends TransportCmuxClient {
   constructor(options: ClientOptions = {}) {
     const timeoutMs = validateRequestTimeout(options.timeoutMs ?? 10_000);
     const socketPath = options.socketPath ?? envSocketPath() ?? defaultSocketPath(options.session ?? "main");
+    const rawTransport = (): UnixSocketTransport => new UnixSocketTransport(socketPath, {
+      maxInboundMessageBytes: RENDER_ATTACH_MAX_ENCODED_CHARS,
+    });
     const shared: CmuxClientOptions = {
-      transport: options.transport ?? new UnixSocketTransport(socketPath),
+      transport: options.transport ?? rawTransport(),
       authorities: options.authorities ?? ["control", "frontend", "local-admin"],
       enableProviderAuthority: options.enableProviderAuthority,
       timeoutMs,
+      attachHandshakeTimeoutMs: options.attachHandshakeTimeoutMs,
       streamIdleTimeoutMs: options.streamIdleTimeoutMs,
       allowProtocolV6Attach: options.allowProtocolV6Attach,
       maxBufferedEvents: options.maxBufferedEvents,
       maxAttachEncodedChars: options.maxAttachEncodedChars,
       maxPendingResponses: options.maxPendingResponses,
       streamTransportFactory: options.streamTransportFactory
-        ?? (options.transport ? undefined : () => new UnixSocketTransport(socketPath)),
+        ?? (options.transport ? undefined : rawTransport),
     };
     super(shared);
     this.socketPath = socketPath;

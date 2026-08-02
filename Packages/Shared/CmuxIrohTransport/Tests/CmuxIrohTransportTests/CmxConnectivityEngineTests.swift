@@ -125,6 +125,168 @@ struct CmxConnectivityEngineTests {
     }
 
     @Test
+    func equivalentRouteRevisionBumpKeepsTheLivePeerSession() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z"
+            ),
+            Self.peerRouteResponse(
+                revision: 10,
+                lastSeenAt: "2026-07-30T00:00:45Z"
+            ),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+        #expect(await session.isClosed() == false)
+
+        try await rig.engine.reconcileRoutes()
+
+        let snapshot = await rig.engine.snapshot()
+        #expect(snapshot.routeRevision == 10)
+        #expect(await rig.connection.observedCloseCallCount() == 0)
+        #expect(await session.isClosed() == false)
+        #expect(snapshot.peers.first?.phase == .connected)
+        await rig.engine.stop()
+    }
+
+    @Test
+    func changedIdentityGenerationOnRevisionBumpStillInvalidatesTheSession() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z"
+            ),
+            Self.peerRouteResponse(
+                revision: 10,
+                lastSeenAt: "2026-07-30T00:00:45Z",
+                identityGeneration: 2
+            ),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+
+        try await rig.engine.reconcileRoutes()
+
+        #expect(await rig.engine.snapshot().routeRevision == 10)
+        #expect(await rig.connection.observedCloseCallCount() == 1)
+        #expect(await session.isClosed())
+        await rig.engine.stop()
+    }
+
+    @Test
+    func removedPeerBindingOnRevisionBumpStillInvalidatesTheSession() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z"
+            ),
+            Self.peerRouteResponse(
+                revision: 10,
+                lastSeenAt: "2026-07-30T00:00:45Z",
+                includesPeerBinding: false
+            ),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+
+        try await rig.engine.reconcileRoutes()
+
+        #expect(await rig.connection.observedCloseCallCount() == 1)
+        #expect(await session.isClosed())
+        await rig.engine.stop()
+    }
+
+    @Test
+    func changedRelayFleetOnRevisionBumpStillInvalidatesTheSession() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z"
+            ),
+            Self.peerRouteResponse(
+                revision: 10,
+                lastSeenAt: "2026-07-30T00:00:45Z",
+                relayFleet: ["https://replacement.relay.example/"]
+            ),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+
+        try await rig.engine.reconcileRoutes()
+
+        #expect(await rig.connection.observedCloseCallCount() == 1)
+        #expect(await session.isClosed())
+        await rig.engine.stop()
+    }
+
+    @Test
+    func revisionBumpWithoutReplacementContentFailsClosed() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z"
+            ),
+            Self.unchangedResponse(revision: 12),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+
+        try await rig.engine.reconcileRoutes()
+
+        #expect(await rig.engine.snapshot().routeRevision == 12)
+        #expect(await rig.connection.observedCloseCallCount() == 1)
+        #expect(await session.isClosed())
+        await rig.engine.stop()
+    }
+
+    @Test
+    func installedRouteRevisionUsesRouteContentEquivalence() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z"
+            ),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+        let equivalent = try #require(Self.peerRouteResponse(
+            revision: 10,
+            lastSeenAt: "2026-07-30T00:00:45Z"
+        ).snapshot)
+        let changed = try #require(Self.peerRouteResponse(
+            revision: 11,
+            lastSeenAt: "2026-07-30T00:01:30Z",
+            identityGeneration: 2
+        ).snapshot)
+
+        await rig.engine.didInstallRouteRevision(10, routes: equivalent)
+
+        #expect(await rig.engine.snapshot().routeRevision == 10)
+        #expect(await rig.connection.observedCloseCallCount() == 0)
+        #expect(await session.isClosed() == false)
+
+        await rig.engine.didInstallRouteRevision(11, routes: changed)
+
+        #expect(await rig.engine.snapshot().routeRevision == 11)
+        #expect(await rig.connection.observedCloseCallCount() == 1)
+        #expect(await session.isClosed())
+        await rig.engine.stop()
+    }
+
+    @Test
     func stopFinishesNetworkChangeObservers() async throws {
         let identity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "e", count: 64)
@@ -150,141 +312,122 @@ struct CmxConnectivityEngineTests {
         try await Self.waitUntil { await finished.value() }
     }
 
-    @Test("account route revision alone preserves an authorized peer session")
-    func accountRouteRevisionAlonePreservesAuthorizedPeerSession() async throws {
-        let fixture = try await Self.connectedEngineFixture()
+    private static let peerEndpointID = String(repeating: "f", count: 64)
+    private static let peerDeviceID = "123e4567-e89b-42d3-a456-426614174999"
 
-        await fixture.engine.didInstallRouteSnapshot(
-            try Self.routeSnapshot(
-                revision: 2,
-                remoteIdentity: fixture.remoteIdentity,
-                includesRemoteBinding: true
-            )
-        )
-
-        #expect(await fixture.connection.observedCloseCallCount() == 0)
-        #expect(await fixture.engine.snapshot().peers.first?.phase == .connected)
-        await fixture.engine.releaseControl(
-            for: fixture.request,
-            ownerID: fixture.ownerID
-        )
-        await fixture.engine.stop()
+    private struct AdmittedPeerRig {
+        let engine: CmxConnectivityEngine
+        let connection: TestIrohConnection
+        let authority: ScriptedConnectivityAuthority
+        let request: CmxByteTransportRequest
     }
 
-    @Test("route snapshot removal retires only the no-longer-authorized peer")
-    func routeSnapshotRemovalRetiresUnauthorizedPeer() async throws {
-        let fixture = try await Self.connectedEngineFixture()
-
-        await fixture.engine.didInstallRouteSnapshot(
-            try Self.routeSnapshot(
-                revision: 2,
-                remoteIdentity: fixture.remoteIdentity,
-                includesRemoteBinding: false
-            )
-        )
-
-        #expect(await fixture.connection.observedCloseCallCount() == 1)
-        try await Self.waitUntil {
-            await fixture.engine.snapshot().peers.first?.phase == .failed
-        }
-        #expect(await fixture.engine.snapshot().peers.first?.phase == .failed)
-        await fixture.engine.stop()
-    }
-
-    private static func connectedEngineFixture() async throws -> (
-        engine: CmxConnectivityEngine,
-        request: CmxByteTransportRequest,
-        connection: TestIrohConnection,
-        remoteIdentity: CmxIrohPeerIdentity,
-        ownerID: UUID
-    ) {
+    private static func admittedPeerRig(
+        responses: [CmxConnectivitySyncResponse]
+    ) async throws -> AdmittedPeerRig {
         let localIdentity = try CmxIrohPeerIdentity(
-            endpointID: String(repeating: "a", count: 64)
+            endpointID: String(repeating: "1", count: 64)
         )
-        let remoteIdentity = try CmxIrohPeerIdentity(
-            endpointID: String(repeating: "b", count: 64)
-        )
-        let receive = TestIrohReceiveStream(
-            buffer: CmxIrohAdmissionAckCodec().encodeFrame(.acceptedPendingNatTraversal)
-                + admissionFrame(status: 3)
+        let peerIdentity = try CmxIrohPeerIdentity(endpointID: peerEndpointID)
+        let control = CmxIrohBidirectionalStream(
+            receiveStream: TestIrohReceiveStream(
+                buffer: CmxIrohAdmissionAckCodec()
+                    .encodeFrame(.acceptedPendingNatTraversal)
+                    + admissionFrame(status: 3)
+            ),
+            sendStream: TestIrohSendStream()
         )
         let connection = TestIrohConnection(
-            remoteIdentity: remoteIdentity,
-            bidirectionalStreams: [CmxIrohBidirectionalStream(
-                receiveStream: receive,
-                sendStream: TestIrohSendStream()
-            )],
-            selectedPath: .relay(url: "https://relay.example.com/")
+            remoteIdentity: peerIdentity,
+            bidirectionalStreams: [control],
+            selectedPath: .direct
         )
         let endpoint = TestDialingIrohEndpoint(
             localIdentity: localIdentity,
             dialResults: [.connection(connection)]
         )
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try endpointConfiguration()
+        )
+        let authority = ScriptedConnectivityAuthority(responses: responses)
         let context = CmxIrohClientContext(
             dialPlan: try testIrohDialPlan(),
             credential: try .pairGrant("e30.e30.AA")
         )
         let engine = CmxConnectivityEngine(
-            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
-            endpointConfiguration: try Self.endpointConfiguration(),
-            contextProvider: FixedConnectivityContextProvider(context: context)
+            supervisor: supervisor,
+            contextProvider: TestIrohClientContextProvider(context: context),
+            authority: authority,
+            installRouteSnapshot: { _ in }
         )
+        try await engine.start()
         let request = CmxByteTransportRequest(
             route: try CmxAttachRoute(
                 id: "iroh-v2",
                 kind: .iroh,
-                endpoint: .peer(identity: remoteIdentity, pathHints: [])
+                endpoint: .peer(identity: peerIdentity, pathHints: [])
             ),
-            expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174999",
+            expectedPeerDeviceID: peerDeviceID,
             authorizationMode: .transportAdmission
         )
-        let ownerID = UUID()
-        try await engine.start()
-        _ = try await engine.acquireControl(for: request, ownerID: ownerID)
-        return (engine, request, connection, remoteIdentity, ownerID)
+        return AdmittedPeerRig(
+            engine: engine,
+            connection: connection,
+            authority: authority,
+            request: request
+        )
     }
 
-    private static func routeSnapshot(
+    private static func peerRouteResponse(
         revision: UInt64,
-        remoteIdentity: CmxIrohPeerIdentity,
-        includesRemoteBinding: Bool
-    ) throws -> CmxIrohDiscoveryResponse {
-        let bindings = includesRemoteBinding ? """
-        [{
-          "binding_id": "123e4567-e89b-42d3-a456-426614174001",
-          "device_id": "123e4567-e89b-42d3-a456-426614174999",
-          "app_instance_id": "123e4567-e89b-42d3-a456-426614174002",
-          "tag": "conrdy",
-          "platform": "mac",
-          "display_name": "Test Mac",
-          "endpoint_id": "\(remoteIdentity.endpointID)",
-          "identity_generation": 1,
-          "pairing_enabled": true,
-          "capabilities": ["terminal"],
-          "path_hints": [],
-          "direct_ports": null,
-          "last_seen_at": "2026-08-01T00:00:00Z"
-        }]
-        """ : "[]"
-        return try JSONDecoder().decode(
-            CmxIrohDiscoveryResponse.self,
-            from: Data("""
+        lastSeenAt: String,
+        identityGeneration: Int = 1,
+        relayFleet: [String] = ["https://relay.example/"],
+        includesPeerBinding: Bool = true
+    ) throws -> CmxConnectivitySyncResponse {
+        let binding = """
             {
-              "route_contract_version": 1,
+              "binding_id": "0a0a0a0a-0000-4000-8000-000000000001",
+              "device_id": "\(peerDeviceID)",
+              "app_instance_id": "0a0a0a0a-0000-4000-8000-000000000002",
+              "tag": "default",
+              "platform": "mac",
+              "endpoint_id": "\(peerEndpointID)",
+              "identity_generation": \(identityGeneration),
+              "pairing_enabled": true,
+              "capabilities": ["terminal"],
+              "path_hints": [],
+              "last_seen_at": "\(lastSeenAt)"
+            }
+            """
+        let fleet = relayFleet
+            .map { "\"\($0)\"" }
+            .joined(separator: ", ")
+        return try decodeResponse(
+            """
+            {
+              "protocol_version": 2,
               "revision": \(revision),
-              "bindings": \(bindings),
-              "relay_fleet": ["https://relay.example.com/"],
-              "lan_rendezvous": {
-                "generation": 1,
-                "key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-              },
-              "grant_verification_keys": {
-                "version": 1,
-                "current_kid": "current",
-                "keys": []
+              "changed": true,
+              "reset": false,
+              "snapshot": {
+                "route_contract_version": 1,
+                "revision": \(revision),
+                "bindings": [\(includesPeerBinding ? binding : "")],
+                "relay_fleet": [\(fleet)],
+                "lan_rendezvous": {
+                  "generation": 1,
+                  "key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                },
+                "grant_verification_keys": {
+                  "version": 1,
+                  "current_kid": "current",
+                  "keys": []
+                }
               }
             }
-            """.utf8)
+            """
         )
     }
 
@@ -360,6 +503,27 @@ struct CmxConnectivityEngineTests {
         struct TimedOut: Error {}
         throw TimedOut()
     }
+}
+
+private actor ScriptedConnectivityAuthority: CmxConnectivityAuthorityServing {
+    private var responses: [CmxConnectivitySyncResponse]
+    private var observedKnownRevisions: [UInt64?] = []
+
+    init(responses: [CmxConnectivitySyncResponse]) {
+        self.responses = responses
+    }
+
+    func syncConnectivity(
+        knownRevision: UInt64?
+    ) async throws -> CmxConnectivitySyncResponse {
+        observedKnownRevisions.append(knownRevision)
+        guard !responses.isEmpty else {
+            throw CmxIrohTrustBrokerClientError.connectivity
+        }
+        return responses.removeFirst()
+    }
+
+    func knownRevisions() -> [UInt64?] { observedKnownRevisions }
 }
 
 private actor InitialThenFailingConnectivityAuthority: CmxConnectivityAuthorityServing {
@@ -445,15 +609,5 @@ private struct FailingConnectivityContextProvider: CmxIrohClientContextProvider 
     ) async throws -> CmxIrohClientContext {
         _ = request
         throw CmxConnectivityEngineError.inactive
-    }
-}
-
-private struct FixedConnectivityContextProvider: CmxIrohClientContextProvider {
-    let context: CmxIrohClientContext
-
-    func context(
-        for _: CmxByteTransportRequest
-    ) async throws -> CmxIrohClientContext {
-        context
     }
 }

@@ -458,7 +458,12 @@ extension CmxIrohHostRuntime {
             try requireCurrent(revision)
             await handleRoute(policy.binding, policy.routePathHints)
             try requireCurrent(revision)
-            await connectivityEngine.didInstallRouteSnapshot(discovery)
+            if let routeRevision = discovery.revision {
+                await connectivityEngine.didInstallRouteRevision(
+                    routeRevision,
+                    routes: discovery
+                )
+            }
             scheduleLANPublication(
                 binding: policy.binding,
                 rendezvous: policy.lanRendezvous,

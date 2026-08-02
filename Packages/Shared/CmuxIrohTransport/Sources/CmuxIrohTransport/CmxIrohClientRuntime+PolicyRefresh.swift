@@ -87,7 +87,12 @@ extension CmxIrohClientRuntime {
                 let published = await handleBinding(policy.binding, discovery)
                 try requireCurrent(revision)
                 guard published else { return .failed(.superseded) }
-                await connectivityEngine.didInstallRouteSnapshot(discovery)
+                if let routeRevision = discovery.revision {
+                    await connectivityEngine.didInstallRouteRevision(
+                        routeRevision,
+                        routes: discovery
+                    )
+                }
                 liveDiscoveryGeneration &+= 1
                 return .refreshed
             } else if let lanRendezvous = policy.cachedLANRendezvous {

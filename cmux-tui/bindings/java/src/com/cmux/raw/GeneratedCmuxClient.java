@@ -163,6 +163,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final GetCellPixelsResult getCellPixels() throws CmuxException {
+        Object result = execute(Commands.GET_CELL_PIXELS, Map.of());
+        return GetCellPixelsResult.fromWire(result);
+    }
+
     public final FrontendProjection getFrontendProjection(GetFrontendProjectionRequest request) throws CmuxException {
         Object result = execute(Commands.GET_FRONTEND_PROJECTION, request.toWire());
         return FrontendProjection.fromWire(result);

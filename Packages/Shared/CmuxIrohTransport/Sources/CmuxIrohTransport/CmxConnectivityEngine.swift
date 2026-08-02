@@ -25,6 +25,7 @@ public actor CmxConnectivityEngine {
     private var endpointGeneration: UInt64?
     private var localIdentity: CmxIrohPeerIdentity?
     private var routeRevision: UInt64?
+    private var routeContent: CmxConnectivityRouteContent?
     private var endpointEventTask: Task<Void, Never>?
     private var routeSyncOperation: RouteSyncOperation?
     private var peers: [CmxConnectivityPeerID: CmxConnectivityPeerSession] = [:]
@@ -241,35 +242,21 @@ public actor CmxConnectivityEngine {
 
     /// Records the last route revision installed atomically by the composition root.
     ///
-    /// An account-wide revision alone does not make an admitted peer session
-    /// stale. Relay credential rotation and another device's reachability update
-    /// both advance this revision while the current connection remains valid.
-    public func didInstallRouteRevision(_ revision: UInt64) {
-        guard routeRevision != revision else { return }
-        routeRevision = revision
-        publishSnapshot()
-    }
-
-    /// Records a verified route snapshot and retires only peers it no longer authorizes.
-    ///
-    /// Existing QUIC sessions survive path-hint, relay-credential, and unrelated
-    /// account churn. Removing a peer or changing its endpoint or device identity
-    /// still closes that exact pooled session before the new revision becomes current.
-    public func didInstallRouteSnapshot(
-        _ snapshot: CmxIrohDiscoveryResponse
+    /// Peers whose material route content is unchanged keep their live
+    /// sessions; every other peer is invalidated before the new revision
+    /// becomes visible.
+    public func didInstallRouteRevision(
+        _ revision: UInt64,
+        routes: CmxIrohDiscoveryResponse
     ) async {
-        guard let revision = snapshot.revision,
-              routeRevision != revision else { return }
-        let authorizedPeers = Set(snapshot.bindings.map {
-            CmxConnectivityPeerID(identity: $0.endpointID, deviceID: $0.deviceID)
-        })
-        let stalePeers = peers.compactMap { peerID, peer in
-            authorizedPeers.contains(peerID) ? nil : peer
+        let content = CmxConnectivityRouteContent(snapshot: routes)
+        guard routeRevision != revision else {
+            routeContent = content
+            return
         }
-        for peer in stalePeers {
-            await peer.invalidate(failure: .superseded)
-        }
+        await invalidatePeersSuperseded(by: content)
         routeRevision = revision
+        routeContent = content
         publishSnapshot()
     }
 
@@ -703,10 +690,37 @@ public actor CmxConnectivityEngine {
                   lifecycleRevision == expectedLifecycleRevision else {
                 throw CmxConnectivityEngineError.superseded
             }
-            await didInstallRouteSnapshot(snapshot)
         }
+        let content = response.snapshot.map(CmxConnectivityRouteContent.init)
         if routeRevision != response.revision {
-            didInstallRouteRevision(response.revision)
+            await invalidatePeersSuperseded(by: content)
+            routeRevision = response.revision
+            routeContent = content
+            publishSnapshot()
+        } else if let content {
+            routeContent = content
+        }
+    }
+
+    /// Invalidates peers whose authoritative route material changed.
+    ///
+    /// A missing baseline or replacement fails closed and tears down every
+    /// peer, preserving the pre-content-tracking behavior.
+    private func invalidatePeersSuperseded(
+        by content: CmxConnectivityRouteContent?
+    ) async {
+        guard let previous = routeContent,
+              let content,
+              previous.account == content.account else {
+            await invalidateAllPeers(failure: .superseded)
+            return
+        }
+        for (peerID, peer) in peers {
+            guard let previousRoute = previous.peerRoute(for: peerID),
+                  previousRoute == content.peerRoute(for: peerID) else {
+                await peer.invalidate(failure: .superseded)
+                continue
+            }
         }
     }
 

@@ -149,7 +149,10 @@ extension CmxIrohHostRuntime {
             try requireCurrent(revision)
             await handleRoute(metadata, discovered.pathHints)
             try requireCurrent(revision)
-            await connectivityEngine.didInstallRouteSnapshot(discovery)
+            await connectivityEngine.didInstallRouteRevision(
+                discoveredRevision,
+                routes: discovery
+            )
             scheduleLANPublication(
                 binding: metadata,
                 rendezvous: discovery.lanRendezvous,

@@ -320,7 +320,12 @@ public actor CmxIrohHostRuntime {
                let discovery = publishedPolicy.discovery {
                 await handleBinding(registration, discovery, publishedPolicy.attestation)
                 try requireCurrent(revision)
-                await connectivityEngine.didInstallRouteSnapshot(discovery)
+                if let routeRevision = discovery.revision {
+                    await connectivityEngine.didInstallRouteRevision(
+                        routeRevision,
+                        routes: discovery
+                    )
+                }
                 scheduleRegistrationRenewal(
                     binding: registration.binding,
                     revision: revision
