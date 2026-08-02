@@ -382,8 +382,20 @@ extension Workspace {
         }
 
         guard let focusedPanelId else { return nil }
-        return controlSurfaceProjection(
+        if let projection = controlSurfaceProjection(
             forContainerPanelID: focusedPanelId
+        ) {
+            return projection
+        }
+        guard let fallback = terminalInputTarget(
+            forPanelID: focusedPanelId
+        ) else {
+            return nil
+        }
+        return (
+            fallback.surfaceID,
+            paneId(forPanelId: focusedPanelId)?.id,
+            fallback.panel
         )
     }
 

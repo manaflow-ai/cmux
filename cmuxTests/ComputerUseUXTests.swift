@@ -1710,8 +1710,8 @@ struct ComputerUseUXTests {
 
     @Test func codexCompatibilityOutageKeepsNativeApplicationSurfaceIdentity() {
         let profiles = ComputerUseRuntimeService.helperProfilesNeedingRecovery(
-            nativeListening: true,
-            codexCompatibilityListening: false
+            nativeHealthy: true,
+            codexCompatibilityHealthy: false
         )
 
         #expect(profiles == [.codexCompatibility])
@@ -1722,8 +1722,8 @@ struct ComputerUseUXTests {
 
     @Test func nativeOutageInvalidatesApplicationSurfaceIdentity() {
         let profiles = ComputerUseRuntimeService.helperProfilesNeedingRecovery(
-            nativeListening: false,
-            codexCompatibilityListening: true
+            nativeHealthy: false,
+            codexCompatibilityHealthy: true
         )
 
         #expect(profiles == [.native])

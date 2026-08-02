@@ -2142,8 +2142,9 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         _ profile: ComputerUseDaemonProfile
     ) async -> Bool {
         // A new daemon may have rebound this profile while the old exact
-        // generation exited. Preserve its socket and pid file so recovery
-        // cannot disconnect a healthy replacement that it did not launch.
+        // generation exited. Preserve its live socket here; the health monitor
+        // authenticates the peer generation and schedules scoped recovery when
+        // it is not the host-tracked process.
         guard !(await Self.isDaemonListening(
             paths: paths,
             transport: transport,
@@ -2340,21 +2341,38 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     }
 
     private func checkHelperHealth() async {
-        async let nativeListening = Self.isDaemonListening(
+        async let nativePeerIdentity = Self.daemonPeerIdentity(
             paths: paths,
             transport: transport,
             socketURL: paths.daemonSocketURL
         )
-        async let codexListening = Self.isDaemonListening(
+        async let codexPeerIdentity = Self.daemonPeerIdentity(
             paths: paths,
             transport: transport,
             socketURL: paths.codexDaemonSocketURL
         )
-        let listeningResults = await (nativeListening, codexListening)
+        let peerIdentities = await (
+            nativePeerIdentity,
+            codexPeerIdentity
+        )
         guard !Task.isCancelled else { return }
+        let nativeIdentity = processIdentity(for: .native)
+        let codexIdentity = processIdentity(for: .codexCompatibility)
+        let nativeHealthy = Self.helperProfileOwnsListeningPeer(
+            trackedIdentity: nativeIdentity.flatMap {
+                AgentPIDProcessIdentity(pid: $0.pid) == $0 ? $0 : nil
+            },
+            peerIdentity: peerIdentities.0
+        )
+        let codexHealthy = Self.helperProfileOwnsListeningPeer(
+            trackedIdentity: codexIdentity.flatMap {
+                AgentPIDProcessIdentity(pid: $0.pid) == $0 ? $0 : nil
+            },
+            peerIdentity: peerIdentities.1
+        )
         let unavailableProfiles = Self.helperProfilesNeedingRecovery(
-            nativeListening: listeningResults.0,
-            codexCompatibilityListening: listeningResults.1
+            nativeHealthy: nativeHealthy,
+            codexCompatibilityHealthy: codexHealthy
         )
         var profilesReadyForRecovery: Set<ComputerUseDaemonProfile> = []
         for profile in ComputerUseDaemonProfile.allCases {
@@ -2371,9 +2389,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             }
         }
 
-        if listeningResults.0,
-           let identity = processIdentity(for: .native),
-           AgentPIDProcessIdentity(pid: identity.pid) == identity {
+        if nativeHealthy, let identity = nativeIdentity {
             await retryPendingApplicationSurfaceStops(
                 expectedPeerIdentity: identity
             )
@@ -2476,17 +2492,25 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     }
 
     nonisolated static func helperProfilesNeedingRecovery(
-        nativeListening: Bool,
-        codexCompatibilityListening: Bool
+        nativeHealthy: Bool,
+        codexCompatibilityHealthy: Bool
     ) -> Set<ComputerUseDaemonProfile> {
         var profiles: Set<ComputerUseDaemonProfile> = []
-        if !nativeListening {
+        if !nativeHealthy {
             profiles.insert(.native)
         }
-        if !codexCompatibilityListening {
+        if !codexCompatibilityHealthy {
             profiles.insert(.codexCompatibility)
         }
         return profiles
+    }
+
+    nonisolated static func helperProfileOwnsListeningPeer(
+        trackedIdentity: AgentPIDProcessIdentity?,
+        peerIdentity: AgentPIDProcessIdentity?
+    ) -> Bool {
+        guard let trackedIdentity, let peerIdentity else { return false }
+        return trackedIdentity == peerIdentity
     }
 
     nonisolated static func helperTerminationInvalidatesApplicationSurfaces(
