@@ -5163,6 +5163,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return moved
         }
 
+        guard
+            let sourcePanel = sourceWorkspace.panels[panelId],
+            destinationWorkspace.acceptsDetachedSurface(sourcePanel)
+        else {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=destinationRejectedSurface " +
+                "destinationWs=\(destinationWorkspace.id.uuidString.prefix(5)) elapsedMs=\(elapsedMs(since: moveStart))"
+            )
+#endif
+            return false
+        }
+
         let sourcePane = sourceWorkspace.paneId(forPanelId: panelId)
         let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
 #if DEBUG

@@ -4966,6 +4966,18 @@ class TerminalController {
                 return
             }
 
+            guard
+                let sourcePanel = sourceWorkspace.panels[surfaceId],
+                targetWorkspace.acceptsDetachedSurface(sourcePanel)
+            else {
+                result = .err(
+                    code: "internal_error",
+                    message: "Failed to attach surface to destination",
+                    data: nil
+                )
+                return
+            }
+
             guard let transfer = sourceWorkspace.detachSurface(panelId: surfaceId) else {
                 result = .err(code: "internal_error", message: "Failed to detach surface", data: nil)
                 return

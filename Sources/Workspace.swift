@@ -9674,6 +9674,10 @@ final class Workspace: Identifiable, ObservableObject {
         return detached
     }
 
+    func acceptsDetachedSurface(_ panel: any Panel) -> Bool {
+        !(isRemoteTmuxMirror && panel is ApplicationPanel)
+    }
+
     @discardableResult
     func attachDetachedSurface(
         _ detached: DetachedSurfaceTransfer,
@@ -9689,7 +9693,7 @@ final class Workspace: Identifiable, ObservableObject {
             "pane=\(paneId.id.uuidString.prefix(5)) index=\(index.map(String.init) ?? "nil") focus=\(focus ? 1 : 0)"
         )
 #endif
-        guard !(isRemoteTmuxMirror && detached.panel is ApplicationPanel) else {
+        guard acceptsDetachedSurface(detached.panel) else {
 #if DEBUG
             cmuxDebugLog(
                 "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
