@@ -2559,6 +2559,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
+    private static let remoteDaemonLogSource = "remote-daemon"
     private static let remoteNotificationCooldown: TimeInterval = 5 * 60
     private static let remoteHeartbeatDateFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -6893,6 +6894,9 @@ final class Workspace: Identifiable, ObservableObject {
         applyBrowserRemoteWorkspaceStatusToPanels()
         guard status.state == .error else {
             remoteLastDaemonErrorFingerprint = nil
+            if status.state == .ready {
+                logEntries.removeAll { $0.source == Self.remoteDaemonLogSource }
+            }
             return
         }
         let trimmedDetail = status.detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "remote daemon error"
@@ -6902,7 +6906,7 @@ final class Workspace: Identifiable, ObservableObject {
         appendSidebarLog(
             message: "Remote daemon error (\(target)): \(trimmedDetail)",
             level: .error,
-            source: "remote-daemon"
+            source: Self.remoteDaemonLogSource
         )
     }
 
