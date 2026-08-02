@@ -1586,6 +1586,66 @@ pub(crate) struct ShutdownCleanupHealth {
     pub(crate) degraded: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct ShutdownCleanupLifecycleState {
+    pending: bool,
+    retrying: bool,
+    degraded: bool,
+}
+
+#[derive(Default)]
+struct ShutdownCleanupLifecycle {
+    state: Mutex<ShutdownCleanupLifecycleState>,
+}
+
+impl ShutdownCleanupLifecycle {
+    /// Publish cleanup before closing the creation fence. The state remains
+    /// pending until one complete top-level cleanup path succeeds, including
+    /// failures that have no terminal owner in `ShutdownOwnerLedger`.
+    fn schedule(&self) {
+        *self.state.lock().unwrap() =
+            ShutdownCleanupLifecycleState { pending: true, retrying: true, degraded: false };
+    }
+
+    fn begin(&self) -> ShutdownCleanupLifecycleGuard<'_> {
+        self.schedule();
+        ShutdownCleanupLifecycleGuard { lifecycle: self, complete: false }
+    }
+
+    fn snapshot(&self) -> ShutdownCleanupLifecycleState {
+        *self.state.lock().unwrap()
+    }
+
+    fn complete(&self) {
+        *self.state.lock().unwrap() = ShutdownCleanupLifecycleState::default();
+    }
+
+    fn degrade(&self) {
+        *self.state.lock().unwrap() =
+            ShutdownCleanupLifecycleState { pending: true, retrying: false, degraded: true };
+    }
+}
+
+struct ShutdownCleanupLifecycleGuard<'a> {
+    lifecycle: &'a ShutdownCleanupLifecycle,
+    complete: bool,
+}
+
+impl ShutdownCleanupLifecycleGuard<'_> {
+    fn complete(mut self) {
+        self.lifecycle.complete();
+        self.complete = true;
+    }
+}
+
+impl Drop for ShutdownCleanupLifecycleGuard<'_> {
+    fn drop(&mut self) {
+        if !self.complete {
+            self.lifecycle.degrade();
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct SidebarPluginRuntime {
     options: Option<SidebarPluginOptions>,
@@ -2362,6 +2422,7 @@ pub struct Mux {
     async_surface_creations: AsyncSurfaceCreationGate,
     shutdown_coordinator: ShutdownCoordinator,
     shutdown_owners: ShutdownOwnerLedger,
+    shutdown_cleanup_lifecycle: ShutdownCleanupLifecycle,
     shutdown_owner_reconciler: Arc<ShutdownOwnerReconciler>,
     surface_owner_reservations: AtomicUsize,
     next_id: AtomicU64,
@@ -2720,6 +2781,7 @@ impl Mux {
             async_surface_creations: AsyncSurfaceCreationGate::default(),
             shutdown_coordinator: ShutdownCoordinator::default(),
             shutdown_owners: ShutdownOwnerLedger::default(),
+            shutdown_cleanup_lifecycle: ShutdownCleanupLifecycle::default(),
             shutdown_owner_reconciler: Arc::new(ShutdownOwnerReconciler::default()),
             surface_owner_reservations: AtomicUsize::new(0),
             next_id: AtomicU64::new(next_id),
@@ -8304,14 +8366,14 @@ impl Mux {
     }
 
     fn shutdown_once_until(&self, deadline: Instant) -> anyhow::Result<()> {
-        self.shutting_down.store(true, Ordering::Release);
-        self.browser_runtime.stop();
-        #[cfg(unix)]
-        self.request_terminal_adoption_stop();
         #[cfg(unix)]
         crate::process_session::require_stable_process_signaling_until(deadline)
             .context("preflight process control for daemon exit")?;
         let _coordinator = self.lock_shutdown_coordinator_until(deadline)?;
+        self.shutting_down.store(true, Ordering::Release);
+        self.browser_runtime.stop();
+        #[cfg(unix)]
+        self.request_terminal_adoption_stop();
         if !self.surface_creations.stop_and_wait_until(deadline) {
             anyhow::bail!("surface creation remains active at the daemon exit deadline");
         }
@@ -8358,6 +8420,7 @@ impl Mux {
     /// absolute deadline guarantees an accepted daemon handoff cannot wedge
     /// the old process or its socket forever.
     pub fn shutdown(&self) -> anyhow::Result<()> {
+        let cleanup_lifecycle = self.shutdown_cleanup_lifecycle.begin();
         self.shutdown_owner_reconciler.stop();
         let overall_deadline = Instant::now() + self.shutdown_total_timeout();
         let mut retry_delay = SERVER_EXIT_RETRY_INITIAL_DELAY;
@@ -8369,7 +8432,10 @@ impl Mux {
             }
             let attempt_deadline = (now + self.shutdown_attempt_timeout()).min(overall_deadline);
             match self.shutdown_once_until(attempt_deadline) {
-                Ok(()) => return Ok(()),
+                Ok(()) => {
+                    cleanup_lifecycle.complete();
+                    return Ok(());
+                }
                 Err(error) => last_error = Some(error),
             }
             let Some(remaining) = overall_deadline.checked_duration_since(Instant::now()) else {
@@ -8445,12 +8511,16 @@ impl Mux {
     }
 
     pub(crate) fn shutdown_cleanup_health(&self) -> ShutdownCleanupHealth {
-        let pending = self.shutdown_owners.len();
+        let owner_pending = self.shutdown_owners.len();
+        let lifecycle = self.shutdown_cleanup_lifecycle.snapshot();
         let state = self.shutdown_owner_reconciler.state.lock().unwrap();
+        let owner_retrying = owner_pending != 0 && state.worker_started && !state.degraded;
+        let owner_degraded = owner_pending != 0 && (state.degraded || !state.worker_started);
+        let degraded = lifecycle.degraded || owner_degraded;
         ShutdownCleanupHealth {
-            pending,
-            retrying: pending != 0 && state.worker_started && !state.degraded,
-            degraded: pending != 0 && (state.degraded || !state.worker_started),
+            pending: owner_pending.max(usize::from(lifecycle.pending)),
+            retrying: !degraded && (lifecycle.retrying || owner_retrying),
+            degraded,
         }
     }
 
@@ -8470,6 +8540,7 @@ impl Mux {
         crate::process_session::require_stable_process_signaling_until(deadline)
             .context("preflight process control for server shutdown")?;
         let _coordinator = self.lock_shutdown_coordinator_until(deadline)?;
+        let cleanup_lifecycle = self.shutdown_cleanup_lifecycle.begin();
         self.shutting_down.store(true, Ordering::Release);
         self.browser_runtime.stop();
         #[cfg(unix)]
@@ -8713,6 +8784,7 @@ impl Mux {
             anyhow::bail!("{}", failures.join("; "));
         }
 
+        cleanup_lifecycle.complete();
         Ok(closed_count)
     }
 
@@ -8810,6 +8882,7 @@ impl Mux {
     /// shutdown path. Durable terminal hosts are disconnected by `shutdown`
     /// and remain available for the replacement daemon to adopt.
     pub fn request_daemon_shutdown(&self) {
+        self.shutdown_cleanup_lifecycle.schedule();
         self.shutting_down.store(true, Ordering::Release);
         self.surface_creations.stop();
         self.async_surface_creations.stop();
