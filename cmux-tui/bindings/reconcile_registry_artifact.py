@@ -45,6 +45,9 @@ PYPI_VERSION = re.compile(
 )
 PYPI_BOOTSTRAP_VERSION = "0.0.0a0"
 CRATES_BOOTSTRAP_VERSION = "0.0.0-bootstrap.0"
+PUBLISH_POLL_SECONDS = 0.25
+PUBLISH_STOP_SECONDS = 5
+PUBLISH_TIMEOUT_EXIT = 124
 
 
 class RegistryError(RuntimeError):
@@ -660,6 +663,83 @@ def _write_github_output(name: str, status: str) -> None:
         handle.write(f"{name}={status}\n")
 
 
+def _signal_publish_process_group(
+    process: subprocess.Popen[bytes],
+    signum: int,
+) -> None:
+    try:
+        os.killpg(process.pid, signum)
+        return
+    except ProcessLookupError:
+        return
+    except (AttributeError, OSError):
+        pass
+    try:
+        if signum == signal.SIGTERM:
+            process.terminate()
+        else:
+            process.kill()
+    except OSError:
+        pass
+
+
+def _stop_publish_process(process: subprocess.Popen[bytes]) -> None:
+    _signal_publish_process_group(process, signal.SIGTERM)
+    try:
+        process.wait(timeout=PUBLISH_STOP_SECONDS)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    _signal_publish_process_group(process, signal.SIGKILL)
+    try:
+        process.wait(timeout=PUBLISH_STOP_SECONDS)
+    except subprocess.TimeoutExpired as error:
+        raise RegistryError("could not stop the timed-out publish command") from error
+
+
+def _run_publish_command(
+    command: Sequence[str],
+    *,
+    timeout_seconds: int,
+    cancel_event: Optional[threading.Event],
+) -> subprocess.CompletedProcess[bytes]:
+    cancellation = cancel_event or threading.Event()
+    if cancellation.is_set():
+        raise RegistryCancellation("registry publication was cancelled")
+    try:
+        process = subprocess.Popen(
+            list(command),
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as error:
+        raise RegistryError("could not start the publish command") from error
+
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        while True:
+            if cancellation.is_set():
+                _stop_publish_process(process)
+                raise RegistryCancellation("registry publication was cancelled")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                _stop_publish_process(process)
+                return subprocess.CompletedProcess(
+                    list(command),
+                    PUBLISH_TIMEOUT_EXIT,
+                )
+            try:
+                returncode = process.wait(
+                    timeout=min(PUBLISH_POLL_SECONDS, remaining)
+                )
+            except subprocess.TimeoutExpired:
+                continue
+            return subprocess.CompletedProcess(list(command), returncode)
+    except KeyboardInterrupt:
+        _stop_publish_process(process)
+        raise
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("check", "publish"))
@@ -669,6 +749,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--artifact", required=True, type=Path)
     parser.add_argument("--allowed-artifact", action="append", type=Path)
     parser.add_argument("--wait-seconds", type=int, default=0)
+    parser.add_argument("--publish-timeout-seconds", type=int, default=600)
     parser.add_argument("--require-match", action="store_true")
     parser.add_argument("--write-github-output", action="store_true")
     parser.add_argument("--github-output-name", default="status")
@@ -692,6 +773,8 @@ def main(
     args = _parser().parse_args(arguments)
     if args.wait_seconds < 0:
         raise SystemExit("--wait-seconds must be non-negative")
+    if args.publish_timeout_seconds <= 0:
+        raise SystemExit("--publish-timeout-seconds must be positive")
     if args.mode == "publish" and not command:
         raise SystemExit("publish mode requires a command after --")
     if args.mode == "check" and command:
@@ -747,8 +830,17 @@ def main(
             )
             return 0
 
-        result = subprocess.run(command, check=False)
-        if result.returncode != 0:
+        result = _run_publish_command(
+            command,
+            timeout_seconds=args.publish_timeout_seconds,
+            cancel_event=cancel_event,
+        )
+        if result.returncode == PUBLISH_TIMEOUT_EXIT:
+            print(
+                "publish command timed out; reconciling registry state",
+                file=sys.stderr,
+            )
+        elif result.returncode != 0:
             print(
                 f"publish command exited {result.returncode}; "
                 "reconciling registry state",

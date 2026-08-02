@@ -781,6 +781,7 @@ jobs:
       contents: read
       id-token: write
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
     environment:
       name: crates-io
       url: https://crates.io/crates/cmux-client
@@ -861,6 +862,7 @@ jobs:
             --version "$CMUX_SDK_VERSION" \
             --artifact "$GITHUB_WORKSPACE/validated-client/cmux-client-$CMUX_SDK_VERSION.crate" \
             --wait-seconds 120 \
+            --publish-timeout-seconds 600 \
             -- cargo publish -p cmux-client --locked --no-verify
 
   publish-crate-sidebar:
@@ -874,6 +876,7 @@ jobs:
       contents: read
       id-token: write
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
     environment:
       name: crates-io
       url: https://crates.io/crates/cmux-sidebar
@@ -979,6 +982,7 @@ jobs:
             --version "$CMUX_SDK_VERSION" \
             --artifact "$GITHUB_WORKSPACE/validated-sidebar/cmux-sidebar-$CMUX_SDK_VERSION.crate" \
             --wait-seconds 120 \
+            --publish-timeout-seconds 600 \
             -- cargo publish \
               -p cmux-sidebar \
               --locked \
@@ -997,6 +1001,7 @@ jobs:
       id-token: write
     # npm provenance and trusted publishing require a GitHub-hosted runner.
     runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
+    timeout-minutes: 30
     environment:
       name: npm
       url: https://www.npmjs.com/package/cmux-sdk
@@ -1063,6 +1068,7 @@ jobs:
             --version "$CMUX_SDK_VERSION" \
             --artifact "${packages[0]}" \
             --wait-seconds 120 \
+            --publish-timeout-seconds 600 \
             -- npm publish --provenance --tag latest "${packages[0]}"
 
   publish-python-wheel:
@@ -1077,6 +1083,7 @@ jobs:
     # PyPI trusted publishers cannot authenticate a reusable workflow, so the
     # OIDC publish job stays directly in this top-level release workflow.
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
     environment:
       name: pypi
       url: https://pypi.org/p/cmux-sdk
@@ -1182,6 +1189,7 @@ jobs:
     # PyPI trusted publishers cannot authenticate a reusable workflow, so the
     # OIDC publish job stays directly in this top-level release workflow.
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
     environment:
       name: pypi
       url: https://pypi.org/p/cmux-sdk

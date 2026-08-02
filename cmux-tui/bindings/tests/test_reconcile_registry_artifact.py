@@ -189,8 +189,8 @@ class RegistryArtifactTests(unittest.TestCase):
         missing = HTTPError("https://registry.example", 404, "missing", None, None)
         with mock.patch.object(reconcile, "urlopen", side_effect=missing), \
             mock.patch.object(
-                reconcile.subprocess,
-                "run",
+                reconcile,
+                "_run_publish_command",
                 return_value=mock.Mock(returncode=1),
             ):
             self.assertEqual(
@@ -249,8 +249,8 @@ class RegistryArtifactTests(unittest.TestCase):
             "wait_for_status",
             side_effect=(reconcile.MISSING, reconcile.MATCH),
         ) as status, mock.patch.object(
-            reconcile.subprocess,
-            "run",
+            reconcile,
+            "_run_publish_command",
             return_value=types.SimpleNamespace(returncode=0),
         ):
             result = reconcile.main([
@@ -901,8 +901,8 @@ class RegistryArtifactTests(unittest.TestCase):
             "registry_status",
             side_effect=(reconcile.MISSING, reconcile.MATCH),
         ), mock.patch.object(
-            reconcile.subprocess,
-            "run",
+            reconcile,
+            "_run_publish_command",
             return_value=types.SimpleNamespace(returncode=7),
         ):
             result = reconcile.main(
@@ -931,8 +931,8 @@ class RegistryArtifactTests(unittest.TestCase):
             "wait_for_status",
             side_effect=(reconcile.MISSING, reconcile.MISSING),
         ) as status, mock.patch.object(
-            reconcile.subprocess,
-            "run",
+            reconcile,
+            "_run_publish_command",
             return_value=types.SimpleNamespace(returncode=0),
         ):
             result = reconcile.main(
@@ -1044,8 +1044,8 @@ class RegistryArtifactTests(unittest.TestCase):
                 reconcile.MATCH,
             ),
         ) as status, mock.patch.object(
-            reconcile.subprocess,
-            "run",
+            reconcile,
+            "_run_publish_command",
             return_value=types.SimpleNamespace(returncode=0),
         ) as publish:
             result = reconcile.main(
@@ -1075,7 +1075,7 @@ class RegistryArtifactTests(unittest.TestCase):
     def test_exact_existing_artifact_skips_publish(self) -> None:
         with mock.patch.object(
             reconcile, "registry_status", return_value=reconcile.MATCH
-        ), mock.patch.object(reconcile.subprocess, "run") as publish:
+        ), mock.patch.object(reconcile, "_run_publish_command") as publish:
             result = reconcile.main(
                 [
                     "publish",
