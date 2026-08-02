@@ -3270,6 +3270,28 @@ impl Mux {
                 self.materialize_exited_terminal(&terminal.terminal_id, &options)?;
                 continue;
             }
+            if let Some(root) = options.terminal_host_root.as_deref() {
+                // The directory scan deliberately tolerates malformed debris.
+                // Before converting a durable live row into record absence,
+                // probe its exact canonical path so unreadable ownership or a
+                // record published during the scan fails startup without
+                // changing the terminal lifecycle.
+                let exact_record = crate::terminal_host_runtime::load_terminal_host_record(
+                    root,
+                    &terminal.terminal_id,
+                )
+                .with_context(|| {
+                    format!(
+                        "load exact terminal-host record for durable terminal {}",
+                        terminal.terminal_id
+                    )
+                })?;
+                anyhow::ensure!(
+                    exact_record.is_none(),
+                    "terminal-host record appeared after adoption discovery for {}",
+                    terminal.terminal_id
+                );
+            }
             self.mark_terminal_exited_and_materialize(
                 &terminal.terminal_id,
                 "terminal-record-missing",
