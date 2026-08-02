@@ -57,16 +57,16 @@ final class ApplicationSurfaceInputPump {
         return .accepted
     }
 
-    func discardPendingAndTakeReleaseEvents() async -> [ApplicationSurfaceInputEvent] {
+    func discardPendingAndSnapshotReleaseEvents() async -> [ApplicationSurfaceInputEvent] {
         discardPending()
-        return await takeReleaseEventsAfterDraining()
+        return await snapshotReleaseEventsAfterDraining()
     }
 
     func discardPending() {
         queue.removeAll(keepingCapacity: true)
     }
 
-    func takeReleaseEventsAfterDraining() async -> [ApplicationSurfaceInputEvent] {
+    func snapshotReleaseEventsAfterDraining() async -> [ApplicationSurfaceInputEvent] {
         await waitUntilIdle()
 
         var releases = possiblyPressedKeyCodes
@@ -94,12 +94,58 @@ final class ApplicationSurfaceInputPump {
                 y: point.y
             ))
         }
+        return releases
+    }
+
+    func releasePossibleInputsAfterDraining(
+        maximumAttemptCount: Int,
+        sender: BatchSender
+    ) async -> Bool {
+        precondition(maximumAttemptCount > 0)
+        let releases = await snapshotReleaseEventsAfterDraining()
+        guard !releases.isEmpty else { return true }
+
+        for startIndex in stride(
+            from: 0,
+            to: releases.count,
+            by: Self.maximumProtocolBatchEventCount
+        ) {
+            let endIndex = min(
+                startIndex + Self.maximumProtocolBatchEventCount,
+                releases.count
+            )
+            let batch = Array(releases[startIndex ..< endIndex])
+            var acknowledged = false
+            for _ in 0 ..< maximumAttemptCount {
+                if await sender(batch) {
+                    acknowledgeReleaseEvents(batch)
+                    acknowledged = true
+                    break
+                }
+            }
+            if !acknowledged {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func acknowledgeReleaseEvents(
+        _ events: [ApplicationSurfaceInputEvent]
+    ) {
+        for event in events {
+            recordAcknowledgedDelivery(of: event, delivered: true)
+        }
+    }
+
+    func resetAfterSessionStop() {
+        // The runtime owns pending stop retries and helper restart from here.
+        discardPending()
         possiblyPressedKeyCodes.removeAll(keepingCapacity: true)
         possiblyPressedLeftMouseLocation = nil
         possiblyPressedLeftMouseFrameSequence = nil
         possiblyPressedRightMouseLocation = nil
         possiblyPressedRightMouseFrameSequence = nil
-        return releases
     }
 
     func waitUntilIdle() async {

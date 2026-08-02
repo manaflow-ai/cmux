@@ -767,7 +767,7 @@ struct ApplicationSurfaceTests {
         #expect(pump.enqueue(mouseDrag) == .accepted)
         await pump.waitUntilIdle()
 
-        let releases = await pump.discardPendingAndTakeReleaseEvents()
+        let releases = await pump.discardPendingAndSnapshotReleaseEvents()
 
         #expect(releases.contains(ApplicationSurfaceInputEvent(
             kind: .key,
@@ -800,11 +800,34 @@ struct ApplicationSurfaceTests {
         #expect(pump.enqueue(mouseDown) == .accepted)
         await pump.waitUntilIdle()
 
-        let firstAttempt = await pump.takeReleaseEventsAfterDraining()
-        let retryAttempt = await pump.takeReleaseEventsAfterDraining()
+        let firstAttempt = await pump.snapshotReleaseEventsAfterDraining()
+        let retryAttempt = await pump.snapshotReleaseEventsAfterDraining()
 
         #expect(!firstAttempt.isEmpty)
         #expect(retryAttempt == firstAttempt)
+
+        var failedAttemptCount = 0
+        let failed = await pump.releasePossibleInputsAfterDraining(
+            maximumAttemptCount: 2
+        ) { events in
+            failedAttemptCount += 1
+            #expect(events == firstAttempt)
+            return false
+        }
+
+        #expect(!failed)
+        #expect(failedAttemptCount == 2)
+        #expect(await pump.snapshotReleaseEventsAfterDraining() == firstAttempt)
+
+        let acknowledged = await pump.releasePossibleInputsAfterDraining(
+            maximumAttemptCount: 1
+        ) { events in
+            #expect(events == firstAttempt)
+            return true
+        }
+
+        #expect(acknowledged)
+        #expect(await pump.snapshotReleaseEventsAfterDraining().isEmpty)
     }
 
     @Test func pickerSearchMatchesOwnerAndWindowTitle() {

@@ -5,6 +5,7 @@ import CmuxSimulatorUI
 @MainActor
 final class ApplicationCaptureView: NSView {
     private static let firstFrameTimeout: TimeInterval = 8
+    private static let maximumInputReleaseAttemptCount = 2
 
     private static let namedKeyCodes: [String: CGKeyCode] = [
         "a": CGKeyCode(kVK_ANSI_A), "b": CGKeyCode(kVK_ANSI_B),
@@ -437,6 +438,7 @@ final class ApplicationCaptureView: NSView {
         let inputReleaseTask = beginInputRelease(session: session, lease: lease)
         self.session = nil
         let runtime = runtime
+        let inputPump = inputPump
         stopTask = Task { @MainActor [weak self] in
             await inputReleaseTask.value
             if let session, let lease {
@@ -444,6 +446,7 @@ final class ApplicationCaptureView: NSView {
                     lease: lease,
                     sessionID: session.sessionID
                 )
+                inputPump.resetAfterSessionStop()
             }
             guard let self else { return }
             self.stopTask = nil
@@ -749,14 +752,19 @@ final class ApplicationCaptureView: NSView {
         let runtime = runtime
         let inputPump = inputPump
         let task = Task { @MainActor [weak self] in
-            let releases = await inputPump.takeReleaseEventsAfterDraining()
-            if let session, let lease {
-                if !releases.isEmpty {
-                    try? await runtime.sendApplicationSurfaceEvents(
+            let released = await inputPump.releasePossibleInputsAfterDraining(
+                maximumAttemptCount: Self.maximumInputReleaseAttemptCount
+            ) { events in
+                guard let session, let lease else { return false }
+                do {
+                    try await runtime.sendApplicationSurfaceEvents(
                         lease: lease,
                         sessionID: session.sessionID,
-                        events: releases
+                        events: events
                     )
+                    return true
+                } catch {
+                    return false
                 }
             }
             guard
@@ -764,6 +772,16 @@ final class ApplicationCaptureView: NSView {
                 self.inputReleaseGeneration == generation
             else {
                 return
+            }
+            if !released, session != nil, lease != nil {
+                cmuxDebugLog(
+                    "applicationSurface.input.releaseFailed"
+                        + " window=\(self.sourceWindowID)"
+                )
+                self.handleRuntimeFailure(
+                    .failed,
+                    failureDetail: Self.genericCaptureFailureDetail
+                )
             }
             self.inputReleaseTask = nil
             if self.window?.firstResponder === self {
