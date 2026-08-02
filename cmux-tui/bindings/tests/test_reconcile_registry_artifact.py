@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 import tempfile
 import threading
 import types
@@ -954,6 +955,81 @@ class RegistryArtifactTests(unittest.TestCase):
             )
         self.assertEqual(result, 1)
         self.assertEqual(status.call_count, 2)
+
+    def test_publish_command_timeout_stops_the_entire_process_group(self) -> None:
+        command = ["npm", "publish"]
+        process = mock.Mock(pid=4321)
+        process.wait.side_effect = (
+            subprocess.TimeoutExpired(command, 0.25),
+            subprocess.TimeoutExpired(command, 5),
+            -9,
+        )
+        with mock.patch.object(
+            reconcile.subprocess,
+            "Popen",
+            return_value=process,
+        ) as popen, mock.patch.object(
+            reconcile.time,
+            "monotonic",
+            side_effect=(10.0, 10.0, 41.0),
+        ), mock.patch.object(reconcile.os, "killpg") as killpg:
+            result = reconcile._run_publish_command(
+                command,
+                timeout_seconds=30,
+                cancel_event=threading.Event(),
+            )
+
+        self.assertEqual(result.returncode, 124)
+        popen.assert_called_once_with(
+            command,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        self.assertEqual(
+            killpg.call_args_list,
+            [
+                mock.call(4321, reconcile.signal.SIGTERM),
+                mock.call(4321, reconcile.signal.SIGKILL),
+            ],
+        )
+
+    def test_publish_timeout_still_reconciles_exact_registry_bytes(self) -> None:
+        with mock.patch.object(
+            reconcile,
+            "wait_for_status",
+            side_effect=(reconcile.MISSING, reconcile.MATCH),
+        ), mock.patch.object(
+            reconcile,
+            "_run_publish_command",
+            return_value=subprocess.CompletedProcess([], 124),
+        ) as publish:
+            result = reconcile.main(
+                [
+                    "publish",
+                    "--registry",
+                    "npm",
+                    "--package",
+                    "cmux-sdk",
+                    "--version",
+                    "1.0.0",
+                    "--artifact",
+                    str(self.artifact),
+                    "--wait-seconds",
+                    "120",
+                    "--publish-timeout-seconds",
+                    "30",
+                    "--",
+                    "npm",
+                    "publish",
+                ]
+            )
+
+        self.assertEqual(result, 0)
+        publish.assert_called_once_with(
+            ["npm", "publish"],
+            timeout_seconds=30,
+            cancel_event=None,
+        )
 
     def test_publish_preflight_retries_lookup_errors_then_publishes_missing(self) -> None:
         cancellation = mock.Mock()

@@ -897,6 +897,22 @@ def test_registry_writes_reconcile_ambiguous_publish_failures() -> None:
         assert "--wait-seconds 120" in block
 
 
+def test_irreversible_registry_writes_have_bounded_processes_and_jobs() -> None:
+    release = workflow("sdk-release-cut.yml")
+
+    for job in (
+        "publish-crate-client",
+        "publish-crate-sidebar",
+        "publish-npm",
+    ):
+        block = workflow_job(release, job)
+        assert "timeout-minutes: 30" in block
+        assert "--publish-timeout-seconds 600" in block
+
+    for job in ("publish-python-wheel", "publish-python-sdist"):
+        assert "timeout-minutes: 30" in workflow_job(release, job)
+
+
 def test_rust_release_uses_pinned_cargo_and_verifies_packaged_sidebar() -> None:
     preflight = workflow("sdk-publish-crates.yml")
     release = workflow("sdk-release-cut.yml")
