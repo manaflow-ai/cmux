@@ -1,0 +1,102 @@
+name: sdk bootstrap crates
+
+on:
+  repository_dispatch:
+    types: [sdk-bootstrap-crates]
+
+permissions: {}
+
+concurrency:
+  group: sdk-bootstrap-crates
+  cancel-in-progress: false
+
+env:
+  BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"
+  RUST_TOOLCHAIN: "1.95.0"
+
+jobs:
+  bootstrap:
+    if: github.event.client_payload.confirm_bootstrap == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    environment:
+      name: crates-bootstrap
+      url: https://crates.io/crates/cmux-sidebar
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require current protected main
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "Dispatch sdk-bootstrap-crates.yml from main, found $GITHUB_REF." >&2
+            exit 1
+          }
+          git fetch --force origin main
+          main_sha="$(git rev-parse origin/main)"
+          [[ "$GITHUB_SHA" == "$main_sha" ]] || {
+            echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
+            exit 1
+          }
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          cargo --version
+          rustc --version
+
+      - name: Build and test the ownership bootstrap
+        id: package
+        run: |
+          set -euo pipefail
+          source_dir="cmux-tui/bindings/bootstrap/rust-sidebar"
+          bootstrap_dir="$RUNNER_TEMP/cmux-sidebar-bootstrap"
+          cp -R "$source_dir" "$bootstrap_dir"
+          manifest="$bootstrap_dir/Cargo.toml"
+          cargo test --manifest-path "$manifest" --locked
+          cargo package --manifest-path "$manifest" --locked --no-verify
+          artifact="$bootstrap_dir/target/package/cmux-sidebar-$BOOTSTRAP_VERSION.crate"
+          [[ -f "$artifact" ]] || {
+            echo "bootstrap crate was not created" >&2
+            exit 1
+          }
+          verify_dir="$RUNNER_TEMP/cmux-sidebar-bootstrap-verify"
+          mkdir -p "$verify_dir"
+          tar -xzf "$artifact" -C "$verify_dir"
+          cargo test \
+            --manifest-path \
+              "$verify_dir/cmux-sidebar-$BOOTSTRAP_VERSION/Cargo.toml" \
+            --locked
+          echo "directory=$bootstrap_dir" >> "$GITHUB_OUTPUT"
+          echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the exact tested ownership bootstrap
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_BOOTSTRAP_TOKEN }}
+          BOOTSTRAP_DIR: ${{ steps.package.outputs.directory }}
+          BOOTSTRAP_ARTIFACT: ${{ steps.package.outputs.artifact }}
+        run: |
+          set -euo pipefail
+          [[ -n "$CARGO_REGISTRY_TOKEN" ]] || {
+            echo "crates-bootstrap environment secret CARGO_BOOTSTRAP_TOKEN is required." >&2
+            exit 1
+          }
+          python3 cmux-tui/bindings/reconcile_registry_artifact.py publish \
+            --registry crates \
+            --package cmux-sidebar \
+            --version "$BOOTSTRAP_VERSION" \
+            --artifact "$BOOTSTRAP_ARTIFACT" \
+            --allow-missing-project \
+            --wait-seconds 300 \
+            -- \
+            cargo publish \
+              --manifest-path "$BOOTSTRAP_DIR/Cargo.toml" \
+              --locked \
+              --no-verify

@@ -218,6 +218,28 @@ class RegistryArtifactTests(unittest.TestCase):
                 "false",
             ])
 
+    def test_crates_bootstrap_reconciles_the_exact_reserved_bytes(self) -> None:
+        version = "0.0.0-bootstrap.0"
+
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            url = str(getattr(request, "full_url", ""))
+            if url.endswith("/download"):
+                return self.response(self.artifact.read_bytes())
+            if url.endswith(f"/{version}"):
+                return self.response({"version": {"yanked": False}})
+            return self.response({
+                "crate": {"name": "cmux-sidebar"},
+                "versions": [{"num": version, "yanked": False}],
+            })
+
+        with mock.patch.object(reconcile, "urlopen", side_effect=response):
+            self.assertEqual(
+                reconcile.registry_status(
+                    "crates", "cmux-sidebar", version, self.artifact
+                ),
+                reconcile.MATCH,
+            )
+
     def test_npm_uses_the_registry_integrity_digest(self) -> None:
         metadata = {
             "dist-tags": {"latest": "1.0.0"},

@@ -42,9 +42,9 @@ Establish release authority before adding registry credentials:
    reviewer other than the dispatcher, prevent self-review, and
    disable administrator bypass.
 3. Apply the same protected-branch, reviewer, self-review, and bypass policy to
-   `crates-io`, `npm`, `pypi`, `npm-bootstrap`, and `pypi-bootstrap`. A branch
-   workflow must never obtain a registry credential or trusted-publisher OIDC
-   identity.
+   `crates-io`, `npm`, `pypi`, `crates-bootstrap`, `npm-bootstrap`, and
+   `pypi-bootstrap`. A branch workflow must never obtain a registry credential
+   or trusted-publisher OIDC identity.
 4. Add an active tag ruleset that restricts creation, update, and deletion of
    `refs/tags/cmux-sdk-v*` and
    `refs/tags/cmux-tui/bindings/go/v*`. Grant bypass only to the SDK release
@@ -70,12 +70,15 @@ for the atomic tag push.
   a GitHub-hosted runner, publishes that exact artifact with provenance under
   the `bootstrap` tag, and refuses to claim `latest`. Configure repository
   `manaflow-ai/cmux`, workflow `sdk-release-cut.yml`, and the `npm` environment
-  as the trusted publisher, then delete the bootstrap token. Keep `1.0.0`
-  unpublished for the coordinated OIDC release. Every release verifies the npm
-  bootstrap provenance from `.github/workflows/sdk-bootstrap-npm.yml` on
-  `main` and requires npm user `lawrencechen` to remain the sole package
-  maintainer. A rerun after an ambiguous bootstrap publish accepts only the
-  exact tested archive with matching provenance.
+  as the trusted publisher. In the package's **Settings > Publishing access**,
+  select **Require two-factor authentication and disallow tokens**. This still
+  permits the trusted publisher. Then revoke the npm access token and delete
+  the `NPM_BOOTSTRAP_TOKEN` environment secret. Keep `1.0.0` unpublished for the
+  coordinated OIDC release. Every release verifies the npm bootstrap
+  provenance from `.github/workflows/sdk-bootstrap-npm.yml` on `main` and
+  requires npm user `lawrencechen` to remain the sole package maintainer. A
+  rerun after an ambiguous bootstrap publish accepts only the exact tested
+  archive with matching provenance.
 - PyPI: create the `pypi-bootstrap` GitHub environment, then add a pending
   trusted publisher for project `cmux-sdk`, repository `manaflow-ai/cmux`,
   workflow `sdk-bootstrap-pypi.yml`, environment `pypi-bootstrap`. Dispatch it
@@ -94,23 +97,38 @@ for the atomic tag push.
   trusted publisher for stable releases. The sole PyPI owner `lawrencecchen`
   must run the bootstrap; the release gate rejects any role or organization
   change.
-- crates.io: configure trusted publishers for existing crate `cmux-client` with
-  owner `manaflow-ai`, repository `cmux`, workflow `sdk-release-cut.yml`,
-  environment `crates-io`. crates.io requires a manual first release for a new
-  crate, so publish `cmux-sidebar` interactively once, then add the same trusted
-  publisher configuration for subsequent releases. Both crates must have the
-  sole crates.io owner `lawrencecchen` (owner ID `431397`) and repository
+- crates.io: create the `crates-bootstrap` GitHub environment with a temporary,
+  short-lived `CARGO_BOOTSTRAP_TOKEN` secret, then dispatch the ownership
+  bootstrap once:
+
+  ```bash
+  gh api --method POST repos/manaflow-ai/cmux/dispatches \
+    -f event_type=sdk-bootstrap-crates \
+    -F 'client_payload[confirm_bootstrap]=true'
+  ```
+
+  The workflow installs Cargo 1.95.0, tests and packages the source-controlled
+  minimal crate outside the Git checkout, and publishes byte-checked
+  `cmux-sidebar` `0.0.0-bootstrap.0`. It never consumes stable version `1.0.0`.
+  Configure a trusted publisher for `cmux-sidebar` with owner `manaflow-ai`,
+  repository `cmux`, workflow `sdk-release-cut.yml`, environment `crates-io`.
+  On its crate settings page, enable **Require trusted publishing for all new
+  versions**. Configure the same publisher for existing crate `cmux-client` and
+  enable **Require trusted publishing for all new versions** there too. Then
+  revoke the crates.io API token and delete the `CARGO_BOOTSTRAP_TOKEN`
+  environment secret. Both crates must have the sole crates.io owner
+  `lawrencecchen` (owner ID `431397`) and repository
   `https://github.com/manaflow-ai/cmux`; the release gate verifies that exact
-  current state.
+  state and rejects either crate while API-token publishing remains enabled.
 - Go: no registry account is required. The module becomes available when the
   path-prefixed semantic-version tag is pushed.
 
 The npm and PyPI `cmux-sdk` names and the crates.io `cmux-sidebar` name were
 unclaimed when this release path was created. Reserve npm with
-`sdk-bootstrap-npm.yml` and PyPI with `sdk-bootstrap-pypi.yml` before cutting
-release tags. The release preflight verifies the npm bootstrap provenance, the
-attested PyPI `0.0.0a0` bootstrap, and exact crates.io ownership. crates.io
-requires the interactive bootstrap above.
+`sdk-bootstrap-npm.yml`, PyPI with `sdk-bootstrap-pypi.yml`, and crates.io with
+`sdk-bootstrap-crates.yml` before cutting release tags. The release preflight
+verifies the npm bootstrap provenance, the attested PyPI `0.0.0a0` bootstrap,
+and exact crates.io ownership plus trusted-publishing-only state.
 
 ## Cutting a release
 
@@ -212,4 +230,5 @@ release tags that point to another commit, or package names other than
 `cmux-sdk`. It pushes both release tags atomically after Go validation.
 Publisher jobs use least-privilege permissions. npm, PyPI, and crates.io
 authenticate with short-lived OIDC credentials. PyPI emits PEP 740 attestations
-and npm publishes provenance. GitHub Actions are pinned to full commit SHAs.
+and npm publishes provenance. Stable npm and crates.io packages reject API-token
+publishing. GitHub Actions are pinned to full commit SHAs.

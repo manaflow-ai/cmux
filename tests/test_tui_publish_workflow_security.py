@@ -212,11 +212,12 @@ def test_registry_setup_disables_long_lived_publish_credentials() -> None:
     verifier = (
         ROOT / "cmux-tui" / "bindings" / "verify_crates_ownership.py"
     ).read_text()
+    normalized = re.sub(r"\s+", " ", releasing)
 
-    assert "Require two-factor authentication and disallow tokens" in releasing
-    assert releasing.count("Require trusted publishing for all new versions") >= 2
-    assert "revoke the npm access token" in releasing
-    assert "revoke the crates.io API token" in releasing
+    assert "Require two-factor authentication and disallow tokens" in normalized
+    assert normalized.count("Require trusted publishing for all new versions") >= 2
+    assert "revoke the npm access token" in normalized
+    assert "revoke the crates.io API token" in normalized
     assert 'crate.get("trustpub_only") is not True' in verifier
 
 

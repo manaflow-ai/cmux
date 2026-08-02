@@ -44,6 +44,7 @@ PYPI_VERSION = re.compile(
     re.IGNORECASE,
 )
 PYPI_BOOTSTRAP_VERSION = "0.0.0a0"
+CRATES_BOOTSTRAP_VERSION = "0.0.0-bootstrap.0"
 
 
 class RegistryError(RuntimeError):
@@ -169,6 +170,16 @@ def _reject_newer_registry_history(
     *,
     allow_version: Optional[str] = None,
 ) -> None:
+    if registry == "crates.io" and requested == CRATES_BOOTSTRAP_VERSION:
+        unexpected = sorted(
+            version for version in active_versions if version != allow_version
+        )
+        if unexpected:
+            raise ReleaseStateMismatch(
+                f"crates.io bootstrap project {package} already contains another "
+                f"active version {unexpected[-1]!r}"
+            )
+        return
     if registry == "PyPI" and requested == PYPI_BOOTSTRAP_VERSION:
         unexpected = sorted(
             version for version in active_versions if version != allow_version
@@ -656,6 +667,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--require-match", action="store_true")
     parser.add_argument("--write-github-output", action="store_true")
     parser.add_argument("--github-output-name", default="status")
+    parser.add_argument("--allow-missing-project", action="store_true")
     return parser
 
 
@@ -678,18 +690,33 @@ def main(
         raise SystemExit("publish mode requires a command after --")
     if args.mode == "check" and command:
         raise SystemExit("check mode does not accept a command")
+    if args.allow_missing_project and (
+        args.mode != "publish"
+        or args.registry != "crates"
+        or args.package != "cmux-sidebar"
+        or args.version != CRATES_BOOTSTRAP_VERSION
+    ):
+        raise SystemExit(
+            "--allow-missing-project is limited to the cmux-sidebar "
+            "crates.io bootstrap prerelease"
+        )
 
     try:
-        status = wait_for_status(
-            args.registry,
-            args.package,
-            args.version,
-            args.artifact,
-            args.wait_seconds,
-            allowed_artifacts=args.allowed_artifact,
-            cancel_event=cancel_event,
-            wait_for_match=args.mode == "check" and args.require_match,
-        )
+        try:
+            status = wait_for_status(
+                args.registry,
+                args.package,
+                args.version,
+                args.artifact,
+                args.wait_seconds,
+                allowed_artifacts=args.allowed_artifact,
+                cancel_event=cancel_event,
+                wait_for_match=args.mode == "check" and args.require_match,
+            )
+        except RegistryProjectMissing:
+            if not args.allow_missing_project:
+                raise
+            status = MISSING
         if args.write_github_output:
             _write_github_output(args.github_output_name, status)
         if args.mode == "check":

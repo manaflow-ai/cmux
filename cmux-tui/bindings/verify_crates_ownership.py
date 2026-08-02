@@ -58,6 +58,10 @@ def _verify_package(
         raise OwnershipError(f"crates.io project identity is malformed for {package}")
     if crate.get("repository") != repository:
         raise OwnershipError(f"crates.io repository does not match for {package}")
+    if crate.get("trustpub_only") is not True:
+        raise OwnershipError(
+            f"crates.io trusted publishing is not required for {package}"
+        )
 
     ownership = _json(f"{base}/owners")
     users = ownership.get("users")
