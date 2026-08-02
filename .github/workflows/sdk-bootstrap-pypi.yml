@@ -278,6 +278,32 @@ jobs:
           name: cmux-python-bootstrap-dist
           path: bootstrap-dist
 
+      - name: Revalidate protected source before bootstrap publication
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "manaflow-ai/cmux" ]] || {
+            echo "bootstrap repository must be manaflow-ai/cmux" >&2
+            exit 1
+          }
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "bootstrap credential job must run from main" >&2
+            exit 1
+          }
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "bootstrap commit is malformed" >&2
+            exit 1
+          }
+          main_sha="$(
+            git ls-remote \
+              https://github.com/manaflow-ai/cmux.git \
+              refs/heads/main |
+              awk 'NR == 1 { print $1 }'
+          )"
+          [[ "$main_sha" == "$GITHUB_SHA" ]] || {
+            echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
+            exit 1
+          }
+
       - name: Publish the attested bootstrap distributions
         id: publish
         continue-on-error: true
