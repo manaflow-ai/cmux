@@ -409,7 +409,14 @@ extension DockSplitStore {
             ? managedBinding?.checkpointId
             : restorableAgent?.sessionId
         let relevantObservation = observation.flatMap { entry -> RestorableAgentSessionIndex.Entry? in
-            guard entry.snapshot.kind == expectedKind, entry.snapshot.sessionId == expectedSessionId else {
+            guard let expectedKind,
+                  let expectedSessionId,
+                  entry.snapshot.kind.rawValue == expectedKind.rawValue,
+                  ManagedAgentSessionIdentity.sessionIDsMatch(
+                      kind: expectedKind.rawValue,
+                      lhs: entry.snapshot.sessionId,
+                      rhs: expectedSessionId
+                  ) else {
                 return nil
             }
             return entry

@@ -127,11 +127,14 @@ extension Workspace {
               binding.isAgentHookBinding else {
             return
         }
-        if let restoredAgent {
-            let checkpointId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard checkpointId == nil || checkpointId == restoredAgent.sessionId else {
-                return
-            }
+        if let restoredAgent,
+           let checkpointId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !ManagedAgentSessionIdentity.sessionIDsMatch(
+               kind: restoredAgent.kind.rawValue,
+               lhs: checkpointId,
+               rhs: restoredAgent.sessionId
+           ) {
+            return
         }
         binding.autoResume = false
         surfaceResumeBindingsByPanelId[panelId] = binding
