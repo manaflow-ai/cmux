@@ -494,11 +494,19 @@ extension Workspace {
                         return true
                     }
                     guard let effectiveRestorableAgent,
-                          effectiveRestorableAgent.kind == bindingKind,
-                          effectiveRestorableAgent.sessionId == bindingSessionId,
+                          effectiveRestorableAgent.kind.rawValue == bindingKind.rawValue,
+                          ManagedAgentSessionIdentity.sessionIDsMatch(
+                              kind: bindingKind.rawValue,
+                              lhs: effectiveRestorableAgent.sessionId,
+                              rhs: bindingSessionId
+                          ),
                           let restorableAgentObservation,
-                          restorableAgentObservation.snapshot.kind == bindingKind,
-                          restorableAgentObservation.snapshot.sessionId == bindingSessionId else {
+                          restorableAgentObservation.snapshot.kind.rawValue == bindingKind.rawValue,
+                          ManagedAgentSessionIdentity.sessionIDsMatch(
+                              kind: bindingKind.rawValue,
+                              lhs: restorableAgentObservation.snapshot.sessionId,
+                              rhs: bindingSessionId
+                          ) else {
                         return false
                     }
                     return restorableAgentObservation.processLiveness
@@ -986,7 +994,12 @@ extension Workspace {
         guard let binding, binding.isAgentHookBinding, let restorableAgent else {
             return binding
         }
-        guard binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) == restorableAgent.sessionId else {
+        guard let checkpointId = normalizedResumeBindingValue(binding.checkpointId),
+              ManagedAgentSessionIdentity.sessionIDsMatch(
+                  kind: restorableAgent.kind.rawValue,
+                  lhs: checkpointId,
+                  rhs: restorableAgent.sessionId
+              ) else {
             return binding
         }
         if let bindingKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -994,7 +1007,7 @@ extension Workspace {
            RestorableAgentKind(
                persistedRawValue: bindingKind,
                registration: restorableAgent.registration
-           ) != restorableAgent.kind {
+           )?.rawValue != restorableAgent.kind.rawValue {
             return binding
         }
 
@@ -1023,7 +1036,11 @@ extension Workspace {
         }
 
         if let checkpointId = normalizedResumeBindingValue(resumeBinding.checkpointId),
-           checkpointId != restorableAgent.sessionId {
+           !ManagedAgentSessionIdentity.sessionIDsMatch(
+               kind: restorableAgent.kind.rawValue,
+               lhs: checkpointId,
+               rhs: restorableAgent.sessionId
+           ) {
             return nil
         }
         if let kindValue = normalizedResumeBindingValue(resumeBinding.kind) {
@@ -1031,7 +1048,7 @@ extension Workspace {
                 persistedRawValue: kindValue,
                 registration: restorableAgent.registration
             ),
-                  bindingKind == restorableAgent.kind else {
+                  bindingKind.rawValue == restorableAgent.kind.rawValue else {
                 return nil
             }
         }
