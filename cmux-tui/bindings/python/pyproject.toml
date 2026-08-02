@@ -17,3 +17,6 @@ Repository = "https://github.com/manaflow-ai/cmux"
 
 [tool.setuptools]
 packages = ["cmux", "cmux.raw", "cmux.raw._generated"]
+
+[tool.setuptools.package-data]
+cmux = ["py.typed"]

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import ast
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 try:
@@ -58,16 +58,19 @@ class ProjectVersionTests(unittest.TestCase):
             "version = '1.2.3'",
             'version = "1.2.3" # release version',
         ):
-            with self.subTest(version_line=version_line), tempfile.TemporaryDirectory(
-                prefix="cmux-python-manifest-"
-            ) as root:
+            with (
+                self.subTest(version_line=version_line),
+                tempfile.TemporaryDirectory(prefix="cmux-python-manifest-") as root,
+            ):
                 project = Path(root)
                 (project / "pyproject.toml").write_text(
                     f"[project]\n{version_line}\n",
                     encoding="utf-8",
                 )
-                with mock.patch.object(sys.modules[__name__], "PROJECT", project), \
-                    mock.patch.object(sys.modules[__name__], "tomllib", None):
+                with (
+                    mock.patch.object(sys.modules[__name__], "PROJECT", project),
+                    mock.patch.object(sys.modules[__name__], "tomllib", None),
+                ):
                     self.assertEqual(_project_version(), "1.2.3")
 
 
@@ -90,6 +93,7 @@ class PackagedConsumerTests(unittest.TestCase):
                         "-c",
                         "import setuptools.build_meta",
                     ],
+                    check=False,
                     capture_output=True,
                 ).returncode
                 == 0

@@ -197,11 +197,14 @@ code runs only in the credential-free preflight.
 
 The Python build pins `build`, `setuptools`, and `wheel`, disables build
 isolation, and installs both the exact wheel and source distribution as clean
-consumers before either artifact is uploaded.
+consumers before either artifact is uploaded. Those clean installs must include
+the PEP 561 `py.typed` marker.
 
 The workflow next downloads the public Go module through the normal proxy and
-checksum database, retrying propagation for up to 30 minutes before it compiles
-clean consumers of both its root and `raw` packages. It publishes npm, the PyPI
+checksum database, retrying propagation for up to 30 minutes. It compares a
+deterministic manifest of that downloaded tree with the exact release commit,
+then compiles clean consumers of both its root and `raw` packages. It publishes
+npm, the PyPI
 wheel, and the PyPI source distribution in separate jobs while publishing
 `cmux-client` before `cmux-sidebar`. Each
 irreversible write has its own rerunnable job. Every job requires the exact
