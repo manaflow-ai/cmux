@@ -175,6 +175,9 @@ jobs:
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
+      - name: Validate selected iOS test execution guard
+        run: python3 tests/test_ios_selected_test_execution.py
+
       - name: Validate cmuxTests sharding
         run: |
           python3 scripts/ci/cmux_unit_test_shard.py --validate
