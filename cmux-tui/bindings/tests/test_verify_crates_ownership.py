@@ -3,12 +3,14 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
 
-
 SCRIPT = Path(__file__).resolve().parents[1] / "verify_crates_ownership.py"
+if str(SCRIPT.parent) not in sys.path:
+    sys.path.insert(0, str(SCRIPT.parent))
 SPEC = importlib.util.spec_from_file_location("verify_crates_ownership", SCRIPT)
 assert SPEC is not None
 assert SPEC.loader is not None
@@ -21,6 +23,15 @@ class VerifyCratesOwnershipTests(unittest.TestCase):
     repository = "https://github.com/manaflow-ai/cmux"
     owner_id = 431397
     owner_login = "lawrencecchen"
+
+    def setUp(self) -> None:
+        interval = mock.patch.object(
+            ownership,
+            "CRATES_IO_API_INTERVAL_SECONDS",
+            0,
+        )
+        interval.start()
+        self.addCleanup(interval.stop)
 
     def bootstrap_args(self, package: str = "cmux-sidebar") -> list[str]:
         return [

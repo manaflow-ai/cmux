@@ -7,36 +7,28 @@ import argparse
 import json
 import sys
 from typing import Any, Optional, Sequence
-from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import urlopen
 
+from crates_io_client import API_INTERVAL_SECONDS, CratesIoClient, CratesIoRequestError
 
-REGISTRY = "https://crates.io/api/v1/crates"
-USER_AGENT = "cmux-sdk-ownership-verifier/1 (https://github.com/manaflow-ai/cmux)"
 BOOTSTRAP_PACKAGE = "cmux-sidebar"
 BOOTSTRAP_REPOSITORY = "https://github.com/manaflow-ai/cmux"
 BOOTSTRAP_OWNER_ID = 431397
 BOOTSTRAP_OWNER_LOGIN = "lawrencecchen"
+CRATES_IO_API_INTERVAL_SECONDS = API_INTERVAL_SECONDS
 
 
 class OwnershipError(RuntimeError):
     """Raised when crates.io does not prove the expected current ownership."""
 
 
-def _json(url: str) -> dict[str, Any]:
-    request = Request(
-        url,
-        headers={"Accept": "application/json", "User-Agent": USER_AGENT},
-    )
+def _json(client: CratesIoClient, path: str) -> dict[str, Any]:
     try:
-        with urlopen(request, timeout=20) as response:
-            payload = response.read()
-    except HTTPError as error:
-        if error.code == 404:
-            raise OwnershipError("a required crates.io project does not exist") from error
-        raise OwnershipError("crates.io ownership lookup failed") from error
-    except (URLError, OSError) as error:
+        payload = client.request_api(path)
+        if payload is None:
+            raise OwnershipError("a required crates.io project does not exist")
+    except CratesIoRequestError as error:
         raise OwnershipError("crates.io ownership lookup failed") from error
     try:
         result = json.loads(payload)
@@ -48,14 +40,15 @@ def _json(url: str) -> dict[str, Any]:
 
 
 def _verify_package(
+    client: CratesIoClient,
     package: str,
     repository: str,
     owner_id: int,
     owner_login: str,
     require_trusted_publishing: bool,
 ) -> None:
-    base = f"{REGISTRY}/{quote(package, safe='')}"
-    metadata = _json(base)
+    base = f"/{quote(package, safe='')}"
+    metadata = _json(client, base)
     crate = metadata.get("crate")
     if not isinstance(crate, dict) or crate.get("id") != package or (
         crate.get("name") != package
@@ -68,7 +61,7 @@ def _verify_package(
             f"crates.io trusted publishing is not required for {package}"
         )
 
-    ownership = _json(f"{base}/owners")
+    ownership = _json(client, f"{base}/owners")
     users = ownership.get("users")
     teams = ownership.get("teams", [])
     expected = {
@@ -98,8 +91,13 @@ def verify(
         raise OwnershipError("crates.io ownership inputs are invalid")
     if len(set(packages)) != len(packages) or any(not package for package in packages):
         raise OwnershipError("crates.io package names must be unique and non-empty")
+    client = CratesIoClient(
+        opener=urlopen,
+        api_interval=CRATES_IO_API_INTERVAL_SECONDS,
+    )
     for package in packages:
         _verify_package(
+            client,
             package,
             repository,
             owner_id,

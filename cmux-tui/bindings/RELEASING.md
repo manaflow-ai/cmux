@@ -220,6 +220,9 @@ exist, the pretag gate also requires their trusted-publisher provenance to name
 `sdk-release-cut.yml` on `main` and the expected registry environment. A final
 job repeats those provenance checks for the exact npm archive, wheel, and source
 distribution after every publisher finishes.
+Crates.io metadata and ownership checks share a contact-bearing client paced to
+one API request per second. Immutable `.crate` bytes come from
+`static.crates.io`, not the registry API.
 
 The cut workflow holds one cross-version concurrency lock until the Go check and
 all registry jobs finish. If tag creation fails before both coordinated tags

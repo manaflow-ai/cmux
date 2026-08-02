@@ -7,6 +7,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 import types
@@ -15,8 +16,9 @@ from pathlib import Path
 from unittest import mock
 from urllib.error import HTTPError, URLError
 
-
 SCRIPT = Path(__file__).resolve().parents[1] / "reconcile_registry_artifact.py"
+if str(SCRIPT.parent) not in sys.path:
+    sys.path.insert(0, str(SCRIPT.parent))
 SPEC = importlib.util.spec_from_file_location("reconcile_registry_artifact", SCRIPT)
 assert SPEC is not None
 assert SPEC.loader is not None
@@ -26,6 +28,13 @@ SPEC.loader.exec_module(reconcile)
 
 class RegistryArtifactTests(unittest.TestCase):
     def setUp(self) -> None:
+        interval = mock.patch.object(
+            reconcile,
+            "CRATES_IO_API_INTERVAL_SECONDS",
+            0,
+        )
+        interval.start()
+        self.addCleanup(interval.stop)
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary_directory.cleanup)
         self.artifact = Path(self.temporary_directory.name) / "artifact.tgz"
@@ -40,7 +49,7 @@ class RegistryArtifactTests(unittest.TestCase):
         def crates_response(archive: bytes):
             def response(request: object, **_kwargs: object) -> io.BytesIO:
                 url = str(getattr(request, "full_url", ""))
-                if url.endswith("/download"):
+                if url.startswith("https://static.crates.io/"):
                     return self.response(archive)
                 if url.endswith("/1.0.0"):
                     return self.response({"version": {"yanked": False}})
@@ -75,7 +84,7 @@ class RegistryArtifactTests(unittest.TestCase):
     def test_crates_rejects_exact_old_bytes_behind_registry_history(self) -> None:
         def response(request: object, **_kwargs: object) -> io.BytesIO:
             url = str(getattr(request, "full_url", ""))
-            if url.endswith("/download"):
+            if url.startswith("https://static.crates.io/"):
                 return self.response(self.artifact.read_bytes())
             if url.endswith("/1.0.0"):
                 return self.response({"version": {"yanked": False}})
@@ -95,7 +104,9 @@ class RegistryArtifactTests(unittest.TestCase):
 
     def test_crates_rejects_a_yanked_exact_archive(self) -> None:
         def response(request: object, **_kwargs: object) -> io.BytesIO:
-            if str(getattr(request, "full_url", "")).endswith("/download"):
+            if str(getattr(request, "full_url", "")).startswith(
+                "https://static.crates.io/"
+            ):
                 return self.response(self.artifact.read_bytes())
             return self.response({"version": {"yanked": True}})
 
@@ -224,7 +235,7 @@ class RegistryArtifactTests(unittest.TestCase):
 
         def response(request: object, **_kwargs: object) -> io.BytesIO:
             url = str(getattr(request, "full_url", ""))
-            if url.endswith("/download"):
+            if url.startswith("https://static.crates.io/"):
                 return self.response(self.artifact.read_bytes())
             if url.endswith(f"/{version}"):
                 return self.response({"version": {"yanked": False}})
@@ -924,7 +935,7 @@ class RegistryArtifactTests(unittest.TestCase):
 
         def response(request: object, **_kwargs: object) -> io.BytesIO:
             url = str(getattr(request, "full_url", ""))
-            if url.endswith("/download"):
+            if url.startswith("https://static.crates.io/"):
                 raise missing
             if url.endswith("/1.0.0"):
                 return self.response({"version": {"yanked": False}})

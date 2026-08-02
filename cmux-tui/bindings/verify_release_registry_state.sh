@@ -43,6 +43,7 @@ python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
   --package cmux-client \
   --version "$version" \
   --artifact "validated-client/cmux-client-$version.crate"
+sleep 1
 python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
   --registry crates \
   --package cmux-sidebar \
@@ -94,6 +95,7 @@ npm_status="$(read_registry_state npm)"
 python_wheel_status="$(read_registry_state python_wheel)"
 python_sdist_status="$(read_registry_state python_sdist)"
 
+sleep 1
 python3 cmux-tui/bindings/verify_crates_ownership.py \
   --package cmux-client \
   --package cmux-sidebar \

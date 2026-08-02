@@ -9,22 +9,27 @@ import hashlib
 import http.client
 import json
 import os
-from pathlib import Path
 import re
 import signal
 import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+from crates_io_client import API_INTERVAL_SECONDS, CratesIoClient, CratesIoRequestError
 
 MATCH = "match"
 MISSING = "missing"
-USER_AGENT = "cmux-sdk-release-reconciler/1"
+CRATES_IO_API_INTERVAL_SECONDS = API_INTERVAL_SECONDS
+USER_AGENT = (
+    "cmux-sdk-release-reconciler/1 "
+    "(https://github.com/manaflow-ai/cmux)"
+)
 STABLE_VERSION = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$"
 )
@@ -272,12 +277,30 @@ def _json(url: str) -> Optional[dict[str, Any]]:
     return value
 
 
-def _crates_active_versions(package: str) -> list[str]:
-    project_url = (
-        "https://crates.io/api/v1/crates/"
-        f"{quote(package, safe='')}"
-    )
-    project = _json(project_url)
+def _crates_json(
+    client: CratesIoClient,
+    path: str,
+) -> Optional[dict[str, Any]]:
+    try:
+        payload = client.request_api(path)
+    except CratesIoRequestError as error:
+        raise RegistryLookupError("crates.io request failed") from error
+    if payload is None:
+        return None
+    try:
+        value = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RegistryError("crates.io returned invalid JSON") from error
+    if not isinstance(value, dict):
+        raise RegistryError("crates.io returned a non-object JSON response")
+    return value
+
+
+def _crates_active_versions(
+    package: str,
+    client: CratesIoClient,
+) -> list[str]:
+    project = _crates_json(client, f"/{quote(package, safe='')}")
     if project is None:
         raise RegistryProjectMissing(
             f"crates.io project {package!r} does not exist; "
@@ -311,14 +334,18 @@ def _crates_active_versions(package: str) -> list[str]:
     return active_versions
 
 
-def _crates_status(package: str, version: str, artifact: Path) -> str:
-    metadata_url = (
-        "https://crates.io/api/v1/crates/"
-        f"{quote(package, safe='')}/{quote(version, safe='')}"
+def _crates_status(
+    package: str,
+    version: str,
+    artifact: Path,
+    client: CratesIoClient,
+) -> str:
+    metadata = _crates_json(
+        client,
+        f"/{quote(package, safe='')}/{quote(version, safe='')}",
     )
-    metadata = _json(metadata_url)
     if metadata is None:
-        active_versions = _crates_active_versions(package)
+        active_versions = _crates_active_versions(package, client)
         if version in active_versions:
             _reject_newer_registry_history(
                 "crates.io",
@@ -349,7 +376,7 @@ def _crates_status(package: str, version: str, artifact: Path) -> str:
         raise ReleaseStateMismatch(
             f"crates.io release {package}@{version} is yanked"
         )
-    active_versions = _crates_active_versions(package)
+    active_versions = _crates_active_versions(package, client)
     if version not in active_versions:
         raise RegistryLookupError(
             f"crates.io project history has not converged for {package}@{version}"
@@ -362,11 +389,10 @@ def _crates_status(package: str, version: str, artifact: Path) -> str:
         allow_version=version,
     )
 
-    url = (
-        "https://crates.io/api/v1/crates/"
-        f"{quote(package, safe='')}/{quote(version, safe='')}/download"
-    )
-    published = _request(url, "application/octet-stream")
+    try:
+        published = client.download(package, version)
+    except CratesIoRequestError as error:
+        raise RegistryLookupError("crates.io archive request failed") from error
     if published is None:
         raise RegistryLookupError(
             f"crates.io archive has not converged for {package}@{version}"
@@ -605,6 +631,8 @@ def registry_status(
     version: str,
     artifact: Path,
     allowed_artifacts: Optional[Sequence[Path]] = None,
+    *,
+    crates_client: Optional[CratesIoClient] = None,
 ) -> str:
     if not artifact.is_file():
         raise RegistryError(f"local artifact does not exist: {artifact}")
@@ -618,11 +646,22 @@ def registry_status(
         return _pypi_status(package, version, artifact, allowed)
     if allowed_artifacts is not None:
         raise RegistryError("--allowed-artifact is supported only for PyPI")
-    handlers: dict[str, Callable[[str, str, Path], str]] = {
-        "crates": _crates_status,
-        "npm": _npm_status,
-    }
+    if registry == "crates":
+        client = crates_client or CratesIoClient(
+            opener=urlopen,
+            api_interval=CRATES_IO_API_INTERVAL_SECONDS,
+        )
+        return _crates_status(package, version, artifact, client)
+    handlers: dict[str, Callable[[str, str, Path], str]] = {"npm": _npm_status}
     return handlers[registry](package, version, artifact)
+
+
+def _cancel_aware_sleep(
+    cancellation: threading.Event,
+    seconds: float,
+) -> None:
+    if cancellation.wait(seconds):
+        raise RegistryCancellation("registry reconciliation was cancelled")
 
 
 def wait_for_status(
@@ -636,8 +675,16 @@ def wait_for_status(
     cancel_event: Optional[threading.Event] = None,
     wait_for_match: bool = True,
     retry_missing_project: bool = False,
+    crates_client: Optional[CratesIoClient] = None,
 ) -> str:
     cancellation = cancel_event or threading.Event()
+    client = crates_client
+    if registry == "crates" and client is None:
+        client = CratesIoClient(
+            opener=urlopen,
+            sleeper=lambda seconds: _cancel_aware_sleep(cancellation, seconds),
+            api_interval=CRATES_IO_API_INTERVAL_SECONDS,
+        )
     deadline = time.monotonic() + wait_seconds
     last_error: Optional[RegistryError] = None
     while True:
@@ -650,6 +697,7 @@ def wait_for_status(
                 version,
                 artifact,
                 allowed_artifacts,
+                crates_client=client,
             )
             last_error = None
             if status == MATCH:
@@ -820,6 +868,14 @@ def main(
             "crates.io bootstrap verification"
         )
 
+    cancellation = cancel_event or threading.Event()
+    crates_client = None
+    if args.registry == "crates":
+        crates_client = CratesIoClient(
+            opener=urlopen,
+            sleeper=lambda seconds: _cancel_aware_sleep(cancellation, seconds),
+            api_interval=CRATES_IO_API_INTERVAL_SECONDS,
+        )
     try:
         try:
             status = wait_for_status(
@@ -832,6 +888,7 @@ def main(
                 cancel_event=cancel_event,
                 wait_for_match=args.mode == "check" and args.require_match,
                 retry_missing_project=args.retry_missing_project,
+                crates_client=crates_client,
             )
         except RegistryProjectMissing:
             if not args.allow_missing_project:
@@ -873,6 +930,7 @@ def main(
             allowed_artifacts=args.allowed_artifact,
             cancel_event=cancel_event,
             retry_missing_project=args.allow_missing_project,
+            crates_client=crates_client,
         )
         if status == MATCH:
             print(

@@ -122,7 +122,9 @@ jobs:
               --show-error \
               --location \
               --retry 5 \
+              --retry-delay 1 \
               --retry-all-errors \
+              --user-agent 'cmux-sdk-bootstrap/1 (https://github.com/manaflow-ai/cmux; contact: https://github.com/manaflow-ai/cmux/issues)' \
               --output "$metadata" \
               --write-out '%{http_code}' \
               https://crates.io/api/v1/crates/cmux-sidebar
@@ -142,6 +144,8 @@ jobs:
               ;;
           esac
           echo "status=$project_status" >> "$GITHUB_OUTPUT"
+          # Keep the next crates.io API client inside the one-request-per-second policy.
+          sleep 1
 
       - name: Reconcile an existing crates.io ownership bootstrap
         if: steps.project.outputs.status == 'exists'

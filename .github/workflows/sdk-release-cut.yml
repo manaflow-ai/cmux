@@ -1359,6 +1359,8 @@ jobs:
   verify-stable-provenance:
     needs:
       - validate-release
+      - publish-crate-client
+      - publish-crate-sidebar
       - publish-npm
       - publish-python-wheel
       - publish-python-sdist
@@ -1371,6 +1373,15 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
+
+      - name: Revalidate crates.io ownership and publishing policy
+        run: |
+          python3 cmux-tui/bindings/verify_crates_ownership.py \
+            --package cmux-client \
+            --package cmux-sidebar \
+            --repository https://github.com/manaflow-ai/cmux \
+            --owner-id 431397 \
+            --owner-login lawrencecchen
 
       - name: Download the validated npm artifact
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
