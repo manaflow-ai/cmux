@@ -78,6 +78,8 @@ public enum SimulatorWorkerInbound: Codable, Equatable, Sendable {
     case setAccessibilityHighlight(requestID: UUID, nodeID: String?, frame: SimulatorRect?)
     /// Request a fresh accessibility tree.
     case requestAccessibility(UUID)
+    /// Stop waiting for one accessibility tree without disturbing coalesced peers.
+    case cancelAccessibilitySnapshotRequest(UUID)
     /// Invalidate every outstanding accessibility request and cached snapshot.
     case cancelAccessibilitySnapshotRequests
     /// Request metadata for the foreground application.
@@ -144,6 +146,7 @@ extension SimulatorWorkerInbound {
              .setCameraMirror, .requestCameraStatus, .prepareApplicationMutation,
              .requestPrivateInterfaceStatus, .requestPrivacy,
              .setAccessibilityHighlight, .requestAccessibility,
+             .cancelAccessibilitySnapshotRequest,
              .cancelAccessibilitySnapshotRequests, .requestForegroundApplication,
              .requestWebInspectorTargets, .attachWebInspector,
              .releaseWebInspector, .setWebInspectorHighlight,

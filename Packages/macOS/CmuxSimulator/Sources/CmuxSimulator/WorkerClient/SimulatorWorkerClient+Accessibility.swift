@@ -4,7 +4,8 @@ extension SimulatorWorkerClient {
     func performAccessibilityAction(
         _ action: SimulatorControlAction,
         accessibilityTimeout: Duration = .seconds(30),
-        accessibilityTimeoutRecovery: SimulatorWorkerRequestTimeoutRecovery = .restartWorker
+        accessibilityTimeoutRecovery: SimulatorWorkerRequestTimeoutRecovery = .restartWorker,
+        accessibilityRequestIdentifier: UUID? = nil
     ) async throws -> SimulatorControlResult? {
         switch action {
         case .readAccessibility:
@@ -18,7 +19,7 @@ extension SimulatorWorkerClient {
                     )
                 )
             }
-            let requestID = UUID()
+            let requestID = accessibilityRequestIdentifier ?? UUID()
             let response: Result<SimulatorAccessibilitySnapshot, SimulatorFailure> = try await requestWorkerValue(
                 sending: .requestAccessibility(requestID),
                 timeout: accessibilityTimeout,
@@ -71,11 +72,13 @@ extension SimulatorWorkerClient {
     public func readAccessibility(
         timeout: Duration
     ) async throws -> SimulatorControlResult {
+        let requestIdentifier = UUID()
         do {
             guard let result = try await performAccessibilityAction(
                 .readAccessibility,
                 accessibilityTimeout: timeout,
-                accessibilityTimeoutRecovery: .preserveWorker
+                accessibilityTimeoutRecovery: .preserveWorker,
+                accessibilityRequestIdentifier: requestIdentifier
             ) else {
                 throw SimulatorControlError(
                     code: "accessibility_unavailable",
@@ -89,7 +92,10 @@ extension SimulatorWorkerClient {
             return result
         } catch let error as SimulatorControlError
             where error.code == "worker_response_timed_out" {
-            try? await sendRequired(.cancelAccessibilitySnapshotRequests, probe: false)
+            try? await sendRequired(
+                .cancelAccessibilitySnapshotRequest(requestIdentifier),
+                probe: false
+            )
             throw error
         }
     }

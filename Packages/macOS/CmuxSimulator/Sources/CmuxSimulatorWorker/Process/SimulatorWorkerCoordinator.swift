@@ -425,6 +425,8 @@ final class SimulatorWorkerCoordinator {
             send(.accessibilityHighlight(requestID: requestIdentifier, applied: applied))
         case .requestAccessibility(let requestIdentifier):
             requestAccessibility(requestIdentifier: requestIdentifier)
+        case .cancelAccessibilitySnapshotRequest(let requestIdentifier):
+            cancelAccessibilitySnapshotRequest(requestIdentifier: requestIdentifier)
         case .cancelAccessibilitySnapshotRequests:
             cancelAccessibilitySnapshotRequests()
         case .requestForegroundApplication(let requestIdentifier):

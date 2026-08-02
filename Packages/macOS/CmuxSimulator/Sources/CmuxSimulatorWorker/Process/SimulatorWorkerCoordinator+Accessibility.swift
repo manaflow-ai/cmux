@@ -24,7 +24,8 @@ extension SimulatorWorkerCoordinator {
             accessibilitySnapshotRequestIdentifiers.count
                 < SimulatorLengthPrefixedMessageChannel.maximumBufferedFrameCount,
             accessibilitySnapshotTask == nil
-                || (accessibilitySnapshotGeneration != nil
+                || (!accessibilitySnapshotRequestIdentifiers.isEmpty
+                    && accessibilitySnapshotGeneration != nil
                     && accessibilitySnapshotDeviceIdentifier == currentDeviceIdentifier
                     && accessibilitySnapshotDisplay == display)
         else {
@@ -83,6 +84,18 @@ extension SimulatorWorkerCoordinator {
             }
         }
         startAccessibilitySnapshotDeadline(generation: generation)
+    }
+
+    func cancelAccessibilitySnapshotRequest(requestIdentifier: UUID) {
+        guard let index = accessibilitySnapshotRequestIdentifiers.firstIndex(
+            of: requestIdentifier
+        ) else { return }
+        accessibilitySnapshotRequestIdentifiers.remove(at: index)
+        guard accessibilitySnapshotRequestIdentifiers.isEmpty else { return }
+
+        // Leave the hard deadline armed until a cancellation-blind executor
+        // exits or containment terminates the isolated worker.
+        accessibilitySnapshotTask?.cancel()
     }
 
     func cancelAccessibilitySnapshotRequests() {
