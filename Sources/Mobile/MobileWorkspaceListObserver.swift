@@ -447,7 +447,7 @@ final class MobileWorkspaceListObserver {
             for id in panelIDs {
                 hasher.combine(workspace.panelTitle(panelId: id))
                 hasher.combine(workspace.reportedPanelDirectory(panelId: id))
-                if let simulator = workspace.panel(for: id) as? SimulatorPanel {
+                if let simulator = workspace.panels[id] as? SimulatorPanel {
                     hasher.combine(simulator.selectedDeviceName)
                     hasher.combine(simulator.selectedDeviceState)
                     hasher.combine(simulator.coordinator.status.mobileWorkspaceObserverSignature)
