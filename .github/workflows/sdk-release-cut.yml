@@ -418,6 +418,8 @@ jobs:
       - name: Revalidate registry and remote release authority
         id: revalidate
         env:
+          GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
           VERSION: ${{ needs.validate-release.outputs.version }}
         run: |
           set -euo pipefail
@@ -461,9 +463,20 @@ jobs:
           remote_state_sha256="$(
             printf '%s\n' "$remote_state_after" | sha256sum | cut -d ' ' -f 1
           )"
+          sdk_ref="refs/tags/$SDK_TAG"
+          sdk_peeled_ref="$sdk_ref^{}"
+          go_ref="refs/tags/$GO_TAG"
+          go_peeled_ref="$go_ref^{}"
           remote_tag_state="$(
             printf '%s\n' "$remote_state_after" | \
-              awk '$2 != "refs/heads/main"'
+              awk \
+                -v main="refs/heads/main" \
+                -v sdk_ref="$sdk_ref" \
+                -v sdk_peeled_ref="$sdk_peeled_ref" \
+                -v go_ref="$go_ref" \
+                -v go_peeled_ref="$go_peeled_ref" \
+                '$2 != main && $2 != sdk_ref && $2 != sdk_peeled_ref && \
+                  $2 != go_ref && $2 != go_peeled_ref'
           )"
           remote_tag_state_sha256="$(
             printf '%s\n' "$remote_tag_state" | sha256sum | cut -d ' ' -f 1
