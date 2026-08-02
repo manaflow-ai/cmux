@@ -205,7 +205,12 @@ struct SimulatorAgentCursorTests {
         let operation = Task { @MainActor in
             try await coordinator.perform(action)
         }
-        try await Task.sleep(for: .milliseconds(50))
+        guard await waitForCursorTravel(coordinator, destination: origin) else {
+            operation.cancel()
+            _ = try? await operation.value
+            Issue.record("Cursor travel did not start")
+            return
+        }
 
         #expect(await client.actions().isEmpty)
         #expect(coordinator.agentCursorPresentation?.destination == origin)
@@ -229,7 +234,12 @@ struct SimulatorAgentCursorTests {
         let operation = Task { @MainActor in
             try await coordinator.perform(action)
         }
-        try await Task.sleep(for: .milliseconds(50))
+        guard await waitForCursorTravel(coordinator, destination: point) else {
+            operation.cancel()
+            _ = try? await operation.value
+            Issue.record("Cursor travel did not start")
+            return
+        }
         coordinator.selectionGeneration &+= 1
 
         await #expect(throws: CancellationError.self) {
@@ -310,5 +320,20 @@ struct SimulatorAgentCursorTests {
             scale: 3
         ))))
         #expect(coordinator.agentCursorPresentation?.destination == SimulatorPoint(x: 0.5, y: 0.5))
+    }
+
+    private func waitForCursorTravel(
+        _ coordinator: SimulatorPaneCoordinator,
+        destination: SimulatorPoint
+    ) async -> Bool {
+        for _ in 0..<100 {
+            if coordinator.agentCursorPresentation?.destination == destination,
+               coordinator.agentCursorPresentation?.phase == .resting,
+               coordinator.agentCursorPresentation?.durationMilliseconds ?? 0 > 0 {
+                return true
+            }
+            await Task.yield()
+        }
+        return false
     }
 }
