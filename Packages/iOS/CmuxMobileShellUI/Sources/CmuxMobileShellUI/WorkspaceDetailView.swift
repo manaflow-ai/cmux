@@ -38,6 +38,7 @@ struct WorkspaceDetailView: View {
     let signOut: (@MainActor @Sendable () -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(BrowserStreamStore.self) var browserStreamStore
+    @Environment(MobileSimulatorStreamStore.self) var simulatorStreamStore
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @Environment(ToastCenter.self) private var toasts
     /// Drives the destructive close-workspace confirmation dialog.
@@ -94,6 +95,9 @@ struct WorkspaceDetailView: View {
     var activeBrowserStream: BrowserStreamSurfaceState? {
         browserStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)
     }
+    var activeSimulatorStream: MobileSimulatorStreamSurfaceState? {
+        simulatorStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)
+    }
     #if os(iOS)
     var terminalFilesChipEnabled: Bool {
         displaySettings.terminalFilesChipEnabled
@@ -109,7 +113,8 @@ struct WorkspaceDetailView: View {
             isChatMode: isChatMode,
             hasChosenChatSession: chosenChatSession != nil,
             hasActiveBrowser: activeBrowser != nil,
-            hasActiveBrowserStream: activeBrowserStream != nil
+            hasActiveBrowserStream: activeBrowserStream != nil,
+            hasActiveSimulatorStream: activeSimulatorStream != nil
         )
     }
     #endif
@@ -125,7 +130,9 @@ struct WorkspaceDetailView: View {
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: workspace.rpcWorkspaceID.rawValue) {
                 await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
+                syncSimulatorStreamPanels()
             }
+            .onChange(of: workspace.simulators) { _, _ in syncSimulatorStreamPanels() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
             .onAppear { refreshWorkspaceChangesHint() }
             .onChange(of: workspaceChangesHintEligibilityKey) { _, _ in
@@ -301,6 +308,8 @@ struct WorkspaceDetailView: View {
             return .browser(title: browser.title ?? workspace.name)
         } else if let browser = activeBrowserStream {
             return .browser(title: browser.title ?? workspace.name)
+        } else if let simulator = activeSimulatorStream {
+            return .browser(title: simulator.selectedDeviceName ?? simulator.title)
         } else {
             return .standard(title: workspace.name, subtitle: selectedToolbarSubtitle)
         }
@@ -590,7 +599,10 @@ struct WorkspaceDetailView: View {
                 isChatMode: isChatMode,
                 browserStreamRows: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(BrowserStreamPickerRow.init),
                 supportsBrowserStream: store.supportsBrowserStream,
-                activeBrowserStreamPanelID: activeBrowserStream?.id
+                activeBrowserStreamPanelID: activeBrowserStream?.id,
+                simulatorStreamRows: simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(SimulatorStreamPickerRow.init),
+                supportsSimulatorStream: store.supportsSimulatorStream,
+                activeSimulatorStreamPanelID: activeSimulatorStream?.id
             ),
             actions: TerminalPickerMenuActions(
                 selectTerminal: selectTerminalFromPicker,
@@ -598,6 +610,7 @@ struct WorkspaceDetailView: View {
                 createTerminal: createTerminalFromToolbar,
                 openBrowser: openBrowserFromToolbar,
                 selectBrowserStream: selectBrowserStreamFromToolbar,
+                selectSimulatorStream: selectSimulatorStreamFromToolbar,
                 openTextSheet: openTextSheetFromMenu,
                 copyDebugLogs: {
                     #if DEBUG
@@ -836,6 +849,7 @@ struct WorkspaceDetailView: View {
         // shows the new terminal instead of staying on the browser.
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
+        stopActiveSimulatorStream()
         createTerminal()
     }
 
@@ -846,16 +860,39 @@ struct WorkspaceDetailView: View {
         // non-nil; the picker shows a check next to "New Browser" while it is up.
         browserStore.openBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
+        stopActiveSimulatorStream()
     }
 
     private func selectBrowserStreamFromToolbar(_ panelID: String) {
         dismissTerminalKeyboardForChrome()
         browserStore.closeBrowser(for: workspace.id.rawValue)
+        stopActiveSimulatorStream()
         if let previous = activeBrowserStream, previous.id != panelID {
             Task { await store.stopMobileBrowserStream(panelID: previous.id) }
         }
         _ = browserStreamStore.activate(panelID: panelID, in: workspace.rpcWorkspaceID.rawValue)
         Task { await store.startMobileBrowserStream(panelID: panelID) }
+    }
+
+    private func selectSimulatorStreamFromToolbar(_ panelID: String) {
+        dismissTerminalKeyboardForChrome()
+        browserStore.closeBrowser(for: workspace.id.rawValue)
+        stopActiveBrowserStream()
+        if let previous = activeSimulatorStream, previous.id != panelID {
+            Task {
+                await store.stopMobileSimulatorStream(
+                    panelID: previous.id,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue
+                )
+            }
+        }
+        _ = simulatorStreamStore.activate(panelID: panelID, in: workspace.rpcWorkspaceID.rawValue)
+        Task {
+            await store.startMobileSimulatorStream(
+                panelID: panelID,
+                workspaceID: workspace.rpcWorkspaceID.rawValue
+            )
+        }
     }
 
     private func stopActiveBrowserStream() {
@@ -864,12 +901,24 @@ struct WorkspaceDetailView: View {
         Task { await store.stopMobileBrowserStream(panelID: stream.id) }
     }
 
+    private func stopActiveSimulatorStream() {
+        guard let stream = activeSimulatorStream else { return }
+        simulatorStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
+        Task {
+            await store.stopMobileSimulatorStream(
+                panelID: stream.id,
+                workspaceID: workspace.rpcWorkspaceID.rawValue
+            )
+        }
+    }
+
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
+        stopActiveSimulatorStream()
         // Switching from the picker is chrome, not a typing intent, so the
         // newly-selected surface must not grab the keyboard on attach. The
         // store suppresses the target's autofocus (and is a no-op when it is
@@ -884,5 +933,12 @@ struct WorkspaceDetailView: View {
         // it; then sweep any other responder across the scene.
         GhosttySurfaceView.resignActiveInput()
         UIApplication.shared.dismissMobileKeyboard()
+    }
+
+    private func syncSimulatorStreamPanels() {
+        simulatorStreamStore.replaceSimulatorPanels(
+            in: workspace.rpcWorkspaceID.rawValue,
+            with: workspace.simulators
+        )
     }
 }

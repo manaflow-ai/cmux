@@ -53,7 +53,9 @@ let package = Package(
                 .swiftLanguageMode(.v6),
             ],
             linkerSettings: [
+                .linkedFramework("ImageIO"),
                 .linkedFramework("QuartzCore"),
+                .linkedFramework("UniformTypeIdentifiers"),
             ]
         ),
         .testTarget(

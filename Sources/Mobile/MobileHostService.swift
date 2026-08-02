@@ -346,6 +346,7 @@ final class MobileHostService {
     private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
     private var readinessTimeoutTask: Task<Void, Never>?
     let mobileBrowserStreamCoordinator = MobileBrowserStreamCoordinator()
+    let mobileSimulatorStreamCoordinator = MobileSimulatorStreamCoordinator()
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
     #endif
@@ -1258,6 +1259,7 @@ final class MobileHostService {
             },
             onClose: { id in
                 await MobileHostService.shared.mobileBrowserStreamCoordinator.connectionClosed(id)
+                await MobileHostService.shared.mobileSimulatorStreamCoordinator.connectionClosed(id)
                 MobileHostConnectionRegistry.shared.remove(id: id)
                 await MobileHostService.shared.removeConnection(id: id)
             }

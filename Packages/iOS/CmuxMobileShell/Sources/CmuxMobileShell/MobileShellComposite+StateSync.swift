@@ -365,7 +365,8 @@ extension MobileShellComposite {
                         isFocused: terminal.isFocused,
                         isReady: terminal.isReady
                     )
-                }
+                },
+                simulators: record.simulators
             )
         }
         let groups = stateSyncMirror.groups.orderedRecords.map { record in

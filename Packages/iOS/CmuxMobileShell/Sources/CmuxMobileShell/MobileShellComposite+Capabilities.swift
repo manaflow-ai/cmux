@@ -9,6 +9,14 @@ extension MobileShellComposite {
     public var supportsBrowserStreamDialogs: Bool {
         supportsBrowserStream && supportedHostCapabilities.contains(Self.browserStreamDialogCapability)
     }
+    /// Whether the connected Mac supports Simulator pane streaming.
+    public var supportsSimulatorStream: Bool {
+        supportedHostCapabilities.contains(Self.simulatorStreamCapability)
+    }
+    /// Whether the connected Mac accepts Simulator touch/text/button input from the phone.
+    public var supportsSimulatorInput: Bool {
+        supportsSimulatorStream && supportedHostCapabilities.contains(Self.simulatorInputCapability)
+    }
     static let chatArtifactFoldersCapability = "chat.artifact.folders.v1"
     static let terminalArtifactListCapability = "terminal.artifact.list.v1"
 
