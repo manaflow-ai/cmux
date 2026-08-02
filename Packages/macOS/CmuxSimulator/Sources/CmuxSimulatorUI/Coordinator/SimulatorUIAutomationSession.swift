@@ -1,14 +1,11 @@
 import CmuxSimulator
 import Foundation
 
-private enum SimulatorUIAutomationTransactionContext {
-    @TaskLocal static var token: UUID?
-}
-
 /// Stores pane-scoped refs and serializes Simulator UI mutations.
 @MainActor
 final class SimulatorUIAutomationSession {
     private static let maximumQueuedTransactionCount = 8
+    @TaskLocal private static var transactionToken: UUID?
 
     private let refNamespace = UUID()
     private var record: SimulatorUIAutomationSnapshotRecord?
@@ -31,7 +28,7 @@ final class SimulatorUIAutomationSession {
         )
         defer { releaseTransaction() }
         try Task.checkCancellation()
-        return try await SimulatorUIAutomationTransactionContext.$token.withValue(token) {
+        return try await Self.$transactionToken.withValue(token) {
             try await beforeOperation()
             return try await operation()
         }
@@ -201,7 +198,7 @@ final class SimulatorUIAutomationSession {
 
     func currentTaskOwnsTransaction(controlActionToken: UUID?) -> Bool {
         if let activeTransactionToken,
-           SimulatorUIAutomationTransactionContext.token == activeTransactionToken {
+           Self.transactionToken == activeTransactionToken {
             return true
         }
         guard let activeControlActionToken else { return false }

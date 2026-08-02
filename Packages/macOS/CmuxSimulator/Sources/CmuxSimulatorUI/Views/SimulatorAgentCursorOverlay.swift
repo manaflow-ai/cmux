@@ -1,12 +1,6 @@
 import CmuxSimulator
 import SwiftUI
 
-private struct SimulatorAgentCursorPhaseTaskID: Equatable {
-    let generation: UInt64
-    let phase: SimulatorAgentCursorPhase
-    let delayMilliseconds: Int
-}
-
 struct SimulatorAgentCursorOverlay: View {
     let presentation: SimulatorAgentCursorPresentation
     let chrome: SimulatorDeviceChromeProfile?

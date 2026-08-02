@@ -10,13 +10,6 @@ public let simulatorUIAutomationMaximumGestureEventCount = 1_001
 /// The largest candidate list included in one recoverable automation error.
 public let simulatorUIAutomationMaximumCandidateCount = 64
 
-/// An accessibility field clipped by the native worker's field-size limit.
-public enum SimulatorUIAutomationTruncatedField: String, Codable, CaseIterable, Sendable {
-    case identifier
-    case label
-    case value
-}
-
 /// A versioned compact snapshot whose refs are scoped to one Simulator pane.
 public struct SimulatorUIAutomationSnapshot: Codable, Equatable, Sendable {
     /// The payload discriminator.
@@ -92,6 +85,7 @@ public struct SimulatorUIAutomationSnapshot: Codable, Equatable, Sendable {
         case truncatedFields
     }
 
+    /// Decodes a snapshot and accepts payloads without field-truncation metadata.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         type = try container.decode(String.self, forKey: .type)
@@ -122,6 +116,7 @@ public struct SimulatorUIAutomationSnapshot: Codable, Equatable, Sendable {
         ) ?? []
     }
 
+    /// Encodes a snapshot while omitting empty field-truncation metadata.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(type, forKey: .type)

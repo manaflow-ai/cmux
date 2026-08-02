@@ -863,56 +863,5 @@ struct SimulatorUIAutomationExecutorWaitTests {
             )
         )
     }
-}
 
-private final class AdvancingActionScheduler:
-    SimulatorUIAutomationScheduling,
-    @unchecked Sendable
-{
-    private let lock = NSLock()
-    private var nowMilliseconds: Int64
-
-    init(nowMilliseconds: Int64) {
-        self.nowMilliseconds = nowMilliseconds
-    }
-
-    func monotonicNowMilliseconds() -> Int64 {
-        lock.withLock { nowMilliseconds }
-    }
-
-    func wallTimeNowMilliseconds() -> Int64 {
-        lock.withLock { nowMilliseconds }
-    }
-
-    func nextEvent(after duration: Duration) async throws {
-        let components = duration.components
-        let milliseconds = components.seconds * 1_000
-            + components.attoseconds / 1_000_000_000_000_000
-        lock.withLock { nowMilliseconds += milliseconds }
-    }
-}
-
-private final class SequencedWallTimeActionScheduler:
-    SimulatorUIAutomationScheduling,
-    @unchecked Sendable
-{
-    private let lock = NSLock()
-    private let wallTimes: [Int64]
-    private var wallTimeIndex = 0
-
-    init(wallTimes: [Int64]) {
-        self.wallTimes = wallTimes
-    }
-
-    func monotonicNowMilliseconds() -> Int64 { 0 }
-
-    func wallTimeNowMilliseconds() -> Int64 {
-        lock.withLock {
-            let index = min(wallTimeIndex, wallTimes.count - 1)
-            wallTimeIndex += 1
-            return wallTimes[index]
-        }
-    }
-
-    func nextEvent(after duration: Duration) async throws {}
 }
