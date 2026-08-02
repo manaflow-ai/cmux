@@ -392,27 +392,3 @@ extension SimulatorPaneCoordinator {
         webInspectorResponses = []
     }
 }
-
-private extension SimulatorWorkerInbound {
-    var invalidatesUIAutomationSnapshot: Bool {
-        switch self {
-        case .pointer, .key, .keySequence, .scrollWheel, .typeText,
-             .interactiveAction, .button, .hidButton, .rotate, .digitalCrown,
-             .toggleSoftwareKeyboard, .memoryWarning, .setPrivateInterface,
-             .setPrivatePrivacy, .reloadReactNative:
-            true
-        case .ping, .attach, .resize, .setFramebufferPublishing,
-             .acknowledgeFrameTransport, .setHIDCapture, .coreAnimationDiagnostic,
-             .configureCamera, .acknowledgeCameraTarget, .switchCameraSource,
-             .setCameraMirror, .requestCameraStatus, .prepareApplicationMutation,
-             .requestPrivateInterfaceStatus, .requestPrivacy,
-             .setAccessibilityHighlight, .requestAccessibility,
-             .requestForegroundApplication, .requestWebInspectorTargets,
-             .attachWebInspector, .releaseWebInspector, .setWebInspectorHighlight,
-             .sendWebInspectorMessage, .terminateRenderer, .shutdown:
-            false
-        case .releaseInputs:
-            true
-        }
-    }
-}

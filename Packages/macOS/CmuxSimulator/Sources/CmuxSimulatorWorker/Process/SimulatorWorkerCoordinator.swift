@@ -103,6 +103,9 @@ final class SimulatorWorkerCoordinator {
     /// Applies one command after every preceding command in the pipe.
     /// - Returns: `false` when the worker should exit cleanly.
     func handle(_ message: SimulatorWorkerInbound) async -> Bool {
+        if message.invalidatesUIAutomationSnapshot {
+            cancelAccessibilitySnapshotRequests()
+        }
         switch message {
         case .ping(let sequence):
             send(.ack(sequence))
@@ -422,6 +425,8 @@ final class SimulatorWorkerCoordinator {
             send(.accessibilityHighlight(requestID: requestIdentifier, applied: applied))
         case .requestAccessibility(let requestIdentifier):
             requestAccessibility(requestIdentifier: requestIdentifier)
+        case .cancelAccessibilitySnapshotRequests:
+            cancelAccessibilitySnapshotRequests()
         case .requestForegroundApplication(let requestIdentifier):
             requestForegroundApplication(requestIdentifier: requestIdentifier)
         case .requestWebInspectorTargets(let requestIdentifier, let deviceIdentifier):

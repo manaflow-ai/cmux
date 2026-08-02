@@ -29,7 +29,6 @@
       <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A5001050" BuildableName="cmux.app" BlueprintName="cmux" ReferencedContainer="container:cmux.xcodeproj"/>
     </MacroExpansion>
     <EnvironmentVariables>
-      <EnvironmentVariable key="CMUX_XCTEST_APP_HOST" value="1" isEnabled="YES"/>
       <EnvironmentVariable key="SWIFT_BACKTRACE" value="interactive=no,timeout=0s,symbolicate=off,color=no" isEnabled="YES"/>
     </EnvironmentVariables>
   </TestAction>

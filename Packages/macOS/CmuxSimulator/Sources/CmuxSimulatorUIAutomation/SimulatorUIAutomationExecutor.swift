@@ -200,6 +200,7 @@ public struct SimulatorUIAutomationExecutor {
         var postActionSettleDelayMilliseconds = 0
         var actionCommitWarning: JSONValue?
         var actionCompleted = true
+        var skipsSettledCapture = false
         switch action {
         case let .tap(elementRef, _, postDelayMilliseconds):
             try requireSimulatorCapability(.touch, coordinator: coordinator)
@@ -277,6 +278,7 @@ public struct SimulatorUIAutomationExecutor {
                     point: point,
                     display: snapshotDisplay
                 )
+                skipsSettledCapture = true
             } else if up {
                 if !down {
                     coordinator.releaseHeldUIAutomationTouch(elementRef: elementRef)
@@ -602,6 +604,9 @@ public struct SimulatorUIAutomationExecutor {
             "completed": .bool(actionCompleted),
             "action": .object(actionPayload),
         ]
+        if skipsSettledCapture {
+            return .object(result)
+        }
         if let actionCommitWarning {
             result["snapshot_warning"] = .string(simulatorUIActionCommittedWarning())
             result["ui_error"] = actionCommitWarning

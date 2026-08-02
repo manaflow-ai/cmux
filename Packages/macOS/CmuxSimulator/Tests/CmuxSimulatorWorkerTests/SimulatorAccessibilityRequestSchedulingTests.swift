@@ -136,7 +136,7 @@ struct SimulatorAccessibilityRequestSchedulingTests {
     @MainActor
     func interactiveMutationInvalidatesAccessibilityGeneration() async throws {
         let executor = GatedAccessibilityExecutor()
-        let fixture = try WorkerOutputFixture()
+        let fixture = try WorkerOutputFixture(nonblockingWrites: true)
         let coordinator = SimulatorWorkerCoordinator(
             channel: fixture.worker,
             accessibilityExecutor: executor

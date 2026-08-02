@@ -71,20 +71,26 @@ extension SimulatorWorkerClient {
     public func readAccessibility(
         timeout: Duration
     ) async throws -> SimulatorControlResult {
-        guard let result = try await performAccessibilityAction(
-            .readAccessibility,
-            accessibilityTimeout: timeout,
-            accessibilityTimeoutRecovery: .preserveWorker
-        ) else {
-            throw SimulatorControlError(
-                code: "accessibility_unavailable",
-                arguments: [],
-                message: String(
-                    localized: "simulator.failure.accessibilityCapability",
-                    defaultValue: "The simulator worker does not support accessibility inspection."
+        do {
+            guard let result = try await performAccessibilityAction(
+                .readAccessibility,
+                accessibilityTimeout: timeout,
+                accessibilityTimeoutRecovery: .preserveWorker
+            ) else {
+                throw SimulatorControlError(
+                    code: "accessibility_unavailable",
+                    arguments: [],
+                    message: String(
+                        localized: "simulator.failure.accessibilityCapability",
+                        defaultValue: "The simulator worker does not support accessibility inspection."
+                    )
                 )
-            )
+            }
+            return result
+        } catch let error as SimulatorControlError
+            where error.code == "worker_response_timed_out" {
+            try? await sendRequired(.cancelAccessibilitySnapshotRequests, probe: false)
+            throw error
         }
-        return result
     }
 }

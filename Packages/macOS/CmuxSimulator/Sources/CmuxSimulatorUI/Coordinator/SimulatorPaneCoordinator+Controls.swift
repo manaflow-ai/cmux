@@ -507,31 +507,6 @@ extension SimulatorPaneCoordinator {
 
 }
 
-private extension SimulatorControlAction {
-    var invalidatesUIAutomationSnapshot: Bool {
-        switch self {
-        case .listApplications, .readClipboard, .readPrivacy,
-             .readInterfaceStatus, .screenshot, .prepareVideoRecording,
-             .recentLogs, .prepareLogStream, .readCameraStatus,
-             .readAccessibility, .readForegroundApplication,
-             .setAccessibilityHighlight, .refreshWebInspectorTargets,
-             .attachWebInspector, .releaseWebInspector,
-             .setWebInspectorHighlight:
-            false
-        case .interactive, .installApplication, .launchApplication,
-             .terminateApplication, .cleanupCameraApplication, .openURL,
-             .addMedia, .writeClipboard, .syncClipboardFromHost,
-             .setLocation, .clearLocation, .startLocationRoute,
-             .pushNotification, .setPrivacy, .overrideStatusBar,
-             .clearStatusBar, .setInterface, .configureCamera,
-             .switchCameraSource, .setCameraMirror, .reloadReactNative,
-             .pauseLocationRoute, .resumeLocationRoute, .stopLocationRoute,
-             .sendWebInspectorMessage:
-            true
-        }
-    }
-}
-
 private func simulatorCoordinatorActionName(_ action: SimulatorControlAction) -> String? {
     switch action {
     case .interactive:

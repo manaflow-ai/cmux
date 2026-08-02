@@ -75,10 +75,6 @@ import Testing
         )
     }
 
-    @Test func sharedSchemeMarksCurrentAppHostBeforeStartup() {
-        #expect(ProcessInfo.processInfo.environment["CMUX_XCTEST_APP_HOST"] == "1")
-    }
-
     @Test func activeAppHostTestRuntimePreventsSentryStartup() {
         #expect(
             MacSentryStartupPolicy(
@@ -91,12 +87,14 @@ import Testing
     @Test func embeddedXCTestBundlePreventsSentryStartupBeforeInjection() {
         #expect(MacSentryStartupPolicy.isRunningUnderXCTest(
             environment: [:],
+            loadedImageNames: [],
             embeddedPlugInURLs: [URL(
                 fileURLWithPath: "/tmp/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest"
             )]
         ))
         #expect(!MacSentryStartupPolicy.isRunningUnderXCTest(
             environment: [:],
+            loadedImageNames: [],
             embeddedPlugInURLs: [URL(
                 fileURLWithPath: "/tmp/cmux DEV.app/Contents/PlugIns/CmuxDockTilePlugin.plugin"
             )]
