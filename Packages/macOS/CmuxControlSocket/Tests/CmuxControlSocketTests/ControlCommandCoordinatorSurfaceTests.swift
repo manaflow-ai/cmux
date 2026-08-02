@@ -314,6 +314,25 @@ struct ControlCommandCoordinatorSurfaceTests {
         }
     }
 
+    @Test func applicationValidationWithoutContextReturnsNonemptyUnavailableError() {
+        let coordinator = ControlCommandCoordinator()
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("application"),
+                "window_id_native": .bool(true),
+                "process_id": .bool(true),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "unavailable",
+            message: "TabManager not available",
+            data: nil
+        ))
+    }
+
     @Test func surfaceSplitRejectsApplicationType() {
         let (coordinator, context) = makeCoordinator()
         let result = coordinator.handle(ControlRequest(

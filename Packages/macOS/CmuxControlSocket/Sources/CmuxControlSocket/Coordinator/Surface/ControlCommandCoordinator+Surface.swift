@@ -345,10 +345,11 @@ extension ControlCommandCoordinator {
     /// `surface.split` — split a surface into a new pane.
     func surfaceSplit(_ params: [String: JSONValue]) -> ControlCallResult {
         let routing = routingSelectors(params)
-        let applicationStrings = context?.controlSurfaceApplicationStrings()
-        guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
+        guard let context,
+              context.controlSurfaceRoutingResolvesTabManager(routing: routing) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        let applicationStrings = context.controlSurfaceApplicationStrings()
         // Token set mirrors the app's `parseSplitDirection`; validating it here
         // preserves the legacy error ORDER (direction → agent-session → divider).
         guard let directionRaw = string(params, "direction"),
@@ -372,7 +373,7 @@ extension ControlCommandCoordinator {
            ["application", "app"].contains(normalizedToken(typeRaw)) {
             return .err(
                 code: "invalid_params",
-                message: applicationStrings?.splitUnsupported ?? "",
+                message: applicationStrings.splitUnsupported,
                 data: .object(["type": .string("application")])
             )
         }
@@ -395,8 +396,7 @@ extension ControlCommandCoordinator {
             initialDividerPosition: parsedDivider.value
         )
 
-        let resolution = context?.controlSurfaceSplit(routing: routing, inputs: inputs)
-            ?? .tabManagerUnavailable
+        let resolution = context.controlSurfaceSplit(routing: routing, inputs: inputs)
         switch resolution {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -418,7 +418,7 @@ extension ControlCommandCoordinator {
         case .applicationRejected(let typeRawValue):
             return .err(
                 code: "invalid_params",
-                message: applicationStrings?.splitUnsupported ?? "",
+                message: applicationStrings.splitUnsupported,
                 data: .object(["type": .string(typeRawValue)])
             )
         case .browserDisabled(let outcome):
@@ -540,10 +540,11 @@ extension ControlCommandCoordinator {
         authorization: ControlSocketRequestAuthorization?
     ) -> ControlCallResult {
         let routing = routingSelectors(params)
-        let applicationStrings = context?.controlSurfaceApplicationStrings()
-        guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
+        guard let context,
+              context.controlSurfaceRoutingResolvesTabManager(routing: routing) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        let applicationStrings = context.controlSurfaceApplicationStrings()
 
         let typeRaw = string(params, "type")
         let isApplication = typeRaw.map {
@@ -558,7 +559,7 @@ extension ControlCommandCoordinator {
                   exactWindowID > 0 else {
                 return .err(
                     code: "invalid_params",
-                    message: applicationStrings?.invalidWindowID ?? "",
+                    message: applicationStrings.invalidWindowID,
                     data: .object(["field": .string("window_id_native")])
                 )
             }
@@ -567,7 +568,7 @@ extension ControlCommandCoordinator {
                   exactProcessID > 0 else {
                 return .err(
                     code: "invalid_params",
-                    message: applicationStrings?.invalidProcessID ?? "",
+                    message: applicationStrings.invalidProcessID,
                     data: .object(["field": .string("process_id")])
                 )
             }
@@ -576,7 +577,7 @@ extension ControlCommandCoordinator {
                       (1...120).contains(rawFrameRate) else {
                     return .err(
                         code: "invalid_params",
-                        message: applicationStrings?.invalidFrameRate ?? "",
+                        message: applicationStrings.invalidFrameRate,
                         data: .object(["field": .string("frame_rate")])
                     )
                 }
@@ -612,12 +613,11 @@ extension ControlCommandCoordinator {
             placementRaw: string(params, "placement")
         )
 
-        let resolution = context?.controlSurfaceCreate(
+        let resolution = context.controlSurfaceCreate(
             routing: routing,
             inputs: inputs,
             authorization: authorization
         )
-            ?? .tabManagerUnavailable
         switch resolution {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)

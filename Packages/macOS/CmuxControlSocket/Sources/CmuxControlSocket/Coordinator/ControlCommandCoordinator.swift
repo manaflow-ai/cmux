@@ -72,7 +72,7 @@ public final class ControlCommandCoordinator {
     /// - Returns: The command result, or `nil` if not owned here.
     public func handle(
         _ request: ControlRequest,
-        authorization: ControlSocketRequestAuthorization? = nil
+        authorization: ControlSocketRequestAuthorization?
     ) -> ControlCallResult? {
         // Each domain's handler (in its own `+<Domain>.swift` extension) owns its
         // methods and returns `nil` for anything else, so the chain falls through
@@ -130,7 +130,7 @@ public final class ControlCommandCoordinator {
     public nonisolated func handleSocketWorkerV2(
         _ request: ControlRequest,
         context: (any ControlCommandContext)?,
-        authorization: ControlSocketRequestAuthorization? = nil
+        authorization: ControlSocketRequestAuthorization?
     ) -> ControlCallResult? {
         switch request.method {
         case "surface.list":

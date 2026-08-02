@@ -9,6 +9,13 @@ import QuartzCore
 /// bytes to Core Animation.
 @MainActor
 public final class CmuxRemoteFrameView: NSView {
+    private static let hostWindowNotificationNames = [
+        NSWindow.didChangeOcclusionStateNotification,
+        NSWindow.didMiniaturizeNotification,
+        NSWindow.didDeminiaturizeNotification,
+        NSWindow.willCloseNotification,
+    ]
+
     /// Called once after the first frame from an adopted transport is presented.
     public var onFirstFrame: (() -> Void)?
     /// Called after each newly published frame is presented.
@@ -30,6 +37,7 @@ public final class CmuxRemoteFrameView: NSView {
     private var hostWindowVisible = false
     private var isActive = true
     private var isTornDown = false
+    private weak var observedHostWindow: NSWindow?
 
     /// Creates an empty remote-frame presentation view.
     public override init(frame frameRect: NSRect) {
@@ -114,7 +122,7 @@ public final class CmuxRemoteFrameView: NSView {
     /// Permanently stops presentation and clears callbacks.
     public func teardown() {
         guard !isTornDown else { return }
-        NotificationCenter.default.removeObserver(self)
+        stopObservingHostWindow()
         resetTransport()
         isTornDown = true
         publishHostVisibility(false)
@@ -146,17 +154,13 @@ public final class CmuxRemoteFrameView: NSView {
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         if window !== newWindow {
             stopPresentationTimer()
-            NotificationCenter.default.removeObserver(self)
+            stopObservingHostWindow()
             publishHostVisibility(false)
         }
         super.viewWillMove(toWindow: newWindow)
-        guard let newWindow else { return }
-        for name in [
-            NSWindow.didChangeOcclusionStateNotification,
-            NSWindow.didMiniaturizeNotification,
-            NSWindow.didDeminiaturizeNotification,
-            NSWindow.willCloseNotification,
-        ] {
+        guard let newWindow, observedHostWindow !== newWindow else { return }
+        observedHostWindow = newWindow
+        for name in Self.hostWindowNotificationNames {
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(hostWindowVisibilityDidChange(_:)),
@@ -164,6 +168,17 @@ public final class CmuxRemoteFrameView: NSView {
                 object: newWindow
             )
         }
+    }
+
+    private func stopObservingHostWindow() {
+        for name in Self.hostWindowNotificationNames {
+            NotificationCenter.default.removeObserver(
+                self,
+                name: name,
+                object: observedHostWindow
+            )
+        }
+        observedHostWindow = nil
     }
 
     private func renderLatestFrame() {

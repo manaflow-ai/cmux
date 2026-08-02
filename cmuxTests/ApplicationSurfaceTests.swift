@@ -1534,6 +1534,93 @@ struct ApplicationSurfaceTests {
         ))
     }
 
+    @Test func socketApplicationControlRejectsCurrentAutomationMode() throws {
+        let controller = TerminalController.shared
+        controller.stop()
+        let runtime = FakeApplicationSurfaceRuntime()
+        let manager = TabManager(applicationSurfaceRuntime: runtime)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-app-automation-auth-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer {
+            controller.stop()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        controller.start(
+            tabManager: manager,
+            socketPath: directory.appendingPathComponent("cmux.sock").path,
+            accessMode: .automation
+        )
+        let authorization = ControlSocketRequestAuthorization(
+            acceptedAccessMode: .automation,
+            generation: controller.socketServer.connectionAuthorizationGeneration,
+            passwordAuthorization: SocketPasswordAuthorization()
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneID = try #require(
+            workspace.bonsplitController.allPaneIds.first
+        )
+        let panel = try #require(workspace.newApplicationSurface(
+            inPane: paneID,
+            windowID: 42,
+            processID: 43,
+            title: "Preview"
+        ))
+        defer { panel.close() }
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: workspace.id,
+            surfaceID: panel.id,
+            paneID: nil
+        )
+
+        let createResolution = controller.controlSurfaceCreate(
+            routing: routing,
+            inputs: ControlSurfaceCreateInputs(
+                typeRaw: "application",
+                providerRaw: nil,
+                rendererRaw: nil,
+                urlRaw: nil,
+                applicationWindowID: 44,
+                applicationProcessID: 45,
+                applicationTitle: "Calculator",
+                applicationFrameRate: 60,
+                workingDirectory: nil,
+                initialCommand: nil,
+                tmuxStartCommand: nil,
+                remotePTYSessionID: nil,
+                remoteContextRaw: nil,
+                startupEnvironment: [:],
+                requestedPaneID: nil,
+                requestedFocus: false
+            ),
+            authorization: authorization
+        )
+        let sendKeyResolution = controller.controlSurfaceSendKey(
+            routing: routing,
+            surfaceID: panel.id,
+            hasSurfaceIDParam: true,
+            key: "return",
+            authorization: authorization
+        )
+
+        #expect(createResolution == .applicationControlUnavailable(
+            message: TerminalController.applicationSurfaceSocketControlUnavailableMessage
+        ))
+        #expect(sendKeyResolution == .applicationInputUnavailable(
+            panel.id,
+            message: TerminalController.applicationSurfaceSocketControlUnavailableMessage
+        ))
+    }
+
     @Test func implicitSendKeyTargetsFocusedApplicationSurface() throws {
         let runtime = FakeApplicationSurfaceRuntime()
         let workspace = Workspace(applicationSurfaceRuntime: runtime)
@@ -2009,4 +2096,10 @@ private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
         sessionID: String,
         event: ApplicationSurfaceInputEvent
     ) async throws {}
+}
+
+extension ControlCommandCoordinator {
+    func handle(_ request: ControlRequest) -> ControlCallResult? {
+        handle(request, authorization: nil)
+    }
 }

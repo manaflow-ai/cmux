@@ -570,3 +570,20 @@ extension ControlMobileHostContext {
     func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileChatSessionsDump() -> ControlCallResult { mobileHostStubResult }
 }
+
+extension ControlCommandCoordinator {
+    func handle(_ request: ControlRequest) -> ControlCallResult? {
+        handle(request, authorization: nil)
+    }
+
+    nonisolated func handleSocketWorkerV2(
+        _ request: ControlRequest,
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult? {
+        handleSocketWorkerV2(
+            request,
+            context: context,
+            authorization: nil
+        )
+    }
+}
