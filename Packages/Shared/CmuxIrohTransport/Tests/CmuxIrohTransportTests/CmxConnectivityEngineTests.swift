@@ -150,6 +150,60 @@ struct CmxConnectivityEngineTests {
         try await Self.waitUntil { await finished.value() }
     }
 
+    @Test("account route revision alone preserves an authorized peer session")
+    func accountRouteRevisionAlonePreservesAuthorizedPeerSession() async throws {
+        let localIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "a", count: 64)
+        )
+        let remoteIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "b", count: 64)
+        )
+        let receive = TestIrohReceiveStream(
+            buffer: CmxIrohAdmissionAckCodec().encodeFrame(.acceptedPendingNatTraversal)
+                + admissionFrame(status: 3)
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [CmxIrohBidirectionalStream(
+                receiveStream: receive,
+                sendStream: TestIrohSendStream()
+            )],
+            selectedPath: .relay(url: "https://relay.example.com/")
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let context = CmxIrohClientContext(
+            dialPlan: try testIrohDialPlan(),
+            credential: try .pairGrant("e30.e30.AA")
+        )
+        let engine = CmxConnectivityEngine(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            endpointConfiguration: try Self.endpointConfiguration(),
+            contextProvider: FixedConnectivityContextProvider(context: context)
+        )
+        let request = CmxByteTransportRequest(
+            route: try CmxAttachRoute(
+                id: "iroh-v2",
+                kind: .iroh,
+                endpoint: .peer(identity: remoteIdentity, pathHints: [])
+            ),
+            expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174999",
+            authorizationMode: .transportAdmission
+        )
+        let ownerID = UUID()
+        try await engine.start()
+        _ = try await engine.acquireControl(for: request, ownerID: ownerID)
+
+        await engine.didInstallRouteRevision(2)
+
+        #expect(await connection.observedCloseCallCount() == 0)
+        #expect(await engine.snapshot().peers.first?.phase == .connected)
+        await engine.releaseControl(for: request, ownerID: ownerID)
+        await engine.stop()
+    }
+
     private static func endpointConfiguration() throws -> CmxIrohEndpointConfiguration {
         CmxIrohEndpointConfiguration(
             secretKey: try CmxIrohSecretKey(bytes: Data(repeating: 5, count: 32)),
@@ -307,5 +361,15 @@ private struct FailingConnectivityContextProvider: CmxIrohClientContextProvider 
     ) async throws -> CmxIrohClientContext {
         _ = request
         throw CmxConnectivityEngineError.inactive
+    }
+}
+
+private struct FixedConnectivityContextProvider: CmxIrohClientContextProvider {
+    let context: CmxIrohClientContext
+
+    func context(
+        for _: CmxByteTransportRequest
+    ) async throws -> CmxIrohClientContext {
+        context
     }
 }
