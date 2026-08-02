@@ -473,7 +473,11 @@ extension Workspace {
             let agentWasRunning: Bool? = {
                 if let resumeBinding, resumeBinding.isAgentHookBinding {
                     guard let bindingKindValue = Self.normalizedResumeBindingValue(resumeBinding.kind),
-                          let bindingKind = RestorableAgentKind(rawValue: bindingKindValue),
+                          let bindingKind = RestorableAgentKind(
+                              persistedRawValue: bindingKindValue,
+                              registration: effectiveRestorableAgent?.registration
+                                  ?? restorableAgentObservation?.snapshot.registration
+                          ),
                           let bindingSessionId = Self.normalizedResumeBindingValue(resumeBinding.checkpointId) else {
                         return false
                     }
@@ -987,7 +991,10 @@ extension Workspace {
         }
         if let bindingKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
            !bindingKind.isEmpty,
-           RestorableAgentKind(rawValue: bindingKind) != restorableAgent.kind {
+           RestorableAgentKind(
+               persistedRawValue: bindingKind,
+               registration: restorableAgent.registration
+           ) != restorableAgent.kind {
             return binding
         }
 
@@ -1020,7 +1027,10 @@ extension Workspace {
             return nil
         }
         if let kindValue = normalizedResumeBindingValue(resumeBinding.kind) {
-            guard let bindingKind = RestorableAgentKind(rawValue: kindValue),
+            guard let bindingKind = RestorableAgentKind(
+                persistedRawValue: kindValue,
+                registration: restorableAgent.registration
+            ),
                   bindingKind == restorableAgent.kind else {
                 return nil
             }

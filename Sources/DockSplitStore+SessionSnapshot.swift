@@ -398,7 +398,12 @@ extension DockSplitStore {
             ?? resumeBinding.flatMap { $0.isAgentHookBinding ? $0 : nil }
         guard restorableAgent != nil || managedBinding != nil else { return nil }
         let expectedKind = managedBinding != nil
-            ? managedBinding?.kind.flatMap(RestorableAgentKind.init(rawValue:))
+            ? managedBinding?.kind.flatMap {
+                RestorableAgentKind(
+                    persistedRawValue: $0,
+                    registration: restorableAgent?.registration ?? observation?.snapshot.registration
+                )
+            }
             : restorableAgent?.kind
         let expectedSessionId = managedBinding != nil
             ? managedBinding?.checkpointId
