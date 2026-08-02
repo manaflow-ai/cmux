@@ -433,6 +433,8 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
             framePresentationController?.stopPresenting()
             return
         }
+        // Pointer and scroll coalescing use schedulePendingInputFlush(), an
+        // independent one-shot cadence that also runs without frame polling.
         framePresentationController?.startPresenting(
             maximumFramesPerSecond: window.screen?.maximumFramesPerSecond
         )

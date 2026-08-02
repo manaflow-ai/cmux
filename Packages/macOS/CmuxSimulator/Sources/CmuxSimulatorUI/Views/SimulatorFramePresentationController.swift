@@ -24,7 +24,10 @@ final class SimulatorFramePresentationController {
             presentationDidComplete: { [weak self] in
                 self?.presentLatestFrame()
             },
-            sourceFailureDidOccur: sourceFailureDidOccur
+            sourceFailureDidOccur: { [weak self] in
+                self?.stopPresenting()
+                sourceFailureDidOccur()
+            }
         )
     }
 

@@ -1,3 +1,5 @@
+// CmuxFoundation already exposes AppKit-backed shortcut policy to this target,
+// so importing AppKit here does not add a framework to the CLI's dylib graph.
 import AppKit
 import Foundation
 import CMUXAgentLaunch

@@ -588,9 +588,9 @@ extension ControlCommandCoordinator {
             applicationWindowID = exactWindowID
             applicationProcessID = exactProcessID
         } else {
-            applicationWindowID = int(params, "window_id_native").flatMap(UInt32.init(exactly:))
-            applicationProcessID = int(params, "process_id").flatMap(Int32.init(exactly:))
-            applicationFrameRate = int(params, "frame_rate")
+            applicationWindowID = nil
+            applicationProcessID = nil
+            applicationFrameRate = nil
         }
 
         let inputs = ControlSurfaceCreateInputs(

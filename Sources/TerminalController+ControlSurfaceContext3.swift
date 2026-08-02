@@ -265,6 +265,8 @@ extension TerminalController {
         return .surface(focused)
     }
 
+    /// Sends text only to terminal targets. Application surfaces intentionally
+    /// return `.surfaceNotTerminal` and accept authorized named-key events only.
     func controlSurfaceSendText(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
