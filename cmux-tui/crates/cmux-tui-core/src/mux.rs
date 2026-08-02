@@ -24707,6 +24707,46 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn server_shutdown_waits_for_unpublished_child_reaper_ownership() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_UNPUBLISHED_CHILD_REAPER_SHUTDOWN";
+        const TEST_NAME: &str =
+            "mux::tests::server_shutdown_waits_for_unpublished_child_reaper_ownership";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD_ENV, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "shutdown ownership subprocess failed: {status}");
+            return;
+        }
+
+        let mux = test_mux();
+        let reservation = crate::process_session::reserve_child_reaper().unwrap();
+        let error = mux
+            .close_all_surfaces_for_shutdown_until(Instant::now() + Duration::from_millis(50))
+            .unwrap_err();
+
+        assert!(format!("{error:#}").contains("child reaper"));
+        assert_eq!(
+            mux.shutdown_cleanup_health(),
+            ShutdownCleanupHealth { pending: 1, retrying: false, degraded: true }
+        );
+
+        drop(reservation);
+        assert_eq!(
+            mux.close_all_surfaces_for_shutdown_until(Instant::now() + Duration::from_secs(1))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            mux.shutdown_cleanup_health(),
+            ShutdownCleanupHealth { pending: 0, retrying: false, degraded: false }
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn server_shutdown_rejects_malformed_host_records_before_removing_topology() {
         let root = std::env::temp_dir().join(format!(
             "cmux-shutdown-host-record-{}",
