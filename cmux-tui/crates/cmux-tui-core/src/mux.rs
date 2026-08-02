@@ -24810,6 +24810,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn active_synchronous_cleanup_reports_staged_owners_as_retrying() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let owned = mux.surface(surface.id).unwrap();
+
+        mux.schedule_server_shutdown_cleanup();
+        assert!(mux.shutdown_owners.stage_surface(&owned).is_some());
+        let health = mux.shutdown_cleanup_health();
+        mux.complete_server_shutdown_cleanup();
+        assert!(mux.close_surface(surface.id).unwrap());
+
+        assert_eq!(health, ShutdownCleanupHealth { pending: 1, retrying: true, degraded: false });
+    }
+
     #[cfg(unix)]
     #[test]
     fn server_shutdown_rejects_malformed_host_records_before_removing_topology() {
@@ -26285,6 +26300,94 @@ mod tests {
         mux.shutdown().unwrap();
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restart_waits_for_inflight_terminal_host_publication_before_marking_missing() {
+        const TERMINAL: &str = "00000000000040008000000000000041";
+        const SESSION: &str = "recover-publishing-terminal";
+        let root = std::env::temp_dir().join(format!(
+            "cmux-mux-terminal-publication-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        {
+            let mut registry = WorkspaceRegistry::open(&root, SESSION).unwrap();
+            registry
+                .commit(
+                    &WorkspaceMutation::new("workspace", "test").unwrap(),
+                    &serde_json::json!({"op":"create-workspace"}),
+                    None,
+                    Some(0),
+                    "workspace-added",
+                    "workspace-one",
+                    &[RegistryWorkspace {
+                        id: 1,
+                        public_id: WorkspacePublicId::random().unwrap(),
+                        key: "workspace-one".into(),
+                        name: "One".into(),
+                        group_key: SESSION.into(),
+                    }],
+                    &serde_json::json!({"workspace":1,"key":"workspace-one"}),
+                )
+                .unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "reserve-publishing-terminal",
+                &RegistryTerminal {
+                    terminal_id: TERMINAL.into(),
+                    workspace_key: "workspace-one".into(),
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({"command_present":true}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+        }
+
+        let host_root = crate::terminal_host_runtime::terminal_host_root(&root, SESSION);
+        std::fs::create_dir_all(&host_root).unwrap();
+        let record_path = host_root.join(format!("{TERMINAL}.json"));
+        let publication = crate::server::SocketPublicationGuard::acquire(
+            &record_path,
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap();
+        let options =
+            SurfaceOptions { terminal_host_root: Some(host_root), ..SurfaceOptions::default() };
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        let open_root = root.clone();
+        let worker = std::thread::spawn(move || {
+            result_tx.send(Mux::open_persistent(SESSION, options, &open_root)).unwrap();
+        });
+
+        let early = result_rx.recv_timeout(Duration::from_millis(250));
+        let waited_for_publication =
+            matches!(&early, Err(std::sync::mpsc::RecvTimeoutError::Timeout));
+        drop(publication);
+        let mux = match early {
+            Ok(result) => result.unwrap(),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => result_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("restart did not resume after publication ownership ended")
+                .unwrap(),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("restart worker stopped before reporting its result")
+            }
+        };
+        worker.join().unwrap();
+        let terminal = mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal;
+        mux.shutdown().unwrap();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+
+        assert!(
+            waited_for_publication,
+            "restart finalized terminal-host absence while publication ownership was live"
+        );
+        assert_eq!(terminal.lifecycle, TerminalLifecycle::Exited);
     }
 
     #[cfg(unix)]

@@ -1896,6 +1896,44 @@ mod tests {
         assert!(message.contains("Stopping exits pane processes."));
     }
 
+    #[test]
+    fn legacy_identity_may_omit_shutdown_cleanup_as_a_whole() {
+        let identity = ServerIdentity::from_protocol_data(&json!({
+            "app": "cmux-tui",
+            "pid": 42,
+            "protocol": PROTOCOL_VERSION,
+        }))
+        .unwrap();
+
+        assert_eq!(identity.shutdown_cleanup, ShutdownCleanupStatus::default());
+    }
+
+    #[test]
+    fn present_shutdown_cleanup_requires_every_typed_member() {
+        let malformed = [
+            json!(null),
+            json!({}),
+            json!({"pending": 1, "retrying": true}),
+            json!({"pending": "1", "retrying": true, "degraded": false}),
+            json!({"pending": 1, "retrying": "true", "degraded": false}),
+            json!({"pending": 1, "retrying": true, "degraded": 0}),
+        ];
+
+        for shutdown_cleanup in malformed {
+            let identity = json!({
+                "app": "cmux-tui",
+                "pid": 42,
+                "protocol": PROTOCOL_VERSION,
+                "shutdown_cleanup": shutdown_cleanup,
+            });
+            assert!(
+                ServerIdentity::from_protocol_data(&identity).is_err(),
+                "accepted malformed shutdown cleanup: {}",
+                identity["shutdown_cleanup"]
+            );
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn shell_quote_preserves_non_utf8_socket_paths() {
