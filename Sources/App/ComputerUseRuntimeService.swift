@@ -957,10 +957,18 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         guard
             let rawWindowID = value["window_id"] as? NSNumber,
             let rawProcessID = value["process_id"] as? NSNumber,
-            rawWindowID.uint64Value > 0,
-            rawWindowID.uint64Value <= UInt32.max,
-            rawProcessID.int64Value > 0,
-            rawProcessID.int64Value <= Int32.max,
+            CFGetTypeID(rawWindowID) != CFBooleanGetTypeID(),
+            CFGetTypeID(rawProcessID) != CFBooleanGetTypeID(),
+            rawWindowID.doubleValue.isFinite,
+            rawProcessID.doubleValue.isFinite,
+            rawWindowID.doubleValue.rounded() == rawWindowID.doubleValue,
+            rawProcessID.doubleValue.rounded() == rawProcessID.doubleValue,
+            let windowID = UInt32(exactly: rawWindowID.doubleValue),
+            let processID = Int32(exactly: rawProcessID.doubleValue),
+            windowID > 0,
+            processID > 0,
+            rawWindowID.compare(NSNumber(value: windowID)) == .orderedSame,
+            rawProcessID.compare(NSNumber(value: processID)) == .orderedSame,
             let owner = value["owner"] as? String,
             let title = value["title"] as? String,
             let rawWidth = value["width"] as? NSNumber,
@@ -979,8 +987,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             return nil
         }
         return ApplicationWindowDescriptor(
-            windowID: rawWindowID.uint32Value,
-            processID: rawProcessID.int32Value,
+            windowID: windowID,
+            processID: processID,
             owner: owner,
             title: title,
             width: width,
