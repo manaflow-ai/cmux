@@ -192,6 +192,30 @@ struct MoshTerminalCommandBuilderTests {
         }
     }
 
+    @Test("creates the attach attempt before staging the remote bootstrap")
+    func preparationSeesCurrentAttempt() throws {
+        try withFakeCommands(sshStatus: 0) { directory, environment in
+            let attemptFile = directory.appendingPathComponent("staged-attempt")
+            let result = try run(
+                builder(
+                    preparationShellScript:
+                        "printf '%s' \"$CMUX_SSH_ATTEMPT_ID\" > '\(attemptFile.path)'",
+                    remoteRelayPort: 64_007
+                ),
+                environment: environment
+            )
+            let stagedAttempt = try String(contentsOf: attemptFile, encoding: .utf8)
+            let lifecycleCalls = try String(
+                contentsOf: directory.appendingPathComponent("cmux.args"),
+                encoding: .utf8
+            )
+
+            #expect(result.status == 0)
+            #expect(UUID(uuidString: stagedAttempt) != nil)
+            #expect(lifecycleCalls.contains(#""attempt_id":"\#(stagedAttempt)""#))
+        }
+    }
+
     @Test("does not report connected before the Mosh transport establishes")
     func failedMoshDoesNotReportConnected() throws {
         try withFakeCommands(sshStatus: 0, moshStatus: 71) { directory, environment in
