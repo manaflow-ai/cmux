@@ -293,7 +293,7 @@ struct FileExplorerStoreTests {
         let monitor = FileExplorerSSHSessionMonitor(
             pollInterval: .seconds(60),
             detector: { ttyName in
-                ttyName == "ttys001" ? session : nil
+                ttyName == "/dev/ttys001" ? session : nil
             }
         )
         let updates = await monitor.updates()
