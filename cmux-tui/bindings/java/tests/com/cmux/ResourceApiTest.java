@@ -35,7 +35,9 @@ public final class ResourceApiTest {
         terminalWaitTimeoutCancelsAndReusesConnection();
         terminalWaitAbortGatesConcurrentReuse();
         terminalWaitFalseRaceDrainsTargetResponse();
+        terminalWaitResponseFirstFalseRaceDrainsCancelResponse();
         terminalWaitCleanupFailureClosesButPreservesAbort();
+        terminalWaitCleanupDeadlineClosesButPreservesAbort();
         terminalWaitPredispatchInterruptSendsNothing();
         terminalWaitUncertainSendClosesWithoutCancel();
         typedStream();
@@ -799,6 +801,53 @@ public final class ResourceApiTest {
         }
     }
 
+    private static void terminalWaitResponseFirstFalseRaceDrainsCancelResponse() {
+        WaitCancelTransport transport = new WaitCancelTransport();
+        try (Client client = waitClient(transport, Duration.ofSeconds(2))) {
+            AtomicReference<RuntimeException> failure = new AtomicReference<>();
+            AtomicReference<Boolean> interruptRestored =
+                new AtomicReference<>(false);
+            Thread waiter = new Thread(() -> {
+                try {
+                    waitTerminal(client).waitFor(waitOptions());
+                } catch (RuntimeException error) {
+                    failure.set(error);
+                    interruptRestored.set(Thread.currentThread().isInterrupted());
+                }
+            }, "terminal-wait-response-first-race");
+            waiter.start();
+            require(transport.awaitWait(), "response-first wait was dispatched");
+            waiter.interrupt();
+            require(
+                transport.awaitRequestCancel(),
+                "response-first abort dispatched request.cancel"
+            );
+            transport.respondTarget(Map.of(
+                "matched", true,
+                "text", "raced"
+            ));
+            sleep(Duration.ofMillis(40));
+            require(
+                waiter.isAlive(),
+                "response-first race waits for request.cancel response"
+            );
+            transport.respondCancel(Map.of("canceled", false));
+            join(waiter, Duration.ofSeconds(1), "response-first race drain");
+            require(
+                failure.get() instanceof TransportError &&
+                    failure.get().getMessage().contains("interrupted"),
+                "response-first race preserves the original abort"
+            );
+            require(
+                interruptRestored.get(),
+                "response-first race restores the interrupt"
+            );
+            client.machine(Selector.current())
+                .session(Selector.current())
+                .ping(Options.Read.defaults());
+        }
+    }
+
     private static void terminalWaitCleanupFailureClosesButPreservesAbort() {
         for (boolean malformedTarget : List.of(false, true)) {
             WaitCancelTransport transport = new WaitCancelTransport();
@@ -856,6 +905,44 @@ public final class ResourceApiTest {
                     "reuse after cleanup failure fails promptly"
                 );
             }
+        }
+    }
+
+    private static void terminalWaitCleanupDeadlineClosesButPreservesAbort() {
+        WaitCancelTransport transport = new WaitCancelTransport();
+        try (Client client = waitClient(transport, Duration.ofSeconds(2))) {
+            AtomicReference<RuntimeException> failure = new AtomicReference<>();
+            Thread waiter = new Thread(() -> {
+                try {
+                    waitTerminal(client).waitFor(waitOptions());
+                } catch (RuntimeException error) {
+                    failure.set(error);
+                }
+            }, "terminal-wait-cleanup-deadline");
+            waiter.start();
+            require(transport.awaitWait(), "deadline wait was dispatched");
+            waiter.interrupt();
+            require(
+                transport.awaitRequestCancel(),
+                "deadline abort dispatched request.cancel"
+            );
+            long started = System.nanoTime();
+            join(waiter, Duration.ofSeconds(2), "request cleanup deadline");
+            Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
+            require(
+                elapsed.compareTo(Duration.ofMillis(1500)) < 0,
+                "request cleanup exceeded its deadline: " + elapsed
+            );
+            require(
+                failure.get() instanceof TransportError &&
+                    failure.get().getMessage().contains("interrupted"),
+                "cleanup deadline preserves the original abort"
+            );
+            require(client.isClosed(), "cleanup deadline closes transport");
+            require(
+                transport.operationCount("request.cancel") == 1,
+                "cleanup deadline sends one request.cancel"
+            );
         }
     }
 

@@ -287,11 +287,17 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - workspaceID: The target workspace.
     ///   - requestedSurfaceID: The explicit `surface_id`, or `nil` to resolve.
     ///   - ttyName: The reported (trimmed, non-empty) TTY name.
+    ///   - authenticatedRemoteWorkspaceID: Relay-authenticated origin, when remote.
+    ///   - terminalLifecycleID: Runtime lifecycle carried by a remote report.
+    ///   - attemptID: Attach attempt carried by a remote report.
     /// - Returns: The report resolution.
     func controlSurfaceReportTTY(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
-        ttyName: String
+        ttyName: String,
+        authenticatedRemoteWorkspaceID: UUID?,
+        terminalLifecycleID: UUID?,
+        attemptID: UUID?
     ) -> ControlSurfaceReportTTYResolution
 
     /// Records a reported current working directory for `surface.report_pwd`.

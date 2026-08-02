@@ -187,6 +187,75 @@ struct SurfaceResumeAgentBindingGenerationTests {
         }
     }
 
+    @Test("A restored Grok binding relaunches through cmux restore across generations")
+    func restoredGrokBindingUsesRestoreVerbAcrossGenerations() throws {
+        let defaultsName = "cmux-grok-binding-generation-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        let sourcePanelID = try #require(source.focusedPanelId)
+        let sessionID = "019fbf20-689d-76f3-8e7f-1220929e8140"
+        let expectedRestoreInput =
+            " \(AgentRestoreLaunch.cliStartupExecutableToken) restore grok \(sessionID)\n"
+        let sourceBinding = grokBinding(sessionID: sessionID)
+        #expect(source.setSurfaceResumeBinding(sourceBinding, panelId: sourcePanelID))
+        source.updatePanelShellActivityState(panelId: sourcePanelID, state: .commandRunning)
+        source.recordAgentPID(
+            key: "grok.\(sessionID)",
+            pid: getpid(),
+            panelId: sourcePanelID,
+            refreshPorts: false
+        )
+
+        let sourceSnapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: grokBindingIndex(
+                sessionID: sessionID,
+                workspaceID: source.id,
+                panelID: sourcePanelID
+            )
+        )
+        #expect(sourceSnapshot.panels.first?.terminal?.wasAgentRunning == true)
+
+        let firstRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { firstRestore.teardownAllPanels() }
+        firstRestore.restoreSessionSnapshot(sourceSnapshot)
+        let firstPanelID = try #require(firstRestore.focusedPanelId)
+        let firstPanel = try #require(firstRestore.terminalPanel(for: firstPanelID))
+        #expect(firstPanel.surface.debugInitialInputForTesting() == expectedRestoreInput)
+        #expect(firstRestore.restoredAgentResumeStatesByPanelId[firstPanelID] == .awaitingAutoResumeCommand)
+
+        firstRestore.updatePanelShellActivityState(panelId: firstPanelID, state: .commandRunning)
+        #expect(firstRestore.setSurfaceResumeBinding(
+            grokBinding(sessionID: sessionID, updatedAt: 1_888_888_889),
+            panelId: firstPanelID
+        ))
+
+        let secondGenerationSnapshot = firstRestore.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [:])
+        )
+        let secondGenerationTerminal = try #require(
+            secondGenerationSnapshot.panels.first?.terminal
+        )
+        #expect(secondGenerationTerminal.wasAgentRunning == true)
+        #expect(secondGenerationTerminal.resumeBinding?.restoreStartupInput() == expectedRestoreInput)
+
+        let secondRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { secondRestore.teardownAllPanels() }
+        secondRestore.restoreSessionSnapshot(secondGenerationSnapshot)
+        let secondPanelID = try #require(secondRestore.focusedPanelId)
+        let secondPanel = try #require(secondRestore.terminalPanel(for: secondPanelID))
+        let secondRestoreInput = try #require(secondPanel.surface.debugInitialInputForTesting())
+        #expect(secondRestoreInput == expectedRestoreInput)
+        #expect(!secondRestoreInput.contains("grok -r"))
+    }
+
     @Test("A replacement binding cannot inherit restored-command liveness")
     func replacementBindingCannotInheritRestoredCommandLiveness() throws {
         let workspace = Workspace()
@@ -302,6 +371,17 @@ struct SurfaceResumeAgentBindingGenerationTests {
         ])
     }
 
+    private func grokBindingIndex(
+        sessionID: String,
+        workspaceID: UUID,
+        panelID: UUID
+    ) -> SurfaceResumeBindingIndex {
+        SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspaceID, panelId: panelID):
+                grokBinding(sessionID: sessionID),
+        ])
+    }
+
     private func codexBinding(sessionID: String) -> SurfaceResumeBindingSnapshot {
         SurfaceResumeBindingSnapshot(
             name: "Codex",
@@ -312,6 +392,28 @@ struct SurfaceResumeAgentBindingGenerationTests {
             source: "agent-hook",
             autoResume: true,
             updatedAt: 1_777_777_778
+        )
+    }
+
+    private func grokBinding(
+        sessionID: String,
+        updatedAt: TimeInterval = 1_888_888_888
+    ) -> SurfaceResumeBindingSnapshot {
+        SurfaceResumeBindingSnapshot(
+            name: "Grok",
+            kind: "grok",
+            command: "grok -r \(sessionID) --no-alt-screen",
+            cwd: "/tmp/repo",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "grok",
+                executablePath: "/usr/local/bin/grok",
+                arguments: ["/usr/local/bin/grok", "--no-alt-screen"],
+                workingDirectory: "/tmp/repo"
+            ),
+            autoResume: true,
+            updatedAt: updatedAt
         )
     }
 

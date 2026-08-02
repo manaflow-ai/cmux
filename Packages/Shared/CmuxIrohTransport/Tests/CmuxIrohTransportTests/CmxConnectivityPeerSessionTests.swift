@@ -223,6 +223,50 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func concurrentRedialCannotDisplaceAnInstalledLiveSession() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let winner = TestConnectivitySession(
+            continuityID: 81,
+            gatesFirstIsClosedCheck: true
+        )
+        let loser = TestConnectivitySession(
+            continuityID: 82,
+            gatesFirstIsClosedCheck: true
+        )
+        let builder = OrderedGatedConnectivitySessionBuilder(
+            sessions: [winner, loser]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+
+        // Park both callers past their pre-dial installed-slot checks so the
+        // first install lands while the second caller is still in flight.
+        let firstCaller = Task { try await peer.connectedSession(for: request) }
+        try await Self.waitUntil { await builder.callCount() == 1 }
+        await builder.release(call: 0)
+        try await Self.waitUntil { await winner.isClosedGateIsWaiting() }
+        let secondCaller = Task { try await peer.connectedSession(for: request) }
+        try await Self.waitUntil { await builder.callCount() == 2 }
+        await builder.release(call: 1)
+        try await Self.waitUntil { await loser.isClosedGateIsWaiting() }
+        await winner.releaseIsClosedGate()
+        _ = try await firstCaller.value
+        await loser.releaseIsClosedGate()
+        _ = try await secondCaller.value
+
+        #expect(await peer.connectionContinuityID() == 81)
+        #expect(await winner.closeCount() == 0)
+        #expect(await loser.closeCount() == 1)
+        #expect(await peer.snapshot().phase == .connected)
+        await peer.invalidate()
+    }
+
+    @Test
     func deadOnArrivalSessionIsClosedAndRedialedOnce() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
@@ -516,6 +560,9 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private var closureWaiters: [CheckedContinuation<Void, Never>] = []
     private var closeAttributionWaiter: CheckedContinuation<Void, Never>?
     private var closeAttributionWaiting = false
+    private var isClosedGatePending: Bool
+    private var isClosedGateWaiting = false
+    private var isClosedGateWaiter: CheckedContinuation<Void, Never>?
     private var received: [Data] = []
     private var selectedPath = CmxIrohObservedConnectionPath.direct
     private var selectedPathContinuation:
@@ -524,11 +571,13 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     init(
         continuityID: UInt64,
         gatesCloseAttribution: Bool = false,
-        keepsSelectedPathStreamOpen: Bool = false
+        keepsSelectedPathStreamOpen: Bool = false,
+        gatesFirstIsClosedCheck: Bool = false
     ) {
         self.continuityID = continuityID
         self.gatesCloseAttribution = gatesCloseAttribution
         self.keepsSelectedPathStreamOpen = keepsSelectedPathStreamOpen
+        isClosedGatePending = gatesFirstIsClosedCheck
     }
 
     func receiveControl(maximumByteCount: Int) -> Data? {
@@ -575,7 +624,26 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         )
     }
 
-    func isClosed() -> Bool { closed }
+    func isClosed() async -> Bool {
+        if isClosedGatePending {
+            isClosedGatePending = false
+            isClosedGateWaiting = true
+            await withCheckedContinuation { continuation in
+                isClosedGateWaiter = continuation
+            }
+            isClosedGateWaiting = false
+        }
+        return closed
+    }
+
+    func isClosedGateIsWaiting() -> Bool {
+        isClosedGateWaiting
+    }
+
+    func releaseIsClosedGate() {
+        isClosedGateWaiter?.resume()
+        isClosedGateWaiter = nil
+    }
 
     func connectionContinuityID() -> UInt64? {
         closed ? nil : continuityID

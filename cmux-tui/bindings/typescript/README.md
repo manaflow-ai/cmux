@@ -97,6 +97,20 @@ const client = new Client({
 });
 ```
 
+Omit `authToken` for first-use pairing. Requests remain buffered until the TUI
+approves the challenge and the server returns a reconnect credential:
+
+```ts
+const transport = new WebSocketTransport("wss://example.test/cmux", {
+  onPairingChallenge: ({ code, peer }) => showPairingPrompt(code, peer),
+  onPairingCredential: (credential) => saveCredential(credential),
+});
+```
+
+Use `onAuthenticationRejected` to remove a supplied `authToken` that the
+server rejects. First-use pairing denial or expiry closes that attempt without
+invoking the credential-rejection callback.
+
 The `cmux` and `cmux/browser` dependency graphs import no Node modules. The
 `cmux/node` entry adds Unix-socket discovery and transport.
 
@@ -106,6 +120,12 @@ from `cmux/raw`:
 ```ts
 import { CmuxClient, COMMAND_METADATA } from "cmux/raw";
 ```
+
+Raw render graphics follow one budget chain: 10,000,000 decoded image bytes
+become at most 13,333,336 base64 characters. The 16,384-placement limit adds
+at most 7,258,113 JSON characters. Their 20,591,449-character subtotal leaves
+12,962,983 characters of the 33,554,432-character attach limit for image
+metadata, rows, and the JSON wrapper.
 
 Package verification builds all entry points, installs the tarball into a
 clean TypeScript consumer, and checks that browser imports cannot reach Node,
