@@ -1691,6 +1691,33 @@ struct ComputerUseUXTests {
         ))
     }
 
+    @Test func codexCompatibilityOutageKeepsNativeApplicationSurfaceIdentity() {
+        let profiles = ComputerUseRuntimeService.helperProfilesNeedingRecovery(
+            nativeListening: true,
+            codexCompatibilityListening: false
+        )
+
+        #expect(profiles == [.codexCompatibility])
+        #expect(!ComputerUseRuntimeService.helperTerminationInvalidatesApplicationSurfaces(
+            profile: .codexCompatibility
+        ))
+    }
+
+    @Test func nativeOutageInvalidatesApplicationSurfaceIdentity() {
+        let profiles = ComputerUseRuntimeService.helperProfilesNeedingRecovery(
+            nativeListening: false,
+            codexCompatibilityListening: true
+        )
+
+        #expect(profiles == [.native])
+        #expect(ComputerUseRuntimeService.helperTerminationInvalidatesApplicationSurfaces(
+            profile: .native
+        ))
+        #expect(!ComputerUseRuntimeService.helperTerminationInvalidatesApplicationSurfaces(
+            profile: nil
+        ))
+    }
+
     @Test func untaggedRuntimeUsesBundleIdentityToIsolateAppVariants() {
         let production = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
