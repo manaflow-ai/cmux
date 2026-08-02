@@ -1315,7 +1315,22 @@ impl ServerProcessOwners {
     fn shutdown_until(&mut self, deadline: std::time::Instant) -> ServerProcessOwnersShutdown {
         #[cfg(target_os = "linux")]
         drop(self.provider_management.take());
-        drop(self.websocket.take());
+        if let Some(websocket) = self.websocket.as_mut() {
+            match websocket.shutdown_until(deadline) {
+                Ok(true) => drop(self.websocket.take()),
+                Ok(false) => {
+                    return ServerProcessOwnersShutdown::Pending {
+                        message: "WebSocket server cleanup exceeded the shutdown deadline",
+                    };
+                }
+                Err(error) => {
+                    drop(self.websocket.take());
+                    return ServerProcessOwnersShutdown::Complete(Err(
+                        error.context("WebSocket server shutdown failed")
+                    ));
+                }
+            }
+        }
         #[cfg(unix)]
         if let Some(remote) = self.remote.as_mut() {
             match remote.shutdown_until(deadline) {
@@ -1324,7 +1339,9 @@ impl ServerProcessOwners {
                     return ServerProcessOwnersShutdown::Complete(result);
                 }
                 remote_runtime::DaemonRuntimeShutdown::Pending => {
-                    return ServerProcessOwnersShutdown::Pending;
+                    return ServerProcessOwnersShutdown::Pending {
+                        message: "remote daemon cleanup exceeded the shutdown deadline",
+                    };
                 }
             }
         }
@@ -1334,7 +1351,7 @@ impl ServerProcessOwners {
 
 enum ServerProcessOwnersShutdown {
     Complete(anyhow::Result<()>),
-    Pending,
+    Pending { message: &'static str },
 }
 
 enum ServerProcessOwnersState {
@@ -1479,11 +1496,9 @@ impl ServerProcessOwnersCleanup {
                 *state = ServerProcessOwnersState::Complete(error.clone());
                 ServerProcessOwnersCleanupOutcome::Complete { error }
             }
-            Ok(ServerProcessOwnersShutdown::Pending) => {
+            Ok(ServerProcessOwnersShutdown::Pending { message }) => {
                 *state = ServerProcessOwnersState::Ready(owners);
-                ServerProcessOwnersCleanupOutcome::Incomplete {
-                    message: "remote daemon cleanup exceeded the shutdown deadline".into(),
-                }
+                ServerProcessOwnersCleanupOutcome::Incomplete { message: message.into() }
             }
             Err(_) => {
                 *state = ServerProcessOwnersState::Ready(owners);

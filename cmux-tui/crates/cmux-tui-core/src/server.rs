@@ -4175,19 +4175,52 @@ impl WebSocketServer {
     pub fn local_addr(&self) -> SocketAddr {
         self.local_addr
     }
+
+    /// Request shutdown without waiting past `deadline` for the listener.
+    ///
+    /// Returns `Ok(false)` while the caller must retain this owner and retry.
+    pub fn shutdown_until(&mut self, deadline: Instant) -> anyhow::Result<bool> {
+        self.shutdown.store(true, Ordering::Release);
+        while !self.try_close_connections() {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Ok(false);
+            };
+            std::thread::sleep(remaining.min(Duration::from_millis(1)));
+        }
+
+        let Some(thread) = self.thread.as_ref() else { return Ok(true) };
+        while !thread.is_finished() {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Ok(false);
+            };
+            std::thread::sleep(remaining.min(Duration::from_millis(1)));
+        }
+        let thread = self.thread.take().expect("finished WebSocket listener retained its owner");
+        thread.join().map_err(|_| anyhow::anyhow!("WebSocket listener thread panicked"))?;
+        Ok(true)
+    }
+
+    fn try_close_connections(&self) -> bool {
+        let connections = match self.connections.try_lock() {
+            Ok(connections) => connections,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return false,
+        };
+        for stream in connections.values() {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+        true
+    }
 }
 
 impl Drop for WebSocketServer {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Release);
-        for stream in self.connections.lock().unwrap().values() {
-            let _ = stream.shutdown(Shutdown::Both);
-        }
-        if let Ok(stream) = cmux_tui_process::tcp::connect_stream(self.local_addr) {
-            let _ = stream.set_nodelay(true);
-        }
+        let _ = self.try_close_connections();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            if thread.is_finished() {
+                let _ = thread.join();
+            }
         }
     }
 }
@@ -4215,6 +4248,7 @@ pub fn serve_websocket(
         }
     }
     let listener = cmux_tui_process::tcp::bind_listener(addr)?;
+    listener.set_nonblocking(true)?;
     let local_addr = listener.local_addr()?;
     let shutdown = Arc::new(AtomicBool::new(false));
     let connections = Arc::new(Mutex::new(HashMap::new()));
@@ -4276,6 +4310,11 @@ pub fn serve_websocket(
             {
                 cleanup_connections.lock().unwrap().remove(&id);
             }
+        }
+        let connections =
+            thread_connections.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for stream in connections.values() {
+            let _ = stream.shutdown(Shutdown::Both);
         }
     })?;
     Ok(WebSocketServer {
@@ -10508,6 +10547,31 @@ mod tests {
         dropper.join().unwrap();
 
         assert!(completed_promptly, "WebSocket owner drop joined an unfinished listener thread");
+    }
+
+    #[test]
+    fn websocket_shutdown_retains_an_unfinished_listener_for_retry() {
+        let (release, blocked) = std::sync::mpsc::channel();
+        let listener_thread = std::thread::spawn(move || {
+            let _ = blocked.recv();
+        });
+        let mut server = WebSocketServer {
+            local_addr: "127.0.0.1:0".parse().unwrap(),
+            shutdown: Arc::new(AtomicBool::new(false)),
+            connections: Arc::new(Mutex::new(HashMap::new())),
+            thread: Some(listener_thread),
+            accept_attempts: Arc::new(AtomicU64::new(0)),
+        };
+
+        let first = server.shutdown_until(Instant::now() + Duration::from_millis(25)).unwrap();
+        let retained = server.thread.is_some();
+        let _ = release.send(());
+        let second = server.shutdown_until(Instant::now() + Duration::from_secs(1)).unwrap();
+
+        assert!(!first, "unfinished WebSocket listener reported complete");
+        assert!(retained, "pending WebSocket shutdown discarded listener ownership");
+        assert!(second, "WebSocket listener did not complete after release");
+        assert!(server.thread.is_none(), "completed WebSocket listener retained its join handle");
     }
 
     #[test]
