@@ -1496,9 +1496,12 @@ fn run_server(
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime)
     } else {
-        let remote = RemoteSession::connect(&socket_path)
-            .context("connect the interactive client to its session server")?;
-        run_tui(Session::Remote(remote), args.session, None)
+        match RemoteSession::connect(&socket_path)
+            .context("connect the interactive client to its session server")
+        {
+            Ok(remote) => run_tui(Session::Remote(remote), args.session, None),
+            Err(error) => Err(error),
+        }
     };
     #[cfg(unix)]
     if let Some(runtime) = remote_runtime {

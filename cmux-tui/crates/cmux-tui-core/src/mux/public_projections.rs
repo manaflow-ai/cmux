@@ -117,34 +117,11 @@ fn agent_source(value: &str) -> anyhow::Result<AgentSource> {
 mod tests {
     use super::*;
     use crate::resource::{AgentPublicId, NotificationPublicId, TerminalPublicId};
+    use crate::terminal_host_runtime::TerminalHostIdentity;
     use crate::workspace_registry::{RegistryAgentProjection, RegistryNotificationProjection};
 
-    #[test]
-    fn zero_view_terminal_projections_restore_by_stable_content_identity() {
-        let terminal = TerminalPublicId::parse("term_00000000000000000000000000000001").unwrap();
-        let projections = RegistryPublicProjections {
-            notifications: vec![RegistryNotificationProjection {
-                id: NotificationPublicId::parse("notification_00000000000000000000000000000001")
-                    .unwrap(),
-                title: "build".into(),
-                body: String::new(),
-                level: "info".into(),
-                terminal_id: Some(terminal.clone()),
-                created_at_ms: 1,
-                unread: false,
-            }],
-            agents: vec![RegistryAgentProjection {
-                id: AgentPublicId::parse("agent_00000000000000000000000000000001").unwrap(),
-                terminal_id: terminal,
-                state: "working".into(),
-                source: "hook".into(),
-                updated_at_ms: 1,
-                source_session: None,
-            }],
-            terminal_defaults: None,
-            frontend_projections: Vec::new(),
-        };
-        let state = State {
+    fn empty_state() -> State {
+        State {
             workspaces: Vec::new(),
             workspace_index_by_id: HashMap::new(),
             workspace_id_by_key: HashMap::new(),
@@ -156,13 +133,80 @@ mod tests {
             panes: HashMap::new(),
             surfaces: HashMap::new(),
             terminal_catalog: HashMap::new(),
+            terminal_catalog_by_runtime: HashMap::new(),
             split_screens: HashMap::new(),
             resource_indexes: PublicSlotIndexes::default(),
+        }
+    }
+
+    #[test]
+    fn zero_view_terminal_projections_restore_by_stable_content_identity() {
+        let terminal = TerminalPublicId::parse("term_00000000000000000000000000000001").unwrap();
+        let mux = Mux::new_for_test("projection-restore", SurfaceOptions::default());
+        let runtime = Surface::exited_terminal_placeholder_with_terminal_public_id(
+            77,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            TerminalHostIdentity {
+                terminal_id: "host-1".into(),
+                incarnation: "incarnation-1".into(),
+            },
+            terminal.clone(),
+        )
+        .unwrap();
+        let projections = RegistryPublicProjections {
+            notifications: vec![RegistryNotificationProjection {
+                id: NotificationPublicId::parse("notification_00000000000000000000000000000001")
+                    .unwrap(),
+                title: "build".into(),
+                body: String::new(),
+                level: "info".into(),
+                terminal_id: Some(terminal.clone()),
+                created_at_ms: 1,
+                unread: true,
+            }],
+            agents: vec![RegistryAgentProjection {
+                id: AgentPublicId::parse("agent_00000000000000000000000000000001").unwrap(),
+                terminal_id: terminal.clone(),
+                state: "working".into(),
+                source: "hook".into(),
+                updated_at_ms: 1,
+                source_session: None,
+            }],
+            terminal_defaults: None,
+            frontend_projections: Vec::new(),
         };
+        let mut state = empty_state();
+        state.terminal_catalog.insert(terminal.clone(), runtime.clone());
+        state.terminal_catalog_by_runtime.insert(runtime.terminal_runtime_id().unwrap(), terminal);
         let restored = restore_public_projections(&state, projections).unwrap();
         let terminal = TerminalPublicId::parse("term_00000000000000000000000000000001").unwrap();
         assert_eq!(restored.agent_records.get(&terminal).unwrap().state, AgentState::Working);
         assert_eq!(restored.notification_ledger[0].terminal_id.as_ref(), Some(&terminal));
-        assert_eq!(restored.notification_ledger[0].surface, None);
+        assert_eq!(restored.notification_ledger[0].surface, Some(runtime.id));
+        assert!(restored.terminal_notifications[&terminal].unread);
+        mux.shutdown();
+    }
+
+    #[test]
+    fn unread_projection_without_terminal_identity_is_rejected() {
+        let projections = RegistryPublicProjections {
+            notifications: vec![RegistryNotificationProjection {
+                id: NotificationPublicId::parse("notification_00000000000000000000000000000002")
+                    .unwrap(),
+                title: "orphan".into(),
+                body: String::new(),
+                level: "warning".into(),
+                terminal_id: None,
+                created_at_ms: 2,
+                unread: true,
+            }],
+            agents: Vec::new(),
+            terminal_defaults: None,
+            frontend_projections: Vec::new(),
+        };
+
+        let error = restore_public_projections(&empty_state(), projections).unwrap_err();
+        assert!(error.to_string().contains("omitted its terminal identity"));
     }
 }

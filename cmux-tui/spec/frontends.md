@@ -42,7 +42,9 @@ ordered input, output history, and canonical PTY geometry. A terminal is a
 session resource, not a child of a workspace or tab. One terminal may appear
 in any number of tabs or frontend projection nodes at once. Closing a tab,
 pane, screen, workspace, window, or frontend connection only removes that
-view. Only `terminal.close` terminates and tombstones the terminal.
+view. Only [`close-terminal`](commands.md#close-terminal) terminates and
+tombstones the terminal on protocol v10. The public resource API names the
+same lifecycle operation `terminal.close`.
 
 The server workspace/screen/pane/tab tree is one durable shared projection.
 It remains available to existing frontends and collaboration flows, but its
@@ -159,11 +161,15 @@ C> {"id":5,"cmd":"send","surface":1,"text":"echo ready\n"}
 S> {"id":5,"ok":true,"data":{}}
 S> {"event":"render-delta","surface":1,"cursor":{"x":0,"y":0,"style":"block","blink":true,"visible":true,"color":null},"full":false,"rows":[{"row":0,"runs":[{"text":"ok ","fg":null,"bg":null,"attrs":0}]}]}
 C> {"id":6,"cmd":"resize-surface","surface":1,"cols":4,"rows":1}
-S> {"event":"render-delta","surface":1,"cursor":{"x":0,"y":0,"style":"block","blink":true,"visible":true,"color":null},"full":true,"size":{"cols":4,"rows":1},"rows":[{"row":0,"runs":[{"text":"ok  ","fg":null,"bg":null,"attrs":0}]}]}
-S> {"id":6,"ok":true,"data":{}}
-C> {"id":7,"cmd":"rename-surface","surface":1,"name":"shell"}
-S> {"event":"tab-renamed","workspace":4,"screen":3,"pane":2,"surface":1,"entity":{"surface":1,"kind":"pty","browser_source":null,"name":"shell","title":"","size":{"cols":4,"rows":1},"dead":false}}
+S> {"id":6,"ok":true,"data":{"accepted":false,"reservation_id":1}}
+C> {"id":7,"cmd":"set-client-sizing","surface":1,"enabled":true,"exclusive":true}
 S> {"id":7,"ok":true,"data":{}}
+C> {"id":8,"cmd":"resize-surface","surface":1,"cols":4,"rows":1}
+S> {"event":"render-delta","surface":1,"cursor":{"x":0,"y":0,"style":"block","blink":true,"visible":true,"color":null},"full":true,"size":{"cols":4,"rows":1},"rows":[{"row":0,"runs":[{"text":"ok  ","fg":null,"bg":null,"attrs":0}]}]}
+S> {"id":8,"ok":true,"data":{"accepted":true,"reservation_id":2}}
+C> {"id":9,"cmd":"rename-surface","surface":1,"name":"shell"}
+S> {"event":"tab-renamed","workspace":4,"screen":3,"pane":2,"surface":1,"entity":{"surface":1,"kind":"pty","browser_source":null,"name":"shell","title":"","size":{"cols":4,"rows":1},"dead":false}}
+S> {"id":9,"ok":true,"data":{}}
 ```
 
 The ordering around streaming commands is intentional. Once streaming begins, never assume request-response alternation.

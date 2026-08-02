@@ -575,19 +575,19 @@ fn targeted_browser_effect_projection(
         .find(|candidate| &candidate.public_id == browser_id)
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("browser has no durable metadata"))?;
-    let mut tab = topology
+    let mut matching_tabs = topology
         .tabs
         .iter()
-        .find(|tab| tab.content_id == ContentPublicId::Browser(browser_id.clone()))
+        .filter(|tab| tab.content_id == ContentPublicId::Browser(browser_id.clone()));
+    let mut tab = matching_tabs
+        .next()
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("browser has no durable tab"))?;
+    anyhow::ensure!(matching_tabs.next().is_none(), "browser has multiple durable tabs");
     let content_id = ContentPublicId::Browser(browser_id.clone());
     let surface_id = state
-        .resource_indexes
-        .content_placements
-        .get(&content_id)
-        .and_then(|slots| slots.first().copied())
-        .ok_or_else(|| anyhow::anyhow!("browser has no live surface slot"))?;
+        .single_placement_of_content(&content_id)
+        .ok_or_else(|| anyhow::anyhow!("browser must have exactly one live surface slot"))?;
     let surface = state
         .surfaces
         .get(&surface_id)
@@ -1045,11 +1045,8 @@ fn browser_surface_for_id(
     browser_id: &BrowserPublicId,
 ) -> Option<(crate::SurfaceId, Arc<Surface>)> {
     mux.with_state(|state| {
-        let surface_id = *state
-            .resource_indexes
-            .content_placements
-            .get(&ContentPublicId::Browser(browser_id.clone()))?
-            .first()?;
+        let surface_id =
+            state.single_placement_of_content(&ContentPublicId::Browser(browser_id.clone()))?;
         let surface = state.surfaces.get(&surface_id)?.clone();
         (surface.kind() == SurfaceKind::Browser).then_some((surface_id, surface))
     })

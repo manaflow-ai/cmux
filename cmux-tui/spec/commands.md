@@ -408,23 +408,25 @@ Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `surface` | `Id` | required | Existing terminal surface |
+| `surface` | `Id` | required | Existing terminal or browser surface |
 | `client` | `uint64` | optional | Attached or reporting client for this surface; defaults to self for an exclusive terminal claim |
 | `enabled` | `boolean` | required | Include or exclude the client |
-| `exclusive` | `boolean` | default `false` | Valid only with `client` and `enabled:true` |
+| `exclusive` | `boolean` | default `false` | Valid with `enabled:true`; an omitted client defaults to the requesting connection for terminals |
 
 Result: `object{}`.
 
-Errors include `unknown surface <id>`, `client <id> is not attached to surface
-<id>`, `client <id> has no reported size for surface <id>`, and invalid
-exclusive combinations.
+For browser surfaces, `enabled` includes or excludes a size report from the
+legacy smallest-grid reducer, and `exclusive:true` retains only the selected
+client's report. Errors include `unknown surface <id>`, `client <id> is not
+attached to surface <id>`, `client <id> has no reported size for surface <id>`,
+and invalid exclusive combinations.
 
 CLI mapping:
 
 | Item | Value |
 | --- | --- |
 | Verb | `set-client-sizing` |
-| Flags | `--surface <id> --enabled <true-or-false> [--client <id>]` |
+| Flags | `--surface <id> --enabled <true-or-false> [--client <id>] [--exclusive <true-or-false>]` |
 | Plain stdout | no output |
 | JSON stdout | exact result object |
 | Exit codes | common |

@@ -869,6 +869,8 @@ pub struct State {
     pub surfaces: HashMap<SurfaceId, Arc<Surface>>,
     /// Stable terminal content kept alive independently of view placement.
     pub(crate) terminal_catalog: HashMap<TerminalPublicId, Arc<Surface>>,
+    /// Reverse lookup for catalog owners addressed by daemon-local runtime ID.
+    pub(crate) terminal_catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
 }
@@ -1021,15 +1023,25 @@ impl State {
         {
             return Some(surface);
         }
-        self.resource_indexes
-            .content_placements
-            .get(id)?
-            .first()
-            .and_then(|slot| self.surfaces.get(slot))
+        self.single_placement_of_content(id).and_then(|slot| self.surfaces.get(&slot))
     }
 
     pub fn placements_of_content(&self, id: &ContentPublicId) -> &[SurfaceId] {
         self.resource_indexes.content_placements.get(id).map(Vec::as_slice).unwrap_or_default()
+    }
+
+    /// Return the placement for content whose model requires exactly one live
+    /// view. Zero or multiple placements fail closed instead of selecting an
+    /// arbitrary traversal-order winner.
+    pub fn single_placement_of_content(&self, id: &ContentPublicId) -> Option<SurfaceId> {
+        let [placement] = self.placements_of_content(id) else { return None };
+        Some(*placement)
+    }
+
+    pub(crate) fn terminal_runtime_by_id(&self, id: SurfaceId) -> Option<&Arc<Surface>> {
+        self.terminal_catalog_by_runtime
+            .get(&id)
+            .and_then(|terminal| self.terminal_catalog.get(terminal))
     }
 
     pub(crate) fn workspace_index(&self, id: WorkspaceId) -> Option<usize> {

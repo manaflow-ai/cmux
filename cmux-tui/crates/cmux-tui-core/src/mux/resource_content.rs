@@ -254,7 +254,7 @@ impl Mux {
                     .clone()
                     .context("terminal selector omitted its public identity")?;
                 let source_tab_id =
-                    source.path.tab.clone().context("terminal move requires a projected tab")?;
+                    source.path.tab.context("terminal move requires a projected tab")?;
                 let target_workspace_slot =
                     target.workspace.context("destination did not resolve a workspace")?;
                 let target_workspace_index = state
@@ -416,7 +416,7 @@ impl Mux {
                     active_screen: Some(target_screen_id),
                 });
                 changes.push(ResourceChange::SetActiveWorkspace {
-                    workspace_id: Some(target_workspace_id.clone()),
+                    workspace_id: Some(target_workspace_id),
                 });
 
                 let source_public = source_pane.public_id.clone();
@@ -575,6 +575,7 @@ impl Mux {
         // reconciliation boundary, so rebuild from the live tree first.
         state.rebuild_resource_indexes();
         ensure_split_public_ids(state)?;
+        let terminal_tab_order = ordered_terminal_tab_ids(state)?;
 
         let before_browsers = before
             .browsers
@@ -791,12 +792,8 @@ impl Mux {
                         let (cols, rows) = surface.size();
                         match &tab.content_id {
                             ContentPublicId::Terminal(id) if first_terminal_placement => {
-                                let tab_ids = state
-                                    .placements_of_content(&identity.content_id)
-                                    .iter()
-                                    .filter_map(|slot| state.resource_indexes.tab_ids.get(slot))
-                                    .cloned()
-                                    .collect::<Vec<_>>();
+                                let tab_ids =
+                                    terminal_tab_order.get(id).cloned().unwrap_or_default();
                                 let mut value = json!({
                                     "id":id,
                                     "tab_id":tab_ids.first(),
@@ -1010,6 +1007,37 @@ impl Mux {
         let mut state = self.state.lock().unwrap();
         self.resource_effect_projection_locked(&registry, &mut state, json!({}))
     }
+}
+
+fn ordered_terminal_tab_ids(
+    state: &State,
+) -> anyhow::Result<HashMap<crate::resource::TerminalPublicId, Vec<TabPublicId>>> {
+    let mut ordered = HashMap::<crate::resource::TerminalPublicId, Vec<TabPublicId>>::new();
+    for workspace in &state.workspaces {
+        for screen in &workspace.screens {
+            for pane_slot in screen.root.pane_ids_vec() {
+                let pane = state
+                    .panes
+                    .get(&pane_slot)
+                    .with_context(|| format!("screen references missing pane {pane_slot}"))?;
+                for surface_slot in &pane.tabs {
+                    let surface = state.surfaces.get(surface_slot).with_context(|| {
+                        format!("pane references missing surface {surface_slot}")
+                    })?;
+                    let identity = surface.resource_identity().with_context(|| {
+                        format!("pane surface {surface_slot} has no resource identity")
+                    })?;
+                    if let ContentPublicId::Terminal(terminal_id) = &identity.content_id {
+                        ordered
+                            .entry(terminal_id.clone())
+                            .or_default()
+                            .push(identity.tab_id.clone());
+                    }
+                }
+            }
+        }
+    }
+    Ok(ordered)
 }
 
 fn registry_screen_from_live(

@@ -22,7 +22,7 @@ use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtySize};
 use ghostty_vt::{
     Callbacks, ClearHistoryOutcome, CursorShape, Dirty, KeyEncoder, KeyInput, KittyGraphicsLimits,
     KittyReplayState, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Screen, Scrollbar,
-    Terminal, TerminalColorOverrides, TerminalPointerSemanticSnapshot,
+    Terminal, TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint,
 };
 
 use crate::mux::ResourceWaitWake;
@@ -1015,6 +1015,29 @@ type DeferredCellPixelAckTestHook = Arc<dyn Fn() + Send + Sync>;
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     terminal: Arc<PtyTerminalRuntime>,
+    viewport: Mutex<TerminalViewportState>,
+}
+
+#[derive(Default)]
+struct TerminalViewportState {
+    primary: Option<TrackedScreenPoint>,
+    alternate: Option<TrackedScreenPoint>,
+}
+
+impl TerminalViewportState {
+    fn anchor(&self, screen: Screen) -> Option<&TrackedScreenPoint> {
+        match screen {
+            Screen::Primary => self.primary.as_ref(),
+            Screen::Alternate => self.alternate.as_ref(),
+        }
+    }
+
+    fn anchor_mut(&mut self, screen: Screen) -> &mut Option<TrackedScreenPoint> {
+        match screen {
+            Screen::Primary => &mut self.primary,
+            Screen::Alternate => &mut self.alternate,
+        }
+    }
 }
 
 impl Deref for PtySurface {
@@ -1108,6 +1131,15 @@ enum PtyRuntime {
     Hosted(Box<crate::terminal_host_runtime::HostAttachment>),
     #[cfg(unix)]
     ExitedHosted,
+}
+
+#[cfg(unix)]
+struct HostedSurfaceLaunch {
+    attachment: crate::terminal_host_runtime::HostAttachment,
+    kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
+    terminate_on_error: bool,
+    terminal_public_id: Option<TerminalPublicId>,
+    resource_identity: Option<TabResourceIdentity>,
 }
 
 pub const CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR: &str =
@@ -1647,6 +1679,7 @@ impl Surface {
                 selection: Mutex::new(None),
             },
             terminal: surface.terminal.clone(),
+            viewport: Mutex::new(TerminalViewportState::default()),
         })))
     }
 
@@ -1810,11 +1843,13 @@ impl Surface {
                 id,
                 opts,
                 mux,
-                attachment,
-                kitty_reservation,
-                true,
-                terminal_public_id,
-                resource_identity,
+                HostedSurfaceLaunch {
+                    attachment,
+                    kitty_reservation,
+                    terminate_on_error: true,
+                    terminal_public_id,
+                    resource_identity,
+                },
             );
         }
         let _ = terminal_id;
@@ -1955,6 +1990,7 @@ impl Surface {
                 #[cfg(test)]
                 frame_producer_before_upgrade,
             }),
+            viewport: Mutex::new(TerminalViewportState::default()),
         }));
 
         if let Some(reservation) = kitty_reservation
@@ -2189,12 +2225,15 @@ impl Surface {
         id: SurfaceId,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
-        mut attachment: crate::terminal_host_runtime::HostAttachment,
-        kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
-        terminate_on_error: bool,
-        terminal_public_id: Option<TerminalPublicId>,
-        resource_identity: Option<TabResourceIdentity>,
+        launch: HostedSurfaceLaunch,
     ) -> anyhow::Result<Arc<Surface>> {
+        let HostedSurfaceLaunch {
+            mut attachment,
+            kitty_reservation,
+            terminate_on_error,
+            terminal_public_id,
+            resource_identity,
+        } = launch;
         if let Some(identity) = resource_identity.as_ref() {
             let ContentPublicId::Terminal(content_id) = &identity.content_id else {
                 anyhow::bail!("hosted terminal cannot use a browser resource identity");
@@ -2316,6 +2355,7 @@ impl Surface {
                 #[cfg(test)]
                 frame_producer_before_upgrade,
             }),
+            viewport: Mutex::new(TerminalViewportState::default()),
         }));
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
         spawn_frame_producer(&surface, frame_rx)?;
@@ -2950,11 +2990,13 @@ impl Surface {
             id,
             opts,
             mux,
-            attachment,
-            kitty_reservation,
-            false,
-            Some(terminal_public_id),
-            Some(resource_identity),
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation,
+                terminate_on_error: false,
+                terminal_public_id: Some(terminal_public_id),
+                resource_identity: Some(resource_identity),
+            },
         )
     }
 
@@ -2982,11 +3024,13 @@ impl Surface {
             id,
             opts,
             mux,
-            attachment,
-            kitty_reservation,
-            false,
-            Some(terminal_public_id),
-            None,
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation,
+                terminate_on_error: false,
+                terminal_public_id: Some(terminal_public_id),
+                resource_identity: None,
+            },
         )
     }
 
@@ -3148,6 +3192,7 @@ impl Surface {
                 #[cfg(test)]
                 frame_producer_before_upgrade,
             }),
+            viewport: Mutex::new(TerminalViewportState::default()),
         }));
         spawn_frame_producer(&surface, frame_rx)?;
         Ok(surface)
@@ -3324,6 +3369,7 @@ impl Surface {
                 frame_requests,
                 frame_producer_before_upgrade,
             }),
+            viewport: Mutex::new(TerminalViewportState::default()),
         }));
         if let Some(reservation) = kitty_reservation {
             reservation.commit(&surface, initial_kitty_limits)?;
@@ -3760,6 +3806,68 @@ impl Surface {
         Ok(())
     }
 
+    /// Scroll only this placement's in-process frontend viewport. Byte-mode
+    /// frontends own the equivalent state in their terminal mirror.
+    pub fn view_scroll_delta(&self, delta: isize) -> anyhow::Result<Option<Scrollbar>> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let Some(scrollbar) = pty.view_scrollbar_locked(&mut term) else { return Ok(None) };
+        let target = if delta < 0 {
+            scrollbar.offset.saturating_sub(delta.unsigned_abs() as u64)
+        } else {
+            scrollbar.offset.saturating_add(delta as u64)
+        }
+        .min(scrollbar.total.saturating_sub(scrollbar.len));
+        if target == scrollbar.offset {
+            return Ok(Some(scrollbar));
+        }
+        pty.set_view_scroll_offset_locked(&mut term, target);
+        Ok(Some(Scrollbar { offset: target, ..scrollbar }))
+    }
+
+    pub fn view_scroll_delta_if_scrollbar(
+        &self,
+        expected: Scrollbar,
+        delta: isize,
+    ) -> anyhow::Result<Option<Scrollbar>> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let Some(scrollbar) = pty.view_scrollbar_locked(&mut term) else { return Ok(None) };
+        if scrollbar != expected {
+            return Ok(None);
+        }
+        let target = if delta < 0 {
+            scrollbar.offset.saturating_sub(delta.unsigned_abs() as u64)
+        } else {
+            scrollbar.offset.saturating_add(delta as u64)
+        }
+        .min(scrollbar.total.saturating_sub(scrollbar.len));
+        pty.set_view_scroll_offset_locked(&mut term, target);
+        Ok(Some(Scrollbar { offset: target, ..scrollbar }))
+    }
+
+    pub fn view_scrollbar(&self) -> Option<Scrollbar> {
+        let pty = self.as_pty()?;
+        let mut term = pty.term.lock().unwrap();
+        pty.view_scrollbar_locked(&mut term)
+    }
+
+    pub fn view_scroll_to_bottom(&self) -> anyhow::Result<bool> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let Some(scrollbar) = pty.view_scrollbar_locked(&mut term) else { return Ok(false) };
+        let bottom = scrollbar.total.saturating_sub(scrollbar.len);
+        let changed = scrollbar.offset != bottom;
+        pty.set_view_scroll_offset_locked(&mut term, bottom);
+        Ok(changed)
+    }
+
     /// Apply a scroll only while the terminal still matches the rendered
     /// scrollbar geometry that admitted the pointer gesture.
     pub fn scroll_delta_if_scrollbar(
@@ -3799,7 +3907,7 @@ impl Surface {
         if let Some((offset, at_bottom)) = changed
             && let Some(mux) = pty.mux.upgrade()
         {
-            mux.emit_terminal_scroll(self.id, offset, at_bottom);
+            mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
         }
         Ok(scrollbar)
     }
@@ -3825,7 +3933,7 @@ impl Surface {
         if let Some((offset, at_bottom)) = changed
             && let Some(mux) = pty.mux.upgrade()
         {
-            mux.emit_terminal_scroll(self.id, offset, at_bottom);
+            mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
         }
         Ok(())
     }
@@ -3948,7 +4056,7 @@ impl Surface {
             if let Some((offset, at_bottom)) = scroll_changed
                 && let Some(mux) = pty.mux.upgrade()
             {
-                mux.emit_terminal_scroll(self.id, offset, at_bottom);
+                mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
             }
             pty.mark_output_dirty();
             return Ok(());
@@ -4015,6 +4123,42 @@ impl Surface {
         let generation = pty.render_generation.load(Ordering::Acquire);
         let _ = pty.build_frame_locked(&mut term, generation, false)?;
         pty.render.lock().unwrap().latest.clone().ok_or(ghostty_vt::Error::NoValue)
+    }
+
+    /// Render this placement's frontend-local viewport without changing the
+    /// session compatibility viewport used by backend render projections.
+    pub fn render_view_frame(
+        &self,
+        render: &mut RenderState,
+    ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
+        let Some(pty) = self.as_pty() else {
+            return Err(ghostty_vt::Error::InvalidValue);
+        };
+        let mut term = pty.term.lock().unwrap();
+        let original_offset = term.scrollbar().map(|scrollbar| scrollbar.offset);
+        let view_offset = pty.view_scrollbar_locked(&mut term).map(|scrollbar| scrollbar.offset);
+        if let Some(offset) = view_offset {
+            set_terminal_scroll_offset(&mut term, offset);
+        }
+        let result = (|| {
+            render.update(&mut term)?;
+            let palette_colors = std::array::from_fn(|index| render.palette_color(index as u8));
+            let palette_overridden =
+                std::array::from_fn(|index| render.palette_overridden(index as u8));
+            Ok(Arc::new(SurfaceRenderFrame {
+                frame: render.build_frame()?,
+                content_generation: pty.render_generation.load(Ordering::Acquire),
+                scrollback_rows: term.history_rows(),
+                history_epoch: term.history_epoch(),
+                pointer_semantics: term.pointer_semantic_snapshot(),
+                palette_colors,
+                palette_overridden,
+            }))
+        })();
+        if let Some(offset) = original_offset {
+            set_terminal_scroll_offset(&mut term, offset);
+        }
+        result
     }
 
     /// Read current pointer-routing state without waiting behind terminal parsing.
@@ -4963,6 +5107,58 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
+    fn view_scrollbar_locked(&self, term: &mut Terminal) -> Option<Scrollbar> {
+        let scrollbar = term.scrollbar()?;
+        let bottom = scrollbar.total.saturating_sub(scrollbar.len);
+        let screen = term.active_screen();
+        let mut viewport = self.viewport.lock().unwrap();
+        let had_anchor = viewport.anchor(screen).is_some();
+        let resolved = viewport
+            .anchor(screen)
+            .and_then(|anchor| term.tracked_screen_point(anchor))
+            .map(|(_, row)| u64::from(row).min(bottom));
+        let offset = match (had_anchor, resolved) {
+            (_, Some(offset)) => offset,
+            (false, None) => bottom,
+            (true, None) if bottom > 0 => {
+                *viewport.anchor_mut(screen) = term.track_screen_point(0, 0).ok();
+                if viewport.anchor(screen).is_some() { 0 } else { bottom }
+            }
+            (true, None) => {
+                *viewport.anchor_mut(screen) = None;
+                bottom
+            }
+        };
+        if offset == bottom {
+            *viewport.anchor_mut(screen) = None;
+        }
+        Some(Scrollbar { offset, ..scrollbar })
+    }
+
+    fn set_view_scroll_offset_locked(&self, term: &mut Terminal, offset: u64) {
+        let Some(scrollbar) = term.scrollbar() else { return };
+        let bottom = scrollbar.total.saturating_sub(scrollbar.len);
+        let target = offset.min(bottom);
+        let screen = term.active_screen();
+        let mut viewport = self.viewport.lock().unwrap();
+        let anchor = viewport.anchor_mut(screen);
+        if target == bottom {
+            *anchor = None;
+            return;
+        }
+        let Ok(target) = u32::try_from(target) else {
+            *anchor = None;
+            return;
+        };
+        if anchor
+            .as_mut()
+            .is_some_and(|anchor| term.set_tracked_screen_point(anchor, 0, target).is_ok())
+        {
+            return;
+        }
+        *anchor = term.track_screen_point(0, target).ok();
+    }
+
     #[cfg(test)]
     fn run_geometry_test_hook(&self, step: PtyGeometryTestStep) {
         let hook = self.geometry_test_hook.lock().unwrap().clone();
@@ -5515,6 +5711,27 @@ fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
     }
 }
 
+fn set_terminal_scroll_offset(term: &mut Terminal, target: u64) {
+    let Some(scrollbar) = term.scrollbar() else { return };
+    let bottom = scrollbar.total.saturating_sub(scrollbar.len);
+    let target = target.min(bottom);
+    if target == bottom {
+        term.scroll_to_bottom();
+        return;
+    }
+    let mut current = scrollbar.offset;
+    while current != target {
+        let difference = i128::from(target) - i128::from(current);
+        let step = difference.clamp(isize::MIN as i128, isize::MAX as i128) as isize;
+        term.scroll_delta(step);
+        let Some(next) = term.scrollbar().map(|scrollbar| scrollbar.offset) else { return };
+        if next == current {
+            return;
+        }
+        current = next;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use base64::Engine as _;
@@ -5541,6 +5758,11 @@ mod tests {
         assert_eq!(source.id, 1);
         assert_eq!(projection.id, 2);
         assert!(source.shares_terminal_runtime(&projection));
+        let foreign_identity = TabResourceIdentity::new(
+            crate::resource::TabPublicId::random().unwrap(),
+            ContentPublicId::Terminal(TerminalPublicId::random().unwrap()),
+        );
+        assert!(source.project_terminal(3, foreign_identity).is_err());
 
         source.set_name(Some("source".into()));
         projection.set_name(Some("projection".into()));
@@ -5553,6 +5775,29 @@ mod tests {
         let projected_text =
             projection.with_terminal(|terminal| terminal.viewport_text().unwrap()).unwrap();
         assert!(projected_text.contains("shared-output"));
+
+        source.with_terminal(|terminal| {
+            for line in 0..48 {
+                terminal.vt_write(format!("\r\nline-{line:02}").as_bytes());
+            }
+        });
+        let bottom = projection.view_scrollbar().unwrap();
+        assert!(!bottom.scrolled_back());
+        source.view_scroll_delta(-5).unwrap();
+        let source_scrollbar = source.view_scrollbar().unwrap();
+        let projection_scrollbar = projection.view_scrollbar().unwrap();
+        assert!(source_scrollbar.scrolled_back());
+        assert_eq!(projection_scrollbar, bottom);
+        let compatibility_scrollbar =
+            source.with_terminal(|terminal| terminal.scrollbar().unwrap()).unwrap();
+        assert_eq!(compatibility_scrollbar, bottom);
+
+        let mut source_render = RenderState::new().unwrap();
+        let mut projection_render = RenderState::new().unwrap();
+        let source_frame = source.render_view_frame(&mut source_render).unwrap();
+        let projection_frame = projection.render_view_frame(&mut projection_render).unwrap();
+        assert_ne!(source_frame.frame.runs(), projection_frame.frame.runs());
+        assert_eq!(projection.view_scrollbar().unwrap(), bottom);
 
         let writer = CapturingWriter::default();
         replace_local_writer(&source, Box::new(writer.clone()));

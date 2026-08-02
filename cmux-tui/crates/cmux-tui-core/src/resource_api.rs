@@ -561,7 +561,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
                         .clone()
                         .context("exited terminal omitted its durable outcome")?;
                 } else {
-                    anyhow::ensure!(
+                    debug_assert!(
                         durable.exit.is_none(),
                         "non-exited terminal unexpectedly has a durable outcome"
                     );

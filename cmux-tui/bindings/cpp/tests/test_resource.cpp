@@ -1428,6 +1428,27 @@ TEST("terminal lifecycle and wait-exit unions decode strictly") {
         cmux::TerminalLifecycle::running);
     CHECK(!running.value().exit.has_value());
 
+    auto projected = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+        cmux::Json::parse(
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef","tab_11111111111111111111111111111111"],"title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            .value());
+    CHECK(projected);
+    CHECK_EQ(projected.value().tab_ids.size(), 2U);
+
+    auto nonnull_empty = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+        cmux::Json::parse(
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":[],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            .value());
+    CHECK(!nonnull_empty);
+    CHECK_EQ(nonnull_empty.error().code, cmux::ErrorCode::decode);
+
+    auto mismatched_primary = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+        cmux::Json::parse(
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_11111111111111111111111111111111","tab_ids":["tab_0123456789abcdef0123456789abcdef","tab_11111111111111111111111111111111"],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            .value());
+    CHECK(!mismatched_primary);
+    CHECK_EQ(mismatched_primary.error().code, cmux::ErrorCode::decode);
+
     auto exited = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
             R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":null,"tab_ids":[],"title":"done","cols":80,"rows":24,"running":false,"lifecycle":"exited","exit":{"outcome":{"kind":"exit","code":0},"exited_at":"123","revision":"9"}})")

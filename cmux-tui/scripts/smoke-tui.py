@@ -283,6 +283,18 @@ def wait_screen_contains(surface_id, needle, seconds=15):
             return last
     raise AssertionError(last[-500:])
 
+def wait_any_screen_contains(surface_ids, needle, seconds=15):
+    deadline = time.time() + seconds
+    last = {}
+    while time.time() < deadline:
+        drain(0.2)
+        for surface_id in surface_ids:
+            screen = rpc({"id": 301, "cmd": "read-screen", "surface": surface_id})
+            last[surface_id] = screen["data"]["text"]
+            if needle in last[surface_id]:
+                return surface_id
+    raise AssertionError({surface: text[-500:] for surface, text in last.items()})
+
 def wait_render_contains(needle, seconds=15):
     deadline = time.time() + seconds
     last = ""
@@ -552,7 +564,15 @@ assert screen0["layout"]["type"] == "split" and screen0["layout"]["dir"] == "rig
 drain(0.8)
 idle_output_start = len(output)
 drain(1.0)
-print("enhanced prefix-% horizontal split ok; idle output bytes", len(output) - idle_output_start)
+idle_output_bytes = len(output) - idle_output_start
+rendered = render_text_snapshot(output)
+assert "Ctrl-b ›" not in rendered, rendered
+assert idle_output_bytes == 0, (
+    "split settled but the TUI kept repainting the outer cursor",
+    idle_output_bytes,
+    rendered,
+)
+print("enhanced prefix-% horizontal split and stable cursor ok")
 
 # Close the newly focused pane through the same enhanced input path so the
 # remaining smoke cases retain their one-pane geometry.
@@ -704,20 +724,25 @@ print("drag-select -> OSC52 clipboard copy ok")
 
 os.write(fd, b"clear; for i in $(seq -w 0 80); do printf 'sel-line-%s\\n' \"$i\"; done\r")
 wait_screen_contains(surface_id, "sel-line-80")
-assert rpc({"id": 101, "cmd": "scroll-surface", "surface": surface_id, "delta": -24})["ok"]
+# Scroll the interactive projection itself. The control API owns a separate
+# compatibility viewport and must not move this frontend-local view.
+for _ in range(8):
+    os.write(fd, b"\x1b[<64;24;10M")
 drain(0.4)
-before_scroll = rpc({"id": 102, "cmd": "read-screen", "surface": surface_id})["data"]["text"]
+before_scroll = render_text_snapshot(output)
+before_numbers = [int(value) for value in re.findall(r"sel-line-(\d+)", before_scroll)]
+assert before_numbers and max(before_numbers) < 80, before_scroll
 lines = before_scroll.splitlines()
-vrow = next(i for i, l in enumerate(lines) if "sel-line-" in l)
-start_col = 24 + lines[vrow].index("sel-line-")
-start_row = vrow + 2
+vrow = next(i for i, line in enumerate(lines) if "sel-line-" in line)
+start_col = lines[vrow].index("sel-line-") + 1
+start_row = vrow + 1
 bottom_row = 28
 os.write(fd, f"\x1b[<0;{start_col};{start_row}M".encode())
-held_output_start = len(output)
 os.write(fd, f"\x1b[<32;{start_col + 10};{bottom_row}M".encode())
 drain(0.9)
-held_render = output[held_output_start:].decode("utf-8", "replace")
-assert re.search(r"sel-line-(2[0-9]|3[0-9]|4[0-9])", held_render), held_render[-2000:]
+held_render = render_text_snapshot(output)
+held_numbers = [int(value) for value in re.findall(r"sel-line-(\d+)", held_render)]
+assert held_numbers and min(held_numbers) > min(before_numbers), held_render
 os.write(fd, f"\x1b[<0;{start_col + 10};{bottom_row}m".encode())
 drain(0.6)
 osc52 = re.findall(rb"\x1b\]52;c;([A-Za-z0-9+/=]+)", output)
@@ -756,7 +781,12 @@ panes_by_id = {p["id"]: p for p in screen0["panes"]}
 left_pane = panes_by_id[left_pane["id"]]
 right_pane = panes_by_id[right_pane["id"]]
 reordered = [t["surface"] for t in left_pane["tabs"]]
-assert reordered == [tab_order[2], tab_order[0], tab_order[1]], (tab_order, reordered, screen0)
+assert reordered == [tab_order[2], tab_order[0], tab_order[1]], (
+    tab_order,
+    reordered,
+    screen0,
+    render_text_snapshot(output),
+)
 print("tab drag reorder within pane ok")
 
 os.write(fd, b"\x1b[<0;24;1M\x1b[<32;42;1M\x1b[<0;42;1m")
@@ -812,13 +842,28 @@ print("prefix-c new screen ok")
 # back. Status bar row is the last row (30). The bar starts after the
 # sidebar (col 23 SGR) with " screens " (9 cols), so entry 0 starts at
 # col 32.
+shared_screen = active_screen(ws0)["id"]
 os.write(fd, b"\x1b[<0;33;30M\x1b[<0;33;30m")
 drain(1.0)
 ws0 = tree()[0]
-assert ws0["screens"][0]["active"], ws0
-print("status-bar screen click switches ok")
+assert active_screen(ws0)["id"] == shared_screen, ws0
+local_screen = ws0["screens"][0]
+local_surfaces = {
+    tab["surface"] for pane in local_screen["panes"] for tab in pane["tabs"]
+}
+all_surfaces = [
+    tab["surface"]
+    for screen in ws0["screens"]
+    for pane in screen["panes"]
+    for tab in pane["tabs"]
+]
+os.write(fd, b"printf 'screen-zero-local-focus\\n'\r")
+local_surface = wait_any_screen_contains(all_surfaces, "screen-zero-local-focus")
+assert local_surface in local_surfaces, (local_surface, local_surfaces, ws0)
+wait_render_contains("screen-zero-local-focus")
+print("status-bar screen click switches client-local focus ok")
 
-# Rename the active screen over the socket; the status bar redraws with it.
+# Rename the locally selected screen over the socket; the status bar redraws with it.
 screen_id = ws0["screens"][0]["id"]
 assert rpc({"id": 7, "cmd": "rename-screen", "screen": screen_id, "name": "smoke-scr"})["ok"]
 drain(1.0)
@@ -829,14 +874,16 @@ print("rename screen visible in status bar ok")
 # Rename the pane and workspace over the socket; the TUI must redraw with
 # the new names.
 ws0 = tree()[0]
-target_pane = active_screen(ws0)["panes"][0]["id"]
+local_screen = next(screen for screen in ws0["screens"] if screen["id"] == screen_id)
+target_pane = local_screen["active_pane"]
 ws_id = ws0["id"]
 assert rpc({"id": 8, "cmd": "rename-pane", "pane": target_pane, "name": "smoke-pane"})["ok"]
 assert rpc({"id": 9, "cmd": "rename-workspace", "workspace": ws_id, "name": "smoke-ws"})["ok"]
 drain(1.0)
 ws0 = tree()[0]
 assert ws0["name"] == "smoke-ws", ws0
-assert active_screen(ws0)["panes"][0]["name"] == "smoke-pane", ws0
+local_screen = next(screen for screen in ws0["screens"] if screen["id"] == screen_id)
+assert next(pane for pane in local_screen["panes"] if pane["id"] == target_pane)["name"] == "smoke-pane", ws0
 text = output.decode("utf-8", "replace")
 assert "smoke-ws" in text, text[-500:]
 print("rename pane/workspace ok")
@@ -866,11 +913,35 @@ assert [w["id"] for w in workspaces] == [w["id"] for w in workspaces if w["id"] 
 print("sidebar workspace drag reorder ok")
 
 # Click the moved original workspace's sidebar entry.
+shared_workspace = next(workspace["id"] for workspace in workspaces if workspace["active"])
 os.write(fd, b"\x1b[<0;2;6M\x1b[<0;2;6m")
 drain(1.0)
 workspaces = tree()
-assert workspaces[1]["active"] and workspaces[1]["id"] == original_ws, workspaces
-print("sidebar click switches workspace ok")
+assert workspaces[1]["id"] == original_ws, workspaces
+assert next(workspace["id"] for workspace in workspaces if workspace["active"]) == shared_workspace
+original_workspace = next(workspace for workspace in workspaces if workspace["id"] == original_ws)
+original_surfaces = {
+    tab["surface"]
+    for screen in original_workspace["screens"]
+    for pane in screen["panes"]
+    for tab in pane["tabs"]
+}
+all_surfaces = [
+    tab["surface"]
+    for workspace in workspaces
+    for screen in workspace["screens"]
+    for pane in screen["panes"]
+    for tab in pane["tabs"]
+]
+# Sidebar clicks intentionally retain rail keyboard focus. Click visible pane
+# content before typing so the marker proves which workspace the client shows.
+os.write(fd, b"\x1b[<0;81;6M\x1b[<0;81;6m")
+drain(0.5)
+os.write(fd, b"printf 'workspace-local-focus\\n'\r")
+workspace_surface = wait_any_screen_contains(all_surfaces, "workspace-local-focus")
+assert workspace_surface in original_surfaces, (workspace_surface, original_surfaces, workspaces)
+wait_render_contains("workspace-local-focus")
+print("sidebar click switches client-local workspace focus ok")
 
 # A workspace context menu overlaps the active sidebar row. The menu must
 # repaint the cell style, not inherit the sidebar active background.

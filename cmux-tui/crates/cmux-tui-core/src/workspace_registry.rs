@@ -437,9 +437,11 @@ impl WorkspaceRegistry {
             .map(str::parse::<i64>)
             .transpose()
             .context("workspace registry schema is invalid")?;
-        let migrate_terminal_multiview =
-            stored_schema.is_some_and(|schema| schema < SCHEMA_VERSION);
-        if migrate_terminal_multiview {
+        // Existing registries may carry the pre-multiview terminal-to-workspace
+        // foreign key even when a development build already stamped the
+        // current schema number. Revalidate and normalize every existing DB.
+        let migrate_existing_registry = stored_schema.is_some();
+        if migrate_existing_registry {
             connection.execute_batch("PRAGMA foreign_keys=OFF;")?;
         }
         let cleanup_pending =
@@ -636,7 +638,12 @@ impl WorkspaceRegistry {
                 tx.commit()?;
             }
         }
-        if migrate_terminal_multiview {
+        if terminal_hosts_has_workspace_foreign_key(&connection)? {
+            let tx = connection.unchecked_transaction()?;
+            migrate_terminal_hosts_to_session_ownership(&tx)?;
+            tx.commit()?;
+        }
+        if migrate_existing_registry {
             connection.execute_batch("PRAGMA foreign_keys=ON;")?;
             let violation = connection
                 .query_row(
@@ -654,10 +661,9 @@ impl WorkspaceRegistry {
                     },
                 )
                 .optional()?;
-            anyhow::ensure!(
-                violation.is_none(),
-                "workspace registry migration broke a foreign key: {violation:?}"
-            );
+            if violation.is_some() {
+                anyhow::bail!("workspace registry migration failed integrity validation");
+            }
         }
         if needs_sensitive_receipt_cleanup {
             checkpoint_and_truncate_wal(&connection)?;
@@ -1859,8 +1865,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS terminal_hosts (
            terminal_id TEXT PRIMARY KEY NOT NULL,
-           workspace_key TEXT NOT NULL REFERENCES workspaces(workspace_key)
-             DEFERRABLE INITIALLY DEFERRED,
+           workspace_key TEXT NOT NULL,
            incarnation TEXT,
            lifecycle TEXT NOT NULL CHECK(
              lifecycle IN ('launching','adopting','running','exited','tombstoned')
@@ -1895,6 +1900,59 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
          );
          CREATE INDEX IF NOT EXISTS terminal_events_by_terminal
            ON terminal_events(terminal_id, revision);",
+    )?;
+    Ok(())
+}
+
+fn terminal_hosts_has_workspace_foreign_key(connection: &Connection) -> anyhow::Result<bool> {
+    let mut statement = connection.prepare("PRAGMA foreign_key_list(terminal_hosts)")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let table = row.get::<_, String>(2)?;
+        let from = row.get::<_, String>(3)?;
+        if table == "workspaces" && from == "workspace_key" {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Remove the legacy ownership edge from terminals to workspaces. The
+/// workspace key remains useful placement history, but terminal lifetime is
+/// session-owned and therefore survives removal of every view.
+fn migrate_terminal_hosts_to_session_ownership(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "DROP INDEX IF EXISTS terminal_incarnation;
+         DROP INDEX IF EXISTS live_terminals_by_workspace;
+         CREATE TABLE terminal_hosts_session_owned (
+           terminal_id TEXT PRIMARY KEY NOT NULL,
+           workspace_key TEXT NOT NULL,
+           incarnation TEXT,
+           lifecycle TEXT NOT NULL CHECK(
+             lifecycle IN ('launching','adopting','running','exited','tombstoned')
+           ),
+           launch_spec_json TEXT NOT NULL,
+           exit_json TEXT,
+           created_revision INTEGER NOT NULL,
+           updated_revision INTEGER NOT NULL,
+           deleted_revision INTEGER
+         );
+         INSERT INTO terminal_hosts_session_owned(
+           terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
+           exit_json, created_revision, updated_revision, deleted_revision
+         )
+         SELECT terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
+                exit_json, created_revision, updated_revision, deleted_revision
+         FROM terminal_hosts;
+         DROP TABLE terminal_hosts;
+         ALTER TABLE terminal_hosts_session_owned RENAME TO terminal_hosts;
+         CREATE UNIQUE INDEX terminal_incarnation
+           ON terminal_hosts(incarnation) WHERE incarnation IS NOT NULL;
+         CREATE INDEX live_terminals_by_workspace
+           ON terminal_hosts(workspace_key, updated_revision)
+           WHERE lifecycle != 'tombstoned';",
     )?;
     Ok(())
 }
@@ -2270,6 +2328,10 @@ fn commit_workspace_registry_in_transaction(
         );
     }
 
+    // Terminals are session-owned. Their workspace_key records their latest
+    // canonical placement but is intentionally allowed to outlive that
+    // workspace, so closing a workspace removes views without terminating the
+    // underlying terminal.
     let terminal_batch =
         TerminalBatchClose { revision: transaction_terminal_revision(transaction)?, closed: 0 };
     transaction.execute(

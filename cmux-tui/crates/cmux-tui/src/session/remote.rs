@@ -2903,20 +2903,35 @@ impl RemoteSession {
             }
             return Err(error);
         }
-        if let Some(size) = initial_size {
-            surface.set_reported_size(size);
-        }
-        if let Some(recovery) = self.surface_overflow_recovery.lock().unwrap().get_mut(&id) {
-            recovery.attached_at = Some(Instant::now());
-            recovery.retry_after = None;
+        {
+            // Retirement can race the remote response. Commit the completed
+            // attach only while this exact mirror is still the live entry.
+            let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+            let current = self
+                .surfaces
+                .lock()
+                .unwrap()
+                .get(&id)
+                .is_some_and(|candidate| Arc::ptr_eq(candidate, &surface));
+            if self.retired_surfaces.lock().unwrap().contains(&id) || !current {
+                return Ok(None);
+            }
+            if let Some(size) = initial_size {
+                surface.set_reported_size(size);
+            }
+            if let Some(recovery) = self.surface_overflow_recovery.lock().unwrap().get_mut(&id) {
+                recovery.attached_at = Some(Instant::now());
+                recovery.retry_after = None;
+            }
         }
         Ok(Some(surface))
     }
 
     pub fn retire_surface(&self, id: SurfaceId) {
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+        self.retired_surfaces.lock().unwrap().insert(id);
         self.surfaces.lock().unwrap().remove(&id);
         self.surface_overflow_recovery.lock().unwrap().remove(&id);
-        self.retired_surfaces.lock().unwrap().insert(id);
     }
 
     pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
@@ -2960,14 +2975,18 @@ impl RemoteSession {
             },
         );
         drop(capabilities);
-        self.retired_surfaces.lock().unwrap().retain(|surface_id| {
-            tree.workspaces
-                .iter()
-                .flat_map(|workspace| workspace.screens.iter())
-                .flat_map(|screen| screen.panes.iter())
-                .flat_map(|pane| pane.tabs.iter())
-                .any(|tab| tab.surface == *surface_id)
-        });
+        let refreshed_surfaces = tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .map(|tab| tab.surface)
+            .collect::<HashSet<_>>();
+        self.retired_surfaces
+            .lock()
+            .unwrap()
+            .retain(|surface_id| refreshed_surfaces.contains(surface_id));
         let tree = {
             let mut cache = self.tree.lock().unwrap();
             cache.replace(tree, refresh_generation);
@@ -3420,12 +3439,22 @@ impl RemoteMessageWriter for DeferredAttachTestWriter {
 #[cfg(test)]
 pub(super) fn test_session_with_deferred_attach() -> (Arc<RemoteSession>, Receiver<()>, Sender<()>)
 {
-    test_session_with_deferred_attach_control(None)
+    test_session_with_deferred_attach_control(None, HashSet::new())
+}
+
+#[cfg(test)]
+pub(super) fn test_session_with_deferred_sized_attach()
+-> (Arc<RemoteSession>, Receiver<()>, Sender<()>) {
+    test_session_with_deferred_attach_control(
+        None,
+        HashSet::from([cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY.to_string()]),
+    )
 }
 
 #[cfg(test)]
 fn test_session_with_deferred_attach_control(
     first_resize_failure: Option<(std::sync::mpsc::SyncSender<()>, Receiver<()>)>,
+    capabilities: HashSet<String>,
 ) -> (Arc<RemoteSession>, Receiver<()>, Sender<()>) {
     let session_slot = Arc::new(Mutex::new(None));
     let (attach_started_tx, attach_started_rx) = std::sync::mpsc::sync_channel(1);
@@ -3438,7 +3467,7 @@ fn test_session_with_deferred_attach_control(
             first_resize_failure,
         }),
         None,
-        HashSet::new(),
+        capabilities,
     );
     *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
     session.tree_stale.store(false, Ordering::Release);
@@ -3459,8 +3488,10 @@ pub(super) fn test_session_with_deferred_attach_and_first_resize_failure()
 -> DeferredAttachResizeFailureFixture {
     let (resize_started_tx, resize_started_rx) = std::sync::mpsc::sync_channel(1);
     let (release_resize_tx, release_resize_rx) = channel();
-    let (session, attach_started, release_attach) =
-        test_session_with_deferred_attach_control(Some((resize_started_tx, release_resize_rx)));
+    let (session, attach_started, release_attach) = test_session_with_deferred_attach_control(
+        Some((resize_started_tx, release_resize_rx)),
+        HashSet::new(),
+    );
     DeferredAttachResizeFailureFixture {
         session,
         attach_started,
@@ -5045,6 +5076,23 @@ mod tests {
         assert_eq!(session.surface(7).unwrap().cell_pixel_size(), (9, 18));
         release_attach_tx.send(()).unwrap();
         assert!(worker.join().unwrap().unwrap().is_some());
+    }
+
+    #[test]
+    fn retired_surface_is_not_resurrected_by_an_inflight_attach() {
+        let (session, attach_started_rx, release_attach_tx) = test_session_with_deferred_attach();
+        let attaching = session.clone();
+        let worker = std::thread::spawn(move || {
+            attaching.try_ensure_surface_with_kind(7, SurfaceKind::Pty, Some((80, 24)))
+        });
+        attach_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        session.retire_surface(7);
+        release_attach_tx.send(()).unwrap();
+
+        assert!(worker.join().unwrap().unwrap().is_none());
+        assert!(session.surface(7).is_none());
+        assert!(session.retired_surfaces.lock().unwrap().contains(&7));
     }
 
     #[cfg(unix)]

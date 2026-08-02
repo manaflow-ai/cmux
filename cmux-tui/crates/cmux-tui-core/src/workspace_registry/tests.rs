@@ -1690,7 +1690,7 @@ fn resource_identity_sql_check_rejects_non_hex_payload() {
 }
 
 #[test]
-fn deferred_terminal_foreign_keys_reject_orphans_at_commit() {
+fn resource_terminals_reject_orphans_while_terminal_hosts_are_session_owned() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     let public_id = terminal_resource(TERMINAL_TWO);
     {
@@ -1731,7 +1731,14 @@ fn deferred_terminal_foreign_keys_reject_orphans_at_commit() {
         [TERMINAL_TWO],
     )
     .unwrap();
-    assert!(tx.commit().unwrap_err().to_string().contains("FOREIGN KEY constraint failed"));
+    tx.commit().unwrap();
+    assert_eq!(
+        registry
+            .connection
+            .query_row("SELECT COUNT(*) FROM terminal_hosts", [], |row| { row.get::<_, i64>(0) })
+            .unwrap(),
+        1
+    );
 }
 
 #[test]
@@ -2656,8 +2663,8 @@ fn schema_eight_migrates_terminal_hosts_and_allows_multiple_durable_views() {
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
         commit_terminal_topology(&mut registry, "schema-eight-seed");
     }
-    Connection::open(&database)
-        .unwrap()
+    let legacy = Connection::open(&database).unwrap();
+    legacy
         .execute_batch(
             "PRAGMA foreign_keys=OFF;
              BEGIN IMMEDIATE;
@@ -2669,7 +2676,7 @@ fn schema_eight_migrates_terminal_hosts_and_allows_multiple_durable_views() {
                  DEFERRABLE INITIALLY DEFERRED,
                position INTEGER,
                content_kind TEXT NOT NULL CHECK(content_kind IN ('terminal','browser')),
-               content_id TEXT UNIQUE NOT NULL REFERENCES resource_identities(public_id)
+               content_id TEXT NOT NULL REFERENCES resource_identities(public_id)
                  DEFERRABLE INITIALLY DEFERRED,
                name TEXT,
                created_revision INTEGER NOT NULL,
@@ -2697,8 +2704,28 @@ fn schema_eight_migrates_terminal_hosts_and_allows_multiple_durable_views() {
              PRAGMA foreign_keys=ON;",
         )
         .unwrap();
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let second_tab = tab_id(2);
+    legacy
+        .execute(
+            "INSERT INTO resource_identities(
+               public_id, kind, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, 'tab', 1, 1, NULL)",
+            [second_tab.as_str()],
+        )
+        .unwrap();
+    legacy
+        .execute(
+            "INSERT INTO resource_tabs(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, 1, 'terminal', ?3, 'second view', 1, 1, NULL)",
+            params![second_tab.as_str(), pane_id(1).as_str(), terminal_id.as_str()],
+        )
+        .unwrap();
+    drop(legacy);
 
-    let mut migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
     assert_eq!(
         required_meta(&migrated.connection, "schema_version").unwrap(),
         SCHEMA_VERSION.to_string()
@@ -2714,36 +2741,26 @@ fn schema_eight_migrates_terminal_hosts_and_allows_multiple_durable_views() {
             .unwrap();
         assert_eq!(count, expected, "unexpected table state for {table}");
     }
-    let terminal_id = terminal_resource(TERMINAL_ONE);
-    let second_tab = tab_id(2);
-    migrated
-        .commit_resource_patch(
-            &WorkspaceMutation::new("schema-eight-project", "test").unwrap(),
-            "terminal.project",
-            &json!({"terminal_id":terminal_id,"tab_id":second_tab}),
-            None,
-            Some(1),
-            &ResourcePatch {
-                changes: vec![
-                    ResourceChange::UpsertTab(RegistryTab {
-                        public_id: second_tab.clone(),
-                        pane_id: pane_id(1),
-                        position: 1,
-                        content_id: ContentPublicId::Terminal(terminal_id.clone()),
-                        name: Some("second view".into()),
-                        browser_url: None,
-                        terminal_id: Some(TERMINAL_ONE.into()),
-                    }),
-                    ResourceChange::SetTabOrder {
-                        pane_id: pane_id(1),
-                        tab_ids: vec![tab_id(1), second_tab.clone()],
-                    },
-                ],
-            },
-            &json!({"terminal_id":terminal_id,"tab_id":second_tab}),
-            &json!([{"kind":"terminal.projected"}]),
+    let browser_view_indexes = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'index' AND name = 'live_resource_browser_view'",
+            [],
+            |row| row.get::<_, i64>(0),
         )
         .unwrap();
+    assert_eq!(browser_view_indexes, 1);
+    let workspace_foreign_keys = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_foreign_key_list('terminal_hosts')
+             WHERE \"table\" = 'workspaces' AND \"from\" = 'workspace_key'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(workspace_foreign_keys, 0);
     drop(migrated);
 
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();

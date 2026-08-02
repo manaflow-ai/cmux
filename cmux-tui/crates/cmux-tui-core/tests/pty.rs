@@ -85,8 +85,43 @@ fn socket_response(
     reader: &mut impl BufRead,
     request: serde_json::Value,
 ) -> serde_json::Value {
+    let response_id = request.get("id").cloned();
     writeln!(writer, "{request}").unwrap();
-    read_json_line(reader).expect("socket response")
+    loop {
+        let value = read_json_line(reader).expect("socket event or response");
+        if response_id.as_ref().is_none_or(|id| value.get("id") == Some(id)) {
+            return value;
+        }
+    }
+}
+
+fn socket_attach_surface_with_size(
+    writer: &mut impl Write,
+    reader: &mut impl BufRead,
+    id: u64,
+    surface: u64,
+    cols: u16,
+    rows: u16,
+) {
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({
+            "id": id,
+            "cmd": "attach-surface",
+            "surface": surface,
+            "cols": cols,
+            "rows": rows,
+        })
+    )
+    .unwrap();
+    loop {
+        let value = read_json_line(reader).expect("attach event or response");
+        if value["id"].as_u64() == Some(id) {
+            assert_eq!(value["ok"], true, "attach failed: {value}");
+            return;
+        }
+    }
 }
 
 fn assert_vt_state_size(
@@ -168,6 +203,7 @@ fn headless_creation_uses_explicit_or_authoritative_client_size() {
         .as_u64()
         .unwrap();
     assert_vt_state_size(&mut writer, &mut reader, 2, first, (80, 24));
+    socket_attach_surface_with_size(&mut writer, &mut reader, 100, first, 80, 24);
 
     socket_request(
         &mut writer,
@@ -939,6 +975,15 @@ fn control_socket_broadcasts_surface_resized_once_per_changed_size() {
         .expect("subscribe response");
     assert_eq!(response["ok"], true, "subscribe failed: {response}");
 
+    socket_attach_surface_with_size(
+        &mut command_writer,
+        &mut command_reader,
+        100,
+        surface.id,
+        80,
+        24,
+    );
+
     socket_request(
         &mut command_writer,
         &mut command_reader,
@@ -951,16 +996,17 @@ fn control_socket_broadcasts_surface_resized_once_per_changed_size() {
         }),
     );
 
-    writeln!(
-        command_writer,
-        r#"{{"id":3,"cmd":"resize-surface","surface":{},"cols":103,"rows":29}}"#,
-        surface.id
-    )
-    .unwrap();
-    let mut line = String::new();
-    command_reader.read_line(&mut line).unwrap();
-    let response: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(response["ok"], true, "resize failed: {line}");
+    socket_request(
+        &mut command_writer,
+        &mut command_reader,
+        serde_json::json!({
+            "id": 3,
+            "cmd": "resize-surface",
+            "surface": surface.id,
+            "cols": 103,
+            "rows": 29,
+        }),
+    );
 
     let event = wait_for(
         || {
@@ -979,16 +1025,17 @@ fn control_socket_broadcasts_surface_resized_once_per_changed_size() {
     assert_eq!(event["rows"], 29);
     assert_eq!(surface.size(), (103, 29));
 
-    line.clear();
-    writeln!(
-        command_writer,
-        r#"{{"id":4,"cmd":"resize-surface","surface":{},"cols":103,"rows":29}}"#,
-        surface.id
-    )
-    .unwrap();
-    command_reader.read_line(&mut line).unwrap();
-    let response: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(response["ok"], true, "repeated resize failed: {line}");
+    socket_request(
+        &mut command_writer,
+        &mut command_reader,
+        serde_json::json!({
+            "id": 4,
+            "cmd": "resize-surface",
+            "surface": surface.id,
+            "cols": 103,
+            "rows": 29,
+        }),
+    );
 
     let repeated = wait_for(
         || {
@@ -1517,6 +1564,14 @@ fn render_attach_resize_is_a_full_replacement_at_the_new_size() {
     let command = connect(&sock_path);
     let mut command_writer = command.try_clone_box().unwrap();
     let mut command_reader = BufReader::new(command);
+    socket_attach_surface_with_size(
+        &mut command_writer,
+        &mut command_reader,
+        100,
+        surface.id,
+        20,
+        4,
+    );
     socket_request(
         &mut command_writer,
         &mut command_reader,

@@ -4995,11 +4995,8 @@ fn resource_browser_surface(
     let surface = mux
         .with_state(|state| {
             state
-                .resource_indexes
-                .content_placements
-                .get(&ContentPublicId::Browser(browser_id.clone()))
-                .and_then(|surfaces| surfaces.first())
-                .and_then(|surface| state.surfaces.get(surface))
+                .single_placement_of_content(&ContentPublicId::Browser(browser_id.clone()))
+                .and_then(|surface| state.surfaces.get(&surface))
                 .cloned()
         })
         .filter(|surface| surface.kind() == SurfaceKind::Browser)
@@ -8263,8 +8260,10 @@ fn handle_command_with_cancellation(
             }
             get_surface(mux, surface)?;
             if exclusive && target.is_none() {
-                mux.claim_terminal_geometry(surface, client).ok_or_else(|| {
-                    anyhow::anyhow!("client {client} cannot own geometry for surface {surface}")
+                mux.use_only_client_size(surface, client).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "client {client} is not attached with a reported size for surface {surface}"
+                    )
                 })?;
                 return Ok(json!({}));
             }
@@ -8272,7 +8271,7 @@ fn handle_command_with_cancellation(
                 if exclusive {
                     mux.use_only_client_size(surface, target).ok_or_else(|| {
                         anyhow::anyhow!(
-                            "client {target} has no reported size for surface {surface}"
+                            "client {target} is not attached with a reported size for surface {surface}"
                         )
                     })?;
                 } else {
@@ -14895,6 +14894,33 @@ mod tests {
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
 
+        let error = handle_command(
+            &mux,
+            client,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: None,
+                enabled: true,
+                exclusive: true,
+            },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("reported size"));
+
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        let stream_id = stream.id;
+        mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
+        mux.control_clients.commit_surface(client, surface.id, stream_id, None).unwrap();
+        let passive = handle_command(
+            &mux,
+            client,
+            Command::ResizeSurface { surface: surface.id, cols: 90, rows: 28 },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(passive["accepted"], false);
+
         handle_command(
             &mux,
             client,
@@ -14908,15 +14934,6 @@ mod tests {
         )
         .unwrap();
         assert!(mux.client_size_participates(surface.id, client));
-
-        let resized = handle_command(
-            &mux,
-            client,
-            Command::ResizeSurface { surface: surface.id, cols: 90, rows: 28 },
-            &writer,
-        )
-        .unwrap();
-        assert_eq!(resized["accepted"], true);
         assert_eq!(surface.size(), (90, 28));
     }
 
@@ -14951,6 +14968,9 @@ mod tests {
         let writer = test_writer();
         let first = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let second = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        let first_stream = writer.start_stream(&attach_overflow_json(current.id)).unwrap();
+        mux.control_clients.attach_surface(first, current.id, first_stream.clone()).unwrap();
+        mux.control_clients.commit_surface(first, current.id, first_stream.id, None).unwrap();
 
         mux.resize_surface_for_client(current.id, first, 100, 32).unwrap();
         mux.resize_surface_for_client(current.id, second, 80, 30).unwrap();

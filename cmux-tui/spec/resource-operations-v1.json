@@ -10412,8 +10412,9 @@
         ]
       },
       "constraints": [
-        "Changes only the selected terminal's ephemeral viewport and does not advance the resource revision or emit a session delta.",
-        "Exactly-once replay uses the bounded transient interaction receipt window."
+        "Changes the session compatibility inspection viewport; interactive frontends must keep user scrolling in frontend-local state instead of calling this operation.",
+        "A real compatibility-viewport change emits the ordinary terminal attach scroll item without advancing the resource revision or emitting a session delta.",
+        "Exactly-once replay uses the bounded transient interaction receipt window; after receipt eviction, the same key executes as a new mutation."
       ],
       "errors": [
         "idempotency.conflict",

@@ -1230,7 +1230,16 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     assert_eq!(source["tab_ids"].as_array().unwrap().len(), 2);
     let snapshot = json_cli(&server, &["session", "current", "snapshot"]);
     assert_success(&snapshot);
-    let focused_tab = json_output(&snapshot)["tabs"]
+    let snapshot_json = json_output(&snapshot);
+    let projected_record = snapshot_json["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["id"].as_str() == Some(projected_tab))
+        .unwrap();
+    assert_eq!(projected_record["pane_id"], pane1);
+    assert_eq!(projected_record["focused"], false);
+    let focused_tab = snapshot_json["tabs"]
         .as_array()
         .unwrap()
         .iter()

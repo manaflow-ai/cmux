@@ -619,8 +619,8 @@ mod tests {
         let second_tab = public_id("tab", second_target);
         let multiview = json!({
             "id":public_id("term", RESOURCE_COUNT + 1),
-            "tab_id":tab_id.clone(),
-            "tab_ids":[tab_id, second_tab.clone()],
+            "tab_id":tab_id,
+            "tab_ids":[tab_id, second_tab],
         });
         assert!(index.contains("terminals", &multiview, &workspace_path));
         assert!(index.contains(
@@ -1055,9 +1055,7 @@ mod tests {
         assert_eq!(mux.terminal_exit_waiter_count_for_test(&unrelated_terminal), 1);
 
         for (index, expected_terminal) in
-            [first_terminal.clone(), second_terminal.clone(), unrelated_terminal.clone()]
-                .into_iter()
-                .enumerate()
+            [first_terminal, second_terminal, unrelated_terminal].into_iter().enumerate()
         {
             crate::resource_router::dispatch_resource_request(
                 &mux,

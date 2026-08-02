@@ -1133,8 +1133,7 @@ fn existing_host_defaults_survive_output_resize_and_renderer_reconnects() {
     assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
     wait_for_host_cursor_snapshot(&record, ghostty_vt::CursorShape::Bar, false);
 
-    let resized = claim_and_resize_surface(&harness.socket, surface, 101, 37, 4);
-    assert_eq!(resized["accepted"], true);
+    attach_claim_and_resize_surface(&harness.socket, surface, 101, 37, 4);
     wait_for_host_size(&harness.host_root(), 101, 37);
     wait_for_vt_size(&harness.socket, surface, 101, 37);
     wait_for_host_cursor_snapshot(&record, ghostty_vt::CursorShape::Bar, false);
@@ -1162,8 +1161,7 @@ fn existing_host_defaults_survive_output_resize_and_renderer_reconnects() {
     }
     wait_for_host_cursor_snapshot(&record, builtin_cursor.0, builtin_cursor.1);
 
-    let resized = claim_and_resize_surface(&harness.socket, surface, 99, 35, 6);
-    assert_eq!(resized["accepted"], true);
+    attach_claim_and_resize_surface(&harness.socket, surface, 99, 35, 6);
     wait_for_host_size(&harness.host_root(), 99, 35);
     wait_for_host_cursor_snapshot(&record, builtin_cursor.0, builtin_cursor.1);
 
@@ -1514,8 +1512,7 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
     );
     assert!(wait_for_screen(&harness.socket, adopted_surface, &after).contains(&after));
 
-    let resized = claim_and_resize_surface(&harness.socket, adopted_surface, 101, 37, 6);
-    assert_eq!(resized["accepted"], true);
+    attach_claim_and_resize_surface(&harness.socket, adopted_surface, 101, 37, 6);
     let state = wait_for_vt_size(&harness.socket, adopted_surface, 101, 37);
     assert_eq!(state["cols"].as_u64(), Some(101));
     assert_eq!(state["rows"].as_u64(), Some(37));
@@ -2792,18 +2789,29 @@ fn request(path: &Path, value: serde_json::Value) -> serde_json::Value {
     response["data"].clone()
 }
 
-fn claim_and_resize_surface(
+fn attach_claim_and_resize_surface(
     path: &Path,
     surface: u64,
     cols: u16,
     rows: u16,
     request_id: u64,
-) -> serde_json::Value {
+) {
     let stream = transport::connect(path).unwrap();
     let mut writer = stream.try_clone_box().unwrap();
     let mut reader = BufReader::new(stream);
-    let claim_id = request_id.saturating_mul(2);
-    let resize_id = claim_id.saturating_add(1);
+    let attach_id = request_id.saturating_mul(2);
+    let claim_id = attach_id.saturating_add(1);
+    stream_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id":attach_id,
+            "cmd":"attach-surface",
+            "surface":surface,
+            "cols":cols,
+            "rows":rows,
+        }),
+    );
     stream_request(
         &mut writer,
         &mut reader,
@@ -2815,17 +2823,6 @@ fn claim_and_resize_surface(
             "exclusive":true,
         }),
     );
-    stream_request(
-        &mut writer,
-        &mut reader,
-        serde_json::json!({
-            "id":resize_id,
-            "cmd":"resize-surface",
-            "surface":surface,
-            "cols":cols,
-            "rows":rows,
-        }),
-    )
 }
 
 fn stream_request(

@@ -174,6 +174,19 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
 pub(super) fn migrate_resource_tabs_to_multiview(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
+    let duplicate_live_browser = transaction.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM resource_tabs
+           WHERE content_kind = 'browser' AND deleted_revision IS NULL
+           GROUP BY content_id HAVING COUNT(*) > 1
+         )",
+        [],
+        |row| row.get::<_, bool>(0),
+    )?;
+    anyhow::ensure!(
+        !duplicate_live_browser,
+        "workspace registry contains multiple live views for one browser"
+    );
     transaction.execute_batch(
         "DROP INDEX IF EXISTS live_resource_tab_position;
          DROP INDEX IF EXISTS live_resource_browser_view;

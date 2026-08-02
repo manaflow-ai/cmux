@@ -1327,7 +1327,7 @@ impl Mux {
                     });
                 }
                 let mut after = topology.clone();
-                *topology_tab_mut(&mut after, &tab_id)? = moved_tab.clone();
+                *topology_tab_mut(&mut after, &tab_id)? = moved_tab;
                 *topology_pane_mut(&mut after, &source_pane_id)? = source_record.clone();
                 *topology_pane_mut(&mut after, &target_pane_id)? = target_record.clone();
                 if source_pane != target_pane {
@@ -2012,7 +2012,7 @@ impl Mux {
             fingerprint,
             move |state| {
                 anyhow::ensure!(
-                    state.terminal_catalog.values().any(|candidate| candidate.id == surface),
+                    state.terminal_runtime_by_id(surface).is_some(),
                     "terminal disappeared"
                 );
                 Ok(EffectSlots { workspace: None, screen: None, pane: None, tab: Some(surface) })
@@ -2192,9 +2192,7 @@ impl Mux {
             ResourceOperation::TerminalClose => {
                 let surface = slots.tab.context("terminal disappeared")?;
                 let runtime = state
-                    .terminal_catalog
-                    .values()
-                    .find(|candidate| candidate.id == surface)
+                    .terminal_runtime_by_id(surface)
                     .cloned()
                     .context("terminal disappeared")?;
                 let public_id = runtime
