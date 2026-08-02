@@ -328,7 +328,7 @@ jobs:
               "${filenames[@]}"
           fi
 
-  cut-tags:
+  revalidate-tags:
     needs:
       - validate-release
       - rust-preflight
@@ -342,6 +342,8 @@ jobs:
       contents: read
     environment:
       name: sdk-release
+    outputs:
+      remote_state_sha256: ${{ steps.revalidate.outputs.remote_state_sha256 }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -391,23 +393,164 @@ jobs:
             --disable-pip-version-check \
             "pypi-attestations==0.0.29"
 
-      - name: Revalidate registry authority and prepare release tags
+      - name: Revalidate registry and remote release authority
+        id: revalidate
         env:
           VERSION: ${{ needs.validate-release.outputs.version }}
-          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
-          GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
         run: |
           set -euo pipefail
           cmux-tui/bindings/verify_release_registry_state.sh \
             "$VERSION" \
             "$GITHUB_SHA"
 
+          remote_state() {
+            {
+              git ls-remote --heads origin refs/heads/main
+              git ls-remote --tags origin \
+                'refs/tags/cmux-sdk-v*' \
+                'refs/tags/cmux-tui/bindings/go/v*'
+            } | LC_ALL=C sort
+          }
+          remote_state_before="$(remote_state)"
+          main_ref_count="$(
+            printf '%s\n' "$remote_state_before" | \
+              grep -c $'\trefs/heads/main$' || true
+          )"
+          [[ "$main_ref_count" == 1 ]] || {
+            echo "remote release state does not contain exactly one main ref" >&2
+            exit 1
+          }
+
           git fetch --force origin main --tags
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
             echo "validated release commit $GITHUB_SHA is no longer on protected main" >&2
             exit 1
           }
+          git tag --list 'cmux-sdk-v*' | \
+            python3 cmux-tui/bindings/validate_release_version.py \
+              --version "$VERSION" \
+              --require-latest-tag
 
+          remote_state_after="$(remote_state)"
+          [[ "$remote_state_after" == "$remote_state_before" ]] || {
+            echo "remote release refs changed during final revalidation" >&2
+            exit 1
+          }
+          remote_state_sha256="$(
+            printf '%s\n' "$remote_state_after" | sha256sum | cut -d ' ' -f 1
+          )"
+          [[ "$remote_state_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "remote release state digest is malformed" >&2
+            exit 1
+          }
+          echo "remote_state_sha256=$remote_state_sha256" >> "$GITHUB_OUTPUT"
+
+  cut-tags:
+    needs:
+      - validate-release
+      - revalidate-tags
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: {}
+    environment:
+      name: sdk-release-credentials
+    steps:
+      - name: Verify fresh release authority and prepare tags
+        env:
+          CONFIRM_PUBLISH: ${{ github.event.client_payload.confirm_publish }}
+          DISPATCH_VERSION: ${{ github.event.client_payload.version }}
+          GO_TAG: ${{ needs.validate-release.outputs.go_tag }}
+          REMOTE_STATE_SHA256: ${{ needs.revalidate-tags.outputs.remote_state_sha256 }}
+          SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
+          VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "manaflow-ai/cmux" ]] || {
+            echo "release repository must be manaflow-ai/cmux" >&2
+            exit 1
+          }
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "release credential job must run from main" >&2
+            exit 1
+          }
+          [[ "$CONFIRM_PUBLISH" == "true" ]] || {
+            echo "release credential job requires explicit publish confirmation" >&2
+            exit 1
+          }
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "release commit is malformed" >&2
+            exit 1
+          }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "release version must match X.Y.Z" >&2
+            exit 1
+          }
+          [[ "$VERSION" == "$DISPATCH_VERSION" ]] || {
+            echo "validated version does not match the dispatch request" >&2
+            exit 1
+          }
+          [[ "$SDK_TAG" == "cmux-sdk-v$VERSION" ]] || {
+            echo "SDK tag does not match the validated version" >&2
+            exit 1
+          }
+          [[ "$GO_TAG" == "cmux-tui/bindings/go/v$VERSION" ]] || {
+            echo "Go tag does not match the validated version" >&2
+            exit 1
+          }
+          [[ "$REMOTE_STATE_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "validated remote release state digest is malformed" >&2
+            exit 1
+          }
+
+          release_repository="https://github.com/manaflow-ai/cmux.git"
+          remote_state() {
+            {
+              git ls-remote --heads "$release_repository" refs/heads/main
+              git ls-remote --tags "$release_repository" \
+                'refs/tags/cmux-sdk-v*' \
+                'refs/tags/cmux-tui/bindings/go/v*'
+            } | LC_ALL=C sort
+          }
+          verify_remote_state() {
+            local state
+            local remote_state_sha256
+            local main_ref_count
+            state="$(remote_state)"
+            main_ref_count="$(
+              printf '%s\n' "$state" | grep -c $'\trefs/heads/main$' || true
+            )"
+            [[ "$main_ref_count" == 1 ]] || {
+              echo "remote release state does not contain exactly one main ref" >&2
+              exit 1
+            }
+            remote_state_sha256="$(
+              printf '%s\n' "$state" | sha256sum | cut -d ' ' -f 1
+            )"
+            [[ "$remote_state_sha256" == "$REMOTE_STATE_SHA256" ]] || {
+              echo "remote release refs changed after final revalidation" >&2
+              exit 1
+            }
+          }
+          verify_remote_state
+
+          release_dir="$RUNNER_TEMP/cmux-sdk-release"
+          mkdir -m 700 "$release_dir"
+          cd "$release_dir"
+          git init
+          git remote add origin "$release_repository"
+          git fetch \
+            --filter=blob:none \
+            --force \
+            --no-recurse-submodules \
+            --no-tags \
+            origin \
+            refs/heads/main:refs/remotes/origin/main \
+            '+refs/tags/cmux-sdk-v*:refs/tags/cmux-sdk-v*' \
+            '+refs/tags/cmux-tui/bindings/go/v*:refs/tags/cmux-tui/bindings/go/v*'
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "validated release commit $GITHUB_SHA is no longer on protected main" >&2
+            exit 1
+          }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           ensure_tag() {
@@ -423,24 +566,18 @@ jobs:
               echo "release tag already points to this commit: $tag"
               return
             fi
-            git tag -a "$tag" -m "$message"
+            git tag -a "$tag" "$GITHUB_SHA" -m "$message"
           }
-          sdk_tag="$SDK_TAG"
-          go_tag="$GO_TAG"
-          git fetch --force origin main --tags
-          git tag --list 'cmux-sdk-v*' | \
-            python3 cmux-tui/bindings/validate_release_version.py \
-              --version "$VERSION" \
-              --require-latest-tag
-          ensure_tag "$sdk_tag" "cmux SDK $VERSION"
-          ensure_tag "$go_tag" "cmux Go SDK $VERSION"
-          for tag in "$sdk_tag" "$go_tag"; do
+          ensure_tag "$SDK_TAG" "cmux SDK $VERSION"
+          ensure_tag "$GO_TAG" "cmux Go SDK $VERSION"
+          for tag in "$SDK_TAG" "$GO_TAG"; do
             tag_sha="$(git rev-parse "refs/tags/$tag^{commit}")"
             [[ "$tag_sha" == "$GITHUB_SHA" ]] || {
               echo "prepared release tag $tag does not name $GITHUB_SHA" >&2
               exit 1
             }
           done
+          verify_remote_state
 
       - name: Mint the SDK release GitHub App token
         id: release_app_token
@@ -457,7 +594,8 @@ jobs:
           SDK_TAG: ${{ needs.validate-release.outputs.sdk_tag }}
         run: |
           set -euo pipefail
-          release_repository="https://github.com/$GITHUB_REPOSITORY.git"
+          cd "$RUNNER_TEMP/cmux-sdk-release"
+          release_repository="https://github.com/manaflow-ai/cmux.git"
           authorization="$(
             printf 'x-access-token:%s' "$RELEASE_TOKEN" | base64 | tr -d '\n'
           )"
@@ -1084,6 +1222,7 @@ jobs:
       - typescript-preflight
       - python-preflight
       - registry-preflight
+      - revalidate-tags
       - cut-tags
       - verify-go-tag
       - publish-crate-client
@@ -1106,6 +1245,7 @@ jobs:
           TYPESCRIPT_PREFLIGHT_RESULT: ${{ needs.typescript-preflight.result }}
           PYTHON_PREFLIGHT_RESULT: ${{ needs.python-preflight.result }}
           REGISTRY_PREFLIGHT_RESULT: ${{ needs.registry-preflight.result }}
+          REVALIDATE_TAGS_RESULT: ${{ needs.revalidate-tags.result }}
           CUT_TAGS_RESULT: ${{ needs.cut-tags.result }}
           GO_TAG_RESULT: ${{ needs.verify-go-tag.result }}
           CRATE_CLIENT_RESULT: ${{ needs.publish-crate-client.result }}
@@ -1126,6 +1266,7 @@ jobs:
             echo "- TypeScript preflight: \`$TYPESCRIPT_PREFLIGHT_RESULT\`"
             echo "- Python preflight: \`$PYTHON_PREFLIGHT_RESULT\`"
             echo "- Registry preflight: \`$REGISTRY_PREFLIGHT_RESULT\`"
+            echo "- Approval-fresh revalidation: \`$REVALIDATE_TAGS_RESULT\`"
             echo "- Tag creation: \`$CUT_TAGS_RESULT\`"
             echo "- Public Go tag: \`$GO_TAG_RESULT\`"
             echo "- cmux-client publish: \`$CRATE_CLIENT_RESULT\`"

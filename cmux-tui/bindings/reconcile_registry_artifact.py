@@ -340,8 +340,8 @@ def _crates_status(package: str, version: str, artifact: Path) -> str:
     )
     published = _request(url, "application/octet-stream")
     if published is None:
-        raise RegistryError(
-            f"crates.io metadata exists but its archive is missing for {package}@{version}"
+        raise RegistryLookupError(
+            f"crates.io archive has not converged for {package}@{version}"
         )
     local = _digest(artifact, "sha256")
     remote = hashlib.sha256(published).hexdigest()
@@ -614,6 +614,7 @@ def wait_for_status(
     allowed_artifacts: Optional[Sequence[Path]] = None,
     cancel_event: Optional[threading.Event] = None,
     wait_for_match: bool = True,
+    retry_missing_project: bool = False,
 ) -> str:
     cancellation = cancel_event or threading.Event()
     deadline = time.monotonic() + wait_seconds
@@ -635,6 +636,10 @@ def wait_for_status(
             if not wait_for_match:
                 return MISSING
         except RegistryLookupError as error:
+            last_error = error
+        except RegistryProjectMissing as error:
+            if not retry_missing_project:
+                raise
             last_error = error
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -743,6 +748,7 @@ def main(
             args.wait_seconds,
             allowed_artifacts=args.allowed_artifact,
             cancel_event=cancel_event,
+            retry_missing_project=args.allow_missing_project,
         )
         if status == MATCH:
             print(

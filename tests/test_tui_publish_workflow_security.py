@@ -344,6 +344,7 @@ def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
         "TYPESCRIPT_PREFLIGHT_RESULT",
         "PYTHON_PREFLIGHT_RESULT",
         "REGISTRY_PREFLIGHT_RESULT",
+        "REVALIDATE_TAGS_RESULT",
         "CUT_TAGS_RESULT",
         "CRATE_CLIENT_RESULT",
         "CRATE_SIDEBAR_RESULT",
@@ -380,7 +381,7 @@ def test_privileged_sdk_workflows_use_external_release_authority() -> None:
     revalidate_tags = workflow_job(release, "revalidate-tags")
     cut_tags = workflow_job(release, "cut-tags")
     assert "    permissions:\n      contents: write" not in cut_tags
-    assert "    permissions:\n      contents: read" in cut_tags
+    assert "    permissions: {}" in cut_tags
     assert "name: sdk-release" in revalidate_tags
     assert "name: sdk-release-credentials" in cut_tags
     assert (
@@ -479,6 +480,8 @@ def test_release_app_token_is_scoped_to_the_atomic_push() -> None:
     assert "actions/download-artifact@" not in cut_tags
     assert "actions/setup-node@" not in cut_tags
     assert "actions/setup-python@" not in cut_tags
+    assert cut_tags.count("uses:") == 1
+    assert cut_tags.count("${{ secrets.") == 1
     prepare = cut_tags.index("Verify fresh release authority and prepare tags")
     mint = cut_tags.rindex("actions/create-github-app-token@")
     push = cut_tags.rindex('git push --atomic "$release_repository"')

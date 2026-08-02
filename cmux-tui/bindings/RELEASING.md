@@ -36,25 +36,29 @@ Establish release authority before adding registry credentials:
 
 1. Create a dedicated SDK release GitHub App with repository Contents
    read/write permission and install it only on `manaflow-ai/cmux`.
-2. Create the `sdk-release` environment. Store the App client ID as
-   `SDK_RELEASE_APP_CLIENT_ID` and its private key as
-   `SDK_RELEASE_APP_PRIVATE_KEY`. Configure protected branches only, require a
-   reviewer other than the dispatcher, prevent self-review, and
-   disable administrator bypass.
-3. Apply the same protected-branch, reviewer, self-review, and bypass policy to
+2. Create the credential-free `sdk-release` approval environment. Configure
+   protected branches only, require a reviewer other than the dispatcher,
+   prevent self-review, and disable administrator bypass.
+3. Create the `sdk-release-credentials` environment for protected branches
+   only. Store the App client ID as `SDK_RELEASE_APP_CLIENT_ID` and its private
+   key as `SDK_RELEASE_APP_PRIVATE_KEY`. Do not add registry credentials or
+   expose this environment to another workflow job.
+4. Apply the same protected-branch, reviewer, self-review, and bypass policy to
    `crates-io`, `npm`, `pypi`, `crates-bootstrap`, `npm-bootstrap`, and
    `pypi-bootstrap`. A branch workflow must never obtain a registry credential
    or trusted-publisher OIDC identity.
-4. Add an active tag ruleset that restricts creation, update, and deletion of
+5. Add an active tag ruleset that restricts creation, update, and deletion of
    `refs/tags/cmux-sdk-v*` and
    `refs/tags/cmux-tui/bindings/go/v*`. Grant bypass only to the SDK release
    GitHub App. The repository workflow token and repository writers must not
    bypass this ruleset.
 
 The privileged workflows use `repository_dispatch`, so GitHub loads their
-definitions and source revision from the default branch. Environment approval
-then gates credentials, and the dedicated App mints the short-lived token used
-for the atomic tag push.
+definitions and source revision from the default branch. The `sdk-release`
+approval gates credential-free final revalidation. A fresh GitHub-hosted job
+then checks that the remote ref snapshot is unchanged, prepares the two tags
+without checking out repository files, and accesses `sdk-release-credentials`
+only to mint the short-lived token used for the atomic push.
 
 - npm: the package must exist before npm allows a trusted publisher. Create the
   `npm-bootstrap` GitHub environment with a temporary `NPM_BOOTSTRAP_TOKEN`
@@ -163,11 +167,14 @@ crate archives. A credential-free registry preflight then requires each target
 version to be missing or byte-identical and usable. It also verifies that this
 repository's trusted publisher created the exact PyPI bootstrap files. Only
 then does the workflow create `cmux-sdk-vX.Y.Z` and
-`cmux-tui/bindings/go/vX.Y.Z` atomically on the same commit. Immediately before
-that atomic push, the environment-gated job repeats artifact, registry-history,
-ownership, and existing-provenance checks, including the exact npm source
-commit, then rechecks the fetched SDK tag history. An approval delay therefore
-cannot make the preflight authority stale or let a newer release overtake it.
+`cmux-tui/bindings/go/vX.Y.Z` atomically on the same commit. After approval, an
+unprivileged job repeats artifact, registry-history, ownership, and
+existing-provenance checks, including the exact npm source commit, then records
+the validated remote ref snapshot. A fresh minimal job rejects any snapshot
+change before it mints the tag-only App token and pushes. An approval delay
+therefore cannot make the preflight authority stale or let a newer release
+overtake it, and mutable validation code never shares a runner with the App
+private key.
 
 The Rust preflight uses the same pinned Cargo version as publishing. It packages
 both crates and tests the extracted `cmux-sidebar` archive with the extracted

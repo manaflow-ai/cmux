@@ -240,6 +240,38 @@ class RegistryArtifactTests(unittest.TestCase):
                 reconcile.MATCH,
             )
 
+    def test_crates_bootstrap_retries_missing_project_only_after_publish(
+        self,
+    ) -> None:
+        with mock.patch.object(
+            reconcile,
+            "wait_for_status",
+            side_effect=(reconcile.MISSING, reconcile.MATCH),
+        ) as status, mock.patch.object(
+            reconcile.subprocess,
+            "run",
+            return_value=types.SimpleNamespace(returncode=0),
+        ):
+            result = reconcile.main([
+                "publish",
+                "--registry", "crates",
+                "--package", "cmux-sidebar",
+                "--version", "0.0.0-bootstrap.0",
+                "--artifact", str(self.artifact),
+                "--allow-missing-project",
+                "--wait-seconds", "300",
+                "--",
+                "cargo", "publish",
+            ])
+
+        self.assertEqual(result, 0)
+        self.assertFalse(status.call_args_list[0].kwargs.get(
+            "retry_missing_project", False
+        ))
+        self.assertTrue(
+            status.call_args_list[1].kwargs["retry_missing_project"]
+        )
+
     def test_npm_uses_the_registry_integrity_digest(self) -> None:
         metadata = {
             "dist-tags": {"latest": "1.0.0"},
