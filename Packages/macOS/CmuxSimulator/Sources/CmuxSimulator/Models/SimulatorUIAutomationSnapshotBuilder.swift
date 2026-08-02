@@ -50,6 +50,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
         }
         let records = removingAmbiguousTypeTextActions(from: preliminaryRecords)
         let elements = records.map(\.element)
+        let truncatedFields = truncatedVisibleFields(in: records)
         let actions = elements.flatMap { element in
             element.actions.map {
                 SimulatorUIAutomationActionHint(
@@ -63,7 +64,8 @@ struct SimulatorUIAutomationSnapshotBuilder {
             simulatorID: simulatorID,
             screenHash: screenHash(
                 elements: elements,
-                isTruncated: source.isTruncated
+                isTruncated: source.isTruncated,
+                truncatedFields: truncatedFields
             ),
             sequence: sequence,
             capturedAtMilliseconds: capturedAtMilliseconds,
@@ -71,7 +73,8 @@ struct SimulatorUIAutomationSnapshotBuilder {
                 capturedAtMilliseconds + simulatorUIAutomationSnapshotLifetimeMilliseconds,
             elements: elements,
             actions: actions,
-            isTruncated: source.isTruncated
+            isTruncated: source.isTruncated,
+            truncatedFields: truncatedFields
         )
         return SimulatorUIAutomationSnapshotRecord(
             snapshot: snapshot,
@@ -371,7 +374,8 @@ struct SimulatorUIAutomationSnapshotBuilder {
 
     private func screenHash(
         elements: [SimulatorUIAutomationElement],
-        isTruncated: Bool
+        isTruncated: Bool,
+        truncatedFields: [SimulatorUIAutomationTruncatedField]
     ) -> String {
         let stableElements = elements.filter(\.state.isVisible).enumerated().map { index, element in
             SimulatorUIAutomationElement(
@@ -398,7 +402,8 @@ struct SimulatorUIAutomationSnapshotBuilder {
             protocol: simulatorUIAutomationProtocol,
             elements: stableElements,
             actions: stableActions,
-            isTruncated: isTruncated
+            isTruncated: isTruncated,
+            truncatedFields: truncatedFields
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -410,6 +415,24 @@ struct SimulatorUIAutomationSnapshotBuilder {
             bytes.append(Self.hexDigits[Int(byte & 0x0F)])
         }
         return String(decoding: bytes, as: UTF8.self)
+    }
+
+    private func truncatedVisibleFields(
+        in records: [SimulatorUIAutomationElementRecord]
+    ) -> [SimulatorUIAutomationTruncatedField] {
+        let visibleRecords = records.filter(\.element.state.isVisible)
+        return SimulatorUIAutomationTruncatedField.allCases.filter { field in
+            visibleRecords.contains { record in
+                switch field {
+                case .identifier:
+                    record.node.isIdentifierTruncated
+                case .label:
+                    record.node.isLabelTruncated
+                case .value:
+                    record.node.isValueTruncated
+                }
+            }
+        }
     }
 
     private func removingAmbiguousTypeTextActions(

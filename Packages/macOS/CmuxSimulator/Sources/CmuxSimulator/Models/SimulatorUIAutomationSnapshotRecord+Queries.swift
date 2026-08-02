@@ -1,6 +1,67 @@
 import Foundation
 
 extension SimulatorUIAutomationSnapshotRecord {
+    /// Whether clipped visible text makes semantic stability unprovable.
+    public var hasTruncatedVisibleText: Bool {
+        snapshot.truncatedFields.contains(.label)
+            || snapshot.truncatedFields.contains(.value)
+    }
+
+    /// Reports whether clipped fields could conceal a match for a negative wait.
+    ///
+    /// Complete selector fields first eliminate unrelated records. A clipped
+    /// field remains unknown, so the caller cannot safely claim the target is
+    /// absent when one surviving record depends on it.
+    public func truncationCouldHideMatch(
+        selector: SimulatorUIAutomationSelector?,
+        containingText text: String?
+    ) -> Bool {
+        let normalizedText = text?.normalizedUIAutomationText?.lowercased()
+        return elementRecords.contains { record in
+            guard record.element.state.isVisible else { return false }
+            let node = record.node
+            var hasUnknownRequiredField = false
+
+            if let identifier = selector?.identifier {
+                if node.isIdentifierTruncated {
+                    hasUnknownRequiredField = true
+                } else if record.element.identifier != identifier {
+                    return false
+                }
+            }
+            if let label = selector?.label {
+                if node.isLabelTruncated {
+                    hasUnknownRequiredField = true
+                } else if record.element.label != label {
+                    return false
+                }
+            }
+            if let role = selector?.role, record.element.role != role {
+                return false
+            }
+            if let value = selector?.value {
+                if node.isValueTruncated {
+                    hasUnknownRequiredField = true
+                } else if record.element.value != value {
+                    return false
+                }
+            }
+
+            if let normalizedText, !normalizedText.isEmpty {
+                if node.isLabelTruncated || node.isValueTruncated {
+                    hasUnknownRequiredField = true
+                } else {
+                    let label = (record.element.label ?? "").lowercased()
+                    let value = (record.element.value ?? "").lowercased()
+                    if !label.contains(normalizedText), !value.contains(normalizedText) {
+                        return false
+                    }
+                }
+            }
+            return hasUnknownRequiredField
+        }
+    }
+
     /// Returns visible enabled records matching an exact accessibility selector.
     ///
     /// Labels and roles use case-insensitive comparison. Identifiers retain

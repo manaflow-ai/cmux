@@ -927,7 +927,9 @@ public struct SimulatorUIAutomationExecutor {
         mutationGeneration: UInt64,
         coordinator: SimulatorPaneCoordinator
     ) -> SimulatorUIAutomationSnapshotRecord? {
-        guard coordinator.uiAutomationMutationGeneration == mutationGeneration,
+        guard !published.hasTruncatedVisibleText,
+              !captured.hasTruncatedVisibleText,
+              coordinator.uiAutomationMutationGeneration == mutationGeneration,
               simulatorUIWallTimeNowMilliseconds()
                   <= published.snapshot.expiresAtMilliseconds,
               published.snapshot.simulatorID == captured.snapshot.simulatorID,
@@ -951,6 +953,7 @@ public struct SimulatorUIAutomationExecutor {
     ) throws -> (didMatch: Bool, elements: [SimulatorUIAutomationElement]) {
         try requireCompleteSimulatorUISnapshot(record)
         if wait.predicate == "settled" {
+            try requireCompleteSimulatorUITextState(record)
             if stableHash != record.snapshot.screenHash {
                 stableHash = record.snapshot.screenHash
                 stableSince = nowMilliseconds
@@ -981,6 +984,13 @@ public struct SimulatorUIAutomationExecutor {
             if selector?.hasFields != true, candidates.count > 1,
                !record.candidatesShareMatchingText(candidates, containing: wait.text ?? "") {
                 throw simulatorUIAmbiguousWaitFailure(candidates)
+            }
+            if candidates.isEmpty,
+               record.truncationCouldHideMatch(
+                   selector: selector,
+                   containingText: wait.text
+               ) {
+                throw simulatorUITruncatedSnapshotFailure()
             }
             return (candidates.isEmpty, candidates)
         case "enabled":
@@ -1338,15 +1348,27 @@ public struct SimulatorUIAutomationExecutor {
         _ record: SimulatorUIAutomationSnapshotRecord
     ) throws {
         guard !record.snapshot.isTruncated else {
-            throw SimulatorUIAutomationFailure(
-                code: "snapshot_truncated",
-                message: String(
-                    localized: "cli.simulator.output.uiSnapshotTruncated",
-                    defaultValue: "The Simulator UI snapshot reached its element limit"
-                ),
-                recoveryHint: simulatorUICaptureRecoveryHint()
-            )
+            throw simulatorUITruncatedSnapshotFailure()
         }
+    }
+
+    private func requireCompleteSimulatorUITextState(
+        _ record: SimulatorUIAutomationSnapshotRecord
+    ) throws {
+        guard !record.hasTruncatedVisibleText else {
+            throw simulatorUITruncatedSnapshotFailure()
+        }
+    }
+
+    private func simulatorUITruncatedSnapshotFailure() -> SimulatorUIAutomationFailure {
+        SimulatorUIAutomationFailure(
+            code: "snapshot_truncated",
+            message: String(
+                localized: "cli.simulator.output.uiSnapshotTruncated",
+                defaultValue: "The Simulator UI snapshot reached its element limit"
+            ),
+            recoveryHint: simulatorUICaptureRecoveryHint()
+        )
     }
 
     private func simulatorUIStateChangedFailure(
@@ -1691,6 +1713,9 @@ public struct SimulatorUIAutomationExecutor {
                 ])
             }),
             "truncated": .bool(snapshot.isTruncated),
+            "truncated_fields": .array(
+                snapshot.truncatedFields.map { .string($0.rawValue) }
+            ),
         ])
     }
 

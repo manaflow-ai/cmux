@@ -3,4 +3,5 @@ struct SimulatorUIAutomationScreenHashPayload: Encodable {
     let elements: [SimulatorUIAutomationElement]
     let actions: [SimulatorUIAutomationActionHint]
     let isTruncated: Bool
+    let truncatedFields: [SimulatorUIAutomationTruncatedField]
 }
