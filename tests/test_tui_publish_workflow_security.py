@@ -377,13 +377,12 @@ def test_privileged_sdk_workflows_use_external_release_authority() -> None:
         }
         assert "github.event.client_payload" in text
 
+    revalidate_tags = workflow_job(release, "revalidate-tags")
     cut_tags = workflow_job(release, "cut-tags")
     assert "    permissions:\n      contents: write" not in cut_tags
-    assert (
-        "    permissions:\n      actions: read\n      contents: read"
-        in cut_tags
-    )
-    assert "name: sdk-release" in cut_tags
+    assert "    permissions:\n      contents: read" in cut_tags
+    assert "name: sdk-release" in revalidate_tags
+    assert "name: sdk-release-credentials" in cut_tags
     assert (
         "actions/create-github-app-token@"
         "bcd2ba49218906704ab6c1aa796996da409d3eb1"
@@ -404,6 +403,7 @@ def test_privileged_sdk_workflows_use_external_release_authority() -> None:
         "prevent self-review",
         "disable administrator bypass",
         "crates-bootstrap",
+        "sdk-release-credentials",
         "SDK release GitHub App",
         "refs/tags/cmux-sdk-v*",
         "refs/tags/cmux-tui/bindings/go/v*",
@@ -414,7 +414,7 @@ def test_privileged_sdk_workflows_use_external_release_authority() -> None:
 def test_registry_state_is_validated_before_irreversible_tags() -> None:
     release = workflow("sdk-release-cut.yml")
     registry = workflow_job(release, "registry-preflight")
-    cut_tags = workflow_job(release, "cut-tags")
+    revalidate_tags = workflow_job(release, "revalidate-tags")
 
     for prerequisite in (
         "rust-preflight",
@@ -431,12 +431,14 @@ def test_registry_state_is_validated_before_irreversible_tags() -> None:
         assert f"name: {artifact}" in registry
     assert registry.count("reconcile_registry_artifact.py check") == 5
     assert "id-token: write" not in registry
-    assert "registry-preflight" in cut_tags
-    assert release.index("registry-preflight:") < release.index("cut-tags:")
+    assert "registry-preflight" in revalidate_tags
+    assert release.index("registry-preflight:") < release.index("revalidate-tags:")
+    assert release.index("revalidate-tags:") < release.index("cut-tags:")
 
 
 def test_registry_state_is_revalidated_after_release_approval() -> None:
     release = workflow("sdk-release-cut.yml")
+    revalidate_tags = workflow_job(release, "revalidate-tags")
     cut_tags = workflow_job(release, "cut-tags")
     verifier = (
         ROOT
@@ -445,18 +447,19 @@ def test_registry_state_is_revalidated_after_release_approval() -> None:
         / "verify_release_registry_state.sh"
     ).read_text()
 
-    assert "actions: read" in cut_tags
+    assert "actions: read" in revalidate_tags
+    assert "name: sdk-release" in revalidate_tags
     for artifact in (
         "cmux-rust-client-crate",
         "cmux-rust-sidebar-crate",
         "cmux-npm-dist",
         "cmux-python-dist",
     ):
-        assert f"name: {artifact}" in cut_tags
-    revalidate = cut_tags.rindex("verify_release_registry_state.sh")
-    tag_push = cut_tags.rindex('git push --atomic "$release_repository"')
-    assert revalidate < tag_push
-    assert cut_tags.count("verify_release_registry_state.sh") == 1
+        assert f"name: {artifact}" in revalidate_tags
+    assert revalidate_tags.count("verify_release_registry_state.sh") == 1
+    assert "remote_state_sha256" in revalidate_tags
+    assert "revalidate-tags" in cut_tags
+    assert "verify_release_registry_state.sh" not in cut_tags
     assert verifier.count("reconcile_registry_artifact.py check") == 5
     assert "verify_crates_ownership.py" in verifier
     assert "verify_npm_provenance.py" in verifier
@@ -465,14 +468,27 @@ def test_registry_state_is_revalidated_after_release_approval() -> None:
 
 
 def test_release_app_token_is_scoped_to_the_atomic_push() -> None:
-    cut_tags = workflow_job(workflow("sdk-release-cut.yml"), "cut-tags")
+    release = workflow("sdk-release-cut.yml")
+    revalidate_tags = workflow_job(release, "revalidate-tags")
+    cut_tags = workflow_job(release, "cut-tags")
 
-    revalidate = cut_tags.rindex("verify_release_registry_state.sh")
+    assert "SDK_RELEASE_APP_PRIVATE_KEY" not in revalidate_tags
+    assert "actions/create-github-app-token@" not in revalidate_tags
+    assert "runs-on: ubuntu-24.04" in cut_tags
+    assert "actions/checkout@" not in cut_tags
+    assert "actions/download-artifact@" not in cut_tags
+    assert "actions/setup-node@" not in cut_tags
+    assert "actions/setup-python@" not in cut_tags
+    prepare = cut_tags.index("Verify fresh release authority and prepare tags")
     mint = cut_tags.rindex("actions/create-github-app-token@")
     push = cut_tags.rindex('git push --atomic "$release_repository"')
-    assert revalidate < mint < push
-    assert "persist-credentials: false" in cut_tags
+    assert prepare < mint < push
     assert "token: ${{ steps.release_app_token.outputs.token }}" not in cut_tags
+    assert "verify_release_registry_state.sh" not in cut_tags
+    assert "python3 " not in cut_tags
+    assert "npm " not in cut_tags
+    assert "cargo " not in cut_tags
+    assert "REMOTE_STATE_SHA256" in cut_tags
 
     push_step = cut_tags.split(
         "- name: Push protected release tags", 1
@@ -529,14 +545,18 @@ def test_stable_registry_provenance_gates_recovery_and_completion() -> None:
 
 def test_tag_cut_revalidates_release_order_after_its_final_fetch() -> None:
     release = workflow("sdk-release-cut.yml")
+    revalidate_tags = workflow_job(release, "revalidate-tags")
     cut_tags = workflow_job(release, "cut-tags")
 
-    fetch = cut_tags.rindex("git fetch --force origin main --tags")
-    tag_list = cut_tags.index("git tag --list 'cmux-sdk-v*'", fetch)
-    revalidate = cut_tags.index("--require-latest-tag", tag_list)
-    create = cut_tags.index('ensure_tag "$sdk_tag"', revalidate)
+    fetch = revalidate_tags.rindex("git fetch --force origin main --tags")
+    tag_list = revalidate_tags.index("git tag --list 'cmux-sdk-v*'", fetch)
+    revalidate = revalidate_tags.index("--require-latest-tag", tag_list)
+    snapshot = revalidate_tags.index("remote_state_sha256", revalidate)
+    compare = cut_tags.index('[[ "$remote_state_sha256" == "$REMOTE_STATE_SHA256" ]]')
+    create = cut_tags.index('ensure_tag "$SDK_TAG"', compare)
     push = cut_tags.index('git push --atomic "$release_repository"', create)
-    assert fetch < tag_list < revalidate < create < push
+    assert fetch < tag_list < revalidate < snapshot
+    assert compare < create < push
 
 
 def test_go_publisher_uses_the_nested_module_semver_tag() -> None:

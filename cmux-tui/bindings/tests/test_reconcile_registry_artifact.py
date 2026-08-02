@@ -738,6 +738,71 @@ class RegistryArtifactTests(unittest.TestCase):
         self.assertEqual(cancellation.wait.call_args_list, [mock.call(5), mock.call(1)])
         self.assertEqual(status.call_count, 3)
 
+    def test_new_crate_bootstrap_retries_project_propagation_only_post_publish(
+        self,
+    ) -> None:
+        cancellation = mock.Mock()
+        cancellation.is_set.return_value = False
+        cancellation.wait.return_value = False
+        missing = reconcile.RegistryProjectMissing("project is propagating")
+
+        with mock.patch.object(
+            reconcile,
+            "registry_status",
+            side_effect=(missing, reconcile.MATCH),
+        ) as status:
+            self.assertEqual(
+                reconcile.wait_for_status(
+                    "crates",
+                    "cmux-sidebar",
+                    "0.0.0-bootstrap.0",
+                    self.artifact,
+                    300,
+                    cancel_event=cancellation,
+                    retry_missing_project=True,
+                ),
+                reconcile.MATCH,
+            )
+        self.assertEqual(status.call_count, 2)
+        cancellation.wait.assert_called_once_with(5)
+
+        cancellation.reset_mock()
+        cancellation.is_set.return_value = False
+        with mock.patch.object(
+            reconcile,
+            "registry_status",
+            side_effect=reconcile.RegistryProjectMissing("project is absent"),
+        ), self.assertRaises(reconcile.RegistryProjectMissing):
+            reconcile.wait_for_status(
+                "crates",
+                "cmux-sidebar",
+                "0.0.0-bootstrap.0",
+                self.artifact,
+                300,
+                cancel_event=cancellation,
+            )
+        cancellation.wait.assert_not_called()
+
+    def test_crates_archive_propagation_is_retryable(self) -> None:
+        missing = HTTPError("https://registry.example", 404, "missing", None, None)
+
+        def response(request: object, **_kwargs: object) -> io.BytesIO:
+            url = str(getattr(request, "full_url", ""))
+            if url.endswith("/download"):
+                raise missing
+            if url.endswith("/1.0.0"):
+                return self.response({"version": {"yanked": False}})
+            return self.response({
+                "crate": {"name": "cmux-client"},
+                "versions": [{"num": "1.0.0", "yanked": False}],
+            })
+
+        with mock.patch.object(reconcile, "urlopen", side_effect=response), \
+            self.assertRaises(reconcile.RegistryLookupError):
+            reconcile.registry_status(
+                "crates", "cmux-client", "1.0.0", self.artifact
+            )
+
     def test_failed_publish_is_success_when_exact_bytes_appear(self) -> None:
         with mock.patch.object(
             reconcile,
