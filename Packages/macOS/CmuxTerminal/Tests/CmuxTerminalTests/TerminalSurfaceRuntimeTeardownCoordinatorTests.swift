@@ -173,6 +173,95 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         #expect(await firstTicket.wait(timeout: .seconds(1)))
     }
 
+    @Test func twoStuckClosesBoundAdmissionUntilAWorkerRecovers() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            closeTeardownTimeout: .milliseconds(50),
+            maximumRuntimeSurfaceOwnerCount: 4
+        )
+        let surfaces = (0..<3).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        defer { for surface in surfaces { surface.deallocate() } }
+        let freeStarted = AsyncStream<Void>.makeStream()
+        let releaseFrees = DispatchSemaphore(value: 0)
+        defer {
+            releaseFrees.signal()
+            releaseFrees.signal()
+            freeStarted.continuation.finish()
+        }
+
+        let firstTicket = try #require(
+            coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.firstStuckClose",
+                surface: surfaces[0],
+                callbackContext: nil,
+                freeSurface: { _ in
+                    freeStarted.continuation.yield()
+                    releaseFrees.wait()
+                }
+            )
+        )
+        let secondTicket = try #require(
+            coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.secondStuckClose",
+                surface: surfaces[1],
+                callbackContext: nil,
+                freeSurface: { _ in
+                    freeStarted.continuation.yield()
+                    releaseFrees.wait()
+                }
+            )
+        )
+        var freeStartedIterator = freeStarted.stream.makeAsyncIterator()
+        _ = await freeStartedIterator.next()
+        _ = await freeStartedIterator.next()
+
+        let degradationDeadline = ContinuousClock.now + .seconds(1)
+        while await !coordinator.debugCloseTeardownDegraded,
+              ContinuousClock.now < degradationDeadline {
+            await Task.yield()
+        }
+        #expect(await coordinator.debugCloseTeardownDegraded)
+        #expect(await coordinator.debugPendingTeardownCount == 2)
+
+        let rejectedTicket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.closeAfterBothWorkersStalled",
+            surface: surfaces[2],
+            callbackContext: nil,
+            freeSurface: { _ in }
+        )
+        #expect(rejectedTicket == nil)
+
+        releaseFrees.signal()
+        releaseFrees.signal()
+        #expect(await firstTicket.wait(timeout: .seconds(1)))
+        #expect(await secondTicket.wait(timeout: .seconds(1)))
+
+        let recoveryDeadline = ContinuousClock.now + .seconds(1)
+        while await coordinator.debugCloseTeardownDegraded,
+              ContinuousClock.now < recoveryDeadline {
+            await Task.yield()
+        }
+        #expect(await !coordinator.debugCloseTeardownDegraded)
+        let recoveredTicket = try #require(
+            coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.closeAfterWorkerRecovery",
+                surface: surfaces[2],
+                callbackContext: nil,
+                freeSurface: { _ in }
+            )
+        )
+        #expect(await recoveredTicket.wait(timeout: .seconds(1)))
+    }
+
     @Test func stuckHibernationFreeDoesNotStrandAnotherAdmissionOrClose() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let isolatedSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)

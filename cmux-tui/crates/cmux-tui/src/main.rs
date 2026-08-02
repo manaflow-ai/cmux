@@ -2704,6 +2704,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn server_process_owner_shutdown_obeys_cleanup_deadline() {
+        use std::io::{BufRead as _, Write as _};
+        use std::os::unix::net::UnixStream;
+
         let process_owners = Arc::new(ServerProcessOwnersCleanup::new());
         let (release, blocked) = std::sync::mpsc::channel();
         let remote_thread = std::thread::spawn(move || {
@@ -2715,6 +2718,14 @@ mod tests {
         process_owners.seal();
 
         let mux = Mux::new("bounded-process-owner-test", SurfaceOptions::default());
+        let suffix =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let socket_dir = std::env::temp_dir()
+            .join(format!("cmux-owner-health-{}-{suffix:x}", std::process::id()));
+        std::fs::create_dir(&socket_dir).unwrap();
+        let socket_path = socket_dir.join("server.sock");
+        let published =
+            cmux_tui_core::server::serve_owned(mux.clone(), Some(socket_path.clone())).unwrap();
         let cleanup = Arc::new(ServerShutdownCleanup::new_with_process_owners(mux, process_owners));
         cleanup.set_shutdown_attempt_for_test(|| Ok(()));
         cleanup.set_process_owner_timeout_for_test(std::time::Duration::from_millis(50));
@@ -2728,15 +2739,32 @@ mod tests {
         let returned_in_time = bounded.is_ok();
         let returned_incomplete = matches!(&bounded, Ok(Err(_)));
         let retained_remote_owner = !cleanup.process_owners.remote_is_finished();
+        let mut stream = UnixStream::connect(&socket_path).unwrap();
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(1))).unwrap();
+        stream.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n").unwrap();
+        stream.flush().unwrap();
+        let mut response = String::new();
+        BufReader::new(stream).read_line(&mut response).unwrap();
+        let identity: serde_json::Value = serde_json::from_str(&response).unwrap();
+        let health = &identity["data"]["shutdown_cleanup"];
+        let reported_process_owner_degradation = health["pending"].as_u64() == Some(1)
+            && health["retrying"].as_bool() == Some(false)
+            && health["degraded"].as_bool() == Some(true);
         let _ = release.send(());
         if returned_in_time {
             cleanup.prepare_retry(0);
             cleanup.run_until_complete().unwrap();
         }
         worker.join().unwrap();
+        published.cleanup();
+        std::fs::remove_dir_all(socket_dir).unwrap();
         assert!(returned_in_time, "server process-owner shutdown ignored the cleanup deadline");
         assert!(returned_incomplete, "bounded owner cleanup did not request an explicit retry");
         assert!(retained_remote_owner, "bounded owner cleanup discarded the live remote runtime");
+        assert!(
+            reported_process_owner_degradation,
+            "identify hid process-owner cleanup that required an explicit retry"
+        );
     }
 
     #[test]
