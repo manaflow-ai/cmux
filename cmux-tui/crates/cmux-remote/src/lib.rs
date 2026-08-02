@@ -14,10 +14,15 @@ mod mux_codec;
 mod mux_input;
 mod mux_lanes;
 pub mod observability;
+mod owner_lock;
 mod process_creation;
 pub mod provider;
+pub mod secret_file;
+pub mod secure_directory;
 pub mod service;
 pub mod services;
 pub mod session;
 pub mod ssh_bootstrap;
+#[cfg(unix)]
+mod unix_socket;
 pub mod workspace;

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
-use std::fs::{self, OpenOptions};
-use std::io::{Read, Write};
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::str::FromStr;
@@ -14,7 +14,7 @@ use ::iroh::{
 };
 use async_trait::async_trait;
 use cmux_remote_protocol::MAX_WIRE_FRAME_BYTES;
-use tokio::sync::{Mutex, OnceCell, Semaphore, mpsc, oneshot};
+use tokio::sync::{Mutex, OnceCell, OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::crypto::SECURE_FRAME_OVERHEAD_BYTES;
@@ -26,6 +26,7 @@ use crate::provider::{
     ProviderCapabilities, ProviderError, SupportedClientAuthModes, TransportProvider,
     sanitized_route,
 };
+use crate::secure_directory::{DirectoryAccess, ensure_secure_directory};
 
 /// ALPN negotiated by cmux remote sessions over Iroh.
 pub const CMUX_IROH_ALPN: &[u8] = b"dev.cmux.remote/1";
@@ -80,26 +81,12 @@ impl FromStr for IrohPathMode {
 /// hints valid across daemon restarts.
 pub fn load_or_create_iroh_secret(path: &Path) -> Result<SecretKey, ProviderError> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(io_provider_error)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
-                .map_err(io_provider_error)?;
-        }
+        ensure_secure_directory(parent, DirectoryAccess::ManagedOwnerOnly)
+            .map_err(io_provider_error)?;
     }
     if path.exists() {
-        let mut options = OpenOptions::new();
-        options.read(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.custom_flags(libc::O_NOFOLLOW);
-        }
-        let mut file = options.open(path).map_err(io_provider_error)?;
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes).map_err(io_provider_error)?;
-        let bytes: [u8; 32] = bytes.try_into().map_err(|bytes: Vec<u8>| {
+        let bytes = crate::secret_file::read_owner_only(path, 32).map_err(io_provider_error)?;
+        let bytes: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
             ProviderError::Configuration(format!(
                 "Iroh secret at {} is {} bytes, expected 32",
                 path.display(),
@@ -350,7 +337,9 @@ impl IrohProviderConfig {
 #[derive(Debug, Clone, Copy)]
 struct IrohListenerLimits {
     maximum_connections: usize,
+    maximum_connection_overflow: usize,
     maximum_pending_streams: usize,
+    maximum_pending_stream_overflow: usize,
     maximum_pending_streams_per_connection: usize,
     connection_handshake_timeout: Duration,
     first_stream_timeout: Duration,
@@ -362,7 +351,9 @@ impl Default for IrohListenerLimits {
     fn default() -> Self {
         Self {
             maximum_connections: 64,
+            maximum_connection_overflow: 8,
             maximum_pending_streams: 64,
+            maximum_pending_stream_overflow: 8,
             maximum_pending_streams_per_connection: 8,
             connection_handshake_timeout: Duration::from_secs(10),
             first_stream_timeout: Duration::from_secs(15),
@@ -393,7 +384,9 @@ impl IrohListenerLimits {
 struct IrohAdmission {
     limits: IrohListenerLimits,
     connections: Arc<Semaphore>,
+    connection_overflow: Arc<Semaphore>,
     pending_streams: Arc<Semaphore>,
+    pending_stream_overflow: Arc<Semaphore>,
 }
 
 impl IrohAdmission {
@@ -401,8 +394,71 @@ impl IrohAdmission {
         Self {
             limits,
             connections: Arc::new(Semaphore::new(limits.maximum_connections)),
+            connection_overflow: Arc::new(Semaphore::new(limits.maximum_connection_overflow)),
             pending_streams: Arc::new(Semaphore::new(limits.maximum_pending_streams)),
+            pending_stream_overflow: Arc::new(Semaphore::new(
+                limits.maximum_pending_stream_overflow,
+            )),
         }
+    }
+}
+
+enum PreAuthAdmission {
+    Ready(OwnedSemaphorePermit),
+    Queued(OwnedSemaphorePermit),
+}
+
+impl PreAuthAdmission {
+    async fn acquire(self, capacity: Arc<Semaphore>) -> OwnedSemaphorePermit {
+        match self {
+            Self::Ready(permit) => permit,
+            Self::Queued(overflow) => {
+                let permit = capacity
+                    .acquire_owned()
+                    .await
+                    .expect("Iroh pre-auth admission semaphore is never closed");
+                drop(overflow);
+                permit
+            }
+        }
+    }
+
+    async fn acquire_until_authenticated(
+        self,
+        capacity: Arc<Semaphore>,
+        mut authenticated: watch::Receiver<bool>,
+    ) -> Option<OwnedSemaphorePermit> {
+        if *authenticated.borrow() {
+            return None;
+        }
+        match self {
+            Self::Ready(permit) => Some(permit),
+            Self::Queued(overflow) => {
+                tokio::select! {
+                    biased;
+                    _ = authenticated.changed() => {
+                        drop(overflow);
+                        None
+                    }
+                    permit = capacity.acquire_owned() => {
+                        let permit =
+                            permit.expect("Iroh pre-auth admission semaphore is never closed");
+                        drop(overflow);
+                        Some(permit)
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn try_pre_auth_admission(
+    capacity: &Arc<Semaphore>,
+    overflow: &Arc<Semaphore>,
+) -> Option<PreAuthAdmission> {
+    match capacity.clone().try_acquire_owned() {
+        Ok(permit) => Some(PreAuthAdmission::Ready(permit)),
+        Err(_) => overflow.clone().try_acquire_owned().ok().map(PreAuthAdmission::Queued),
     }
 }
 
@@ -746,8 +802,10 @@ async fn run_iroh_listener(
             }
             incoming = endpoint.accept() => {
                 let Some(incoming) = incoming else { break };
-                let Ok(connection_permit) = admission.connections.clone().try_acquire_owned()
-                else {
+                let Some(connection_admission) = try_pre_auth_admission(
+                    &admission.connections,
+                    &admission.connection_overflow,
+                ) else {
                     incoming.refuse();
                     continue;
                 };
@@ -755,11 +813,19 @@ async fn run_iroh_listener(
                 let alpn = alpn.clone();
                 let admission = admission.clone();
                 connections.spawn(async move {
-                    let _connection_permit = connection_permit;
                     let Ok(Ok(connection)) = tokio::time::timeout(
                         admission.limits.connection_handshake_timeout,
                         async move { incoming.await },
                     ).await else {
+                        return;
+                    };
+                    let first_stream_deadline =
+                        tokio::time::Instant::now() + admission.limits.first_stream_timeout;
+                    let Ok(connection_permit) = tokio::time::timeout_at(
+                        first_stream_deadline,
+                        connection_admission.acquire(admission.connections.clone()),
+                    ).await else {
+                        connection.close(9_u8.into(), b"cmux connection admission timed out");
                         return;
                     };
                     serve_iroh_connection(
@@ -768,6 +834,8 @@ async fn run_iroh_listener(
                         alpn,
                         maximum_frame_bytes,
                         admission,
+                        connection_permit,
+                        first_stream_deadline,
                     ).await;
                 });
             }
@@ -784,6 +852,8 @@ async fn serve_iroh_connection(
     alpn: Vec<u8>,
     maximum_frame_bytes: usize,
     admission: Arc<IrohAdmission>,
+    connection_permit: OwnedSemaphorePermit,
+    first_stream_deadline: tokio::time::Instant,
 ) {
     if connection.alpn() != alpn.as_slice() {
         connection.close(2_u8.into(), b"unexpected cmux ALPN");
@@ -794,13 +864,15 @@ async fn serve_iroh_connection(
     let mut next_stream_id = 0_u64;
     let mut links = JoinSet::new();
     let (accept_results_tx, mut accept_results_rx) = mpsc::unbounded_channel();
+    let (authenticated_tx, authenticated_rx) = watch::channel(false);
     let per_connection =
         Arc::new(Semaphore::new(admission.limits.maximum_pending_streams_per_connection));
-    let first_stream_deadline = tokio::time::sleep(admission.limits.first_stream_timeout);
+    let first_stream_deadline = tokio::time::sleep_until(first_stream_deadline);
     let unauthenticated_deadline = tokio::time::sleep(admission.limits.unauthenticated_timeout);
     tokio::pin!(first_stream_deadline);
     tokio::pin!(unauthenticated_deadline);
     let mut authenticated = false;
+    let _connection_permit = connection_permit;
     loop {
         tokio::select! {
             biased;
@@ -809,7 +881,12 @@ async fn serve_iroh_connection(
             }
             result = accept_results_rx.recv() => {
                 match result {
-                    Some(IrohAcceptResult::Succeeded) => authenticated = true,
+                    Some(IrohAcceptResult::Succeeded) => {
+                        if !authenticated {
+                            authenticated = true;
+                            authenticated_tx.send_replace(true);
+                        }
+                    }
                     Some(IrohAcceptResult::Failed) if !authenticated => {
                         connection.close(7_u8.into(), b"first cmux authentication failed");
                         break;
@@ -835,12 +912,19 @@ async fn serve_iroh_connection(
                     connection.close(5_u8.into(), b"too many pending cmux streams");
                     break;
                 };
-                let Ok(global_permit) = admission.pending_streams.clone().try_acquire_owned()
-                else {
-                    let _ = sender.reset(6_u8.into());
-                    let _ = receiver.stop(6_u8.into());
-                    connection.close(6_u8.into(), b"cmux pre-auth capacity exhausted");
-                    break;
+                let stream_admission = if authenticated {
+                    None
+                } else {
+                    let Some(stream_admission) = try_pre_auth_admission(
+                        &admission.pending_streams,
+                        &admission.pending_stream_overflow,
+                    ) else {
+                        let _ = sender.reset(6_u8.into());
+                        let _ = receiver.stop(6_u8.into());
+                        connection.close(6_u8.into(), b"cmux pre-auth capacity exhausted");
+                        break;
+                    };
+                    Some(stream_admission)
                 };
                 let stream_id = next_stream_id;
                 next_stream_id = next_stream_id.saturating_add(1);
@@ -848,7 +932,17 @@ async fn serve_iroh_connection(
                 let description = format!("iroh-daemon://{remote_node_id}/{stream_id}");
                 let pre_auth_timeout = admission.limits.pre_auth_timeout;
                 let accept_results = accept_results_tx.clone();
+                let pending_streams = admission.pending_streams.clone();
+                let authenticated = authenticated_rx.clone();
                 links.spawn(async move {
+                    let global_permit = match stream_admission {
+                        Some(stream_admission) => {
+                            stream_admission
+                                .acquire_until_authenticated(pending_streams, authenticated)
+                                .await
+                        }
+                        None => None,
+                    };
                     let permits = (per_connection_permit, global_permit);
                     let link = LengthDelimitedLink::new(
                         description,
@@ -1164,6 +1258,56 @@ mod tests {
         assert!(error.is_retryable_carrier_failure(), "{error}");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn iroh_secret_rejects_an_intermediate_symlink_without_creating_under_its_target() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        let alias = directory.path().join("alias");
+        std::fs::create_dir(&target).unwrap();
+        symlink(&target, &alias).unwrap();
+
+        let result = load_or_create_iroh_secret(&alias.join("missing/iroh.key"));
+
+        assert!(result.is_err(), "intermediate symlink was accepted");
+        assert!(!target.join("missing").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn iroh_secret_rejects_a_fifo_without_blocking() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("iroh.key");
+        let fifo = CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let loader_path = path.clone();
+        let worker = std::thread::spawn(move || {
+            let _ = sender.send(load_or_create_iroh_secret(&loader_path));
+        });
+        let completed = receiver.recv_timeout(Duration::from_millis(250));
+        if completed.is_err() {
+            let mut writer = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(&path)
+                .unwrap();
+            writer.write_all(&[0; 32]).unwrap();
+        }
+        worker.join().unwrap();
+
+        let result = completed.expect("Iroh secret loader blocked while opening a FIFO");
+        assert!(result.is_err(), "Iroh FIFO was accepted as a secret file");
+    }
+
     async fn wait_for_available_permits(semaphore: &Semaphore, expected: usize) {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
@@ -1175,6 +1319,76 @@ mod tests {
         })
         .await
         .unwrap();
+    }
+
+    #[tokio::test]
+    async fn pre_auth_overflow_is_fifo_bounded_and_releases_permits() {
+        let capacity = Arc::new(Semaphore::new(1));
+        let overflow = Arc::new(Semaphore::new(2));
+        let held =
+            try_pre_auth_admission(&capacity, &overflow).unwrap().acquire(capacity.clone()).await;
+        let first = try_pre_auth_admission(&capacity, &overflow).unwrap();
+        let second = try_pre_auth_admission(&capacity, &overflow).unwrap();
+        assert!(try_pre_auth_admission(&capacity, &overflow).is_none());
+
+        let mut first = tokio::spawn(first.acquire(capacity.clone()));
+        tokio::task::yield_now().await;
+        let mut second = tokio::spawn(second.acquire(capacity.clone()));
+        tokio::task::yield_now().await;
+        drop(held);
+
+        let first_permit = tokio::time::timeout(Duration::from_secs(1), &mut first)
+            .await
+            .expect("first queued admission did not advance")
+            .unwrap();
+        assert!(tokio::time::timeout(Duration::from_millis(25), &mut second).await.is_err());
+        let replenishing = try_pre_auth_admission(&capacity, &overflow)
+            .expect("completed overflow slot was not replenished");
+        let mut replenishing = tokio::spawn(replenishing.acquire(capacity.clone()));
+        tokio::task::yield_now().await;
+        drop(first_permit);
+        let second_permit = tokio::time::timeout(Duration::from_secs(1), second)
+            .await
+            .expect("second queued admission did not advance")
+            .unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(25), &mut replenishing).await.is_err(),
+            "replenishing arrival bypassed the queued admission"
+        );
+        drop(second_permit);
+        let replenishing_permit = tokio::time::timeout(Duration::from_secs(1), replenishing)
+            .await
+            .expect("replenishing admission did not advance")
+            .unwrap();
+        drop(replenishing_permit);
+        assert_eq!(capacity.available_permits(), 1);
+        assert_eq!(overflow.available_permits(), 2);
+    }
+
+    #[tokio::test]
+    async fn authenticated_connection_bypasses_queued_pre_auth_stream_capacity() {
+        let capacity = Arc::new(Semaphore::new(1));
+        let overflow = Arc::new(Semaphore::new(1));
+        let held =
+            try_pre_auth_admission(&capacity, &overflow).unwrap().acquire(capacity.clone()).await;
+        let queued = try_pre_auth_admission(&capacity, &overflow).unwrap();
+        let (authenticated_tx, authenticated_rx) = watch::channel(false);
+        let waiting =
+            tokio::spawn(queued.acquire_until_authenticated(capacity.clone(), authenticated_rx));
+        wait_for_available_permits(&overflow, 0).await;
+
+        authenticated_tx.send_replace(true);
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), waiting)
+                .await
+                .expect("authenticated stream remained queued")
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(overflow.available_permits(), 1);
+        assert_eq!(capacity.available_permits(), 0);
+        drop(held);
+        assert_eq!(capacity.available_permits(), 1);
     }
 
     #[test]
@@ -1538,6 +1752,7 @@ mod tests {
         let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
         let limits = IrohListenerLimits {
             maximum_connections: 1,
+            maximum_connection_overflow: 0,
             first_stream_timeout: Duration::from_secs(5),
             connection_handshake_timeout: Duration::from_secs(1),
             pre_auth_timeout: Duration::from_secs(1),
@@ -1566,13 +1781,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn queued_connection_expires_and_releases_its_overflow_slot() {
+        let temp = tempfile::tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(temp.path(), "test-daemon", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let limits = IrohListenerLimits {
+            maximum_connections: 1,
+            maximum_connection_overflow: 1,
+            maximum_pending_streams: 1,
+            maximum_pending_stream_overflow: 0,
+            maximum_pending_streams_per_connection: 1,
+            first_stream_timeout: Duration::from_millis(150),
+            connection_handshake_timeout: Duration::from_secs(1),
+            unauthenticated_timeout: Duration::from_secs(5),
+            pre_auth_timeout: Duration::from_secs(5),
+        };
+        let listener =
+            IrohListener::bind_with_limits(daemon, local_config(secret(48)), limits).await.unwrap();
+        let (first_client, first_connection) = connect_test_client(&listener, secret(49)).await;
+        let (mut first_sender, first_receiver) = first_connection.open_bi().await.unwrap();
+        first_sender.write_all(b"x").await.unwrap();
+        first_sender.flush().await.unwrap();
+        let first_stream = (first_sender, first_receiver);
+        wait_for_available_permits(&listener.admission.connections, 0).await;
+
+        let (second_client, second_connection) = connect_test_client(&listener, secret(50)).await;
+        wait_for_available_permits(&listener.admission.connection_overflow, 0).await;
+        let _ = tokio::time::timeout(Duration::from_secs(2), second_connection.closed())
+            .await
+            .expect("queued Iroh connection outlived the admission deadline");
+        wait_for_available_permits(&listener.admission.connection_overflow, 1).await;
+        assert!(first_connection.close_reason().is_none());
+
+        drop(first_stream);
+        first_connection.close(0_u8.into(), b"test complete");
+        listener.shutdown().await.unwrap();
+        first_client.close().await;
+        second_client.close().await;
+    }
+
+    #[tokio::test]
     async fn listener_bounds_pending_streams_per_connection_and_globally() {
         let temp = tempfile::tempdir().unwrap();
         let auth = AuthDatabase::load_or_create(temp.path(), "test-daemon", false).unwrap();
         let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
         let limits = IrohListenerLimits {
             maximum_connections: 2,
+            maximum_connection_overflow: 1,
             maximum_pending_streams: 2,
+            maximum_pending_stream_overflow: 1,
             maximum_pending_streams_per_connection: 1,
             first_stream_timeout: Duration::from_secs(5),
             connection_handshake_timeout: Duration::from_secs(1),
@@ -1606,7 +1863,9 @@ mod tests {
         let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
         let limits = IrohListenerLimits {
             maximum_connections: 2,
+            maximum_connection_overflow: 1,
             maximum_pending_streams: 1,
+            maximum_pending_stream_overflow: 0,
             maximum_pending_streams_per_connection: 2,
             first_stream_timeout: Duration::from_secs(5),
             connection_handshake_timeout: Duration::from_secs(1),
@@ -1646,7 +1905,9 @@ mod tests {
         let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
         let limits = IrohListenerLimits {
             maximum_connections: 1,
+            maximum_connection_overflow: 1,
             maximum_pending_streams: 1,
+            maximum_pending_stream_overflow: 1,
             maximum_pending_streams_per_connection: 1,
             first_stream_timeout: Duration::from_secs(5),
             connection_handshake_timeout: Duration::from_secs(1),
@@ -1680,7 +1941,9 @@ mod tests {
         let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
         let limits = IrohListenerLimits {
             maximum_connections: 1,
+            maximum_connection_overflow: 1,
             maximum_pending_streams: 1,
+            maximum_pending_stream_overflow: 1,
             maximum_pending_streams_per_connection: 1,
             first_stream_timeout: Duration::from_secs(5),
             connection_handshake_timeout: Duration::from_secs(1),
@@ -1715,7 +1978,12 @@ mod tests {
         let auth = AuthDatabase::load_or_create(temp.path(), "test-daemon", false).unwrap();
         let (daemon, mut accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
         let server_key = secret(12);
-        let listener = IrohListener::bind(
+        let limits = IrohListenerLimits {
+            maximum_connections: 1,
+            maximum_connection_overflow: 0,
+            ..IrohListenerLimits::default()
+        };
+        let listener = IrohListener::bind_with_limits(
             daemon,
             IrohProviderConfig {
                 secret_key: Some(server_key.clone()),
@@ -1725,6 +1993,7 @@ mod tests {
                 alpn: CMUX_IROH_ALPN.to_vec(),
                 maximum_frame_bytes: MAX_WIRE_FRAME_BYTES,
             },
+            limits,
         )
         .await
         .unwrap();
@@ -1812,6 +2081,16 @@ mod tests {
             .unwrap();
         assert_eq!(received.lane, Lane::Bulk);
         assert_eq!(received.payload, &b"daemon-to-client"[..]);
+
+        let excess_carrier = tokio::time::timeout(
+            Duration::from_secs(1),
+            listener.admission.connections.clone().acquire_owned(),
+        )
+        .await;
+        assert!(
+            excess_carrier.is_err(),
+            "an authenticated Iroh carrier released its global admission permit"
+        );
 
         client.close().await.unwrap();
         let _ = server_connection.close().await;

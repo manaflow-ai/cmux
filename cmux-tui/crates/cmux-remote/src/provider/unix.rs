@@ -75,6 +75,19 @@ struct UnixLinkGroup {
     expected_uid: Option<u32>,
 }
 
+fn retryable_dial_error(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::NotFound
+            | std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::TimedOut
+            | std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::WouldBlock
+    )
+}
+
 #[async_trait]
 impl LinkGroup for UnixLinkGroup {
     fn description(&self) -> &str {
@@ -105,9 +118,15 @@ impl LinkGroup for UnixLinkGroup {
         if self.closed.load(Ordering::Acquire) {
             return Err(ProviderError::Link(LinkError::Closed));
         }
-        let stream = cmux_tui_process::tokio_net::connect_unix_stream(&self.path)
-            .await
-            .map_err(|error| ProviderError::Link(LinkError::Transport(error.to_string())))?;
+        let stream = cmux_tui_process::tokio_net::connect_unix_stream(&self.path).await.map_err(
+            |error| {
+                if retryable_dial_error(&error) {
+                    ProviderError::Link(LinkError::Transport(error.to_string()))
+                } else {
+                    ProviderError::Transport(error.to_string())
+                }
+            },
+        )?;
         #[cfg(test)]
         let peer_validation = match self.expected_uid {
             Some(expected_uid) => verify_unix_peer_uid(&stream, expected_uid),
@@ -171,6 +190,43 @@ mod tests {
         let _listener = UnixListener::bind(&socket).unwrap();
 
         open_with_expected_uid(&socket, unsafe { libc::geteuid() }).await;
+    }
+
+    #[tokio::test]
+    async fn transient_dial_failures_are_retryable_carrier_failures() {
+        let directory = tempdir().unwrap();
+        let missing = directory.path().join("missing.sock");
+        let refused = directory.path().join("refused.sock");
+        drop(UnixListener::bind(&refused).unwrap());
+
+        for socket in [missing, refused] {
+            let group = UnixProvider::new(1024).connect(request(&socket)).await.unwrap();
+            let error =
+                match group.open(LinkRequest { lane: Lane::Interactive, generation: 1 }).await {
+                    Ok(_) => panic!("unavailable Unix responder was accepted"),
+                    Err(error) => error,
+                };
+            assert!(
+                error.is_retryable_carrier_failure(),
+                "Unix dial failure for {} was terminal: {error}",
+                socket.display()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn permanent_dial_failures_are_terminal() {
+        let directory = tempdir().unwrap();
+        let non_directory = directory.path().join("ordinary-file");
+        std::fs::write(&non_directory, b"not a directory").unwrap();
+        let socket = non_directory.join("carrier.sock");
+        let group = UnixProvider::new(1024).connect(request(&socket)).await.unwrap();
+        let error = match group.open(LinkRequest { lane: Lane::Interactive, generation: 1 }).await {
+            Ok(_) => panic!("invalid Unix socket path was accepted"),
+            Err(error) => error,
+        };
+
+        assert!(!error.is_retryable_carrier_failure(), "permanent dial failure was retryable");
     }
 
     #[tokio::test]

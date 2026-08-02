@@ -116,6 +116,11 @@ fn ssh_destination(endpoint: &url::Url) -> Result<(String, String), ProviderErro
         ));
     }
     let destination = if username.is_empty() { host } else { format!("{username}@{host}") };
+    if destination.starts_with('-') {
+        return Err(ProviderError::Configuration(
+            "SSH destination cannot begin with an option prefix".into(),
+        ));
+    }
     let description = sanitized_route(endpoint);
     Ok((destination, description))
 }
@@ -273,5 +278,14 @@ mod tests {
         let (destination, description) = ssh_destination(&endpoint).unwrap();
         assert_eq!(destination, "2001:db8::1");
         assert_eq!(description, "ssh://[2001:db8::1]:2222");
+    }
+
+    #[test]
+    fn option_like_destination_is_rejected_before_group_construction() {
+        let endpoint = url::Url::parse("ssh://-Fvalidation@localhost").unwrap();
+        let error = ssh_destination(&endpoint).unwrap_err();
+        assert!(
+            matches!(error, ProviderError::Configuration(message) if message.contains("destination"))
+        );
     }
 }

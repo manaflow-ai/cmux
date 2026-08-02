@@ -51,6 +51,11 @@ impl SshBootstrapConfig {
     }
 
     fn validate(&self) -> Result<(), BootstrapError> {
+        if self.destination.starts_with('-') {
+            return Err(BootstrapError::Configuration(
+                "SSH destination cannot begin with an option prefix".into(),
+            ));
+        }
         for (label, value) in [
             ("SSH destination", self.destination.as_str()),
             ("remote binary", self.remote_binary.as_str()),
@@ -462,6 +467,18 @@ mod tests {
         assert!(
             !BootstrapError::Remote { status: 2, stderr: "usage".into() }
                 .is_retryable_carrier_failure()
+        );
+    }
+
+    #[test]
+    fn option_like_destination_is_rejected_by_bootstrap_config() {
+        let Err(error) =
+            SshBootstrapper::new(SshBootstrapConfig::defaults("-Fvalidation@localhost"))
+        else {
+            panic!("option-like SSH bootstrap destination was accepted");
+        };
+        assert!(
+            matches!(error, BootstrapError::Configuration(message) if message.contains("destination"))
         );
     }
 

@@ -131,6 +131,37 @@ impl TerminalExit {
     }
 }
 
+/// Wait for the native child hidden behind cmux-pty without collapsing Unix
+/// signal/core information into its display-only fallback status.
+///
+/// cmux-pty's Unix backend returns `std::process::Child`, so failure to downcast
+/// is an alternate backend and becomes an explicit unknown outcome.
+#[cfg(test)]
+pub(crate) fn wait_for_native_child_status(
+    child: &mut (dyn cmux_pty::Child + Send + Sync),
+) -> TerminalExit {
+    let child: &mut dyn cmux_pty::Child = child;
+    if let Some(child) = child.downcast_mut::<std::process::Child>() {
+        return match child.wait() {
+            Ok(status) => TerminalExit::from_exit_status(&status),
+            Err(error) => TerminalExit::unknown(format!("wait failed: {error}")),
+        };
+    }
+    match child.wait() {
+        Ok(status) if status.signal().is_some() => {
+            TerminalExit::unknown(format!("numeric signal status unavailable: {status}"))
+        }
+        Ok(status) => match i32::try_from(status.exit_code()) {
+            Ok(code) => TerminalExit::now(TerminalExitOutcome::Exit { code }),
+            Err(_) => TerminalExit::unknown(format!(
+                "portable exit code exceeds signed 32-bit range: {}",
+                status.exit_code()
+            )),
+        },
+        Err(error) => TerminalExit::unknown(format!("wait failed: {error}")),
+    }
+}
+
 fn truncate_utf8(value: &mut String, max_bytes: usize) {
     if value.len() <= max_bytes {
         return;
@@ -770,27 +801,19 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn portable_pty_native_child_retains_real_exit_and_signal_status() {
+    fn cmux_pty_native_child_retains_real_exit_and_signal_status() {
         fn run(script: &str) -> TerminalExitOutcome {
-            let pty = portable_pty::native_pty_system()
-                .openpty(portable_pty::PtySize {
-                    rows: 24,
-                    cols: 80,
-                    pixel_width: 0,
-                    pixel_height: 0,
-                })
-                .unwrap();
-            let mut command = portable_pty::CommandBuilder::new("/bin/sh");
+            let pty = cmux_pty::open(cmux_pty::PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+            let mut command = cmux_pty::PtyCommand::new("/bin/sh");
             command.args(["-c", script]);
-            let mut child = pty.slave.spawn_command(command).unwrap();
-            drop(pty.slave);
-            let child: &mut dyn portable_pty::Child = child.as_mut();
-            let status = child
-                .downcast_mut::<std::process::Child>()
-                .expect("the native Unix PTY backend returned a non-native child")
-                .wait()
-                .unwrap();
-            TerminalExit::from_exit_status(&status).outcome
+            let mut spawned = pty.spawn(command).unwrap();
+            wait_for_native_child_status(spawned.child.as_mut()).outcome
         }
 
         assert_eq!(run("exit 17"), TerminalExitOutcome::Exit { code: 17 });

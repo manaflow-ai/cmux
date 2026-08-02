@@ -2557,12 +2557,12 @@ impl Surface {
         #[cfg(all(test, unix))]
         crate::process_session::fail_after_pty_spawn_for_test()?;
         let reader_process = process.clone();
-        let mut reader = master.try_clone_reader()?;
-        let writer = master.take_writer()?;
         #[cfg(unix)]
         let supports_clear_history_key_fallback = master.as_raw_fd().is_some();
         #[cfg(not(unix))]
         let supports_clear_history_key_fallback = false;
+        let mut reader = master.try_clone_reader()?;
+        let writer = master.take_writer()?;
 
         // Query responses generated while parsing pty output are queued
         // here and flushed to the pty after each vt_write (the callback

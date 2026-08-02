@@ -3,7 +3,8 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -22,9 +23,14 @@ use cmux_remote::connection::{
     ReconnectPolicy,
 };
 use cmux_remote::crypto::{AuthKind, ClientAuthMode, CryptoError, StaticIdentity};
-use cmux_remote::daemon::{DaemonSessionPolicy, serve_direct_websocket, serve_unix};
+#[cfg(test)]
+use cmux_remote::daemon::serve_unix;
+use cmux_remote::daemon::{DaemonSessionPolicy, serve_direct_websocket, serve_unix_with_shutdown};
 use cmux_remote::http::serve_workspace_http;
-use cmux_remote::identity::{AuthDatabase, credential_free_route_hint, default_state_dir};
+use cmux_remote::identity::{
+    AuthDatabase, IdentityError, PersistedAuthStateSchema, credential_free_route_hint,
+    default_state_dir, persisted_auth_state_schema,
+};
 use cmux_remote::observability::ClientConnectionSnapshot;
 use cmux_remote::provider::{
     ConnectRequest, DirectWebSocketProvider, IrohListener, IrohPathMode, IrohProvider,
@@ -33,6 +39,7 @@ use cmux_remote::provider::{
     SupportedClientAuthModes, TransportProvider, UnixProvider, load_or_create_iroh_secret,
     register_relay_daemon_with_credentials, sanitized_route, sanitized_route_text,
 };
+use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
 use cmux_remote::session::SessionLimits;
@@ -40,13 +47,150 @@ use cmux_remote::ssh_bootstrap::{BootstrapError, SshBootstrapConfig, SshBootstra
 use cmux_remote::workspace::WorkspaceService;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tokio::sync::watch;
 use url::Url;
+
+use crate::localization::catalog;
 
 pub const MAX_CARRIER_FRAME_BYTES: usize = 65_535;
 const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
 const MAX_REMOTE_RUNTIME_WORKERS: usize = 4;
 const INITIAL_GROUP_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+const UNIX_SOCKET_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
+const CLIENT_SOCKET_LOCK_RETRY: Duration = Duration::from_millis(10);
+const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+const DAEMON_AUTH_LEASE_RETRY_TIMEOUT: Duration = Duration::from_secs(5);
+const DAEMON_AUTH_LEASE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
+const STARTUP_THREAD_REAP_TIMEOUT: Duration = Duration::from_millis(250);
+const REMOTE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
+const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
+const DAEMON_SHUTDOWN_OUTCOME_VERSION: u32 = 1;
+const DAEMON_LIFECYCLE_FENCE_VERSION: u32 = 1;
+
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DaemonCleanupPausePhase {
+    BeforeLifecycleFence,
+    BeforeListenerStartup,
+    BeforeReadySend,
+    BeforeAuthRelease,
+    AfterAuthShutdown,
+}
+
+#[cfg(test)]
+struct DaemonCleanupPause {
+    expected_state_dir: PathBuf,
+    expected_phase: DaemonCleanupPausePhase,
+    reached: mpsc::SyncSender<()>,
+    resume: std::sync::Mutex<mpsc::Receiver<()>>,
+}
+
+#[cfg(test)]
+static DAEMON_CLEANUP_PAUSES: std::sync::Mutex<Vec<Arc<DaemonCleanupPause>>> =
+    std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+static STATE_DIRECTORY_SYNC_FAILURES: std::sync::Mutex<Vec<(PathBuf, usize)>> =
+    std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+struct DaemonCleanupPauseHandle {
+    pause: Arc<DaemonCleanupPause>,
+    reached: mpsc::Receiver<()>,
+    resume: Option<mpsc::SyncSender<()>>,
+}
+
+#[cfg(test)]
+impl DaemonCleanupPauseHandle {
+    fn install(expected_state_dir: PathBuf, expected_phase: DaemonCleanupPausePhase) -> Self {
+        let (reached_tx, reached) = mpsc::sync_channel(1);
+        let (resume, resume_rx) = mpsc::sync_channel(1);
+        let pause = Arc::new(DaemonCleanupPause {
+            expected_state_dir,
+            expected_phase,
+            reached: reached_tx,
+            resume: std::sync::Mutex::new(resume_rx),
+        });
+        let mut installed =
+            DAEMON_CLEANUP_PAUSES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(
+            !installed.iter().any(|existing| {
+                existing.expected_state_dir == pause.expected_state_dir
+                    && existing.expected_phase == pause.expected_phase
+            }),
+            "a matching daemon cleanup pause is already installed"
+        );
+        installed.push(pause.clone());
+        Self { pause, reached, resume: Some(resume) }
+    }
+
+    fn wait_until_reached(&self) {
+        self.reached
+            .recv_timeout(Duration::from_secs(3))
+            .expect("daemon shutdown did not reach the lifecycle cleanup pause");
+    }
+
+    fn assert_not_reached_before(&self, other_shutdown: &thread::JoinHandle<anyhow::Result<()>>) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        loop {
+            match self.reached.try_recv() {
+                Ok(()) => panic!("an unrelated daemon entered the lifecycle cleanup pause"),
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    panic!("daemon lifecycle cleanup pause disconnected")
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+            if other_shutdown.is_finished() {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "unrelated daemon shutdown did not finish"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    fn resume(&mut self) {
+        if let Some(resume) = self.resume.take() {
+            let _ = resume.send(());
+        }
+        DAEMON_CLEANUP_PAUSES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|pause| !Arc::ptr_eq(pause, &self.pause));
+    }
+}
+
+#[cfg(test)]
+impl Drop for DaemonCleanupPauseHandle {
+    fn drop(&mut self) {
+        self.resume();
+    }
+}
+
+#[cfg(test)]
+fn pause_daemon_cleanup(state_dir: &Path, phase: DaemonCleanupPausePhase) {
+    let pause = DAEMON_CLEANUP_PAUSES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .find(|pause| pause.expected_state_dir == state_dir && pause.expected_phase == phase)
+        .cloned();
+    if let Some(pause) = pause {
+        let _ = pause.reached.send(());
+        let _ = pause.resume.lock().unwrap_or_else(std::sync::PoisonError::into_inner).recv();
+    }
+}
+
+#[cfg(test)]
+fn fail_state_directory_sync_after(state_dir: &Path, successful_syncs: usize) {
+    STATE_DIRECTORY_SYNC_FAILURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push((state_dir.to_path_buf(), successful_syncs));
+}
 
 fn remote_runtime_worker_count() -> usize {
     thread::available_parallelism()
@@ -62,6 +206,17 @@ fn build_remote_runtime(thread_name: &str) -> anyhow::Result<tokio::runtime::Run
         .enable_all()
         .build()
         .context("could not start remote Tokio runtime")
+}
+
+fn reap_failed_startup(runtime_thread: thread::JoinHandle<anyhow::Result<()>>, runtime_name: &str) {
+    let (finished_tx, finished_rx) = mpsc::sync_channel(1);
+    let reaper_name = format!("{runtime_name}-startup-reaper");
+    let reaper = thread::Builder::new().name(reaper_name).spawn(move || {
+        let _ = finished_tx.send(runtime_thread.join());
+    });
+    if reaper.is_ok() {
+        let _ = finished_rx.recv_timeout(STARTUP_THREAD_REAP_TIMEOUT);
+    }
 }
 
 #[derive(Clone)]
@@ -133,6 +288,8 @@ pub struct DaemonRuntimeInfo {
     pub routes: Vec<String>,
     pub direct_websocket: Option<SocketAddr>,
     pub iroh_node_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle_id: Option<String>,
     #[serde(default)]
     pub replaceable_sidecar: bool,
 }
@@ -151,9 +308,29 @@ impl fmt::Debug for DaemonRuntimeInfo {
             .field("routes", &routes)
             .field("direct_websocket", &self.direct_websocket)
             .field("iroh_node_id", &self.iroh_node_id)
+            .field("lifecycle_id", &self.lifecycle_id)
             .field("replaceable_sidecar", &self.replaceable_sidecar)
             .finish()
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct DaemonShutdownOutcome {
+    pub(crate) version: u32,
+    pub(crate) lifecycle_id: String,
+    pub(crate) status: DaemonShutdownStatus,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum DaemonShutdownStatus {
+    Succeeded,
+    Failed,
+}
+
+#[derive(Serialize, Deserialize)]
+struct DaemonLifecycleFence {
+    version: u32,
 }
 
 pub struct DaemonRuntimeHandle {
@@ -222,7 +399,6 @@ impl fmt::Debug for RelayClientOptions {
 
 #[derive(Clone)]
 struct RoutedRelayProvider {
-    fallback: Option<RelayClientOptions>,
     routes: BTreeMap<String, RelayClientOptions>,
 }
 
@@ -233,11 +409,7 @@ impl fmt::Debug for RoutedRelayProvider {
             .iter()
             .map(|(route, options)| (sanitized_route_text(route), options))
             .collect::<Vec<_>>();
-        formatter
-            .debug_struct("RoutedRelayProvider")
-            .field("fallback", &self.fallback)
-            .field("routes", &routes)
-            .finish()
+        formatter.debug_struct("RoutedRelayProvider").field("routes", &routes).finish()
     }
 }
 
@@ -256,14 +428,11 @@ impl TransportProvider for RoutedRelayProvider {
     }
 
     async fn connect(&self, request: ConnectRequest) -> Result<Arc<dyn LinkGroup>, ProviderError> {
-        let relay =
-            self.routes.get(request.endpoint.as_str()).or(self.fallback.as_ref()).ok_or_else(
-                || {
-                    ProviderError::Configuration(
-                        "relay routes require relay slot and credentials".into(),
-                    )
-                },
-            )?;
+        let relay = self.routes.get(request.endpoint.as_str()).ok_or_else(|| {
+            ProviderError::Configuration(
+                "relay route requires credentials bound to its exact endpoint".into(),
+            )
+        })?;
         RelayProvider::with_credentials(
             RelayClientConfig {
                 slot: relay.slot.clone(),
@@ -280,7 +449,6 @@ impl TransportProvider for RoutedRelayProvider {
 
 pub fn client_provider_registry(
     ssh: SshProviderConfig,
-    relay: Option<RelayClientOptions>,
     relay_routes: BTreeMap<String, RelayClientOptions>,
     iroh_path: IrohPathMode,
 ) -> Result<cmux_remote::provider::ProviderRegistry, ProviderError> {
@@ -289,7 +457,7 @@ pub fn client_provider_registry(
     #[cfg(unix)]
     providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES)))?;
     providers.register(Arc::new(SshProvider::new(ssh)?))?;
-    providers.register(Arc::new(RoutedRelayProvider { fallback: relay, routes: relay_routes }))?;
+    providers.register(Arc::new(RoutedRelayProvider { routes: relay_routes }))?;
     providers.register(Arc::new(IrohProvider::new(
         IrohProviderConfig::default().with_path_mode(iroh_path),
     )?))?;
@@ -321,6 +489,11 @@ impl ResolvedRouteCandidate {
         routing: BTreeMap<String, String>,
         providers: &cmux_remote::provider::ProviderRegistry,
     ) -> Result<Self, ProviderError> {
+        if endpoint.scheme() == "ssh" {
+            ssh_bootstrap_destination(&endpoint).map_err(|_| {
+                ProviderError::Configuration("SSH route is not a safe OpenSSH destination".into())
+            })?;
+        }
         let supported_client_auth = providers.supported_client_auth(endpoint.scheme())?;
         Ok(Self { endpoint, routing, supported_client_auth })
     }
@@ -450,6 +623,7 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
             let runtime = build_remote_runtime("cmux-remote-client-worker")
                 .context("could not start remote client Tokio runtime")?;
             let result = runtime.block_on(run_client(options, shutdown_rx, ready_tx));
+            runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
             finished_tx.send_replace(true);
             result
         })
@@ -458,12 +632,12 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
         Ok(Ok(ready)) => ready,
         Ok(Err(error)) => {
             let _ = shutdown_tx.send(true);
-            let _ = thread.join();
+            reap_failed_startup(thread, "cmux-remote-client");
             return Err(anyhow!(error));
         }
         Err(error) => {
             let _ = shutdown_tx.send(true);
-            let _ = thread.join();
+            reap_failed_startup(thread, "cmux-remote-client");
             return Err(anyhow!(
                 "remote connection did not become ready within {}s: {error}",
                 startup_timeout.as_secs()
@@ -486,6 +660,108 @@ struct ClientReady {
     multiplexer: Arc<ServiceMultiplexer>,
 }
 
+#[cfg(unix)]
+#[derive(Debug)]
+struct ClientSocketPathLock {
+    file: fs::File,
+}
+
+#[cfg(unix)]
+impl Drop for ClientSocketPathLock {
+    fn drop(&mut self) {
+        use std::os::fd::AsRawFd;
+
+        unsafe {
+            libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+struct ClientSocketPreparation {
+    path: PathBuf,
+    _lock: ClientSocketPathLock,
+}
+
+#[cfg(unix)]
+impl ClientSocketPreparation {
+    fn bind(self) -> anyhow::Result<ClientSocketLease> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let lease = ClientSocketLease::bind_locked(self.path.clone())?;
+        fs::set_permissions(&self.path, fs::Permissions::from_mode(0o600))?;
+        Ok(lease)
+    }
+}
+
+#[cfg(unix)]
+struct ClientSocketLease {
+    listener: tokio::net::UnixListener,
+    path: PathBuf,
+    device: u64,
+    inode: u64,
+    linked: bool,
+}
+
+#[cfg(unix)]
+impl ClientSocketLease {
+    fn bind_locked(path: PathBuf) -> std::io::Result<Self> {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+        let listener = cmux_tui_process::tokio_net::bind_unix_listener(&path)?;
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                let _ = fs::remove_file(&path);
+                return Err(error);
+            }
+        };
+        if !metadata.file_type().is_socket() {
+            let _ = fs::remove_file(&path);
+            return Err(std::io::Error::other("bound client path is not a Unix socket"));
+        }
+        Ok(Self { listener, path, device: metadata.dev(), inode: metadata.ino(), linked: true })
+    }
+
+    fn listener(&self) -> &tokio::net::UnixListener {
+        &self.listener
+    }
+
+    fn unlink(&mut self) -> std::io::Result<()> {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+        if !self.linked {
+            return Ok(());
+        }
+        let metadata = match fs::symlink_metadata(&self.path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.linked = false;
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        };
+        if !metadata.file_type().is_socket()
+            || metadata.dev() != self.device
+            || metadata.ino() != self.inode
+        {
+            self.linked = false;
+            return Ok(());
+        }
+        fs::remove_file(&self.path)?;
+        self.linked = false;
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ClientSocketLease {
+    fn drop(&mut self) {
+        let _ = self.unlink();
+    }
+}
+
 async fn run_client(
     options: ClientRuntimeOptions,
     mut shutdown: watch::Receiver<bool>,
@@ -495,24 +771,28 @@ async fn run_client(
         let (connection, route) = connect_first_available(&options, shutdown.clone()).await?;
         if *shutdown.borrow() {
             let _ = connection.close().await;
-            return Ok(());
+            return Err(anyhow!("remote client startup was cancelled"));
         }
         let local_socket = options
             .local_socket
             .clone()
             .unwrap_or_else(|| default_client_socket(&options.state_dir, options.session));
-        prepare_client_socket(&local_socket).await?;
+        let socket_preparation =
+            prepare_client_socket_with_shutdown(&local_socket, Some(shutdown.clone())).await?;
+        if *shutdown.borrow() {
+            let _ = connection.close().await;
+            return Err(anyhow!("remote client startup was cancelled"));
+        }
         let daemon_public_key = connection.daemon_public_key();
         let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
-        let listener = cmux_tui_process::tokio_net::bind_unix_listener(&local_socket)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&local_socket, fs::Permissions::from_mode(0o600))?;
-        }
+        let socket = socket_preparation.bind()?;
         let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::oneshot::channel();
-        let mut bridge =
-            tokio::spawn(serve_mux_bridge(multiplexer.clone(), listener, bridge_shutdown_rx));
+        let bridge_multiplexer = multiplexer.clone();
+        let mut bridge = tokio::spawn(async move {
+            let mut socket = socket;
+            serve_mux_bridge(bridge_multiplexer, socket.listener(), bridge_shutdown_rx).await;
+            let _ = socket.unlink();
+        });
         let mut fatal = multiplexer.subscribe_fatal();
         ready
             .send(Ok(ClientReady {
@@ -541,7 +821,6 @@ async fn run_client(
             let _ = bridge.await;
         }
         let _ = connection.close().await;
-        let _ = fs::remove_file(&local_socket);
         outcome
     }
     .await;
@@ -764,6 +1043,10 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
             }
         };
         let route = group.description().to_string();
+        let invitation = matches!(&self.options.auth, ClientAuthMode::Invitation { .. });
+        let connection_timeout = if invitation { self.options.startup_timeout } else { timeout };
+        let connection_deadline =
+            if invitation { tokio::time::Instant::now() + connection_timeout } else { deadline };
         let reconnect_groups: Arc<dyn ReconnectGroupSource> =
             Arc::new(RuntimeReconnectGroups::with_shutdown(
                 self.options.clone(),
@@ -773,7 +1056,7 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
         let mut shutdown = self.shutdown.clone();
         let connection = tokio::select! {
             result = tokio::time::timeout_at(
-                deadline,
+                connection_deadline,
                 ClientConnection::connect_with_reconnect_groups(
                     group.clone(),
                     ClientConnectionConfig {
@@ -792,7 +1075,7 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
                 Ok(connection) => connection,
                 Err(_) => {
                     close_failed_initial_group(&group).await;
-                    return Err(initial_route_timeout(&display_endpoint, timeout));
+                    return Err(initial_route_timeout(&display_endpoint, connection_timeout));
                 }
             },
             _ = wait_for_shutdown(&mut shutdown) => {
@@ -908,6 +1191,9 @@ fn ssh_bootstrap_destination(endpoint: &Url) -> anyhow::Result<(String, Option<u
     };
     let username = endpoint.username();
     let destination = if username.is_empty() { host } else { format!("{username}@{host}") };
+    if destination.starts_with('-') {
+        return Err(anyhow!("SSH destination cannot begin with an option prefix"));
+    }
     Ok((destination, endpoint.port()))
 }
 
@@ -1174,8 +1460,15 @@ fn normalize_carrier_endpoint(mut endpoint: Url) -> anyhow::Result<Url> {
     Ok(endpoint)
 }
 
-async fn prepare_client_socket(path: &Path) -> anyhow::Result<()> {
-    #[cfg(unix)]
+#[cfg(test)]
+async fn prepare_client_socket(path: &Path) -> anyhow::Result<ClientSocketPreparation> {
+    prepare_client_socket_with_shutdown(path, None).await
+}
+
+async fn prepare_client_socket_with_shutdown(
+    path: &Path,
+    mut shutdown: Option<watch::Receiver<bool>>,
+) -> anyhow::Result<ClientSocketPreparation> {
     if !unix_socket_path_fits(path) {
         return Err(anyhow!(
             "client socket path is too long for this platform: {}",
@@ -1183,34 +1476,176 @@ async fn prepare_client_socket(path: &Path) -> anyhow::Result<()> {
         ));
     }
     let parent = path.parent().ok_or_else(|| anyhow!("client socket path has no parent"))?;
-    let parent_existed = parent.exists();
-    fs::create_dir_all(parent)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::{FileTypeExt, PermissionsExt};
-        if !parent_existed {
-            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
-        } else {
-            let mode = fs::metadata(parent)?.permissions().mode();
-            if mode & 0o022 != 0 && mode & 0o1000 == 0 {
-                return Err(anyhow!(
-                    "client socket directory {} is writable by other users and is not sticky",
-                    parent.display()
-                ));
-            }
+    prepare_client_socket_directory(parent)?;
+    let lock_path = client_socket_lock_path(path)?;
+    let path_lock = acquire_client_socket_lock(&lock_path, shutdown.as_mut()).await?;
+
+    use std::os::unix::fs::FileTypeExt;
+
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("could not inspect client socket {}", path.display()));
         }
-        if let Ok(metadata) = fs::symlink_metadata(path) {
+        Ok(metadata) => {
             if !metadata.file_type().is_socket() {
                 return Err(anyhow!(
                     "refusing to replace non-socket client path {}",
                     path.display()
                 ));
             }
-            if cmux_tui_process::tokio_net::connect_unix_stream(path).await.is_ok() {
-                return Err(anyhow!("another client owns {}", path.display()));
+            match tokio::time::timeout(
+                UNIX_SOCKET_PROBE_TIMEOUT,
+                cmux_tui_process::tokio_net::connect_unix_stream(path),
+            )
+            .await
+            {
+                Ok(Ok(_)) => return Err(anyhow!("another client owns {}", path.display())),
+                Ok(Err(error)) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
+                    remove_stale_client_socket(path, &metadata)?;
+                }
+                Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Ok(Err(error)) => {
+                    return Err(error).with_context(|| {
+                        format!("could not verify ownership of client socket {}", path.display())
+                    });
+                }
+                Err(_) => {
+                    return Err(anyhow!(
+                        "timed out checking whether another client owns {}",
+                        path.display()
+                    ));
+                }
             }
-            fs::remove_file(path)?;
         }
+    }
+    Ok(ClientSocketPreparation { path: path.to_path_buf(), _lock: path_lock })
+}
+
+#[cfg(unix)]
+fn remove_stale_client_socket(path: &Path, expected: &fs::Metadata) -> anyhow::Result<()> {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error)
+            .with_context(|| format!("could not recheck stale client socket {}", path.display())),
+        Ok(current)
+            if current.file_type().is_socket()
+                && current.dev() == expected.dev()
+                && current.ino() == expected.ino() =>
+        {
+            fs::remove_file(path)?;
+            Ok(())
+        }
+        Ok(_) => {
+            Err(anyhow!("client socket {} changed during stale-owner detection", path.display()))
+        }
+    }
+}
+
+#[cfg(unix)]
+fn client_socket_lock_path(path: &Path) -> anyhow::Result<PathBuf> {
+    let file_name =
+        path.file_name().ok_or_else(|| anyhow!("client socket path has no file name"))?;
+    let mut lock_name = file_name.to_os_string();
+    lock_name.push(".lock");
+    Ok(path.with_file_name(lock_name))
+}
+
+#[cfg(unix)]
+async fn acquire_client_socket_lock(
+    path: &Path,
+    mut shutdown: Option<&mut watch::Receiver<bool>>,
+) -> anyhow::Result<ClientSocketPathLock> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+        .with_context(|| format!("could not open client socket lock {}", path.display()))?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(anyhow!("client socket lock {} is not a regular file", path.display()));
+    }
+    if metadata.uid() != unsafe { libc::geteuid() } {
+        return Err(anyhow!(
+            "client socket lock {} is not owned by the effective user",
+            path.display()
+        ));
+    }
+    if metadata.permissions().mode() & 0o077 != 0 {
+        return Err(anyhow!("client socket lock {} is accessible by another user", path.display()));
+    }
+    if metadata.nlink() != 1 {
+        return Err(anyhow!("client socket lock {} has unexpected hard links", path.display()));
+    }
+
+    loop {
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Ok(ClientSocketPathLock { file });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        if error.kind() != std::io::ErrorKind::WouldBlock {
+            return Err(error)
+                .with_context(|| format!("could not lock client socket path {}", path.display()));
+        }
+        match shutdown.as_deref_mut() {
+            Some(shutdown) => {
+                tokio::select! {
+                    _ = tokio::time::sleep(CLIENT_SOCKET_LOCK_RETRY) => {}
+                    _ = wait_for_shutdown(shutdown) => {
+                        return Err(anyhow!("remote client startup was cancelled"));
+                    }
+                }
+            }
+            None => tokio::time::sleep(CLIENT_SOCKET_LOCK_RETRY).await,
+        }
+    }
+}
+
+#[cfg(unix)]
+fn prepare_client_socket_directory(path: &Path) -> anyhow::Result<()> {
+    ensure_secure_directory(path, DirectoryAccess::OwnerControlled)?;
+    let metadata = fs::symlink_metadata(path)?;
+    validate_client_socket_directory(path, &metadata, unsafe { libc::geteuid() })
+}
+
+#[cfg(unix)]
+fn validate_client_socket_directory(
+    path: &Path,
+    metadata: &fs::Metadata,
+    effective_uid: u32,
+) -> anyhow::Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    if metadata.file_type().is_symlink() {
+        return Err(anyhow!("client socket directory {} must not be a symlink", path.display()));
+    }
+    if !metadata.is_dir() {
+        return Err(anyhow!("client socket directory {} is not a directory", path.display()));
+    }
+    if metadata.uid() != effective_uid {
+        return Err(anyhow!(
+            "client socket directory {} is not owned by the effective user",
+            path.display()
+        ));
+    }
+    if metadata.permissions().mode() & 0o022 != 0 {
+        return Err(anyhow!(
+            "client socket directory {} is writable by another user",
+            path.display()
+        ));
     }
     Ok(())
 }
@@ -1252,14 +1687,67 @@ pub fn daemon_paths(
             anyhow!("cannot determine remote state directory; set CMUX_REMOTE_STATE_DIR")
         })?,
     };
-    let session = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(session.as_bytes());
-    let state = root.join("sessions").join(session);
-    Ok((state.clone(), state.join("link.sock"), state.join("admin.sock")))
+    let encoded_session =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(session.as_bytes());
+    let session_component = if encoded_session.len() <= MAX_DAEMON_SESSION_COMPONENT_BYTES {
+        encoded_session
+    } else {
+        format!("sha256-{:x}", Sha256::digest(session.as_bytes()))
+    };
+    let state = root.join("sessions").join(session_component);
+    let state_link = state.join("link.sock");
+    let state_admin = state.join("admin.sock");
+    if unix_socket_path_fits(&state_link) && unix_socket_path_fits(&state_admin) {
+        return Ok((state, state_link, state_admin));
+    }
+    let (link, admin) = daemon_runtime_socket_paths(&state)?;
+    Ok((state, link, admin))
+}
+
+#[cfg(unix)]
+fn daemon_runtime_socket_paths(state: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let digest = format!("{:x}", Sha256::digest(state.as_os_str().as_bytes()));
+    let socket_names = |runtime: &Path| {
+        (runtime.join(format!("{digest}-l.sock")), runtime.join(format!("{digest}-a.sock")))
+    };
+    if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .map(|path| path.join("cmux-rd"))
+    {
+        let (link, admin) = socket_names(&runtime);
+        if unix_socket_path_fits(&link)
+            && unix_socket_path_fits(&admin)
+            && ensure_secure_directory(&runtime, DirectoryAccess::ManagedOwnerOnly).is_ok()
+        {
+            return Ok((link, admin));
+        }
+    }
+
+    let runtime = PathBuf::from(format!("/tmp/cmux-rd-{}", unsafe { libc::geteuid() }));
+    ensure_secure_directory(&runtime, DirectoryAccess::ManagedOwnerOnly).with_context(|| {
+        format!("could not create private remote daemon runtime directory {}", runtime.display())
+    })?;
+    let (link, admin) = socket_names(&runtime);
+    if !unix_socket_path_fits(&link) || !unix_socket_path_fits(&admin) {
+        return Err(anyhow!("remote daemon runtime socket path is too long for this platform"));
+    }
+    Ok((link, admin))
 }
 
 pub fn start_daemon_runtime(
     mux_socket: PathBuf,
     options: DaemonRuntimeOptions,
+) -> anyhow::Result<DaemonRuntimeHandle> {
+    start_daemon_runtime_with_timeout(mux_socket, options, DAEMON_STARTUP_TIMEOUT)
+}
+
+fn start_daemon_runtime_with_timeout(
+    mux_socket: PathBuf,
+    options: DaemonRuntimeOptions,
+    startup_timeout: Duration,
 ) -> anyhow::Result<DaemonRuntimeHandle> {
     let (state_dir, default_link, default_admin) =
         daemon_paths(&options.session, options.state_dir.as_deref())?;
@@ -1272,7 +1760,7 @@ pub fn start_daemon_runtime(
         .name(format!("cmux-remote-{}", options.session))
         .spawn(move || {
             let runtime = build_remote_runtime("cmux-remote-daemon-worker")?;
-            runtime.block_on(run_daemon(
+            let result = runtime.block_on(run_daemon(
                 mux_socket,
                 options,
                 state_dir,
@@ -1281,20 +1769,22 @@ pub fn start_daemon_runtime(
                 shutdown_rx,
                 owner_shutdown,
                 ready_tx,
-            ))
+            ));
+            runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
+            result
         })
         .context("could not start remote daemon thread")?;
 
-    let info = match ready_rx.recv_timeout(Duration::from_secs(30)) {
+    let info = match ready_rx.recv_timeout(startup_timeout) {
         Ok(Ok(info)) => info,
         Ok(Err(error)) => {
             let _ = shutdown_tx.send(true);
-            let _ = thread.join();
+            reap_failed_startup(thread, "cmux-remote-daemon");
             return Err(anyhow!(error));
         }
         Err(error) => {
             let _ = shutdown_tx.send(true);
-            let _ = thread.join();
+            reap_failed_startup(thread, "cmux-remote-daemon");
             return Err(anyhow!("remote daemon did not become ready: {error}"));
         }
     };
@@ -1313,10 +1803,51 @@ async fn run_daemon(
     ready: mpsc::SyncSender<Result<DaemonRuntimeInfo, String>>,
 ) -> anyhow::Result<()> {
     let setup = async {
-        fs::create_dir_all(&state_dir)
-            .with_context(|| format!("could not create {}", state_dir.display()))?;
-        let auth =
-            AuthDatabase::load_or_create(state_dir.join("auth"), options.session.clone(), true)?;
+        let mut startup_shutdown = shutdown.clone();
+        let auth_state_dir = state_dir.join("auth");
+        let mut lifecycle_fenced = read_daemon_lifecycle_fence(&state_dir)
+            .context(catalog().remote.verify_lifecycle_fence)?;
+        if lifecycle_fenced {
+            persist_daemon_lifecycle_fence(&state_dir)
+                .context(catalog().remote.confirm_lifecycle_fence_durability)?;
+        }
+        let auth_state_preexisting =
+            auth_state_dir.try_exists().context(catalog().remote.inspect_authorization_state)?;
+        let auth_state_schema = auth_state_preexisting
+            .then(|| persisted_auth_state_schema(&auth_state_dir))
+            .transpose()
+            .context(catalog().remote.inspect_authorization_schema)?;
+        if matches!(auth_state_schema, Some(PersistedAuthStateSchema::Legacy))
+            || matches!(auth_state_schema, Some(PersistedAuthStateSchema::Missing))
+            || (lifecycle_fenced && !auth_state_preexisting)
+        {
+            return Err(anyhow!(catalog().remote.legacy_authorization_requires_migration));
+        }
+        let auth = load_daemon_auth_during_handoff(
+            &auth_state_dir,
+            &options.session,
+            &mut startup_shutdown,
+            DAEMON_AUTH_LEASE_RETRY_TIMEOUT,
+        )
+        .await?;
+        // Version 2 authorization state is the rollback fence understood by
+        // older binaries. Publish the lifecycle marker only after that state
+        // is durable and while its exclusive lease is still held.
+        if !auth_state_preexisting && !lifecycle_fenced {
+            ensure_secure_directory(&state_dir, DirectoryAccess::OwnerControlled)
+                .context(catalog().remote.prepare_lifecycle_state)?;
+            #[cfg(test)]
+            pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeLifecycleFence);
+            persist_daemon_lifecycle_fence(&state_dir)?;
+            lifecycle_fenced = true;
+        }
+        verify_previous_shutdown_outcome(&state_dir, lifecycle_fenced)?;
+        if !lifecycle_fenced {
+            persist_daemon_lifecycle_fence(&state_dir)?;
+        }
+        if *startup_shutdown.borrow() {
+            return Err(anyhow!("remote daemon startup was cancelled"));
+        }
         let (daemon, clients) = cmux_remote::daemon::RemoteDaemon::with_policy(
             auth.clone(),
             SessionLimits::default(),
@@ -1324,165 +1855,237 @@ async fn run_daemon(
         )?;
         let workspace = WorkspaceService::new();
 
-        let unix = serve_unix(daemon.clone(), &link_socket, MAX_CARRIER_FRAME_BYTES).await?;
-        let websocket = match options.direct_websocket {
-            Some(address) => Some(
-                serve_direct_websocket(
-                    daemon.clone(),
-                    address,
-                    MAX_CARRIER_FRAME_BYTES,
-                    options.allow_insecure_non_loopback,
-                )
-                .await?,
-            ),
-            None => None,
-        };
-        let workspace_http = match options.workspace_http {
-            Some(address) => {
-                let server = serve_workspace_http(
-                    workspace.clone(),
-                    address,
-                    state_dir.join("workspace-http.token"),
-                )
-                .await?;
-                eprintln!(
-                    "cmux-tui: authenticated workspace HTTP at http://{}; bearer token file {}",
-                    server.local_addr(),
-                    server.token_file().display()
-                );
-                Some(server)
-            }
-            None => None,
-        };
-
-        let mut relay_tasks = tokio::task::JoinSet::new();
-        for relay in options.relays.iter().cloned() {
-            let daemon = daemon.clone();
-            relay_tasks.spawn(async move {
-                register_relay_daemon_with_credentials(
-                    daemon,
-                    RelayDaemonConfig {
-                        endpoint: relay.endpoint,
-                        slot: relay.slot,
-                        ticket: String::new(),
-                        maximum_frame_bytes: MAX_CARRIER_FRAME_BYTES,
-                        control_timeout: Duration::from_secs(15),
-                    },
-                    relay.credentials,
-                )
-                .await
-            });
-        }
-        let mut relays = Vec::with_capacity(options.relays.len());
-        let mut startup_shutdown = shutdown.clone();
-        while !relay_tasks.is_empty() {
-            let result = tokio::select! {
-                result = relay_tasks.join_next() => result,
-                _ = wait_for_shutdown(&mut startup_shutdown) => {
-                    return Err(anyhow!("remote daemon startup was cancelled"));
-                }
-            };
-            let result = result.expect("a non-empty relay task set has a result");
-            relays.push(result.context("relay registration task failed")??);
-        }
-
-        let iroh = match options.iroh {
-            true => {
-                let config = IrohProviderConfig {
-                    secret_key: Some(load_or_create_iroh_secret(&state_dir.join("iroh.key"))?),
-                    ..IrohProviderConfig::default()
-                };
-                Some(IrohListener::bind(daemon.clone(), config).await?)
-            }
-            false => None,
-        };
-
-        let mut routes = Vec::new();
-        for route in &options.advertised_routes {
-            push_unique_route(&mut routes, route.clone());
-        }
-        for relay in &options.relays {
-            push_unique_route(&mut routes, relay.endpoint.to_string());
-        }
-        let mut unix_route = Url::parse("unix:///")?;
-        unix_route.set_path(
-            link_socket
-                .to_str()
-                .ok_or_else(|| anyhow!("remote link socket path is not valid UTF-8"))?,
+        let lifecycle_id = uuid::Uuid::new_v4().to_string();
+        let preliminary_runtime = persist_runtime_info(
+            &state_dir,
+            &DaemonRuntimeInfo {
+                session: options.session.clone(),
+                state_dir: state_dir.clone(),
+                link_socket: link_socket.clone(),
+                admin_socket: admin_socket.clone(),
+                daemon_fingerprint: auth.identity().fingerprint(),
+                routes: Vec::new(),
+                direct_websocket: None,
+                iroh_node_id: None,
+                lifecycle_id: Some(lifecycle_id.clone()),
+                replaceable_sidecar: options.replaceable_sidecar,
+            },
         );
-        let unix_route = unix_route.to_string();
-        let websocket_route = if let Some(server) = &websocket {
-            let address = server.local_addr();
-            if !address.ip().is_unspecified() {
-                Some(format!("ws://{address}/v1/link"))
+        if let Err(error) = preliminary_runtime {
+            if error.downcast_ref::<CommittedRuntimeInfoError>().is_some() {
+                return finalize_daemon_authorization(auth, state_dir, lifecycle_id, vec![error])
+                    .await;
+            }
+            return Err(error);
+        }
+        let transport_setup: anyhow::Result<_> = async {
+            #[cfg(test)]
+            pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeListenerStartup);
+            let unix = serve_unix_with_shutdown(
+                daemon.clone(),
+                &link_socket,
+                MAX_CARRIER_FRAME_BYTES,
+                Some(owner_shutdown.clone()),
+            )
+            .await?;
+            let websocket = match options.direct_websocket {
+                Some(address) => Some(
+                    serve_direct_websocket(
+                        daemon.clone(),
+                        address,
+                        MAX_CARRIER_FRAME_BYTES,
+                        options.allow_insecure_non_loopback,
+                    )
+                    .await?,
+                ),
+                None => None,
+            };
+            let workspace_http = match options.workspace_http {
+                Some(address) => {
+                    let server = serve_workspace_http(
+                        workspace.clone(),
+                        address,
+                        state_dir.join("workspace-http.token"),
+                    )
+                    .await?;
+                    eprintln!(
+                        "cmux-tui: authenticated workspace HTTP at http://{}; bearer token file {}",
+                        server.local_addr(),
+                        server.token_file().display()
+                    );
+                    Some(server)
+                }
+                None => None,
+            };
+
+            let mut relay_tasks = tokio::task::JoinSet::new();
+            for relay in options.relays.iter().cloned() {
+                let daemon = daemon.clone();
+                relay_tasks.spawn(async move {
+                    register_relay_daemon_with_credentials(
+                        daemon,
+                        RelayDaemonConfig {
+                            endpoint: relay.endpoint,
+                            slot: relay.slot,
+                            ticket: String::new(),
+                            maximum_frame_bytes: MAX_CARRIER_FRAME_BYTES,
+                            control_timeout: Duration::from_secs(15),
+                        },
+                        relay.credentials,
+                    )
+                    .await
+                });
+            }
+            let mut relays = Vec::with_capacity(options.relays.len());
+            while !relay_tasks.is_empty() {
+                let result = tokio::select! {
+                    result = relay_tasks.join_next() => result,
+                    _ = wait_for_shutdown(&mut startup_shutdown) => {
+                        return Err(anyhow!("remote daemon startup was cancelled"));
+                    }
+                };
+                let result = result.expect("a non-empty relay task set has a result");
+                relays.push(result.context("relay registration task failed")??);
+            }
+
+            let iroh = match options.iroh {
+                true => {
+                    let config = IrohProviderConfig {
+                        secret_key: Some(load_or_create_iroh_secret(&state_dir.join("iroh.key"))?),
+                        ..IrohProviderConfig::default()
+                    };
+                    Some(tokio::select! {
+                        result = IrohListener::bind(daemon.clone(), config) => result?,
+                        _ = wait_for_shutdown(&mut startup_shutdown) => {
+                            return Err(anyhow!("remote daemon startup was cancelled"));
+                        }
+                    })
+                }
+                false => None,
+            };
+
+            let mut routes = Vec::new();
+            for route in &options.advertised_routes {
+                push_unique_route(&mut routes, route.clone());
+            }
+            for relay in &options.relays {
+                push_unique_route(&mut routes, relay.endpoint.to_string());
+            }
+            let mut unix_route = Url::parse("unix:///")?;
+            unix_route.set_path(
+                link_socket
+                    .to_str()
+                    .ok_or_else(|| anyhow!("remote link socket path is not valid UTF-8"))?,
+            );
+            let unix_route = unix_route.to_string();
+            let websocket_route = if let Some(server) = &websocket {
+                let address = server.local_addr();
+                if !address.ip().is_unspecified() {
+                    Some(format!("ws://{address}/v1/link"))
+                } else {
+                    None
+                }
             } else {
                 None
-            }
-        } else {
-            None
-        };
-        let iroh_node_id = if let Some(listener) = &iroh {
-            let route = listener.route().await?;
-            let hints = route.routing_hints();
-            let mut route_url = Url::parse(&format!("iroh://{}", route.node_id()))?;
-            {
-                let mut query = route_url.query_pairs_mut();
-                if let Some(relay) = hints.get(cmux_remote::provider::ROUTING_RELAY_URL) {
-                    query.append_pair("relay_url", relay);
+            };
+            let iroh_node_id = if let Some(listener) = &iroh {
+                let route = listener.route().await?;
+                let hints = route.routing_hints();
+                let mut route_url = Url::parse(&format!("iroh://{}", route.node_id()))?;
+                {
+                    let mut query = route_url.query_pairs_mut();
+                    if let Some(relay) = hints.get(cmux_remote::provider::ROUTING_RELAY_URL) {
+                        query.append_pair("relay_url", relay);
+                    }
+                    if let Some(addresses) = hints.get(cmux_remote::provider::ROUTING_DIRECT_ADDRS)
+                    {
+                        query.append_pair("direct_addrs", addresses);
+                    }
                 }
-                if let Some(addresses) = hints.get(cmux_remote::provider::ROUTING_DIRECT_ADDRS) {
-                    query.append_pair("direct_addrs", addresses);
-                }
+                push_unique_route(&mut routes, route_url.to_string());
+                Some(route.node_id().to_string())
+            } else {
+                None
+            };
+            if let Some(route) = websocket_route {
+                push_unique_route(&mut routes, route);
             }
-            push_unique_route(&mut routes, route_url.to_string());
-            Some(route.node_id().to_string())
+            // Unix is fastest on the same host, and clients promote it when its
+            // socket exists locally. Keeping it last avoids exporting a remote
+            // host's filesystem path as the default route for mobile clients.
+            push_unique_route(&mut routes, unix_route);
+
+            let admin = serve_admin_with_shutdown(
+                daemon,
+                &admin_socket,
+                routes.clone(),
+                Some(lifecycle_id.clone()),
+                Some(owner_shutdown),
+            )
+            .await?;
+            let info = DaemonRuntimeInfo {
+                session: options.session,
+                state_dir: state_dir.clone(),
+                link_socket: link_socket.clone(),
+                admin_socket: admin_socket.clone(),
+                daemon_fingerprint: auth.identity().fingerprint(),
+                routes,
+                direct_websocket: websocket.as_ref().map(|server| server.local_addr()),
+                iroh_node_id,
+                lifecycle_id: Some(lifecycle_id.clone()),
+                replaceable_sidecar: options.replaceable_sidecar,
+            };
+            persist_runtime_info(&state_dir, &info)?;
+            Ok((unix, websocket, workspace_http, relays, iroh, admin, info))
+        }
+        .await;
+        let (unix, websocket, workspace_http, relays, iroh, admin, info) = match transport_setup {
+            Ok(transports) => transports,
+            Err(error) => {
+                return finalize_daemon_authorization(auth, state_dir, lifecycle_id, vec![error])
+                    .await;
+            }
+        };
+        #[cfg(test)]
+        pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeReadySend);
+        let mut shutdown_failures = Vec::new();
+        if ready.send(Ok(info)).is_ok() {
+            let services = DaemonServices::new(workspace, Some(mux_socket));
+            services.run_with_shutdown(clients, shutdown).await;
         } else {
-            None
-        };
-        if let Some(route) = websocket_route {
-            push_unique_route(&mut routes, route);
+            shutdown_failures.push(anyhow!("daemon owner stopped during startup"));
         }
-        // Unix is fastest on the same host, and clients promote it when its
-        // socket exists locally. Keeping it last avoids exporting a remote
-        // host's filesystem path as the default route for mobile clients.
-        push_unique_route(&mut routes, unix_route);
 
-        let admin =
-            serve_admin_with_shutdown(daemon, &admin_socket, routes.clone(), Some(owner_shutdown))
-                .await?;
-        let info = DaemonRuntimeInfo {
-            session: options.session,
-            state_dir: state_dir.clone(),
-            link_socket: link_socket.clone(),
-            admin_socket: admin_socket.clone(),
-            daemon_fingerprint: auth.identity().fingerprint(),
-            routes,
-            direct_websocket: websocket.as_ref().map(|server| server.local_addr()),
-            iroh_node_id,
-            replaceable_sidecar: options.replaceable_sidecar,
-        };
-        persist_runtime_info(&state_dir, &info)?;
-        ready.send(Ok(info)).map_err(|_| anyhow!("daemon owner stopped during startup"))?;
-
-        let services = DaemonServices::new(workspace, Some(mux_socket));
-        services.run_with_shutdown(clients, shutdown).await;
-
-        admin.shutdown().await;
-        if let Some(server) = workspace_http {
-            server.shutdown().await?;
+        if let Err(error) = admin.shutdown().await {
+            shutdown_failures
+                .push(anyhow::Error::new(error).context("admin listener shutdown failed"));
         }
-        if let Some(listener) = iroh {
-            listener.shutdown().await?;
+        if let Some(server) = workspace_http
+            && let Err(error) = server.shutdown().await
+        {
+            shutdown_failures
+                .push(anyhow::Error::new(error).context("workspace HTTP shutdown failed"));
+        }
+        if let Some(listener) = iroh
+            && let Err(error) = listener.shutdown().await
+        {
+            shutdown_failures
+                .push(anyhow::Error::new(error).context("Iroh listener shutdown failed"));
         }
         for registration in relays {
             shutdown_relay(registration).await;
         }
-        if let Some(server) = websocket {
-            server.shutdown().await?;
+        if let Some(server) = websocket
+            && let Err(error) = server.shutdown().await
+        {
+            shutdown_failures
+                .push(anyhow::Error::new(error).context("WebSocket server shutdown failed"));
         }
-        unix.shutdown().await;
-        let _ = fs::remove_file(state_dir.join("runtime.json"));
-        Ok::<_, anyhow::Error>(())
+        if let Err(error) = unix.shutdown().await {
+            shutdown_failures
+                .push(anyhow::Error::new(error).context("Unix listener shutdown failed"));
+        }
+        finalize_daemon_authorization(auth, state_dir, lifecycle_id, shutdown_failures).await
     }
     .await;
 
@@ -1490,6 +2093,129 @@ async fn run_daemon(
         let _ = ready.send(Err(format!("{error:#}")));
     }
     setup
+}
+
+async fn load_daemon_auth_during_handoff(
+    state_dir: &Path,
+    daemon_name: &str,
+    shutdown: &mut watch::Receiver<bool>,
+    retry_timeout: Duration,
+) -> anyhow::Result<Arc<AuthDatabase>> {
+    let deadline = tokio::time::Instant::now() + retry_timeout;
+    loop {
+        match AuthDatabase::load_or_create(state_dir, daemon_name.to_owned(), true) {
+            Ok(auth) => return Ok(auth),
+            Err(IdentityError::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if *shutdown.borrow() {
+                    return Err(anyhow!("remote daemon startup was cancelled"));
+                }
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                if remaining.is_zero() {
+                    return Err(anyhow::Error::new(IdentityError::Io(error)).context(
+                        "remote daemon authorization state is still owned by another process",
+                    ));
+                }
+                tokio::select! {
+                    _ = tokio::time::sleep(
+                        DAEMON_AUTH_LEASE_RETRY_INTERVAL.min(remaining)
+                    ) => {}
+                    _ = wait_for_shutdown(shutdown) => {
+                        return Err(anyhow!("remote daemon startup was cancelled"));
+                    }
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+fn verify_previous_shutdown_outcome(
+    state_dir: &Path,
+    lifecycle_fenced: bool,
+) -> anyhow::Result<()> {
+    let previous_runtime = read_runtime_info(state_dir)
+        .context(catalog().remote.verify_previous_lifecycle_metadata)?;
+    let outcome =
+        read_shutdown_outcome(state_dir).context(catalog().remote.verify_previous_finalization)?;
+
+    if let Some(previous_runtime) = &previous_runtime {
+        match previous_runtime.lifecycle_id.as_deref() {
+            Some(expected_lifecycle_id) if !expected_lifecycle_id.is_empty() => {
+                let outcome = outcome
+                    .as_ref()
+                    .ok_or_else(|| anyhow!(catalog().remote.modern_predecessor_missing_outcome))?;
+                if outcome.lifecycle_id != expected_lifecycle_id {
+                    return Err(anyhow!(catalog().remote.finalization_wrong_lifecycle));
+                }
+            }
+            Some(_) => {
+                return Err(anyhow!(catalog().remote.runtime_empty_lifecycle));
+            }
+            None => {
+                return Err(anyhow!(catalog().remote.state_predates_lifecycle_fence));
+            }
+        }
+    }
+
+    if !lifecycle_fenced && previous_runtime.is_none() {
+        // A stale successful outcome is insufficient: an older daemon can run
+        // after that lifecycle and remove its own runtime metadata before its
+        // final authorization write completes.
+        return Err(anyhow!(catalog().remote.state_missing_lifecycle_fence));
+    }
+
+    match outcome.map(|outcome| outcome.status) {
+        None | Some(DaemonShutdownStatus::Succeeded) => Ok(()),
+        Some(DaemonShutdownStatus::Failed) => {
+            Err(anyhow!(catalog().remote.previous_finalization_failed_ack))
+        }
+    }
+}
+
+fn combine_shutdown_failures(mut failures: Vec<anyhow::Error>) -> anyhow::Result<()> {
+    match failures.len() {
+        0 => Ok(()),
+        1 => Err(failures.pop().expect("one shutdown failure is present")),
+        _ => Err(anyhow!(
+            "remote daemon shutdown encountered multiple failures: {}",
+            failures.into_iter().map(|error| format!("{error:#}")).collect::<Vec<_>>().join("; ")
+        )),
+    }
+}
+
+async fn finish_daemon_shutdown(
+    mut transport_failures: Vec<anyhow::Error>,
+    authorization_finalization: impl Future<Output = Result<(), IdentityError>>,
+) -> anyhow::Result<()> {
+    if let Err(error) = authorization_finalization.await {
+        transport_failures.push(
+            anyhow::Error::new(error).context(catalog().remote.authorization_finalization_failed),
+        );
+    }
+    combine_shutdown_failures(transport_failures)
+}
+
+async fn finalize_daemon_authorization(
+    auth: Arc<AuthDatabase>,
+    state_dir: PathBuf,
+    lifecycle_id: String,
+    transport_failures: Vec<anyhow::Error>,
+) -> anyhow::Result<()> {
+    let cleanup_state_dir = state_dir.clone();
+    let authorization_finalization = auth.shutdown_with_cleanup(move |finalization| {
+        #[cfg(test)]
+        pause_daemon_cleanup(&cleanup_state_dir, DaemonCleanupPausePhase::BeforeAuthRelease);
+        let status = if finalization.is_ok() {
+            DaemonShutdownStatus::Succeeded
+        } else {
+            DaemonShutdownStatus::Failed
+        };
+        finalize_daemon_lifecycle(&cleanup_state_dir, &lifecycle_id, status)
+    });
+    let result = finish_daemon_shutdown(transport_failures, authorization_finalization).await;
+    #[cfg(test)]
+    pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::AfterAuthShutdown);
+    result
 }
 
 fn push_unique_route(routes: &mut Vec<String>, route: String) {
@@ -1502,7 +2228,28 @@ async fn shutdown_relay(registration: RelayDaemonRegistration) {
     registration.shutdown().await;
 }
 
+#[derive(Debug)]
+struct CommittedRuntimeInfoError(IdentityError);
+
+impl fmt::Display for CommittedRuntimeInfoError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "remote runtime metadata was committed but durability confirmation failed: {}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for CommittedRuntimeInfoError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
 fn persist_runtime_info(state_dir: &Path, info: &DaemonRuntimeInfo) -> anyhow::Result<()> {
+    use std::io::Write as _;
+
     let mut persisted = info.clone();
     persisted.routes.clear();
     for route in &info.routes {
@@ -1512,15 +2259,162 @@ fn persist_runtime_info(state_dir: &Path, info: &DaemonRuntimeInfo) -> anyhow::R
     }
 
     let path = state_dir.join("runtime.json");
-    let temporary = state_dir.join(format!(".runtime-{}.json", std::process::id()));
-    fs::write(&temporary, serde_json::to_vec_pretty(&persisted)?)?;
+    let temporary =
+        state_dir.join(format!(".runtime-{}-{}.json", std::process::id(), uuid::Uuid::new_v4()));
+    let result: anyhow::Result<()> = (|| {
+        let encoded = serde_json::to_vec_pretty(&persisted)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary)?;
+        file.write_all(&encoded)?;
+        file.sync_all()?;
+        fs::rename(&temporary, &path)?;
+        if let Err(error) = sync_state_directory(state_dir) {
+            return Err(anyhow::Error::new(CommittedRuntimeInfoError(error)));
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn finalize_daemon_lifecycle(
+    state_dir: &Path,
+    lifecycle_id: &str,
+    status: DaemonShutdownStatus,
+) -> Result<(), IdentityError> {
+    persist_shutdown_outcome(
+        state_dir,
+        &DaemonShutdownOutcome {
+            version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+            lifecycle_id: lifecycle_id.to_owned(),
+            status,
+        },
+    )?;
+    remove_owned_runtime_info(state_dir, lifecycle_id)
+}
+
+fn persist_shutdown_outcome(
+    state_dir: &Path,
+    outcome: &DaemonShutdownOutcome,
+) -> Result<(), IdentityError> {
+    use std::io::Write as _;
+
+    let path = state_dir.join("shutdown.json");
+    let temporary =
+        state_dir.join(format!(".shutdown-{}-{}.json", std::process::id(), uuid::Uuid::new_v4()));
+    let result = (|| {
+        let encoded = serde_json::to_vec_pretty(outcome).map_err(IdentityError::Json)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary).map_err(IdentityError::Io)?;
+        file.write_all(&encoded).map_err(IdentityError::Io)?;
+        file.sync_all().map_err(IdentityError::Io)?;
+        fs::rename(&temporary, &path).map_err(IdentityError::Io)?;
+        sync_state_directory(state_dir)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+pub(crate) fn persist_daemon_lifecycle_fence(state_dir: &Path) -> Result<(), IdentityError> {
+    use std::io::Write as _;
+
+    if read_daemon_lifecycle_fence(state_dir)? {
+        // A prior attempt may have renamed the fence before its directory sync
+        // failed, so visibility alone does not confirm durability.
+        return sync_state_directory(state_dir);
+    }
+    let path = state_dir.join("lifecycle-fence.json");
+    let temporary = state_dir.join(format!(
+        ".lifecycle-fence-{}-{}.json",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let result = (|| {
+        let encoded = serde_json::to_vec_pretty(&DaemonLifecycleFence {
+            version: DAEMON_LIFECYCLE_FENCE_VERSION,
+        })
+        .map_err(IdentityError::Json)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary).map_err(IdentityError::Io)?;
+        file.write_all(&encoded).map_err(IdentityError::Io)?;
+        file.sync_all().map_err(IdentityError::Io)?;
+        fs::rename(&temporary, path).map_err(IdentityError::Io)?;
+        sync_state_directory(state_dir)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn remove_owned_runtime_info(state_dir: &Path, lifecycle_id: &str) -> Result<(), IdentityError> {
+    let path = state_dir.join("runtime.json");
+    let current = match fs::read(&path) {
+        Ok(current) => current,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(IdentityError::Io(error)),
+    };
+    let current: DaemonRuntimeInfo =
+        serde_json::from_slice(&current).map_err(IdentityError::Json)?;
+    if current.lifecycle_id.as_deref() != Some(lifecycle_id) {
+        return Err(IdentityError::Invalid(
+            "remote runtime lifecycle ownership changed during shutdown".into(),
+        ));
+    }
+    match fs::remove_file(path) {
+        Ok(()) => sync_state_directory(state_dir),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(IdentityError::Io(error)),
+    }
+}
+
+fn sync_state_directory(path: &Path) -> Result<(), IdentityError> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
+        #[cfg(test)]
+        {
+            let mut failures = STATE_DIRECTORY_SYNC_FAILURES
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(index) = failures.iter().position(|(expected, _)| expected == path) {
+                if failures[index].1 == 0 {
+                    failures.swap_remove(index);
+                    return Err(IdentityError::Io(std::io::Error::other(
+                        "injected state-directory sync failure",
+                    )));
+                }
+                failures[index].1 -= 1;
+            }
+        }
+        fs::File::open(path).and_then(|directory| directory.sync_all()).map_err(IdentityError::Io)
     }
-    fs::rename(temporary, path)?;
-    Ok(())
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
 }
 
 pub fn load_runtime_info(
@@ -1533,6 +2427,379 @@ pub fn load_runtime_info(
         format!("remote daemon is not running for session {session:?} ({})", path.display())
     })?)
     .context("remote daemon runtime metadata is invalid")
+}
+
+fn read_runtime_info(state_dir: &Path) -> Result<Option<DaemonRuntimeInfo>, IdentityError> {
+    let encoded = match fs::read(state_dir.join("runtime.json")) {
+        Ok(encoded) => encoded,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(IdentityError::Io(error)),
+    };
+    serde_json::from_slice(&encoded).map(Some).map_err(IdentityError::Json)
+}
+
+fn read_optional_file(path: &Path) -> Result<Option<Vec<u8>>, IdentityError> {
+    match fs::read(path) {
+        Ok(encoded) => Ok(Some(encoded)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(IdentityError::Io(error)),
+    }
+}
+
+fn decode_shutdown_outcome(encoded: &[u8]) -> Result<DaemonShutdownOutcome, IdentityError> {
+    let outcome: DaemonShutdownOutcome =
+        serde_json::from_slice(encoded).map_err(IdentityError::Json)?;
+    if outcome.version != DAEMON_SHUTDOWN_OUTCOME_VERSION {
+        return Err(IdentityError::Invalid(format!(
+            "remote daemon shutdown outcome version {} is unsupported",
+            outcome.version
+        )));
+    }
+    if outcome.lifecycle_id.is_empty() {
+        return Err(IdentityError::Invalid(
+            "remote daemon shutdown outcome has an empty lifecycle id".into(),
+        ));
+    }
+    Ok(outcome)
+}
+
+fn read_daemon_lifecycle_fence(state_dir: &Path) -> Result<bool, IdentityError> {
+    let Some(encoded) = read_optional_file(&state_dir.join("lifecycle-fence.json"))? else {
+        return Ok(false);
+    };
+    let fence: DaemonLifecycleFence =
+        serde_json::from_slice(&encoded).map_err(IdentityError::Json)?;
+    if fence.version != DAEMON_LIFECYCLE_FENCE_VERSION {
+        return Err(IdentityError::Invalid(
+            catalog().remote.lifecycle_fence_version_unsupported(fence.version),
+        ));
+    }
+    Ok(true)
+}
+
+pub(crate) fn inactive_daemon_needs_legacy_acknowledgement(
+    state_dir: &Path,
+) -> anyhow::Result<bool> {
+    let auth_state_dir = state_dir.join("auth");
+    let lifecycle_fenced =
+        read_daemon_lifecycle_fence(state_dir).context(catalog().remote.verify_lifecycle_fence)?;
+    if !auth_state_dir.try_exists().context(catalog().remote.inspect_authorization_state)? {
+        return Ok(lifecycle_fenced);
+    }
+    let auth_schema = persisted_auth_state_schema(&auth_state_dir)
+        .context(catalog().remote.inspect_authorization_schema)?;
+    Ok(auth_schema != PersistedAuthStateSchema::Current || !lifecycle_fenced)
+}
+
+fn read_shutdown_outcome(state_dir: &Path) -> Result<Option<DaemonShutdownOutcome>, IdentityError> {
+    let path = state_dir.join("shutdown.json");
+    read_optional_file(&path)?.map(|encoded| decode_shutdown_outcome(&encoded)).transpose()
+}
+
+pub(crate) fn load_shutdown_outcome(state_dir: &Path) -> anyhow::Result<DaemonShutdownOutcome> {
+    read_shutdown_outcome(state_dir)?
+        .ok_or_else(|| {
+            anyhow!(
+                "remote daemon shutdown outcome is unavailable ({})",
+                state_dir.join("shutdown.json").display()
+            )
+        })
+        .context("remote daemon shutdown outcome is invalid")
+}
+
+#[cfg(unix)]
+pub(crate) async fn complete_verified_daemon_stop(
+    state_dir: &Path,
+    daemon_name: &str,
+) -> anyhow::Result<()> {
+    let auth_state_dir = state_dir.join("auth");
+    auth_state_dir.try_exists().context(catalog().remote.inspect_stopped_authorization_state)?;
+
+    let auth = AuthDatabase::load_or_migrate_legacy(&auth_state_dir, daemon_name, true)
+        .context(catalog().remote.acquire_stopped_authorization_lease)?;
+    let cleanup_state_dir = state_dir.to_path_buf();
+    auth.shutdown_with_cleanup(move |finalization| {
+        if finalization.is_err() {
+            return Ok(());
+        }
+        persist_daemon_lifecycle_fence(&cleanup_state_dir)
+    })
+    .await
+    .context(catalog().remote.finalize_stopped_authorization_migration)
+}
+
+#[cfg(unix)]
+pub(crate) async fn acknowledge_failed_shutdown_outcome(
+    state_dir: &Path,
+    daemon_name: &str,
+    link_socket: &Path,
+    admin_socket: &Path,
+) -> anyhow::Result<()> {
+    let runtime_path = state_dir.join("runtime.json");
+    let outcome_path = state_dir.join("shutdown.json");
+    let initial_runtime = read_optional_file(&runtime_path)
+        .context(catalog().remote.snapshot_runtime_for_recovery)?;
+    let initial_outcome = read_optional_file(&outcome_path)
+        .context(catalog().remote.snapshot_finalization_for_recovery)?;
+    let runtime = validate_failed_shutdown_recovery_evidence(&initial_runtime, &initial_outcome)?;
+    verify_recovery_sockets_inactive(
+        runtime.as_ref(),
+        link_socket,
+        admin_socket,
+        catalog().remote.failed_finalization_label,
+    )
+    .await?;
+
+    let auth = AuthDatabase::load_or_migrate_legacy(state_dir.join("auth"), daemon_name, true)
+        .context(catalog().remote.acquire_recovery_authorization_lease)?;
+
+    let runtime_snapshot = read_optional_file(&runtime_path)
+        .context(catalog().remote.resnapshot_runtime_for_recovery)?;
+    let outcome_snapshot = read_optional_file(&outcome_path)
+        .context(catalog().remote.resnapshot_finalization_for_recovery)?;
+    if runtime_snapshot != initial_runtime || outcome_snapshot != initial_outcome {
+        return Err(anyhow!(catalog().remote.lifecycle_evidence_changed_before_recovery));
+    }
+    let runtime = validate_failed_shutdown_recovery_evidence(&runtime_snapshot, &outcome_snapshot)?;
+    verify_recovery_sockets_inactive(
+        runtime.as_ref(),
+        link_socket,
+        admin_socket,
+        catalog().remote.failed_finalization_label,
+    )
+    .await?;
+
+    let cleanup_state_dir = state_dir.to_path_buf();
+    auth.shutdown_with_cleanup(move |finalization| {
+        if finalization.is_err() {
+            return Ok(());
+        }
+        remove_shutdown_recovery_evidence(&cleanup_state_dir, runtime_snapshot, outcome_snapshot)
+    })
+    .await
+    .context(catalog().remote.complete_authorization_recovery)
+}
+
+fn validate_failed_shutdown_recovery_evidence(
+    runtime_snapshot: &Option<Vec<u8>>,
+    outcome_snapshot: &Option<Vec<u8>>,
+) -> anyhow::Result<Option<DaemonRuntimeInfo>> {
+    let runtime = runtime_snapshot
+        .as_deref()
+        .map(serde_json::from_slice::<DaemonRuntimeInfo>)
+        .transpose()
+        .context(catalog().remote.verify_runtime_for_recovery)?;
+
+    if let Some(runtime) = &runtime {
+        match runtime.lifecycle_id.as_deref() {
+            Some(lifecycle_id) if !lifecycle_id.is_empty() => {}
+            _ => {
+                return Err(anyhow!(catalog().remote.refuse_failed_ack_with_legacy_runtime));
+            }
+        }
+    } else {
+        let encoded = outcome_snapshot
+            .as_deref()
+            .ok_or_else(|| anyhow!(catalog().remote.no_failed_finalization_recorded))?;
+        if matches!(
+            decode_shutdown_outcome(encoded),
+            Ok(DaemonShutdownOutcome { status: DaemonShutdownStatus::Succeeded, .. })
+        ) {
+            return Err(anyhow!(catalog().remote.finalization_succeeded_no_ack));
+        }
+    }
+    Ok(runtime)
+}
+
+#[cfg(unix)]
+pub(crate) async fn acknowledge_legacy_shutdown_state(
+    state_dir: &Path,
+    daemon_name: &str,
+    link_socket: &Path,
+    admin_socket: &Path,
+) -> anyhow::Result<()> {
+    let auth_state_dir = state_dir.join("auth");
+    let auth_state_preexisting =
+        auth_state_dir.try_exists().context(catalog().remote.inspect_legacy_authorization_state)?;
+    let lifecycle_fenced =
+        read_daemon_lifecycle_fence(state_dir).context(catalog().remote.verify_lifecycle_fence)?;
+    if !auth_state_preexisting && !lifecycle_fenced {
+        return Err(anyhow!(catalog().remote.no_legacy_authorization_state));
+    }
+
+    let runtime_path = state_dir.join("runtime.json");
+    let outcome_path = state_dir.join("shutdown.json");
+    let initial_runtime =
+        read_optional_file(&runtime_path).context(catalog().remote.snapshot_legacy_runtime)?;
+    let initial_outcome =
+        read_optional_file(&outcome_path).context(catalog().remote.snapshot_legacy_shutdown)?;
+    let runtime = validate_legacy_shutdown_evidence(&initial_runtime, &initial_outcome)?;
+    verify_recovery_sockets_inactive(
+        runtime.as_ref(),
+        link_socket,
+        admin_socket,
+        catalog().remote.legacy_finalization_label,
+    )
+    .await?;
+
+    let auth = AuthDatabase::load_or_migrate_legacy(&auth_state_dir, daemon_name, true)
+        .context(catalog().remote.acquire_legacy_recovery_authorization_lease)?;
+    let runtime_snapshot =
+        read_optional_file(&runtime_path).context(catalog().remote.resnapshot_legacy_runtime)?;
+    let outcome_snapshot =
+        read_optional_file(&outcome_path).context(catalog().remote.resnapshot_legacy_shutdown)?;
+    if runtime_snapshot != initial_runtime || outcome_snapshot != initial_outcome {
+        return Err(anyhow!(catalog().remote.lifecycle_evidence_changed_before_legacy_recovery));
+    }
+    let runtime = validate_legacy_shutdown_evidence(&runtime_snapshot, &outcome_snapshot)?;
+    verify_recovery_sockets_inactive(
+        runtime.as_ref(),
+        link_socket,
+        admin_socket,
+        catalog().remote.legacy_finalization_label,
+    )
+    .await?;
+
+    let cleanup_state_dir = state_dir.to_path_buf();
+    auth.shutdown_with_cleanup(move |finalization| {
+        if finalization.is_err() {
+            return Ok(());
+        }
+        finish_legacy_shutdown_recovery(&cleanup_state_dir, runtime_snapshot, outcome_snapshot)
+    })
+    .await
+    .context(catalog().remote.complete_legacy_authorization_recovery)
+}
+
+#[cfg(unix)]
+async fn verify_recovery_sockets_inactive(
+    runtime: Option<&DaemonRuntimeInfo>,
+    link_socket: &Path,
+    admin_socket: &Path,
+    finalization: &str,
+) -> anyhow::Result<()> {
+    let mut sockets = Vec::with_capacity(4);
+    if let Some(runtime) = runtime {
+        sockets.push(runtime.link_socket.as_path());
+        sockets.push(runtime.admin_socket.as_path());
+    }
+    for socket in [link_socket, admin_socket] {
+        if !sockets.contains(&socket) {
+            sockets.push(socket);
+        }
+    }
+    for socket in sockets {
+        match bounded_unix_socket_connect(cmux_tui_process::tokio_net::connect_unix_stream(socket))
+            .await
+        {
+            Ok(_) => {
+                return Err(anyhow!(
+                    catalog()
+                        .remote
+                        .refuse_active_socket(finalization, &socket.display().to_string())
+                ));
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                ) => {}
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    catalog().remote.verify_socket_inactive(&socket.display().to_string())
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+async fn bounded_unix_socket_connect<F, T>(connect: F) -> std::io::Result<T>
+where
+    F: Future<Output = std::io::Result<T>>,
+{
+    tokio::time::timeout(UNIX_SOCKET_PROBE_TIMEOUT, connect).await.map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "daemon Unix socket probe exceeded its deadline",
+        )
+    })?
+}
+
+fn validate_legacy_shutdown_evidence(
+    runtime_snapshot: &Option<Vec<u8>>,
+    outcome_snapshot: &Option<Vec<u8>>,
+) -> anyhow::Result<Option<DaemonRuntimeInfo>> {
+    // Explicit operator acknowledgement is the only recovery path for raw
+    // metadata that cannot reveal its recorded sockets. The caller still
+    // holds the authorization lease and probes the session's default sockets
+    // before removing the unchanged byte snapshot.
+    let runtime = runtime_snapshot
+        .as_deref()
+        .and_then(|encoded| serde_json::from_slice::<DaemonRuntimeInfo>(encoded).ok());
+    let runtime_is_malformed = runtime_snapshot.is_some() && runtime.is_none();
+    if runtime.as_ref().is_some_and(|runtime| runtime.lifecycle_id.is_some()) {
+        return Err(anyhow!(catalog().remote.lifecycle_runtime_requires_failed_ack));
+    }
+    if !runtime_is_malformed && let Some(encoded) = outcome_snapshot {
+        match decode_shutdown_outcome(encoded) {
+            Ok(DaemonShutdownOutcome { status: DaemonShutdownStatus::Succeeded, .. }) => {}
+            Ok(DaemonShutdownOutcome { status: DaemonShutdownStatus::Failed, .. }) | Err(_) => {
+                return Err(anyhow!(catalog().remote.shutdown_evidence_requires_failed_ack));
+            }
+        }
+    }
+    Ok(runtime)
+}
+
+fn finish_legacy_shutdown_recovery(
+    state_dir: &Path,
+    expected_runtime: Option<Vec<u8>>,
+    expected_outcome: Option<Vec<u8>>,
+) -> Result<(), IdentityError> {
+    let runtime_path = state_dir.join("runtime.json");
+    let outcome_path = state_dir.join("shutdown.json");
+    if read_optional_file(&runtime_path)? != expected_runtime
+        || read_optional_file(&outcome_path)? != expected_outcome
+    {
+        return Err(IdentityError::Invalid(
+            catalog().remote.lifecycle_evidence_changed_during_legacy_recovery.into(),
+        ));
+    }
+    persist_daemon_lifecycle_fence(state_dir)?;
+    if expected_runtime.is_some() {
+        fs::remove_file(runtime_path).map_err(IdentityError::Io)?;
+        sync_state_directory(state_dir)?;
+    }
+    Ok(())
+}
+
+fn remove_shutdown_recovery_evidence(
+    state_dir: &Path,
+    expected_runtime: Option<Vec<u8>>,
+    expected_outcome: Option<Vec<u8>>,
+) -> Result<(), IdentityError> {
+    let runtime_path = state_dir.join("runtime.json");
+    let outcome_path = state_dir.join("shutdown.json");
+    if read_optional_file(&runtime_path)? != expected_runtime
+        || read_optional_file(&outcome_path)? != expected_outcome
+    {
+        return Err(IdentityError::Invalid(
+            catalog().remote.lifecycle_evidence_changed_during_recovery.into(),
+        ));
+    }
+
+    persist_daemon_lifecycle_fence(state_dir)?;
+    if expected_runtime.is_some() {
+        fs::remove_file(runtime_path).map_err(IdentityError::Io)?;
+        sync_state_directory(state_dir)?;
+    }
+    if expected_outcome.is_some() {
+        fs::remove_file(outcome_path).map_err(IdentityError::Io)?;
+        sync_state_directory(state_dir)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1580,8 +2847,41 @@ mod tests {
         endpoint
     }
 
+    #[tokio::test]
+    async fn unmatched_relay_route_never_fetches_fallback_credentials() {
+        let fetches = Arc::new(AtomicUsize::new(0));
+        let credentials = RelayCredentialSource::callback({
+            let fetches = Arc::clone(&fetches);
+            move || {
+                fetches.fetch_add(1, Ordering::SeqCst);
+                async { Ok::<_, ()>("ticket".to_string()) }
+            }
+        });
+        let provider = RoutedRelayProvider {
+            routes: BTreeMap::from([(
+                Url::parse("relay+ws://configured.example").unwrap().to_string(),
+                RelayClientOptions { slot: "slot".into(), credentials },
+            )]),
+        };
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            provider.connect(ConnectRequest {
+                endpoint: Url::parse("relay+ws://127.0.0.1:9").unwrap(),
+                session: SessionId([88; 16]),
+                lane_policy: LanePolicy::Single,
+                routing: BTreeMap::new(),
+            }),
+        )
+        .await
+        .expect("unmatched relay lookup reached a network timeout");
+
+        assert!(matches!(result, Err(ProviderError::Configuration(_))));
+        assert_eq!(fetches.load(Ordering::SeqCst), 0);
+    }
+
     fn test_providers(ssh: SshProviderConfig) -> Arc<cmux_remote::provider::ProviderRegistry> {
-        Arc::new(client_provider_registry(ssh, None, BTreeMap::new(), IrohPathMode::Auto).unwrap())
+        Arc::new(client_provider_registry(ssh, BTreeMap::new(), IrohPathMode::Auto).unwrap())
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -1877,6 +3177,1366 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn daemon_shutdown_finalizes_authorization_after_transport_failure() {
+        let finalized = Arc::new(AtomicBool::new(false));
+        let observed = finalized.clone();
+        let result = finish_daemon_shutdown(
+            vec![anyhow!("injected transport shutdown failure")],
+            async move {
+                observed.store(true, Ordering::SeqCst);
+                Err(IdentityError::Invalid("injected authorization failure".into()))
+            },
+        )
+        .await;
+
+        assert!(finalized.load(Ordering::SeqCst));
+        let error = result.expect_err("shutdown failures were discarded").to_string();
+        assert!(error.contains("transport shutdown failure"), "{error}");
+        assert!(error.contains("authorization finalization failed"), "{error}");
+    }
+
+    #[test]
+    fn shutdown_recovery_preserves_lifecycle_evidence_when_its_snapshot_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime_path = directory.path().join("runtime.json");
+        let outcome_path = directory.path().join("shutdown.json");
+        fs::write(&runtime_path, b"runtime-before").unwrap();
+        fs::write(&outcome_path, b"outcome-before").unwrap();
+        let runtime_snapshot = read_optional_file(&runtime_path).unwrap();
+        let outcome_snapshot = read_optional_file(&outcome_path).unwrap();
+        fs::write(&runtime_path, b"runtime-after").unwrap();
+
+        let error =
+            remove_shutdown_recovery_evidence(directory.path(), runtime_snapshot, outcome_snapshot)
+                .expect_err("changed lifecycle evidence was removed");
+
+        assert!(error.to_string().contains("changed"), "{error}");
+        assert_eq!(fs::read(&runtime_path).unwrap(), b"runtime-after");
+        assert_eq!(fs::read(&outcome_path).unwrap(), b"outcome-before");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_runtime_shutdown_removes_only_its_owned_lifecycle_paths() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let runtime = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "owned-shutdown".into(),
+                state_dir: Some(directory.path().join("state")),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .unwrap();
+        let info = runtime.info().clone();
+        let lifecycle_id =
+            info.lifecycle_id.clone().expect("new daemon omitted its lifecycle identity");
+        let metadata = info.state_dir.join("runtime.json");
+        assert!(info.link_socket.exists());
+        assert!(info.admin_socket.exists());
+        assert!(metadata.exists());
+
+        runtime.shutdown().unwrap();
+
+        assert!(!info.link_socket.exists());
+        assert!(!info.admin_socket.exists());
+        assert!(!metadata.exists());
+        assert_eq!(
+            load_shutdown_outcome(&info.state_dir).unwrap(),
+            DaemonShutdownOutcome {
+                version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+                lifecycle_id,
+                status: DaemonShutdownStatus::Succeeded,
+            }
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_refuses_failed_authorization_finalization() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "failed-predecessor";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        persist_shutdown_outcome(
+            &state_dir,
+            &DaemonShutdownOutcome {
+                version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+                lifecycle_id: "failed-predecessor".into(),
+                status: DaemonShutdownStatus::Failed,
+            },
+        )
+        .unwrap();
+
+        let result = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        );
+        let error = match result {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("daemon started after failed authorization finalization");
+            }
+        };
+        assert!(error.to_string().contains("authorization finalization"), "{error:#}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_refuses_malformed_authorization_finalization() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "malformed-predecessor";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        fs::write(state_dir.join("shutdown.json"), b"{not-json").unwrap();
+
+        let result = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        );
+        let error = match result {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("daemon started after malformed authorization finalization");
+            }
+        };
+        assert!(error.to_string().contains("authorization finalization"), "{error:#}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_refuses_unfenced_legacy_state_after_runtime_cleanup() {
+        for case in ["missing-outcome", "stale-success"] {
+            let directory = tempfile::tempdir_in("/tmp").unwrap();
+            let state_root = directory.path().join("state");
+            let session = format!("unfenced-legacy-cleanup-{case}");
+            let (state_dir, _, _) = daemon_paths(&session, Some(&state_root)).unwrap();
+            drop(
+                AuthDatabase::load_or_create(state_dir.join("auth"), &session, true)
+                    .expect("could not seed legacy authorization state"),
+            );
+            if case == "stale-success" {
+                persist_shutdown_outcome(
+                    &state_dir,
+                    &DaemonShutdownOutcome {
+                        version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+                        lifecycle_id: "earlier-modern-lifecycle".into(),
+                        status: DaemonShutdownStatus::Succeeded,
+                    },
+                )
+                .unwrap();
+            }
+
+            let result = start_daemon_runtime(
+                directory.path().join("missing-mux.sock"),
+                DaemonRuntimeOptions {
+                    session,
+                    state_dir: Some(state_root),
+                    link_socket: None,
+                    admin_socket: None,
+                    direct_websocket: None,
+                    allow_insecure_non_loopback: false,
+                    workspace_http: None,
+                    relays: Vec::new(),
+                    iroh: false,
+                    advertised_routes: Vec::new(),
+                    resume_lease: Duration::from_secs(2),
+                    replaceable_sidecar: true,
+                },
+            );
+            let error = match result {
+                Err(error) => error,
+                Ok(runtime) => {
+                    runtime.shutdown().unwrap();
+                    panic!("{case}: daemon started without a lifecycle fence");
+                }
+            };
+            assert!(error.to_string().contains("lifecycle fence"), "{case}: {error:#}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_does_not_treat_lifecycle_marker_as_an_auth_rollback_fence() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "marker-with-legacy-auth";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        let auth_state_dir = state_dir.join("auth");
+        fs::create_dir_all(&auth_state_dir).unwrap();
+        fs::write(
+            auth_state_dir.join("devices.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "version": 1,
+                "revision": 0,
+                "revocation_generation": 0,
+                "devices": [],
+                "invitations": [],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+
+        let error = match start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        ) {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("lifecycle marker bypassed authorization-state migration");
+            }
+        };
+
+        assert!(error.to_string().contains("explicit migration"), "{error:#}");
+        assert_eq!(
+            cmux_remote::identity::persisted_auth_state_version(&auth_state_dir).unwrap(),
+            Some(1),
+            "rejected startup rewrote legacy authorization state"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_refuses_lifecycle_marker_without_authorization_state() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "marker-without-auth";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+
+        let error = match start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        ) {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("lifecycle marker created missing authorization state");
+            }
+        };
+
+        assert!(error.to_string().contains("explicit migration"), "{error:#}");
+        assert_eq!(
+            cmux_remote::identity::persisted_auth_state_version(&state_dir.join("auth")).unwrap(),
+            None,
+            "rejected marker-only state created authorization state"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_refuses_lifecycle_fenced_lock_only_auth_initialization() {
+        use std::os::unix::fs::OpenOptionsExt as _;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "reject-lock-only-auth";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        let auth_state_dir = state_dir.join("auth");
+        fs::create_dir_all(&auth_state_dir).unwrap();
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(auth_state_dir.join("devices.json.lock"))
+            .unwrap();
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+
+        let error = match start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        ) {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("lifecycle marker was trusted as an authorization rollback fence");
+            }
+        };
+
+        assert!(error.to_string().contains("explicit migration"), "{error:#}");
+        assert_eq!(
+            cmux_remote::identity::persisted_auth_state_version(&auth_state_dir).unwrap(),
+            None,
+            "rejected startup created rollback-fenced authorization state"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_persists_auth_rollback_fence_before_lifecycle_marker() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "auth-fence-before-lifecycle-marker";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        let auth_state_dir = state_dir.join("auth");
+        let mut pause = DaemonCleanupPauseHandle::install(
+            state_dir,
+            DaemonCleanupPausePhase::BeforeLifecycleFence,
+        );
+
+        let mux_socket = directory.path().join("missing-mux.sock");
+        let startup = thread::spawn(move || {
+            start_daemon_runtime(
+                mux_socket,
+                DaemonRuntimeOptions {
+                    session: session.into(),
+                    state_dir: Some(state_root),
+                    link_socket: None,
+                    admin_socket: None,
+                    direct_websocket: None,
+                    allow_insecure_non_loopback: false,
+                    workspace_http: None,
+                    relays: Vec::new(),
+                    iroh: false,
+                    advertised_routes: Vec::new(),
+                    resume_lease: Duration::from_secs(2),
+                    replaceable_sidecar: true,
+                },
+            )
+        });
+
+        pause.wait_until_reached();
+        let auth_version =
+            cmux_remote::identity::persisted_auth_state_version(&auth_state_dir).unwrap();
+        pause.resume();
+        let runtime = startup.join().unwrap().unwrap();
+        runtime.shutdown().unwrap();
+
+        assert_eq!(
+            auth_version,
+            Some(cmux_remote::identity::AUTH_STATE_VERSION),
+            "lifecycle marker publication preceded the versioned authorization rollback fence"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_resyncs_visible_fence_before_initializing_auth() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "resync-visible-fence";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+
+        fs::set_permissions(&state_dir, fs::Permissions::from_mode(0o300)).unwrap();
+        let result = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        );
+        fs::set_permissions(&state_dir, fs::Permissions::from_mode(0o700)).unwrap();
+
+        let error = match result {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("startup trusted a visible lifecycle fence without re-syncing it");
+            }
+        };
+        assert!(error.to_string().contains("lifecycle fence"), "{error:#}");
+        assert!(
+            !state_dir.join("auth").exists(),
+            "startup initialized authorization state before confirming fence durability"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_does_not_publish_marker_without_auth_rollback_fence() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "fence-before-auth-failure";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        symlink("missing-auth-target", state_dir.join("auth")).unwrap();
+
+        let result = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        );
+
+        assert!(result.is_err(), "daemon accepted a dangling authorization-state symlink");
+        assert!(
+            !read_daemon_lifecycle_fence(&state_dir).unwrap(),
+            "auth initialization failure left a marker that older binaries ignore"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_migrates_verified_modern_state_to_a_lifecycle_fence() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "migrate-modern-lifecycle";
+        let (state_dir, link_socket, admin_socket) =
+            daemon_paths(session, Some(&state_root)).unwrap();
+        drop(
+            AuthDatabase::load_or_create(state_dir.join("auth"), session, true)
+                .expect("could not seed authorization state"),
+        );
+        persist_runtime_info(
+            &state_dir,
+            &DaemonRuntimeInfo {
+                session: session.into(),
+                state_dir: state_dir.clone(),
+                link_socket,
+                admin_socket,
+                daemon_fingerprint: "completed-modern-daemon".into(),
+                routes: Vec::new(),
+                direct_websocket: None,
+                iroh_node_id: None,
+                lifecycle_id: Some("completed-modern-lifecycle".into()),
+                replaceable_sidecar: true,
+            },
+        )
+        .unwrap();
+        persist_shutdown_outcome(
+            &state_dir,
+            &DaemonShutdownOutcome {
+                version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+                lifecycle_id: "completed-modern-lifecycle".into(),
+                status: DaemonShutdownStatus::Succeeded,
+            },
+        )
+        .unwrap();
+
+        let runtime = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .expect("verified modern state did not migrate");
+
+        assert!(read_daemon_lifecycle_fence(&state_dir).unwrap());
+        runtime.shutdown().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_lifecycle_fence_retry_resyncs_parent_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_dir = directory.path().join("state");
+        fs::create_dir_all(&state_dir).unwrap();
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+
+        fs::set_permissions(&state_dir, fs::Permissions::from_mode(0o100)).unwrap();
+        let result = persist_daemon_lifecycle_fence(&state_dir);
+        fs::set_permissions(&state_dir, fs::Permissions::from_mode(0o700)).unwrap();
+
+        let error = result.expect_err("existing lifecycle fence skipped its directory sync");
+        assert!(
+            matches!(
+                error,
+                IdentityError::Io(ref error)
+                    if error.kind() == std::io::ErrorKind::PermissionDenied
+            ),
+            "{error}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lifecycle_fence_allows_retry_before_runtime_metadata_is_published() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "fenced-startup-retry";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        drop(
+            AuthDatabase::load_or_create(state_dir.join("auth"), session, true)
+                .expect("could not seed authorization state"),
+        );
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+
+        let runtime = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .expect("lifecycle-fenced startup retry was rejected");
+
+        runtime.shutdown().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn legacy_recovery_makes_marker_only_state_safe_to_restart() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "recover-marker-only-state";
+        let (state_dir, link_socket, admin_socket) =
+            daemon_paths(session, Some(&state_root)).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+
+        assert!(inactive_daemon_needs_legacy_acknowledgement(&state_dir).unwrap());
+        acknowledge_legacy_shutdown_state(&state_dir, session, &link_socket, &admin_socket)
+            .await
+            .unwrap();
+        assert_eq!(
+            cmux_remote::identity::persisted_auth_state_version(&state_dir.join("auth")).unwrap(),
+            Some(cmux_remote::identity::AUTH_STATE_VERSION)
+        );
+        assert!(!inactive_daemon_needs_legacy_acknowledgement(&state_dir).unwrap());
+
+        let runtime = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .expect("explicit marker-only recovery did not make startup safe");
+        runtime.shutdown().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn verified_stop_creates_current_authorization_when_state_is_missing() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_dir = directory.path().join("missing-state");
+
+        complete_verified_daemon_stop(&state_dir, "verified-missing-state")
+            .await
+            .expect("verified stop did not initialize rollback-fenced authorization state");
+
+        assert_eq!(
+            cmux_remote::identity::persisted_auth_state_version(&state_dir.join("auth")).unwrap(),
+            Some(cmux_remote::identity::AUTH_STATE_VERSION)
+        );
+        assert!(read_daemon_lifecycle_fence(&state_dir).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_requires_exact_modern_predecessor_authorization_finalization() {
+        for (case, outcome_lifecycle) in [("missing", None), ("stale", Some("different-lifecycle"))]
+        {
+            let directory = tempfile::tempdir_in("/tmp").unwrap();
+            let state_root = directory.path().join("state");
+            let session = format!("modern-predecessor-{case}");
+            let (state_dir, link_socket, admin_socket) =
+                daemon_paths(&session, Some(&state_root)).unwrap();
+            fs::create_dir_all(&state_dir).unwrap();
+            persist_runtime_info(
+                &state_dir,
+                &DaemonRuntimeInfo {
+                    session: session.clone(),
+                    state_dir: state_dir.clone(),
+                    link_socket,
+                    admin_socket,
+                    daemon_fingerprint: "predecessor".into(),
+                    routes: Vec::new(),
+                    direct_websocket: None,
+                    iroh_node_id: None,
+                    lifecycle_id: Some("expected-lifecycle".into()),
+                    replaceable_sidecar: true,
+                },
+            )
+            .unwrap();
+            if let Some(lifecycle_id) = outcome_lifecycle {
+                persist_shutdown_outcome(
+                    &state_dir,
+                    &DaemonShutdownOutcome {
+                        version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+                        lifecycle_id: lifecycle_id.into(),
+                        status: DaemonShutdownStatus::Succeeded,
+                    },
+                )
+                .unwrap();
+            }
+
+            let result = start_daemon_runtime(
+                directory.path().join("missing-mux.sock"),
+                DaemonRuntimeOptions {
+                    session,
+                    state_dir: Some(state_root),
+                    link_socket: None,
+                    admin_socket: None,
+                    direct_websocket: None,
+                    allow_insecure_non_loopback: false,
+                    workspace_http: None,
+                    relays: Vec::new(),
+                    iroh: false,
+                    advertised_routes: Vec::new(),
+                    resume_lease: Duration::from_secs(2),
+                    replaceable_sidecar: true,
+                },
+            );
+            let error = match result {
+                Err(error) => error,
+                Ok(runtime) => {
+                    runtime.shutdown().unwrap();
+                    panic!("daemon started with {case} predecessor finalization evidence");
+                }
+            };
+            assert!(error.to_string().contains("authorization finalization"), "{case}: {error:#}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_persists_active_lifecycle_before_opening_listener() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "active-before-listener";
+        let (state_dir, link_socket, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        let mut pause = DaemonCleanupPauseHandle::install(
+            state_dir.clone(),
+            DaemonCleanupPausePhase::BeforeListenerStartup,
+        );
+        let mux_socket = directory.path().join("missing-mux.sock");
+        let caller = thread::spawn(move || {
+            start_daemon_runtime(
+                mux_socket,
+                DaemonRuntimeOptions {
+                    session: session.into(),
+                    state_dir: Some(state_root),
+                    link_socket: None,
+                    admin_socket: None,
+                    direct_websocket: None,
+                    allow_insecure_non_loopback: false,
+                    workspace_http: None,
+                    relays: Vec::new(),
+                    iroh: false,
+                    advertised_routes: Vec::new(),
+                    resume_lease: Duration::from_secs(2),
+                    replaceable_sidecar: true,
+                },
+            )
+        });
+        pause.wait_until_reached();
+
+        let active = read_runtime_info(&state_dir).unwrap();
+        let listener_opened = link_socket.exists();
+        pause.resume();
+        let runtime = caller.join().unwrap().unwrap();
+        let final_lifecycle_id =
+            runtime.info().lifecycle_id.clone().expect("ready daemon omitted its lifecycle id");
+        runtime.shutdown().unwrap();
+
+        assert!(!listener_opened, "link listener opened before the lifecycle checkpoint");
+        let active = active.expect("active lifecycle was not persisted before listener startup");
+        assert_eq!(active.lifecycle_id.as_deref(), Some(final_lifecycle_id.as_str()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_runtime_metadata_remains_until_auth_finalization() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let runtime = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "durable-cleanup".into(),
+                state_dir: Some(directory.path().join("state")),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .unwrap();
+        let state_dir = runtime.info().state_dir.clone();
+        let lifecycle_id =
+            runtime.info().lifecycle_id.clone().expect("new daemon omitted its lifecycle identity");
+        let metadata = state_dir.join("runtime.json");
+        let outcome = state_dir.join("shutdown.json");
+        let mut pause = DaemonCleanupPauseHandle::install(
+            state_dir.clone(),
+            DaemonCleanupPausePhase::BeforeAuthRelease,
+        );
+        let shutdown = thread::spawn(move || runtime.shutdown());
+        pause.wait_until_reached();
+
+        assert!(
+            metadata.exists(),
+            "daemon published lifecycle completion before auth finalization"
+        );
+        assert!(!outcome.exists(), "daemon published its outcome before auth finalization");
+        pause.resume();
+        shutdown.join().unwrap().unwrap();
+        assert!(!metadata.exists());
+        assert_eq!(load_shutdown_outcome(&state_dir).unwrap().lifecycle_id, lifecycle_id);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exiting_daemon_never_removes_successor_runtime_metadata() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let runtime = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "successor-metadata".into(),
+                state_dir: Some(directory.path().join("state")),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .unwrap();
+        let info = runtime.info().clone();
+        let mut pause = DaemonCleanupPauseHandle::install(
+            info.state_dir.clone(),
+            DaemonCleanupPausePhase::AfterAuthShutdown,
+        );
+
+        let unrelated_directory = tempfile::tempdir_in("/tmp").unwrap();
+        let unrelated = start_daemon_runtime(
+            unrelated_directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "unrelated-cleanup".into(),
+                state_dir: Some(unrelated_directory.path().join("state")),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .unwrap();
+        let unrelated_shutdown = thread::spawn(move || unrelated.shutdown());
+        pause.assert_not_reached_before(&unrelated_shutdown);
+        unrelated_shutdown.join().unwrap().unwrap();
+
+        let shutdown = thread::spawn(move || runtime.shutdown());
+        pause.wait_until_reached();
+
+        let successor =
+            AuthDatabase::load_or_create(info.state_dir.join("auth"), "successor", true)
+                .expect("predecessor retained its authorization state lease after shutdown");
+        let metadata = info.state_dir.join("runtime.json");
+        fs::write(&metadata, b"successor-runtime").unwrap();
+        pause.resume();
+        shutdown.join().unwrap().unwrap();
+
+        assert_eq!(fs::read(&metadata).unwrap(), b"successor-runtime");
+        drop(successor);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_runtime_rejects_an_intermediate_state_symlink_before_creating_state() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let target = directory.path().join("target");
+        let alias = directory.path().join("alias");
+        fs::create_dir(&target).unwrap();
+        symlink(&target, &alias).unwrap();
+
+        let result = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "symlinked-state".into(),
+                state_dir: Some(alias),
+                link_socket: Some(directory.path().join("sockets/link.sock")),
+                admin_socket: Some(directory.path().join("sockets/admin.sock")),
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        );
+        if let Ok(runtime) = result {
+            runtime.shutdown().unwrap();
+            panic!("intermediate state symlink was accepted");
+        }
+        assert!(!target.join("sessions").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn client_startup_timeout_returns_while_the_socket_path_lock_is_held() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let daemon_root = directory.path().join("daemon");
+        let daemon = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "client-startup-lock".into(),
+                state_dir: Some(daemon_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .unwrap();
+        let providers = test_providers(SshProviderConfig::default());
+        let route = ResolvedRouteCandidate::resolve(
+            unix_test_route(&daemon.info().link_socket),
+            BTreeMap::new(),
+            &providers,
+        )
+        .unwrap();
+        let local_socket = directory.path().join("client/mux.sock");
+        fs::create_dir_all(local_socket.parent().unwrap()).unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(client_socket_lock_path(&local_socket).unwrap())
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+
+        let ssh = SshProviderConfig::default();
+        let client_state = directory.path().join("client-state");
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        let caller = thread::spawn(move || {
+            let result = start_client_runtime(ClientRuntimeOptions {
+                routes: vec![route],
+                providers,
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "client-startup-lock-test".into(),
+                session: SessionId([31; 16]),
+                lane_policy: LanePolicy::Single,
+                reconnect: ReconnectPolicy {
+                    maximum_attempts: Some(1),
+                    heartbeat_interval: None,
+                    ..ReconnectPolicy::default()
+                },
+                startup_timeout: Duration::from_millis(100),
+                state_dir: client_state,
+                local_socket: Some(local_socket),
+                ssh,
+                ssh_bootstrap: SshBootstrapOptions {
+                    auto_install: false,
+                    upgrade: false,
+                    attempt_timeout: Duration::from_secs(1),
+                },
+            });
+            let _ = done_tx.send(result.map(|runtime| runtime.shutdown()));
+        });
+
+        let completed_while_locked = done_rx.recv_timeout(Duration::from_millis(500)).is_ok();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        if !completed_while_locked {
+            done_rx
+                .recv_timeout(Duration::from_secs(3))
+                .expect("client startup stayed blocked after releasing the socket lock")
+                .unwrap_err();
+        }
+        caller.join().unwrap();
+        daemon.shutdown().unwrap();
+
+        assert!(
+            completed_while_locked,
+            "client startup timeout joined a worker blocked on the socket path lock"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_timeout_returns_while_the_identity_path_lock_is_held() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let (session_state, link_socket, _) =
+            daemon_paths("daemon-startup-lock", Some(&state_root)).unwrap();
+        let auth_state = session_state.join("auth");
+        fs::create_dir_all(&auth_state).unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(auth_state.join("identity.json.lock"))
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+
+        let mux_socket = directory.path().join("missing-mux.sock");
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        let caller = thread::spawn(move || {
+            let result = start_daemon_runtime_with_timeout(
+                mux_socket,
+                DaemonRuntimeOptions {
+                    session: "daemon-startup-lock".into(),
+                    state_dir: Some(state_root),
+                    link_socket: None,
+                    admin_socket: None,
+                    direct_websocket: None,
+                    allow_insecure_non_loopback: false,
+                    workspace_http: None,
+                    relays: Vec::new(),
+                    iroh: false,
+                    advertised_routes: Vec::new(),
+                    resume_lease: Duration::from_secs(2),
+                    replaceable_sidecar: true,
+                },
+                Duration::from_millis(100),
+            );
+            let _ = done_tx.send(result.map(|runtime| runtime.shutdown()));
+        });
+
+        let completed_while_locked = done_rx.recv_timeout(Duration::from_millis(500)).is_ok();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        if !completed_while_locked {
+            done_rx
+                .recv_timeout(Duration::from_secs(3))
+                .expect("daemon startup stayed blocked after releasing the identity lock")
+                .unwrap_err();
+        }
+        caller.join().unwrap();
+        let cleanup_deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while link_socket.exists() && std::time::Instant::now() < cleanup_deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(
+            completed_while_locked,
+            "daemon startup timeout joined a worker blocked on the identity path lock"
+        );
+        assert!(!link_socket.exists(), "timed-out daemon left its link socket behind");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_finalizes_lifecycle_when_ready_receiver_disappears() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "ready-receiver-disappears";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        let mut pause = DaemonCleanupPauseHandle::install(
+            state_dir.clone(),
+            DaemonCleanupPausePhase::BeforeReadySend,
+        );
+        let mux_socket = directory.path().join("missing-mux.sock");
+        let caller = thread::spawn(move || {
+            start_daemon_runtime_with_timeout(
+                mux_socket,
+                DaemonRuntimeOptions {
+                    session: session.into(),
+                    state_dir: Some(state_root),
+                    link_socket: None,
+                    admin_socket: None,
+                    direct_websocket: None,
+                    allow_insecure_non_loopback: false,
+                    workspace_http: None,
+                    relays: Vec::new(),
+                    iroh: false,
+                    advertised_routes: Vec::new(),
+                    resume_lease: Duration::from_secs(2),
+                    replaceable_sidecar: true,
+                },
+                Duration::from_millis(500),
+            )
+        });
+        pause.wait_until_reached();
+
+        let lifecycle_id = read_runtime_info(&state_dir)
+            .unwrap()
+            .expect("starting daemon did not persist runtime metadata")
+            .lifecycle_id
+            .expect("starting daemon omitted its lifecycle id");
+        let startup = caller.join().unwrap();
+        let error = match startup {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("paused daemon became ready after its owner timed out");
+            }
+        };
+        assert!(error.to_string().contains("did not become ready"), "{error:#}");
+        pause.resume();
+
+        let runtime_path = state_dir.join("runtime.json");
+        let outcome_path = state_dir.join("shutdown.json");
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while (runtime_path.exists() || !outcome_path.exists())
+            && std::time::Instant::now() < deadline
+        {
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(!runtime_path.exists(), "orphaned startup retained active runtime metadata");
+        let outcome = load_shutdown_outcome(&state_dir)
+            .expect("orphaned startup did not publish authorization finalization");
+        assert_eq!(outcome.lifecycle_id, lifecycle_id);
+        assert_eq!(outcome.status, DaemonShutdownStatus::Succeeded);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_retries_a_predecessors_auth_state_lease() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let (session_state, _, _) =
+            daemon_paths("daemon-handoff-retry", Some(&state_root)).unwrap();
+        let auth_state = session_state.join("auth");
+        drop(
+            AuthDatabase::load_or_create(&auth_state, "daemon-handoff-retry", true)
+                .expect("could not seed current authorization state"),
+        );
+        persist_daemon_lifecycle_fence(&session_state).unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(auth_state.join("devices.json.lock"))
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+
+        let mux_socket = directory.path().join("missing-mux.sock");
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        let caller = thread::spawn(move || {
+            let result = start_daemon_runtime_with_timeout(
+                mux_socket,
+                DaemonRuntimeOptions {
+                    session: "daemon-handoff-retry".into(),
+                    state_dir: Some(state_root),
+                    link_socket: None,
+                    admin_socket: None,
+                    direct_websocket: None,
+                    allow_insecure_non_loopback: false,
+                    workspace_http: None,
+                    relays: Vec::new(),
+                    iroh: false,
+                    advertised_routes: Vec::new(),
+                    resume_lease: Duration::from_secs(2),
+                    replaceable_sidecar: true,
+                },
+                Duration::from_secs(3),
+            );
+            let _ = done_tx.send(result.map(DaemonRuntimeHandle::shutdown));
+        });
+
+        let early = done_rx.recv_timeout(Duration::from_millis(200));
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        let finished_while_locked = early.is_ok();
+        let result = match early {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => done_rx
+                .recv_timeout(Duration::from_secs(3))
+                .expect("daemon startup did not finish after its predecessor released state"),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("daemon startup caller disconnected")
+            }
+        };
+        caller.join().unwrap();
+
+        assert!(
+            !finished_while_locked,
+            "daemon startup failed instead of waiting for its predecessor's state lease"
+        );
+        result
+            .expect("daemon startup failed after its predecessor released state")
+            .expect("daemon shutdown failed after a successful handoff");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn daemon_auth_handoff_retry_stops_at_its_deadline() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let auth_state = directory.path().join("auth");
+        fs::create_dir_all(&auth_state).unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(auth_state.join("devices.json.lock"))
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let (_shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        let started = tokio::time::Instant::now();
+
+        let error = load_daemon_auth_during_handoff(
+            &auth_state,
+            "bounded-handoff",
+            &mut shutdown_rx,
+            Duration::from_millis(50),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert!(error.contains("still owned"), "{error}");
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "authorization state handoff retry exceeded its deadline"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn daemon_auth_handoff_retry_observes_startup_cancellation() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let auth_state = directory.path().join("auth");
+        fs::create_dir_all(&auth_state).unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(auth_state.join("devices.json.lock"))
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        let retry = tokio::spawn(async move {
+            load_daemon_auth_during_handoff(
+                &auth_state,
+                "cancelled-handoff",
+                &mut shutdown_rx,
+                Duration::from_secs(5),
+            )
+            .await
+        });
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert!(!retry.is_finished(), "authorization state handoff did not retry");
+
+        shutdown_tx.send_replace(true);
+        let error = tokio::time::timeout(Duration::from_secs(1), retry)
+            .await
+            .expect("authorization state handoff ignored startup cancellation")
+            .unwrap()
+            .unwrap_err()
+            .to_string();
+
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert!(error.contains("cancelled"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_paths_bound_session_components_and_unix_socket_names() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let root =
+            PathBuf::from("/tmp").join("long-root-a".repeat(6)).join("long-root-b".repeat(6));
+        let session = "long-session".repeat(128);
+        let first = daemon_paths(&session, Some(&root)).unwrap();
+        let second = daemon_paths(&session, Some(&root)).unwrap();
+
+        assert_eq!(first, second, "daemon path fallback was not deterministic");
+        assert!(first.0.starts_with(root.join("sessions")));
+        assert!(
+            first.0.file_name().unwrap().as_bytes().len() <= 255,
+            "encoded session exceeded NAME_MAX: {}",
+            first.0.display()
+        );
+        assert!(
+            unix_socket_path_fits(&first.1),
+            "link socket path was too long: {}",
+            first.1.display()
+        );
+        assert!(
+            unix_socket_path_fits(&first.2),
+            "admin socket path was too long: {}",
+            first.2.display()
+        );
+        assert_ne!(first.1, first.2);
+        for parent in [first.1.parent().unwrap(), first.2.parent().unwrap()] {
+            let metadata = fs::symlink_metadata(parent).unwrap();
+            assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+            assert_eq!(metadata.permissions().mode() & 0o077, 0);
+        }
+    }
+
     #[test]
     fn runtime_route_debug_redacts_raw_urls_slots_and_routing_hints() {
         let candidate = resolved_test_route_with_routing(
@@ -1906,11 +4566,6 @@ mod tests {
             credentials: RelayCredentialSource::static_ticket("daemon-ticket-marker").unwrap(),
         };
         let routed_provider = RoutedRelayProvider {
-            fallback: Some(RelayClientOptions {
-                slot: "fallback-slot-marker".into(),
-                credentials: RelayCredentialSource::static_ticket("fallback-ticket-marker")
-                    .unwrap(),
-            }),
             routes: BTreeMap::from([(
                 "relay+wss://map-user-marker:map-password-marker@map.example/\
                  map-path-marker?ticket=map-query-marker#map-fragment-marker"
@@ -1945,6 +4600,7 @@ mod tests {
             routes: vec!["%%% malformed-info-route-marker %%%".into()],
             direct_websocket: None,
             iroh_node_id: None,
+            lifecycle_id: None,
             replaceable_sidecar: false,
         };
         let client_options = reconnect_test_options(vec![candidate.clone()]);
@@ -1982,8 +4638,6 @@ mod tests {
             "daemon-fragment-marker",
             "daemon-slot-marker",
             "daemon-ticket-marker",
-            "fallback-slot-marker",
-            "fallback-ticket-marker",
             "map-user-marker",
             "map-password-marker",
             "map-path-marker",
@@ -2263,8 +4917,7 @@ mod tests {
             ..SshProviderConfig::default()
         };
         let providers = Arc::new(
-            client_provider_registry(ssh.clone(), None, BTreeMap::new(), IrohPathMode::Auto)
-                .unwrap(),
+            client_provider_registry(ssh.clone(), BTreeMap::new(), IrohPathMode::Auto).unwrap(),
         );
         let mut unix_route = Url::parse("unix:///").unwrap();
         unix_route.set_path(proxy_link.to_str().unwrap());
@@ -2474,7 +5127,84 @@ mod tests {
 
         assert_eq!(calls.load(Ordering::Acquire), 2);
         connection.close().await.unwrap();
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn invitation_approval_outlives_the_route_attempt_timeout() {
+        let directory = tempfile::tempdir().unwrap();
+        let daemon_auth = AuthDatabase::load_or_create(
+            directory.path().join("daemon"),
+            "delayed-invitation-approval",
+            true,
+        )
+        .unwrap();
+        let unix_path = directory.path().join("daemon.sock");
+        let route = unix_test_route(&unix_path);
+        let invitation = daemon_auth
+            .create_invitation(Duration::from_secs(60), vec![route.to_string()])
+            .await
+            .unwrap();
+        let daemon_key: [u8; 32] = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(&invitation.daemon_public_key)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let (daemon, _clients) = RemoteDaemon::new(daemon_auth.clone(), SessionLimits::default());
+        let server = serve_unix(daemon, &unix_path, MAX_CARRIER_FRAME_BYTES).await.unwrap();
+
+        let mut providers = cmux_remote::provider::ProviderRegistry::default();
+        providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES))).unwrap();
+        let providers = Arc::new(providers);
+        let route = ResolvedRouteCandidate::resolve(route, BTreeMap::new(), &providers).unwrap();
+        let ssh = SshProviderConfig::default();
+        let options = ClientRuntimeOptions {
+            routes: vec![route],
+            providers,
+            identity: StaticIdentity::generate().unwrap(),
+            expected_daemon: Some(daemon_key),
+            auth: ClientAuthMode::Invitation {
+                id: invitation.id.clone(),
+                secret: zeroize::Zeroizing::new(invitation.secret_bytes().unwrap()),
+            },
+            device_name: "delayed-approval-client".into(),
+            session: SessionId([24; 16]),
+            lane_policy: LanePolicy::Single,
+            reconnect: ReconnectPolicy {
+                initial_delay: Duration::from_millis(1),
+                maximum_delay: Duration::from_millis(1),
+                attempt_timeout: Duration::from_millis(20),
+                full_jitter: false,
+                heartbeat_interval: None,
+                heartbeat_timeout: Duration::from_secs(1),
+                maximum_attempts: Some(2),
+            },
+            startup_timeout: Duration::from_secs(1),
+            state_dir: directory.path().join("client"),
+            local_socket: None,
+            ssh,
+            ssh_bootstrap: SshBootstrapOptions {
+                auto_install: false,
+                upgrade: false,
+                attempt_timeout: Duration::from_secs(1),
+            },
+        };
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let connection =
+            tokio::spawn(async move { connect_first_available(&options, shutdown_rx).await });
+
+        let pending = daemon_auth.wait_for_pending(Duration::from_millis(200)).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        daemon_auth.approve(&pending[0].invitation_id).await.unwrap();
+
+        let (connection, _) = tokio::time::timeout(Duration::from_secs(1), connection)
+            .await
+            .expect("delayed invitation approval timed out")
+            .unwrap()
+            .expect("the route timer abandoned a pending invitation approval");
+        connection.close().await.unwrap();
+        server.shutdown().await.unwrap();
     }
 
     #[cfg(unix)]
@@ -2518,7 +5248,7 @@ mod tests {
         assert_eq!(calls.load(Ordering::Acquire), 1);
         assert_eq!(selected, format!("unix://{}", unix_path.display()));
         connection.close().await.unwrap();
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
     }
 
     #[cfg(unix)]
@@ -2564,7 +5294,7 @@ mod tests {
         assert_eq!(close_calls.load(Ordering::Acquire), 1);
         assert_eq!(selected, format!("unix://{}", unix_path.display()));
         connection.close().await.unwrap();
-        server.shutdown().await;
+        server.shutdown().await.unwrap();
     }
 
     #[cfg(unix)]
@@ -2973,6 +5703,12 @@ mod tests {
         );
     }
 
+    #[test]
+    fn ssh_bootstrap_rejects_option_like_destination() {
+        let endpoint = Url::parse("ssh://-Fvalidation@localhost").unwrap();
+        assert!(ssh_bootstrap_destination(&endpoint).is_err());
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn connection_timeout_bounds_initial_ssh_bootstrap() {
@@ -3057,6 +5793,7 @@ mod tests {
             ],
             direct_websocket: None,
             iroh_node_id: None,
+            lifecycle_id: None,
             replaceable_sidecar: false,
         };
 
@@ -3099,6 +5836,7 @@ mod tests {
             routes: vec![iroh_route.to_string()],
             direct_websocket: None,
             iroh_node_id: Some(node_id.clone()),
+            lifecycle_id: None,
             replaceable_sidecar: false,
         };
 
@@ -3117,6 +5855,94 @@ mod tests {
         assert!(!routing.contains_key("ticket"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn persisted_runtime_metadata_propagates_parent_directory_sync_failure() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir().unwrap();
+        let info = DaemonRuntimeInfo {
+            session: "persist-runtime-sync".into(),
+            state_dir: directory.path().into(),
+            link_socket: directory.path().join("link.sock"),
+            admin_socket: directory.path().join("admin.sock"),
+            daemon_fingerprint: "public-fingerprint".into(),
+            routes: Vec::new(),
+            direct_websocket: None,
+            iroh_node_id: None,
+            lifecycle_id: Some("durable-active-lifecycle".into()),
+            replaceable_sidecar: false,
+        };
+
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o300)).unwrap();
+        let result = persist_runtime_info(directory.path(), &info);
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
+
+        result.expect_err("runtime persistence skipped its parent-directory sync");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_finalizes_preliminary_lifecycle_after_committed_runtime_sync_failure() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "committed-preliminary-runtime";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        fail_state_directory_sync_after(&state_dir, 1);
+
+        let error = match start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root.clone()),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        ) {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("daemon ignored a preliminary runtime durability failure");
+            }
+        };
+        assert!(error.to_string().contains("injected state-directory sync failure"), "{error:#}");
+        assert!(
+            !state_dir.join("runtime.json").exists(),
+            "committed preliminary runtime was left without lifecycle finalization"
+        );
+        let outcome = load_shutdown_outcome(&state_dir)
+            .expect("committed preliminary runtime did not publish a shutdown outcome");
+        assert_eq!(outcome.status, DaemonShutdownStatus::Succeeded);
+
+        let retry = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .expect("finalized preliminary lifecycle blocked the next startup");
+        retry.shutdown().unwrap();
+    }
+
     #[test]
     fn persisted_runtime_metadata_rejects_malformed_routes_without_echoing_them() {
         let directory = tempfile::tempdir().unwrap();
@@ -3129,6 +5955,7 @@ mod tests {
             routes: vec!["%%% malformed-persisted-route-marker %%%".into()],
             direct_websocket: None,
             iroh_node_id: None,
+            lifecycle_id: None,
             replaceable_sidecar: false,
         };
 
@@ -3136,6 +5963,215 @@ mod tests {
 
         assert!(!error.contains("malformed-persisted-route-marker"), "{error}");
         assert!(!directory.path().join("runtime.json").exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn client_socket_rejects_a_symlinked_parent_directory() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let real_parent = directory.path().join("real");
+        let symlinked_parent = directory.path().join("alias");
+        fs::create_dir(&real_parent).unwrap();
+        symlink(&real_parent, &symlinked_parent).unwrap();
+
+        let error = prepare_client_socket(&symlinked_parent.join("mux.sock"))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("symlink"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn client_socket_rejects_an_intermediate_symlink_before_creating_the_parent() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        let alias = directory.path().join("alias");
+        fs::create_dir(&target).unwrap();
+        symlink(&target, &alias).unwrap();
+
+        let result = prepare_client_socket(&alias.join("missing/mux.sock")).await;
+
+        assert!(result.is_err(), "intermediate symlink was accepted");
+        assert!(!target.join("missing").exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn client_socket_rejects_a_symlinked_path_lock() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        fs::write(&target, b"do not lock").unwrap();
+        symlink(&target, directory.path().join("mux.sock.lock")).unwrap();
+
+        let error = prepare_client_socket(&directory.path().join("mux.sock"))
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            error.contains("lock") || error.contains("symlink"),
+            "unexpected lock-file rejection: {error}"
+        );
+        assert_eq!(fs::read(target).unwrap(), b"do not lock");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn client_socket_creates_a_private_owned_parent_directory() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let directory = tempfile::tempdir().unwrap();
+        let parent = directory.path().join("private");
+        prepare_client_socket(&parent.join("mux.sock")).await.unwrap();
+
+        let metadata = fs::symlink_metadata(parent).unwrap();
+        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.permissions().mode() & 0o077, 0);
+
+        let lock_metadata = fs::symlink_metadata(directory.path().join("private/mux.sock.lock"))
+            .expect("client socket preparation did not persist its ownership lock");
+        assert!(lock_metadata.is_file());
+        assert_eq!(lock_metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(lock_metadata.permissions().mode() & 0o077, 0);
+        assert_eq!(lock_metadata.nlink(), 1);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn recovery_socket_probe_bounds_a_stalled_connect() {
+        let stalled = std::future::pending::<std::io::Result<()>>();
+
+        let error =
+            tokio::time::timeout(Duration::from_secs(1), bounded_unix_socket_connect(stalled))
+                .await
+                .expect("recovery socket probe ignored its internal deadline")
+                .expect_err("a permanently pending socket probe unexpectedly connected");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stale_client_socket_takeover_waits_for_the_path_lock() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("mux.sock");
+        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        drop(stale);
+
+        let lock_path = directory.path().join("mux.sock.lock");
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(lock_path)
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+
+        let contender_path = path.clone();
+        let mut contender = tokio::spawn(async move {
+            prepare_client_socket(&contender_path).await.unwrap().bind().unwrap()
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut contender).await.is_err(),
+            "stale-socket takeover ignored the per-path ownership lock"
+        );
+
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        let lease = tokio::time::timeout(Duration::from_secs(1), contender)
+            .await
+            .expect("client socket takeover stayed blocked after the path lock was released")
+            .unwrap();
+        assert!(path.exists());
+        drop(lease);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_stale_client_socket_takeover_has_one_owner() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("mux.sock");
+        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        drop(stale);
+
+        let start = Arc::new(tokio::sync::Barrier::new(2));
+        let spawn_contender = |path: PathBuf, start: Arc<tokio::sync::Barrier>| {
+            tokio::spawn(async move {
+                start.wait().await;
+                prepare_client_socket(&path).await?.bind()
+            })
+        };
+        let first = spawn_contender(path.clone(), Arc::clone(&start));
+        let second = spawn_contender(path.clone(), start);
+        let (first, second) =
+            tokio::time::timeout(Duration::from_secs(2), async { tokio::join!(first, second) })
+                .await
+                .expect("concurrent stale-socket takeover did not settle");
+        let first = first.unwrap();
+        let second = second.unwrap();
+
+        let (lease, rejected) = match (first, second) {
+            (Ok(lease), Err(error)) | (Err(error), Ok(lease)) => (lease, error),
+            (Ok(_), Ok(_)) => panic!("two clients acquired the same local socket"),
+            (Err(first), Err(second)) => {
+                panic!("both clients failed stale-socket takeover: {first:#}; {second:#}")
+            }
+        };
+        assert!(rejected.to_string().contains("another client owns"), "{rejected:#}");
+        tokio::time::timeout(Duration::from_secs(1), tokio::net::UnixStream::connect(&path))
+            .await
+            .expect("winning client socket was unreachable")
+            .unwrap();
+        drop(lease);
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn client_socket_lease_never_unlinks_a_bound_successor() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("mux.sock");
+        let mut previous = prepare_client_socket(&path).await.unwrap().bind().unwrap();
+
+        previous.unlink().unwrap();
+        let successor = tokio::net::UnixListener::bind(&path).unwrap();
+        drop(previous);
+
+        assert!(path.exists(), "old client lease unlinked the successor socket");
+        let connect = tokio::net::UnixStream::connect(&path);
+        let accept = successor.accept();
+        let (connected, accepted) =
+            tokio::time::timeout(Duration::from_secs(1), async { tokio::join!(connect, accept) })
+                .await
+                .expect("successor socket was unreachable");
+        connected.unwrap();
+        accepted.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn client_socket_rejects_a_parent_owned_by_another_user() {
+        use std::os::unix::fs::MetadataExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let metadata = fs::symlink_metadata(directory.path()).unwrap();
+        let other_uid = metadata.uid() ^ 1;
+
+        let error =
+            validate_client_socket_directory(directory.path(), &metadata, other_uid).unwrap_err();
+        assert!(error.to_string().contains("not owned by the effective user"));
     }
 
     #[cfg(unix)]

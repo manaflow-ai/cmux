@@ -24,12 +24,14 @@ cmux-pty.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-tui-process.workspace = true
 diffy.workspace = true
-futures-util.workspace = true
 fs4.workspace = true
+futures-util.workspace = true
 getrandom.workspace = true
 ghostty-vt.workspace = true
 hmac.workspace = true
 http.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
 iroh = { workspace = true, optional = true }
 libc.workspace = true
 serde.workspace = true
@@ -40,14 +42,21 @@ snow.workspace = true
 subtle.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
+tower.workspace = true
+tower-http.workspace = true
 url.workspace = true
 uuid.workspace = true
 x25519-dalek.workspace = true
 zeroize.workspace = true
 
+[build-dependencies]
+# This root package uses Cargo's Git-aware default fingerprint to notice new
+# workspace-root files without recursively walking target/.
+cmux-tui-source-watch = { path = "../.." }
+
 [dev-dependencies]
 cmux-relay = { path = "../cmux-relay" }
 rcgen = "0.14"
 tempfile = "3"
- tower = { version = "0.5", features = ["util"] }
+tokio = { workspace = true, features = ["test-util"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }

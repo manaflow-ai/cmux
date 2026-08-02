@@ -3,8 +3,6 @@ use std::fmt;
 use std::io;
 use std::net::SocketAddr;
 #[cfg(unix)]
-use std::os::unix::fs::{FileTypeExt, PermissionsExt};
-#[cfg(unix)]
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,7 +13,9 @@ use std::time::{Duration, Instant};
 use axum::Router;
 use axum::extract::connect_info::{ConnectInfo, Connected};
 use axum::extract::{State, WebSocketUpgrade};
-use axum::response::Response;
+use axum::http::header::ORIGIN;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::serve::{IncomingStream, Listener};
 use bytes::Bytes;
@@ -31,11 +31,13 @@ use crate::crypto::{
 pub use crate::crypto::{
     InboundAuthEvidence, NetworkPeer, VerifiedKernelPeer, VerifiedSshPrincipal,
 };
-use crate::identity::AuthDatabase;
+use crate::identity::{AuthDatabase, IdentityError};
 use crate::link::{FrameLink, LaneMuxLink, LinkError, LinkRoute};
 use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
+#[cfg(unix)]
+use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff};
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
@@ -201,9 +203,52 @@ impl Drop for ServerCloseCompletionGuard {
 }
 
 #[derive(Debug)]
+struct ResumeExpiryTask(Option<tokio::task::AbortHandle>);
+
+impl ResumeExpiryTask {
+    fn new(task: tokio::task::AbortHandle) -> Self {
+        Self(Some(task))
+    }
+
+    fn disarm(mut self) {
+        self.0.take();
+    }
+}
+
+impl Drop for ResumeExpiryTask {
+    fn drop(&mut self) {
+        if let Some(task) = self.0.take() {
+            task.abort();
+        }
+    }
+}
+
+#[derive(Debug)]
+struct PendingLinkExpiryTask(Option<tokio::task::AbortHandle>);
+
+impl PendingLinkExpiryTask {
+    fn new(task: tokio::task::AbortHandle) -> Self {
+        Self(Some(task))
+    }
+
+    fn disarm(mut self) {
+        self.0.take();
+    }
+}
+
+impl Drop for PendingLinkExpiryTask {
+    fn drop(&mut self) {
+        if let Some(task) = self.0.take() {
+            task.abort();
+        }
+    }
+}
+
+#[derive(Debug)]
 struct ServerLifecycle {
     disconnected_generation: Option<u64>,
     resume_deadline: Option<Instant>,
+    resume_expiry_task: Option<ResumeExpiryTask>,
     lane_bindings: Vec<Vec<Lane>>,
 }
 
@@ -258,6 +303,7 @@ impl ServerConnection {
             lifecycle: Mutex::new(ServerLifecycle {
                 disconnected_generation: None,
                 resume_deadline: None,
+                resume_expiry_task: None,
                 lane_bindings: lane_bindings.clone(),
             }),
             diagnostics: StdMutex::new(ServerDiagnostics {
@@ -446,11 +492,12 @@ impl ServerConnection {
             let deadline = Instant::now() + owner.policy.resume_lease;
             lifecycle.disconnected_generation = Some(expected_generation);
             lifecycle.resume_deadline = Some(deadline);
+            lifecycle.resume_expiry_task =
+                Some(owner.schedule_resume_expiry(connection, expected_generation, deadline));
             let mut diagnostics =
                 self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             diagnostics.state = ConnectionState::Reconnecting;
             diagnostics.resume_deadline = Some(deadline);
-            owner.schedule_resume_expiry(connection, expected_generation, deadline);
         }
         let reconnecting = current.clone();
         let deadline =
@@ -475,6 +522,7 @@ impl ServerConnection {
         };
         let generation = next.generation();
         let previous = std::mem::replace(&mut *current, next);
+        drop(lifecycle.resume_expiry_task.take());
         lifecycle.disconnected_generation = None;
         lifecycle.resume_deadline = None;
         lifecycle.lane_bindings = lane_bindings;
@@ -506,26 +554,39 @@ impl ServerConnection {
         let Some(owner) = self.owner.upgrade() else { return };
         let Some(connection) = self.self_weak.upgrade() else { return };
         let deadline = Instant::now() + owner.policy.resume_lease;
-        let should_schedule = {
-            let mut lifecycle = self.lifecycle.lock().await;
-            if self.closed.load(Ordering::Acquire)
-                || self.current_generation() != generation
-                || lifecycle.disconnected_generation == Some(generation)
-            {
-                false
-            } else {
-                lifecycle.disconnected_generation = Some(generation);
-                lifecycle.resume_deadline = Some(deadline);
-                let mut diagnostics =
-                    self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                diagnostics.state = ConnectionState::Reconnecting;
-                diagnostics.resume_deadline = Some(deadline);
-                true
-            }
-        };
-        if should_schedule {
-            owner.schedule_resume_expiry(connection, generation, deadline);
+        let mut lifecycle = self.lifecycle.lock().await;
+        if self.closed.load(Ordering::Acquire)
+            || self.current_generation() != generation
+            || lifecycle.disconnected_generation == Some(generation)
+        {
+            return;
         }
+        lifecycle.disconnected_generation = Some(generation);
+        lifecycle.resume_deadline = Some(deadline);
+        drop(
+            lifecycle
+                .resume_expiry_task
+                .replace(owner.schedule_resume_expiry(connection, generation, deadline)),
+        );
+        let mut diagnostics =
+            self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        diagnostics.state = ConnectionState::Reconnecting;
+        diagnostics.resume_deadline = Some(deadline);
+    }
+
+    async fn claim_resume_expiry(&self, generation: u64, deadline: Instant) -> bool {
+        let mut lifecycle = self.lifecycle.lock().await;
+        if self.closed.load(Ordering::Acquire)
+            || lifecycle.disconnected_generation != Some(generation)
+            || lifecycle.resume_deadline != Some(deadline)
+        {
+            return false;
+        }
+        let Some(expiry) = lifecycle.resume_expiry_task.take() else {
+            return false;
+        };
+        expiry.disarm();
+        true
     }
 
     async fn wait_for_replacement(&self, generation: u64) -> Option<u64> {
@@ -564,6 +625,7 @@ impl ServerConnection {
             self.closed.store(true, Ordering::Release);
             self.close_requested.notify_waiters();
         }
+        drop(lifecycle.resume_expiry_task.take());
         lifecycle.disconnected_generation = None;
         lifecycle.resume_deadline = None;
         {
@@ -668,6 +730,7 @@ pub struct RemoteDaemon {
     accepted_tx: mpsc::Sender<Arc<ServerConnection>>,
     handshakes: Semaphore,
     approvals: Semaphore,
+    revocation_monitor: StdMutex<Option<tokio::task::AbortHandle>>,
 }
 
 struct DaemonState {
@@ -678,6 +741,7 @@ struct DaemonState {
 
 struct PendingLinks {
     created_at: Instant,
+    expiry_task: Option<PendingLinkExpiryTask>,
     routes: Vec<LinkRoute>,
     assigned: BTreeSet<Lane>,
     client_resume: BTreeMap<Lane, u64>,
@@ -720,8 +784,9 @@ impl RemoteDaemon {
             accepted_tx,
             handshakes: Semaphore::new(MAX_CONCURRENT_HANDSHAKES),
             approvals: Semaphore::new(MAX_PENDING_APPROVALS),
+            revocation_monitor: StdMutex::new(None),
         });
-        daemon.clone().spawn_revocation_monitor();
+        daemon.spawn_revocation_monitor();
         Ok((daemon, accepted_rx))
     }
 
@@ -784,13 +849,26 @@ impl RemoteDaemon {
             )));
         }
         let now = Instant::now();
-        let existing = {
+        let (existing, expired) = {
             let mut state = self.state.lock().await;
-            state
+            // Per-group timers normally remove these entries. This bounded
+            // scan is the admission-time safety net when a timer is delayed
+            // by runtime starvation, so stale groups cannot consume capacity.
+            let expired_keys = state
                 .pending
-                .retain(|_, pending| now.duration_since(pending.created_at) < PENDING_LINK_TTL);
-            state.clients.get(&key).cloned()
+                .iter()
+                .filter(|(_, pending)| now.duration_since(pending.created_at) >= PENDING_LINK_TTL)
+                .map(|(key, _)| key.clone())
+                .collect::<Vec<_>>();
+            let expired = expired_keys
+                .into_iter()
+                .filter_map(|key| state.pending.remove(&key))
+                .collect::<Vec<_>>();
+            (state.clients.get(&key).cloned(), expired)
         };
+        for pending in expired {
+            close_pending_links(Some(pending)).await;
+        }
         let (base_generation, daemon_resume) = match &existing {
             Some(connection) => {
                 if connection.closed.load(Ordering::Acquire) {
@@ -861,25 +939,35 @@ impl RemoteDaemon {
                 ));
             }
         }
-        let pending = state.pending.entry(pending_key.clone()).or_insert_with(|| PendingLinks {
-            created_at: now,
-            routes: Vec::new(),
-            assigned: BTreeSet::new(),
-            client_resume: accepted.resume.clone(),
-            grant_generation: accepted.grant.revocation_generation,
+        let mut created_pending_group = false;
+        let pending = state.pending.entry(pending_key.clone()).or_insert_with(|| {
+            created_pending_group = true;
+            PendingLinks {
+                created_at: now,
+                expiry_task: None,
+                routes: Vec::new(),
+                assigned: BTreeSet::new(),
+                client_resume: accepted.resume.clone(),
+                grant_generation: accepted.grant.revocation_generation,
+            }
         });
         for lane in &accepted.lanes {
-            let inserted = pending.assigned.insert(*lane);
-            debug_assert!(inserted);
+            let lane_was_new = pending.assigned.insert(*lane);
+            debug_assert!(lane_was_new);
         }
         pending.routes.push(LinkRoute { lanes: accepted.lanes, link: Arc::new(accepted.link) });
         if pending.assigned.len() != Lane::ALL.len() {
+            if created_pending_group {
+                pending.expiry_task = Some(self.schedule_pending_link_expiry(pending_key, now));
+            }
+            drop(state);
             return Ok(());
         }
         if pending.assigned.iter().copied().ne(Lane::ALL) {
             return Err(DaemonError::Protocol("physical links did not cover every lane".into()));
         }
-        let pending = state.pending.remove(&pending_key).expect("pending entry exists");
+        let mut pending = state.pending.remove(&pending_key).expect("pending entry exists");
+        drop(pending.expiry_task.take());
         drop(state);
         let mut lane_bindings =
             pending.routes.iter().map(|route| route.lanes.clone()).collect::<Vec<_>>();
@@ -951,6 +1039,12 @@ impl RemoteDaemon {
                 "device authorization changed during connection setup".into(),
             )));
         }
+        if let Err(error) =
+            self.auth.record_connection_attempt(&key.device_id, accepted.connection_attempt).await
+        {
+            let _ = connection.close().await;
+            return Err(DaemonError::Identity(error));
+        }
         if is_new && self.accepted_tx.send(connection.clone()).await.is_err() {
             let _ = connection.close().await;
             return Err(DaemonError::Protocol("daemon service receiver was dropped".into()));
@@ -1015,16 +1109,47 @@ impl RemoteDaemon {
         connection: Arc<ServerConnection>,
         generation: u64,
         deadline: Instant,
-    ) {
+    ) -> ResumeExpiryTask {
         let daemon = Arc::downgrade(self);
         let connection = Arc::downgrade(&connection);
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             tokio::time::sleep_until(deadline.into()).await;
             let (Some(_daemon), Some(connection)) = (daemon.upgrade(), connection.upgrade()) else {
                 return;
             };
+            if !connection.claim_resume_expiry(generation, deadline).await {
+                return;
+            }
             let _ = connection.close_if_disconnected_generation(Some(generation)).await;
         });
+        ResumeExpiryTask::new(task.abort_handle())
+    }
+
+    fn schedule_pending_link_expiry(
+        self: &Arc<Self>,
+        key: (ClientKey, u64, ConnectionAttemptId),
+        created_at: Instant,
+    ) -> PendingLinkExpiryTask {
+        let daemon = Arc::downgrade(self);
+        let task = tokio::spawn(async move {
+            tokio::time::sleep_until((created_at + PENDING_LINK_TTL).into()).await;
+            let Some(daemon) = daemon.upgrade() else {
+                return;
+            };
+            let mut expired = {
+                let mut state = daemon.state.lock().await;
+                let matches =
+                    state.pending.get(&key).is_some_and(|pending| pending.created_at == created_at);
+                matches.then(|| state.pending.remove(&key)).flatten()
+            };
+            if let Some(expiry_task) =
+                expired.as_mut().and_then(|pending| pending.expiry_task.take())
+            {
+                expiry_task.disarm();
+            }
+            close_pending_links(expired).await;
+        });
+        PendingLinkExpiryTask::new(task.abort_handle())
     }
 
     async fn remove_connection_if(
@@ -1075,13 +1200,17 @@ impl RemoteDaemon {
         Ok(true)
     }
 
-    fn spawn_revocation_monitor(self: Arc<Self>) {
+    fn spawn_revocation_monitor(self: &Arc<Self>) {
         let mut changes = self.auth.subscribe_revocations();
-        tokio::spawn(async move {
+        let daemon = Arc::downgrade(self);
+        let monitor = tokio::spawn(async move {
             while changes.changed().await.is_ok() {
-                let connections = self.connections().await;
+                let Some(daemon) = daemon.upgrade() else {
+                    return;
+                };
+                let connections = daemon.connections().await;
                 for connection in connections {
-                    if !self.auth.device_is_active(&connection.device_id).await {
+                    if !daemon.auth.device_is_active(&connection.device_id).await {
                         tokio::spawn(async move {
                             let _ = connection.close().await;
                         });
@@ -1089,13 +1218,26 @@ impl RemoteDaemon {
                 }
             }
         });
+        *self.revocation_monitor.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(monitor.abort_handle());
+    }
+}
+
+impl Drop for RemoteDaemon {
+    fn drop(&mut self) {
+        if let Some(monitor) =
+            self.revocation_monitor.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+        {
+            monitor.abort();
+        }
     }
 }
 
 async fn close_pending_links(pending: Option<PendingLinks>) {
-    if let Some(pending) = pending {
+    if let Some(mut pending) = pending {
+        drop(pending.expiry_task.take());
         for route in pending.routes {
-            let _ = route.link.close().await;
+            let _ = tokio::time::timeout(TERMINAL_CLOSE_TIMEOUT, route.link.close()).await;
         }
     }
 }
@@ -1272,8 +1414,12 @@ pub async fn serve_direct_websocket(
 async fn upgrade_websocket(
     State(state): State<WebSocketState>,
     ConnectInfo(admission): ConnectInfo<AdmissionInfo>,
+    headers: HeaderMap,
     websocket: WebSocketUpgrade,
 ) -> Response {
+    if headers.contains_key(ORIGIN) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
     websocket
         .max_message_size(state.maximum_frame_bytes)
         .max_frame_size(state.maximum_frame_bytes)
@@ -1290,7 +1436,7 @@ async fn upgrade_websocket(
 pub struct UnixServer {
     path: PathBuf,
     shutdown: Option<oneshot::Sender<()>>,
-    task: Option<tokio::task::JoinHandle<()>>,
+    task: Option<tokio::task::JoinHandle<Result<(), DaemonError>>>,
 }
 
 #[cfg(unix)]
@@ -1299,14 +1445,16 @@ impl UnixServer {
         &self.path
     }
 
-    pub async fn shutdown(mut self) {
+    pub async fn shutdown(mut self) -> Result<(), DaemonError> {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
         if let Some(task) = self.task.take() {
-            let _ = task.await;
+            return task.await.map_err(|error| {
+                DaemonError::Protocol(format!("Unix listener task failed: {error}"))
+            })?;
         }
-        let _ = std::fs::remove_file(&self.path);
+        Ok(())
     }
 }
 
@@ -1325,62 +1473,48 @@ pub async fn serve_unix(
     path: impl Into<PathBuf>,
     maximum_frame_bytes: usize,
 ) -> Result<UnixServer, DaemonError> {
+    serve_unix_with_shutdown(daemon, path, maximum_frame_bytes, None).await
+}
+
+#[cfg(unix)]
+pub async fn serve_unix_with_shutdown(
+    daemon: Arc<RemoteDaemon>,
+    path: impl Into<PathBuf>,
+    maximum_frame_bytes: usize,
+    owner_shutdown: Option<watch::Sender<bool>>,
+) -> Result<UnixServer, DaemonError> {
     let path = path.into();
-    if let Some(parent) = path.parent() {
-        let parent_existed = parent.exists();
-        std::fs::create_dir_all(parent).map_err(|error| {
-            DaemonError::Protocol(format!("could not create socket directory: {error}"))
-        })?;
-        if !parent_existed {
-            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).map_err(
-                |error| {
-                    DaemonError::Protocol(format!("could not secure socket directory: {error}"))
-                },
-            )?;
-        } else {
-            let mode = std::fs::metadata(parent)
-                .map_err(|error| {
-                    DaemonError::Protocol(format!("could not inspect socket directory: {error}"))
-                })?
-                .permissions()
-                .mode();
-            if mode & 0o022 != 0 && mode & 0o1000 == 0 {
-                return Err(DaemonError::Protocol(format!(
-                    "socket directory {} is writable by other users and is not sticky",
-                    parent.display()
-                )));
-            }
-        }
-    }
-    if let Ok(metadata) = std::fs::symlink_metadata(&path) {
-        if !metadata.file_type().is_socket() {
-            return Err(DaemonError::Protocol(format!(
-                "refusing to replace non-socket path {}",
-                path.display()
-            )));
-        }
-        if cmux_tui_process::tokio_net::connect_unix_stream(&path).await.is_ok() {
-            return Err(DaemonError::Protocol(format!(
-                "another daemon is listening at {}",
-                path.display()
-            )));
-        }
-        std::fs::remove_file(&path).map_err(|error| {
-            DaemonError::Protocol(format!("could not remove stale socket: {error}"))
-        })?;
-    }
-    let listener = cmux_tui_process::tokio_net::bind_unix_listener(&path)
-        .map_err(|error| DaemonError::Protocol(format!("could not bind Unix socket: {error}")))?;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-        .map_err(|error| DaemonError::Protocol(format!("could not secure Unix socket: {error}")))?;
+    let listener = OwnedUnixListener::bind(path.clone())
+        .await
+        .map_err(|error| DaemonError::Protocol(format!("could not own Unix socket: {error:#}")))?;
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
-    let task_path = path.clone();
     let task = tokio::spawn(async move {
+        let mut accept_backoff = UnixAcceptBackoff::new();
         loop {
             tokio::select! {
-                _ = &mut shutdown_rx => break,
-                accepted = cmux_tui_process::tokio_net::accept_unix_stream(&listener) => {
-                    let Ok((stream, _)) = accepted else { break };
+                _ = &mut shutdown_rx => return Ok(()),
+                accepted = listener.listener().accept() => {
+                    let (stream, _) = match accepted {
+                        Ok(accepted) => {
+                            accept_backoff.reset();
+                            accepted
+                        }
+                        Err(error) => {
+                            let Some(delay) = accept_backoff.retry_delay(&error) else {
+                                if let Some(owner_shutdown) = &owner_shutdown {
+                                    let _ = owner_shutdown.send(true);
+                                }
+                                return Err(DaemonError::Protocol(format!(
+                                    "Unix listener accept failed: {error}"
+                                )));
+                            };
+                            tokio::select! {
+                                _ = &mut shutdown_rx => return Ok(()),
+                                _ = tokio::time::sleep(delay) => {}
+                            }
+                            continue;
+                        }
+                    };
                     let Ok(peer) = stream.peer_cred() else { continue };
                     let owner = unsafe { libc::geteuid() };
                     let (reader, writer) = stream.into_split();
@@ -1404,7 +1538,6 @@ pub async fn serve_unix(
                 }
             }
         }
-        let _ = std::fs::remove_file(task_path);
     });
     Ok(UnixServer { path, shutdown: Some(shutdown_tx), task: Some(task) })
 }
@@ -1412,6 +1545,7 @@ pub async fn serve_unix(
 #[derive(Debug)]
 pub enum DaemonError {
     Crypto(CryptoError),
+    Identity(IdentityError),
     Connection(ConnectionError),
     Link(LinkError),
     Session(SessionError),
@@ -1428,6 +1562,7 @@ impl fmt::Display for DaemonError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Crypto(error) => error.fmt(formatter),
+            Self::Identity(error) => error.fmt(formatter),
             Self::Connection(error) => error.fmt(formatter),
             Self::Link(error) => error.fmt(formatter),
             Self::Session(error) => error.fmt(formatter),
@@ -1452,6 +1587,12 @@ impl std::error::Error for DaemonError {}
 impl From<CryptoError> for DaemonError {
     fn from(error: CryptoError) -> Self {
         Self::Crypto(error)
+    }
+}
+
+impl From<IdentityError> for DaemonError {
+    fn from(error: IdentityError) -> Self {
+        Self::Identity(error)
     }
 }
 
@@ -1480,12 +1621,75 @@ mod tests {
     use async_trait::async_trait;
     use cmux_remote_protocol::{LanePolicy, WireFrame};
     use tempfile::{TempDir, tempdir};
+    #[cfg(unix)]
+    use tokio::net::UnixListener;
     use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 
     use super::*;
-    use crate::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
+    use crate::unix_socket::TestFileDescriptorExhaustion;
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_listener_retries_recoverable_accept_errors() {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "daemon::tests::unix_listener_accept_exhaustion_fixture",
+                "--nocapture",
+            ])
+            .env("CMUX_TEST_UNIX_ACCEPT_EXHAUSTION", "1")
+            .status()
+            .unwrap();
+
+        assert!(status.success(), "Unix listener stopped after a recoverable accept error");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_listener_accept_exhaustion_fixture() {
+        if std::env::var_os("CMUX_TEST_UNIX_ACCEPT_EXHAUSTION").is_none() {
+            return;
+        }
+
+        let directory = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "accept-retry-unix", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("link.sock");
+        let server = serve_unix(daemon, &socket, 65_535).await.unwrap();
+        let _queued = std::os::unix::net::UnixStream::connect(&socket).unwrap();
+        let mut exhaustion = TestFileDescriptorExhaustion::exhaust();
+
+        tokio::time::sleep(Duration::from_millis(75)).await;
+        exhaustion.restore();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        assert!(
+            !server.task.as_ref().unwrap().is_finished(),
+            "Unix listener task exited instead of retrying the recoverable accept error"
+        );
+        server.shutdown().await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_server_shutdown_reports_listener_task_failure() {
+        let directory = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "failed-unix-task", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("link.sock");
+        let server = serve_unix(daemon, &socket, 65_535).await.unwrap();
+        server.task.as_ref().unwrap().abort();
+
+        let error = server.shutdown().await.unwrap_err();
+
+        assert!(error.to_string().contains("Unix listener task failed"), "{error}");
+    }
+    use crate::connection::{ClientConnection, ClientConnectionConfig, LinkReady, ReconnectPolicy};
     use crate::crypto::{
-        AuthRequest, ClientAuthMode, ServerAuthenticator, StaticIdentity, public_key_fingerprint,
+        AuthRequest, ClientAuthMode, ClientHandshake, ServerAuthenticator, StaticIdentity,
+        initiate_secure_link, public_key_fingerprint,
     };
     use crate::link::test_support;
     use crate::provider::{
@@ -1620,6 +1824,175 @@ mod tests {
 
         assert!(inbound.is_none());
         assert_eq!(reads.load(Ordering::SeqCst), 0);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn serve_unix_accepts_private_owner_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().unwrap();
+        let parent = directory.path().join("private");
+        std::fs::create_dir(&parent).unwrap();
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "safe-unix-parent", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+
+        let server = serve_unix(daemon, parent.join("link.sock"), 65_535).await.unwrap();
+        server.shutdown().await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn serve_unix_respects_the_socket_path_lock() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("link.sock");
+        let stale = UnixListener::bind(&path).unwrap();
+        drop(stale);
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(directory.path().join("link.sock.lock"))
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "locked-unix-path", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+
+        let result = serve_unix(daemon, &path, 65_535).await;
+        let ignored_lock = result.is_ok();
+        if let Ok(server) = result {
+            server.shutdown().await.unwrap();
+        }
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+
+        assert!(!ignored_lock, "Unix daemon socket ignored its ownership lock");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_server_shutdown_never_unlinks_a_bound_successor() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("link.sock");
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "socket-successor", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let server = serve_unix(daemon, &path, 65_535).await.unwrap();
+
+        std::fs::remove_file(&path).unwrap();
+        let successor = UnixListener::bind(&path).unwrap();
+        server.shutdown().await.unwrap();
+        let successor_preserved = path.exists();
+        let reachable =
+            tokio::time::timeout(Duration::from_secs(1), tokio::net::UnixStream::connect(&path))
+                .await
+                .is_ok_and(|result| result.is_ok());
+        drop(successor);
+        let _ = std::fs::remove_file(&path);
+
+        assert!(successor_preserved, "old Unix server unlinked its successor socket");
+        assert!(reachable, "successor Unix socket was unreachable after old-server shutdown");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_socket_directory_requires_effective_uid_ownership() {
+        use std::os::unix::fs::MetadataExt;
+
+        let directory = tempdir().unwrap();
+        let metadata = std::fs::symlink_metadata(directory.path()).unwrap();
+        let wrong_uid = metadata.uid().wrapping_add(1);
+        let error =
+            crate::unix_socket::validate_socket_directory_for_uid(directory.path(), wrong_uid)
+                .unwrap_err();
+        assert!(error.to_string().contains("owned"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn serve_unix_rejects_sticky_world_writable_parent() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().unwrap();
+        let parent = directory.path().join("shared");
+        std::fs::create_dir(&parent).unwrap();
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o1777)).unwrap();
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "unsafe-unix-parent", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+
+        match serve_unix(daemon, parent.join("link.sock"), 65_535).await {
+            Err(DaemonError::Protocol(message)) => {
+                assert!(message.contains("socket directory"), "{message}");
+            }
+            Err(error) => panic!("unexpected error: {error}"),
+            Ok(server) => {
+                server.shutdown().await.unwrap();
+                panic!("sticky world-writable socket parent was accepted");
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn serve_unix_rejects_symlink_parent() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().unwrap();
+        let real_parent = directory.path().join("real-parent");
+        let linked_parent = directory.path().join("linked-parent");
+        std::fs::create_dir(&real_parent).unwrap();
+        symlink(&real_parent, &linked_parent).unwrap();
+        let state = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(state.path(), "symlink-unix-parent", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+
+        match serve_unix(daemon, linked_parent.join("link.sock"), 65_535).await {
+            Err(DaemonError::Protocol(message)) => {
+                assert!(message.contains("socket directory"), "{message}");
+            }
+            Err(error) => panic!("unexpected error: {error}"),
+            Ok(server) => {
+                server.shutdown().await.unwrap();
+                panic!("symlink socket parent was accepted");
+            }
+        }
+        assert!(!real_parent.join("link.sock").exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn serve_unix_rejects_an_intermediate_symlink_before_creating_the_parent() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().unwrap();
+        let target = directory.path().join("target");
+        let alias = directory.path().join("alias");
+        std::fs::create_dir(&target).unwrap();
+        symlink(&target, &alias).unwrap();
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "intermediate-symlink-parent", false)
+            .unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+
+        match serve_unix(daemon, alias.join("missing/link.sock"), 65_535).await {
+            Err(DaemonError::Protocol(_)) => {}
+            Err(error) => panic!("unexpected error: {error}"),
+            Ok(server) => {
+                server.shutdown().await.unwrap();
+                panic!("intermediate symlink was accepted");
+            }
+        }
+        assert!(!target.join("missing").exists());
     }
 
     #[tokio::test]
@@ -1863,6 +2236,188 @@ mod tests {
         }
     }
 
+    async fn enroll_test_device(auth: &Arc<AuthDatabase>, identity: &StaticIdentity) -> String {
+        let invitation = auth.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+        let authorization = tokio::spawn({
+            let auth = auth.clone();
+            let invitation_id = invitation.id.clone();
+            let public_key = identity.public_key();
+            async move {
+                ServerAuthenticator::authorize(
+                    &*auth,
+                    AuthRequest {
+                        mode: AuthKind::Invitation,
+                        invitation_id: Some(invitation_id),
+                        device_public_key: public_key,
+                        device_name: "lane-count-client".into(),
+                        session: SessionId([70; 16]),
+                        lane: Lane::Control,
+                        lanes: Lane::ALL.to_vec(),
+                        generation: 0,
+                        inbound: InboundAuthEvidence::Network(NetworkPeer::Tls),
+                    },
+                )
+                .await
+            }
+        });
+        auth.wait_for_pending(Duration::from_secs(1)).await.unwrap();
+        let device = auth.approve(&invitation.id).await.unwrap();
+        assert_eq!(authorization.await.unwrap().unwrap().device_id, device.id);
+        device.id
+    }
+
+    async fn connect_enrolled_lane_partition(
+        daemon: &Arc<RemoteDaemon>,
+        accepted: &mut mpsc::Receiver<Arc<ServerConnection>>,
+        identity: &StaticIdentity,
+        session: SessionId,
+        connection_attempt: ConnectionAttemptId,
+        lane_bindings: Vec<Vec<Lane>>,
+    ) -> (Arc<ServerConnection>, Vec<crate::crypto::SecureLink>) {
+        let daemon_key = daemon.auth().identity().public_key();
+        let mut client_tasks = Vec::new();
+        let mut server_tasks = Vec::new();
+        for lanes in lane_bindings {
+            let (client_link, server_link) = test_support::pair(128 * 1024);
+            let daemon = daemon.clone();
+            server_tasks.push(tokio::spawn(async move {
+                daemon.accept(InboundLink::network(Box::new(server_link), NetworkPeer::Tls)).await
+            }));
+            let identity = identity.clone();
+            client_tasks.push(tokio::spawn(async move {
+                let secure = initiate_secure_link(
+                    Box::new(client_link),
+                    ClientHandshake {
+                        identity,
+                        expected_daemon: Some(daemon_key),
+                        auth: ClientAuthMode::Enrolled,
+                        device_name: "lane-count-client".into(),
+                        session,
+                        lane: lanes[0],
+                        lanes,
+                        generation: 0,
+                        connection_attempt,
+                        resume: BTreeMap::new(),
+                    },
+                )
+                .await
+                .unwrap();
+                let ready = secure.receive().await.unwrap().unwrap();
+                serde_json::from_slice::<LinkReady>(&ready).unwrap();
+                secure
+            }));
+        }
+
+        let mut client_links = Vec::new();
+        for task in client_tasks {
+            client_links.push(
+                tokio::time::timeout(Duration::from_secs(2), task)
+                    .await
+                    .expect("client lane handshake timed out")
+                    .unwrap(),
+            );
+        }
+        let connection = tokio::time::timeout(Duration::from_secs(2), accepted.recv())
+            .await
+            .expect("logical connection registration timed out")
+            .expect("daemon acceptance stream closed");
+        for task in server_tasks {
+            tokio::time::timeout(Duration::from_secs(2), task)
+                .await
+                .expect("server lane handshake timed out")
+                .unwrap()
+                .unwrap();
+        }
+        (connection, client_links)
+    }
+
+    #[tokio::test]
+    async fn logical_attempt_persists_once_across_one_to_four_physical_links() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "logical-attempt", false).unwrap();
+        let identity = StaticIdentity::generate().unwrap();
+        let device_id = enroll_test_device(&auth, &identity).await;
+        let (daemon, mut accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
+        let partitions = [
+            vec![Lane::ALL.to_vec()],
+            vec![vec![Lane::Interactive, Lane::Control], vec![Lane::Bulk, Lane::Tunnel]],
+            vec![vec![Lane::Interactive], vec![Lane::Control], vec![Lane::Bulk, Lane::Tunnel]],
+            Lane::ALL.into_iter().map(|lane| vec![lane]).collect(),
+        ];
+        let mut live_connections = Vec::new();
+        let mut live_links = Vec::new();
+
+        for (index, lane_bindings) in partitions.into_iter().enumerate() {
+            let expected_physical_links = lane_bindings.len();
+            let writes_before = auth.test_persistence_writes_succeeded();
+            let attempt = ConnectionAttemptId([(index + 1) as u8; 16]);
+            let (connection, links) = connect_enrolled_lane_partition(
+                &daemon,
+                &mut accepted,
+                &identity,
+                SessionId([(index + 1) as u8; 16]),
+                attempt,
+                lane_bindings,
+            )
+            .await;
+
+            assert_eq!(connection.device_id, device_id);
+            assert_eq!(connection.snapshot().await.physical_link_count, expected_physical_links);
+            assert_eq!(
+                auth.test_persistence_writes_succeeded(),
+                writes_before + 1,
+                "{expected_physical_links} physical links persisted more than one logical attempt"
+            );
+            live_connections.push(connection);
+            live_links.extend(links);
+        }
+
+        assert_eq!(auth.test_persistence_started_revisions(), (1..=6).collect::<Vec<_>>());
+        drop(live_links);
+        drop(live_connections);
+    }
+
+    #[tokio::test]
+    async fn successful_multi_link_admission_does_not_retain_its_expiry_task() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "completed-expiry", false).unwrap();
+        let identity = StaticIdentity::generate().unwrap();
+        enroll_test_device(&auth, &identity).await;
+        let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let metrics = tokio::runtime::Handle::current().metrics();
+
+        let (connection, links) = connect_enrolled_lane_partition(
+            &daemon,
+            &mut accepted,
+            &identity,
+            SessionId([31; 16]),
+            ConnectionAttemptId([31; 16]),
+            Lane::ALL.into_iter().map(|lane| vec![lane]).collect(),
+        )
+        .await;
+        tokio::time::pause();
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        assert!(daemon.state.lock().await.pending.is_empty());
+        let tasks_after_admission = metrics.num_alive_tasks();
+
+        tokio::time::advance(PENDING_LINK_TTL + Duration::from_secs(1)).await;
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(
+            metrics.num_alive_tasks(),
+            tasks_after_admission,
+            "successful admission retained its detached expiry timer"
+        );
+        drop(links);
+        drop(connection);
+    }
+
     #[tokio::test]
     async fn stale_partial_lane_group_does_not_poison_next_connection_attempt() {
         let directory = tempdir().unwrap();
@@ -1897,6 +2452,94 @@ mod tests {
 
         assert_eq!(server.snapshot().await.physical_link_count, 4);
         client.close().await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_partial_lane_group_expires_without_another_connection() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "partial-expiry", true).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let group = Arc::new(PartialStartupGroup {
+            daemon: daemon.clone(),
+            interactive_opens: AtomicUsize::new(0),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let config = ClientConnectionConfig {
+            identity: StaticIdentity::generate().unwrap(),
+            expected_daemon: None,
+            auth: ClientAuthMode::Carrier,
+            device_name: "partial-expiry-client".into(),
+            session: SessionId([34; 16]),
+            lane_policy: LanePolicy::Isolated,
+            limits: SessionLimits::default(),
+            reconnect: ReconnectPolicy { heartbeat_interval: None, ..ReconnectPolicy::default() },
+        };
+
+        ClientConnection::connect(group, config).await.unwrap_err();
+        assert_eq!(daemon.state.lock().await.pending.len(), 1);
+
+        tokio::time::advance(PENDING_LINK_TTL + Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+
+        assert!(
+            daemon.state.lock().await.pending.is_empty(),
+            "an idle partial link group outlived its admission deadline"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn pending_link_expiry_closes_its_registered_routes() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "partial-close", true).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let key = (
+            ClientKey { device_id: "partial-close-client".into(), session: SessionId([36; 16]) },
+            0,
+            ConnectionAttemptId([36; 16]),
+        );
+        let created_at = Instant::now();
+        let (link, _peer, closed, _peer_closed) = tracking_pair();
+        daemon.state.lock().await.pending.insert(
+            key.clone(),
+            PendingLinks {
+                created_at,
+                expiry_task: None,
+                routes: vec![LinkRoute { lanes: vec![Lane::Interactive], link: Arc::new(link) }],
+                assigned: BTreeSet::from([Lane::Interactive]),
+                client_resume: BTreeMap::new(),
+                grant_generation: 0,
+            },
+        );
+        let expiry_task = daemon.schedule_pending_link_expiry(key.clone(), created_at);
+        daemon.state.lock().await.pending.get_mut(&key).unwrap().expiry_task = Some(expiry_task);
+
+        tokio::time::advance(PENDING_LINK_TTL + Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+
+        assert!(daemon.state.lock().await.pending.is_empty());
+        assert!(closed.load(Ordering::Acquire), "the expired route was removed without closing");
+    }
+
+    #[tokio::test]
+    async fn dropping_daemon_terminates_its_revocation_monitor() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "monitor-drop", true).unwrap();
+        tokio::task::yield_now().await;
+        let metrics = tokio::runtime::Handle::current().metrics();
+        let baseline_tasks = metrics.num_alive_tasks();
+        let (daemon, accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
+        let weak = Arc::downgrade(&daemon);
+
+        drop(accepted);
+        drop(daemon);
+        tokio::time::timeout(Duration::from_millis(250), async {
+            while weak.upgrade().is_some() || metrics.num_alive_tasks() > baseline_tasks {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("dropping a daemon retained its revocation monitor");
+        drop(auth);
     }
 
     async fn connected_fault_pair(
@@ -1999,6 +2642,63 @@ mod tests {
         assert_eq!(reconnected.state, ConnectionState::Connected);
         assert_eq!(reconnected.resume_lease_remaining_ms, None);
         client.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn successful_reconnects_do_not_retain_obsolete_resume_expiry_tasks() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "resume-expiry-task-lifecycle", true)
+                .unwrap();
+        let (daemon, _accepted) = RemoteDaemon::with_policy(
+            auth,
+            SessionLimits::default(),
+            DaemonSessionPolicy { resume_lease: MAX_RESUME_LEASE },
+        )
+        .unwrap();
+        let key = ClientKey {
+            device_id: "resume-expiry-task-client".into(),
+            session: SessionId([39; 16]),
+        };
+        let (initial, _initial_peer, mut previous_closed, _initial_peer_closed) = tracking_pair();
+        let session =
+            ReliableSession::new(key.session, Arc::new(initial), SessionLimits::default());
+        let server = ServerConnection::new(&daemon, key, session, vec![Lane::ALL.to_vec()]);
+        tokio::task::yield_now().await;
+        let metrics = tokio::runtime::Handle::current().metrics();
+        let baseline_tasks = metrics.num_alive_tasks();
+
+        for generation in 1..=8 {
+            server.note_transport_loss(generation - 1).await;
+            let (replacement, _peer, replacement_closed, _peer_closed) = tracking_pair();
+            server
+                .reconnect_physical(
+                    generation - 1,
+                    generation,
+                    Arc::new(replacement),
+                    vec![Lane::ALL.to_vec()],
+                    &BTreeMap::new(),
+                )
+                .await
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while !previous_closed.load(Ordering::Acquire) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("reconnect did not finish closing the previous carrier");
+            previous_closed = replacement_closed;
+        }
+
+        tokio::time::timeout(Duration::from_millis(250), async {
+            while metrics.num_alive_tasks() > baseline_tasks {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("successful reconnects retained obsolete resume-expiry tasks");
+        server.close().await.unwrap();
     }
 
     #[tokio::test]

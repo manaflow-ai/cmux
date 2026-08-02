@@ -22,12 +22,13 @@ use sha2::{Digest, Sha256};
 use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::ChildStdin;
-#[cfg(unix)]
 use tokio::sync::oneshot;
 use tokio::sync::{Mutex, Notify, RwLock, Semaphore, broadcast, watch};
 use tokio::task::JoinSet;
 
 use super::ClientScope;
+#[cfg(unix)]
+use super::path::UnixWorkspaceDirectory;
 use super::path::WorkspaceRoot;
 
 const MAX_PROCESSES: usize = 64;
@@ -687,6 +688,39 @@ impl ProcessTarget {
     }
 }
 
+struct ProcessCompletion {
+    finished: AtomicBool,
+    notify: Notify,
+}
+
+impl ProcessCompletion {
+    fn new() -> Self {
+        Self { finished: AtomicBool::new(false), notify: Notify::new() }
+    }
+
+    fn is_finished(&self) -> bool {
+        self.finished.load(Ordering::Acquire)
+    }
+
+    fn mark_finished(&self) {
+        if !self.finished.swap(true, Ordering::AcqRel) {
+            self.notify.notify_waiters();
+        }
+    }
+
+    async fn wait(&self) {
+        loop {
+            let notified = self.notify.notified();
+            tokio::pin!(notified);
+            let _ = notified.as_mut().enable();
+            if self.is_finished() {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
 struct ProcessRecord {
     id: ProcessId,
     owner: ClientScope,
@@ -707,8 +741,9 @@ struct ProcessRecord {
     /// Set immediately after the direct child is reaped. PID and process-group
     /// IDs may be reused after this point, even while output is still draining.
     target: Arc<ProcessTarget>,
-    /// Set after bounded output drain and exit-event publication complete.
-    finished: Arc<AtomicBool>,
+    /// Signaled after bounded output drain, exit publication, and the catalog
+    /// transition to completed state all finish.
+    completion: Arc<ProcessCompletion>,
 }
 
 struct ProcessReservation {
@@ -757,9 +792,7 @@ impl ProcessStore {
         let finished = self
             .active
             .iter()
-            .filter_map(|(process, record)| {
-                record.finished.load(Ordering::Acquire).then_some(*process)
-            })
+            .filter_map(|(process, record)| record.completion.is_finished().then_some(*process))
             .collect::<Vec<_>>();
         for process in finished {
             self.complete(process);
@@ -888,7 +921,7 @@ impl std::fmt::Debug for ProcessRecord {
             .field("command_label", &self.catalog.command_label)
             .field("lifetime", &self.lifetime)
             .field("pid", &self.pid)
-            .field("finished", &self.finished.load(Ordering::Acquire))
+            .field("finished", &self.completion.is_finished())
             .finish_non_exhaustive()
     }
 }
@@ -1042,11 +1075,49 @@ impl ProcessManager {
             Some(cwd) => root.resolve_existing(&cwd).await?,
             None => root.canonical_root().to_owned(),
         };
-        let metadata = tokio::fs::metadata(&cwd)
+        #[cfg(unix)]
+        let cwd_directory = {
+            let unix_root = root.unix_root();
+            let canonical = cwd.clone();
+            tokio::task::spawn_blocking(move || {
+                unix_root.pinned_directory_for_canonical_path(&canonical)
+            })
             .await
-            .map_err(|error| RpcError::new("invalid-cwd", error.to_string()))?;
-        if !metadata.is_dir() {
-            return Err(RpcError::new("invalid-cwd", "process cwd is not a directory"));
+            .map_err(|error| {
+                RpcError::new("internal", format!("process cwd open task failed: {error}"))
+            })??
+        };
+        #[cfg(not(unix))]
+        {
+            let metadata = tokio::fs::metadata(&cwd)
+                .await
+                .map_err(|error| RpcError::new("invalid-cwd", error.to_string()))?;
+            if !metadata.is_dir() {
+                return Err(RpcError::new("invalid-cwd", "process cwd is not a directory"));
+            }
+        }
+        #[cfg(test)]
+        {
+            let path = cwd
+                .strip_prefix(root.canonical_root())
+                .unwrap_or(&cwd)
+                .to_string_lossy()
+                .into_owned();
+            super::files::pause_at_mutation_test_barrier(
+                &root,
+                &path,
+                super::files::MutationTestPoint::AfterProcessCwdResolve,
+            )
+            .await;
+        }
+        #[cfg(unix)]
+        {
+            let verifier = cwd_directory.try_clone()?;
+            tokio::task::spawn_blocking(move || verifier.verify_identity("process cwd"))
+                .await
+                .map_err(|error| {
+                RpcError::new("internal", format!("process cwd verification task failed: {error}"))
+            })??;
         }
         let _spawn_guard = self.spawn_serial.lock().await;
         self.validate_requested_process_handle(requested_process, &owner).await?;
@@ -1085,6 +1156,8 @@ impl ProcessManager {
                     root.id.clone(),
                     argv,
                     cwd,
+                    #[cfg(unix)]
+                    cwd_directory,
                     env,
                     stdin,
                     lifetime,
@@ -1104,6 +1177,8 @@ impl ProcessManager {
                     root.id.clone(),
                     argv,
                     cwd,
+                    #[cfg(unix)]
+                    cwd_directory,
                     env,
                     cols,
                     rows,
@@ -1130,6 +1205,7 @@ impl ProcessManager {
         workspace: WorkspaceId,
         argv: Vec<String>,
         cwd: std::path::PathBuf,
+        #[cfg(unix)] cwd_directory: UnixWorkspaceDirectory,
         env: BTreeMap<String, String>,
         writable_stdin: bool,
         lifetime: ProcessLifetime,
@@ -1146,7 +1222,6 @@ impl ProcessManager {
         }
         command
             .args(&argv[1..])
-            .current_dir(&cwd)
             .envs(env)
             .stdin(if writable_stdin {
                 std::process::Stdio::piped()
@@ -1156,10 +1231,24 @@ impl ProcessManager {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
+        #[cfg(not(unix))]
+        command.current_dir(&cwd);
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt as _;
             command.as_std_mut().process_group(0);
+            let cwd = cwd_directory.try_clone_file()?;
+            // SAFETY: `fchdir` is async-signal-safe, the descriptor remains
+            // open through `spawn`, and the closure performs no allocation.
+            unsafe {
+                command.as_std_mut().pre_exec(move || {
+                    if libc::fchdir(cwd.as_raw_fd()) == 0 {
+                        Ok(())
+                    } else {
+                        Err(std::io::Error::last_os_error())
+                    }
+                });
+            }
         }
         #[cfg(unix)]
         let mut child_events =
@@ -1210,7 +1299,7 @@ impl ProcessManager {
             events: events.clone(),
             exit: exit_rx,
             target: Arc::new(ProcessTarget::new()),
-            finished: Arc::new(AtomicBool::new(false)),
+            completion: Arc::new(ProcessCompletion::new()),
         });
         #[cfg(unix)]
         pending.update_target(pid, record.target.clone());
@@ -1244,9 +1333,9 @@ impl ProcessManager {
                 status.map(exit_outcome).unwrap_or(ExitOutcome { code: None, signal: None });
             waiter_record.input.lock().await.writer = InputWriter::None;
             events.publish_exit(id, outcome);
-            waiter_record.finished.store(true, Ordering::Release);
             processes.write().await.complete(id);
             let _ = exit_tx.send(Some(outcome));
+            waiter_record.completion.mark_finished();
         });
         schedule_process_timeout(record, timeout_ms);
         pending.disarm();
@@ -1262,6 +1351,7 @@ impl ProcessManager {
         workspace: WorkspaceId,
         argv: Vec<String>,
         cwd: std::path::PathBuf,
+        #[cfg(unix)] cwd_directory: UnixWorkspaceDirectory,
         env: BTreeMap<String, String>,
         cols: u16,
         rows: u16,
@@ -1296,7 +1386,10 @@ impl ProcessManager {
             command.env_clear();
         }
         command.args(argv[1..].iter().cloned());
+        #[cfg(not(unix))]
         command.cwd(&cwd);
+        #[cfg(unix)]
+        command.cwd_descriptor(cwd_directory.try_clone_file()?);
         for (key, value) in env {
             command.env(key, value);
         }
@@ -1365,7 +1458,7 @@ impl ProcessManager {
             events: events.clone(),
             exit: exit_rx,
             target: Arc::new(ProcessTarget::new()),
-            finished: Arc::new(AtomicBool::new(false)),
+            completion: Arc::new(ProcessCompletion::new()),
         });
         #[cfg(unix)]
         pending.update_target(record_pid, record.target.clone());
@@ -1400,6 +1493,7 @@ impl ProcessManager {
                 target.mark_exited();
                 let _ = status_tx.send(outcome);
             });
+            self.processes.write().await.insert_active(id, record.clone());
             let waiter_record = record.clone();
             let processes = self.processes.clone();
             tokio::spawn(async move {
@@ -1421,9 +1515,9 @@ impl ProcessManager {
                 waiter_record.input.lock().await.writer = InputWriter::None;
                 close_record_master(&waiter_record);
                 events.publish_exit(id, outcome);
-                waiter_record.finished.store(true, Ordering::Release);
                 processes.write().await.complete(id);
                 let _ = exit_tx.send(Some(outcome));
+                waiter_record.completion.mark_finished();
             });
         }
         #[cfg(not(unix))]
@@ -1441,32 +1535,34 @@ impl ProcessManager {
                     }
                 })
                 .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
-            let waiter_record = record.clone();
+            let (status_tx, status_rx) = oneshot::channel();
+            let thread_record = record.clone();
             std::thread::Builder::new()
                 .name(format!("cmux-remote-pty-wait-{id}"))
                 .spawn(move || {
                     let _pty_slot = pty_slot;
                     let mut child = pending_child.take();
                     let status = child.wait();
-                    waiter_record.target.mark_exited();
+                    thread_record.target.mark_exited();
                     let _ = reader_thread.join();
                     let outcome = status
                         .map(portable_pty_exit_outcome)
                         .unwrap_or(ExitOutcome { code: None, signal: None });
-                    waiter_record.input.blocking_lock().writer = InputWriter::None;
-                    close_record_master(&waiter_record);
+                    thread_record.input.blocking_lock().writer = InputWriter::None;
+                    close_record_master(&thread_record);
                     events.publish_exit(id, outcome);
-                    let _ = exit_tx.send(Some(outcome));
-                    waiter_record.finished.store(true, Ordering::Release);
+                    let _ = status_tx.send(outcome);
                 })
                 .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
-        }
-        {
-            let mut processes = self.processes.write().await;
-            processes.insert_active(id, record.clone());
-            if record.finished.load(Ordering::Acquire) {
-                processes.complete(id);
-            }
+            self.processes.write().await.insert_active(id, record.clone());
+            let waiter_record = record.clone();
+            let processes = self.processes.clone();
+            tokio::spawn(async move {
+                let outcome = status_rx.await.unwrap_or(ExitOutcome { code: None, signal: None });
+                processes.write().await.complete(id);
+                let _ = exit_tx.send(Some(outcome));
+                waiter_record.completion.mark_finished();
+            });
         }
         schedule_process_timeout(record, timeout_ms);
         pending.disarm();
@@ -1605,7 +1701,7 @@ impl ProcessManager {
                 };
                 input = record.input.lock().await;
                 let (writer, result) = write;
-                if !eof && !record.finished.load(Ordering::Acquire) {
+                if !eof && !record.completion.is_finished() {
                     input.writer = InputWriter::Pty(writer);
                 }
                 result.map_err(|error| RpcError::new("process-write-failed", error.to_string()))?;
@@ -1680,7 +1776,7 @@ impl ProcessManager {
         after_sequence: u64,
     ) -> Result<ProcessSubscription, RpcError> {
         let record = self.get(process).await?;
-        record.events.subscribe(after_sequence, record.finished.load(Ordering::Acquire))
+        record.events.subscribe(after_sequence, record.completion.is_finished())
     }
 
     pub(crate) async fn subscribe_or_reserve(
@@ -1744,7 +1840,7 @@ impl ProcessManager {
         limit: u32,
     ) -> Result<WorkspaceResponse, RpcError> {
         let record = self.get(process).await?;
-        record.events.read(process, after_sequence, limit, record.finished.load(Ordering::Acquire))
+        record.events.read(process, after_sequence, limit, record.completion.is_finished())
     }
 
     pub(crate) async fn list(&self) -> WorkspaceResponse {
@@ -1768,8 +1864,7 @@ impl ProcessManager {
 
     pub(crate) async fn finish_operation(&self, process: ProcessId) -> Result<(), RpcError> {
         let record = self.get(process).await?;
-        if record.lifetime == ProcessLifetime::Operation && !record.finished.load(Ordering::Acquire)
-        {
+        if record.lifetime == ProcessLifetime::Operation && !record.completion.is_finished() {
             terminate_with_escalation(record)?;
         }
         Ok(())
@@ -1790,7 +1885,7 @@ impl ProcessManager {
                 record.lifetime == ProcessLifetime::Operation
                     && &record.owner == owner
                     && record.operation.as_ref() == Some(&operation)
-                    && !record.finished.load(Ordering::Acquire)
+                    && !record.completion.is_finished()
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -1813,7 +1908,7 @@ impl ProcessManager {
                 &record.workspace == workspace
                     && &record.owner == owner
                     && record.lifetime != ProcessLifetime::Detached
-                    && !record.finished.load(Ordering::Acquire)
+                    && !record.completion.is_finished()
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -1833,7 +1928,7 @@ impl ProcessManager {
             .filter(|record| {
                 &record.owner == owner
                     && record.lifetime != ProcessLifetime::Detached
-                    && !record.finished.load(Ordering::Acquire)
+                    && !record.completion.is_finished()
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -1850,7 +1945,7 @@ impl ProcessManager {
             .await
             .active
             .values()
-            .filter(|record| !record.finished.load(Ordering::Acquire))
+            .filter(|record| !record.completion.is_finished())
             .cloned()
             .collect::<Vec<_>>();
         for record in &records {
@@ -1860,7 +1955,7 @@ impl ProcessManager {
             return;
         }
         for record in &records {
-            if !record.finished.load(Ordering::Acquire) {
+            if !record.completion.is_finished() {
                 let _ = signal_record(record, ProcessSignal::Kill);
             }
         }
@@ -1968,11 +2063,18 @@ impl ProcessManager {
 }
 
 async fn wait_for_processes(records: &[Arc<ProcessRecord>], timeout: std::time::Duration) -> bool {
-    tokio::time::timeout(timeout, async {
-        while records.iter().any(|record| !record.finished.load(Ordering::Acquire)) {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    })
+    let completions = records.iter().map(|record| record.completion.clone()).collect::<Vec<_>>();
+    wait_for_process_completions(&completions, timeout).await
+}
+
+async fn wait_for_process_completions(
+    completions: &[Arc<ProcessCompletion>],
+    timeout: std::time::Duration,
+) -> bool {
+    tokio::time::timeout(
+        timeout,
+        futures_util::future::join_all(completions.iter().map(|completion| completion.wait())),
+    )
     .await
     .is_ok()
 }
@@ -2395,7 +2497,7 @@ fn schedule_process_timeout(record: Arc<ProcessRecord>, timeout_ms: Option<u64>)
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_millis(timeout_ms)) => {
                 if let Some(record) = record.upgrade()
-                    && !record.finished.load(Ordering::Acquire)
+                    && !record.completion.is_finished()
                 {
                     let _ = terminate_with_escalation(record);
                 }
@@ -2409,7 +2511,7 @@ fn terminate_with_escalation(record: Arc<ProcessRecord>) -> Result<(), RpcError>
     signal_record(&record, ProcessSignal::Terminate)?;
     tokio::spawn(async move {
         tokio::time::sleep(TERMINATION_GRACE).await;
-        if !record.finished.load(Ordering::Acquire) {
+        if !record.completion.is_finished() {
             let _ = signal_record(&record, ProcessSignal::Kill);
         }
     });
@@ -2457,7 +2559,7 @@ fn signal_record(record: &ProcessRecord, signal: ProcessSignal) -> Result<(), Rp
         Ok(())
     } else {
         let error = std::io::Error::last_os_error();
-        if error.raw_os_error() == Some(libc::ESRCH) && record.finished.load(Ordering::Acquire) {
+        if error.raw_os_error() == Some(libc::ESRCH) && record.completion.is_finished() {
             Ok(())
         } else {
             Err(RpcError::new("process-signal-failed", error.to_string()))
@@ -2535,6 +2637,41 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn process_completion_wait_handles_notification_before_registration() {
+        let completion = Arc::new(ProcessCompletion::new());
+        completion.mark_finished();
+
+        assert!(
+            wait_for_process_completions(&[completion], std::time::Duration::from_millis(50)).await
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn process_completion_wakes_without_advancing_a_polling_clock() {
+        let completion = Arc::new(ProcessCompletion::new());
+        let waiting = completion.clone();
+        let waiter = tokio::spawn(async move {
+            wait_for_process_completions(&[waiting], std::time::Duration::from_secs(1)).await
+        });
+        tokio::task::yield_now().await;
+        assert!(!waiter.is_finished());
+
+        completion.mark_finished();
+        tokio::task::yield_now().await;
+
+        assert!(waiter.is_finished(), "completion still depended on a polling timer");
+        assert!(waiter.await.unwrap());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn process_completion_wait_preserves_timeout() {
+        let completion = Arc::new(ProcessCompletion::new());
+        assert!(
+            !wait_for_process_completions(&[completion], std::time::Duration::from_secs(1)).await
+        );
+    }
+
     async fn root() -> (tempfile::TempDir, Arc<WorkspaceRoot>) {
         let directory = tempdir().unwrap();
         let root =
@@ -2542,6 +2679,102 @@ mod tests {
                 .await
                 .unwrap();
         (directory, root)
+    }
+
+    #[cfg(unix)]
+    async fn assert_process_cwd_swap_does_not_escape(io: ProcessIo) {
+        use std::os::unix::fs::symlink;
+
+        let (_directory, root) = root().await;
+        let outside = tempdir().unwrap();
+        let cwd = root.canonical_root().join("cwd");
+        tokio::fs::create_dir(&cwd).await.unwrap();
+        let barrier = super::super::files::install_mutation_test_barrier(
+            &root,
+            "cwd",
+            super::super::files::MutationTestPoint::AfterProcessCwdResolve,
+        );
+        let manager = Arc::new(ProcessManager::default());
+        let spawning = {
+            let root = Arc::clone(&root);
+            let manager = Arc::clone(&manager);
+            tokio::spawn(async move {
+                let mut options = spawn_options(
+                    vec!["/bin/sh".into(), "-c".into(), "printf escaped > cmux-cwd-marker".into()],
+                    io,
+                    ProcessLifetime::Workspace,
+                );
+                options.cwd = Some("cwd".into());
+                manager.spawn(root, options).await
+            })
+        };
+
+        barrier.wait_until_reached().await;
+        tokio::fs::rename(&cwd, root.canonical_root().join("original-cwd")).await.unwrap();
+        symlink(outside.path(), &cwd).unwrap();
+        barrier.resume();
+
+        if let Ok(WorkspaceResponse::ProcessStarted { process, .. }) = spawning.await.unwrap() {
+            manager.wait(process).await.unwrap();
+        }
+        assert!(
+            !outside.path().join("cmux-cwd-marker").exists(),
+            "process cwd escaped the workspace after its checked path was swapped"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pipe_process_cwd_is_pinned_against_parent_symlink_swaps() {
+        assert_process_cwd_swap_does_not_escape(ProcessIo::Pipes { stdin: false }).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pty_process_cwd_is_pinned_against_parent_symlink_swaps() {
+        assert_process_cwd_swap_does_not_escape(ProcessIo::Pty {
+            cols: 80,
+            rows: 24,
+            term: "xterm-256color".into(),
+            eof: PtyEofPolicy::Reject,
+        })
+        .await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn process_cwd_keeps_the_opened_root_after_its_path_is_replaced() {
+        use std::os::unix::fs::symlink;
+
+        let parent = tempdir().unwrap();
+        let registered = parent.path().join("workspace");
+        let pinned = parent.path().join("pinned-workspace");
+        tokio::fs::create_dir_all(registered.join("requested-cwd")).await.unwrap();
+        tokio::fs::create_dir_all(registered.join("other-cwd")).await.unwrap();
+        let root = WorkspaceRoot::open(
+            WorkspaceId("replaced-process-root".into()),
+            registered.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        tokio::fs::rename(&registered, &pinned).await.unwrap();
+        tokio::fs::create_dir_all(registered.join("other-cwd")).await.unwrap();
+        symlink("other-cwd", registered.join("requested-cwd")).unwrap();
+
+        let manager = ProcessManager::default();
+        let mut options = spawn_options(
+            vec!["/bin/sh".into(), "-c".into(), "printf pinned > marker".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        options.cwd = Some("requested-cwd".into());
+        let response = manager.spawn(root, options).await.unwrap();
+        let WorkspaceResponse::ProcessStarted { process, .. } = response else { panic!() };
+        manager.wait(process).await.unwrap();
+
+        assert_eq!(tokio::fs::read(pinned.join("requested-cwd/marker")).await.unwrap(), b"pinned");
+        assert!(!pinned.join("other-cwd/marker").exists());
     }
 
     fn spawn_options(
@@ -3351,6 +3584,7 @@ mod tests {
         let spawn_manager = manager.clone();
         let workspace = root.id.clone();
         let cwd = root.canonical_root().to_owned();
+        let cwd_directory = root.unix_root().pinned_directory_for_canonical_path(&cwd).unwrap();
         let spawn = tokio::spawn(async move {
             spawn_manager
                 .spawn_pipes(
@@ -3364,6 +3598,7 @@ mod tests {
                         "printf '%s' \"$$\" > \"$PIDFILE\"; exec sleep 30".into(),
                     ],
                     cwd,
+                    cwd_directory,
                     env,
                     false,
                     ProcessLifetime::Workspace,
@@ -3397,6 +3632,7 @@ mod tests {
         let spawn_manager = manager.clone();
         let workspace = root.id.clone();
         let cwd = root.canonical_root().to_owned();
+        let cwd_directory = root.unix_root().pinned_directory_for_canonical_path(&cwd).unwrap();
         let spawn = tokio::spawn(async move {
             spawn_manager
                 .spawn_pty(
@@ -3410,6 +3646,7 @@ mod tests {
                         "printf '%s' \"$$\" > \"$PIDFILE\"; exec sleep 30".into(),
                     ],
                     cwd,
+                    cwd_directory,
                     env,
                     80,
                     24,
@@ -3839,6 +4076,8 @@ mod tests {
         let manager = ProcessManager::default();
         *manager.pty_setup_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
             Some(failure);
+        let cwd = root.canonical_root().to_owned();
+        let cwd_directory = root.unix_root().pinned_directory_for_canonical_path(&cwd).unwrap();
         let error = manager
             .spawn_pty(
                 ProcessId::from_u128(9_003),
@@ -3846,7 +4085,8 @@ mod tests {
                 ClientScope::local(),
                 root.id.clone(),
                 vec!["/bin/sleep".into(), "30".into()],
-                root.canonical_root().to_owned(),
+                cwd,
+                cwd_directory,
                 BTreeMap::new(),
                 80,
                 24,
