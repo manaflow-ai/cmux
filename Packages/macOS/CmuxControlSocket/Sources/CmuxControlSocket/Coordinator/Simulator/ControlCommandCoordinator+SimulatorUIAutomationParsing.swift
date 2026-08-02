@@ -248,6 +248,11 @@ extension ControlCommandCoordinator {
               ) else {
             return nil
         }
+        guard predicate != "settled"
+                || settledDuration == 0
+                || settledDuration < timeout else {
+            return nil
+        }
         let elementRef: String?
         if params["element_ref"] == nil {
             elementRef = nil

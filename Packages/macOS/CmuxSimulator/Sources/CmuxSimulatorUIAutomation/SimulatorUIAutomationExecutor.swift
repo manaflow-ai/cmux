@@ -792,13 +792,19 @@ public struct SimulatorUIAutomationExecutor {
         var latestRecord: SimulatorUIAutomationSnapshotRecord?
         // CoreSimulator's accessibility translator exposes snapshots but no
         // change notification, so a cancellation-aware scheduler owns the
-        // bounded sampling events.
-        let events = SimulatorUIAutomationTickSequence(
-            scheduler: scheduler,
-            intervalMilliseconds: Int64(wait.pollIntervalMilliseconds),
-            deadlineMilliseconds: deadline
-        )
-        for try await _ in events {
+        // bounded sampling events. Settled waits also sample at their exact
+        // stability target instead of skipping it between polling intervals.
+        var isImmediateSample = true
+        while true {
+            if isImmediateSample {
+                isImmediateSample = false
+            } else if try await !scheduleNextSimulatorUIWaitSample(
+                wait,
+                stableSinceMilliseconds: stableSince,
+                deadlineMilliseconds: deadline
+            ) {
+                break
+            }
             let capturedRecord: SimulatorUIAutomationSnapshotRecord
             do {
                 capturedRecord = try await captureSimulatorUIAutomationSnapshot(
@@ -862,6 +868,35 @@ public struct SimulatorUIAutomationExecutor {
             candidates: simulatorUICompactCandidatePayloads(candidates),
             timeoutMilliseconds: wait.timeoutMilliseconds
         )
+    }
+
+    private func scheduleNextSimulatorUIWaitSample(
+        _ wait: ControlSimulatorUIWait,
+        stableSinceMilliseconds: Int64?,
+        deadlineMilliseconds: Int64
+    ) async throws -> Bool {
+        try Task.checkCancellation()
+        let beforeWait = scheduler.monotonicNowMilliseconds()
+        guard beforeWait < deadlineMilliseconds else { return false }
+
+        var eventMilliseconds = min(
+            deadlineMilliseconds,
+            beforeWait + Int64(wait.pollIntervalMilliseconds)
+        )
+        if wait.predicate == "settled", let stableSinceMilliseconds {
+            let stabilityTarget = stableSinceMilliseconds
+                + Int64(wait.settledDurationMilliseconds)
+            eventMilliseconds = min(
+                eventMilliseconds,
+                max(beforeWait, stabilityTarget)
+            )
+        }
+        if eventMilliseconds > beforeWait {
+            try await scheduler.nextEvent(after: .milliseconds(
+                eventMilliseconds - beforeWait
+            ))
+        }
+        return scheduler.monotonicNowMilliseconds() < deadlineMilliseconds
     }
 
     private func waitForSimulatorUITextFocus(
