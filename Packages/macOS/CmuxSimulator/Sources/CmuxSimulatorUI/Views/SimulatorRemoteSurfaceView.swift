@@ -15,6 +15,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     private var framePresentationController:
         SimulatorFramePresentationController?
     private var frameTransportDescriptor: SimulatorFrameTransportDescriptor?
+    private var frameTransportRequiresReadoption = false
     private let frameSourceFactory:
         @MainActor (
             SimulatorFrameTransportDescriptor
@@ -102,7 +103,9 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         }
         self.chrome = chrome
         updateChromeLayerBackground()
-        if frameTransport != frameTransportDescriptor {
+        if frameTransport != frameTransportDescriptor
+            || frameTransportRequiresReadoption
+        {
             adopt(frameTransport: frameTransport)
         }
         needsDisplay = true
@@ -119,6 +122,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         frameLayer?.removeFromSuperlayer()
         frameLayer = nil
         frameTransportDescriptor = nil
+        frameTransportRequiresReadoption = false
         lastFrameSequence = nil
         display = nil
         chrome = nil
@@ -382,6 +386,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
                 else {
                     return
                 }
+                self.frameTransportRequiresReadoption = true
                 self.onFrameTransportFailure?(
                     frameTransport,
                     SimulatorFailure(
@@ -393,6 +398,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
             }
         )
         frameTransportDescriptor = frameTransport
+        frameTransportRequiresReadoption = false
         onFrameTransportAdopted?(frameTransport)
         renderLatestFrame()
         layoutFrameLayer()

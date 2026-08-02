@@ -25,7 +25,9 @@ final class SimulatorFramePresentationController {
                 self?.presentLatestFrame()
             },
             sourceFailureDidOccur: { [weak self] in
-                self?.stopPresenting()
+                guard let self else { return }
+                self.stopPresenting()
+                self.pipeline = nil
                 sourceFailureDidOccur()
             }
         )
