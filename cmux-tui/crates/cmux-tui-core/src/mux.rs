@@ -26267,6 +26267,95 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn restart_rejects_unreadable_canonical_record_without_exiting_live_terminal() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        const TERMINAL: &str = "00000000000040008000000000000021";
+        const INCARNATION: &str = "10000000000040008000000000000021";
+        const SESSION: &str = "recover-unreadable-terminal";
+        let root = std::env::temp_dir().join(format!(
+            "cmux-mux-terminal-unreadable-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        {
+            let mut registry = WorkspaceRegistry::open(&root, SESSION).unwrap();
+            registry
+                .commit(
+                    &WorkspaceMutation::new("workspace", "test").unwrap(),
+                    &serde_json::json!({"op":"create-workspace"}),
+                    None,
+                    Some(0),
+                    "workspace-added",
+                    "workspace-one",
+                    &[RegistryWorkspace {
+                        id: 1,
+                        public_id: WorkspacePublicId::random().unwrap(),
+                        key: "workspace-one".into(),
+                        name: "One".into(),
+                        group_key: SESSION.into(),
+                    }],
+                    &serde_json::json!({"workspace":1,"key":"workspace-one"}),
+                )
+                .unwrap();
+            let mut terminal = RegistryTerminal {
+                terminal_id: TERMINAL.into(),
+                workspace_key: "workspace-one".into(),
+                incarnation: None,
+                lifecycle: TerminalLifecycle::Launching,
+                launch_spec: serde_json::json!({"command_present":true}),
+                exit: None,
+            };
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "reserve-unreadable-terminal",
+                &terminal,
+            )
+            .unwrap();
+            terminal.incarnation = Some(INCARNATION.into());
+            terminal.lifecycle = TerminalLifecycle::Running;
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-running",
+                "run-unreadable-terminal",
+                &terminal,
+            )
+            .unwrap();
+        }
+
+        let host_root = crate::terminal_host_runtime::terminal_host_root(&root, SESSION);
+        std::fs::create_dir_all(&host_root).unwrap();
+        let record_path = host_root.join(format!("{TERMINAL}.json"));
+        std::fs::write(&record_path, b"{").unwrap();
+        let mut permissions = std::fs::metadata(&record_path).unwrap().permissions();
+        permissions.set_mode(0o600);
+        std::fs::set_permissions(&record_path, permissions).unwrap();
+        let options =
+            SurfaceOptions { terminal_host_root: Some(host_root), ..SurfaceOptions::default() };
+
+        let startup_rejected = match Mux::open_persistent(SESSION, options, &root) {
+            Ok(mux) => {
+                drop(mux);
+                false
+            }
+            Err(_) => true,
+        };
+        let registry = WorkspaceRegistry::open(&root, SESSION).unwrap();
+        let terminal = registry.terminal_record(TERMINAL).unwrap().unwrap();
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
+
+        assert!(
+            startup_rejected,
+            "restart treated an unreadable canonical record as a missing host"
+        );
+        assert_eq!(terminal.lifecycle, TerminalLifecycle::Running);
+        assert_eq!(terminal.incarnation.as_deref(), Some(INCARNATION));
+        assert_eq!(terminal.exit, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn dead_public_terminal_adoption_wakes_wait_exit() {
         const TERMINAL: &str = "00000000000040008000000000000011";
         const INCARNATION: &str = "10000000000040008000000000000011";
