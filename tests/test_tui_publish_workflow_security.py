@@ -219,6 +219,7 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
     assert "https://github.com/manaflow-ai/cmux" in bootstrap_probe
     assert "--retry-delay 1" in bootstrap_probe
     assert "sleep 1" in bootstrap_probe
+    assert bootstrap.count("sleep 1") >= 3
 
 
 def test_registry_setup_disables_long_lived_publish_credentials() -> None:
@@ -309,6 +310,7 @@ def test_all_registry_names_are_owned_before_release_tags() -> None:
     assert "--package cmux-sidebar" in registry
     assert "--owner-id 431397" in registry
     assert "--owner-login lawrencecchen" in registry
+    assert registry.count("sleep 1") >= 2
     assert "npm bootstrap provenance" in releasing
     assert "431397" in releasing
     assert "sole PyPI owner `lawrencecchen`" in releasing
