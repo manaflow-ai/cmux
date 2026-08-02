@@ -84,6 +84,8 @@ while [ "$attempt" -le "$max_attempts" ]; do
       retry_reason="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s idle timeout"
     elif grep -Fq 'The test runner hung before establishing connection.' "$log_path"; then
       retry_reason="XCTest startup hang"
+    elif grep -Fq 'The test runner crashed before establishing connection' "$log_path"; then
+      retry_reason="test runner startup crash"
     elif grep -Fq 'Failed to establish communication with the test runner' "$log_path"; then
       retry_reason="test runner communication failure"
     elif grep -Fq 'com.apple.testmanagerd.control was invalidated' "$log_path"; then
