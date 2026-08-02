@@ -782,6 +782,31 @@ struct ApplicationSurfaceTests {
         )))
     }
 
+    @Test func inputPumpRetainsReleaseStateUntilAcknowledged() async {
+        let pump = ApplicationSurfaceInputPump { _ in true }
+        let keyDown = ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: 56,
+            keyDown: true
+        )
+        let mouseDown = ApplicationSurfaceInputEvent(
+            kind: .leftMouseDown,
+            frameSequence: 41,
+            x: 0.25,
+            y: 0.5
+        )
+
+        #expect(pump.enqueue(keyDown) == .accepted)
+        #expect(pump.enqueue(mouseDown) == .accepted)
+        await pump.waitUntilIdle()
+
+        let firstAttempt = await pump.takeReleaseEventsAfterDraining()
+        let retryAttempt = await pump.takeReleaseEventsAfterDraining()
+
+        #expect(!firstAttempt.isEmpty)
+        #expect(retryAttempt == firstAttempt)
+    }
+
     @Test func pickerSearchMatchesOwnerAndWindowTitle() {
         let model = ApplicationSurfacePickerModel()
         model.replaceWindows([
