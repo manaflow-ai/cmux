@@ -23,6 +23,8 @@ class VerifyPyPIProvenanceTests(unittest.TestCase):
     repository = "https://github.com/manaflow-ai/cmux"
     workflow = "sdk-bootstrap-pypi.yml"
     environment = "pypi-bootstrap"
+    expected_commit = "a" * 40
+    expected_ref = "refs/heads/main"
     owners = ("lawrencecchen",)
     filenames = (
         "cmux_sdk-0.0.0a0-py3-none-any.whl",
@@ -69,6 +71,19 @@ class VerifyPyPIProvenanceTests(unittest.TestCase):
 
     def response(self, payload: dict[str, object]) -> io.BytesIO:
         return io.BytesIO(json.dumps(payload).encode())
+
+    def signed_claims(self, **overrides: str) -> dict[str, str]:
+        claims = {
+            provenance.SOURCE_REPOSITORY_DIGEST_OID: self.expected_commit,
+            provenance.SOURCE_REPOSITORY_REF_OID: self.expected_ref,
+            provenance.BUILD_CONFIG_URI_OID: (
+                f"{self.repository}/.github/workflows/{self.workflow}"
+                f"@{self.expected_ref}"
+            ),
+            provenance.BUILD_CONFIG_DIGEST_OID: self.expected_commit,
+        }
+        claims.update(overrides)
+        return claims
 
     def registry_response(
         self,
@@ -117,6 +132,7 @@ class VerifyPyPIProvenanceTests(unittest.TestCase):
                 "--repository",
                 self.repository,
             ])
+            self.assertIn("--provenance-file", command)
             self.assertTrue(command[-1].endswith(filename))
             self.assertEqual(call.kwargs["timeout"], 60)
 
@@ -229,6 +245,87 @@ class VerifyPyPIProvenanceTests(unittest.TestCase):
                 self.environment,
             )
         run.assert_not_called()
+
+    def test_binds_verified_stable_claims_to_the_release_commit_and_ref(self) -> None:
+        with mock.patch.object(
+            provenance,
+            "urlopen",
+            side_effect=self.registry_response(self.filenames),
+        ), mock.patch.object(
+            provenance.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0),
+        ), mock.patch.object(
+            provenance,
+            "_certificate_claim_sets",
+            return_value=[self.signed_claims()],
+        ) as certificate_claim_sets:
+            provenance.verify(
+                self.package,
+                self.version,
+                self.filenames,
+                self.repository,
+                self.owners,
+                self.workflow,
+                self.environment,
+                self.expected_commit,
+                self.expected_ref,
+            )
+
+        self.assertEqual(certificate_claim_sets.call_count, 2)
+
+    def test_rejects_each_mismatched_stable_certificate_claim(self) -> None:
+        mismatches = {
+            provenance.SOURCE_REPOSITORY_DIGEST_OID: "b" * 40,
+            provenance.SOURCE_REPOSITORY_REF_OID: "refs/heads/attacker",
+            provenance.BUILD_CONFIG_URI_OID: (
+                f"{self.repository}/.github/workflows/{self.workflow}"
+                "@refs/heads/attacker"
+            ),
+            provenance.BUILD_CONFIG_DIGEST_OID: "b" * 40,
+        }
+        for oid, value in mismatches.items():
+            with self.subTest(oid=oid), mock.patch.object(
+                provenance,
+                "urlopen",
+                side_effect=self.registry_response(self.filenames[:1]),
+            ), mock.patch.object(
+                provenance.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0),
+            ), mock.patch.object(
+                provenance,
+                "_certificate_claim_sets",
+                return_value=[self.signed_claims(**{oid: value})],
+            ), self.assertRaisesRegex(
+                provenance.ProvenanceError,
+                "certificate claims",
+            ):
+                provenance.verify(
+                    self.package,
+                    self.version,
+                    self.filenames[:1],
+                    self.repository,
+                    self.owners,
+                    self.workflow,
+                    self.environment,
+                    self.expected_commit,
+                    self.expected_ref,
+                )
+
+    def test_requires_commit_and_ref_binding_together(self) -> None:
+        with self.assertRaisesRegex(provenance.ProvenanceError, "together"):
+            provenance.verify(
+                self.package,
+                self.version,
+                self.filenames,
+                self.repository,
+                self.owners,
+                self.workflow,
+                self.environment,
+                self.expected_commit,
+                None,
+            )
 
 
 if __name__ == "__main__":

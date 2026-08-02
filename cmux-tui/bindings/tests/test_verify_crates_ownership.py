@@ -22,6 +22,19 @@ class VerifyCratesOwnershipTests(unittest.TestCase):
     owner_id = 431397
     owner_login = "lawrencecchen"
 
+    def bootstrap_args(self, package: str = "cmux-sidebar") -> list[str]:
+        return [
+            "--package",
+            package,
+            "--repository",
+            self.repository,
+            "--owner-id",
+            str(self.owner_id),
+            "--owner-login",
+            self.owner_login,
+            "--bootstrap-ownership-only",
+        ]
+
     def response(self, payload: object) -> io.BytesIO:
         return io.BytesIO(json.dumps(payload).encode())
 
@@ -117,6 +130,35 @@ class VerifyCratesOwnershipTests(unittest.TestCase):
                 self.owner_id,
                 self.owner_login,
             )
+
+    def test_bootstrap_mode_accepts_the_exact_owner_before_trusted_publishing(self) -> None:
+        def response(request: object, **kwargs: object) -> io.BytesIO:
+            payload = json.loads(self.registry_response(request, **kwargs).read())
+            if not str(getattr(request, "full_url", "")).endswith("/owners"):
+                payload["crate"]["trustpub_only"] = False
+            return self.response(payload)
+
+        with mock.patch.object(ownership, "urlopen", side_effect=response):
+            self.assertEqual(ownership.main(self.bootstrap_args()), 0)
+
+    def test_bootstrap_mode_still_rejects_a_foreign_owner(self) -> None:
+        def response(request: object, **kwargs: object) -> io.BytesIO:
+            payload = json.loads(self.registry_response(request, **kwargs).read())
+            if str(getattr(request, "full_url", "")).endswith("/owners"):
+                payload["users"][0]["id"] = 1
+                payload["users"][0]["login"] = "attacker"
+                payload["users"][0]["url"] = "https://github.com/attacker"
+            else:
+                payload["crate"]["trustpub_only"] = False
+            return self.response(payload)
+
+        with mock.patch.object(ownership, "urlopen", side_effect=response):
+            self.assertEqual(ownership.main(self.bootstrap_args()), 1)
+
+    def test_bootstrap_mode_is_restricted_to_the_sidebar_reservation(self) -> None:
+        with mock.patch.object(ownership, "urlopen") as urlopen:
+            self.assertEqual(ownership.main(self.bootstrap_args("cmux-client")), 1)
+        urlopen.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -198,6 +198,8 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
     assert "cargo test --manifest-path" in bootstrap
     assert "cargo package --manifest-path" in bootstrap
     assert bootstrap.count("reconcile_registry_artifact.py check") == 2
+    assert bootstrap.count("verify_crates_ownership.py") == 2
+    assert bootstrap.count("--bootstrap-ownership-only") == 2
     assert "--retry-missing-project" in bootstrap
     assert "--allow-missing-project" not in bootstrap
     assert 'cmp "$BOOTSTRAP_ARTIFACT" "$REPACKED_ARTIFACT"' in bootstrap
@@ -523,7 +525,8 @@ def test_registry_state_is_revalidated_after_release_approval() -> None:
     assert "verify_crates_ownership.py" in verifier
     assert "verify_npm_provenance.py" in verifier
     assert "verify_pypi_provenance.py" in verifier
-    assert '--expected-commit "$expected_commit"' in verifier
+    assert verifier.count('--expected-commit "$expected_commit"') == 2
+    assert "--expected-ref refs/heads/main" in verifier
 
 
 def test_release_app_token_is_scoped_to_the_atomic_push() -> None:
@@ -582,7 +585,8 @@ def test_stable_registry_provenance_gates_recovery_and_completion() -> None:
     assert "--workflow .github/workflows/sdk-release-cut.yml" in registry
     assert "--workflow sdk-release-cut.yml" in registry
     assert "--environment pypi" in registry
-    assert '--expected-commit "$GITHUB_SHA"' in registry
+    assert registry.count('--expected-commit "$GITHUB_SHA"') == 2
+    assert "--expected-ref refs/heads/main" in registry
 
     for dependency in (
         "publish-npm",
@@ -599,7 +603,8 @@ def test_stable_registry_provenance_gates_recovery_and_completion() -> None:
     assert "--workflow .github/workflows/sdk-release-cut.yml" in stable
     assert "--workflow sdk-release-cut.yml" in stable
     assert "--environment pypi" in stable
-    assert '--expected-commit "$GITHUB_SHA"' in stable
+    assert stable.count('--expected-commit "$GITHUB_SHA"') == 2
+    assert "--expected-ref refs/heads/main" in stable
     assert "verify-stable-provenance" in summary
     assert "STABLE_PROVENANCE_RESULT" in summary
 
