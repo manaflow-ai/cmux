@@ -1488,7 +1488,7 @@ impl LocalPtyProcess {
         let reap_surface = surface;
         let mut child = Some(child);
         crate::process_session::enqueue_reserved_session_leader(
-            reaper,
+            reaper.attach_owner(),
             session,
             NORMAL_EXIT_SESSION_CLEANUP_TIMEOUT,
             move || {

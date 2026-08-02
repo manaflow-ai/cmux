@@ -59,7 +59,7 @@ fn natural_reap_test_session() -> libc::pid_t {
 pub(crate) fn reserved_child_reaper_active_for_test() -> usize {
     let Some(slot) = NATURAL_REAPER.get() else { return 0 };
     let slot = slot.lock().unwrap();
-    slot.as_ref().map_or(0, |reaper| reaper.active.load(Ordering::Acquire))
+    slot.as_ref().map_or(0, |reaper| reaper.activity.active.load(Ordering::Acquire))
 }
 
 #[cfg(test)]
@@ -142,6 +142,118 @@ enum NaturalChildObservation {
 enum NaturalReaperCommand {
     Add(NaturalReapRequest),
     WakeSession(libc::pid_t),
+    WakeUnpublished,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct UnpublishedChildReaperHealth {
+    pub(crate) pending: usize,
+    pub(crate) degraded: bool,
+}
+
+#[derive(Default)]
+struct NaturalReaperActivityState {
+    unpublished: usize,
+    degraded: usize,
+    unpublished_degraded: usize,
+}
+
+#[derive(Default)]
+struct NaturalReaperActivity {
+    active: AtomicUsize,
+    state: Mutex<NaturalReaperActivityState>,
+    changed: Condvar,
+}
+
+impl NaturalReaperActivity {
+    fn reserve(&self) -> io::Result<()> {
+        self.active
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                (active < NATURAL_REAP_CAPACITY).then_some(active + 1)
+            })
+            .map_err(|_| {
+                io::Error::new(io::ErrorKind::WouldBlock, "PTY session reaper capacity exhausted")
+            })?;
+        self.state.lock().unwrap().unpublished += 1;
+        self.changed.notify_all();
+        Ok(())
+    }
+
+    fn attach_owner(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.unpublished = state
+            .unpublished
+            .checked_sub(1)
+            .expect("unpublished PTY child reaper reservation is balanced");
+        self.changed.notify_all();
+    }
+
+    fn release(&self, owner_attached: bool) {
+        self.active.fetch_sub(1, Ordering::AcqRel);
+        if !owner_attached {
+            let mut state = self.state.lock().unwrap();
+            state.unpublished = state
+                .unpublished
+                .checked_sub(1)
+                .expect("unpublished PTY child reaper reservation is balanced");
+            self.changed.notify_all();
+        }
+    }
+
+    fn set_degraded(&self, owner_attached: bool, degraded: bool) {
+        let mut state = self.state.lock().unwrap();
+        if degraded {
+            state.degraded += 1;
+            if !owner_attached {
+                state.unpublished_degraded += 1;
+            }
+        } else {
+            state.degraded = state
+                .degraded
+                .checked_sub(1)
+                .expect("degraded PTY child reaper accounting is balanced");
+            if !owner_attached {
+                state.unpublished_degraded = state
+                    .unpublished_degraded
+                    .checked_sub(1)
+                    .expect("unpublished degraded PTY child reaper accounting is balanced");
+            }
+        }
+    }
+
+    fn unpublished_health(&self) -> UnpublishedChildReaperHealth {
+        let state = self.state.lock().unwrap();
+        UnpublishedChildReaperHealth {
+            pending: state.unpublished,
+            degraded: state.unpublished_degraded != 0,
+        }
+    }
+
+    fn wait_for_unpublished_until(&self, deadline: Instant) -> io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        while state.unpublished != 0 {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Err(unpublished_child_reaper_deadline_error(&state));
+            };
+            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.unpublished != 0 {
+                return Err(unpublished_child_reaper_deadline_error(&state));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn unpublished_child_reaper_deadline_error(state: &NaturalReaperActivityState) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::TimedOut,
+        format!(
+            "unpublished child reaper ownership did not drain before the shutdown deadline \
+             (pending: {}, degraded: {})",
+            state.unpublished, state.unpublished_degraded
+        ),
+    )
 }
 
 struct NaturalReapRequest {
@@ -163,7 +275,7 @@ impl NaturalReapRequest {
     fn clear_degraded(&mut self) {
         if self.degraded {
             self.degraded = false;
-            self._lease.degraded.fetch_sub(1, Ordering::AcqRel);
+            self._lease.activity.set_degraded(self._lease.owner_attached, false);
         }
     }
 
@@ -186,7 +298,7 @@ impl NaturalReapRequest {
         if self.attempts >= NATURAL_REAP_MAX_ATTEMPTS {
             if !self.degraded {
                 self.degraded = true;
-                self._lease.degraded.fetch_add(1, Ordering::AcqRel);
+                self._lease.activity.set_degraded(self._lease.owner_attached, true);
             }
             self.next_attempt = Instant::now() + NATURAL_REAP_DEGRADED_RETRY;
         } else {
@@ -196,30 +308,49 @@ impl NaturalReapRequest {
     }
 }
 
+impl Drop for NaturalReapRequest {
+    fn drop(&mut self) {
+        self.clear_degraded();
+    }
+}
+
 struct NaturalReaper {
     sender: mpsc::Sender<NaturalReaperCommand>,
-    active: Arc<AtomicUsize>,
-    degraded: Arc<AtomicUsize>,
+    activity: Arc<NaturalReaperActivity>,
     _worker: std::thread::JoinHandle<()>,
 }
 
 pub(crate) struct ReservedChildReaperLease {
     sender: mpsc::Sender<NaturalReaperCommand>,
-    active: Arc<AtomicUsize>,
-    degraded: Arc<AtomicUsize>,
+    activity: Arc<NaturalReaperActivity>,
+    owner_attached: bool,
+}
+
+impl ReservedChildReaperLease {
+    /// Transfer cleanup authority to a surface or terminal-host owner.
+    ///
+    /// Until this transition, shutdown must treat the reservation as the sole
+    /// owner of any child created after it. Failed-spawn cleanup deliberately
+    /// keeps the reservation unpublished until the shared reaper completes.
+    #[must_use]
+    pub(crate) fn attach_owner(mut self) -> Self {
+        assert!(!self.owner_attached, "PTY child reaper already has a published owner");
+        self.activity.attach_owner();
+        self.owner_attached = true;
+        self
+    }
 }
 
 impl Drop for ReservedChildReaperLease {
     fn drop(&mut self) {
-        self.active.fetch_sub(1, Ordering::AcqRel);
+        self.activity.release(self.owner_attached);
     }
 }
 
 impl NaturalReaper {
     fn start() -> io::Result<Self> {
         let (sender, receiver) = mpsc::channel();
-        let active = Arc::new(AtomicUsize::new(0));
-        let degraded = Arc::new(AtomicUsize::new(0));
+        let activity = Arc::new(NaturalReaperActivity::default());
         let worker = std::thread::Builder::new().name("cmux-pty-session-reaper".into()).spawn(
             move || {
                 #[cfg(test)]
@@ -229,21 +360,15 @@ impl NaturalReaper {
                 NATURAL_REAP_WORKERS.fetch_sub(1, Ordering::AcqRel);
             },
         )?;
-        Ok(Self { sender, active, degraded, _worker: worker })
+        Ok(Self { sender, activity, _worker: worker })
     }
 
     fn lease(&self) -> io::Result<ReservedChildReaperLease> {
-        self.active
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
-                (active < NATURAL_REAP_CAPACITY).then_some(active + 1)
-            })
-            .map_err(|_| {
-                io::Error::new(io::ErrorKind::WouldBlock, "PTY session reaper capacity exhausted")
-            })?;
+        self.activity.reserve()?;
         Ok(ReservedChildReaperLease {
             sender: self.sender.clone(),
-            active: self.active.clone(),
-            degraded: self.degraded.clone(),
+            activity: self.activity.clone(),
+            owner_attached: false,
         })
     }
 }
@@ -255,6 +380,35 @@ pub(crate) fn reserve_child_reaper() -> io::Result<ReservedChildReaperLease> {
         *slot = Some(NaturalReaper::start()?);
     }
     slot.as_ref().expect("natural PTY reaper initialized").lease()
+}
+
+pub(crate) fn unpublished_child_reaper_health() -> UnpublishedChildReaperHealth {
+    let Some(slot) = NATURAL_REAPER.get() else {
+        return UnpublishedChildReaperHealth::default();
+    };
+    let activity = {
+        let slot = slot.lock().unwrap();
+        let Some(reaper) = slot.as_ref() else {
+            return UnpublishedChildReaperHealth::default();
+        };
+        reaper.activity.clone()
+    };
+    activity.unpublished_health()
+}
+
+/// Wake ownerless child cleanup and retain the server until every reservation
+/// either publishes a higher-level owner or releases its wait ownership.
+pub(crate) fn wait_for_unpublished_child_reaper_until(deadline: Instant) -> io::Result<()> {
+    let Some(slot) = NATURAL_REAPER.get() else { return Ok(()) };
+    let (sender, activity) = {
+        let slot = slot.lock().unwrap();
+        let Some(reaper) = slot.as_ref() else { return Ok(()) };
+        (reaper.sender.clone(), reaper.activity.clone())
+    };
+    sender.send(NaturalReaperCommand::WakeUnpublished).map_err(|_| {
+        io::Error::new(io::ErrorKind::BrokenPipe, "unpublished child reaper is unavailable")
+    })?;
+    activity.wait_for_unpublished_until(deadline)
 }
 
 pub(crate) fn observe_child_without_reaping(
@@ -618,6 +772,12 @@ fn accept_natural_reaper_command(
         NaturalReaperCommand::WakeSession(session) => {
             let now = Instant::now();
             for request in pending.iter_mut().filter(|request| request.session == session) {
+                request.next_attempt = now;
+            }
+        }
+        NaturalReaperCommand::WakeUnpublished => {
+            let now = Instant::now();
+            for request in pending.iter_mut().filter(|request| !request._lease.owner_attached) {
                 request.next_attempt = now;
             }
         }
@@ -1656,7 +1816,7 @@ mod tests {
         let (finished_sender, finished_receiver) = mpsc::channel();
         let session = natural_reap_test_session();
         enqueue_reserved_session_leader(
-            reserve_child_reaper().unwrap(),
+            reserve_child_reaper().unwrap().attach_owner(),
             session,
             Duration::ZERO,
             move || {
@@ -1699,7 +1859,7 @@ mod tests {
         let (finished_sender, finished_receiver) = mpsc::channel();
         let session = natural_reap_test_session();
         enqueue_reserved_session_leader(
-            reserve_child_reaper().unwrap(),
+            reserve_child_reaper().unwrap().attach_owner(),
             session,
             Duration::ZERO,
             || Ok(true),
@@ -1735,7 +1895,7 @@ mod tests {
     fn degraded_reap_request_for_test(
         session: libc::pid_t,
         next_attempt: Instant,
-        degraded: Arc<AtomicUsize>,
+        activity: Arc<NaturalReaperActivity>,
     ) -> NaturalReapRequest {
         let (sender, _receiver) = mpsc::channel();
         NaturalReapRequest {
@@ -1746,16 +1906,28 @@ mod tests {
             needs_cleanup: Box::new(|| false),
             prepare_cleanup: Box::new(|| true),
             finish: Box::new(|_| NaturalReapFinish::Pending),
-            _lease: ReservedChildReaperLease {
-                sender,
-                active: Arc::new(AtomicUsize::new(1)),
-                degraded,
-            },
+            _lease: ReservedChildReaperLease { sender, activity, owner_attached: true },
             next_attempt,
             retry_delay: NATURAL_REAP_RETRY_MAX,
             attempts: NATURAL_REAP_MAX_ATTEMPTS,
             degraded: true,
         }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn natural_reaper_activity_for_test(
+        active: usize,
+        degraded: usize,
+    ) -> Arc<NaturalReaperActivity> {
+        Arc::new(NaturalReaperActivity {
+            active: AtomicUsize::new(active),
+            state: Mutex::new(NaturalReaperActivityState {
+                unpublished: 0,
+                degraded,
+                unpublished_degraded: 0,
+            }),
+            changed: Condvar::new(),
+        })
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -1771,11 +1943,11 @@ mod tests {
     fn state_change_wake_preempts_degraded_retry_before_shutdown_deadline() {
         let now = Instant::now();
         let shutdown_deadline = now + Duration::from_secs(5);
-        let degraded = Arc::new(AtomicUsize::new(1));
+        let activity = natural_reaper_activity_for_test(1, 1);
         let mut pending = vec![degraded_reap_request_for_test(
             41,
             now + Duration::from_secs(30),
-            degraded.clone(),
+            activity.clone(),
         )];
         accept_session_state_change_for_test(41, &mut pending);
 
@@ -1784,7 +1956,7 @@ mod tests {
             "the production degraded retry outlived the server shutdown deadline"
         );
         assert!(pending[0].degraded);
-        assert_eq!(degraded.load(Ordering::Acquire), 1);
+        assert_eq!(activity.state.lock().unwrap().degraded, 1);
 
         let rescheduled_at = Instant::now();
         pending[0].schedule_failure();
@@ -1800,10 +1972,10 @@ mod tests {
     fn state_change_wake_preserves_unrelated_degraded_backoff() {
         let now = Instant::now();
         let shutdown_deadline = now + Duration::from_secs(5);
-        let degraded = Arc::new(AtomicUsize::new(2));
+        let activity = natural_reaper_activity_for_test(2, 2);
         let mut pending = vec![
-            degraded_reap_request_for_test(41, now + Duration::from_secs(30), degraded.clone()),
-            degraded_reap_request_for_test(73, now + Duration::from_secs(30), degraded),
+            degraded_reap_request_for_test(41, now + Duration::from_secs(30), activity.clone()),
+            degraded_reap_request_for_test(73, now + Duration::from_secs(30), activity),
         ];
         accept_session_state_change_for_test(41, &mut pending);
 
@@ -1811,6 +1983,40 @@ mod tests {
         assert!(
             pending[1].next_attempt > shutdown_deadline,
             "one session state change defeated another degraded session's backoff"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn shutdown_wake_preempts_only_unpublished_degraded_reapers() {
+        let now = Instant::now();
+        let shutdown_deadline = now + Duration::from_secs(5);
+        let activity = Arc::new(NaturalReaperActivity {
+            active: AtomicUsize::new(2),
+            state: Mutex::new(NaturalReaperActivityState {
+                unpublished: 1,
+                degraded: 2,
+                unpublished_degraded: 1,
+            }),
+            changed: Condvar::new(),
+        });
+        let mut unpublished =
+            degraded_reap_request_for_test(41, now + Duration::from_secs(30), activity.clone());
+        unpublished._lease.owner_attached = false;
+        let published =
+            degraded_reap_request_for_test(73, now + Duration::from_secs(30), activity.clone());
+        let mut pending = vec![unpublished, published];
+
+        accept_natural_reaper_command(NaturalReaperCommand::WakeUnpublished, &mut pending);
+
+        assert!(pending[0].next_attempt <= shutdown_deadline);
+        assert!(
+            pending[1].next_attempt > shutdown_deadline,
+            "shutdown defeated a published surface reaper's degraded backoff"
+        );
+        assert_eq!(
+            activity.unpublished_health(),
+            UnpublishedChildReaperHealth { pending: 1, degraded: true }
         );
     }
 

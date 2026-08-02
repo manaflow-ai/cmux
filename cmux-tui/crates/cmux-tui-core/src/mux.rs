@@ -8384,6 +8384,9 @@ impl Mux {
         if !self.wait_for_terminal_adoption_workers_until(deadline) {
             anyhow::bail!("terminal adoption remains active at the daemon exit deadline");
         }
+        #[cfg(unix)]
+        crate::process_session::wait_for_unpublished_child_reaper_until(deadline)
+            .context("drain unpublished child reaper ownership for daemon exit")?;
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         for surface in &surfaces {
             match surface.shutdown_owner_identity() {
@@ -8512,14 +8515,24 @@ impl Mux {
 
     pub(crate) fn shutdown_cleanup_health(&self) -> ShutdownCleanupHealth {
         let owner_pending = self.shutdown_owners.len();
+        #[cfg(unix)]
+        let unpublished_reaper = crate::process_session::unpublished_child_reaper_health();
+        #[cfg(unix)]
+        let (unpublished_pending, unpublished_degraded) =
+            (unpublished_reaper.pending, unpublished_reaper.degraded);
+        #[cfg(not(unix))]
+        let (unpublished_pending, unpublished_degraded) = (0, false);
         let lifecycle = self.shutdown_cleanup_lifecycle.snapshot();
         let state = self.shutdown_owner_reconciler.state.lock().unwrap();
         let owner_retrying = owner_pending != 0 && state.worker_started && !state.degraded;
         let owner_degraded = owner_pending != 0 && (state.degraded || !state.worker_started);
-        let degraded = lifecycle.degraded || owner_degraded;
+        let degraded = lifecycle.degraded || owner_degraded || unpublished_degraded;
         ShutdownCleanupHealth {
-            pending: owner_pending.max(usize::from(lifecycle.pending)),
-            retrying: !degraded && (lifecycle.retrying || owner_retrying),
+            pending: owner_pending
+                .saturating_add(unpublished_pending)
+                .max(usize::from(lifecycle.pending)),
+            retrying: !degraded
+                && (lifecycle.retrying || owner_retrying || unpublished_pending != 0),
             degraded,
         }
     }
@@ -8555,6 +8568,9 @@ impl Mux {
         if !self.wait_for_terminal_adoption_workers_until(deadline) {
             anyhow::bail!("terminal adoption did not stop before the shutdown deadline");
         }
+        #[cfg(unix)]
+        crate::process_session::wait_for_unpublished_child_reaper_until(deadline)
+            .context("drain unpublished child reaper ownership for server shutdown")?;
 
         #[cfg(unix)]
         let terminal_host_records = {
@@ -24723,6 +24739,10 @@ mod tests {
 
         let mux = test_mux();
         let reservation = crate::process_session::reserve_child_reaper().unwrap();
+        assert_eq!(
+            mux.shutdown_cleanup_health(),
+            ShutdownCleanupHealth { pending: 1, retrying: true, degraded: false }
+        );
         let error = mux
             .close_all_surfaces_for_shutdown_until(Instant::now() + Duration::from_millis(50))
             .unwrap_err();

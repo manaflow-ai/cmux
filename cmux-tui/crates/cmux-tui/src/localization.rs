@@ -714,7 +714,7 @@ static ENGLISH: Catalog = Catalog {
         #[cfg(unix)]
         legacy_signal_failed: "The verified older server process could not be stopped.",
         shutdown_failed: "the server could not stop cleanly",
-        shutdown_cleanup_incomplete: "the server could not finish pane cleanup before the shutdown deadline",
+        shutdown_cleanup_incomplete: "the server could not finish cleanup before the shutdown deadline",
         shutdown_unsupported: "this server cannot be stopped by this client",
         process_cleanup_unsupported: "this system does not support safe terminal process cleanup",
         shutdown_timed_out: "the server did not stop within 10 seconds",
@@ -1035,7 +1035,7 @@ static JAPANESE: Catalog = Catalog {
         #[cfg(unix)]
         legacy_signal_failed: "検証済みの古いサーバープロセスを停止できませんでした。",
         shutdown_failed: "サーバーを正常に停止できませんでした",
-        shutdown_cleanup_incomplete: "シャットダウン期限までにペインのクリーンアップを完了できませんでした",
+        shutdown_cleanup_incomplete: "シャットダウン期限までにクリーンアップを完了できませんでした",
         shutdown_unsupported: "このクライアントからこのサーバーを停止できません",
         process_cleanup_unsupported: "このシステムではターミナルプロセスを安全に終了できません",
         shutdown_timed_out: "10 秒以内にサーバーが停止しませんでした",

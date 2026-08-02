@@ -4882,7 +4882,7 @@ mod unix {
             .expect("terminal-host PTY child retains its reserved session reaper");
         let mut child = Some(child);
         crate::process_session::enqueue_reserved_session_leader(
-            reaper,
+            reaper.attach_owner(),
             session,
             HOST_KILL_WAIT,
             move || {
