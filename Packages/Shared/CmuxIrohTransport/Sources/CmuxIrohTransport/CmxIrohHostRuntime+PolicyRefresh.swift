@@ -209,9 +209,12 @@ extension CmxIrohHostRuntime {
            CmxIrohBrokerBindingMetadata(binding: confirmedBinding) != localBinding {
             throw CmxIrohHostRuntimeError.invalidLocalBinding
         }
+        // Availability-only: an authenticated denial must not unlock the
+        // cached host policy, mirroring the client-side rule that auth
+        // rejections never consult offline stores. (Teardown-avoidance below
+        // still uses the wider preserve set.)
         guard allowFallback,
-              CmxIrohTrustBrokerClientError
-                .preservesVerifiedPolicyDuringRefresh(error),
+              CmxIrohTrustBrokerClientError.isAvailabilityFailure(error),
               let cached = configuration.cachedHostPolicy else {
             throw error
         }

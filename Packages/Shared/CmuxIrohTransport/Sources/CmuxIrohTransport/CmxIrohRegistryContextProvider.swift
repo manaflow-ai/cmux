@@ -720,6 +720,11 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     }
 
     private static func isConnectivity(_ error: any Error) -> Bool {
-        CmxIrohTrustBrokerClientError.preservesVerifiedPolicyDuringRefresh(error)
+        // Dial-time cached-policy fallbacks key on availability-only failures.
+        // Deliberately NOT `preservesVerifiedPolicyDuringRefresh`: that set now
+        // includes auth rejections (which preserve in-memory state during a
+        // refresh), but an authenticated denial must never unlock the cached
+        // grant store for a dial — revocation takes effect at the next dial.
+        CmxIrohTrustBrokerClientError.isAvailabilityFailure(error)
     }
 }

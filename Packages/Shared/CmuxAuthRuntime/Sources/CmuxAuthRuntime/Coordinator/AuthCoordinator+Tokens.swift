@@ -358,7 +358,59 @@ extension AuthCoordinator {
     ///   case also calls ``clearAuthState()`` so ``isAuthenticated`` flips to
     ///   `false` and the root scene routes to the sign-in page instead of
     ///   showing a stale shell.
+    /// Every caller coalesces onto one in-flight mint: Stack rotates the
+    /// refresh token on every mint, so N lanes minting concurrently invalidate
+    /// each other's in-flight requests. Single-flighting here makes rotation
+    /// happen at most once per genuine rejection instead of once per lane.
     public func forceRefreshAccessToken() async throws -> String {
+        if let inFlight = inFlightRejectionMint {
+            return try await inFlight.value
+        }
+        let mint = Task { @MainActor [weak self] () throws -> String in
+            guard let self else { throw AuthError.unauthorized }
+            return try await self.forceRefreshAccessTokenUncoalesced()
+        }
+        inFlightRejectionMint = mint
+        defer { inFlightRejectionMint = nil }
+        return try await mint.value
+    }
+
+    /// Recovers a credential pair the server just rejected as unauthorized.
+    ///
+    /// The rotation-race recovery for every Bearer+refresh boundary: a pair
+    /// that was coherent at capture can be rejected when another lane rotates
+    /// the session between capture and server-side validation. Recovery order:
+    /// 1. Re-capture. A fresh pair whose refresh token differs from the
+    ///    rejected one proves rotation already landed elsewhere — return it
+    ///    with no mint.
+    /// 2. Otherwise force-mint exactly once (coalesced with every concurrent
+    ///    rejecter via ``forceRefreshAccessToken()``) and return the
+    ///    re-captured pair.
+    /// A genuinely dead session exits through the mint's `unauthorized` state
+    /// clear, so transport layers never own sign-out decisions.
+    /// - Parameters:
+    ///   - accountID: The account the rejected request was pinned to; a
+    ///     mismatch after recovery fails closed.
+    ///   - rejectedRefreshToken: The refresh token of the rejected pair.
+    /// - Returns: A replacement snapshot for the same account.
+    public func credentialsAfterRejection(
+        accountID: String,
+        rejectedRefreshToken: String
+    ) async throws -> AuthenticatedSessionSnapshot {
+        if let current = try? await authenticatedSessionSnapshot(),
+           current.accountID == accountID,
+           current.refreshToken != rejectedRefreshToken {
+            return current
+        }
+        _ = try await forceRefreshAccessToken()
+        let refreshed = try await authenticatedSessionSnapshot()
+        guard refreshed.accountID == accountID else {
+            throw AuthError.unauthorized
+        }
+        return refreshed
+    }
+
+    private func forceRefreshAccessTokenUncoalesced() async throws -> String {
         do {
             return try await runTokenTouchingPhase(.forceRefreshAccessToken, timeout: timeouts.network) {
                 try await self.forceRefreshAccessTokenWithoutStateClear()

@@ -133,6 +133,22 @@ extension MobileHostIrohRuntime {
                         accessToken: session.accessToken,
                         refreshToken: session.refreshToken
                     )
+                },
+                recoveredCredentialPair: { [weak auth] rejected in
+                    // Rotation-race recovery through the coordinator's
+                    // single-flight rejection mint: re-capture first (no mint
+                    // when another lane already rotated), coalesced force-mint
+                    // otherwise. A dead session exits through the
+                    // coordinator's state clear, never through this layer.
+                    guard let auth,
+                          let session = try? await auth.credentialsAfterRejection(
+                              accountID: accountID,
+                              rejectedRefreshToken: rejected.refreshToken
+                          ) else { return nil }
+                    return CmxIrohBrokerCredentials(
+                        accessToken: session.accessToken,
+                        refreshToken: session.refreshToken
+                    )
                 }
             ),
             backpressureMode: .callerOwned

@@ -814,9 +814,15 @@ struct CmxIrohClientRuntimeTests {
             }
         )
         try await runtime.start()
+        // 400 is a genuinely terminal rejection. A 401 is deliberately NOT
+        // terminal anymore: at wake the pair captured coherently a moment
+        // earlier can be rejected after another lane rotates the session, and
+        // revoking the verified local policy for that race turned a
+        // seconds-long token refresh into a full endpoint rebuild (and, with
+        // the offline cache deleted, an outage until the broker succeeded).
         let terminal = CmxIrohTrustBrokerClientError.rejected(
-            statusCode: 401,
-            code: "unauthorized"
+            statusCode: 400,
+            code: "bad_request"
         )
         await broker.setRegistrationError(terminal)
 
@@ -877,6 +883,11 @@ struct CmxIrohClientRuntimeTests {
             code: "challenge_rate_limited"
         ),
         .rejected(statusCode: 503, code: "unavailable"),
+        // Auth rejections joined the preserved set: they already survived the
+        // broker client's single force-refresh retry, so they are a session
+        // transition still settling, not a trust revocation.
+        .rejected(statusCode: 401, code: "unauthorized"),
+        .rejected(statusCode: 403, code: "forbidden"),
     ])
     func foregroundAvailabilityFailureKeepsLastVerifiedPolicy(
         _ failure: CmxIrohTrustBrokerClientError
