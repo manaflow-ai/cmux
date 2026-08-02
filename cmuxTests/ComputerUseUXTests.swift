@@ -1668,26 +1668,17 @@ struct ComputerUseUXTests {
         #expect(ComputerUseRuntimeService.shouldScheduleHelperRecovery(
             desiredEnabled: true,
             acceptsNewLaunches: true,
-            daemonListening: false,
-            recoveryInFlight: false
+            profilesNeedingRecovery: [.native]
         ))
         #expect(!ComputerUseRuntimeService.shouldScheduleHelperRecovery(
             desiredEnabled: false,
             acceptsNewLaunches: true,
-            daemonListening: false,
-            recoveryInFlight: false
+            profilesNeedingRecovery: [.native]
         ))
         #expect(!ComputerUseRuntimeService.shouldScheduleHelperRecovery(
             desiredEnabled: true,
             acceptsNewLaunches: true,
-            daemonListening: true,
-            recoveryInFlight: false
-        ))
-        #expect(!ComputerUseRuntimeService.shouldScheduleHelperRecovery(
-            desiredEnabled: true,
-            acceptsNewLaunches: true,
-            daemonListening: false,
-            recoveryInFlight: true
+            profilesNeedingRecovery: []
         ))
     }
 

@@ -42,6 +42,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     private var helperTerminationObservationTask: Task<Void, Never>?
     private var helperHealthTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
+    private var recoveryGeneration = 0
     private var finalHelperCleanupTask: Task<Void, Never>?
     private var finalHelperCleanupGeneration = UUID()
     private var finalHelperCleanupState =
@@ -60,7 +61,12 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         [String: ApplicationSurfacePendingStop] = [:]
     private var runningHelperProcesses:
         [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
-    private var missedHelperHealthChecks = 0
+    private var missedHelperHealthChecks:
+        [ComputerUseDaemonProfile: Int] = [:]
+    private var pendingHelperRecoveryProfiles:
+        Set<ComputerUseDaemonProfile> = []
+    private var pendingForcedHelperRestartIdentities:
+        [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
     private var expectedTerminationProcessIdentifiers: Set<pid_t> = []
 
     private var desiredEnabled: Bool {
@@ -191,7 +197,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     func ensureStandaloneHelperInstalled() async -> URL? {
         await serializeHelperLifecycle(cancelledResult: nil as URL?) { [weak self] in
             guard let self else { return nil }
-            return await self.ensureStandaloneHelperInstalledWithinLifecycle()
+            return await self.ensureStandaloneHelperInstalledWithinLifecycle()?.url
         }
     }
 
@@ -251,7 +257,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         guard desiredEnabled else {
             return await refreshHelperStatus()
         }
-        missedHelperHealthChecks = 0
+        missedHelperHealthChecks.removeAll()
         let recovery = scheduleHelperRecovery()
         await recovery?.value
         guard
@@ -876,48 +882,16 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         expectedPeerIdentity: AgentPIDProcessIdentity
     ) -> Bool {
         guard
-            recoveryTask == nil,
             desiredEnabled,
             acceptsNewLaunches,
             processIdentity(for: .native) == expectedPeerIdentity
         else {
             return false
         }
-        recoveryTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.serializeHelperLifecycle(cancelledResult: ()) {
-                guard self.processIdentity(for: .native)
-                    == expectedPeerIdentity
-                else {
-                    self.clearPendingApplicationSurfaceStops(
-                        for: expectedPeerIdentity
-                    )
-                    return
-                }
-                guard
-                    !Task.isCancelled,
-                    self.acceptsNewLaunches
-                else {
-                    return
-                }
-                cmuxDebugLog(
-                    "applicationSurface.stop.restartHelper"
-                        + " pid=\(expectedPeerIdentity.pid)"
-                )
-                guard await self.stopDaemon() else { return }
-                self.clearApplicationSurfaceSessionsAfterHelperExit()
-                guard
-                    !Task.isCancelled,
-                    self.desiredEnabled,
-                    self.acceptsNewLaunches
-                else {
-                    return
-                }
-                await self.startIfNeededWithinLifecycle()
-            }
-            self.recoveryTask = nil
-        }
-        return true
+        return scheduleHelperRecovery(
+            profiles: [.native],
+            forcedRestartIdentities: [.native: expectedPeerIdentity]
+        ) != nil
     }
 
     private func clearPendingApplicationSurfaceStops(
@@ -1323,9 +1297,12 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         guard !desiredEnabled else { return }
         helperHealthTask?.cancel()
         helperHealthTask = nil
-        missedHelperHealthChecks = 0
+        missedHelperHealthChecks.removeAll()
+        recoveryGeneration &+= 1
         recoveryTask?.cancel()
         recoveryTask = nil
+        pendingHelperRecoveryProfiles.removeAll()
+        pendingForcedHelperRestartIdentities.removeAll()
         let helperStopped = await serializeHelperLifecycle(cancelledResult: false) { [weak self] in
             guard let self, !self.desiredEnabled else { return false }
             return await self.stopDaemon()
@@ -1470,7 +1447,9 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     /// onboarding rather than surprising the user mid-session.
     var helperBuildReplacedHandler: (@MainActor () -> Void)?
 
-    private func ensureStandaloneHelperInstalledWithinLifecycle() async -> URL? {
+    private func ensureStandaloneHelperInstalledWithinLifecycle() async
+        -> (url: URL, invalidatedAllProfiles: Bool)?
+    {
         guard acceptsNewLaunches, !Task.isCancelled, prepareRuntimeForLaunch() else { return nil }
         guard let bundledHelperAppURL else { return nil }
         let destination = paths.installedHelperAppURL
@@ -1485,10 +1464,11 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         guard acceptsNewLaunches, !Task.isCancelled else { return nil }
         if isCurrent {
             installedHelperURL = destination
-            return destination
+            return (destination, false)
         }
 
         guard await stopDaemon(), acceptsNewLaunches, !Task.isCancelled else { return nil }
+        clearApplicationSurfaceSessionsAfterHelperExit()
         let replacesExistingHelper = FileManager.default.fileExists(
             atPath: destination.path
         )
@@ -1506,75 +1486,200 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             installationTask.cancel()
         }
         guard acceptsNewLaunches, !Task.isCancelled else { return nil }
+        guard let result else { return nil }
         installedHelperURL = result
-        if result != nil, replacesExistingHelper {
+        if replacesExistingHelper {
             permissionPhase = permissionPhase.applying(.helperReplaced)
             cancelReadinessPublication()
             helperBuildReplacedHandler?()
         }
-        return result
+        return (result, true)
     }
 
-    private func startIfNeededWithinLifecycle() async {
+    private func startIfNeededWithinLifecycle(
+        profiles: Set<ComputerUseDaemonProfile> = Set(
+            ComputerUseDaemonProfile.allCases
+        ),
+        forcedRestartIdentities:
+            [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
+    ) async {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
-        guard let helperURL = await ensureStandaloneHelperInstalledWithinLifecycle() else { return }
+        guard let installation = await ensureStandaloneHelperInstalledWithinLifecycle() else { return }
         guard acceptsNewLaunches, !Task.isCancelled else { return }
-        let nativeListening = await Self.isDaemonListening(
-            paths: paths,
-            transport: transport,
-            socketURL: paths.daemonSocketURL
-        )
-        let nativeReady: Bool
-        if nativeListening {
-            nativeReady = await configureHostAuthority(for: .native)
-        } else {
-            nativeReady = false
-        }
-        let codexListening = await Self.isDaemonListening(
-            paths: paths,
-            transport: transport,
-            socketURL: paths.codexDaemonSocketURL
-        )
-        let codexReady: Bool
-        if codexListening {
-            codexReady = await configureHostAuthority(
-                for: .codexCompatibility
+        let profilesToEnsure = installation.invalidatedAllProfiles
+            ? Set(ComputerUseDaemonProfile.allCases)
+            : profiles
+        for profile in ComputerUseDaemonProfile.allCases where
+            profilesToEnsure.contains(profile)
+        {
+            await ensureHelperProfileRunningWithinLifecycle(
+                profile,
+                helperURL: installation.url,
+                forcedRestartIdentity: forcedRestartIdentities[profile]
             )
-        } else {
-            codexReady = false
         }
-        if nativeReady, codexReady { return }
+    }
+
+    private func ensureHelperProfileRunningWithinLifecycle(
+        _ profile: ComputerUseDaemonProfile,
+        helperURL: URL,
+        forcedRestartIdentity: AgentPIDProcessIdentity?
+    ) async {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
-        // A failed probe does not prove that an older helper exited. Stop and
-        // verify the exact installed helper before launching a replacement, or a
-        // wedged process can retain TCC privileges beside the new daemon.
-        guard await stopDaemon(), acceptsNewLaunches, !Task.isCancelled else { return }
-        for profile in ComputerUseDaemonProfile.allCases {
-            guard await launchHelper(at: helperURL, profile: profile) else {
-                _ = await stopDaemon()
+        let trackedIdentity = processIdentity(for: profile)
+        let forcesTrackedGeneration = forcedRestartIdentity.map {
+            trackedIdentity == $0
+        } ?? false
+        if let forcedRestartIdentity,
+           !forcesTrackedGeneration,
+           profile == .native {
+            clearPendingApplicationSurfaceStops(for: forcedRestartIdentity)
+        }
+        if !forcesTrackedGeneration {
+            let listening = await Self.isDaemonListening(
+                paths: paths,
+                transport: transport,
+                socketURL: socketURL(for: profile)
+            )
+            if listening, await configureHostAuthority(for: profile) {
                 return
             }
-            guard acceptsNewLaunches, !Task.isCancelled else {
-                _ = await stopDaemon()
-                return
+        } else if let forcedRestartIdentity {
+            cmuxDebugLog(
+                "applicationSurface.stop.restartHelper"
+                    + " pid=\(forcedRestartIdentity.pid)"
+            )
+        }
+
+        // A failed probe does not prove that an older helper exited. Stop the
+        // exact profile generation before replacing it so one wedged protocol
+        // surface cannot retain authority or disrupt its healthy sibling.
+        guard await stopDaemon(profile: profile) else { return }
+        if Self.helperTerminationInvalidatesApplicationSurfaces(
+            profile: profile
+        ) {
+            clearApplicationSurfaceSessionsAfterHelperExit()
+        }
+        guard acceptsNewLaunches, !Task.isCancelled else { return }
+        guard await launchHelper(at: helperURL, profile: profile) else { return }
+        guard acceptsNewLaunches, !Task.isCancelled else {
+            _ = await stopDaemon(profile: profile)
+            return
+        }
+        let socketURL = socketURL(for: profile)
+        let readiness = daemonReadiness(for: profile, timeout: .seconds(5))
+        guard await readiness.waitUntilReady({
+            await Self.isDaemonListening(
+                paths: self.paths,
+                transport: self.transport,
+                socketURL: socketURL
+            )
+        }) else {
+            _ = await stopDaemon(profile: profile)
+            return
+        }
+        guard await configureHostAuthority(for: profile) else {
+            _ = await stopDaemon(profile: profile)
+            return
+        }
+    }
+
+    private func stopDaemon(profile: ComputerUseDaemonProfile) async -> Bool {
+        let helperURL = installedHelperURL ?? paths.installedHelperAppURL
+        let socketURL = socketURL(for: profile)
+        let trackedIdentity = processIdentity(for: profile).flatMap {
+            AgentPIDProcessIdentity(pid: $0.pid) == $0 ? $0 : nil
+        }
+        let peerIdentity = await Self.daemonPeerIdentity(
+            paths: paths,
+            transport: transport,
+            socketURL: socketURL
+        )
+        let daemonListening: Bool
+        if peerIdentity != nil {
+            daemonListening = true
+        } else {
+            daemonListening = await Self.isDaemonListening(
+                paths: paths,
+                transport: transport,
+                socketURL: socketURL
+            )
+        }
+
+        // A listening socket without a kernel-authenticated peer is ambiguous.
+        // Leave it untouched instead of risking another profile or process.
+        guard !daemonListening || peerIdentity != nil else { return false }
+        // The tracked launch and the socket must identify the same process
+        // generation. A mismatch can be the sibling profile or a replacement
+        // that raced this recovery, neither of which this stop owns.
+        if let trackedIdentity, let peerIdentity,
+           trackedIdentity != peerIdentity {
+            return false
+        }
+
+        var targetIdentities: Set<AgentPIDProcessIdentity> = []
+        if let trackedIdentity {
+            targetIdentities.insert(trackedIdentity)
+        }
+        if let peerIdentity {
+            guard trackedIdentity == peerIdentity
+                || helperProcess(peerIdentity, matches: helperURL)
+            else {
+                return false
             }
-            let socketURL = socketURL(for: profile)
-            let readiness = daemonReadiness(for: profile, timeout: .seconds(5))
-            guard await readiness.waitUntilReady({
+            targetIdentities.insert(peerIdentity)
+        }
+        guard !targetIdentities.isEmpty else {
+            return await clearStoppedHelperProfileRuntime(profile)
+        }
+
+        expectedTerminationProcessIdentifiers.formUnion(
+            targetIdentities.map(\.pid)
+        )
+        if let peerIdentity {
+            _ = await Self.sendDaemonRequest(
+                ["method": "shutdown"],
+                paths: paths,
+                transport: transport,
+                timeout: 2,
+                expectedPeerIdentity: peerIdentity,
+                socketURL: socketURL
+            )
+            let readiness = daemonReadiness(
+                for: profile,
+                timeout: .seconds(3)
+            )
+            _ = await readiness.waitUntilStopped({
                 await Self.isDaemonListening(
                     paths: self.paths,
                     transport: self.transport,
                     socketURL: socketURL
                 )
-            }) else {
-                _ = await stopDaemon()
-                return
-            }
-            guard await configureHostAuthority(for: profile) else {
-                _ = await stopDaemon()
-                return
+            })
+        }
+
+        if await waitForHelperProcessIdentitiesToExit(
+            targetIdentities,
+            attempts: peerIdentity == nil ? 0 : 10
+        ) {
+            return await clearStoppedHelperProfileRuntime(profile)
+        }
+
+        var signalSucceeded = true
+        for identity in targetIdentities where
+            AgentPIDProcessIdentity(pid: identity.pid) == identity
+        {
+            if Darwin.kill(identity.pid, SIGKILL) != 0, errno != ESRCH {
+                signalSucceeded = false
             }
         }
+        guard signalSucceeded else { return false }
+        let terminated = await waitForHelperProcessIdentitiesToExit(
+            targetIdentities,
+            attempts: 20
+        )
+        guard terminated else { return false }
+        return await clearStoppedHelperProfileRuntime(profile)
     }
 
     private func stopDaemon() async -> Bool {
@@ -1906,9 +2011,12 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         helperTerminationObservationTask = nil
         helperHealthTask?.cancel()
         helperHealthTask = nil
-        missedHelperHealthChecks = 0
+        missedHelperHealthChecks.removeAll()
+        recoveryGeneration &+= 1
         recoveryTask?.cancel()
         recoveryTask = nil
+        pendingHelperRecoveryProfiles.removeAll()
+        pendingForcedHelperRestartIdentities.removeAll()
         cancelFinalHelperCleanup()
         cancelReadinessPublication()
         terminateRunningHelper(at: installedHelperURL ?? paths.installedHelperAppURL)
@@ -1982,6 +2090,23 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }
     }
 
+    private func helperProcess(
+        _ identity: AgentPIDProcessIdentity,
+        matches helperURL: URL
+    ) -> Bool {
+        guard
+            AgentPIDProcessIdentity(pid: identity.pid) == identity,
+            let application = NSRunningApplication(
+                processIdentifier: identity.pid
+            ),
+            !application.isTerminated
+        else {
+            return false
+        }
+        return application.bundleURL?.standardizedFileURL
+            == helperURL.standardizedFileURL
+    }
+
     private func trackedHelperProfile(
         for processIdentifier: pid_t
     ) -> ComputerUseDaemonProfile? {
@@ -1998,6 +2123,36 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         for profile: ComputerUseDaemonProfile
     ) {
         runningHelperProcesses.removeValue(forKey: profile)
+    }
+
+    private func clearHelperProfileRuntime(
+        _ profile: ComputerUseDaemonProfile
+    ) {
+        clearTrackedHelperProcess(for: profile)
+        missedHelperHealthChecks.removeValue(forKey: profile)
+        let socketURL = socketURL(for: profile)
+        try? FileManager.default.removeItem(at: socketURL)
+        try? FileManager.default.removeItem(
+            at: socketURL.deletingPathExtension()
+                .appendingPathExtension("pid")
+        )
+    }
+
+    private func clearStoppedHelperProfileRuntime(
+        _ profile: ComputerUseDaemonProfile
+    ) async -> Bool {
+        // A new daemon may have rebound this profile while the old exact
+        // generation exited. Preserve its socket and pid file so recovery
+        // cannot disconnect a healthy replacement that it did not launch.
+        guard !(await Self.isDaemonListening(
+            paths: paths,
+            transport: transport,
+            socketURL: socketURL(for: profile)
+        )) else {
+            return false
+        }
+        clearHelperProfileRuntime(profile)
+        return true
     }
 
     private func recordExpectedTerminationOfRunningHelper(at helperURL: URL) {
@@ -2084,6 +2239,26 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         return false
     }
 
+    private func waitForHelperProcessIdentitiesToExit(
+        _ identities: Set<AgentPIDProcessIdentity>,
+        attempts: Int
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        for attempt in 0 ... attempts {
+            let stillRunning = identities.contains {
+                AgentPIDProcessIdentity(pid: $0.pid) == $0
+            }
+            if !stillRunning { return true }
+            guard attempt < attempts, !Task.isCancelled else { return false }
+            do {
+                try await clock.sleep(for: .milliseconds(50))
+            } catch {
+                return false
+            }
+        }
+        return false
+    }
+
     private func startObservingHelperTermination() {
         helperTerminationObservationTask = Task { @MainActor [weak self] in
             for await notification in NSWorkspace.shared.notificationCenter.notifications(
@@ -2111,6 +2286,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
                 == helperURL.standardizedFileURL
         if let trackedProfile {
             clearTrackedHelperProcess(for: trackedProfile)
+            missedHelperHealthChecks.removeValue(forKey: trackedProfile)
         }
         let wasExpected = expectedTerminationProcessIdentifiers.remove(
             application.processIdentifier
@@ -2136,8 +2312,15 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         ) else {
             return
         }
-        clearApplicationSurfaceSessionsAfterHelperExit()
-        scheduleHelperRecovery()
+        if Self.helperTerminationInvalidatesApplicationSurfaces(
+            profile: trackedProfile
+        ) {
+            clearApplicationSurfaceSessionsAfterHelperExit()
+        }
+        scheduleHelperRecovery(
+            profiles: trackedProfile.map { Set([$0]) }
+                ?? Set(ComputerUseDaemonProfile.allCases)
+        )
     }
 
     private func startMonitoringHelperHealth() {
@@ -2168,44 +2351,95 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             socketURL: paths.codexDaemonSocketURL
         )
         let listeningResults = await (nativeListening, codexListening)
-        let daemonListening = listeningResults.0 && listeningResults.1
         guard !Task.isCancelled else { return }
-        if daemonListening {
-            missedHelperHealthChecks = 0
-            if let identity = processIdentity(for: .native),
-               AgentPIDProcessIdentity(pid: identity.pid) == identity {
-                await retryPendingApplicationSurfaceStops(
-                    expectedPeerIdentity: identity
-                )
+        let unavailableProfiles = Self.helperProfilesNeedingRecovery(
+            nativeListening: listeningResults.0,
+            codexCompatibilityListening: listeningResults.1
+        )
+        var profilesReadyForRecovery: Set<ComputerUseDaemonProfile> = []
+        for profile in ComputerUseDaemonProfile.allCases {
+            guard unavailableProfiles.contains(profile) else {
+                missedHelperHealthChecks.removeValue(forKey: profile)
+                continue
             }
-            return
+            let misses = missedHelperHealthChecks[profile, default: 0] + 1
+            if misses >= 2 {
+                missedHelperHealthChecks.removeValue(forKey: profile)
+                profilesReadyForRecovery.insert(profile)
+            } else {
+                missedHelperHealthChecks[profile] = misses
+            }
         }
 
-        missedHelperHealthChecks += 1
-        guard missedHelperHealthChecks >= 2 else { return }
-        missedHelperHealthChecks = 0
+        if listeningResults.0,
+           let identity = processIdentity(for: .native),
+           AgentPIDProcessIdentity(pid: identity.pid) == identity {
+            await retryPendingApplicationSurfaceStops(
+                expectedPeerIdentity: identity
+            )
+        }
         guard Self.shouldScheduleHelperRecovery(
             desiredEnabled: desiredEnabled,
             acceptsNewLaunches: acceptsNewLaunches,
-            daemonListening: daemonListening,
-            recoveryInFlight: recoveryTask != nil
+            profilesNeedingRecovery: profilesReadyForRecovery
         ) else {
             return
         }
-        clearApplicationSurfaceSessionsAfterHelperExit()
-        scheduleHelperRecovery()
+        scheduleHelperRecovery(profiles: profilesReadyForRecovery)
     }
 
     @discardableResult
-    private func scheduleHelperRecovery() -> Task<Void, Never>? {
-        guard desiredEnabled, acceptsNewLaunches else { return nil }
+    private func scheduleHelperRecovery(
+        profiles: Set<ComputerUseDaemonProfile> = Set(
+            ComputerUseDaemonProfile.allCases
+        ),
+        forcedRestartIdentities:
+            [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
+    ) -> Task<Void, Never>? {
+        guard desiredEnabled, acceptsNewLaunches, !profiles.isEmpty else {
+            return nil
+        }
+        pendingHelperRecoveryProfiles.formUnion(profiles)
+        for (profile, identity) in forcedRestartIdentities where
+            profiles.contains(profile)
+        {
+            pendingForcedHelperRestartIdentities[profile] = identity
+        }
         if let recoveryTask {
             return recoveryTask
         }
+        recoveryGeneration &+= 1
+        let generation = recoveryGeneration
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.startIfNeeded()
-            self.recoveryTask = nil
+            while
+                !Task.isCancelled,
+                self.desiredEnabled,
+                self.acceptsNewLaunches,
+                !self.pendingHelperRecoveryProfiles.isEmpty
+            {
+                let profiles = self.pendingHelperRecoveryProfiles
+                self.pendingHelperRecoveryProfiles.removeAll()
+                var forcedRestartIdentities:
+                    [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
+                for profile in profiles {
+                    if let identity = self
+                        .pendingForcedHelperRestartIdentities
+                        .removeValue(forKey: profile)
+                    {
+                        forcedRestartIdentities[profile] = identity
+                    }
+                }
+                await self.serializeHelperLifecycle(cancelledResult: ()) {
+                    await self.startIfNeededWithinLifecycle(
+                        profiles: profiles,
+                        forcedRestartIdentities: forcedRestartIdentities
+                    )
+                }
+            }
+            if self.recoveryGeneration == generation {
+                self.recoveryTask = nil
+            }
         }
         recoveryTask = task
         return task
@@ -2234,13 +2468,31 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     nonisolated static func shouldScheduleHelperRecovery(
         desiredEnabled: Bool,
         acceptsNewLaunches: Bool,
-        daemonListening: Bool,
-        recoveryInFlight: Bool
+        profilesNeedingRecovery: Set<ComputerUseDaemonProfile>
     ) -> Bool {
         desiredEnabled
             && acceptsNewLaunches
-            && !daemonListening
-            && !recoveryInFlight
+            && !profilesNeedingRecovery.isEmpty
+    }
+
+    nonisolated static func helperProfilesNeedingRecovery(
+        nativeListening: Bool,
+        codexCompatibilityListening: Bool
+    ) -> Set<ComputerUseDaemonProfile> {
+        var profiles: Set<ComputerUseDaemonProfile> = []
+        if !nativeListening {
+            profiles.insert(.native)
+        }
+        if !codexCompatibilityListening {
+            profiles.insert(.codexCompatibility)
+        }
+        return profiles
+    }
+
+    nonisolated static func helperTerminationInvalidatesApplicationSurfaces(
+        profile: ComputerUseDaemonProfile?
+    ) -> Bool {
+        profile == .native
     }
 
     nonisolated private static func ensurePrivateDirectory(_ directoryURL: URL) -> Bool {
@@ -2461,6 +2713,54 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             timeout: 1,
             socketURL: socketURL
         )?["ok"] as? Bool == true
+    }
+
+    nonisolated private static func daemonPeerIdentity(
+        paths: ComputerUseRuntimePaths,
+        transport: SocketTransport,
+        socketURL: URL
+    ) async -> AgentPIDProcessIdentity? {
+        let requestTask = Task.detached(priority: .userInitiated) {
+            let authenticatedRequest: [String: Any] = [
+                "auth_token": paths.authenticationToken,
+                "request": ["method": "list"],
+            ]
+            guard
+                JSONSerialization.isValidJSONObject(authenticatedRequest),
+                let data = try? JSONSerialization.data(
+                    withJSONObject: authenticatedRequest
+                ),
+                let line = String(data: data, encoding: .utf8)
+            else {
+                return nil as AgentPIDProcessIdentity?
+            }
+            let connection = PersistentSocketLineConnection(
+                transport: transport
+            )
+            let probe = await connection.command(
+                line,
+                at: socketURL.path,
+                timeout: 1
+            )
+            await connection.invalidate()
+            guard
+                let probe,
+                let peerProcessID = probe.peerProcessID,
+                let responseData = probe.response.data(using: .utf8),
+                let response = try? JSONSerialization.jsonObject(
+                    with: responseData
+                ) as? [String: Any],
+                response["ok"] as? Bool == true
+            else {
+                return nil
+            }
+            return AgentPIDProcessIdentity(pid: peerProcessID)
+        }
+        return await withTaskCancellationHandler {
+            await requestTask.value
+        } onCancel: {
+            requestTask.cancel()
+        }
     }
 
     nonisolated private static func queryPermissionStatus(
