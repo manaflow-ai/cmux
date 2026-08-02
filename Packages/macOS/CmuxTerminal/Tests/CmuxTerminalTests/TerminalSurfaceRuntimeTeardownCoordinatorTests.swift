@@ -330,6 +330,37 @@ private func requireTeardownTicket(
         admission.release(secondOwner)
     }
 
+    @MainActor
+    @Test func recoveryGrantsOnlyOneWaiterAtATime() async {
+        let admission = TerminalSurfaceRuntimeOwnershipAdmission(
+            maximumOwnerCount: 4
+        )
+        admission.setCloseTeardownDegraded(true)
+        var recoveredCount = 0
+
+        for _ in 0..<3 {
+            let reservation = admission.reserve(
+                recoveryID: UUID(),
+                onRecovery: { reservation in
+                    recoveredCount += 1
+                    admission.release(reservation)
+                }
+            )
+            #expect(reservation == nil)
+        }
+
+        admission.setCloseTeardownDegraded(false)
+        #expect(
+            admission.debugOwnerCount == 1,
+            "admission reserved every available recovery slot before the main actor ran"
+        )
+        for _ in 0..<100 where recoveredCount < 3 {
+            await Task.yield()
+        }
+        #expect(recoveredCount == 3)
+        #expect(admission.debugOwnerCount == 0)
+    }
+
     @Test func stuckHibernationFreeDoesNotStrandAnotherAdmissionOrClose() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let isolatedSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)

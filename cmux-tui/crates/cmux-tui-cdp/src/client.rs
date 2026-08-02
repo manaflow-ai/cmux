@@ -4538,6 +4538,41 @@ mod tests {
     }
 
     #[test]
+    fn resolver_reaper_retains_capacity_after_inconclusive_wait_error() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        resolver_child_reaper().unwrap();
+        let active = {
+            let slot = CDP_RESOLVER_CHILD_REAPER.get().unwrap().lock().unwrap();
+            slot.as_ref().unwrap().active.clone()
+        };
+        let baseline = active.load(Ordering::Acquire);
+        let lease = reserve_resolver_child_reaper().unwrap();
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "sleep 30"]);
+        let child = cmux_tui_process::spawn(&mut command).unwrap();
+
+        TEST_RESOLVER_REAPER_WAIT_CALLS.store(0, Ordering::Release);
+        *TEST_RESOLVER_REAPER_WAIT_ERROR.lock().unwrap() =
+            Some(std::io::ErrorKind::PermissionDenied);
+        handoff_resolver_child(child, lease);
+        let observation_deadline = Instant::now() + Duration::from_millis(250);
+        while TEST_RESOLVER_REAPER_WAIT_CALLS.load(Ordering::Acquire) == 0
+            && Instant::now() < observation_deadline
+        {
+            thread::sleep(Duration::from_millis(2));
+        }
+        let retained = active.load(Ordering::Acquire) == baseline + 1;
+        *TEST_RESOLVER_REAPER_WAIT_ERROR.lock().unwrap() = None;
+
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while active.load(Ordering::Acquire) != baseline && Instant::now() < cleanup_deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(active.load(Ordering::Acquire), baseline);
+        assert!(retained, "inconclusive child wait error discarded resolver ownership");
+    }
+
+    #[test]
     fn timed_out_host_lookups_do_not_strand_resolver_capacity() {
         let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
         warm_resolver();

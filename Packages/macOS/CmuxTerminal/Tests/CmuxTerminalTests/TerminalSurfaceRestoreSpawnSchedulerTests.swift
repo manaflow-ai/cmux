@@ -265,6 +265,96 @@ import CmuxTerminalCore
         }
     }
 
+    @Test func restoredCreationReentersPacingAfterAdmissionRecovers() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            closeTeardownTimeout: .milliseconds(50),
+            maximumRuntimeSurfaceOwnerCount: 4
+        )
+        let retainedSurfaces = (0..<2).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        defer {
+            for retainedSurface in retainedSurfaces {
+                retainedSurface.deallocate()
+            }
+        }
+        let freeStarted = AsyncStream<Void>.makeStream()
+        let releaseFrees = DispatchSemaphore(value: 0)
+        defer {
+            releaseFrees.signal()
+            releaseFrees.signal()
+            freeStarted.continuation.finish()
+        }
+
+        let tickets = try retainedSurfaces.enumerated().map {
+            index,
+            retainedSurface in
+            let ticket = coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.pacedCreationRetry.\(index)",
+                surface: retainedSurface,
+                callbackContext: nil,
+                freeSurface: { _ in
+                    freeStarted.continuation.yield()
+                    releaseFrees.wait()
+                }
+            )
+            return try #require(ticket)
+        }
+        var freeStartedIterator = freeStarted.stream.makeAsyncIterator()
+        _ = await freeStartedIterator.next()
+        _ = await freeStartedIterator.next()
+
+        let degradationDeadline = ContinuousClock.now + .seconds(1)
+        while await !coordinator.debugCloseTeardownDegraded,
+              ContinuousClock.now < degradationDeadline {
+            await Task.yield()
+        }
+        #expect(await coordinator.debugCloseTeardownDegraded)
+
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = makeSurface(
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost,
+            runtimeTeardown: coordinator
+        )
+        surface.scheduleHeadlessRuntimeStartIfNeeded(
+            reason: "test-admission-recovery-pacing"
+        )
+        defer { surface.closeHeadlessStartupWindowIfNeeded() }
+        surface.attachedView = nativeView
+        surface.claudeCommandShimInstallCompleted = true
+
+        surface.createSurface(for: nativeView)
+        #expect(scheduler.scheduledSurfaceIds == [surface.id])
+        scheduler.runScheduledOperation()
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
+
+        releaseFrees.signal()
+        let recoveryDeadline = ContinuousClock.now + .seconds(1)
+        while scheduler.scheduledSurfaceIds.count < 2,
+              surface.debugRuntimeSurfaceCreateAttemptCountForTesting() < 2,
+              ContinuousClock.now < recoveryDeadline {
+            await Task.yield()
+        }
+
+        #expect(scheduler.scheduledSurfaceIds == [surface.id, surface.id])
+        #expect(
+            surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1,
+            "admission recovery bypassed restored-surface spawn pacing"
+        )
+        releaseFrees.signal()
+        for ticket in tickets {
+            #expect(await ticket.wait(timeout: .seconds(1)))
+        }
+    }
+
     @Test func configurationReloadDefersAndPromotesRuntimeCreation() {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
