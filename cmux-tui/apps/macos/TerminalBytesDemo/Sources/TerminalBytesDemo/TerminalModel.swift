@@ -44,16 +44,6 @@ struct GeometryDeliveryState {
     }
 }
 
-private struct TerminalDiagnosticsEnvelope: Decodable {
-    let status: String
-}
-
-private func terminalDidExit(_ diagnostics: String) -> Bool {
-    guard let data = diagnostics.data(using: .utf8) else { return false }
-    return (try? JSONDecoder().decode(TerminalDiagnosticsEnvelope.self, from: data).status)
-        == "exited"
-}
-
 struct ConnectedHandle: Sendable {
     let rawAddress: UInt?
     let error: String
@@ -87,6 +77,7 @@ private let defaultTerminalConnector: TerminalConnector = { invitation, terminal
 struct TerminalClientSnapshot: Equatable, Sendable {
     let frame: String
     let diagnostics: String
+    let didExit: Bool
 }
 
 struct TerminalClientUpdates: Sendable {
@@ -163,6 +154,7 @@ actor TerminalClientHandle {
             UnsafeMutablePointer<CChar>?,
             Int
         ) -> Int
+    private let hasExitedClient: @Sendable (OpaquePointer) -> Bool
 
     init(
         rawAddress: UInt,
@@ -231,7 +223,10 @@ actor TerminalClientHandle {
                 Int
             ) -> Int = {
                 cmux_terminal_client_copy_diagnostics($0, $1, $2)
-            }
+            },
+        hasExitedClient: @escaping @Sendable (OpaquePointer) -> Bool = {
+            cmux_terminal_client_has_exited($0)
+        }
     ) {
         self.raw = OpaquePointer(bitPattern: rawAddress)
         self.attachClient = attachClient
@@ -244,6 +239,7 @@ actor TerminalClientHandle {
         self.resizeClient = resizeClient
         self.copyFrameClient = copyFrameClient
         self.copyDiagnosticsClient = copyDiagnosticsClient
+        self.hasExitedClient = hasExitedClient
     }
 
     func disconnect() {
@@ -273,14 +269,20 @@ actor TerminalClientHandle {
     }
 
     func submit(_ input: TerminalInput) -> Bool {
+        guard let prepared = PreparedTerminalInput(input, maximumBytes: Int.max) else {
+            return false
+        }
+        return submitPrepared(prepared)
+    }
+
+    fileprivate func submitPrepared(_ input: PreparedTerminalInput) -> Bool {
         guard let raw, isAttached else { return false }
         switch input {
         case .bytes(let bytes):
             return bytes.withUnsafeBytes { bytes in
                 sendClient(raw, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
             }
-        case .paste(let text):
-            guard let bytes = text.data(using: .utf8) else { return false }
+        case .paste(let bytes):
             return bytes.withUnsafeBytes { bytes in
                 pasteClient(raw, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
             }
@@ -329,11 +331,15 @@ actor TerminalClientHandle {
     }
 
     func snapshot() -> TerminalClientSnapshot? {
-        guard raw != nil, isAttached,
+        guard let raw, isAttached,
             let frame = copyString(using: copyFrameClient),
             let diagnostics = copyString(using: copyDiagnosticsClient)
         else { return nil }
-        return TerminalClientSnapshot(frame: frame, diagnostics: diagnostics)
+        return TerminalClientSnapshot(
+            frame: frame,
+            diagnostics: diagnostics,
+            didExit: hasExitedClient(raw)
+        )
     }
 
     private func copyString(
@@ -405,42 +411,92 @@ func copyGrowingCString(
     }
 }
 
+let terminalInputMaximumPayloadBytes = 1_048_576
+let terminalInputQueueByteCapacity = 4_194_304
+
+fileprivate enum PreparedTerminalInput: Sendable {
+    case bytes(Data)
+    case paste(Data)
+    case key(chord: String, repeat: Bool)
+
+    init?(_ input: TerminalInput, maximumBytes: Int) {
+        switch input {
+        case .bytes(let bytes):
+            guard bytes.count <= maximumBytes else { return nil }
+            self = .bytes(bytes)
+        case .paste(let text):
+            guard boundedUTF8Count(text, maximumBytes: maximumBytes) != nil else { return nil }
+            self = .paste(Data(text.utf8))
+        case .key(let chord, let isRepeat):
+            guard boundedUTF8Count(chord, maximumBytes: maximumBytes) != nil else { return nil }
+            self = .key(chord: chord, repeat: isRepeat)
+        }
+    }
+
+    var byteCount: Int {
+        switch self {
+        case .bytes(let bytes), .paste(let bytes):
+            bytes.count
+        case .key(let chord, _):
+            chord.utf8.count
+        }
+    }
+}
+
+private func boundedUTF8Count(_ text: String, maximumBytes: Int) -> Int? {
+    guard maximumBytes >= 0 else { return nil }
+    if maximumBytes == Int.max {
+        return text.utf8.count
+    }
+    let count = text.utf8.prefix(maximumBytes + 1).count
+    return count <= maximumBytes ? count : nil
+}
+
 private struct QueuedTerminalInput: Sendable {
-    let input: TerminalInput
+    let input: PreparedTerminalInput
     let client: TerminalClientHandle
     let connectionOperation: UInt64
 }
 
 private struct BoundedFIFO<Element> {
-    private var storage: [Element?]
+    private var storage: [(element: Element, byteCount: Int)?]
+    private let byteCapacity: Int
     private var head = 0
     private(set) var count = 0
+    private(set) var byteCount = 0
 
-    init(capacity: Int) {
-        precondition(capacity > 0)
-        storage = [Element?](repeating: nil, count: capacity)
+    init(capacity: Int, byteCapacity: Int) {
+        precondition(capacity > 0 && byteCapacity > 0)
+        storage = [(element: Element, byteCount: Int)?](repeating: nil, count: capacity)
+        self.byteCapacity = byteCapacity
     }
 
-    mutating func append(_ element: Element) -> Bool {
-        guard count < storage.count else { return false }
-        storage[(head + count) % storage.count] = element
+    mutating func append(_ element: Element, byteCount: Int) -> Bool {
+        guard count < storage.count,
+            byteCount >= 0,
+            byteCount <= byteCapacity,
+            self.byteCount <= byteCapacity - byteCount
+        else { return false }
+        storage[(head + count) % storage.count] = (element, byteCount)
         count += 1
+        self.byteCount += byteCount
         return true
     }
 
     mutating func popFirst() -> Element? {
-        guard count > 0 else { return nil }
-        let element = storage[head]
+        guard count > 0, let entry = storage[head] else { return nil }
         storage[head] = nil
         head = (head + 1) % storage.count
         count -= 1
-        return element
+        byteCount -= entry.byteCount
+        return entry.element
     }
 
     mutating func removeAll() {
-        storage = [Element?](repeating: nil, count: storage.count)
+        storage = [(element: Element, byteCount: Int)?](repeating: nil, count: storage.count)
         head = 0
         count = 0
+        byteCount = 0
     }
 }
 
@@ -458,7 +514,10 @@ final class TerminalModel {
     @ObservationIgnored private var client: TerminalClientHandle?
     @ObservationIgnored private var updateTask: Task<Void, Never>?
     @ObservationIgnored private var inputTask: Task<Void, Never>?
-    @ObservationIgnored private var inputQueue = BoundedFIFO<QueuedTerminalInput>(capacity: 256)
+    @ObservationIgnored private var inputQueue = BoundedFIFO<QueuedTerminalInput>(
+        capacity: 256,
+        byteCapacity: terminalInputQueueByteCapacity
+    )
     @ObservationIgnored private let inputWakeStream: AsyncStream<Void>
     @ObservationIgnored private let inputWakeContinuation: AsyncStream<Void>.Continuation
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
@@ -632,12 +691,22 @@ final class TerminalModel {
 
     func submit(_ input: TerminalInput) {
         guard isConnected, let client else { return }
+        guard let prepared = PreparedTerminalInput(
+            input,
+            maximumBytes: terminalInputMaximumPayloadBytes
+        ) else {
+            errorMessage = L10n.text(
+                "error.input.too_large",
+                "Terminal input exceeds the 1 MiB limit."
+            )
+            return
+        }
         let queued = QueuedTerminalInput(
-            input: input,
+            input: prepared,
             client: client,
             connectionOperation: connectionOperation
         )
-        guard inputQueue.append(queued) else {
+        guard inputQueue.append(queued, byteCount: prepared.byteCount) else {
             errorMessage = L10n.text(
                 "error.input.backpressure",
                 "Terminal input is arriving faster than it can be sent. Wait and try again."
@@ -668,6 +737,10 @@ final class TerminalModel {
             "error.input.backpressure",
             "Terminal input is arriving faster than it can be sent. Wait and try again."
         )
+        let tooLarge = L10n.text(
+            "error.input.too_large",
+            "Terminal input exceeds the 1 MiB limit."
+        )
         while !Task.isCancelled, let queued = inputQueue.popFirst() {
             guard queued.connectionOperation == connectionOperation,
                 queued.client === client,
@@ -676,7 +749,7 @@ final class TerminalModel {
             else {
                 continue
             }
-            let accepted = await queued.client.submit(queued.input)
+            let accepted = await queued.client.submitPrepared(queued.input)
             guard queued.connectionOperation == connectionOperation,
                 isConnected,
                 !isShuttingDown
@@ -684,7 +757,9 @@ final class TerminalModel {
                 continue
             }
             if accepted {
-                if errorMessage == rejected || errorMessage == backpressure {
+                if errorMessage == rejected || errorMessage == backpressure
+                    || errorMessage == tooLarge
+                {
                     errorMessage = ""
                 }
             } else {
@@ -809,7 +884,7 @@ final class TerminalModel {
         if diagnostics != snapshot.diagnostics {
             diagnostics = snapshot.diagnostics
         }
-        if terminalDidExit(snapshot.diagnostics) {
+        if snapshot.didExit {
             closeExitedAttachment(client)
         }
     }

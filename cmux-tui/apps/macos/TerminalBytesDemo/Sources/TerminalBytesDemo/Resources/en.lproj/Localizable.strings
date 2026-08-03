@@ -9,6 +9,7 @@
 "error.client.closed" = "The terminal client is closed.";
 "error.input.rejected" = "Terminal input was not queued. Reconnect and try again.";
 "error.input.backpressure" = "Terminal input is arriving faster than it can be sent. Wait and try again.";
+"error.input.too_large" = "Terminal input exceeds the 1 MiB limit.";
 "error.connect.timeout" = "Connection timed out. Check the invitation and try again.";
 "error.resize.rejected" = "Terminal resize is pending. Resize the window or reconnect to retry.";
 "diagnostics.title" = "Diagnostics";

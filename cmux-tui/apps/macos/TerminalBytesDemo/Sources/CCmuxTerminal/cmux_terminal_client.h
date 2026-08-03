@@ -42,6 +42,7 @@ size_t cmux_terminal_client_copy_frame(
     const CmuxTerminalClient *client, char *buffer, size_t capacity);
 size_t cmux_terminal_client_copy_diagnostics(
     const CmuxTerminalClient *client, char *buffer, size_t capacity);
+bool cmux_terminal_client_has_exited(const CmuxTerminalClient *client);
 
 #ifdef __cplusplus
 }

@@ -643,7 +643,8 @@ struct TerminalBytesLogicTests {
             },
             copyDiagnosticsClient: { _, buffer, capacity in
                 copyTestCString(liveDiagnostics, buffer: buffer, capacity: capacity)
-            }
+            },
+            hasExitedClient: { _ in false }
         )
         let model = TerminalModel(
             configuration: DemoLaunchConfiguration(

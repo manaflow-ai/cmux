@@ -1227,6 +1227,21 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_diagnostics(
     copy_utf8(&client.state.lock().unwrap().diagnostics(), buffer, capacity)
 }
 
+/// Returns whether the attached PTY has exited.
+///
+/// # Safety
+///
+/// `client` may be null. A non-null value must be a live handle returned by
+/// [`cmux_terminal_client_connect`], and it must not be disconnected during
+/// this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_has_exited(
+    client: *const CmuxTerminalClient,
+) -> bool {
+    let Some(client) = (unsafe { client.as_ref() }) else { return false };
+    client.state.lock().unwrap().status == "exited"
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::c_void;
