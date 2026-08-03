@@ -139,7 +139,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         // Legacy parity: no implicit layer actions on content/color changes.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
+        defer {
+            CATransaction.commit()
+#if DEBUG
+            logTitlePaintProbe(model, site: "applyModel")
+#endif
+        }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let percent = model.globalFontMagnificationPercent
 
@@ -243,6 +248,36 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     }
 
 #if DEBUG
+    /// Ground truth for the disappearing-title investigation on MAIN: records
+    /// what the title would actually draw as, resolved through the cell's own
+    /// appearance, plus whether a dark drawing appearance was ambient at the
+    /// moment the (appearance-snapshotting) color assignment ran.
+    private func logTitlePaintProbe(_ model: SidebarGroupHeaderRowModel, site: String) {
+        var brightness: CGFloat = -1
+        var colorAlpha: CGFloat = -1
+        if let color = nameField.textColor {
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                if let rgb = color.usingColorSpace(.sRGB) {
+                    brightness = rgb.brightnessComponent
+                    colorAlpha = rgb.alphaComponent
+                }
+            }
+        }
+        let activeFlag: Int = model.isAnchorActive ? 1 : 0
+        let ambientProbe = NSColor.labelColor.usingColorSpace(.sRGB)?.brightnessComponent ?? -1
+        let effectiveName: String = effectiveAppearance.name.rawValue
+        let ambientText = String(format: "%.2f", ambientProbe)
+        let brightnessText = String(format: "%.2f", brightness)
+        let colorAlphaText = String(format: "%.2f", colorAlpha)
+        let fieldAlphaText = String(format: "%.2f", nameField.alphaValue)
+        let frameWidth = Int(nameField.frame.width)
+        var line = "sidebar.groupHeader.titlePaint site=\(site) name=\(model.name.prefix(12)) active=\(activeFlag)"
+        line += " ambientLabelBrightness=\(ambientText) effective=\(effectiveName)"
+        line += " brightness=\(brightnessText) colorAlpha=\(colorAlphaText)"
+        line += " fieldAlpha=\(fieldAlphaText) frameW=\(frameWidth)"
+        cmuxDebugLog(line)
+    }
+
     var dropIndicatorPaintForTesting: (top: Bool, bottom: Bool) {
         (!topDropIndicator.isHidden, !bottomDropIndicator.isHidden)
     }
@@ -296,6 +331,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         CATransaction.commit()
         nameField.textColor = NSColor.labelColor.withAlphaComponent(0.9)
+#if DEBUG
+        logTitlePaintProbe(model, site: "optimisticDeselect")
+#endif
     }
 
     /// Inverse of the press treatment: previewing a different row must peel a
