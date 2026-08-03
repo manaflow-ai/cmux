@@ -1036,6 +1036,13 @@ function journalOptionsFields(options: SessionJournalOptions): Record<string, un
   if (options.maxSensitivity !== undefined) {
     filter.max_sensitivity = options.maxSensitivity;
   }
+  if (options.regex !== undefined) {
+    filter.regex = {
+      pattern: options.regex.pattern,
+      field: options.regex.field ?? "record",
+      case_sensitive: options.regex.caseSensitive ?? true,
+    };
+  }
   if (Object.keys(filter).length > 0) fields.filter = filter;
   return fields;
 }

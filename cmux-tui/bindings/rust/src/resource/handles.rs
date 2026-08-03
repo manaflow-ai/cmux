@@ -328,6 +328,15 @@ impl Session {
                 "journal subject filters require kind or id".to_string(),
             ));
         }
+        if options
+            .regex
+            .as_ref()
+            .is_some_and(|regex| regex.pattern.is_empty() || regex.pattern.len() > 1024)
+        {
+            return Err(Error::InvalidArgument(
+                "journal regex must contain 1 to 1024 UTF-8 bytes".to_string(),
+            ));
+        }
         let mut params = self.params().cursor(options.cursor.as_ref());
         if let Some(start) = options.start {
             params = params.string(
@@ -397,6 +406,16 @@ impl Session {
                     }
                     .to_string(),
                 ),
+            );
+        }
+        if let Some(regex) = options.regex {
+            filter.insert(
+                "regex".to_string(),
+                serde_json::json!({
+                    "pattern":regex.pattern,
+                    "field":regex.field.wire_name(),
+                    "case_sensitive":regex.case_sensitive,
+                }),
             );
         }
         if !filter.is_empty() {

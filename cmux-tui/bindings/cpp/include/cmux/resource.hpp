@@ -463,10 +463,17 @@ enum class JournalStart { tail, beginning };
 enum class JournalClass { state, observation, effect, checkpoint };
 enum class JournalReplayPolicy { required, advisory, never };
 enum class JournalSensitivity { public_, metadata, sensitive, secret };
+enum class JournalRegexField { kind, subjects, payload, record };
 
 struct JournalSubjectFilter {
     std::optional<std::string> kind;
     std::optional<std::string> id;
+};
+
+struct JournalRegexFilter {
+    std::string pattern;
+    JournalRegexField field = JournalRegexField::record;
+    bool case_sensitive = true;
 };
 
 struct JournalFilter {
@@ -474,6 +481,7 @@ struct JournalFilter {
     std::vector<JournalClass> classes;
     std::vector<JournalSubjectFilter> subjects;
     std::optional<JournalSensitivity> max_sensitivity;
+    std::optional<JournalRegexFilter> regex;
 };
 
 struct SessionJournalOptions {

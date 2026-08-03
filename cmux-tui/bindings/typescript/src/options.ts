@@ -68,6 +68,12 @@ export interface JournalSubjectFilter {
   readonly id?: string;
 }
 
+export interface JournalRegexFilter {
+  readonly pattern: string;
+  readonly field?: "kind" | "subjects" | "payload" | "record";
+  readonly caseSensitive?: boolean;
+}
+
 export interface SessionJournalOptions extends RequestOptions {
   readonly cursor?: Cursor;
   readonly start?: "tail" | "beginning";
@@ -75,6 +81,7 @@ export interface SessionJournalOptions extends RequestOptions {
   readonly classes?: readonly ("state" | "observation" | "effect" | "checkpoint")[];
   readonly subjects?: readonly JournalSubjectFilter[];
   readonly maxSensitivity?: "public" | "metadata" | "sensitive";
+  readonly regex?: JournalRegexFilter;
 }
 
 export interface TerminalHistoryOptions {

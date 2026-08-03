@@ -36,6 +36,7 @@ use ghostty_vt::{
     key_input_from_chord, rows_to_runs, sys,
 };
 use regex::Regex;
+use regex::bytes::{Regex as BytesRegex, RegexBuilder as BytesRegexBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -4260,6 +4261,7 @@ struct JournalStreamFilter {
     classes: Vec<JournalClass>,
     subjects: Vec<JournalSubjectFilter>,
     max_sensitivity: Option<JournalSensitivity>,
+    regex: Option<JournalCompiledRegex>,
 }
 
 impl Default for JournalStreamFilter {
@@ -4269,6 +4271,7 @@ impl Default for JournalStreamFilter {
             classes: Vec::new(),
             subjects: Vec::new(),
             max_sensitivity: Some(JournalSensitivity::Sensitive),
+            regex: None,
         }
     }
 }
@@ -4276,6 +4279,63 @@ impl Default for JournalStreamFilter {
 struct JournalSubjectFilter {
     kind: Option<String>,
     id: Option<String>,
+}
+
+enum JournalRegexField {
+    Kind,
+    Subjects,
+    Payload,
+    Record,
+}
+
+struct JournalCompiledRegex {
+    field: JournalRegexField,
+    matcher: BytesRegex,
+}
+
+impl JournalCompiledRegex {
+    fn parse(value: &Value) -> Result<Self, ResourceError> {
+        let object = value.as_object().expect("catalog validates journal regex filters");
+        let pattern = object
+            .get("pattern")
+            .and_then(Value::as_str)
+            .expect("catalog validates journal regex patterns");
+        let field = match object.get("field").and_then(Value::as_str).unwrap_or("record") {
+            "kind" => JournalRegexField::Kind,
+            "subjects" => JournalRegexField::Subjects,
+            "payload" => JournalRegexField::Payload,
+            "record" => JournalRegexField::Record,
+            _ => unreachable!("catalog validates journal regex fields"),
+        };
+        let case_sensitive = object.get("case_sensitive").and_then(Value::as_bool).unwrap_or(true);
+        let matcher = BytesRegexBuilder::new(pattern)
+            .case_insensitive(!case_sensitive)
+            .size_limit(1 << 20)
+            .dfa_size_limit(2 << 20)
+            .build()
+            .map_err(|error| {
+                ResourceError::validation_invalid(
+                    Some("filter.regex.pattern"),
+                    format!("journal regex is invalid: {error}"),
+                )
+            })?;
+        Ok(Self { field, matcher })
+    }
+
+    fn matches(&self, record: &SessionJournalRecord) -> bool {
+        match self.field {
+            JournalRegexField::Kind => self.matcher.is_match(record.kind.as_bytes()),
+            JournalRegexField::Subjects => record.subjects.iter().any(|subject| {
+                self.matcher.is_match(subject.kind.as_bytes())
+                    || self.matcher.is_match(subject.id.as_bytes())
+            }),
+            JournalRegexField::Payload => serde_json::to_vec(&record.payload)
+                .is_ok_and(|payload| self.matcher.is_match(&payload)),
+            JournalRegexField::Record => {
+                serde_json::to_vec(record).is_ok_and(|envelope| self.matcher.is_match(&envelope))
+            }
+        }
+    }
 }
 
 impl JournalStreamFilter {
@@ -4355,7 +4415,8 @@ impl JournalStreamFilter {
             })
             .transpose()?
             .or(Some(JournalSensitivity::Sensitive));
-        Ok(Self { kinds, classes, subjects, max_sensitivity })
+        let regex = object.get("regex").map(JournalCompiledRegex::parse).transpose()?;
+        Ok(Self { kinds, classes, subjects, max_sensitivity, regex })
     }
 
     fn matches(&self, record: &SessionJournalRecord) -> bool {
@@ -4376,7 +4437,11 @@ impl JournalStreamFilter {
         let sensitivity_matches = self.max_sensitivity.is_none_or(|maximum| {
             journal_sensitivity_rank(record.sensitivity) <= journal_sensitivity_rank(maximum)
         });
-        kind_matches && class_matches && subject_matches && sensitivity_matches
+        kind_matches
+            && class_matches
+            && subject_matches
+            && sensitivity_matches
+            && self.regex.as_ref().is_none_or(|regex| regex.matches(record))
     }
 }
 

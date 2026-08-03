@@ -97,6 +97,11 @@ public final class Session {
                 "max_sensitivity",
                 value.name().toLowerCase(java.util.Locale.ROOT)
             ));
+            filter.regex().ifPresent(regex -> encoded.put("regex", Map.of(
+                "pattern", regex.pattern(),
+                "field", regex.field().toWire(),
+                "case_sensitive", regex.caseSensitive()
+            )));
             if (!encoded.isEmpty()) params.put("filter", encoded);
         });
         return client.openStream(

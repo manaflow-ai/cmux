@@ -154,11 +154,19 @@ class JournalSubjectFilter:
 
 
 @dataclass(frozen=True)
+class JournalRegexFilter:
+    pattern: str
+    field: Literal["kind", "subjects", "payload", "record"] = "record"
+    case_sensitive: bool = True
+
+
+@dataclass(frozen=True)
 class JournalFilter:
     kinds: Optional[Sequence[str]] = None
     classes: Optional[Sequence[str]] = None
     subjects: Optional[Sequence[JournalSubjectFilter]] = None
     max_sensitivity: Optional[Literal["public", "metadata", "sensitive"]] = None
+    regex: Optional[JournalRegexFilter] = None
 
 
 @dataclass(frozen=True)
@@ -292,6 +300,7 @@ __all__ = [
     "RunOptions",
     "SessionEventsOptions",
     "JournalFilter",
+    "JournalRegexFilter",
     "JournalSubjectFilter",
     "SessionJournalOptions",
     "SidebarEnsureOptions",

@@ -264,6 +264,8 @@ def _journal_options(value: SessionJournalOptions) -> Dict[str, Any]:
         ]
     if value.filter.max_sensitivity is not None:
         filter_value["max_sensitivity"] = value.filter.max_sensitivity
+    if value.filter.regex is not None:
+        filter_value["regex"] = asdict(value.filter.regex)
     if filter_value:
         result["filter"] = filter_value
     return result

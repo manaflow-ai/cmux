@@ -147,6 +147,8 @@ dimension are ORed, and filtered records still advance the cursor:
 - `classes` accepts `state`, `observation`, `effect`, and `checkpoint`;
 - `subjects` matches a subject kind, ID, or both;
 - `max_sensitivity` accepts `public`, `metadata`, or `sensitive`.
+- `regex` is compiled once and matches `kind`, `subjects`, `payload`, or the
+  complete record after the structured filters pass.
 
 V1 never delivers `secret` records. Authorization and redaction must be added
 before this feed is exposed over a remote transport.
@@ -161,9 +163,14 @@ cmux --session main --jsonl session current journal subscribe \
   --from beginning --kinds 'agent.*,pane.*' --classes state,observation
 cmux --session main --jsonl session current journal subscribe \
   --cursor-session session_... --sequence 42
+cmux --session main --jsonl session current journal subscribe \
+  --kinds 'agent.*' --regex 'approval|question' --regex-field payload --ignore-case
 ```
 
 Quote kind prefixes containing `*` so shells such as zsh do not expand them.
+Regex uses Rust's linear-time regex engine. Patterns are limited to 1024 bytes,
+compiled once per subscription, and literal searches use the engine's
+vectorized prefilters when available.
 
 Each persistent subscriber uses an independent read-only WAL connection and
 short bounded queries, so it never acquires the registry writer mutex or pins a

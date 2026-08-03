@@ -91,17 +91,44 @@ public final class Options {
     ) {
         public JournalSubjectFilter { kind = opt(kind); id = opt(id); }
     }
+    public enum JournalRegexField { KIND, SUBJECTS, PAYLOAD, RECORD;
+        public String toWire() { return name().toLowerCase(java.util.Locale.ROOT); }
+    }
+    public record JournalRegexFilter(
+        String pattern,
+        JournalRegexField field,
+        boolean caseSensitive
+    ) {
+        public JournalRegexFilter {
+            Objects.requireNonNull(pattern, "pattern");
+            field = field == null ? JournalRegexField.RECORD : field;
+            if (pattern.isEmpty() || pattern.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 1024) {
+                throw new IllegalArgumentException("journal regex must contain 1 to 1024 UTF-8 bytes");
+            }
+        }
+    }
     public record JournalFilter(
         List<String> kinds,
         List<SessionJournalRecord.JournalClass> classes,
         List<JournalSubjectFilter> subjects,
-        Optional<SessionJournalRecord.Sensitivity> maxSensitivity
+        Optional<SessionJournalRecord.Sensitivity> maxSensitivity,
+        Optional<JournalRegexFilter> regex
     ) {
+        public JournalFilter(
+            List<String> kinds,
+            List<SessionJournalRecord.JournalClass> classes,
+            List<JournalSubjectFilter> subjects,
+            Optional<SessionJournalRecord.Sensitivity> maxSensitivity
+        ) {
+            this(kinds, classes, subjects, maxSensitivity, Optional.empty());
+        }
+
         public JournalFilter {
             kinds = kinds == null ? List.of() : List.copyOf(kinds);
             classes = classes == null ? List.of() : List.copyOf(classes);
             subjects = subjects == null ? List.of() : List.copyOf(subjects);
             maxSensitivity = opt(maxSensitivity);
+            regex = opt(regex);
             if (maxSensitivity.orElse(null) == SessionJournalRecord.Sensitivity.SECRET) {
                 throw new IllegalArgumentException("secret journal records are unavailable in v1");
             }

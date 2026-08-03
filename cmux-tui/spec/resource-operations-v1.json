@@ -340,6 +340,44 @@
         "At least one of kind or id is required."
       ]
     },
+    "JournalRegexFilter": {
+      "kind": "object",
+      "fields": {
+        "pattern": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 1024
+          }
+        },
+        "field": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "kind",
+              "subjects",
+              "payload",
+              "record"
+            ]
+          }
+        },
+        "case_sensitive": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "Patterns use Rust regex syntax and are compiled once per subscription.",
+        "field defaults to record and case_sensitive defaults to true."
+      ]
+    },
     "JournalFilter": {
       "kind": "object",
       "fields": {
@@ -391,13 +429,21 @@
               "sensitive"
             ]
           }
+        },
+        "regex": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "JournalRegexFilter"
+          }
         }
       },
       "extra": false,
       "constraints": [
         "Dimensions are ANDed. Values within kinds, classes, and subjects are ORed.",
         "A kind ending in .* matches that dotted namespace. Other kinds match exactly.",
-        "V1 trusted-local subscriptions never deliver secret records."
+        "V1 trusted-local subscriptions never deliver secret records.",
+        "Structured dimensions run before the optional compiled regex."
       ]
     },
     "SessionJournalRecord": {

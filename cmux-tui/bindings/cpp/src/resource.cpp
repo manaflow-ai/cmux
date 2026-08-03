@@ -1074,6 +1074,24 @@ Result<Json::Object> SessionJournalOptions::to_params() const {
         if (*filter.max_sensitivity == JournalSensitivity::metadata) value = "metadata";
         encoded_filter.emplace("max_sensitivity", Json(value));
     }
+    if (filter.regex) {
+        if (filter.regex->pattern.empty() || filter.regex->pattern.size() > 1024) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal regex must contain 1 to 1024 UTF-8 bytes");
+        }
+        const char* field = "record";
+        if (filter.regex->field == JournalRegexField::kind) field = "kind";
+        if (filter.regex->field == JournalRegexField::subjects) field = "subjects";
+        if (filter.regex->field == JournalRegexField::payload) field = "payload";
+        encoded_filter.emplace(
+            "regex",
+            Json(Json::Object{
+                {"pattern", Json(filter.regex->pattern)},
+                {"field", Json(field)},
+                {"case_sensitive", Json(filter.regex->case_sensitive)},
+            }));
+    }
     if (!encoded_filter.empty()) {
         params.emplace("filter", Json(std::move(encoded_filter)));
     }

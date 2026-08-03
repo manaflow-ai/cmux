@@ -854,11 +854,25 @@ pub const JournalSubjectFilter = struct {
     id: ?[]const u8 = null,
 };
 
+pub const JournalRegexField = enum {
+    kind,
+    subjects,
+    payload,
+    record,
+};
+
+pub const JournalRegexFilter = struct {
+    pattern: []const u8,
+    field: JournalRegexField = .record,
+    case_sensitive: bool = true,
+};
+
 pub const JournalFilter = struct {
     kinds: []const []const u8 = &.{},
     classes: []const JournalClass = &.{},
     subjects: []const JournalSubjectFilter = &.{},
     max_sensitivity: ?JournalSensitivity = null,
+    regex: ?JournalRegexFilter = null,
 };
 
 pub const SessionJournalOptions = struct {
@@ -5919,6 +5933,25 @@ fn encodeSessionJournalOptions(
                 ),
             },
         );
+    }
+    if (filter.regex) |regex_filter| {
+        if (regex_filter.pattern.len == 0 or regex_filter.pattern.len > 1024) {
+            return error.InvalidJournalFilter;
+        }
+        var encoded = raw.wire.Object.init(allocator);
+        try encoded.put(
+            try allocator.dupe(u8, "pattern"),
+            .{ .string = try allocator.dupe(u8, regex_filter.pattern) },
+        );
+        try encoded.put(
+            try allocator.dupe(u8, "field"),
+            .{ .string = try allocator.dupe(u8, @tagName(regex_filter.field)) },
+        );
+        try encoded.put(
+            try allocator.dupe(u8, "case_sensitive"),
+            .{ .bool = regex_filter.case_sensitive },
+        );
+        try encoded_filter.put("regex", .{ .object = encoded });
     }
     if (encoded_filter.count() > 0) {
         try params.putValue("filter", .{ .object = encoded_filter });

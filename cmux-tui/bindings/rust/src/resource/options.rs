@@ -857,6 +857,33 @@ pub struct JournalSubjectFilter {
     pub id: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum JournalRegexField {
+    Kind,
+    Subjects,
+    Payload,
+    #[default]
+    Record,
+}
+
+impl JournalRegexField {
+    pub(crate) const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Kind => "kind",
+            Self::Subjects => "subjects",
+            Self::Payload => "payload",
+            Self::Record => "record",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JournalRegexFilter {
+    pub pattern: String,
+    pub field: JournalRegexField,
+    pub case_sensitive: bool,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SessionJournalOptions {
     pub cursor: Option<Cursor>,
@@ -865,6 +892,7 @@ pub struct SessionJournalOptions {
     pub classes: Vec<JournalClass>,
     pub subjects: Vec<JournalSubjectFilter>,
     pub max_sensitivity: Option<JournalSensitivity>,
+    pub regex: Option<JournalRegexFilter>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

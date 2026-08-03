@@ -241,6 +241,7 @@ fn is_boolean_flag(name: &str) -> bool {
             | "builtin"
             | "mutation"
             | "stream"
+            | "ignore-case"
     )
 }
 
@@ -1964,6 +1965,33 @@ fn add_journal_subscription(
     if let Some(sensitivity) = flags.take("max-sensitivity") {
         validate_one_of("--max-sensitivity", &sensitivity, &["public", "metadata", "sensitive"])?;
         filter.insert("max_sensitivity".into(), Value::String(sensitivity));
+    }
+    let regex = flags.take("regex");
+    let regex_field = flags.take("regex-field");
+    let ignore_case = flags.boolean("ignore-case");
+    match (regex, regex_field, ignore_case) {
+        (Some(pattern), field, ignore_case) => {
+            if pattern.is_empty() || pattern.len() > 1024 {
+                return Err(UsageError::new("--regex must contain 1 to 1024 UTF-8 bytes"));
+            }
+            let field = field.unwrap_or_else(|| "record".into());
+            validate_one_of("--regex-field", &field, &["kind", "subjects", "payload", "record"])?;
+            filter.insert(
+                "regex".into(),
+                json!({
+                    "pattern":pattern,
+                    "field":field,
+                    "case_sensitive":!ignore_case,
+                }),
+            );
+        }
+        (None, Some(_), _) => {
+            return Err(UsageError::new("--regex-field requires --regex"));
+        }
+        (None, None, true) => {
+            return Err(UsageError::new("--ignore-case requires --regex"));
+        }
+        (None, None, false) => {}
     }
     if !filter.is_empty() {
         params.insert("filter".into(), Value::Object(filter));

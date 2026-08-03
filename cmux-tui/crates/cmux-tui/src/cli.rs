@@ -297,6 +297,7 @@ USAGE
     [--cursor-session <session-id> --sequence <decimal>]
     [--kinds <kind[,kind...]>] [--classes <class[,class...]>]
     [--subjects <kind:id[,kind:id...]>] [--max-sensitivity public|metadata|sensitive]
+    [--regex <pattern>] [--regex-field kind|subjects|payload|record] [--ignore-case]
   cmux session <selector> config reload
   cmux session <selector> window title set --title <value>
   cmux session <selector> window title clear

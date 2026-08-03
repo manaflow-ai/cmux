@@ -83,11 +83,17 @@ type JournalSubjectFilter struct {
 	Kind *string `json:"kind,omitempty"`
 	ID   *string `json:"id,omitempty"`
 }
+type JournalRegexFilter struct {
+	Pattern       string `json:"pattern"`
+	Field         string `json:"field,omitempty"`
+	CaseSensitive *bool  `json:"case_sensitive,omitempty"`
+}
 type JournalFilter struct {
 	Kinds          []string               `json:"kinds,omitempty"`
 	Classes        []JournalClass         `json:"classes,omitempty"`
 	Subjects       []JournalSubjectFilter `json:"subjects,omitempty"`
 	MaxSensitivity *JournalSensitivity    `json:"max_sensitivity,omitempty"`
+	Regex          *JournalRegexFilter    `json:"regex,omitempty"`
 }
 type SessionJournalOptions struct {
 	StreamOptions
