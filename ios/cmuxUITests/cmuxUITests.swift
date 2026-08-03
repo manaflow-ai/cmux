@@ -1218,7 +1218,7 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        let prompt = app.descendants(matching: .any)["MobileTaskComposerPrompt"]
         XCTAssertTrue(prompt.waitForExistence(timeout: 8))
 
         let options = app.buttons["MobileTaskComposerOptionsButton"]
