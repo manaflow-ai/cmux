@@ -252,6 +252,7 @@ impl ClientState {
             MessageKind::Exit => {
                 self.require_sequence(frame.sequence)?;
                 self.local_parser_cursor = frame.sequence;
+                self.ready = false;
                 self.status = "exited".into();
                 FrameEffect::Stop
             }
@@ -579,7 +580,11 @@ async fn supervise_terminal_stream(
         if let Some(current) = current {
             let _ = current.close().await;
         }
-        if outcome == StreamOutcome::Stop || closed.load(Ordering::Acquire) {
+        if outcome == StreamOutcome::Stop {
+            closed.store(true, Ordering::Release);
+            return;
+        }
+        if closed.load(Ordering::Acquire) {
             return;
         }
         if let Err(error) = state.lock().unwrap().prepare_handshake(terminal_id.clone()) {
@@ -723,9 +728,12 @@ fn copy_utf8(value: &str, buffer: *mut c_char, capacity: usize) -> usize {
 
 fn enqueue_command(client: &CmuxTerminalClient, frame: Frame) -> bool {
     let Ok(encoded) = encode_frame(&frame) else { return false };
-    let sender =
-        client.terminal.lock().unwrap().as_ref().map(|terminal| terminal.command_sender.clone());
-    sender.is_some_and(|sender| sender.try_send(Bytes::from(encoded)).is_ok())
+    let terminal = client.terminal.lock().unwrap();
+    let Some(terminal) = terminal.as_ref() else { return false };
+    if terminal.closed.load(Ordering::Acquire) {
+        return false;
+    }
+    terminal.command_sender.try_send(Bytes::from(encoded)).is_ok()
 }
 
 unsafe fn terminal_id_from_ffi(terminal_id: *const c_char) -> Result<TerminalPublicId, String> {
