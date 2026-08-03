@@ -56,11 +56,19 @@ enum RightSidebarChromeMetrics {
     static let headerControlCenterAlignmentAdjustment: CGFloat = 0
 }
 
-enum SidebarWorkspaceListMetrics {
+/// Shared layout language for every first-party sidebar list column.
+///
+/// Machine, workspace, and future extension-owned columns use these values so
+/// a column can change its data without inventing a new visual hierarchy.
+enum SidebarListMetrics {
     static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
     static let rowVerticalPadding: CGFloat = 8
     static let rowOuterHorizontalPadding: CGFloat = 6
     static let rowContentHorizontalPadding: CGFloat = 10
+    static let rowContentSpacing: CGFloat = 4
+    static let rowCornerRadius: CGFloat = 6
+    static let titleFontSize: CGFloat = 12.5
+    static let subtitleFontSize: CGFloat = 10
     static let topScrimHeight: CGFloat = firstRowTopOffset + 20
     static let bottomScrimHeight: CGFloat = topScrimHeight
 
@@ -79,8 +87,8 @@ enum SidebarWorkspaceListMetrics {
 
 struct SidebarWorkspaceScrollInsets: Equatable {
     static let workspaceList = SidebarWorkspaceScrollInsets(
-        top: SidebarWorkspaceListMetrics.scrollTopInset,
-        bottom: SidebarWorkspaceListMetrics.bottomScrimHeight
+        top: SidebarListMetrics.scrollTopInset,
+        bottom: SidebarListMetrics.bottomScrimHeight
     )
 
     let top: CGFloat

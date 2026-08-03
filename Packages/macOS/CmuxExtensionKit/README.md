@@ -107,12 +107,22 @@ host-side callbacks are SPI for CMUX's own host implementation.
 Creating or splitting a browser surface with a URL requires both the surface
 action scope and `openURL`.
 
+`CmuxSidebarColumns` provides the same independently resizable two-column
+container used by CMUX. Request `creationContexts`, render
+`context.snapshot.creationContexts` in its leading column, and call
+`context.host.selectCreationContext(_:)` when the user selects one. Creation
+contexts only supply defaults to shared creation actions. They never own or
+filter `context.snapshot.workspaces`. Nest `CmuxSidebarColumns` containers to
+add further leading layers; each container owns only its internal divider, so
+the host can still resize and hide the complete sidebar region atomically.
+
 ## Permissions
 
 List every scope and action your extension needs in its manifest. CMUX filters the
 snapshot and rejects actions that have not been granted:
 
 - `workspaceList`: workspace identities and ordering only
+- `creationContexts`: creation-default identities, status, and selection
 - `workspaceMetadata`: workspace names, branches, unread counts, and selection
 - `surfaceMetadata`: shared tab/surface names, kinds, focus, and unread counts
 - `workspacePaths`: local workspace and project paths
@@ -120,6 +130,7 @@ snapshot and rejects actions that have not been granted:
 - `networkPorts`: listening ports for each workspace
 - `pullRequests`: pull request links associated with workspaces
 - `createWorkspace`: create workspaces
+- `selectCreationContext`: select the defaults used by shared creation actions
 - `selectWorkspace`: select a workspace from your UI
 - `closeWorkspace`: close workspaces from your UI
 - `createSurface`: create terminal and browser surfaces

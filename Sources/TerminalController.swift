@@ -2335,6 +2335,10 @@ class TerminalController {
         // Feed (workstream): feed.jump/feed.list handled by ControlCommandCoordinator.
         case "sidebar.custom.open":
             return v2Result(id: id, self.v2CustomSidebarOpen(params: params))
+        case "sidebar.creation_context.list":
+            return v2Result(id: id, self.v2SidebarCreationContextList(params: params))
+        case "sidebar.creation_context.select":
+            return v2Result(id: id, self.v2SidebarCreationContextSelect(params: params))
 
         // Surfaces / input: surface.list/current/focus/split/respawn/create/close/move/
         // reorder handled by ControlCommandCoordinator (surface.move forwards to the
@@ -2464,6 +2468,8 @@ class TerminalController {
             "system.identify",
             "system.tree",
             "sidebar.custom.open",
+            "sidebar.creation_context.list",
+            "sidebar.creation_context.select",
             "system.top",
             "system.memory",
             "mobile.host.status",

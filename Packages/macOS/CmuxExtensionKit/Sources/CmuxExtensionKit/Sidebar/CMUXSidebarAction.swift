@@ -9,6 +9,7 @@ public enum CmuxSidebarSplitDirection: String, Codable, CaseIterable, Equatable,
 
 @_spi(CmuxHostTransport)
 public enum CmuxSidebarAction: Codable, Equatable, Sendable {
+    case selectCreationContext(String)
     case createWorkspace(title: String?, workingDirectory: String?, select: Bool)
     case selectWorkspace(UUID)
     case closeWorkspace(UUID)
@@ -27,6 +28,8 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
 
     public var requiredScopes: Set<CmuxExtensionActionScope> {
         switch self {
+        case .selectCreationContext:
+            return [.selectCreationContext]
         case .createWorkspace(_, let workingDirectory, _):
             return workingDirectory == nil ? [.createWorkspace] : [.createWorkspace, .createWorkspaceWithPath]
         case .selectWorkspace:

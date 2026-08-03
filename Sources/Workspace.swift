@@ -5838,6 +5838,11 @@ final class Workspace: Identifiable, ObservableObject {
             clearRemoteRelayIDAliases()
         }
         remoteConfiguration = configuration
+        owningTabManager?.rememberSidebarRemoteCreationContext(
+            configuration: configuration,
+            title: customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                ?? (configuration.managedCloudVMID == nil ? configuration.displayTarget : title)
+        )
         defer { applyPendingRemoteTerminalConnections() }
         let clearedRemoteDirectoryTrust = !remoteDirectoryTrustRequiredPanelIds.isEmpty ||
             !remoteDirectoryReportPanelIds.isEmpty
@@ -10156,7 +10161,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Create a new terminal surface in the currently focused pane
     @discardableResult
-    func newTerminalSurfaceInFocusedPane(focus: Bool? = nil, initialInput: String? = nil) -> TerminalPanel? {
+    func newTerminalSurfaceInFocusedPane(
+        focus: Bool? = nil,
+        initialInput: String? = nil,
+        initialCommand: String? = nil,
+        startupEnvironment: [String: String] = [:],
+        suppressWorkspaceRemoteStartupCommand: Bool = false
+    ) -> TerminalPanel? {
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
         // In canvas mode, Cmd+T means "new tab in the focused canvas pane":
         // remember the anchor panel so the new one joins its pane instead of
@@ -10165,7 +10176,10 @@ final class Workspace: Identifiable, ObservableObject {
         let panel = newTerminalSurface(
             inPane: focusedPaneId,
             focus: focus,
+            initialCommand: initialCommand,
             initialInput: initialInput,
+            startupEnvironment: startupEnvironment,
+            suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             inheritWorkingDirectoryFallback: true
         )
         if let panel, let anchor = canvasAnchorPanelId {

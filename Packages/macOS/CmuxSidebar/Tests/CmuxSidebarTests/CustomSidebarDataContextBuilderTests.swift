@@ -72,8 +72,44 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(context["selectedTitle"] == .string("Picked"))
         #expect(context["selectedId"] == .string(selectedId.uuidString))
         #expect(context["unreadTotal"] == .int(7))
+        #expect(context["creationContexts"] == .array([]))
+        #expect(context["selectedCreationContextId"] == .string("automatic"))
         #expect(context["workspaces"]?.iterationValues?.count == 1)
         #expect(context["clock"]?.member("epoch") == .int(0))
+    }
+
+    @Test("Creation contexts expose defaults without workspace ownership")
+    func creationContexts() {
+        let builder = CustomSidebarDataContextBuilder(calendar: fixedCalendar())
+        let snapshot = CustomSidebarContextSnapshot(
+            workspaces: [],
+            selectedWorkspaceId: nil,
+            selectedWorkspaceTitle: "",
+            totalUnreadCount: 0,
+            creationContexts: [
+                CustomSidebarCreationContextSnapshot(
+                    id: "remote-deadbeef",
+                    title: "Build Mac",
+                    subtitle: "Connected",
+                    systemImageName: "desktopcomputer",
+                    isSelected: true,
+                    kind: "remote",
+                    workspaceCount: 2,
+                    connectionState: "connected"
+                )
+            ],
+            selectedCreationContextId: "remote-deadbeef",
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        let context = builder.dataContext(for: snapshot)
+        let remote = context["creationContexts"]?.iterationValues?.first
+
+        #expect(context["selectedCreationContextId"] == .string("remote-deadbeef"))
+        #expect(remote?.member("id") == .string("remote-deadbeef"))
+        #expect(remote?.member("selected") == .bool(true))
+        #expect(remote?.member("workspaceCount") == .int(2))
+        #expect(remote?.member("connectionState") == .string("connected"))
     }
 
     @Test("Empty selection yields empty selectedId string")

@@ -4002,3 +4002,92 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
         XCTAssertTrue(destination.tabs.contains { $0.id == moving.id })
     }
 }
+
+@MainActor
+final class SidebarCreationContextTests: XCTestCase {
+    func testRemoteContextIdentityExcludesWorkspaceRuntimeOwnership() {
+        let first = makeRemoteConfiguration(
+            ownerWorkspaceID: UUID(),
+            relayToken: String(repeating: "a", count: 64)
+        )
+        let second = makeRemoteConfiguration(
+            ownerWorkspaceID: UUID(),
+            relayToken: String(repeating: "b", count: 64)
+        )
+
+        XCTAssertEqual(
+            SidebarRemoteCreationContextKey(configuration: first),
+            SidebarRemoteCreationContextKey(configuration: second)
+        )
+    }
+
+    func testContextSelectionDoesNotFilterOrReparentWorkspaces() throws {
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace(select: false)
+        first.remoteConfiguration = makeRemoteConfiguration(ownerWorkspaceID: first.id)
+        second.remoteConfiguration = makeRemoteConfiguration(ownerWorkspaceID: second.id)
+        let workspaceIDs = manager.tabs.map(\.id)
+        let selectedWorkspaceID = manager.selectedTabId
+
+        let remote = try XCTUnwrap(
+            manager.sidebarCreationContextSnapshots().first { $0.kind == .remote }
+        )
+        XCTAssertTrue(manager.selectSidebarCreationContext(id: remote.id))
+
+        XCTAssertEqual(manager.tabs.map(\.id), workspaceIDs)
+        XCTAssertEqual(manager.selectedTabId, selectedWorkspaceID)
+        XCTAssertEqual(
+            manager.sidebarCreationContextSnapshots().filter { $0.kind == .remote }.count,
+            1,
+            "Two workspaces on one machine should produce one creation context"
+        )
+        XCTAssertEqual(
+            manager.sidebarCreationContextSnapshots().first { $0.id == remote.id }?.workspaceCount,
+            2
+        )
+    }
+
+    func testRemoteContextOutlivesItsLastWorkspace() throws {
+        let manager = TabManager()
+        let remoteWorkspace = try XCTUnwrap(manager.tabs.first)
+        _ = manager.addWorkspace(select: false)
+        remoteWorkspace.remoteConfiguration = makeRemoteConfiguration(
+            ownerWorkspaceID: remoteWorkspace.id
+        )
+
+        let context = try XCTUnwrap(
+            manager.sidebarCreationContextSnapshots().first { $0.kind == .remote }
+        )
+        XCTAssertTrue(manager.selectSidebarCreationContext(id: context.id))
+
+        manager.closeWorkspace(remoteWorkspace, recordHistory: false)
+
+        let retained = try XCTUnwrap(
+            manager.sidebarCreationContextSnapshots().first { $0.id == context.id }
+        )
+        XCTAssertEqual(retained.workspaceCount, 0)
+        XCTAssertEqual(manager.selectedSidebarCreationContextID, context.id)
+        XCTAssertNotNil(manager.selectedSidebarRemoteCreationDefaults())
+        XCTAssertEqual(manager.sidebarCreationContextSessionSnapshots().count, 1)
+    }
+
+    private func makeRemoteConfiguration(
+        ownerWorkspaceID: UUID? = nil,
+        relayToken: String = String(repeating: "c", count: 64)
+    ) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "builder@example.test",
+            port: 2222,
+            identityFile: "/tmp/test-identity",
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64123,
+            relayID: "runtime-relay",
+            relayToken: relayToken,
+            localSocketPath: "/tmp/runtime.sock",
+            ownerWorkspaceID: ownerWorkspaceID,
+            terminalStartupCommand: "ssh -p 2222 builder@example.test"
+        )
+    }
+}

@@ -139,6 +139,12 @@ with:
   `dirty`, `ports` (array of Int).
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
+- `creationContexts`: array of machine/default rows. Always present: `id`,
+  `title`, `systemImage`, `selected`, `kind` (`automatic|local|remote`), and
+  `workspaceCount`. Remote rows can include `subtitle` and `connectionState`.
+  `selectedCreationContextId` is the active id. A context stays available with
+  zero open workspaces and changes creation defaults without owning or filtering
+  workspaces.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The
   sidebar re-renders about once a second, so clocks/countdowns and workspace
   changes are live.
@@ -234,11 +240,15 @@ it runs that cmux command through the same dispatcher as the `cmux` CLI:
 
     Button(action: { cmux("workspace.select", workspace_id: w.id) }) { ... }
     ...onTapGesture { cmux("surface.focus", surface_id: t.id) }
+    Button(action: {
+        cmux("sidebar.creation_context.select", context_id: context.id, workspace_id: selectedId)
+    }) { Text(context.title) }
 
 Use real method and parameter names. Common ones: `workspace.select`
 (`workspace_id`), `surface.focus` (`surface_id`), `workspace.reorder`
-(`workspace_id` + `index`). Run `cmux docs api` to discover the full command
-surface.
+(`workspace_id` + `index`), and `sidebar.creation_context.select`
+(`context_id` + `workspace_id`). Run `cmux docs api` to discover the full
+command surface.
 
 ## Drag-and-drop reordering (persisted)
 

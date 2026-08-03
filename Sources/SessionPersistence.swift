@@ -16,6 +16,9 @@ enum SessionSnapshotSchema {
 
 enum SessionPersistencePolicy {
     static let sidebarMinimumWidthKey = "sidebarMinimumWidth"
+    static let defaultSidebarLeadingColumnWidth: Double = 168
+    static let minimumSidebarLeadingColumnWidth: Double = 120
+    static let maximumSidebarLeadingColumnWidth: Double = 320
     // Keep the default equal to the minimum so a fresh sidebar starts at the minimum width.
     // The titlebar title tracks the sidebar's actual width only when it is wider than the
     // minimum, so a default above the minimum would make the folder/title shift when toggling the sidebar at the default width.
@@ -38,6 +41,15 @@ enum SessionPersistencePolicy {
         let fallback = min(max(defaultSidebarWidth, resolvedMinimum), maximumSidebarWidth)
         guard let candidate, candidate.isFinite else { return fallback }
         return min(max(candidate, resolvedMinimum), maximumSidebarWidth)
+    }
+
+    static func sanitizedSidebarLeadingColumnWidth(_ candidate: Double?) -> Double {
+        let fallback = defaultSidebarLeadingColumnWidth
+        guard let candidate, candidate.isFinite else { return fallback }
+        return min(
+            max(candidate, minimumSidebarLeadingColumnWidth),
+            maximumSidebarLeadingColumnWidth
+        )
     }
 
     static func resolvedMinimumSidebarWidth(defaults: UserDefaults = .standard) -> Double {
@@ -227,6 +239,32 @@ struct SessionSidebarSnapshot: Codable, Sendable {
     var isVisible: Bool
     var selection: SessionSidebarSelection
     var width: Double?
+    var leadingColumnWidth: Double?
+    var selectedCreationContextID: String?
+    var creationContexts: [SessionSidebarCreationContextSnapshot]?
+
+    init(
+        isVisible: Bool,
+        selection: SessionSidebarSelection,
+        width: Double?,
+        leadingColumnWidth: Double? = nil,
+        selectedCreationContextID: String? = nil,
+        creationContexts: [SessionSidebarCreationContextSnapshot]? = nil
+    ) {
+        self.isVisible = isVisible
+        self.selection = selection
+        self.width = width
+        self.leadingColumnWidth = leadingColumnWidth
+        self.selectedCreationContextID = selectedCreationContextID
+        self.creationContexts = creationContexts
+    }
+}
+
+/// Durable creation-context identity. The remote snapshot contains connection
+/// intent but excludes live relay credentials and workspace ownership.
+struct SessionSidebarCreationContextSnapshot: Codable, Sendable {
+    var title: String
+    var remote: SessionRemoteWorkspaceSnapshot
 }
 
 struct SessionStatusEntrySnapshot: Codable, Sendable {

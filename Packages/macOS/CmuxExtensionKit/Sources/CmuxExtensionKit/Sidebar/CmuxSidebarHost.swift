@@ -36,6 +36,12 @@ public struct CmuxSidebarHost {
         refreshSnapshot()
     }
 
+    /// Selects the context whose defaults shared creation actions should use.
+    /// This changes no workspace ownership or filtering.
+    public func selectCreationContext(_ id: String) async throws {
+        try await send(.selectCreationContext(id))
+    }
+
     /// Requests that CMUX create a workspace.
     public func createWorkspace(
         title: String? = nil,

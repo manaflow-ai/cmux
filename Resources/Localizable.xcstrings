@@ -215113,6 +215113,23 @@
         }
       }
     },
+    "sidebar.extensions.action.creationContextNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creation context not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成コンテキストが見つかりません"
+          }
+        }
+      }
+    },
     "sidebar.extensions.action.urlRejected": {
       "extractionState": "manual",
       "localizations": {
@@ -215194,6 +215211,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "URLを開く"
+          }
+        }
+      }
+    },
+    "sidebar.extensions.actionScope.selectCreationContext": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select creation contexts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成コンテキストを選択"
           }
         }
       }
@@ -216424,6 +216458,23 @@
         }
       }
     },
+    "sidebar.extensions.permission.creationContexts.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read available creation contexts and the selected default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用可能な作成コンテキストと選択中のデフォルトを読み取ります"
+          }
+        }
+      }
+    },
     "sidebar.extensions.permission.closeWorkspace.detail": {
       "extractionState": "manual",
       "localizations": {
@@ -216526,6 +216577,23 @@
         }
       }
     },
+    "sidebar.extensions.permission.selectCreationContext.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change the defaults used by new workspace and terminal actions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースとターミナル操作で使うデフォルトを変更します"
+          }
+        }
+      }
+    },
     "sidebar.extensions.permission.selectWorkspace.detail": {
       "extractionState": "manual",
       "localizations": {
@@ -216590,6 +216658,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "再試行"
+          }
+        }
+      }
+    },
+    "sidebar.extensions.scope.creationContexts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creation contexts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成コンテキスト"
           }
         }
       }
@@ -262228,6 +262313,111 @@
             "value": "サイドバーで折りたたみ可能なワークスペースグループを管理します。各グループは「アンカー」ワークスペースが所有し、サイドバーのグループヘッダーがそのアンカーを表します。アンカーを閉じると、閉じられるのはそのワークスペースだけで、グループの次のメンバーが新しいアンカーに昇格するため、グループと他のメンバーはそのまま維持されます。アンカーがグループ唯一のワークスペースだった場合は、グループが削除されます。"
           }
         }
+      }
+    },
+    "sidebar.context.automatic.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep each action's current behavior" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "各操作の現在の動作を維持" } }
+      }
+    },
+    "sidebar.context.automatic.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Automatic" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動" } }
+      }
+    },
+    "sidebar.context.local.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Create local terminals" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカルターミナルを作成" } }
+      }
+    },
+    "sidebar.context.local.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This Mac" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この Mac" } }
+      }
+    },
+    "sidebar.context.remote.noWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No open workspaces" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開いているワークスペースなし" } }
+      }
+    },
+    "sidebar.context.remote.workspaceCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@ · %2$d workspaces" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@ · %2$d ワークスペース" } }
+      }
+    },
+    "sidebar.context.state.connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続済み" } }
+      }
+    },
+    "sidebar.context.state.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connecting" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続中" } }
+      }
+    },
+    "sidebar.context.state.disconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Disconnected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未接続" } }
+      }
+    },
+    "sidebar.context.state.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connection error" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続エラー" } }
+      }
+    },
+    "sidebar.context.state.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reconnecting" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再接続中" } }
+      }
+    },
+    "sidebar.context.state.suspended": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reconnect required" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再接続が必要" } }
+      }
+    },
+    "socket.sidebar.context.missingId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "context_id is required." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "context_id が必要です。" } }
+      }
+    },
+    "socket.sidebar.context.noWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unable to access the target window." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "対象のウインドウにアクセスできません。" } }
+      }
+    },
+    "socket.sidebar.context.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Creation context not found." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "作成コンテキストが見つかりません。" } }
       }
     }
   },

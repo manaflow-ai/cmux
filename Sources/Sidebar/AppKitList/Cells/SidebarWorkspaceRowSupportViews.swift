@@ -12,23 +12,28 @@ struct SidebarRowPalette {
 
     var colorScheme: ColorScheme { model.colorSchemeIsDark ? .dark : .light }
 
-    var selectedBackground: NSColor {
-        sidebarSelectedWorkspaceBackgroundNSColor(
-            for: colorScheme,
-            sidebarSelectionColorHex: model.settings.selectionColorHex
+    private var shared: SidebarListRowPalette {
+        SidebarListRowPalette(
+            isActive: model.isActive,
+            colorScheme: colorScheme,
+            selectionColorHex: model.settings.selectionColorHex
         )
     }
 
+    var selectedBackground: NSColor {
+        shared.selectedBackground
+    }
+
     func selectedForeground(_ opacity: CGFloat) -> NSColor {
-        sidebarSelectedWorkspaceForegroundNSColor(on: selectedBackground, opacity: opacity)
+        shared.selectedForeground(opacity)
     }
 
     var primaryText: NSColor {
-        model.isActive ? selectedForeground(1.0) : .labelColor
+        shared.primary
     }
 
     func secondary(_ opacity: CGFloat = 0.75) -> NSColor {
-        model.isActive ? selectedForeground(opacity) : .secondaryLabelColor
+        shared.secondary(opacity)
     }
 
     static func attributed(_ source: AttributedString, font: NSFont, color: NSColor) -> NSAttributedString {

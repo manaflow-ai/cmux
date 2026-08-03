@@ -230,6 +230,13 @@ class TabManager: ObservableObject {
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
+    /// Per-window default source for shared workspace/surface creation actions.
+    /// Contexts never filter or own the workspace collection.
+    @Published var sidebarCreationContextSelection: SidebarCreationContextSelection = .automatic
+    var sidebarRemoteCreationContextOrder: [SidebarRemoteCreationContextKey] = []
+    var sidebarRemoteCreationContexts: [
+        SidebarRemoteCreationContextKey: SidebarRegisteredRemoteCreationContext
+    ] = [:]
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -3743,14 +3750,11 @@ class TabManager: ObservableObject {
 
     /// Create a new terminal surface in the focused pane of the selected workspace
     func newSurface() {
-        // Cmd+T should always focus the newly created surface.
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
+        _ = newSurfaceUsingSidebarCreationContext()
     }
 
     func newSurface(initialInput: String) {
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
+        _ = newSurfaceUsingSidebarCreationContext(initialInput: initialInput)
     }
 
     // MARK: - Split Creation

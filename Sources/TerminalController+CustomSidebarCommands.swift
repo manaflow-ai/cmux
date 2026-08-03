@@ -173,6 +173,69 @@ extension TerminalController {
         }
     }
 
+    nonisolated func v2SidebarCreationContextList(params: [String: Any]) -> V2CallResult {
+        v2MainSync {
+            guard let tabManager = v2CustomSidebarTabManager(params: params) else {
+                return .err(
+                    code: "tab_manager_unavailable",
+                    message: String(
+                        localized: "socket.sidebar.context.noWindow",
+                        defaultValue: "Unable to access the target window."
+                    ),
+                    data: nil
+                )
+            }
+            return .ok(v2SidebarCreationContextPayload(tabManager: tabManager))
+        }
+    }
+
+    nonisolated func v2SidebarCreationContextSelect(params: [String: Any]) -> V2CallResult {
+        guard let rawID = params["context_id"] as? String else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.context.missingId",
+                    defaultValue: "context_id is required."
+                ),
+                data: nil
+            )
+        }
+        let contextID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !contextID.isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.context.missingId",
+                    defaultValue: "context_id is required."
+                ),
+                data: nil
+            )
+        }
+        return v2MainSync {
+            guard let tabManager = v2CustomSidebarTabManager(params: params) else {
+                return .err(
+                    code: "tab_manager_unavailable",
+                    message: String(
+                        localized: "socket.sidebar.context.noWindow",
+                        defaultValue: "Unable to access the target window."
+                    ),
+                    data: nil
+                )
+            }
+            guard tabManager.selectSidebarCreationContext(id: contextID) else {
+                return .err(
+                    code: "not_found",
+                    message: String(
+                        localized: "socket.sidebar.context.notFound",
+                        defaultValue: "Creation context not found."
+                    ),
+                    data: ["context_id": contextID]
+                )
+            }
+            return .ok(v2SidebarCreationContextPayload(tabManager: tabManager))
+        }
+    }
+
     private nonisolated func v2CustomSidebarName(params: [String: Any]) -> String? {
         guard let raw = params["name"] as? String else { return nil }
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -186,6 +249,24 @@ extension TerminalController {
             return AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
         }
         return tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager
+    }
+
+    private func v2SidebarCreationContextPayload(tabManager: TabManager) -> [String: Any] {
+        [
+            "selected_context_id": tabManager.selectedSidebarCreationContextID,
+            "contexts": tabManager.sidebarCreationContextSnapshots().map { context in
+                [
+                    "id": context.id,
+                    "title": context.title,
+                    "subtitle": context.subtitle,
+                    "system_image": context.systemImageName,
+                    "selected": context.isSelected,
+                    "kind": context.kind.rawValue,
+                    "workspace_count": context.workspaceCount,
+                    "connection_state": context.connectionState?.rawValue ?? NSNull(),
+                ] as [String: Any]
+            },
+        ]
     }
 
     private nonisolated func v2CustomSidebarValidationReport(name: String?) -> CustomSidebarValidationReport {
