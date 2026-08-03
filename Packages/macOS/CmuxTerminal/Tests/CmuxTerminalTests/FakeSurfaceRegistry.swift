@@ -23,6 +23,9 @@ final class FakeSurfaceRegistry: @unchecked Sendable, TerminalSurfaceRegistering
     }
     func surface(id: UUID) -> (any TerminalSurfacing)? { nil }
     func isRightSidebarDockSurface(id: UUID) -> Bool { false }
-    func updateFocusPlacement(id: UUID, _ placement: TerminalSurfaceFocusPlacement) {}
+    func updateFocusPlacement(
+        for surface: any TerminalSurfacing,
+        _ placement: TerminalSurfaceFocusPlacement
+    ) {}
     func allSurfaces() -> [any TerminalSurfacing] { [] }
 }

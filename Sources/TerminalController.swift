@@ -5234,84 +5234,6 @@ class TerminalController {
         let message: String
     }
 
-    func readTerminalTextRawSnapshot(
-        terminalPanel: TerminalPanel,
-        includeScrollback: Bool
-    ) -> TerminalTextRawSnapshot? {
-        guard terminalPanel.surface.surface != nil else { return nil }
-        if includeScrollback {
-            return TerminalTextRawSnapshot(
-                viewport: nil,
-                screen: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_SCREEN),
-                history: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_SURFACE),
-                active: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_ACTIVE)
-            )
-        }
-        return TerminalTextRawSnapshot(
-            viewport: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_VIEWPORT),
-            screen: nil,
-            history: nil,
-            active: nil
-        )
-    }
-
-    private func readTerminalSelectionText(terminalPanel: TerminalPanel, pointTag: ghostty_point_tag_e) -> String? {
-        guard let surface = terminalPanel.surface.surface else { return nil }
-        let topLeft = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-            x: 0,
-            y: 0
-        )
-        let bottomRight = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-            x: 0,
-            y: 0
-        )
-        let selection = ghostty_selection_s(
-            top_left: topLeft,
-            bottom_right: bottomRight,
-            rectangle: false
-        )
-
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else {
-            return nil
-        }
-        defer {
-            ghostty_surface_free_text(surface, &text)
-        }
-
-        guard let ptr = text.text, text.text_len > 0 else {
-            return ""
-        }
-        let rawData = Data(bytes: ptr, count: Int(text.text_len))
-        return String(decoding: rawData, as: UTF8.self)
-    }
-
-    private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
-        guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
-            return "ERROR: Terminal surface not found"
-        }
-        guard let snapshot = readTerminalTextRawSnapshot(
-            terminalPanel: terminalPanel,
-            includeScrollback: includeScrollback
-        ) else {
-            return "ERROR: Terminal surface not found"
-        }
-        switch Self.terminalTextPayload(
-            from: snapshot,
-            includeScrollback: includeScrollback,
-            lineLimit: lineLimit
-        ) {
-        case .success(let payload):
-            return "OK \(payload.base64)"
-        case .failure(let error):
-            return "ERROR: \(error.message)"
-        }
-    }
-
     nonisolated static func terminalTextPayload(
         from snapshot: TerminalTextRawSnapshot,
         includeScrollback: Bool,
@@ -5441,7 +5363,7 @@ class TerminalController {
             let hasSurfaceIDParam = params["surface_id"] != nil
             let workspaceID: UUID
             let surfaceId: UUID
-            let terminalPanel: TerminalPanel
+            let terminalSurface: TerminalSurface
             // Per-window docks (the former single global dock): the window id
             // resolves from the dock itself in the dock branch, from the
             // routed TabManager otherwise — mirroring the coordinator
@@ -5460,16 +5382,23 @@ class TerminalController {
                 guard let dockSurfaceId = target.surfaceID else {
                     return .finished(.err(code: "not_found", message: "No focused surface", data: nil))
                 }
-                guard let dockPanel = target.terminalPanel else {
+                guard target.terminalPanel != nil else {
                     return .finished(.err(
                         code: "invalid_params",
                         message: "Surface is not a terminal",
                         data: ["surface_id": dockSurfaceId.uuidString]
                     ))
                 }
+                guard let terminalTarget = dock.controlSocketTerminalTarget(for: dockSurfaceId) else {
+                    return .finished(.err(
+                        code: "surface_unavailable",
+                        message: Self.terminalSurfaceUnavailableMessage,
+                        data: ["surface_id": dockSurfaceId.uuidString]
+                    ))
+                }
                 workspaceID = dock.workspaceId
                 surfaceId = dockSurfaceId
-                terminalPanel = dockPanel
+                terminalSurface = terminalTarget.surface
                 resolvedWindowID = self.dockResultWindowId(for: dock, tabManager: tabManager)
             } else {
                 guard let ws = self.resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
@@ -5479,27 +5408,41 @@ class TerminalController {
                     guard let id = explicitSurfaceID else {
                         return .finished(.err(code: "not_found", message: "Surface not found for the given surface_id", data: nil))
                     }
-                    guard let target = ws.controlTerminalTarget(for: id) else {
+                    guard ws.controlTerminalTarget(for: id) != nil else {
                         return .finished(.err(
                             code: "invalid_params",
                             message: "Surface is not a terminal",
                             data: ["surface_id": id.uuidString]
                         ))
                     }
+                    guard let target = ws.controlSocketTerminalTarget(for: id) else {
+                        return .finished(.err(
+                            code: "surface_unavailable",
+                            message: Self.terminalSurfaceUnavailableMessage,
+                            data: ["surface_id": id.uuidString]
+                        ))
+                    }
                     surfaceId = target.surfaceID
-                    terminalPanel = target.panel
+                    terminalSurface = target.surface
                 } else {
                     guard let focused = ws.controlDefaultTerminalTarget(paneID: routing.paneID) else {
                         return .finished(.err(code: "not_found", message: "No focused surface", data: nil))
                     }
+                    guard let target = ws.controlSocketTerminalTarget(for: focused) else {
+                        return .finished(.err(
+                            code: "surface_unavailable",
+                            message: Self.terminalSurfaceUnavailableMessage,
+                            data: ["surface_id": focused.surfaceID.uuidString]
+                        ))
+                    }
                     surfaceId = focused.surfaceID
-                    terminalPanel = focused.panel
+                    terminalSurface = target.surface
                 }
                 workspaceID = ws.id
                 resolvedWindowID = self.v2ResolveWindowId(tabManager: tabManager)
             }
             guard let rawSnapshot = self.readTerminalTextRawSnapshot(
-                terminalPanel: terminalPanel,
+                terminalSurface: terminalSurface,
                 includeScrollback: includeScrollback
             ) else {
                 return .finished(.err(code: "internal_error", message: "Failed to read terminal text", data: nil))
@@ -10896,13 +10839,13 @@ class TerminalController {
             }
 
             guard let panelId,
-                  let terminalPanel = tab.terminalInputTarget(forPanelID: panelId)?.panel else {
+                  let target = tab.controlSocketTerminalInputTarget(for: panelId) else {
                 result = "ERROR: Terminal surface not found"
                 return
             }
 
             result = readTerminalTextBase64(
-                terminalPanel: terminalPanel,
+                terminalSurface: target.surface,
                 includeScrollback: includeScrollback,
                 lineLimit: lineLimit
             )
@@ -10975,14 +10918,14 @@ class TerminalController {
             }
 
             guard let panelId,
-                  let terminalPanel = tab.terminalInputTarget(forPanelID: panelId)?.panel else {
+                  let target = tab.controlSocketTerminalInputTarget(for: panelId) else {
                 return .finished("ERROR: Terminal surface not found")
             }
-            guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
+            guard target.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
                 return .finished("ERROR: Terminal surface not found")
             }
             guard let snapshot = self.readTerminalTextRawSnapshot(
-                terminalPanel: terminalPanel,
+                terminalSurface: target.surface,
                 includeScrollback: options.includeScrollback
             ) else {
                 return .finished("ERROR: Terminal surface not found")

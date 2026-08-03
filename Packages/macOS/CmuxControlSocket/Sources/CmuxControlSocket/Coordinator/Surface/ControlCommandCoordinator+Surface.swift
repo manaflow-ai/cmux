@@ -272,6 +272,7 @@ extension ControlCommandCoordinator {
                 "ref": ref(.surface, entry.surfaceID),
                 "type": .string(entry.typeRawValue),
                 "in_window": entry.inWindow.map { .bool($0) } ?? .null,
+                "socket_binding": entry.socketBindingRawValue.map { .string($0) } ?? .null,
             ])
         }
         return .ok(.object([

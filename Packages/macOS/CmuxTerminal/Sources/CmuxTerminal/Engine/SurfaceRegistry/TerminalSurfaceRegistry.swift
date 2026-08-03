@@ -29,6 +29,14 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     // serializes every access from those callers and the main actor.
     nonisolated(unsafe) private var incrementalTraversalNodes:
         [ObjectIdentifier: TerminalSurfaceRegistryWeakNode] = [:]
+    // SAFETY: every access is guarded by `lock`. Values are weak nodes so the
+    // index does not extend a surface lifetime.
+    nonisolated(unsafe) private var canonicalSurfaceNodes:
+        [UUID: TerminalSurfaceRegistryWeakNode] = [:]
+    // SAFETY: every access is guarded by `lock`. Placement is recorded per
+    // registration so removing a replacement can restore its predecessor.
+    nonisolated(unsafe) private var surfaceFocusPlacementsByIdentity:
+        [ObjectIdentifier: TerminalSurfaceFocusPlacement] = [:]
     // SAFETY: every access is guarded by `lock`.
     nonisolated(unsafe) private var runtimeSurfaceOwners: [UInt: UUID] = [:]
     // SAFETY: every access is guarded by `lock`.
@@ -66,8 +74,10 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
                 incrementalTraversalNodes[identity],
            existingNode.isRegistered,
            existingNode.surface === surface {
-            surfaceFocusPlacements[surface.id] =
-                surface.focusPlacement
+            surfaceFocusPlacementsByIdentity[identity] = surface.focusPlacement
+            if canonicalSurfaceNode(surfaceID: surface.id) === existingNode {
+                surfaceFocusPlacements[surface.id] = surface.focusPlacement
+            }
             generation &+= 1
             return
         }
@@ -75,7 +85,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
             incrementalTraversalNodes.removeValue(
                 forKey: identity
             ) {
-            unlinkIncrementalTraversalNode(replacedNode)
+            removeRegistrationNode(replacedNode)
         }
         let node = TerminalSurfaceRegistryWeakNode(
             surface: surface,
@@ -84,6 +94,8 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         incrementalTraversalHead?.previous = node
         incrementalTraversalHead = node
         incrementalTraversalNodes[identity] = node
+        canonicalSurfaceNodes[surface.id] = node
+        surfaceFocusPlacementsByIdentity[identity] = surface.focusPlacement
         surfaceFocusPlacements[surface.id] = surface.focusPlacement
         generation &+= 1
     }
@@ -94,18 +106,14 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     public func unregister(_ surface: any TerminalSurfacing) {
         lock.lock()
         let surfaceId = surface.id
+        let identity = ObjectIdentifier(surface)
         surfaces.remove(surface)
-        if let node = incrementalTraversalNodes.removeValue(
-            forKey: ObjectIdentifier(surface)
-        ) {
-            unlinkIncrementalTraversalNode(node)
+        if let node = incrementalTraversalNodes[identity] {
+            removeRegistrationNode(node)
+        } else {
+            surfaceFocusPlacementsByIdentity.removeValue(forKey: identity)
         }
-        let stillRegistered = surfaces.allObjects
-            .compactMap { $0 as? any TerminalSurfacing }
-            .contains { $0 !== surface && $0.id == surfaceId }
-        if !stillRegistered {
-            surfaceFocusPlacements.removeValue(forKey: surfaceId)
-        }
+        _ = canonicalSurfaceNode(surfaceID: surfaceId)
         generation &+= 1
         let routeRetirer = routeRetirer
         lock.unlock()
@@ -140,14 +148,16 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         return runtimeSurfaceOwners[UInt(bitPattern: surface)]
     }
 
-    /// The registered surface with the given id, if it is still alive.
+    /// The newest registered surface with the given id, if it is still alive.
+    ///
+    /// Surface replacement can briefly overlap the outgoing and incoming
+    /// models under one logical id. Registration order is the ownership order:
+    /// the newest live model is canonical until it unregisters, at which point
+    /// the prior live registration is promoted.
     public func surface(id: UUID) -> (any TerminalSurfacing)? {
         lock.lock()
-        let object = surfaces.allObjects
-            .compactMap { $0 as? any TerminalSurfacing }
-            .first { $0.id == id }
-        lock.unlock()
-        return object
+        defer { lock.unlock() }
+        return canonicalSurfaceNode(surfaceID: id)?.surface
     }
 
     /// Whether the surface with the given id is placed in the right-sidebar
@@ -155,17 +165,31 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     public func isRightSidebarDockSurface(id: UUID) -> Bool {
         lock.lock()
         defer { lock.unlock() }
+        _ = canonicalSurfaceNode(surfaceID: id)
         return surfaceFocusPlacements[id] == .rightSidebarDock
     }
 
     /// Re-records the focus placement for a live surface that moved between the
-    /// workspace area and the right-sidebar dock. No-op when the id is not
-    /// currently registered, so a stale move cannot resurrect a dropped entry.
-    public func updateFocusPlacement(id: UUID, _ placement: TerminalSurfaceFocusPlacement) {
+    /// workspace area and the right-sidebar dock. No-op when that registration
+    /// is gone, so an outgoing model cannot mutate its replacement's placement.
+    ///
+    /// - Parameters:
+    ///   - surface: The exact registered model whose placement changed.
+    ///   - placement: The surface's new focus-routing placement.
+    public func updateFocusPlacement(
+        for surface: any TerminalSurfacing,
+        _ placement: TerminalSurfaceFocusPlacement
+    ) {
         lock.lock()
         defer { lock.unlock() }
-        guard surfaceFocusPlacements[id] != nil else { return }
-        surfaceFocusPlacements[id] = placement
+        let identity = ObjectIdentifier(surface)
+        guard let node = incrementalTraversalNodes[identity],
+              node.isRegistered,
+              node.surface === surface else { return }
+        surfaceFocusPlacementsByIdentity[identity] = placement
+        if canonicalSurfaceNode(surfaceID: surface.id)?.identity == identity {
+            surfaceFocusPlacements[surface.id] = placement
+        }
     }
 
     /// A bounded count snapshot for leak diagnostics and crash/app-hang telemetry.
@@ -176,7 +200,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         var workspaceSurfaceCount = 0
         var rightSidebarDockSurfaceCount = 0
         for object in objects {
-            switch surfaceFocusPlacements[object.id] {
+            switch surfaceFocusPlacementsByIdentity[ObjectIdentifier(object)] {
             case .workspace:
                 workspaceSurfaceCount += 1
             case .rightSidebarDock:
@@ -257,12 +281,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         traversal.cursor = node.next
         guard node.isRegistered, let surface = node.surface else {
             if node.isRegistered {
-                if incrementalTraversalNodes[node.identity] === node {
-                    incrementalTraversalNodes.removeValue(
-                        forKey: node.identity
-                    )
-                }
-                unlinkIncrementalTraversalNode(node)
+                removeRegistrationNode(node)
             }
             return TerminalSurfaceRegistryIncrementalVisit(
                 surface: nil
@@ -288,5 +307,61 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         next?.previous = previous
         node.previous = nil
         // Preserve `next` for traversals already parked on this node.
+    }
+
+    private func newestRegisteredNode(
+        surfaceID: UUID
+    ) -> TerminalSurfaceRegistryWeakNode? {
+        var node = incrementalTraversalHead
+        while let current = node {
+            let next = current.next
+            if current.isRegistered, current.surface == nil {
+                removeRegistrationNode(current)
+                node = next
+                continue
+            }
+            if current.isRegistered,
+               let surface = current.surface,
+               surface.id == surfaceID {
+                return current
+            }
+            node = next
+        }
+        return nil
+    }
+
+    /// Removes one registration and every index entry that names it.
+    private func removeRegistrationNode(
+        _ node: TerminalSurfaceRegistryWeakNode
+    ) {
+        if incrementalTraversalNodes[node.identity] === node {
+            incrementalTraversalNodes.removeValue(forKey: node.identity)
+        }
+        surfaceFocusPlacementsByIdentity.removeValue(forKey: node.identity)
+        if canonicalSurfaceNodes[node.surfaceID] === node {
+            canonicalSurfaceNodes.removeValue(forKey: node.surfaceID)
+            surfaceFocusPlacements.removeValue(forKey: node.surfaceID)
+        }
+        unlinkIncrementalTraversalNode(node)
+    }
+
+    /// Resolves and repairs the canonical weak-node index while `lock` is held.
+    private func canonicalSurfaceNode(
+        surfaceID: UUID
+    ) -> TerminalSurfaceRegistryWeakNode? {
+        if let canonical = canonicalSurfaceNodes[surfaceID],
+           canonical.isRegistered,
+           canonical.surface != nil {
+            return canonical
+        }
+        guard let promoted = newestRegisteredNode(surfaceID: surfaceID) else {
+            canonicalSurfaceNodes.removeValue(forKey: surfaceID)
+            surfaceFocusPlacements.removeValue(forKey: surfaceID)
+            return nil
+        }
+        canonicalSurfaceNodes[surfaceID] = promoted
+        surfaceFocusPlacements[surfaceID] =
+            surfaceFocusPlacementsByIdentity[promoted.identity]
+        return promoted
     }
 }
