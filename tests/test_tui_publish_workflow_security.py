@@ -935,6 +935,37 @@ def test_registry_publishers_reuse_preflight_artifacts() -> None:
         assert "python3 -m build" not in python_publish
 
 
+def test_credentialed_publishers_bind_immutable_preflight_artifacts() -> None:
+    npm = workflow("sdk-publish-npm.yml")
+    python = workflow("sdk-publish-python.yml")
+    bootstrap_python = workflow("sdk-bootstrap-pypi.yml")
+    release = workflow("sdk-release-cut.yml")
+
+    for preflight in (npm, python, bootstrap_python):
+        assert "artifact-id:" in preflight
+        assert "artifact_sha256:" in preflight
+        assert "overwrite: true" not in preflight
+
+    npm_publish = workflow_job(release, "publish-npm")
+    assert "artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}" in npm_publish
+    assert "EXPECTED_ARTIFACT_SHA256" in npm_publish
+    assert 'sha256sum "${packages[0]}"' in npm_publish
+    assert 'package["name"] == "cmux-sdk"' in npm_publish
+    assert 'package["version"] == os.environ["CMUX_SDK_VERSION"]' in npm_publish
+
+    for job in ("publish-python-wheel", "publish-python-sdist"):
+        block = workflow_job(release, job)
+        assert "artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}" in block
+        assert "EXPECTED_ARTIFACT_SHA256" in block
+        assert "sha256sum" in block
+        assert "cmux_sdk-${CMUX_SDK_VERSION}" in block
+
+    bootstrap_publish = workflow_job(bootstrap_python, "publish")
+    assert "artifact-ids: ${{ needs.build.outputs.artifact_id }}" in bootstrap_publish
+    assert "EXPECTED_ARTIFACT_SHA256" in bootstrap_publish
+    assert "sha256sum" in bootstrap_publish
+
+
 def test_irreversible_registry_writes_are_independently_rerunnable() -> None:
     release = workflow("sdk-release-cut.yml")
 
