@@ -11,8 +11,14 @@ struct NotificationsPage: View {
     @AppStorage(PhonePushSettings.forwardEnabledKey) private var forwardToPhone = false
     @AppStorage(PhonePushSettings.hideContentKey) private var hidePhoneNotificationContent = false
     @AppStorage(PhonePushSettings.forwardModeKey) private var forwardToPhoneMode = PhoneForwardingMode.defaultMode.rawValue
+#if DEBUG
+    @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
+#endif
 
     var body: some View {
+#if DEBUG
+        let _ = { minimalModeInvalidationProbe.notificationsPageBody?() }()
+#endif
         VStack(spacing: 0) {
             header
             Divider()

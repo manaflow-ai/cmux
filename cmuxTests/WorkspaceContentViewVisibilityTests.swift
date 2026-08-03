@@ -19,11 +19,13 @@ final class WorkspaceContentViewVisibilityTests {
         var contentViewBody = 0
         var workspaceContentBody = 0
         var verticalTabsSidebarBody = 0
+        var notificationsPageBody = 0
 
         func reset() {
             contentViewBody = 0
             workspaceContentBody = 0
             verticalTabsSidebarBody = 0
+            notificationsPageBody = 0
         }
     }
 
@@ -255,6 +257,97 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(
             counts.verticalTabsSidebarBody == 0,
             "Minimal-mode toggles must not rebuild the vertical sidebar render context."
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func testHiddenNotificationsPageIgnoresNotificationStoreUpdates() async throws {
+        _ = NSApplication.shared
+
+        let suiteName = "WorkspaceContentViewHiddenNotificationsTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(
+            CmuxExtensionSidebarSelection.defaultProviderId,
+            forKey: CmuxExtensionSidebarSelection.defaultsKey
+        )
+
+        let tabManager = TabManager()
+        let workspaceId = try #require(tabManager.selectedTabId)
+        let notificationStore = TerminalNotificationStore.shared
+        let originalNotifications = notificationStore.notifications
+        notificationStore.replaceNotificationsForTesting([])
+        defer {
+            notificationStore.replaceNotificationsForTesting(originalNotifications)
+        }
+
+        let sidebarSelectionState = SidebarSelectionState(selection: .notifications)
+        let counts = MinimalModeBodyProbeCounts()
+        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+            .environmentObject(tabManager)
+            .environmentObject(notificationStore)
+            .environmentObject(SidebarState())
+            .environmentObject(sidebarSelectionState)
+            .environmentObject(FileExplorerState())
+            .environmentObject(CmuxConfigStore())
+            .environment(
+                \.minimalModeInvalidationProbe,
+                MinimalModeInvalidationProbe(
+                    notificationsPageBody: { counts.notificationsPageBody += 1 }
+                )
+            )
+            .defaultAppStorage(defaults)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        #expect(
+            counts.notificationsPageBody > 0,
+            "The body probe must observe NotificationsPage while that page is selected."
+        )
+
+        sidebarSelectionState.selection = .tabs
+        await Self.drainMainRunLoop(for: window)
+        counts.reset()
+
+        for updateIndex in 0..<5 {
+            notificationStore.replaceNotificationsForTesting([
+                TerminalNotification(
+                    id: UUID(),
+                    tabId: workspaceId,
+                    surfaceId: nil,
+                    title: "Agent update \(updateIndex)",
+                    subtitle: "codex",
+                    body: "Streaming update \(updateIndex)",
+                    createdAt: Date(timeIntervalSince1970: TimeInterval(updateIndex)),
+                    isRead: false
+                ),
+            ])
+            await Self.drainMainRunLoop(for: window, iterations: 5)
+        }
+
+        #expect(
+            counts.notificationsPageBody == 0,
+            """
+            NotificationsPage evaluated \(counts.notificationsPageBody) times while the terminal \
+            tab was selected. Hidden notification feeds must not stay subscribed to \
+            TerminalNotificationStore publications (issue #8900).
+            """
         )
     }
 
