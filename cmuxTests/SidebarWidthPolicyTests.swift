@@ -536,18 +536,18 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
             unifySurfaceBackdrops: true,
             sidebarSettings: SidebarBackdropSettingsSnapshot(
                 materialRawValue: WindowChromeSidebarMaterialOption.sidebar.rawValue,
-                blendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
-                stateRawValue: SidebarStateOption.followWindow.rawValue,
-                tintHex: SidebarTintDefaults().hex,
+                blendModeRawValue: WindowChromeSidebarBlendModeOption.withinWindow.rawValue,
+                stateRawValue: WindowChromeSidebarStateOption.followWindow.rawValue,
+                tintHex: WindowChromeSidebarTintDefaults().hex,
                 tintHexLight: nil,
                 tintHexDark: nil,
-                tintOpacity: SidebarTintDefaults().opacity,
+                tintOpacity: WindowChromeSidebarTintDefaults().opacity,
                 cornerRadius: 0,
                 blurOpacity: 1,
                 colorScheme: .light
             ),
             windowGlassSettings: WindowGlassSettingsSnapshot(
-                sidebarBlendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
+                sidebarBlendModeRawValue: WindowChromeSidebarBlendModeOption.withinWindow.rawValue,
                 isEnabled: false,
                 tintHex: "#000000",
                 tintOpacity: 0,
