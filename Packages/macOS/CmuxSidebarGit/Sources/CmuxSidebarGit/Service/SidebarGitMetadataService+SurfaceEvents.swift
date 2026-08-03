@@ -149,7 +149,8 @@ extension SidebarGitMetadataService {
         guard let host, host.workspaceExists(workspaceId) else { return }
         let hadBranch = host.panelGitBranch(workspaceId: workspaceId, panelId: panelId) != nil
         let hadPullRequest = host.panelPullRequestBadge(workspaceId: workspaceId, panelId: panelId) != nil
-        guard hadBranch || hadPullRequest else { return }
+        let hadRepositoryLink = host.panelRepositoryLink(workspaceId: workspaceId, panelId: panelId) != nil
+        guard hadBranch || hadPullRequest || hadRepositoryLink else { return }
         pullRequestProbing.clearWorkspacePullRequestTracking(
             workspaceId: workspaceId,
             panelId: panelId
