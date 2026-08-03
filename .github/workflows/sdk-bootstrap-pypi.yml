@@ -129,7 +129,7 @@ jobs:
       - id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-python-bootstrap-dist
+          name: cmux-python-bootstrap-dist-${{ github.run_attempt }}
           path: bootstrap-dist/*
           if-no-files-found: error
 
@@ -148,7 +148,7 @@ jobs:
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-python-bootstrap-dist
+          name: cmux-python-bootstrap-dist-${{ github.run_attempt }}
           path: bootstrap-dist
 
       - name: Check whether the PyPI project exists
@@ -365,7 +365,7 @@ jobs:
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-python-bootstrap-dist
+          name: cmux-python-bootstrap-dist-${{ github.run_attempt }}
           path: bootstrap-dist
 
       - name: Install the pinned provenance verifier

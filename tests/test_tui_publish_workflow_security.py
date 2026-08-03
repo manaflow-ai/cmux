@@ -945,6 +945,7 @@ def test_credentialed_publishers_bind_immutable_preflight_artifacts() -> None:
         assert "steps.upload.outputs.artifact-id" in preflight
         assert "artifact_sha256:" in preflight
         assert "overwrite: true" not in preflight
+        assert "${{ github.run_attempt }}" in preflight
 
     npm_publish = workflow_job(release, "publish-npm")
     assert "artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}" in npm_publish
