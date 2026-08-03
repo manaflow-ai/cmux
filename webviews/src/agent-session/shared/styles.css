@@ -677,6 +677,11 @@ select {
 
 .codex-composer-inner {
   isolation: isolate;
+  justify-content: flex-end;
+}
+
+.codex-composer-input-area {
+  flex: 0 1 auto;
 }
 
 @supports (corner-shape: superellipse(1.5)) {
