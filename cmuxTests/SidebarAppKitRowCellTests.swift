@@ -276,6 +276,44 @@ struct SidebarAppKitRowCellTests {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
 
+    private static func brightInkBounds(in view: NSView) throws -> NSRect {
+        view.layoutSubtreeIfNeeded()
+        view.displayIfNeeded()
+        let bounds = view.bounds.integral
+        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: bounds))
+        bitmap.size = bounds.size
+        view.cacheDisplay(in: bounds, to: bitmap)
+
+        let scaleX = CGFloat(bitmap.pixelsWide) / bounds.width
+        let scaleY = CGFloat(bitmap.pixelsHigh) / bounds.height
+        var minimumX = bitmap.pixelsWide
+        var minimumY = bitmap.pixelsHigh
+        var maximumX = -1
+        var maximumY = -1
+
+        for x in 0..<bitmap.pixelsWide {
+            for y in 0..<bitmap.pixelsHigh {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      color.alphaComponent > 0.5,
+                      min(color.redComponent, color.greenComponent, color.blueComponent) > 0.72 else {
+                    continue
+                }
+                minimumX = min(minimumX, x)
+                minimumY = min(minimumY, y)
+                maximumX = max(maximumX, x)
+                maximumY = max(maximumY, y)
+            }
+        }
+
+        try #require(maximumX >= minimumX && maximumY >= minimumY)
+        return NSRect(
+            x: CGFloat(minimumX) / scaleX,
+            y: CGFloat(minimumY) / scaleY,
+            width: CGFloat(maximumX - minimumX + 1) / scaleX,
+            height: CGFloat(maximumY - minimumY + 1) / scaleY
+        )
+    }
+
     private static func fontTraits(in field: NSTextField) -> [NSFontTraitMask] {
         let attributed = field.attributedStringValue
         var traits: [NSFontTraitMask] = []
@@ -423,6 +461,24 @@ struct SidebarAppKitRowCellTests {
 
         #expect(badge.frame.width > badge.frame.height)
         #expect(badge.accessibilityLabel() == "125 unread notifications")
+    }
+
+    @Test
+    func unreadBadgeUsesCompactCapsuleAndCentersGlyphInk() throws {
+        let badge = SidebarRowUnreadBadgeView()
+        badge.configure(
+            count: 2,
+            fillColor: .black,
+            textColor: .white,
+            font: .systemFont(ofSize: 8.5, weight: .semibold)
+        )
+        let size = badge.fittingSize(horizontalPadding: 4, minimumHeight: 14)
+        badge.frame = NSRect(origin: .zero, size: size)
+        let inkBounds = try Self.brightInkBounds(in: badge)
+
+        #expect(size.width >= size.height + 2)
+        #expect(abs(inkBounds.midX - badge.bounds.midX) <= 0.25)
+        #expect(abs(inkBounds.midY - badge.bounds.midY) <= 0.25)
     }
 
     @Test
