@@ -27,6 +27,10 @@ struct BrowserPagePayload: Decodable {
 
 @MainActor
 enum GlobalSearchDocuments {
+    static func shouldPersistTitleDocument(for panelType: PanelType) -> Bool {
+        panelType != .application
+    }
+
     static func browseHit(for context: GlobalSearchPanelContext) -> SearchIndexHit {
         let kind: GlobalSearchKind
         switch context.panel.panelType {
