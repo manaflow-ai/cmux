@@ -1083,6 +1083,80 @@ struct ApplicationSurfaceTests {
         panel.close()
     }
 
+    @Test
+    func hiddenCaptureIgnoresCancelledStartFailureAndResumes() async throws {
+        _ = NSApplication.shared
+        let frameRing = try ApplicationSurfaceFrameRingFixture()
+        let service = ComputerUseRuntimeService()
+        let lease = ApplicationSurfaceRuntimeLease(
+            service: service,
+            identifier: UUID()
+        )
+        let runtime = FakeApplicationSurfaceRuntime()
+        runtime.waitForStartCancellation = true
+        var captureStates: [ApplicationCaptureState] = []
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { lease },
+            onStateChanged: { state, _ in
+                captureStates.append(state)
+            },
+            onMovedToWindow: { _ in }
+        )
+        let window = ApplicationSurfaceVisibleTestWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        view.setCaptureActive(true)
+        defer {
+            view.teardown()
+            window.contentView = nil
+            window.close()
+            withExtendedLifetime(service) {}
+        }
+
+        let startDeadline = ContinuousClock.now + .seconds(1)
+        while !runtime.startWasRequested,
+              ContinuousClock.now < startDeadline {
+            await Task.yield()
+        }
+        try #require(runtime.startWasRequested)
+
+        window.contentView = nil
+        let cancellationDeadline = ContinuousClock.now + .seconds(1)
+        while !runtime.startCancellationObserved,
+              ContinuousClock.now < cancellationDeadline {
+            await Task.yield()
+        }
+        try #require(runtime.startCancellationObserved)
+        #expect(captureStates.last == .suspended)
+        #expect(!captureStates.contains(.failed))
+
+        runtime.waitForStartCancellation = false
+        runtime.sessionToStart = ApplicationSurfaceSessionDescriptor(
+            sessionID: "resumed-after-hidden-start",
+            frameTransport: frameRing.descriptor
+        )
+        window.contentView = view
+        window.displayIfNeeded()
+
+        let streamingDeadline = ContinuousClock.now + .seconds(2)
+        while !captureStates.contains(.streaming),
+              ContinuousClock.now < streamingDeadline {
+            await Task.yield()
+        }
+        #expect(captureStates.contains(.streaming))
+    }
+
     @Test func dormantApplicationCaptureStartsWithSuspendedHealth() {
         let panel = ApplicationPanel(
             workspaceId: UUID(),
@@ -2214,6 +2288,9 @@ private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
     var windowListError: (any Error)?
     var sessionToStart: ApplicationSurfaceSessionDescriptor?
     var sentEvents: [ApplicationSurfaceInputEvent] = []
+    var waitForStartCancellation = false
+    var startWasRequested = false
+    var startCancellationObserved = false
 
     func acquireApplicationSurfaceLease() async -> ApplicationSurfaceRuntimeLease? {
         nil
@@ -2234,6 +2311,14 @@ private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
         processID: Int32,
         frameRate: Int
     ) async throws -> ApplicationSurfaceSessionDescriptor {
+        startWasRequested = true
+        if waitForStartCancellation {
+            while !Task.isCancelled {
+                await Task.yield()
+            }
+            startCancellationObserved = true
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
         if let sessionToStart {
             return sessionToStart
         }
