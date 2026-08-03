@@ -27,6 +27,7 @@ import {
   proWelcomeFulfillments,
   stripeCustomers,
   stripeSubscriptions,
+  subrouterTenants,
   vaultSessions,
   vaultSnapshots,
   vaultUploadGrants,
@@ -64,6 +65,7 @@ import {
 } from "../../../services/vms/errors";
 import type { ProviderId } from "../../../services/vms/drivers";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
+import { createHostedSubrouterClient } from "../../../services/subrouter/hostedClient";
 import {
   destroyVm,
   listUserVms,
@@ -86,6 +88,11 @@ type DeletableStackUser = {
   readonly listTeams?: (options?: StackPaginationOptions) => Promise<StackPaginationPage>;
   readonly delete: () => Promise<void>;
 } & ProMetadataCustomer;
+
+type DeletableStackSession = {
+  readonly user: DeletableStackUser;
+  readonly accessToken: string;
+};
 
 type AccountDeletionStackTeam = {
   readonly id: string;
@@ -119,9 +126,10 @@ type AccountDeletionTombstoneStart =
   | { readonly kind: "cleanupIncomplete" };
 
 export async function DELETE(request: Request): Promise<Response> {
-  const stackUser = await currentDeletableStackUser(request);
-  if (!stackUser) return unauthorized();
+  const stackSession = await currentDeletableStackUser(request);
+  if (!stackSession) return unauthorized();
 
+  const { user: stackUser, accessToken } = stackSession;
   const userId = stackUser.id;
   const originalStackMetadata = stackUser.clientReadOnlyMetadata;
   let stackMetadataMarked = false;
@@ -236,6 +244,14 @@ export async function DELETE(request: Request): Promise<Response> {
         await refreshAccountDeletionTombstoneLease(userId);
       },
     });
+    const hostedSubrouter = createHostedSubrouterClient();
+    for (const teamId of accountScope.teamIds) {
+      // Retirement revokes every tenant key before credential-bearing state is
+      // deleted. A 202 response remains retryable while live requests drain.
+      destructiveCleanupStarted = true;
+      await hostedSubrouter.deleteTenant(accessToken, teamId);
+      await refreshAccountDeletionTombstoneLease(userId);
+    }
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
@@ -307,7 +323,7 @@ export async function DELETE(request: Request): Promise<Response> {
   }
 }
 
-async function currentDeletableStackUser(request: Request): Promise<DeletableStackUser | null> {
+async function currentDeletableStackUser(request: Request): Promise<DeletableStackSession | null> {
   if (!isStackConfigured()) return null;
 
   const authHeader = request.headers.get("authorization");
@@ -323,7 +339,7 @@ async function currentDeletableStackUser(request: Request): Promise<DeletableSta
   });
   const candidate = user as Partial<DeletableStackUser>;
   if (!user || typeof candidate.delete !== "function" || typeof candidate.update !== "function") return null;
-  return user as DeletableStackUser;
+  return { user: user as DeletableStackUser, accessToken };
 }
 
 async function markAccountDeletionTombstonePending(userId: string): Promise<AccountDeletionTombstoneStart> {
@@ -1187,6 +1203,9 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       eq(devices.userId, userId),
       inArray(devices.teamId, deletionTeamIds),
     ));
+    await tx.delete(subrouterTenants).where(
+      inArray(subrouterTenants.teamId, deletionTeamIds),
+    );
 
   });
 }

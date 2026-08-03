@@ -14,6 +14,7 @@ export type HostedSubrouterClient = {
     accessToken: string,
     team: { readonly teamId: string; readonly teamName: string },
   ) => Promise<HostedTenant>;
+  readonly deleteTenant: (accessToken: string, teamId: string) => Promise<void>;
   readonly listAccounts: (tenantKey: string) => Promise<readonly SubrouterAccount[]>;
   readonly createAccount: (
     tenantKey: string,
@@ -82,6 +83,32 @@ export function createHostedSubrouterClient(options: {
         },
       );
       return parseHostedTenant(response);
+    },
+    deleteTenant: async (accessToken, teamId) => {
+      const response = await requestJson(
+        fetchImpl,
+        `${baseUrl}/_subrouter/auth/stack/tenant`,
+        {
+          method: "DELETE",
+          headers: {
+            authorization: `Bearer ${accessToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ teamId }),
+        },
+      );
+      if (!isRecord(response)) {
+        throw new HostedSubrouterError("invalid tenant deletion response", 502);
+      }
+      if (response.deletionPending === true) {
+        throw new HostedSubrouterError(
+          "hosted Subrouter tenant deletion is pending",
+          503,
+        );
+      }
+      if (response.ok !== true) {
+        throw new HostedSubrouterError("invalid tenant deletion response", 502);
+      }
     },
     listAccounts: async (tenantKey) => {
       const response = await tenantRequest(

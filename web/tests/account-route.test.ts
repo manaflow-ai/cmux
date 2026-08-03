@@ -978,7 +978,7 @@ describe("account deletion route", () => {
 
     expect(response.status).toBe(200);
     expect(routeEvents).toContain("analytics-lease-cleanup");
-    expect(postHogDeleteFetch).toHaveBeenCalledTimes(1);
+    expect(postHogDeleteRequests).toHaveLength(1);
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
