@@ -4021,23 +4021,39 @@ final class SidebarCreationContextTests: XCTestCase {
         )
     }
 
-    func testContextSelectionDoesNotFilterOrReparentWorkspaces() throws {
+    func testMachineContextsScopeWorkspacesWithoutOwningTheirRuntime() throws {
         let manager = TabManager()
-        let first = try XCTUnwrap(manager.tabs.first)
-        let second = manager.addWorkspace(select: false)
-        first.remoteConfiguration = makeRemoteConfiguration(ownerWorkspaceID: first.id)
-        second.remoteConfiguration = makeRemoteConfiguration(ownerWorkspaceID: second.id)
+        let localWorkspace = try XCTUnwrap(manager.tabs.first)
+        let remoteWorkspace = manager.addWorkspace(select: false)
+        remoteWorkspace.remoteConfiguration = makeRemoteConfiguration(
+            ownerWorkspaceID: remoteWorkspace.id
+        )
         let workspaceIDs = manager.tabs.map(\.id)
-        let selectedWorkspaceID = manager.selectedTabId
         let automaticChildColumn = manager.selectedSidebarChildColumn
 
         let remote = try XCTUnwrap(
             manager.sidebarCreationContextSnapshots().first { $0.kind == .remote }
         )
-        XCTAssertTrue(manager.selectSidebarCreationContext(id: remote.id))
+        XCTAssertEqual(
+            manager.sidebarWorkspaces(
+                forCreationContextID: SidebarCreationContextSelection.automaticID
+            ).map(\.id),
+            [localWorkspace.id, remoteWorkspace.id],
+            "Automatic is the aggregate view"
+        )
+        XCTAssertEqual(
+            manager.sidebarWorkspaces(
+                forCreationContextID: SidebarCreationContextSelection.localID
+            ).map(\.id),
+            [localWorkspace.id]
+        )
+        XCTAssertEqual(
+            manager.sidebarWorkspaces(forCreationContextID: remote.id).map(\.id),
+            [remoteWorkspace.id]
+        )
 
+        XCTAssertTrue(manager.selectSidebarCreationContext(id: remote.id))
         XCTAssertEqual(manager.tabs.map(\.id), workspaceIDs)
-        XCTAssertEqual(manager.selectedTabId, selectedWorkspaceID)
         XCTAssertNotEqual(manager.selectedSidebarChildColumn.id, automaticChildColumn.id)
         XCTAssertEqual(
             manager.selectedSidebarChildColumn.rendererID,
@@ -4051,8 +4067,41 @@ final class SidebarCreationContextTests: XCTestCase {
         )
         XCTAssertEqual(
             manager.sidebarCreationContextSnapshots().first { $0.id == remote.id }?.workspaceCount,
-            2
+            1
         )
+
+        XCTAssertTrue(
+            manager.moveSidebarWorkspaces(
+                [localWorkspace.id],
+                toCreationContextID: remote.id
+            )
+        )
+        XCTAssertTrue(
+            manager.moveSidebarWorkspaces(
+                [remoteWorkspace.id],
+                toCreationContextID: SidebarCreationContextSelection.localID
+            )
+        )
+        XCTAssertEqual(
+            manager.sidebarWorkspaces(forCreationContextID: remote.id).map(\.id),
+            [localWorkspace.id]
+        )
+        XCTAssertEqual(
+            manager.sidebarWorkspaces(
+                forCreationContextID: SidebarCreationContextSelection.localID
+            ).map(\.id),
+            [remoteWorkspace.id]
+        )
+        XCTAssertNil(
+            localWorkspace.remoteConfiguration,
+            "Putting a local workspace under a remote must not make its panes remote"
+        )
+        XCTAssertNotNil(
+            remoteWorkspace.remoteConfiguration,
+            "Putting a remote workspace under This Mac must not make its panes local"
+        )
+        XCTAssertEqual(manager.tabs.map(\.id), workspaceIDs)
+
         let childColumns = manager.sidebarCreationContextSnapshots().map(\.childColumn)
         XCTAssertEqual(Set(childColumns.map(\.id)).count, childColumns.count)
         XCTAssertEqual(
