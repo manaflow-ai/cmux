@@ -394,7 +394,7 @@ private struct ChatScreenChrome: ViewModifier {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .principal) {
-                        ChatSessionHeaderView(
+                        ChatSessionHeaderBridge(
                             descriptor: store.descriptor,
                             agentState: store.agentState,
                             isConnected: store.isConnected
@@ -421,3 +421,36 @@ private struct ChatScreenChrome: ViewModifier {
         #endif
     }
 }
+
+#if os(iOS)
+private struct ChatSessionHeaderBridge: UIViewRepresentable {
+    let descriptor: ChatSessionDescriptor
+    let agentState: ChatAgentState
+    let isConnected: Bool
+    var titleOverride: String? = nil
+    var subtitle: String? = nil
+    var style: ChatSessionHeaderView.Style = .regular
+
+    func makeUIView(context: Context) -> ChatSessionHeaderView {
+        ChatSessionHeaderView(
+            descriptor: descriptor,
+            agentState: agentState,
+            isConnected: isConnected,
+            titleOverride: titleOverride,
+            subtitle: subtitle,
+            style: style
+        )
+    }
+
+    func updateUIView(_ view: ChatSessionHeaderView, context: Context) {
+        view.update(
+            descriptor: descriptor,
+            agentState: agentState,
+            isConnected: isConnected,
+            titleOverride: titleOverride,
+            subtitle: subtitle,
+            style: style
+        )
+    }
+}
+#endif

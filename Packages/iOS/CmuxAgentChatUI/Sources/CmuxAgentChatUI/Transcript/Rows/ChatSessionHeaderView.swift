@@ -1,34 +1,28 @@
 import CmuxAgentChat
-import CmuxMobileSupport
-import SwiftUI
 
-/// The compact toolbar-principal header: a leading state indicator beside a
-/// two-line title (workspace name over tab name).
-///
-/// State is carried entirely by the indicator (color + motion + a symbol for
-/// the two "attention" states), not words, so the narrow nav-bar center can
-/// spend its width on the names rather than on "needs input ·". VoiceOver
-/// still hears the full state via the accessibility value.
-public struct ChatSessionHeaderView: View {
-    private let descriptor: ChatSessionDescriptor
-    private let agentState: ChatAgentState
-    private let isConnected: Bool
-    private let titleOverride: String?
-    private let subtitle: String?
-    private let style: Style
+#if canImport(UIKit)
+import UIKit
 
-    /// Creates a session header.
-    ///
-    /// - Parameters:
-    ///   - descriptor: The session identity (title, agent kind).
-    ///   - agentState: Live agent presence, driving the indicator.
-    ///   - isConnected: Whether the live event stream is up; when `false`
-    ///     the indicator desaturates and breathes (reconnecting).
-    ///   - titleOverride: When set, shown as the headline instead of the
-    ///     session's generated title (the host passes the workspace name so
-    ///     the header reads as the workspace, not the first prompt).
-    ///   - subtitle: When set, shown as line two (the host passes the
-    ///     tab/terminal name).
+/// Native compact session header with state, title, subtitle, and VoiceOver value.
+@MainActor
+public final class ChatSessionHeaderView: UIView {
+    public enum Style: Sendable {
+        case regular
+        case toolbarCompact
+    }
+
+    private let indicator = ChatStateIndicatorView()
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+    private let textStack = UIStackView()
+    private let rootStack = UIStackView()
+    private var descriptor: ChatSessionDescriptor
+    private var agentState: ChatAgentState
+    private var isConnected: Bool
+    private var titleOverride: String?
+    private var subtitle: String?
+    private var style: Style
+
     public init(
         descriptor: ChatSessionDescriptor,
         agentState: ChatAgentState,
@@ -43,173 +37,213 @@ public struct ChatSessionHeaderView: View {
         self.titleOverride = titleOverride
         self.subtitle = subtitle
         self.style = style
+        super.init(frame: .zero)
+        installViews()
+        render()
     }
 
-    public var body: some View {
-        HStack(spacing: 6) {
-            ChatStateIndicatorView(state: agentState, isConnected: isConnected, size: indicatorSize)
-            titleStack
-        }
-        .padding(.horizontal, horizontalContentPadding)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue(accessibilityValue)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    private var title: String {
-        titleOverride ?? descriptor.title ?? descriptor.agentKind.displayName
+    public func update(
+        descriptor: ChatSessionDescriptor,
+        agentState: ChatAgentState,
+        isConnected: Bool,
+        titleOverride: String? = nil,
+        subtitle: String? = nil,
+        style: Style = .regular
+    ) {
+        self.descriptor = descriptor
+        self.agentState = agentState
+        self.isConnected = isConnected
+        self.titleOverride = titleOverride
+        self.subtitle = subtitle
+        self.style = style
+        render()
     }
 
-    private var subtitleLine: String? {
-        guard let subtitle, !subtitle.isEmpty else { return nil }
-        return subtitle
+    private func installViews() {
+        isAccessibilityElement = true
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        titleLabel.numberOfLines = 1
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        subtitleLabel.numberOfLines = 1
+        subtitleLabel.lineBreakMode = .byTruncatingTail
+        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        textStack.axis = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 1
+        textStack.addArrangedSubview(titleLabel)
+        textStack.addArrangedSubview(subtitleLabel)
+
+        rootStack.axis = .horizontal
+        rootStack.alignment = .center
+        rootStack.spacing = 6
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
+        rootStack.addArrangedSubview(indicator)
+        rootStack.addArrangedSubview(textStack)
+        addSubview(rootStack)
+        NSLayoutConstraint.activate([
+            rootStack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            rootStack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            rootStack.topAnchor.constraint(equalTo: topAnchor),
+            rootStack.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
     }
 
-    @ViewBuilder
-    private var titleStack: some View {
+    private func render() {
+        let title = titleOverride ?? descriptor.title ?? descriptor.agentKind.displayName
+        let subtitleLine = subtitle.flatMap { $0.isEmpty ? nil : $0 }
+        titleLabel.text = title
+        subtitleLabel.text = subtitleLine
+        subtitleLabel.isHidden = subtitleLine == nil
+
         switch style {
         case .regular:
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if let subtitleLine {
-                    Text(subtitleLine)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-            }
+            titleLabel.font = .preferredFont(forTextStyle: .headline)
+            subtitleLabel.font = .preferredFont(forTextStyle: .caption2)
+            directionalLayoutMargins = .zero
+            indicator.size = 11
         case .toolbarCompact:
-            MobileCompactToolbarTitleStack(title: title, subtitle: subtitleLine)
+            titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+            subtitleLabel.font = .systemFont(ofSize: 11, weight: .regular)
+            directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 3, bottom: 0, trailing: 3)
+            rootStack.isLayoutMarginsRelativeArrangement = true
+            rootStack.directionalLayoutMargins = directionalLayoutMargins
+            indicator.size = 10
         }
-    }
-
-    private var indicatorSize: CGFloat {
         switch style {
         case .regular:
-            return 11
+            rootStack.isLayoutMarginsRelativeArrangement = false
+            rootStack.directionalLayoutMargins = .zero
         case .toolbarCompact:
-            return 10
+            break
         }
+
+        indicator.update(state: agentState, isConnected: isConnected)
+        accessibilityLabel = subtitleLine.map { "\(title), \($0)" } ?? title
+        accessibilityValue = stateAccessibilityValue
+        invalidateIntrinsicContentSize()
     }
 
-    private var horizontalContentPadding: CGFloat {
-        switch style {
-        case .regular:
-            return 0
-        case .toolbarCompact:
-            return MobileCompactToolbarTitleStack.horizontalContentPadding
-        }
-    }
-
-    /// VoiceOver reads the names; the live state is the accessibility value.
-    private var accessibilityLabel: String {
-        guard let subtitleLine else { return title }
-        return "\(title), \(subtitleLine)"
-    }
-
-    private var accessibilityValue: String {
-        var value = stateLabel
-        if !isConnected {
-            value += ", "
-            value += String(
-                localized: "chat.header.reconnecting",
-                defaultValue: "reconnecting…",
-                bundle: .module
-            )
-        }
-        return value
-    }
-
-    private var stateLabel: String {
+    private var stateAccessibilityValue: String {
+        let state: String
         switch agentState {
         case .working:
-            return String(
-                localized: "chat.header.state.working", defaultValue: "working", bundle: .module
-            )
+            state = String(localized: "chat.header.state.working", defaultValue: "working", bundle: .module)
         case .needsInput:
-            return String(
-                localized: "chat.header.state.needs_input",
-                defaultValue: "needs input",
-                bundle: .module
-            )
+            state = String(localized: "chat.header.state.needs_input", defaultValue: "needs input", bundle: .module)
         case .idle:
-            return String(
-                localized: "chat.header.state.idle", defaultValue: "idle", bundle: .module
-            )
+            state = String(localized: "chat.header.state.idle", defaultValue: "idle", bundle: .module)
         case .ended:
-            return String(
-                localized: "chat.header.state.ended", defaultValue: "ended", bundle: .module
-            )
+            state = String(localized: "chat.header.state.ended", defaultValue: "ended", bundle: .module)
         }
+        guard !isConnected else { return state }
+        let reconnecting = String(
+            localized: "chat.header.reconnecting",
+            defaultValue: "reconnecting…",
+            bundle: .module
+        )
+        return "\(state), \(reconnecting)"
     }
 }
 
-/// The header's state glyph: color + motion for the two ambient states
-/// (working pulses green, idle is a filled gray dot), and a distinct SF
-/// Symbol shape for the two meaningful ones (needs-input is an orange
-/// question mark, ended is a hollow ring) so the four states are
-/// distinguishable by shape and motion, not color alone. While
-/// reconnecting it desaturates and breathes regardless of state.
-struct ChatStateIndicatorView: View {
-    let state: ChatAgentState
-    let isConnected: Bool
-    let size: CGFloat
-
-    @State private var pulseDimmed = false
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var isWorking: Bool {
-        if case .working = state { return true }
-        return false
+@MainActor
+private final class ChatStateIndicatorView: UIView {
+    var size: CGFloat = 11 {
+        didSet {
+            widthConstraint.constant = size
+            heightConstraint.constant = size
+            layer.cornerRadius = size / 2
+            setNeedsLayout()
+        }
     }
 
-    /// Pulses while working; breathes (slower) while reconnecting.
-    private var pulses: Bool {
-        (isWorking || !isConnected) && !reduceMotion
+    private let glyph = UIImageView()
+    private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: size)
+    private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: size)
+    private var state: ChatAgentState = .idle
+    private var isConnected = true
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthConstraint.isActive = true
+        heightConstraint.isActive = true
+        glyph.contentMode = .scaleAspectFit
+        glyph.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(glyph)
+        NSLayoutConstraint.activate([
+            glyph.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glyph.trailingAnchor.constraint(equalTo: trailingAnchor),
+            glyph.topAnchor.constraint(equalTo: topAnchor),
+            glyph.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        isAccessibilityElement = false
     }
 
-    var body: some View {
-        glyph
-            .frame(width: size, height: size)
-            .saturation(isConnected ? 1 : 0)
-            .opacity(opacity)
-            .animation(
-                pulses
-                    ? .easeInOut(duration: isConnected ? 0.9 : 1.4).repeatForever(autoreverses: true)
-                    : .default,
-                value: pulseDimmed
-            )
-            // Drive the pulse from `pulses` itself (not a one-shot onAppear),
-            // so it starts on idle->working and STOPS on working->idle even
-            // though this header view is reused across state changes.
-            .onAppear { pulseDimmed = pulses }
-            .onChange(of: pulses) { _, on in pulseDimmed = on }
-            .accessibilityHidden(true)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    private var opacity: Double {
-        if pulses { return pulseDimmed ? 0.4 : 1.0 }
-        return isConnected ? 1 : 0.6
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateAnimation()
     }
 
-    @ViewBuilder
-    private var glyph: some View {
+    func update(state: ChatAgentState, isConnected: Bool) {
+        self.state = state
+        self.isConnected = isConnected
+        layer.removeAllAnimations()
+        glyph.image = nil
+        layer.borderWidth = 0
+        layer.borderColor = nil
+        backgroundColor = .clear
+        layer.cornerRadius = size / 2
+
         switch state {
         case .working:
-            Circle().fill(Color.green)
+            backgroundColor = .systemGreen
         case .idle:
-            Circle().fill(Color.secondary)
+            backgroundColor = .secondaryLabel
         case .needsInput:
-            Image(systemName: "questionmark.circle.fill")
-                .font(.system(size: size, weight: .bold))
-                .foregroundStyle(.white, .orange)
+            glyph.image = UIImage(systemName: "questionmark.circle.fill")?
+                .withRenderingMode(.alwaysTemplate)
+            glyph.tintColor = .systemOrange
         case .ended:
-            Circle().stroke(Color.secondary, lineWidth: 1.3)
+            layer.borderWidth = 1.3
+            layer.borderColor = UIColor.secondaryLabel.cgColor
         }
+        alpha = isConnected ? 1 : 0.6
+        updateAnimation()
+    }
+
+    private func updateAnimation() {
+        layer.removeAnimation(forKey: "chat.state.pulse")
+        let isWorking: Bool
+        switch state {
+        case .working:
+            isWorking = true
+        case .idle, .needsInput, .ended:
+            isWorking = false
+        }
+        guard window != nil,
+              !UIAccessibility.isReduceMotionEnabled,
+              isWorking || !isConnected else { return }
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = 1
+        animation.toValue = 0.4
+        animation.duration = isConnected ? 0.9 : 1.4
+        animation.autoreverses = true
+        animation.repeatCount = .infinity
+        layer.add(animation, forKey: "chat.state.pulse")
     }
 }
+#endif

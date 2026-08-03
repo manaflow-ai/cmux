@@ -108,7 +108,7 @@ struct AgentChatDemoScreen: View {
                                     let titleOverride,
                                     let subtitle
                                 ) = value.labelToken {
-                                    ChatSessionHeaderView(
+                                    MobileChatSessionHeaderBridge(
                                         descriptor: descriptor,
                                         agentState: agentState,
                                         isConnected: isConnected,
@@ -160,7 +160,7 @@ struct AgentChatDemoScreen: View {
     }
 
     private func header(for stack: DemoStack) -> some View {
-        ChatSessionHeaderView(
+        MobileChatSessionHeaderBridge(
             descriptor: stack.store.descriptor,
             agentState: stack.store.agentState,
             isConnected: stack.store.isConnected,

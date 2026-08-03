@@ -264,7 +264,7 @@ struct WorkspaceDetailView: View {
                     let titleOverride,
                     let subtitle
                 ):
-                    ChatSessionHeaderView(
+                    MobileChatSessionHeaderBridge(
                         descriptor: descriptor,
                         agentState: agentState,
                         isConnected: isConnected,
@@ -886,3 +886,36 @@ struct WorkspaceDetailView: View {
         UIApplication.shared.dismissMobileKeyboard()
     }
 }
+
+#if os(iOS)
+struct MobileChatSessionHeaderBridge: UIViewRepresentable {
+    let descriptor: ChatSessionDescriptor
+    let agentState: ChatAgentState
+    let isConnected: Bool
+    var titleOverride: String? = nil
+    var subtitle: String? = nil
+    var style: ChatSessionHeaderView.Style = .regular
+
+    func makeUIView(context: Context) -> ChatSessionHeaderView {
+        ChatSessionHeaderView(
+            descriptor: descriptor,
+            agentState: agentState,
+            isConnected: isConnected,
+            titleOverride: titleOverride,
+            subtitle: subtitle,
+            style: style
+        )
+    }
+
+    func updateUIView(_ view: ChatSessionHeaderView, context: Context) {
+        view.update(
+            descriptor: descriptor,
+            agentState: agentState,
+            isConnected: isConnected,
+            titleOverride: titleOverride,
+            subtitle: subtitle,
+            style: style
+        )
+    }
+}
+#endif
