@@ -8953,7 +8953,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             autoWelcomeIfNeeded: initialTerminalInput == nil,
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
-                ?? WorkspaceCustomizationStore(defaults: .standard),
+                ?? WorkspaceCustomizationStore(
+                    defaults: WorkspaceCustomizationStore.makeIsolatedDefaults(
+                        source: .standard,
+                        bundleIdentifier: Bundle.main.bundleIdentifier
+                    )
+                ),
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )
         tabManager.windowId = windowId

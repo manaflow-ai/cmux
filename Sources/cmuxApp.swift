@@ -182,8 +182,12 @@ struct cmuxApp: App {
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
         let defaults = UserDefaults.standard
+        let workspaceCustomizationDefaults = WorkspaceCustomizationStore.makeIsolatedDefaults(
+            source: defaults,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )
         let workspaceCustomizationStore = WorkspaceCustomizationStore(
-            defaults: defaults
+            defaults: workspaceCustomizationDefaults
         )
         AppBundleIconPersistencePolicy.updateDisableDefault(
             defaults: defaults,

@@ -17,6 +17,44 @@ public struct WorkspaceCustomizationStore {
     /// Maximum number of most-recently-mutated workspaces retained.
     public nonisolated static let defaultCapacity = 512
 
+    /// Returns the private defaults suite used by one app identity's
+    /// customization journal.
+    ///
+    /// Keeping this journal outside the global settings domain prevents a
+    /// title or color mutation from invalidating every SwiftUI settings
+    /// observer in every restored window.
+    public nonisolated static func isolatedDefaultsSuiteName(
+        bundleIdentifier: String
+    ) -> String {
+        "\(bundleIdentifier).workspace-customizations"
+    }
+
+    /// Creates the defaults domain that owns customization recovery data.
+    ///
+    /// Existing v2 and legacy records are copied once from the app's settings
+    /// domain. The source remains intact for downgrade compatibility, while
+    /// all subsequent journal writes stay in the isolated domain.
+    public static func makeIsolatedDefaults(
+        source: UserDefaults,
+        bundleIdentifier: String?
+    ) -> UserDefaults {
+        guard let bundleIdentifier = bundleIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !bundleIdentifier.isEmpty,
+              let isolated = UserDefaults(
+                  suiteName: isolatedDefaultsSuiteName(bundleIdentifier: bundleIdentifier)
+              ) else {
+            return source
+        }
+
+        for key in [defaultStorageKey, defaultLegacyStorageKey]
+        where isolated.object(forKey: key) == nil {
+            guard let value = source.object(forKey: key) else { continue }
+            isolated.set(value, forKey: key)
+        }
+        return isolated
+    }
+
     private let defaults: UserDefaults?
     private let storageKey: String
     private let legacyStorageKey: String
