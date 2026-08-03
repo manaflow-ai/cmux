@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxWorkspaces
 import Foundation
@@ -602,7 +603,9 @@ struct SidebarWorkspaceRowMenuBuilder {
             }
             let swatch = WorkspaceTabColorSettings.displayNSColor(
                 hex: entry.hex,
-                colorScheme: NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light,
+                colorScheme: NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    ? WindowChromeColorScheme.dark
+                    : WindowChromeColorScheme.light,
                 forceBright: false
             ) ?? NSColor(hex: entry.hex) ?? .gray
             colorItem.image = SidebarWorkspaceRowMenuBuilder.coloredCircleImage(color: swatch)
