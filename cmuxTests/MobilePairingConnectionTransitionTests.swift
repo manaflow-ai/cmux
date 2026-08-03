@@ -13,21 +13,7 @@ import Testing
 struct MobilePairingConnectionTransitionTests {
     private func makeReady() -> MobilePairingModel.Ready {
         MobilePairingModel.Ready(
-            attachURL: "cmux-ios://attach?ticket=abc",
-            legacyAttachURL: "cmux-ios://attach?v=2&r=100.64.0.1:7777",
-            primaryTransport: .iroh,
-            macName: "Test Mac",
-            tailscaleLines: ["100.64.0.1:7777"],
-            manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777)
-        )
-    }
-
-    private func makeTailscaleReady() -> MobilePairingModel.Ready {
-        MobilePairingModel.Ready(
             attachURL: "cmux-ios://attach?v=2&r=100.64.0.1:7777",
-            legacyAttachURL: nil,
-            primaryTransport: .tailscaleCompatibility,
-            macName: "Test Mac",
             tailscaleLines: ["100.64.0.1:7777"],
             manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777)
         )
@@ -121,49 +107,26 @@ struct MobilePairingConnectionTransitionTests {
     func tailscaleRouteWinsWhenIrohIsAvailable() throws {
         let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [
             try irohRoute(),
-            try tailscaleRoute(),
+            try tailscaleRoute()
         ]))
 
-        #expect(plan.primaryDisclosureMode == .legacyPrivateNetworkCompatibility)
-        #expect(plan.primaryTransport == .tailscaleCompatibility)
-        #expect(!plan.offersLegacyCode)
+        #expect(plan.disclosureMode == .legacyPrivateNetworkCompatibility)
     }
 
     @Test("Tailscale remains usable when Iroh is unavailable")
     func tailscaleOnlyPlanRetainsReleasedClientSupport() throws {
         let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [
-            try tailscaleRoute(),
+            try tailscaleRoute()
         ]))
 
-        #expect(plan.primaryDisclosureMode == .legacyPrivateNetworkCompatibility)
-        #expect(plan.primaryTransport == .tailscaleCompatibility)
-        #expect(!plan.offersLegacyCode)
+        #expect(plan.disclosureMode == .legacyPrivateNetworkCompatibility)
     }
 
     @Test("Iroh alone does not produce a Mac pairing QR")
     func irohOnlyPlanIsUnavailable() throws {
         #expect(MobilePairingModel.PairingRoutePlan.make(routes: [
-            try irohRoute(),
+            try irohRoute()
         ]) == nil)
-    }
-
-    @Test("Iroh publication does not replace a displayed Tailscale QR")
-    func tailscaleCompatibilityDoesNotUpgradeToIroh() throws {
-        let compatibility = makeTailscaleReady()
-        let publishedRoutes = [try tailscaleRoute(), try irohRoute()]
-
-        #expect(!MobilePairingModel.shouldUpgradePrimaryTransport(
-            from: .ready(compatibility),
-            routes: publishedRoutes
-        ))
-        #expect(!MobilePairingModel.shouldUpgradePrimaryTransport(
-            from: .ready(makeReady()),
-            routes: publishedRoutes
-        ))
-        #expect(!MobilePairingModel.shouldUpgradePrimaryTransport(
-            from: .ready(compatibility),
-            routes: [try tailscaleRoute()]
-        ))
     }
 
     @Test("Loopback alone never produces a physical-device QR")

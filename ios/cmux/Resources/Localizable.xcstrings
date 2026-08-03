@@ -432,13 +432,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scan the Mac's Iroh QR. Manual host and port is only for loopback development in the simulator."
+            "value": "Scan the Mac's Tailscale QR. Manual entry is only for simulator loopback."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacのIroh QRをスキャンしてください。ホストとポートの手入力は、シミュレータのループバック開発専用です。"
+            "value": "Mac の Tailscale QR をスキャンしてください。ホストとポートの手入力は、シミュレータのループバック開発専用です。"
           }
         }
       }
@@ -517,13 +517,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manual host and port bypasses Iroh. Account credentials are allowed only over simulator loopback; use the Mac's Iroh QR for physical devices."
+            "value": "Manual credentials work only in the simulator. On a device, choose Tailscale and scan the Mac QR."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホストとポートの手入力はIrohを経由しません。アカウント認証情報はシミュレータのループバックでのみ送信できます。実機ではMacのIroh QRを使用してください。"
+            "value": "アカウント認証情報はシミュレータのループバックでのみ送信できます。実機では Tailscale を選択し、Mac の QR をスキャンしてください。"
           }
         }
       }

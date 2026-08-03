@@ -99,7 +99,7 @@ struct PairingView: View {
                 } footer: {
                     Text(L10n.string(
                         "mobile.addDevice.help",
-                        defaultValue: "Scan the Mac's Iroh QR. Manual host and port is only for loopback development in the simulator."
+                        defaultValue: "Scan the Mac's Tailscale QR. Manual entry is only for simulator loopback."
                     ))
                 }
                 .overlay(alignment: .topLeading) {
@@ -352,7 +352,7 @@ struct PairingView: View {
         }
         return L10n.string(
             "mobile.addDevice.manualRouteWarning",
-            defaultValue: "Manual host and port bypasses Iroh. Account credentials are allowed only over simulator loopback; use the Mac's Iroh QR for physical devices."
+            defaultValue: "Manual credentials work only in the simulator. On a device, choose Tailscale and scan the Mac QR."
         )
     }
 
