@@ -4,12 +4,12 @@ import Testing
 @testable import CmuxCommandPalette
 
 @Suite("Command palette workspace rename target resolution")
-struct CommandPaletteWorkspaceRenameResolverTests {
+struct CommandPaletteWorkspaceRenameTargetTests {
     @Test("A focused group anchor renames the group, not the hidden anchor workspace")
     func anchorResolvesToGroup() {
         let anchorId = UUID()
         let groupId = UUID()
-        let target = CommandPaletteWorkspaceRenameResolver.target(
+        let target = CommandPaletteRenameTarget(
             focusedWorkspaceId: anchorId,
             focusedWorkspaceName: "Group 3",
             groupAnchors: [
@@ -29,7 +29,7 @@ struct CommandPaletteWorkspaceRenameResolverTests {
     @Test("A focused group member still renames that workspace")
     func memberResolvesToWorkspace() {
         let memberId = UUID()
-        let target = CommandPaletteWorkspaceRenameResolver.target(
+        let target = CommandPaletteRenameTarget(
             focusedWorkspaceId: memberId,
             focusedWorkspaceName: "api",
             groupAnchors: [
@@ -48,7 +48,7 @@ struct CommandPaletteWorkspaceRenameResolverTests {
     @Test("An ungrouped workspace renames itself")
     func ungroupedResolvesToWorkspace() {
         let workspaceId = UUID()
-        let target = CommandPaletteWorkspaceRenameResolver.target(
+        let target = CommandPaletteRenameTarget(
             focusedWorkspaceId: workspaceId,
             focusedWorkspaceName: "scratch",
             groupAnchors: []

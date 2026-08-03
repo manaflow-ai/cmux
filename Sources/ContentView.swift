@@ -9866,7 +9866,7 @@ struct ContentView: View {
             NSSound.beep()
             return
         }
-        let target = CommandPaletteWorkspaceRenameResolver.target(
+        let target = CommandPaletteRenameTarget(
             focusedWorkspaceId: workspace.id,
             focusedWorkspaceName: workspaceDisplayName(workspace),
             groupAnchors: tabManager.workspaceGroups.map { group in

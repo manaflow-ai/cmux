@@ -26,6 +26,31 @@ public struct CommandPaletteRenameTarget: Equatable {
         self.currentName = currentName
     }
 
+    /// Creates the rename target for "Rename Workspace" on the focused
+    /// workspace.
+    ///
+    /// Renaming a group's anchor workspace would edit a title nothing displays
+    /// and would prefill the stale name the anchor was created with (issue
+    /// #9199), so an anchor resolves to its group instead — matching that row's
+    /// "Rename Group..." context menu item. Every other workspace renames
+    /// itself.
+    ///
+    /// - Parameters:
+    ///   - focusedWorkspaceId: The currently selected workspace.
+    ///   - focusedWorkspaceName: Its display name, used when it is not an anchor.
+    ///   - groupAnchors: Every group's anchor descriptor.
+    public init(
+        focusedWorkspaceId: UUID,
+        focusedWorkspaceName: String,
+        groupAnchors: [CommandPaletteWorkspaceGroupAnchor]
+    ) {
+        if let anchor = groupAnchors.first(where: { $0.anchorWorkspaceId == focusedWorkspaceId }) {
+            self.init(kind: .workspaceGroup(groupId: anchor.groupId), currentName: anchor.name)
+        } else {
+            self.init(kind: .workspace(workspaceId: focusedWorkspaceId), currentName: focusedWorkspaceName)
+        }
+    }
+
     // Strings resolve against the app bundle (`bundle: .main`) so the keys in
     // the app's Localizable.xcstrings (including Japanese) keep working from
     // package code.
