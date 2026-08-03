@@ -39,6 +39,7 @@ extension GlobalSearchShortcutBehaviorTests {
                 state.shortcut(for: action)
             }
         )
+        observer.start()
         await observer.waitUntilShortcutSnapshotIsIdle()
 
         #expect(observer.globalSearchShortcut == state.configuredShortcut)
@@ -127,6 +128,7 @@ extension GlobalSearchShortcutBehaviorTests {
                 state.shortcut(for: action)
             }
         )
+        observer.start()
         await observer.waitUntilShortcutSnapshotIsIdle()
         let initialLookupCount = state.globalSearchLookupCount
         state.configuredShortcut = StoredShortcut(
@@ -166,6 +168,10 @@ extension GlobalSearchShortcutBehaviorTests {
             state.globalSearchLookupCount == 0,
             "Observer construction or pre-start notifications read shortcut persistence"
         )
+
+        observer.start()
+        await observer.waitUntilShortcutSnapshotIsIdle()
+        #expect(state.globalSearchLookupCount == 1)
     }
 
     @Test func blockedShortcutProviderDoesNotBlockMainActorDuringObserverStartup() async {
@@ -190,6 +196,7 @@ extension GlobalSearchShortcutBehaviorTests {
                 return action.defaultShortcut
             }
         )
+        observer.start()
 
         await Task.yield()
         await probe.waitUntilRecorded()

@@ -35,6 +35,11 @@ struct KeyboardShortcutSnapshot: Equatable, Sendable {
 final class KeyboardShortcutSettingsObserver {
     typealias ShortcutProvider = @Sendable (KeyboardShortcutSettings.Action) -> StoredShortcut
 
+    private enum PersistenceRefreshPhase {
+        case inactive
+        case active
+    }
+
     static let shared = KeyboardShortcutSettingsObserver()
 
     private(set) var revision: UInt64 = 0
@@ -42,6 +47,8 @@ final class KeyboardShortcutSettingsObserver {
     private let notificationCenter: NotificationCenter
     @ObservationIgnored
     private let shortcutProvider: ShortcutProvider
+    @ObservationIgnored
+    private var persistenceRefreshPhase = PersistenceRefreshPhase.inactive
     @ObservationIgnored
     private var cachedRightSidebarModeShortcutMatcher: RightSidebarModeShortcutMatcher?
     @ObservationIgnored
@@ -113,7 +120,6 @@ final class KeyboardShortcutSettingsObserver {
                 self?.requestShortcutRefresh()
             }
         }
-        snapshotCache.requestRefresh()
     }
 
     deinit {
@@ -132,12 +138,22 @@ final class KeyboardShortcutSettingsObserver {
         shortcutSnapshot.shortcut(for: action)
     }
 
+    /// Activates persistence-backed snapshots after the settings store has
+    /// completed initialization. Construction stays inert so synchronous
+    /// settings notifications cannot create a startup initialization cycle.
+    func start() {
+        guard persistenceRefreshPhase == .inactive else { return }
+        persistenceRefreshPhase = .active
+        snapshotCache.requestRefresh()
+    }
+
     func waitUntilShortcutSnapshotIsIdle() async {
         await snapshotCache.waitUntilIdle()
     }
 
     private func requestShortcutRefresh() {
         revision &+= 1
+        guard persistenceRefreshPhase == .active else { return }
         snapshotCache.requestRefresh()
     }
 
