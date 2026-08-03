@@ -710,9 +710,10 @@ final class FileExplorerStore: ObservableObject {
     @Published var rootPath: String = ""
     @Published var rootNodes: [FileExplorerNode] = []
     @Published private(set) var isRootLoading: Bool = false
-    @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
+    private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
     @Published private(set) var rootStatusMessage: String?
+    private(set) var rootNodesRevision = 0
     private(set) var workspaceRootIdentity: UUID?
 
     var provider: FileExplorerProvider?
@@ -740,11 +741,20 @@ final class FileExplorerStore: ObservableObject {
     /// Paths currently being loaded
     private(set) var loadingPaths: Set<String> = []
 
-    /// In-flight load tasks keyed by path
-    private var loadTasks: [String: Task<Void, Never>] = [:]
+    /// In-flight load tasks keyed by path. The identifier prevents an older
+    /// cancelled operation from clearing a replacement registered for the same path.
+    private var loadTasks: [String: FileExplorerLoadOperation] = [:]
 
     /// Cache of path -> node for quick lookup
     private var nodesByPath: [String: FileExplorerNode] = [:]
+
+    /// Narrow view invalidations. The store is main-thread confined, so observers
+    /// are invoked synchronously and never need to rescan the full outline.
+    private var outlineChangeObservers: [UUID: (FileExplorerOutlineChange) -> Void] = [:]
+    private var gitStatusRefreshGeneration = 0
+
+    private var gitStatusRefreshOperation: FileExplorerGitStatusRefreshOperation?
+    private var pendingGitStatusRefresh: FileExplorerGitStatusRefreshRequest?
 
     /// Prefetch debounce schedulers keyed by path.
     private var prefetchSchedulers: [String: MainActorDeferredActionScheduler] = [:]
@@ -769,6 +779,17 @@ final class FileExplorerStore: ObservableObject {
     }
 
     // MARK: - Public API
+
+    @discardableResult
+    func observeOutlineChanges(_ observer: @escaping (FileExplorerOutlineChange) -> Void) -> UUID {
+        let id = UUID()
+        outlineChangeObservers[id] = observer
+        return id
+    }
+
+    func removeOutlineChangeObserver(_ id: UUID) {
+        outlineChangeObservers.removeValue(forKey: id)
+    }
 
     func applyWorkspaceRoot(
         _ request: FileExplorerWorkspaceRoot,
@@ -822,34 +843,90 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func refreshGitStatus() {
+        gitStatusRefreshGeneration &+= 1
+        let generation = gitStatusRefreshGeneration
         guard !rootPath.isEmpty else {
-            gitStatusByPath = [:]
+            pendingGitStatusRefresh = nil
+            gitStatusRefreshOperation?.task.cancel()
+            setGitStatusByPath(
+                [:],
+                change: gitStatusByPath.isEmpty ? nil : .gitStatusChanged(paths: nil)
+            )
             return
         }
-        let path = rootPath
+        let source: FileExplorerGitStatusRefreshSource
         if let sshProvider = provider as? SSHFileExplorerProvider {
-            let dest = sshProvider.destination
-            let port = sshProvider.port
-            let identity = sshProvider.identityFile
-            let opts = sshProvider.sshOptions
-            let gitStatusProvider = self.gitStatusProvider
-            DispatchQueue.global(qos: .utility).async {
-                let status = gitStatusProvider.fetchStatusSSH(
-                    directory: path, destination: dest, port: port,
-                    identityFile: identity, sshOptions: opts
-                )
-                DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
-                }
-            }
+            source = .ssh(
+                directory: rootPath,
+                destination: sshProvider.destination,
+                port: sshProvider.port,
+                identityFile: sshProvider.identityFile,
+                options: sshProvider.sshOptions
+            )
         } else {
-            let gitStatusProvider = self.gitStatusProvider
-            DispatchQueue.global(qos: .utility).async {
-                let status = gitStatusProvider.fetchStatus(directory: path)
-                DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
-                }
-            }
+            source = .local(directory: rootPath)
+        }
+        let request = FileExplorerGitStatusRefreshRequest(
+            generation: generation,
+            source: source
+        )
+        guard let operation = gitStatusRefreshOperation else {
+            startGitStatusRefresh(request)
+            return
+        }
+
+        // Keep at most one newest trailing request. A new root cancels the old
+        // command immediately; repeated watcher events for one root let its
+        // current query finish and collapse into one trailing refresh.
+        pendingGitStatusRefresh = request
+        if operation.source != source {
+            operation.task.cancel()
+        }
+    }
+
+    private func startGitStatusRefresh(_ request: FileExplorerGitStatusRefreshRequest) {
+        let identifier = UUID()
+        let provider = gitStatusProvider
+        let previousStatus = gitStatusByPath
+        let task = Task { @MainActor [weak self] in
+            let result = await request.fetch(
+                using: provider,
+                previousStatus: previousStatus
+            )
+            let wasCancelled = Task.isCancelled
+            self?.finishGitStatusRefresh(
+                identifier: identifier,
+                request: request,
+                result: result,
+                wasCancelled: wasCancelled
+            )
+        }
+        gitStatusRefreshOperation = FileExplorerGitStatusRefreshOperation(
+            identifier: identifier,
+            source: request.source,
+            task: task
+        )
+    }
+
+    private func finishGitStatusRefresh(
+        identifier: UUID,
+        request: FileExplorerGitStatusRefreshRequest,
+        result: FileExplorerGitStatusRefreshResult,
+        wasCancelled: Bool
+    ) {
+        guard gitStatusRefreshOperation?.identifier == identifier else { return }
+        gitStatusRefreshOperation = nil
+
+        if !wasCancelled, gitStatusRefreshGeneration == request.generation {
+            setGitStatusByPath(
+                result.status,
+                change: Self.outlineChange(for: result.diff)
+            )
+        }
+
+        if let pending = pendingGitStatusRefresh {
+            pendingGitStatusRefresh = nil
+            startGitStatusRefresh(pending)
         }
     }
 
@@ -918,31 +995,22 @@ final class FileExplorerStore: ObservableObject {
         #endif
         contentRevision &+= 1
         cancelAllLoads()
-        rootNodes = []
+        setRootNodes([])
         nodesByPath = [:]
         guard !rootPath.isEmpty, provider != nil else { return }
         isRootLoading = true
-        let path = rootPath
-        let task = Task { [weak self] in
-            guard let self else { return }
-            await self.loadChildren(for: nil, at: path)
-        }
-        loadTasks[rootPath] = task
+        startLoad(for: nil, at: rootPath)
     }
 
     func expand(node: FileExplorerNode) {
         guard node.isDirectory else { return }
         expandedPaths.insert(node.path)
-        if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
-            node.isLoading = true
-            node.error = nil
-            objectWillChange.send()
-            let nodePath = node.path
-            let task = Task { [weak self] in
-                guard let self else { return }
-                await self.loadChildren(for: node, at: nodePath)
-            }
-            loadTasks[node.path] = task
+        guard node.children == nil else { return }
+        if loadTasks[node.path] != nil {
+            promoteLoadToVisible(node: node, path: node.path)
+        } else if !loadingPaths.contains(node.path) {
+            promoteLoadToVisible(node: node, path: node.path)
+            startLoad(for: node, at: node.path)
         }
     }
 
@@ -951,11 +1019,14 @@ final class FileExplorerStore: ObservableObject {
         if pendingDescendIntoFirstChildPath == node.path {
             pendingDescendIntoFirstChildPath = nil
         }
-        objectWillChange.send()
     }
 
     func isExpanded(_ node: FileExplorerNode) -> Bool {
         expandedPaths.contains(node.path)
+    }
+
+    func loadedNode(at path: String) -> FileExplorerNode? {
+        nodesByPath[path]
     }
 
     func select(node: FileExplorerNode?) {
@@ -996,9 +1067,14 @@ final class FileExplorerStore: ObservableObject {
         prefetchSchedulers[path] = scheduler
         scheduler.schedule(after: .milliseconds(200)) { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self, node.children == nil, !self.loadingPaths.contains(path) else { return }
+                guard let self,
+                      node.children == nil,
+                      self.loadTasks[path] == nil,
+                      !self.loadingPaths.contains(path) else {
+                    return
+                }
                 // Silent prefetch: don't show loading indicator
-                await self.loadChildren(for: node, at: path, silent: true)
+                self.startLoad(for: node, at: path, silent: true)
             }
         }
     }
@@ -1020,22 +1096,56 @@ final class FileExplorerStore: ObservableObject {
 
     // MARK: - Private
 
+    private func startLoad(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) {
+        guard loadTasks[path] == nil else { return }
+        let identifier = UUID()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.loadChildren(
+                for: parentNode,
+                at: path,
+                silent: silent,
+                identifier: identifier
+            )
+        }
+        loadTasks[path] = FileExplorerLoadOperation(identifier: identifier, task: task)
+    }
+
     @MainActor
-    private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
-        guard let provider else { return }
+    private func loadChildren(
+        for parentNode: FileExplorerNode?,
+        at path: String,
+        silent: Bool,
+        identifier: UUID
+    ) async {
+        guard ownsLoad(at: path, identifier: identifier) else { return }
+        guard !Task.isCancelled, let provider else {
+            retireLoad(
+                at: path,
+                identifier: identifier,
+                parentNode: parentNode,
+                resetLoadingState: true
+            )
+            return
+        }
 
         if !silent {
-            loadingPaths.insert(path)
-            parentNode?.error = nil
-            objectWillChange.send()
+            if let parentNode {
+                promoteLoadToVisible(node: parentNode, path: path)
+            } else {
+                loadingPaths.insert(path)
+            }
         }
 
         do {
             let entries = try await provider.listDirectory(path: path, showHidden: showHiddenFiles)
             try Task.checkCancellation()
+            guard ownsLoad(at: path, identifier: identifier) else { return }
             let children = entries.map { entry in
                 let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
-                nodesByPath[entry.path] = node
+                if parentNode != nil {
+                    nodesByPath[entry.path] = node
+                }
                 return node
             }.sorted { a, b in
                 if a.isDirectory != b.isDirectory { return a.isDirectory }
@@ -1046,14 +1156,24 @@ final class FileExplorerStore: ObservableObject {
                 parentNode.children = children
                 parentNode.isLoading = false
                 parentNode.error = nil
+                publishOutlineChange(.nodeChanged(node: parentNode, reloadChildren: true))
+                if selectedPaths.contains(where: {
+                    Self.path($0, isContainedIn: parentNode.path)
+                }) {
+                    // The selected descendant may only now exist in the
+                    // outline. Reconcile after the structural reload replaces
+                    // the nearest-loaded-ancestor fallback.
+                    publishOutlineChange(.selectionChanged)
+                }
                 if pendingDescendIntoFirstChildPath == parentNode.path {
                     let path = children.first?.path ?? parentNode.path
                     selectedPath = path
                     selectedPaths = [path]
                     pendingDescendIntoFirstChildPath = nil
+                    publishOutlineChange(.selectionChanged)
                 }
             } else {
-                rootNodes = children
+                setRootNodes(children)
                 isRootLoading = false
                 setRootStatusMessage(nil)
                 if selectedPath == nil {
@@ -1061,40 +1181,154 @@ final class FileExplorerStore: ObservableObject {
                     selectedPaths = selectedPath.map { Set([$0]) } ?? []
                 }
             }
-            loadingPaths.remove(path)
-            loadTasks.removeValue(forKey: path)
-            objectWillChange.send()
+            retireLoad(
+                at: path,
+                identifier: identifier,
+                parentNode: parentNode,
+                resetLoadingState: false
+            )
 
             // Auto-expand children that were previously expanded
             for child in children where child.isDirectory && expandedPaths.contains(child.path) {
                 child.isLoading = true
-                objectWillChange.send()
-                let childPath = child.path
-                let childTask = Task { [weak self] in
-                    guard let self else { return }
-                    await self.loadChildren(for: child, at: childPath)
-                }
-                loadTasks[child.path] = childTask
+                publishOutlineChange(.nodeChanged(node: child, reloadChildren: false))
+                publishOutlineChange(.expansionChanged(node: child, isExpanded: true))
+                startLoad(for: child, at: child.path)
             }
         } catch {
-            if !Task.isCancelled {
-                if let parentNode {
-                    parentNode.isLoading = false
-                    parentNode.error = error.localizedDescription
-                } else {
-                    isRootLoading = false
-                    setRootStatusMessage(error.localizedDescription)
-                }
-                loadingPaths.remove(path)
-                loadTasks.removeValue(forKey: path)
-                objectWillChange.send()
+            guard ownsLoad(at: path, identifier: identifier) else { return }
+            if Task.isCancelled {
+                retireLoad(
+                    at: path,
+                    identifier: identifier,
+                    parentNode: parentNode,
+                    resetLoadingState: true
+                )
+                return
             }
+            if let parentNode {
+                parentNode.isLoading = false
+                parentNode.error = error.localizedDescription
+                publishOutlineChange(.nodeChanged(node: parentNode, reloadChildren: false))
+            } else {
+                isRootLoading = false
+                setRootStatusMessage(error.localizedDescription)
+            }
+            retireLoad(
+                at: path,
+                identifier: identifier,
+                parentNode: parentNode,
+                resetLoadingState: false
+            )
+        }
+    }
+
+    private func ownsLoad(at path: String, identifier: UUID) -> Bool {
+        loadTasks[path]?.identifier == identifier
+    }
+
+    private func promoteLoadToVisible(node: FileExplorerNode, path: String) {
+        guard loadingPaths.insert(path).inserted else { return }
+        node.isLoading = true
+        node.error = nil
+        publishOutlineChange(.nodeChanged(node: node, reloadChildren: false))
+    }
+
+    private func retireLoad(
+        at path: String,
+        identifier: UUID,
+        parentNode: FileExplorerNode?,
+        resetLoadingState: Bool
+    ) {
+        guard ownsLoad(at: path, identifier: identifier) else { return }
+        loadTasks.removeValue(forKey: path)
+        loadingPaths.remove(path)
+        guard resetLoadingState else { return }
+        if let parentNode {
+            parentNode.isLoading = false
+            publishOutlineChange(.nodeChanged(node: parentNode, reloadChildren: false))
+        } else {
+            isRootLoading = false
+        }
+    }
+
+    static func gitStatusChange(
+        previous: [String: GitFileStatus],
+        current: [String: GitFileStatus]
+    ) -> FileExplorerOutlineChange? {
+        outlineChange(for: gitStatusDiff(previous: previous, current: current))
+    }
+
+    nonisolated static func gitStatusDiff(
+        previous: [String: GitFileStatus],
+        current: [String: GitFileStatus]
+    ) -> FileExplorerGitStatusDiff {
+        var changedPaths: Set<String> = []
+
+        func recordChange(_ path: String) -> Bool {
+            changedPaths.insert(path)
+            return changedPaths.count >
+                FileExplorerOutlineChange.maximumScopedGitStatusPathCount
+        }
+
+        for (path, previousStatus) in previous
+        where current[path] != previousStatus {
+            if recordChange(path) {
+                return .allVisible
+            }
+        }
+        for (path, currentStatus) in current
+        where previous[path] != currentStatus {
+            if recordChange(path) {
+                return .allVisible
+            }
+        }
+
+        return changedPaths.isEmpty ? .unchanged : .scoped(changedPaths)
+    }
+
+    private static func outlineChange(
+        for diff: FileExplorerGitStatusDiff
+    ) -> FileExplorerOutlineChange? {
+        switch diff {
+        case .unchanged:
+            return nil
+        case .scoped(let paths):
+            return .gitStatusChanged(paths: paths)
+        case .allVisible:
+            return .gitStatusChanged(paths: nil)
+        }
+    }
+
+    private func setGitStatusByPath(
+        _ status: [String: GitFileStatus],
+        change: FileExplorerOutlineChange?
+    ) {
+        gitStatusByPath = status
+        guard let change else { return }
+        publishOutlineChange(change)
+    }
+
+    func setRootNodes(_ nodes: [FileExplorerNode]) {
+        rootNodesRevision &+= 1
+        for node in rootNodes where nodesByPath[node.path] === node {
+            nodesByPath.removeValue(forKey: node.path)
+        }
+        rootNodes = nodes
+        for node in nodes {
+            nodesByPath[node.path] = node
+        }
+    }
+
+    private func publishOutlineChange(_ change: FileExplorerOutlineChange) {
+        for observer in Array(outlineChangeObservers.values) {
+            observer(change)
         }
     }
 
     private func cancelAllLoads() {
-        for (_, task) in loadTasks {
-            task.cancel()
+        for (_, operation) in loadTasks {
+            operation.task.cancel()
         }
         loadTasks.removeAll()
         loadingPaths.removeAll()
@@ -1280,5 +1514,6 @@ final class FileExplorerStore: ObservableObject {
     deinit {
         remoteHomeResolutionTask?.cancel()
         directoryWatchTask?.cancel()
+        gitStatusRefreshOperation?.task.cancel()
     }
 }

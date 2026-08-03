@@ -1,6 +1,28 @@
 import CmuxFoundation
 import Foundation
 
+private struct GitStatusEnvironmentCommandRunner: CommandRunning {
+    let base: any CommandRunning
+    let environment: [String: String]
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        let environmentArguments = environment
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+        return await base.run(
+            directory: directory,
+            executable: "/usr/bin/env",
+            arguments: ["-i"] + environmentArguments + [executable] + arguments,
+            timeout: timeout
+        )
+    }
+}
+
 /// Runs non-locking `git status --porcelain` and parses results into a path-to-status map.
 struct GitStatusProvider: Sendable {
     private static let nonLockingGitEnvironmentKey = "GIT_OPTIONAL_LOCKS"
@@ -9,31 +31,50 @@ struct GitStatusProvider: Sendable {
 
     private let gitExecutableURL: URL
     private let sshExecutableURL: URL
-    private let environment: [String: String]
+    private let commandRunner: any CommandRunning
+    private let processTimeout: TimeInterval
 
     init(
         gitExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/git"),
         sshExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/ssh"),
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        commandRunner: (any CommandRunning)? = nil,
+        processTimeout: TimeInterval = 5
     ) {
         self.gitExecutableURL = gitExecutableURL
         self.sshExecutableURL = sshExecutableURL
-        self.environment = environment
+        if let commandRunner {
+            self.commandRunner = commandRunner
+        } else {
+            var nonLockingEnvironment = environment
+            nonLockingEnvironment[Self.nonLockingGitEnvironmentKey] = Self.nonLockingGitEnvironmentValue
+            let baseRunner = CommandRunner(
+                environment: nonLockingEnvironment,
+                bundledBinPath: nil,
+                fallbackSearchDirectories: []
+            )
+            self.commandRunner = GitStatusEnvironmentCommandRunner(
+                base: baseRunner,
+                environment: nonLockingEnvironment
+            )
+        }
+        self.processTimeout = max(0, processTimeout)
     }
 
-    func fetchStatus(directory: String) -> [String: GitFileStatus] {
-        guard let repoRoot = gitRepoRoot(for: directory) else { return [:] }
+    func fetchStatus(directory: String) async -> [String: GitFileStatus] {
+        guard let repoRoot = await gitRepoRoot(for: directory) else { return [:] }
         return parseGitStatus(
-            output: runGit(in: repoRoot, arguments: ["status", "--porcelain=v1", "-z"]),
+            output: await runGit(in: repoRoot, arguments: ["status", "--porcelain=v1", "-z"]),
             repoRoot: repoRoot,
-            explorerRoot: directory
+            explorerRoot: directory,
+            resolvesLocalSymlinks: true
         )
     }
 
     func fetchStatusSSH(
         directory: String, destination: String, port: Int?,
         identityFile: String?, sshOptions: [String]
-    ) -> [String: GitFileStatus] {
+    ) async -> [String: GitFileStatus] {
         let escapedDir = directory.replacingOccurrences(of: "'", with: "'\\''")
         let cmd = [
             "cd '\(escapedDir)' 2>/dev/null",
@@ -41,7 +82,7 @@ struct GitStatusProvider: Sendable {
             "echo '---GIT_STATUS---'",
             "\(Self.nonLockingRemoteGitCommand) status --porcelain=v1 -z 2>/dev/null",
         ].joined(separator: " && ")
-        guard let output = runSSH(
+        guard let output = await runSSH(
             command: cmd, destination: destination,
             port: port, identityFile: identityFile, sshOptions: sshOptions
         ) else { return [:] }
@@ -49,16 +90,32 @@ struct GitStatusProvider: Sendable {
         let parts = output.components(separatedBy: "---GIT_STATUS---\n")
         guard parts.count == 2 else { return [:] }
         let repoRoot = parts[0].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        return parseGitStatus(output: parts[1], repoRoot: repoRoot, explorerRoot: directory)
+        return parseGitStatus(
+            output: parts[1],
+            repoRoot: repoRoot,
+            explorerRoot: directory,
+            resolvesLocalSymlinks: false
+        )
     }
 
     private func parseGitStatus(
-        output: String?, repoRoot: String, explorerRoot: String
+        output: String?,
+        repoRoot: String,
+        explorerRoot: String,
+        resolvesLocalSymlinks: Bool
     ) -> [String: GitFileStatus] {
         guard let output, !output.isEmpty else { return [:] }
         var statusMap: [String: GitFileStatus] = [:]
-        let normalizedRepoRoot = Self.pathWithoutTrailingSlashes(repoRoot)
-        let normalizedExplorerRoot = Self.pathWithoutTrailingSlashes(explorerRoot)
+        let outputExplorerRoot = Self.standardizedPath(explorerRoot)
+        let comparisonRepoRoot = resolvesLocalSymlinks
+            ? Self.resolvedPath(repoRoot)
+            : Self.standardizedPath(repoRoot)
+        let comparisonExplorerRoot = resolvesLocalSymlinks
+            ? Self.resolvedPath(explorerRoot)
+            : outputExplorerRoot
+        guard Self.relativePath(comparisonExplorerRoot, within: comparisonRepoRoot) != nil else {
+            return [:]
+        }
         let entries = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
 
         var entryIndex = 0
@@ -75,13 +132,25 @@ struct GitStatusProvider: Sendable {
             entryIndex += usesSecondPath ? 2 : 1
             guard let status = parseStatusChars(index: indexStatus, workTree: workTreeStatus) else { continue }
 
-            let absolutePath = Self.absolutePath(repoRoot: normalizedRepoRoot, relativePath: path)
-            guard Self.path(absolutePath, isContainedIn: normalizedExplorerRoot) else { continue }
+            let comparisonAbsolutePath = Self.absolutePath(
+                repoRoot: comparisonRepoRoot,
+                relativePath: path
+            )
+            guard let explorerRelativePath = Self.relativePath(
+                comparisonAbsolutePath,
+                within: comparisonExplorerRoot
+            ) else {
+                continue
+            }
+            let absolutePath = Self.absolutePath(
+                repoRoot: outputExplorerRoot,
+                relativePath: explorerRelativePath
+            )
 
             statusMap[absolutePath] = status
             markParentDirectories(
                 absolutePath: absolutePath,
-                explorerRoot: normalizedExplorerRoot,
+                explorerRoot: outputExplorerRoot,
                 status: status,
                 in: &statusMap
             )
@@ -120,15 +189,40 @@ struct GitStatusProvider: Sendable {
     }
 
     private static func absolutePath(repoRoot: String, relativePath: String) -> String {
-        repoRoot == "/" ? "/" + relativePath : repoRoot + "/" + relativePath
+        guard !relativePath.isEmpty else { return repoRoot }
+        return repoRoot == "/" ? "/" + relativePath : repoRoot + "/" + relativePath
     }
 
     private static func path(_ path: String, isContainedIn root: String) -> Bool {
+        relativePath(path, within: root) != nil
+    }
+
+    private static func relativePath(_ path: String, within root: String) -> String? {
         let normalizedPath = pathWithoutTrailingSlashes(path)
         let normalizedRoot = pathWithoutTrailingSlashes(root)
-        if normalizedPath == normalizedRoot { return true }
-        if normalizedRoot == "/" { return normalizedPath.hasPrefix("/") }
-        return normalizedPath.hasPrefix(normalizedRoot + "/")
+        if normalizedPath == normalizedRoot { return "" }
+        if normalizedRoot == "/" {
+            guard normalizedPath.hasPrefix("/") else { return nil }
+            return String(normalizedPath.dropFirst())
+        }
+        let rootPrefix = normalizedRoot + "/"
+        guard normalizedPath.hasPrefix(rootPrefix) else { return nil }
+        return String(normalizedPath.dropFirst(rootPrefix.count))
+    }
+
+    private static func standardizedPath(_ path: String) -> String {
+        pathWithoutTrailingSlashes(
+            URL(fileURLWithPath: path).standardizedFileURL.path
+        )
+    }
+
+    private static func resolvedPath(_ path: String) -> String {
+        pathWithoutTrailingSlashes(
+            URL(fileURLWithPath: path)
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+                .path
+        )
     }
 
     private static func pathWithoutTrailingSlashes(_ path: String) -> String {
@@ -139,43 +233,24 @@ struct GitStatusProvider: Sendable {
         return result
     }
 
-    private func gitRepoRoot(for directory: String) -> String? {
-        runGit(in: directory, arguments: ["rev-parse", "--show-toplevel"])?
+    private func gitRepoRoot(for directory: String) async -> String? {
+        await runGit(in: directory, arguments: ["rev-parse", "--show-toplevel"])?
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func runGit(in directory: String, arguments: [String]) -> String? {
-        let process = Process()
-        process.executableURL = gitExecutableURL
-        process.arguments = arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: directory)
-        process.environment = nonLockingGitEnvironment()
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            return String(data: data, encoding: .utf8)
-        } catch {
-            return nil
-        }
-    }
-
-    private func nonLockingGitEnvironment() -> [String: String] {
-        var environment = environment
-        environment[Self.nonLockingGitEnvironmentKey] = Self.nonLockingGitEnvironmentValue
-        return environment
+    private func runGit(in directory: String, arguments: [String]) async -> String? {
+        await commandRunner.runStandardOutput(
+            directory: directory,
+            executable: gitExecutableURL.path,
+            arguments: arguments,
+            timeout: processTimeout
+        )
     }
 
     private func runSSH(
         command: String, destination: String,
         port: Int?, identityFile: String?, sshOptions: [String]
-    ) -> String? {
-        let process = Process()
-        process.executableURL = sshExecutableURL
+    ) async -> String? {
         // The positional command conflicts with a host-configured
         // RemoteCommand unless overridden (issue #7246).
         var args: [String] = SSHHostConfiguredRemoteCommand().overrideArguments
@@ -184,19 +259,11 @@ struct GitStatusProvider: Sendable {
         for option in sshOptions { args += ["-o", option] }
         args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
         args += [destination, command]
-        process.arguments = args
-        process.environment = environment
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            return String(data: data, encoding: .utf8)
-        } catch {
-            return nil
-        }
+        return await commandRunner.runStandardOutput(
+            directory: "/",
+            executable: sshExecutableURL.path,
+            arguments: args,
+            timeout: processTimeout
+        )
     }
 }
