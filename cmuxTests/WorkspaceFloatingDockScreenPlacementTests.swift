@@ -352,7 +352,7 @@ struct WorkspaceFloatingDockParkingRegressionTests {
 @MainActor
 struct WorkspaceFloatingDockNamingAndOrderingTests {
     @Test
-    func parkingAccessoryAppearsAboveItsFloatingWindow() {
+    func parkingAccessoryAppearsBesideItsFloatingWindowWithCompactChrome() {
         _ = NSApplication.shared
         let owner = NSWindow(
             contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
@@ -382,11 +382,107 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
             animated: false
         )
 
-        #expect(controller.window.frame.minX == floatingWindowFrame.minX)
         #expect(
-            controller.window.frame.minY
-                == floatingWindowFrame.maxY + WorkspaceFloatingDockParkingAccessoryController.gap
+            controller.window.frame.maxX
+                == floatingWindowFrame.minX - WorkspaceFloatingDockParkingAccessoryController.gap
         )
+        #expect(controller.window.frame.midY == floatingWindowFrame.midY)
+        #expect(controller.window.frame.height == 32)
+        #expect(controller.window.frame.width < 170)
+    }
+
+    @Test
+    func doubleClickingParkingAccessoryBeginsRenameWithoutRestoring() throws {
+        _ = NSApplication.shared
+        let noteURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-parking-double-click-\(UUID().uuidString).md")
+        try "".write(to: noteURL, atomically: true, encoding: .utf8)
+        let parent = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Rename Me",
+            frame: CGRect(x: 200, y: 100, width: 520, height: 380),
+            noteFilePath: noteURL.path,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        var restoreRequestCount = 0
+        let controller = WorkspaceFloatingDockWindowController(
+            dock: dock,
+            parentWindow: parent,
+            onCloseRequest: { _ in },
+            onRestoreRequest: { _ in
+                restoreRequestCount += 1
+                dock.setStashed(false)
+            }
+        )
+        defer {
+            controller.teardown()
+            dock.close()
+            parent.close()
+            try? FileManager.default.removeItem(at: noteURL)
+        }
+        parent.makeKeyAndOrderFront(nil)
+        controller.show(focus: false)
+        let restoreFrame = try #require(controller.window?.frame)
+        let snapshot = WorkspaceFloatingDockParkingSnapshot(
+            restoreFrame: restoreFrame,
+            visibleScreenFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        )
+        dock.setStashed(true)
+        controller.showStashed(snapshot: snapshot, animated: false)
+        controller.setParkingRevealed(true, animated: false)
+
+        let accessoryWindow = try #require(NSApp.windows.first {
+            $0.identifier?.rawValue
+                == "cmux.workspace.float.parkingAccessory.\(dock.id.uuidString)"
+        })
+        accessoryWindow.displayIfNeeded()
+        accessoryWindow.contentView?.layoutSubtreeIfNeeded()
+        let handle = try #require(Self.descendant(
+            in: accessoryWindow.contentView,
+            accessibilityIdentifier: "FloatingWindowParkingDragHandle.\(dock.id.uuidString)"
+        ))
+        let location = handle.convert(
+            CGPoint(x: handle.bounds.midX, y: handle.bounds.midY),
+            to: nil
+        )
+
+        handle.mouseDown(with: try Self.mouseEvent(
+            type: .leftMouseDown,
+            location: location,
+            window: accessoryWindow,
+            clickCount: 1
+        ))
+        handle.mouseUp(with: try Self.mouseEvent(
+            type: .leftMouseUp,
+            location: location,
+            window: accessoryWindow,
+            clickCount: 1
+        ))
+        #expect(dock.isStashed)
+        #expect(restoreRequestCount == 0)
+
+        handle.mouseDown(with: try Self.mouseEvent(
+            type: .leftMouseDown,
+            location: location,
+            window: accessoryWindow,
+            clickCount: 2
+        ))
+        let renameField = Self.descendant(
+            in: accessoryWindow.contentView,
+            accessibilityIdentifier: "FloatingWindowRenameField.\(dock.id.uuidString)"
+        )
+        #expect(dock.isStashed)
+        #expect(restoreRequestCount == 0)
+        #expect(renameField?.isHidden == false)
+        #expect(accessoryWindow.isKeyWindow)
     }
 
     @Test
@@ -600,7 +696,8 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
     private static func mouseEvent(
         type: NSEvent.EventType,
         location: NSPoint,
-        window: NSWindow
+        window: NSWindow,
+        clickCount: Int = 1
     ) throws -> NSEvent {
         try #require(NSEvent.mouseEvent(
             with: type,
@@ -610,7 +707,7 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
             windowNumber: window.windowNumber,
             context: nil,
             eventNumber: 0,
-            clickCount: 1,
+            clickCount: clickCount,
             pressure: 1
         ))
     }
