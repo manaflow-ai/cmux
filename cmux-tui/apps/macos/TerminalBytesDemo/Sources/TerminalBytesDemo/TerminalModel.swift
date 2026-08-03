@@ -44,6 +44,16 @@ struct GeometryDeliveryState {
     }
 }
 
+private struct TerminalDiagnosticsEnvelope: Decodable {
+    let status: String
+}
+
+private func terminalDidExit(_ diagnostics: String) -> Bool {
+    guard let data = diagnostics.data(using: .utf8) else { return false }
+    return (try? JSONDecoder().decode(TerminalDiagnosticsEnvelope.self, from: data).status)
+        == "exited"
+}
+
 private struct ConnectedHandle: @unchecked Sendable {
     let raw: OpaquePointer?
     let error: String
@@ -525,6 +535,28 @@ final class TerminalModel: ObservableObject {
         }
         if let nextDiagnostics = client.copyDiagnostics() {
             diagnostics = nextDiagnostics
+            if terminalDidExit(nextDiagnostics) {
+                closeExitedAttachment(client)
+            }
+        }
+    }
+
+    private func closeExitedAttachment(_ client: TerminalClientHandle) {
+        guard isConnected else { return }
+        pollingTask?.cancel()
+        pollingTask = nil
+        isConnected = false
+        geometryDelivery.resetConnection()
+        errorMessage = ""
+        isConnecting = true
+        connectionOperation &+= 1
+        let operation = connectionOperation
+        Task {
+            await Task.detached(priority: .userInitiated) {
+                client.disconnect()
+            }.value
+            guard operation == connectionOperation, !isShuttingDown else { return }
+            isConnecting = false
         }
     }
 }
