@@ -141,6 +141,23 @@ struct AutoNamingEnvironmentPolicy: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return override.isEmpty ? "haiku" : override
     }
+
+    /// Inline MCP configuration passed with `--strict-mcp-config` so the
+    /// summarizer starts no MCP servers.
+    static let emptyMCPConfigJSON = "{}"
+
+    /// Argument vector for the tool-disabled `claude -p` summarizer call.
+    func claudeSummarizerArguments(from env: [String: String]) -> [String] {
+        [
+            "-p",
+            "--model", claudeModel(from: env),
+            "--tools", "",
+            "--disable-slash-commands",
+            "--no-session-persistence",
+            "--strict-mcp-config",
+            "--mcp-config", Self.emptyMCPConfigJSON
+        ]
+    }
 }
 
 /// Pure auto-naming logic: throttle decisions, transcript extraction,
