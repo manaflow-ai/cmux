@@ -3268,7 +3268,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             "error"
         )
     }
-
 }
 
 final class CLINotifyProcessIntegrationTests: XCTestCase {
