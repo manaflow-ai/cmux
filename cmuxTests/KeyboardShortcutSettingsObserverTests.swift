@@ -330,19 +330,42 @@ private final class ShortcutProviderState: @unchecked Sendable {
 
 @MainActor
 private final class ReentrantSnapshotCacheHarness {
-    let loader = IncrementingSnapshotLoader()
-    private(set) var installedSnapshots: [Int] = []
-    lazy var cache = GenerationCoalescingSnapshotCache(
-        initialSnapshot: 0,
-        loader: loader.load,
-        installHandler: { [weak self] snapshot in
-            guard let self else { return }
-            installedSnapshots.append(snapshot)
-            if snapshot == 1 {
-                cache.requestRefresh()
+    let loader: IncrementingSnapshotLoader
+    let cache: GenerationCoalescingSnapshotCache<Int>
+    private let coordinator: ReentrantSnapshotRefreshCoordinator
+
+    var installedSnapshots: [Int] {
+        coordinator.installedSnapshots
+    }
+
+    init() {
+        let loader = IncrementingSnapshotLoader()
+        let coordinator = ReentrantSnapshotRefreshCoordinator()
+        let cache = GenerationCoalescingSnapshotCache<Int>(
+            initialSnapshot: 0,
+            loader: loader.load,
+            installHandler: { [weak coordinator] snapshot in
+                coordinator?.install(snapshot)
             }
+        )
+        coordinator.cache = cache
+        self.loader = loader
+        self.cache = cache
+        self.coordinator = coordinator
+    }
+}
+
+@MainActor
+private final class ReentrantSnapshotRefreshCoordinator {
+    weak var cache: GenerationCoalescingSnapshotCache<Int>?
+    private(set) var installedSnapshots: [Int] = []
+
+    func install(_ snapshot: Int) {
+        installedSnapshots.append(snapshot)
+        if snapshot == 1 {
+            cache?.requestRefresh()
         }
-    )
+    }
 }
 
 private final class IncrementingSnapshotLoader: @unchecked Sendable {
