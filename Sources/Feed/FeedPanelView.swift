@@ -73,7 +73,7 @@ struct FeedPanelView: View {
     }
 
     @State private var filter: Filter = .actionable
-    @StateObject private var viewModel = FeedPanelViewModel()
+    @State private var viewModel = FeedPanelViewModel()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -3912,6 +3912,37 @@ private struct ResolvedDivider: View {
         Rectangle()
             .fill(Color.primary.opacity(0.08))
             .frame(height: 1)
+    }
+}
+
+struct FeedHistoryLoadMoreRow: View {
+    let isLoading: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.6)
+                        .frame(width: 12, height: 12)
+                }
+                Text(label)
+                    .cmuxFont(size: 11, weight: .medium)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
+        .disabled(isLoading)
+    }
+
+    private var label: String {
+        isLoading
+            ? String(localized: "feed.history.loadingOlder", defaultValue: "Loading older activity...")
+            : String(localized: "feed.history.loadOlder", defaultValue: "Load older activity")
     }
 }
 

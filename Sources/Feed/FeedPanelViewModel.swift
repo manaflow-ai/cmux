@@ -2,16 +2,14 @@ import CmuxFoundation
 import CMUXAgentLaunch
 import Foundation
 import Observation
-import SwiftUI
 
-/// Bridges the `@Observable` WorkstreamStore to a Combine `@Published`
-/// snapshot so SwiftUI reliably re-renders the Feed panel on every
-/// mutation.
+/// Projects the observable Workstream store into a stable panel snapshot.
 @MainActor
-final class FeedPanelViewModel: ObservableObject {
-    @Published private(set) var items: [WorkstreamItem] = []
-    @Published private(set) var hasMorePersistedItems = false
-    @Published private(set) var isLoadingOlderItems = false
+@Observable
+final class FeedPanelViewModel {
+    private(set) var items: [WorkstreamItem] = []
+    private(set) var hasMorePersistedItems = false
+    private(set) var isLoadingOlderItems = false
     private var storeInstalledObserver: NSObjectProtocol?
 
     init() {
@@ -52,37 +50,4 @@ final class FeedPanelViewModel: ObservableObject {
             await FeedCoordinator.shared.store?.loadOlderItems()
         }
     }
-}
-
-struct FeedHistoryLoadMoreRow: View {
-    let isLoading: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                if isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .scaleEffect(0.6)
-                        .frame(width: 12, height: 12)
-                }
-                Text(label)
-                    .cmuxFont(size: 11, weight: .medium)
-                    .foregroundColor(.secondary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-        }
-        .buttonStyle(.plain)
-        .disabled(isLoading)
-    }
-
-    private var label: String {
-        if isLoading {
-            return String(localized: "feed.history.loadingOlder", defaultValue: "Loading older activity...")
-        }
-        return String(localized: "feed.history.loadOlder", defaultValue: "Load older activity")
-    }
-
 }
