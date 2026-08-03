@@ -81,6 +81,22 @@ import Testing
         )
     }
 
+    @Test func redactsEscapedQuoteInsideQuotedSecretAssignment() {
+        #expect(
+            scrubber.scrub(#"{"password":"abc\"def"}"#)
+                == #"{"password":"<redacted-secret>"}"#
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func markerRichTextWithoutAnAssignmentDoesNotWedgeScrubbing() {
+        // Sentry HTTP-query breadcrumbs can contain long branch names with
+        // "author" fragments. The free-text scanner must inspect this once,
+        // not repeatedly backtrack around the embedded "auth" substring.
+        let input = "state=all&head=" + String(repeating: "author-", count: 160) + "branch"
+        #expect(scrubber.scrub(input) == input)
+    }
+
     @Test func redactsProviderApiKey() {
         #expect(
             scrubber.scrub("using sk-proj-abcdef0123456789ABCDEF to call")
