@@ -1798,7 +1798,7 @@ private struct DebugWindowControlsView: View {
                             Spacer()
                             Image(systemName: selectedDevToolsIconOption.rawValue)
                                 .cmuxFont(size: 12, weight: .medium)
-                                .foregroundStyle(selectedDevToolsColorOption.color)
+                                .foregroundStyle(Color(nsColor: selectedDevToolsColorOption.nsColor))
                         }
 
                         HStack(spacing: 12) {

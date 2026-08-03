@@ -35,7 +35,7 @@ final class BrowserPanelNativeViewController: NSViewController, PanelContentCont
     private let recoveryOverlay = NSView()
     private let recoveryButton = NSButton()
     private let flashRing = WorkspaceAttentionFlashRingNativeView(frame: .zero)
-    private let webHost = WebViewRepresentable.NativeHost()
+    private let webHost = BrowserWebViewNativeConfiguration.NativeHost()
     private var localSearchOverlay: BrowserSearchOverlay?
     private var localSuggestionsHost: BrowserPortalOmnibarSuggestionsHostingView?
     private var toolbarHeightConstraint: NSLayoutConstraint!
@@ -55,7 +55,7 @@ final class BrowserPanelNativeViewController: NSViewController, PanelContentCont
     private let themeButton = BrowserToolbarButton()
     private let developerToolsButton = BrowserToolbarButton()
 
-    private lazy var omnibarHost = OmnibarTextFieldRepresentable.NativeHost(
+    private lazy var omnibarHost = OmnibarTextFieldNativeHost(
         configuration: omnibarConfiguration
     )
 
@@ -717,7 +717,7 @@ final class BrowserPanelNativeViewController: NSViewController, PanelContentCont
     private func updateBrowserHost() {
         guard isViewLoaded else { return }
         let localInline = configuration.canvasInlineBrowserHosting
-        webHost.update(WebViewRepresentable(
+        webHost.update(BrowserWebViewNativeConfiguration(
             panel: panel,
             paneId: configuration.paneID,
             shouldAttachWebView: configuration.isVisibleInUI && isCurrentPaneOwner && !localInline,
