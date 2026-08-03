@@ -16,6 +16,7 @@ import {
   proWelcomeFulfillments,
   stripeCustomers,
   stripeSubscriptions,
+  subrouterTenants,
   vaultSessions,
   vaultSnapshots,
   vaultUploadGrants,
@@ -288,6 +289,16 @@ const realFetch = globalThis.fetch;
 const postHogDeleteFetch = mock(async (...args: unknown[]) => {
   const fetchArgs = args as Parameters<typeof fetch>;
   const [input, init] = fetchArgs;
+  if (String(input).includes("/admin/tenants/") && String(input).endsWith("/revoke")) {
+    legacySubrouterRevokeRequests.push(fetchArgs);
+    const tenantId = decodeURIComponent(
+      new URL(String(input)).pathname.split("/").at(-2) ?? "",
+    );
+    accountLifecycleEvents.push(`legacy-subrouter-revoke:${tenantId}`);
+    return Response.json({ ok: legacySubrouterRevokeStatus < 400 }, {
+      status: legacySubrouterRevokeStatus,
+    });
+  }
   if (String(input).endsWith("/_subrouter/auth/stack/tenant")) {
     hostedTenantDeleteRequests.push(fetchArgs);
     const body = JSON.parse(String(init?.body)) as { readonly teamId?: unknown };
@@ -349,6 +360,9 @@ let lastRevokeIdentityCall: { readonly userId: string; readonly afterBatch?: unk
 let vaultLockUsers: string[] = [];
 let postHogDeleteRequests: Parameters<typeof fetch>[] = [];
 let hostedTenantDeleteRequests: Parameters<typeof fetch>[] = [];
+let legacySubrouterRevokeRequests: Parameters<typeof fetch>[] = [];
+let legacySubrouterRevokeStatus = 200;
+let legacyTenantRows: Array<{ readonly tenantId: string }> = [];
 let hostedTenantDeleteStatus = 200;
 let hostedTenantDeleteResponse: unknown = { ok: true, deleted: true };
 let postHogDeleteError: unknown = null;
@@ -478,6 +492,9 @@ const mockDb = {
         return {
           where: (condition: unknown) => {
             selectedWhere.push({ table: selectedTable, condition });
+            if (selectedTable === subrouterTenants) {
+              return chainableSelectResult(legacyTenantRows);
+            }
             return chainableSelectResult(nextSelectResult());
           },
           innerJoin: () => ({
@@ -602,6 +619,8 @@ beforeEach(() => {
   process.env.POSTHOG_PERSONAL_API_KEY = "test-posthog-personal-api-key";
   process.env.POSTHOG_API_HOST = "https://posthog.test";
   process.env.POSTHOG_ENVIRONMENT_ID = "env-244066";
+  process.env.SUBROUTER_BASE_URL = "https://subrouter.cmux.dev";
+  process.env.SUBROUTER_ADMIN_TOKEN = "test-legacy-subrouter-admin";
   consoleError.mockClear();
   deleteStackUser.mockClear();
   updateStackUser.mockClear();
@@ -676,6 +695,9 @@ beforeEach(() => {
   vaultLockUsers = [];
   postHogDeleteRequests = [];
   hostedTenantDeleteRequests = [];
+  legacySubrouterRevokeRequests = [];
+  legacySubrouterRevokeStatus = 200;
+  legacyTenantRows = [];
   hostedTenantDeleteStatus = 200;
   hostedTenantDeleteResponse = { ok: true, deleted: true };
   postHogDeleteError = null;
@@ -903,6 +925,44 @@ describe("account deletion route", () => {
     expect(new Headers(hostedTenantDeleteRequests[0]?.[1]?.headers).get("authorization")).toBe(
       "Bearer refreshed-access",
     );
+  });
+
+  test("retires mapped legacy and hosted tenants before deleting the Stack user", async () => {
+    listedPersonalVmIds = [];
+    revokedIdentityLeaseCount = 0;
+    legacyTenantRows = [{ tenantId: "legacy-personal" }];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(legacySubrouterRevokeRequests).toHaveLength(1);
+    const [legacyUrl, legacyInit] = legacySubrouterRevokeRequests[0]!;
+    expect(String(legacyUrl)).toBe(
+      "https://subrouter.cmux.dev/admin/tenants/legacy-personal/revoke",
+    );
+    expect(new Headers(legacyInit?.headers).get("authorization")).toBe(
+      "Bearer test-legacy-subrouter-admin",
+    );
+    expect(hostedTenantDeleteRequests).toHaveLength(1);
+    expect(accountLifecycleEvents.indexOf("legacy-subrouter-revoke:legacy-personal"))
+      .toBeLessThan(accountLifecycleEvents.indexOf("stack-delete"));
+    expect(accountLifecycleEvents.indexOf("subrouter-delete:account-user-1"))
+      .toBeLessThan(accountLifecycleEvents.indexOf("stack-delete"));
+  });
+
+  test("validates legacy tenant retirement before destructive account cleanup", async () => {
+    legacyTenantRows = [{ tenantId: "legacy-personal" }];
+    delete process.env.SUBROUTER_ADMIN_TOKEN;
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(postHogDeleteRequests).toHaveLength(0);
+    expect(hostedTenantDeleteRequests).toHaveLength(0);
+    expect(legacySubrouterRevokeRequests).toHaveLength(0);
+    expect(updateStackUser).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
   });
 
   test("fails before mutation when hosted tenant deletion is not configured", async () => {
