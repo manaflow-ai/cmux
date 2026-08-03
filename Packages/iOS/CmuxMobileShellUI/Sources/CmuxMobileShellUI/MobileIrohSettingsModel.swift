@@ -150,7 +150,7 @@ final class MobileIrohSettingsModel {
         // drop that happened before a relaunch stays in the shared timeline.
         let blocks = [previous, report].compactMap { block -> String? in
             guard let block, !block.events.isEmpty else { return nil }
-            return String(decoding: block.compactExport(), as: UTF8.self)
+            return String(decoding: block.humanReadableExport(), as: UTF8.self)
         }
         diagnosticExportText = blocks.joined(separator: "\n")
     }

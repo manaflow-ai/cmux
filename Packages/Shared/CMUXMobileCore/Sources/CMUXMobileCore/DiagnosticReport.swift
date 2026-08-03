@@ -8,6 +8,8 @@ import Foundation
 /// content, or raw error descriptions.
 public struct DiagnosticReport: Sendable, Codable, Equatable {
     public static let currentSchemaVersion = 1
+    /// Version of the plain-language text report format.
+    public static let currentHumanReadableFormatVersion = 2
     public static let maximumEventCount = 4_096
 
     /// A deterministic report suitable as a controller's unavailable default.
@@ -180,29 +182,50 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
         return event.code.defaultDiagnosticFailureKind
     }
 
-    /// Encodes this exact snapshot in the compact, human-shareable v1 format.
-    /// Building the share payload from the snapshot prevents live events from
-    /// making the displayed summary and exported timeline disagree.
-    public func compactExport() -> Data {
-        var out = "cmuxdiag v1"
-        out += " anchorWallNs=\(anchorWallNanos)"
-        out += " anchorMonoNs=\(anchorMonotonicNanos)"
-        out += " count=\(events.count)"
-        out += " role=\(role.rawValue)"
+    /// Encodes this exact snapshot as a self-contained plain-language report.
+    ///
+    /// Absolute UTC timestamps are used when the snapshot has a wall-clock
+    /// anchor. Archived or synthetic reports without an anchor use elapsed
+    /// seconds from their first event. Both forms require no external decoder.
+    public func humanReadableExport() -> Data {
+        let formatter = Self.makeUTCDateFormatter()
+        var out = "cmux Iroh and transport report\n"
+        out += "Report format: \(Self.currentHumanReadableFormatVersion)\n"
+        out += "Generated: \(formatter.string(from: generatedAt))\n"
+        out += "Source: \(DiagnosticEventPresentation.displayName(role))\n"
         if !buildStamp.isEmpty {
-            out += " build=\(buildStamp)"
+            out += "Build: \(buildStamp)\n"
         }
-        out += "\n"
+        out += "Event count: \(events.count)\n\n"
+        out += "Timeline (oldest first)\n"
+
+        guard let firstEvent = events.first else {
+            out += "No events recorded.\n"
+            return Data(out.utf8)
+        }
+
         for event in events {
-            out += "\(event.tNanos),\(event.code.rawValue)"
-            out += ",\(Self.field(event.surface))"
-            out += ",\(Self.field(event.ms))"
-            out += ",\(Self.field(event.a))"
-            out += ",\(Self.field(event.b))"
-            out += ",\(Self.field(event.c))"
-            out += "\n"
+            let timestamp: String
+            if let date = wallDate(for: event) {
+                timestamp = formatter.string(from: date)
+            } else {
+                let elapsed = Double(event.tNanos - firstEvent.tNanos) / 1_000_000_000
+                timestamp = String(
+                    format: "+%.3f seconds",
+                    locale: Locale(identifier: "en_US_POSIX"),
+                    elapsed
+                )
+            }
+            out += "\(timestamp) | \(DiagnosticEventPresentation.summary(event))\n"
         }
         return Data(out.utf8)
+    }
+
+    /// Source-compatible spelling retained for existing report consumers.
+    /// The returned data is the same plain-language report as
+    /// ``humanReadableExport()`` and contains no compact integer rows.
+    public func compactExport() -> Data {
+        humanReadableExport()
     }
 
     /// Removes control characters, path separators, and unbounded caller data
@@ -229,9 +252,13 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
         return result
     }
 
-    private static func field(_ value: (some BinaryInteger)?) -> String {
-        guard let value else { return "" }
-        return String(value)
+    private static func makeUTCDateFormatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS 'UTC'"
+        return formatter
     }
 }
 

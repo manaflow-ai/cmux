@@ -15586,7 +15586,7 @@ struct CMUXCLI {
             return """
             Usage: cmux iroh-diag
 
-            Print the host's iroh Connection Report (cmuxdiag v1 compact export),
+            Print the host's Iroh Connection Report as a plain-language timeline,
             the same data as Settings > Networking > Connection Report.
             """
         case "capabilities":

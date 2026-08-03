@@ -114,6 +114,6 @@ final class IrohSettingsModel {
         diagnosticReport = report
         diagnosticExportText = report.events.isEmpty
             ? ""
-            : String(decoding: report.compactExport(), as: UTF8.self)
+            : String(decoding: report.humanReadableExport(), as: UTF8.self)
     }
 }

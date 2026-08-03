@@ -260,9 +260,13 @@ public struct TransportIncidentPolicy: Sendable {
         }
         outageFiredTNanos = event.tNanos
         let duration = Int(elapsedSeconds(from: firstTNanos, to: event.tNanos).rounded())
+        let durationUnit = duration == 1 ? "second" : "seconds"
+        let title = "Transport outage: \(streakCount) consecutive failures "
+            + "over \(duration) \(durationUnit). Latest: "
+            + DiagnosticEventPresentation.summary(event)
         return Incident(
             signature: "transport-outage",
-            title: "Transport outage: \(streakCount) consecutive failures over \(duration)s, latest \(signature)",
+            title: title,
             kind: .outage,
             severity: .error,
             event: event,
@@ -319,9 +323,9 @@ public struct TransportIncidentPolicy: Sendable {
         let dropped = droppedByBudget
         droppedByBudget = 0
 
-        var title = "Transport failure: \(signature)"
+        var title = DiagnosticEventPresentation.summary(event)
         if coalescedCount > 1 {
-            title += " (\(coalescedCount)x)"
+            title += " (\(coalescedCount) occurrences)"
         }
         return Incident(
             signature: signature,

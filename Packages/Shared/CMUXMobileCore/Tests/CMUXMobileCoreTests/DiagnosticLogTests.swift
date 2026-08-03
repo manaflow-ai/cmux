@@ -67,7 +67,12 @@ import os
         let report = await log.snapshot(
             generatedAt: Date(timeIntervalSince1970: 1_700_000_001)
         )
-        let text = String(decoding: report.compactExport(), as: UTF8.self)
+        let humanReadableExport = report.humanReadableExport()
+        let text = String(decoding: humanReadableExport, as: UTF8.self)
+        #expect(report.compactExport() == humanReadableExport)
+        let inputSequenceLine = "2023-11-14 22:13:20.500 UTC | "
+            + "Terminal input acknowledgements fell behind "
+            + "(Surface: 7, Local sequence: 10, Remote sequence: 20)"
         #expect(text == """
         cmux Iroh and transport report
         Report format: 2
@@ -79,7 +84,7 @@ import os
         Timeline (oldest first)
         2023-11-14 22:13:20.000 UTC | Connection attempt started
         2023-11-14 22:13:20.250 UTC | Pairing succeeded (Duration: 250 ms)
-        2023-11-14 22:13:20.500 UTC | Terminal input acknowledgements fell behind (Surface: 7, Local sequence: 10, Remote sequence: 20)
+        \(inputSequenceLine)
 
         """)
 
@@ -194,7 +199,7 @@ import os
             role: .unspecified,
             generatedAt: Date(timeIntervalSince1970: 1_700_000_001)
         )
-        let text = String(decoding: report.compactExport(), as: UTF8.self)
+        let text = String(decoding: report.humanReadableExport(), as: UTF8.self)
         #expect(text == """
         cmux Iroh and transport report
         Report format: 2
@@ -220,7 +225,7 @@ import os
             ]
         )
 
-        let text = String(decoding: report.compactExport(), as: UTF8.self)
+        let text = String(decoding: report.humanReadableExport(), as: UTF8.self)
         #expect(text.contains("+0.000 seconds | Iroh endpoint starting"))
         #expect(text.contains("+0.250 seconds | Iroh endpoint active"))
     }

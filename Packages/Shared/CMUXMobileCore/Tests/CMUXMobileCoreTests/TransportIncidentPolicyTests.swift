@@ -48,9 +48,11 @@ import Testing
         #expect(recapture != nil)
         #expect(recapture?.coalescedCount == 3)
         #expect(recapture?.secondsSinceFirstCoalesced == 680)
+        let expectedTitle = "Transport dial failed "
+            + "(Transport: Iroh, Failure: Relay policy unavailable, Attempt: 1) "
+            + "(3 occurrences)"
         #expect(
-            recapture?.title
-                == "Transport dial failed (Transport: Iroh, Failure: Relay policy unavailable, Attempt: 1) (3 occurrences)"
+            recapture?.title == expectedTitle
         )
     }
 
@@ -148,9 +150,11 @@ import Testing
         #expect(outage?.severity == .error)
         #expect(outage?.signature == "transport-outage")
         #expect(outage?.consecutiveFailures == 5)
+        let expectedTitle = "Transport outage: 5 consecutive failures over 60 seconds. "
+            + "Latest: Transport dial failed "
+            + "(Transport: Iroh, Failure: Relay policy unavailable, Attempt: 1)"
         #expect(
-            outage?.title
-                == "Transport outage: 5 consecutive failures over 60 seconds. Latest: Transport dial failed (Transport: Iroh, Failure: Relay policy unavailable, Attempt: 1)"
+            outage?.title == expectedTitle
         )
 
         // While the outage is armed-off, further failures stay quiet.
