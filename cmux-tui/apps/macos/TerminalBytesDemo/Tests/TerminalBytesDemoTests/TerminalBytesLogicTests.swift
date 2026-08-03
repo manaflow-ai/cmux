@@ -23,6 +23,24 @@ private final class LockedFlag: @unchecked Sendable {
     }
 }
 
+private final class LockedCounter: @unchecked Sendable {
+    // NSLock protects every access from injected concurrent client operations.
+    private let lock = NSLock()
+    private var storage = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func increment() {
+        lock.lock()
+        storage += 1
+        lock.unlock()
+    }
+}
+
 private final class LockedClientCalls: @unchecked Sendable {
     // NSLock protects all mutable storage. Pointers are recorded as integer
     // addresses so snapshots only contain Sendable values.
@@ -173,6 +191,19 @@ struct TerminalBytesLogicTests {
     }
 
     @Test
+    func terminalTextUpdatesReplaceOnlyTheChangedUTF16Range() throws {
+        let changed = try #require(terminalTextEdit(from: "a😀oldz", to: "a😀newz"))
+        #expect(changed.range == NSRange(location: 3, length: 3))
+        #expect(changed.replacement == "new")
+
+        let appended = try #require(terminalTextEdit(from: "abc", to: "abcdef"))
+        #expect(appended.range == NSRange(location: 3, length: 0))
+        #expect(appended.replacement == "def")
+
+        #expect(terminalTextEdit(from: "same", to: "same") == nil)
+    }
+
+    @Test
     func cStringCopyRetriesWhenValueGrowsBetweenPasses() {
         var calls = 0
         let value = copyGrowingCString { buffer, capacity in
@@ -237,6 +268,39 @@ struct TerminalBytesLogicTests {
         #expect(delivery.pending(isConnected: true) == nil)
         delivery.resetConnection()
         #expect(delivery.pending(isConnected: true) == second)
+    }
+
+    @Test @MainActor
+    func rejectedResizeDoesNotImmediatelyRetryForever() async throws {
+        let attempts = LockedCounter()
+        let handle = TerminalClientHandle(
+            rawAddress: 5,
+            attachClient: { _, _, _, _ in true },
+            destroyClient: { _ in },
+            detachClient: { _ in },
+            setUpdateCallback: { _, _, _ in },
+            resizeClient: { _, _, _ in
+                attempts.increment()
+                return false
+            },
+            copyFrameClient: { _, _, _ in 0 },
+            copyDiagnosticsClient: { _, _, _ in 0 }
+        )
+        let model = TerminalModel(
+            configuration: DemoLaunchConfiguration(
+                invitation: "",
+                terminalID: "term_0123456789abcdef0123456789abcdef",
+                autoConnect: false
+            ),
+            retainedClient: handle,
+            initiallyConnected: true
+        )
+
+        model.resize(to: TerminalGeometry(cols: 120, rows: 40))
+        #expect(await waitUntil { attempts.value > 0 })
+        try await Task.sleep(for: .milliseconds(25))
+        #expect(attempts.value == 1)
+        model.shutdown()
     }
 
     @Test @MainActor
