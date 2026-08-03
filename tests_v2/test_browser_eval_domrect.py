@@ -97,7 +97,7 @@ def main() -> int:
                 except cmuxError:
                     pass
 
-    print("PASS: browser.eval serializes direct and nested DOMRect values")
+    print("PASS: browser.eval serializes direct, nested, and cross-realm DOMRect values")
     return 0
 
 
