@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 use std::ffi::{CStr, c_char, c_void};
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration as StdDuration;
 
 use base64::Engine;
 use bytes::Bytes;
@@ -28,6 +30,8 @@ use serde::Serialize;
 use tokio::runtime::Runtime;
 use url::Url;
 use zeroize::Zeroizing;
+
+const CONNECTION_TIMEOUT_ERROR: &str = "terminal connection timed out";
 
 pub struct CmuxTerminalClient {
     runtime: Runtime,
@@ -811,21 +815,19 @@ unsafe fn terminal_id_from_ffi(terminal_id: *const c_char) -> Result<TerminalPub
         .map_err(|error| format!("terminal ID is invalid: {error}"))
 }
 
-/// Connects a terminal client and returns an owning handle, or null on failure.
-///
-/// # Safety
-///
-/// `invitation_uri` must point to a readable NUL-terminated byte string for the
-/// duration of this call. `error_buffer` may be null; otherwise, when
-/// `error_capacity` is nonzero, it must point to `error_capacity` writable
-/// bytes. A non-null returned handle must eventually be passed exactly once to
-/// [`cmux_terminal_client_disconnect`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_terminal_client_connect(
+async fn connect_with_timeout<T>(
+    future: impl Future<Output = Result<T, String>>,
+    timeout: StdDuration,
+) -> Result<T, String> {
+    tokio::time::timeout(timeout, future).await.map_err(|_| CONNECTION_TIMEOUT_ERROR.to_string())?
+}
+
+unsafe fn connect_terminal_client(
     invitation_uri: *const c_char,
     terminal_id: *const c_char,
     error_buffer: *mut c_char,
     error_capacity: usize,
+    timeout: Option<StdDuration>,
 ) -> *mut CmuxTerminalClient {
     if invitation_uri.is_null() {
         copy_utf8("invitation URI is null", error_buffer, error_capacity);
@@ -858,7 +860,14 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
             return std::ptr::null_mut();
         }
     };
-    match runtime.block_on(connect_client(invitation, terminal_id.clone())) {
+    let connection = match timeout {
+        Some(timeout) => runtime.block_on(connect_with_timeout(
+            connect_client(invitation, terminal_id.clone()),
+            timeout,
+        )),
+        None => runtime.block_on(connect_client(invitation, terminal_id.clone())),
+    };
+    match connection {
         Ok((stream, connection, provider, multiplexer, state)) => {
             let updates = Arc::new(ClientUpdates::default());
             let diagnostics_connection = connection.clone();
@@ -905,6 +914,54 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
             copy_utf8(&error, error_buffer, error_capacity);
             std::ptr::null_mut()
         }
+    }
+}
+
+/// Connects a terminal client and returns an owning handle, or null on failure.
+///
+/// # Safety
+///
+/// `invitation_uri` must point to a readable NUL-terminated byte string for the
+/// duration of this call. `error_buffer` may be null; otherwise, when
+/// `error_capacity` is nonzero, it must point to `error_capacity` writable
+/// bytes. A non-null returned handle must eventually be passed exactly once to
+/// [`cmux_terminal_client_disconnect`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_connect(
+    invitation_uri: *const c_char,
+    terminal_id: *const c_char,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+) -> *mut CmuxTerminalClient {
+    // SAFETY: this function forwards its documented pointer contract unchanged.
+    unsafe {
+        connect_terminal_client(invitation_uri, terminal_id, error_buffer, error_capacity, None)
+    }
+}
+
+/// Connects a terminal client and cancels the underlying enrollment future
+/// when `timeout_milliseconds` elapses.
+///
+/// # Safety
+///
+/// The pointer and ownership contract matches [`cmux_terminal_client_connect`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_connect_with_timeout(
+    invitation_uri: *const c_char,
+    terminal_id: *const c_char,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    timeout_milliseconds: u64,
+) -> *mut CmuxTerminalClient {
+    // SAFETY: this function forwards its documented pointer contract unchanged.
+    unsafe {
+        connect_terminal_client(
+            invitation_uri,
+            terminal_id,
+            error_buffer,
+            error_capacity,
+            Some(StdDuration::from_millis(timeout_milliseconds)),
+        )
     }
 }
 
@@ -1213,7 +1270,7 @@ mod tests {
                     std::future::pending::<Result<(), String>>().await
                 }
             },
-            std::time::Duration::from_millis(1),
+            StdDuration::from_millis(1),
         ));
 
         assert_eq!(result.unwrap_err(), CONNECTION_TIMEOUT_ERROR);

@@ -54,9 +54,34 @@ private func terminalDidExit(_ diagnostics: String) -> Bool {
         == "exited"
 }
 
-private struct ConnectedHandle: Sendable {
+struct ConnectedHandle: Sendable {
     let rawAddress: UInt?
     let error: String
+}
+
+typealias TerminalConnector = @Sendable (String, String) -> ConnectedHandle
+
+private let terminalConnectionTimeoutError = "terminal connection timed out"
+private let defaultTerminalConnector: TerminalConnector = { invitation, terminalID in
+    var error = [CChar](repeating: 0, count: 1_024)
+    let handle = invitation.withCString { invitationPointer in
+        terminalID.withCString { terminalPointer in
+            cmux_terminal_client_connect_with_timeout(
+                invitationPointer,
+                terminalPointer,
+                &error,
+                error.count,
+                15_000
+            )
+        }
+    }
+    return ConnectedHandle(
+        rawAddress: handle.map { UInt(bitPattern: $0) },
+        error: String(
+            decoding: error.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
+            as: UTF8.self
+        )
+    )
 }
 
 struct TerminalClientSnapshot: Equatable, Sendable {
@@ -441,6 +466,7 @@ final class TerminalModel {
     @ObservationIgnored private var resizeRetryAttempt = 0
     @ObservationIgnored private var resizeRetryExhausted = false
     @ObservationIgnored private var geometryDelivery = GeometryDeliveryState()
+    @ObservationIgnored private let connectClient: TerminalConnector
     @ObservationIgnored private let shouldAutoConnect: Bool
     @ObservationIgnored private var didAttemptAutoConnect = false
     @ObservationIgnored private var isShuttingDown = false
@@ -449,7 +475,8 @@ final class TerminalModel {
     init(
         configuration: DemoLaunchConfiguration = .processEnvironment(),
         retainedClient: TerminalClientHandle? = nil,
-        initiallyConnected: Bool = false
+        initiallyConnected: Bool = false,
+        connectClient: TerminalConnector? = nil
     ) {
         let inputWake = AsyncStream.makeStream(
             of: Void.self,
@@ -459,6 +486,7 @@ final class TerminalModel {
         inputWakeContinuation = inputWake.continuation
         invitation = configuration.invitation
         terminalID = configuration.terminalID
+        self.connectClient = connectClient ?? defaultTerminalConnector
         shouldAutoConnect = configuration.autoConnect
         client = retainedClient
         isConnected = retainedClient != nil && initiallyConnected
@@ -510,26 +538,10 @@ final class TerminalModel {
         isConnecting = true
         connectionOperation &+= 1
         let operation = connectionOperation
+        let connectClient = connectClient
         Task {
             let result = await Task.detached(priority: .userInitiated) {
-                var error = [CChar](repeating: 0, count: 1_024)
-                let handle = invitation.withCString { invitationPointer in
-                    terminalID.withCString { terminalPointer in
-                        cmux_terminal_client_connect(
-                            invitationPointer,
-                            terminalPointer,
-                            &error,
-                            error.count
-                        )
-                    }
-                }
-                return ConnectedHandle(
-                    rawAddress: handle.map { UInt(bitPattern: $0) },
-                    error: String(
-                        decoding: error.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
-                        as: UTF8.self
-                    )
-                )
+                connectClient(invitation, terminalID)
             }.value
             guard operation == connectionOperation, !isShuttingDown else {
                 if let address = result.rawAddress {
@@ -539,8 +551,15 @@ final class TerminalModel {
             }
             isConnecting = false
             guard let address = result.rawAddress else {
-                errorMessage = result.error
-                if let bytes = "TerminalBytes connection failed: \(result.error)\n"
+                let displayError =
+                    result.error == terminalConnectionTimeoutError
+                    ? L10n.text(
+                        "error.connect.timeout",
+                        "Connection timed out. Check the invitation and try again."
+                    )
+                    : result.error
+                errorMessage = displayError
+                if let bytes = "TerminalBytes connection failed: \(displayError)\n"
                     .data(using: .utf8)
                 {
                     try? FileHandle.standardError.write(contentsOf: bytes)

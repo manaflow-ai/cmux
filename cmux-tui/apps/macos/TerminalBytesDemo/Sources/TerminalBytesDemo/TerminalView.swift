@@ -54,6 +54,8 @@ final class TerminalTextView: NSTextView {
     var pasteboardText: () -> String? = {
         NSPasteboard.general.string(forType: .string)
     }
+    private let terminalMarkedText = NSMutableAttributedString(string: "")
+    private var terminalMarkedSelection = NSRange(location: NSNotFound, length: 0)
 
     func configureForTerminal() {
         isEditable = false
@@ -61,6 +63,10 @@ final class TerminalTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if hasMarkedText() {
+            interpretKeyEvents([event])
+            return
+        }
         if let chord = terminalKeyChord(
             keyCode: event.keyCode,
             modifiers: event.modifierFlags,
@@ -91,7 +97,83 @@ final class TerminalTextView: NSTextView {
             text = nil
         }
         guard let text, !text.isEmpty else { return }
+        unmarkText()
         submit?(.bytes(Data(text.utf8)))
+    }
+
+    override func doCommand(by selector: Selector) {
+        // Text input commands that are not committed text stay inside AppKit's
+        // IME state instead of beeping or leaking a named key to the PTY.
+    }
+
+    override func hasMarkedText() -> Bool {
+        terminalMarkedText.length > 0
+    }
+
+    override func markedRange() -> NSRange {
+        guard hasMarkedText() else { return NSRange(location: NSNotFound, length: 0) }
+        return NSRange(location: 0, length: terminalMarkedText.length)
+    }
+
+    override func selectedRange() -> NSRange {
+        hasMarkedText() ? terminalMarkedSelection : super.selectedRange()
+    }
+
+    override func setMarkedText(
+        _ string: Any,
+        selectedRange: NSRange,
+        replacementRange: NSRange
+    ) {
+        switch string {
+        case let value as NSAttributedString:
+            terminalMarkedText.setAttributedString(value)
+        case let value as String:
+            terminalMarkedText.setAttributedString(NSAttributedString(string: value))
+        default:
+            return
+        }
+        let length = terminalMarkedText.length
+        let location = min(
+            selectedRange.location == NSNotFound ? length : max(0, selectedRange.location),
+            length
+        )
+        terminalMarkedSelection = NSRange(
+            location: location,
+            length: min(max(0, selectedRange.length), length - location)
+        )
+        needsDisplay = true
+    }
+
+    override func unmarkText() {
+        guard hasMarkedText() else { return }
+        terminalMarkedText.mutableString.setString("")
+        terminalMarkedSelection = NSRange(location: NSNotFound, length: 0)
+        needsDisplay = true
+    }
+
+    override func validAttributesForMarkedText() -> [NSAttributedString.Key] {
+        []
+    }
+
+    override func attributedSubstring(
+        forProposedRange range: NSRange,
+        actualRange: NSRangePointer?
+    ) -> NSAttributedString? {
+        guard hasMarkedText() else {
+            return super.attributedSubstring(forProposedRange: range, actualRange: actualRange)
+        }
+        guard range.location != NSNotFound, range.location >= 0, range.length >= 0 else {
+            return nil
+        }
+        let location = min(range.location, terminalMarkedText.length)
+        let length = min(range.length, terminalMarkedText.length - location)
+        let clamped = NSRange(location: location, length: length)
+        actualRange?.pointee = clamped
+        return terminalMarkedText.attributedSubstring(from: clamped)
+    }
+
+    override func characterIndex(for point: NSPoint) -> Int {
+        selectedRange().location
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -192,6 +274,9 @@ struct TerminalView: NSViewRepresentable {
         guard let terminal = scroll.documentView as? TerminalTextView else { return }
         terminal.submit = submit
         terminal.isInputReady = inputReady
+        if !inputReady {
+            terminal.unmarkText()
+        }
         guard terminal.string != text else { return }
         let selection = terminal.selectedRanges
         let visible = scroll.documentVisibleRect

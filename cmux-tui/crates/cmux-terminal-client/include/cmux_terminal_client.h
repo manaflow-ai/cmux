@@ -17,6 +17,12 @@ CmuxTerminalClient *cmux_terminal_client_connect(
     const char *terminal_id,
     char *error_buffer,
     size_t error_capacity);
+CmuxTerminalClient *cmux_terminal_client_connect_with_timeout(
+    const char *invitation_uri,
+    const char *terminal_id,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds);
 bool cmux_terminal_client_attach(
     CmuxTerminalClient *client,
     const char *terminal_id,
