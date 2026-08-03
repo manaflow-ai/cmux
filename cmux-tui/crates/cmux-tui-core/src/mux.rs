@@ -1633,6 +1633,7 @@ pub struct Mux {
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
+    journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     /// Wake-only signal for durable journal subscribers. Consumers always
     /// reread SQLite by cursor, so missed or coalesced notifications are safe.
     journal_event_epoch: Mutex<u64>,
@@ -1875,6 +1876,8 @@ impl Mux {
             surface_notifications,
             notification_ledger,
         } = restore_public_projections(&state, registry.public_projections()?)?;
+        let journal_kernel =
+            crate::journal_kernel::JournalKernel::new(registry.session_journal_database_path())?;
         surface_options.browser_session_name = session.clone();
         Self::rebuild_split_screen_index(&mut state);
         let mux = Arc::new(Mux {
@@ -1963,6 +1966,7 @@ impl Mux {
             surface_notifications: Mutex::new(surface_notifications),
             notification_ledger: Mutex::new(notification_ledger),
             resource_machine_service: OnceLock::new(),
+            journal_kernel,
             journal_event_epoch: Mutex::new(0),
             journal_event_changed: Condvar::new(),
             terminal_exit_waiters: TerminalExitWaiters::default(),
@@ -4311,6 +4315,7 @@ impl Mux {
     }
 
     fn publish_journal_event(&self) {
+        self.journal_kernel.notify_commit();
         let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
         self.journal_event_changed.notify_all();
@@ -4360,6 +4365,31 @@ impl Mux {
             .as_deref()
             .map(crate::workspace_registry::SessionJournalReader::open)
             .transpose()
+    }
+
+    pub(crate) fn shared_journal_enabled(&self) -> bool {
+        self.journal_kernel.enabled()
+    }
+
+    pub(crate) fn shared_journal_epoch(&self) -> u64 {
+        self.journal_kernel.epoch()
+    }
+
+    pub(crate) fn wait_for_shared_journal(&self, epoch: u64, timeout: Duration) -> u64 {
+        self.journal_kernel.wait(epoch, timeout)
+    }
+
+    pub(crate) fn shared_journal_after(
+        &self,
+        sequence: u64,
+        limit: usize,
+    ) -> crate::journal_kernel::SharedJournalRead {
+        self.journal_kernel.read_after(sequence, limit)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn journal_database_reader_count_for_test(&self) -> u64 {
+        self.journal_kernel.database_reader_count()
     }
 
     #[cfg(test)]

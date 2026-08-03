@@ -10,6 +10,7 @@
 
 mod browser;
 mod event_bus;
+mod journal_kernel;
 mod model;
 mod mux;
 mod pairing;

@@ -172,13 +172,14 @@ Regex uses Rust's linear-time regex engine. Patterns are limited to 1024 bytes,
 compiled once per subscription, and literal searches use the engine's
 vectorized prefilters when available.
 
-Each persistent subscriber uses an independent read-only WAL connection and
-short bounded queries, so it never acquires the registry writer mutex or pins a
-long read transaction. Filters run off the mutation path. Idle subscribers wait
-on a commit signal instead of polling the database. Hooks should store their own
-delivery cursor and idempotency receipt, then acknowledge effects in a separate
-durable projection. A hook process must never run synchronously inside the
-journal transaction.
+One session-local fanout tailer owns the persistent read-only WAL connection.
+It decodes each live record once into an 8,192-record ring shared by every
+subscriber. Historical replay opens a temporary bounded reader, then joins the
+shared tail. Falling behind the ring reopens a catch-up reader by cursor, so a
+slow consumer does not force every consumer to reread or reparse SQLite.
+Structured and compiled-regex filters run off the mutation path. Idle
+subscribers wait on the fanout signal instead of polling the database. A hook
+process never runs synchronously inside the journal transaction.
 
 ## Focus, layout, resize, and content
 

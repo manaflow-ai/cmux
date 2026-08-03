@@ -49,6 +49,7 @@ use zeroize::Zeroize;
 use crate::browser::{
     BrowserAttachUpdate, BrowserFrameUpdate, BrowserMouseDispatch, BrowserPointerOwner,
 };
+use crate::journal_kernel::{JournalDocument, SharedJournalPage, SharedJournalRead};
 use crate::model::{Screen, State, Workspace};
 use crate::mux::{DaemonHandoffRequest, ResourceWaitWake, clamp_terminal_size};
 use crate::platform::{self, transport};
@@ -69,9 +70,9 @@ use crate::{
     DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, LayoutLeafSpec,
     LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node, NotificationLevel,
     PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb, ScreenId,
-    SessionJournalRecord, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind,
-    SurfaceNotification, SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind,
-    ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
+    SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification,
+    SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
+    WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
@@ -4254,6 +4255,7 @@ struct SessionJournalStreamStart {
     epoch: u64,
     filter: JournalStreamFilter,
     reader: Option<crate::workspace_registry::SessionJournalReader>,
+    shared_fanout: bool,
 }
 
 struct JournalStreamFilter {
@@ -4322,18 +4324,13 @@ impl JournalCompiledRegex {
         Ok(Self { field, matcher })
     }
 
-    fn matches(&self, record: &SessionJournalRecord) -> bool {
+    fn matches(&self, document: &JournalDocument) -> bool {
+        let record = &document.record;
         match self.field {
             JournalRegexField::Kind => self.matcher.is_match(record.kind.as_bytes()),
-            JournalRegexField::Subjects => record.subjects.iter().any(|subject| {
-                self.matcher.is_match(subject.kind.as_bytes())
-                    || self.matcher.is_match(subject.id.as_bytes())
-            }),
-            JournalRegexField::Payload => serde_json::to_vec(&record.payload)
-                .is_ok_and(|payload| self.matcher.is_match(&payload)),
-            JournalRegexField::Record => {
-                serde_json::to_vec(record).is_ok_and(|envelope| self.matcher.is_match(&envelope))
-            }
+            JournalRegexField::Subjects => self.matcher.is_match(document.subjects_bytes()),
+            JournalRegexField::Payload => self.matcher.is_match(document.payload_bytes()),
+            JournalRegexField::Record => self.matcher.is_match(document.record_bytes()),
         }
     }
 }
@@ -4419,7 +4416,8 @@ impl JournalStreamFilter {
         Ok(Self { kinds, classes, subjects, max_sensitivity, regex })
     }
 
-    fn matches(&self, record: &SessionJournalRecord) -> bool {
+    fn matches(&self, document: &JournalDocument) -> bool {
+        let record = &document.record;
         let kind_matches = self.kinds.is_empty()
             || self.kinds.iter().any(|filter| {
                 filter.strip_suffix(".*").map_or(record.kind == *filter, |prefix| {
@@ -4441,7 +4439,7 @@ impl JournalStreamFilter {
             && class_matches
             && subject_matches
             && sensitivity_matches
-            && self.regex.as_ref().is_none_or(|regex| regex.matches(record))
+            && self.regex.as_ref().is_none_or(|regex| regex.matches(document))
     }
 }
 
@@ -6656,41 +6654,28 @@ fn journal_cursor(session_id: &SessionPublicId, sequence: u64) -> Value {
     })
 }
 
-fn journal_record_value(record: SessionJournalRecord) -> Value {
-    json!({
-        "sequence":record.sequence.to_string(),
-        "event_id":record.event_id,
-        "schema_version":record.schema_version,
-        "kind":record.kind,
-        "class":record.class,
-        "replay":record.replay,
-        "occurred_at_ms":record.occurred_at_ms.to_string(),
-        "committed_at_ms":record.committed_at_ms.to_string(),
-        "producer":record.producer,
-        "authority":record.authority,
-        "causation_id":record.causation_id,
-        "correlation_id":record.correlation_id,
-        "causation_depth":record.causation_depth,
-        "subjects":record.subjects,
-        "sensitivity":record.sensitivity,
-        "payload":record.payload,
-        "resource_revision":record.resource_revision.map(|value| value.to_string()),
-        "previous_resource_revision":record
-            .previous_resource_revision
-            .map(|value| value.to_string()),
-    })
-}
-
 fn session_journal_page(
     mux: &Mux,
     reader: Option<&crate::workspace_registry::SessionJournalReader>,
+    shared_fanout: bool,
     sequence: u64,
     limit: usize,
-) -> anyhow::Result<crate::workspace_registry::SessionJournalPage> {
-    match reader {
-        Some(reader) => reader.after(sequence, limit),
-        None => mux.session_journal_after(sequence, limit),
+) -> anyhow::Result<SharedJournalRead> {
+    if let Some(reader) = reader {
+        let page = reader.after(sequence, limit)?;
+        return Ok(SharedJournalRead::Page(SharedJournalPage {
+            head_sequence: page.head_sequence,
+            records: page.records.into_iter().map(JournalDocument::new).map(Arc::new).collect(),
+        }));
     }
+    if shared_fanout {
+        return Ok(mux.shared_journal_after(sequence, limit));
+    }
+    let page = mux.session_journal_after(sequence, limit)?;
+    Ok(SharedJournalRead::Page(SharedJournalPage {
+        head_sequence: page.head_sequence,
+        records: page.records.into_iter().map(JournalDocument::new).map(Arc::new).collect(),
+    }))
 }
 
 fn prepare_session_journal_stream(
@@ -6701,15 +6686,10 @@ fn prepare_session_journal_stream(
 ) -> Result<(Value, SessionJournalStreamStart), ResourceError> {
     let session_id = resource_session_id(mux, &request.selectors)?;
     let stream_id = resource_stream_id(request)?;
-    let epoch = mux.journal_event_epoch();
-    let reader = mux.session_journal_reader().map_err(|error| {
-        ResourceError::operation_failed(
-            "session.journal.subscribe",
-            "could not open the session journal reader",
-            json!({"error":error.to_string()}),
-        )
-    })?;
-    let head_sequence = session_journal_page(mux, reader.as_ref(), 0, 1)
+    let shared_fanout = mux.shared_journal_enabled();
+    let epoch = if shared_fanout { mux.shared_journal_epoch() } else { mux.journal_event_epoch() };
+    let head_sequence = mux
+        .session_journal_after(0, 1)
         .map_err(|error| {
             ResourceError::operation_failed(
                 "session.journal.subscribe",
@@ -6753,6 +6733,17 @@ fn prepare_session_journal_stream(
     } else {
         head_sequence
     };
+    let reader = if shared_fanout && last_sequence < head_sequence {
+        mux.session_journal_reader().map_err(|error| {
+            ResourceError::operation_failed(
+                "session.journal.subscribe",
+                "could not open the session journal catch-up reader",
+                json!({"error":error.to_string()}),
+            )
+        })?
+    } else {
+        None
+    };
     let filter = JournalStreamFilter::parse(request.fields.get("filter"))?;
     let opened_cursor = journal_cursor(&session_id, last_sequence);
     let overflow = resource_stream_end(
@@ -6785,6 +6776,7 @@ fn prepare_session_journal_stream(
             epoch,
             filter,
             reader,
+            shared_fanout,
         },
     ))
 }
@@ -6836,10 +6828,43 @@ fn run_session_journal_stream(
             let page = match session_journal_page(
                 mux,
                 stream.reader.as_ref(),
+                stream.shared_fanout,
                 stream.last_sequence,
                 JOURNAL_STREAM_PAGE_SIZE,
             ) {
-                Ok(page) => page,
+                Ok(SharedJournalRead::Page(page)) => page,
+                Ok(SharedJournalRead::Gap { .. } | SharedJournalRead::Unavailable)
+                    if stream.shared_fanout && stream.reader.is_none() =>
+                {
+                    match mux.session_journal_reader() {
+                        Ok(Some(reader)) => {
+                            stream.reader = Some(reader);
+                            continue;
+                        }
+                        Ok(None) | Err(_) => {
+                            let end = resource_stream_end(
+                                &stream.stream_id,
+                                "gap",
+                                Some(journal_cursor(&stream.session_id, stream.last_sequence)),
+                                Some("reconnect with the last journal cursor"),
+                                None,
+                            );
+                            let _ = writer.send_terminal(&end, &stream.outbound);
+                            break 'stream;
+                        }
+                    }
+                }
+                Ok(SharedJournalRead::Gap { .. } | SharedJournalRead::Unavailable) => {
+                    let end = resource_stream_end(
+                        &stream.stream_id,
+                        "gap",
+                        Some(journal_cursor(&stream.session_id, stream.last_sequence)),
+                        Some("reconnect with the last journal cursor"),
+                        None,
+                    );
+                    let _ = writer.send_terminal(&end, &stream.outbound);
+                    break 'stream;
+                }
                 Err(_) => {
                     let end = resource_stream_end(
                         &stream.stream_id,
@@ -6865,11 +6890,15 @@ fn run_session_journal_stream(
                     let _ = writer.send_terminal(&end, &stream.outbound);
                     break 'stream;
                 }
+                if stream.shared_fanout && stream.reader.is_some() {
+                    stream.reader = None;
+                    stream.epoch = mux.shared_journal_epoch();
+                }
                 break;
             }
-            for record in page.records {
-                let record_sequence = record.sequence;
-                if stream.filter.matches(&record) {
+            for document in page.records {
+                let record_sequence = document.record.sequence;
+                if stream.filter.matches(&document) {
                     let cursor = journal_cursor(&stream.session_id, record_sequence);
                     if stream.canceled.load(Ordering::Acquire)
                         || !send_resource_stream_item(
@@ -6878,7 +6907,7 @@ fn run_session_journal_stream(
                             &stream.stream_id,
                             stream.next_sequence,
                             &cursor,
-                            journal_record_value(record),
+                            document.wire_value().clone(),
                         )
                     {
                         mux.control_clients.finish_resource_stream(
@@ -6901,6 +6930,10 @@ fn run_session_journal_stream(
                 let _ = writer.update_stream_overflow(&stream.outbound, &end);
             }
             if stream.last_sequence >= head_sequence {
+                if stream.shared_fanout && stream.reader.is_some() {
+                    stream.reader = None;
+                    stream.epoch = mux.shared_journal_epoch();
+                }
                 break;
             }
         }
@@ -6908,7 +6941,11 @@ fn run_session_journal_stream(
             if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
                 break 'stream;
             }
-            let epoch = mux.wait_for_journal_event(stream.epoch, Duration::from_secs(1));
+            let epoch = if stream.shared_fanout && stream.reader.is_none() {
+                mux.wait_for_shared_journal(stream.epoch, Duration::from_secs(1))
+            } else {
+                mux.wait_for_journal_event(stream.epoch, Duration::from_secs(1))
+            };
             if epoch != stream.epoch {
                 stream.epoch = epoch;
                 break;
@@ -12622,6 +12659,69 @@ mod tests {
         assert_eq!(rejected["error"]["code"], "validation.invalid");
         assert_eq!(rejected["error"]["details"]["field"], "filter.regex.pattern");
         assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn persistent_journal_tail_subscribers_share_one_decoded_database_reader() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-shared-reader-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent("shared-journal", SurfaceOptions::default(), &root).unwrap();
+        assert_eq!(mux.journal_database_reader_count_for_test(), 1);
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        for (request_id, stream_id) in [
+            ("journal-shared-open-a", "stream_00000000000000000000000000000036"),
+            ("journal-shared-open-b", "stream_00000000000000000000000000000037"),
+        ] {
+            let open = resource_request(
+                request_id,
+                "session.journal.subscribe",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "stream_id":stream_id,
+                }),
+                None,
+            );
+            assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+            assert_eq!(pop_json(&outbound)["id"], request_id);
+        }
+
+        crate::resource_router::handle_resource_message(
+            &mux,
+            &resource_request(
+                "journal-shared-create",
+                "workspace.create",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "name":"shared",
+                    "initial_content":"empty",
+                }),
+                Some("journal-shared-create"),
+            ),
+        )
+        .unwrap();
+
+        let first = pop_json(&outbound);
+        let second = pop_json(&outbound);
+        assert_eq!(first["type"], "stream_item");
+        assert_eq!(second["type"], "stream_item");
+        assert_ne!(first["stream_id"], second["stream_id"]);
+        assert_eq!(first["item"]["event_id"], second["item"]["event_id"]);
+        assert_eq!(first["item"]["kind"], "workspace.create");
+        assert_eq!(mux.journal_database_reader_count_for_test(), 1);
+
+        assert!(disconnect_client(&mux, client, false));
+        drop(scheduler);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
