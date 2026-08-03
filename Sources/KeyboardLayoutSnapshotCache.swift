@@ -64,7 +64,7 @@ final class GenerationCoalescingSnapshotCache<Snapshot: Sendable> {
     private func beginLoad(generation: UInt64) {
         isLoading = true
         let loader = self.loader
-        let loadTask = Task.detached(priority: .utility) {
+        let loadTask: Task<Snapshot?, Never> = Task.detached(priority: .utility) {
             guard !Task.isCancelled else { return nil }
             return loader()
         }
