@@ -270,6 +270,51 @@ import Testing
         #expect(mapped.customColorHex == nil)
     }
 
+    @Test func workspaceListResponseCarriesWorkspaceGroupIcon() throws {
+        let json = Data("""
+        {
+          "workspaces": [],
+          "groups": [
+            {
+              "id": "group-1",
+              "name": "Release",
+              "is_collapsed": false,
+              "is_pinned": true,
+              "icon_symbol": "shippingbox.fill",
+              "anchor_workspace_id": "workspace-1"
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        let remoteGroup = try #require(response.groups.first)
+        #expect(remoteGroup.iconSymbol == "shippingbox.fill")
+
+        let mappedGroup = MobileWorkspaceGroupPreview(remote: remoteGroup)
+        #expect(mappedGroup.iconSymbol == "shippingbox.fill")
+    }
+
+    @Test func workspaceListResponseDefaultsMissingWorkspaceGroupIconToNil() throws {
+        let json = Data("""
+        {
+          "workspaces": [],
+          "groups": [
+            {
+              "id": "group-older",
+              "name": "Older Mac",
+              "is_collapsed": false,
+              "is_pinned": false,
+              "anchor_workspace_id": "workspace-older"
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        #expect(response.groups.first?.iconSymbol == nil)
+    }
+
     /// The Mac emits an optional per-workspace `preview` + `preview_at` (latest
     /// notification text + epoch seconds) for the iMessage-style row preview.
     /// Both must decode when present and stay `nil` when an older Mac omits them.

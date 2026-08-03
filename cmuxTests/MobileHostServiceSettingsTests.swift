@@ -301,7 +301,12 @@ struct MobileHostTransportRouteCompositionTests {
                   "identity_generation":1,
                   "pairing_enabled":true,
                   "capabilities":["mobile-rpc-v1","multistream-v1"],
-                  "path_hints":[],
+                  "path_hints":[{
+                    "kind":"relay_url",
+                    "value":"https://relay.example.com/",
+                    "source":"native",
+                    "privacy_scope":"public_internet"
+                  }],
                   "last_seen_at":"2026-07-09T12:00:00.000Z"
                 }
                 """.utf8
@@ -316,10 +321,15 @@ struct MobileHostTransportRouteCompositionTests {
 
         MobileHostPublicStatusCache.update(routes: [tailscale])
         MobileHostPublicStatusCache.update(
-            irohIdentity: binding.endpointID,
-            pathHints: binding.pathHints
+            irohBinding: CmxIrohBrokerBindingMetadata(binding: binding)
         )
-        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh, .tailscale])
+        let routes = MobileHostPublicStatusCache.snapshot()
+        #expect(routes.map(\.kind) == [.iroh, .tailscale])
+        guard case let .peer(_, pathHints) = routes.first?.endpoint else {
+            Issue.record("Expected the cached Iroh route to retain broker path hints")
+            return
+        }
+        #expect(pathHints == binding.pathHints)
 
         MobileHostPublicStatusCache.update(irohIdentity: nil)
         #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.tailscale])
