@@ -215,11 +215,14 @@ extension TerminalController {
     ) -> RemoteTmuxAttachWindowTarget {
         if routing.hasWindowIDParam {
             return routing.windowID.map(RemoteTmuxAttachWindowTarget.explicitWindow)
-                ?? .unresolvedExplicitWindow
+                ?? .unresolvedExplicitTarget
         }
-        let preferredWindowID = resolveTabManager(routing: routing)
-            .flatMap { AppDelegate.shared?.windowId(for: $0) }
-        return .contextualWindow(preferredWindowID)
+        guard let tabManager = resolveTabManager(routing: routing) else {
+            // An explicit workspace that resolved to no window must not mirror
+            // into the active window; a purely contextual request still may.
+            return routing.hasWorkspaceIDParam ? .unresolvedExplicitTarget : .contextualWindow(nil)
+        }
+        return .contextualWindow(AppDelegate.shared?.windowId(for: tabManager))
     }
 
     /// `remote.tmux.detach` — detach a control client and remove its mirror workspace;

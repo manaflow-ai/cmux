@@ -6,8 +6,9 @@ enum RemoteTmuxAttachWindowTarget: Sendable, Equatable {
     case dedicatedNewWindow
     /// A non-null `window_id` that resolved when the request was parsed.
     case explicitWindow(UUID)
-    /// A non-null `window_id` that did not resolve; never falls back to active.
-    case unresolvedExplicitWindow
+    /// An explicit `window_id` or `workspace_id` that did not resolve; never
+    /// falls back to the active window (issue #9191).
+    case unresolvedExplicitTarget
     /// Contextual routing (group/workspace/surface/pane/caller), which may fall
     /// back to the active window if its preferred window disappears.
     case contextualWindow(UUID?)
@@ -26,7 +27,7 @@ enum RemoteTmuxAttachWindowTarget: Sendable, Equatable {
             return nil
         case .explicitWindow(let windowID):
             return isLive(windowID) ? windowID : nil
-        case .unresolvedExplicitWindow:
+        case .unresolvedExplicitTarget:
             return nil
         case .contextualWindow(let preferredWindowID):
             if let preferredWindowID, isLive(preferredWindowID) {
