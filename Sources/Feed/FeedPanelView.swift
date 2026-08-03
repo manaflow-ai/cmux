@@ -1817,9 +1817,9 @@ struct FeedButton: View {
         if let color = FeedButtonDebugSettings.color(
             for: kind,
             role: .foreground,
-            colorScheme: colorScheme
+            appearance: debugAppearance
         ) {
-            return color
+            return Color(nsColor: color)
         }
 
         switch FeedButtonDebugSettings.visualStyle {
@@ -1875,9 +1875,9 @@ struct FeedButton: View {
         if let color = FeedButtonDebugSettings.color(
             for: kind,
             role: .foreground,
-            colorScheme: colorScheme
+            appearance: debugAppearance
         ) {
-            return color
+            return Color(nsColor: color)
         }
 #endif
         switch kind {
@@ -1899,9 +1899,9 @@ struct FeedButton: View {
         if let color = FeedButtonDebugSettings.color(
             for: kind,
             role: isHovered ? .hoverBackground : .background,
-            colorScheme: colorScheme
+            appearance: debugAppearance
         ) {
-            return color
+            return Color(nsColor: color)
         }
 #endif
         switch kind {
@@ -1940,9 +1940,9 @@ struct FeedButton: View {
         if let color = FeedButtonDebugSettings.color(
             for: kind,
             role: isHovered ? .hoverBackground : .background,
-            colorScheme: colorScheme
+            appearance: debugAppearance
         ) {
-            return color
+            return Color(nsColor: color)
         }
 
         switch kind {
@@ -1955,6 +1955,10 @@ struct FeedButton: View {
         case .warning: return Color(red: 0.92, green: 0.54, blue: 0.29)
         case .destructive: return Color(red: 0.75, green: 0.22, blue: 0.22)
         }
+    }
+
+    private var debugAppearance: FeedButtonDebugAppearance {
+        colorScheme == .dark ? .dark : .light
     }
 #endif
 
