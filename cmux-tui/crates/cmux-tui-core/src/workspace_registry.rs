@@ -27,6 +27,7 @@ use crate::resource::{
 };
 
 mod effect_store;
+mod journal_extensions;
 mod public_projection_store;
 mod resource_store;
 mod session_journal;
@@ -40,6 +41,16 @@ pub use effect_store::{
 use effect_store::{
     create_resource_effect_schema, delete_legacy_sensitive_effect_receipts,
     initialize_resource_input_receipt_retention, recover_resource_effects,
+};
+use journal_extensions::create_journal_extensions_schema;
+pub use journal_extensions::{
+    JournalAppendCommit, JournalCheckpoint, JournalContentRef, JournalEventSchema,
+    JournalHookDeliveryPolicy, JournalHookExec, JournalHookFilter, JournalHookManifest,
+    JournalHookRegex, JournalHookRetry, JournalIngress, JournalProducerManifest, JournalSegment,
+};
+pub(crate) use journal_extensions::{
+    JournalCheckpointCommit, JournalContentBlob, JournalHookAttempt, JournalHookDelivery,
+    JournalHookState, JournalSegmentSealCommit,
 };
 pub use public_projection_store::RegistryPublicProjections;
 #[cfg(test)]
@@ -57,17 +68,17 @@ use resource_store::{
     migrate_resource_agent_projections, migrate_resource_browser_metadata,
     migrate_resource_mutations_to_session_scope, validate_resource_invariants,
 };
-pub(crate) use session_journal::SessionJournalReader;
 pub use session_journal::{
     JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
     JournalSubject, SessionJournalPage, SessionJournalRecord,
 };
+pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
 use session_journal::{
     append_resource_journal_record, create_session_journal_schema,
     migrate_resource_events_to_session_journal,
 };
 
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
@@ -489,6 +500,15 @@ impl WorkspaceRegistry {
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
+            Some(9) => {
+                let tx = connection.unchecked_transaction()?;
+                create_journal_extensions_schema(&tx)?;
+                tx.execute(
+                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+                    [SCHEMA_VERSION.to_string()],
+                )?;
+                tx.commit()?;
+            }
             Some(8) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
@@ -669,6 +689,7 @@ impl WorkspaceRegistry {
         {
             let tx = connection.unchecked_transaction()?;
             create_resource_effect_schema(&tx)?;
+            create_journal_extensions_schema(&tx)?;
             recover_resource_effects(&tx)?;
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
@@ -2588,7 +2609,7 @@ fn validate_workspace_key(value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn canonical_json(value: &Value) -> anyhow::Result<String> {
+pub(crate) fn canonical_json(value: &Value) -> anyhow::Result<String> {
     fn write(value: &Value, output: &mut String) -> anyhow::Result<()> {
         match value {
             Value::Object(map) => {

@@ -4,11 +4,14 @@ The session journal is the ordered source of truth for extensibility and
 restoration. A session has one journal sequence. State projections, hook
 delivery state, search indexes, and UI snapshots are derived read models.
 
-The storage v1 implementation records durable resource mutations. This already
-includes workspace, screen, pane, and tab focus; tab selection; split ratios;
-viewport column widths; topology; terminal lifecycle; browser lifecycle;
-frontend projections; and explicit agent reports. Hook execution, native agent
-adapters, content-stream references, and restoration reducers remain proposed.
+Storage v1 records durable resource mutations, schema-validated producer
+events, hook manifests and delivery outcomes, checkpoints, and sealed history
+segments. Resource mutations include workspace, screen, pane, and tab focus;
+tab selection; split ratios; viewport column widths; topology; terminal and
+browser lifecycle; frontend projections; and explicit agent reports. A pure
+restoration reducer can preview the state reconstructed from a checkpoint and
+its tail. Native agent adapters, continuous terminal content chunks, and live
+application of a restored model remain pending.
 
 ## Invariants
 
@@ -19,8 +22,9 @@ adapters, content-stream references, and restoration reducers remain proposed.
    commits.
 3. Retrying one idempotency key returns the original result and does not append
    another record.
-4. Journal rows cannot be updated or deleted. SQLite triggers enforce this.
-   Explicit session deletion removes the session as one lifecycle operation.
+4. Logical records cannot be updated or deleted. SQLite triggers protect both
+   active rows and sealed segments. Sealing moves a checkpoint-covered prefix
+   into an immutable checksummed segment without changing its records.
 5. The commit path performs one journal insert. It does not start a process,
    wait for a hook, render UI, or perform network I/O. Dispatchers tail only
    after commit.
@@ -127,11 +131,10 @@ Producer-specific redacted event shapes may lower that classification later.
 ## Subscription API
 
 Consumers subscribe through the versioned resource API, never by opening the
-SQLite database. `session.journal.subscribe` is trusted-local in v1. It returns
-the ordinary bounded stream envelopes and a durable cursor whose `generation`
-is the immutable session ID and whose `revision` is the decimal journal
-sequence. Decimal strings avoid loss in JavaScript and other runtimes with
-bounded integer representations.
+SQLite database. `session.journal.subscribe` returns ordinary bounded stream
+envelopes and a durable cursor whose `generation` is the immutable session ID
+and whose `revision` is the decimal journal sequence. Decimal strings avoid
+loss in JavaScript and other runtimes with bounded integer representations.
 
 With no starting position, a subscriber tails records committed after the
 open request captures the current head. `start: "beginning"` first replays all
@@ -150,8 +153,13 @@ dimension are ORed, and filtered records still advance the cursor:
 - `regex` is compiled once and matches `kind`, `subjects`, `payload`, or the
   complete record after the structured filters pass.
 
-V1 never delivers `secret` records. Authorization and redaction must be added
-before this feed is exposed over a remote transport.
+No subscription delivers `secret` records. Unix-socket clients may request up
+to `sensitive`. WebSocket clients are capped at `metadata`; their authority,
+causation, and correlation fields are redacted, and remote regex filters may
+inspect only `kind` or `subjects`. WebSocket token authentication and the
+explicit non-loopback bind policy remain the transport authorization boundary.
+Producer, hook, checkpoint, restoration, and segment operations require the
+trusted local Unix transport.
 
 The CLI is the language-neutral hook boundary. Human output prints records;
 `--jsonl` prints complete stream envelopes so a consumer can persist the
@@ -167,19 +175,73 @@ cmux --session main --jsonl session current journal subscribe \
   --kinds 'agent.*' --regex 'approval|question' --regex-field payload --ignore-case
 ```
 
+The first command tails new events. Add `--from beginning` to view retained
+history. Keep the final cursor from each JSONL item and resume with
+`--cursor-session <session-id> --sequence <sequence>`. A client connected to a
+resident process that predates journal capability negotiation receives
+`operation.unsupported` with an instruction to restart that named session,
+instead of the older `validation.invalid` envelope error.
+
 Quote kind prefixes containing `*` so shells such as zsh do not expand them.
 Regex uses Rust's linear-time regex engine. Patterns are limited to 1024 bytes,
 compiled once per subscription, and literal searches use the engine's
 vectorized prefilters when available.
 
 One session-local fanout tailer owns the persistent read-only WAL connection.
-It decodes each live record once into an 8,192-record ring shared by every
-subscriber. Historical replay opens a temporary bounded reader, then joins the
+It decodes each live record once into a ring bounded by 8,192 records and a
+128 MiB resident-size estimate, shared by every subscriber. Historical replay
+opens a temporary bounded reader, then joins the
 shared tail. Falling behind the ring reopens a catch-up reader by cursor, so a
 slow consumer does not force every consumer to reread or reparse SQLite.
 Structured and compiled-regex filters run off the mutation path. Idle
 subscribers wait on the fanout signal instead of polling the database. A hook
 process never runs synchronously inside the journal transaction.
+
+## Producer ingress
+
+A producer installs a versioned manifest before appending namespaced events:
+
+```bash
+cmux --session main --jsonl session current journal producer put \
+  --idempotency-key demo-producer-v1 \
+  --manifest-json '{
+    "producer_id":"demo",
+    "namespace":"plugin.demo",
+    "manifest_version":1,
+    "max_sensitivity":"metadata",
+    "permissions":["journal.append.plugin.demo"],
+    "events":[{
+      "kind":"plugin.demo.task_finished",
+      "schema_version":1,
+      "class":"observation",
+      "replay":"advisory",
+      "sensitivity":"metadata",
+      "payload_schema":{
+        "type":"object",
+        "required":["task_id"],
+        "properties":{"task_id":{"type":"string"}},
+        "additionalProperties":false
+      }
+    }]
+  }'
+
+cmux --session main --jsonl session current journal append \
+  --idempotency-key demo-task-42-finished \
+  --event-json '{
+    "producer_id":"demo",
+    "manifest_version":1,
+    "kind":"plugin.demo.task_finished",
+    "schema_version":1,
+    "subjects":[{"kind":"workspace","id":"ws_..."}],
+    "payload":{"task_id":"42"}
+  }'
+```
+
+The manifest schema is compiled once and cached by the session journal kernel.
+Ingress validates namespace, schema version, sensitivity authority, payload
+size, subjects, and causation depth before the transaction. An idempotency key
+returns the original event receipt on retry. A causation ID must name an
+existing event and advances the bounded causal depth.
 
 ## Focus, layout, resize, and content
 
@@ -203,10 +265,11 @@ value, including a no-op outcome when an operation receipt needs to explain why
 no state changed.
 
 Terminal output is a high-volume content stream, not inline journal payload.
-The terminal host writes immutable chunks. Journal records bind terminal ID,
-incarnation, chunk range, terminal grid, and digest to the session sequence.
-A checkpoint names the exact terminal content offsets it covers. This keeps
-ordering and restoration complete without copying output into every event row.
+The checkpoint writer currently captures each terminal under its terminal
+lock as a bounded VT replay blob, compresses it with deterministic gzip, and
+stores it by SHA-256 content ID. The checkpoint records terminal ID, grid,
+format, digest, and byte count. Continuous immutable output chunks and offsets
+between checkpoints remain pending.
 
 Raw keyboard input and paste contents are secret by default and are not
 journaled. An audited opt-in recorder may store encrypted content references.
@@ -226,9 +289,11 @@ vocabulary. Its versioned manifest declares:
 - required permissions and sensitivity;
 - root-process and child-process identification rules.
 
-The native hook performs authenticated local ingress, waits only for the
-journal commit receipt, and exits. Feed rendering, notifications, user hooks,
-and indexing happen asynchronously from the journal cursor.
+The native hook will perform authenticated local ingress, wait only for the
+journal commit receipt, and exit. Schema-validated local producer ingress is
+implemented; provider-specific adapter installation and root leases remain
+pending. Feed rendering, notifications, user hooks, and indexing happen
+asynchronously from the journal cursor.
 
 The ownership flow uses one root lease per agent session and surface:
 
@@ -276,11 +341,20 @@ versioned manifest contains:
 }
 ```
 
+Install and inspect manifests through the local resource API:
+
+```bash
+cmux --session main --jsonl session current journal hook put \
+  --idempotency-key notify-agent-question-v1 --manifest-json '<manifest-json>'
+cmux --session main --jsonl session current journal hook list
+```
+
 The runner sends the complete envelope on stdin and sets only stable routing
-variables such as session ID, event ID, sequence, hook ID, and attempt. It does
-not flatten arbitrary payload fields into the environment. Direct `argv`
-execution is the default. Shell evaluation requires a separate explicit
-permission.
+variables for session ID, event ID, sequence, hook ID, hook version, attempt,
+causation ID, and correlation ID. It does not flatten arbitrary payload fields
+into the environment. Execution uses an absolute `argv`, an empty inherited
+environment, no shell, and bounded timeout and concurrency. Shell evaluation
+is not supported.
 
 The dispatcher stores a materialized cursor per hook manifest version. It
 appends these outcomes:
@@ -295,40 +369,69 @@ exactly-once scheduling and at-least-once process execution. External effects
 must use that identity as their idempotency key if they require exactly-once
 behavior.
 
-Hook delivery events are excluded from hook filters by default. A hook cannot
-receive its own causal descendants unless its manifest opts in. The dispatcher
-also enforces a maximum causal depth and per-hook concurrency bound.
+Hook delivery events are excluded from hook filters by default. Hook-invoked
+`cmux ... journal append` commands automatically inherit the scoped causation
+ID, correlation ID, and hook subject. The event index carries that hook marker
+through later causal descendants, so the dispatcher excludes them with an
+indexed lookup unless the manifest opts in. The dispatcher also enforces a
+maximum causal depth, a per-hook concurrency bound, and a session-wide bound.
 
-Manifests default to new events at installation time. Explicit `beginning` or
-checkpoint cursors enable catch-up. A missing archived segment pauses delivery
-with a durable gap outcome instead of silently skipping records.
+Manifests default to new events at installation time. `start: "beginning"`
+enables full catch-up. Immutable sealed segments remain transparent to the
+dispatcher and ordinary subscribers.
 
 ## Restoration
 
 Restoration starts from the newest compatible checkpoint, then applies every
-required record through the target sequence. Reducers are versioned, pure, and
-deterministic. A checkpoint contains its source sequence, reducer versions,
-topology projection, agent continuations, process outcomes, terminal content
-offsets, and compatibility requirements.
+required record through the target sequence. The implemented v1 reducer is
+pure and deterministic. A checkpoint contains its source sequence, reducer
+version, public session projection, producer and hook manifests, and terminal
+content references. `journal restore preview` returns the projected model,
+digest, applied count, and every unsupported required record. It never mutates
+the live session.
 
 External effects are not repeated during replay. Their recorded outcomes
 materialize state. Live-process adoption separately verifies process identity
 and incarnation before reconnecting a terminal host.
 
-Restoration should first produce an inert complete model. Process adoption,
+Live restoration will consume this inert complete model. Process adoption,
 fresh process spawning, browser reconnect, and agent resume are explicit
 post-replay actions with their own journal outcomes. A partially supported
 record fails with a compatibility error or becomes an explicit degraded
 projection. It is never silently discarded.
 
+Create and inspect checkpoints, preview a reduction, then seal a covered
+prefix:
+
+```bash
+cmux --session main --jsonl session current journal checkpoint create \
+  --idempotency-key checkpoint-1
+cmux --session main --jsonl session current journal checkpoint list
+cmux --session main --jsonl session current journal restore preview \
+  --checkpoint latest
+cmux --session main --jsonl session current journal segment seal \
+  --through <checkpoint-source-sequence> --idempotency-key segment-1
+cmux --session main --jsonl session current journal segment list
+```
+
 ## Retention and storage
 
-Append-only does not require one SQLite file to grow forever. The active tail
-stays in SQLite. Closed ranges may be sealed into immutable, checksummed
-segments and replaced by an appended segment-manifest record. Checkpoints make
-startup proportional to the tail after the checkpoint. Projection tables,
-indexes, hook cursors, and receipts may be compacted because they can be
-rebuilt.
+Append-only does not require one SQLite table to grow forever. The active tail
+stays as indexed rows. `journal segment seal` moves only a checkpoint-covered
+prefix into deterministic gzip JSON segments of at most 1,024 records or 16
+MiB uncompressed, verifies their SHA-256 digests on read, preserves the causal
+event index, and appends a
+segment-manifest record. Reads, subscriptions, hooks, and reducers cross active
+and sealed ranges transparently. Projection tables, hook cursors, and receipts
+may be compacted because canonical records remain rebuildable.
+
+SQLite is the durable ordering boundary because the journal record, state
+projection, and idempotency receipt can commit in one transaction. WAL permits
+the shared read tailer to run concurrently with the single serialized writer.
+The public stream is asynchronous, while blocking SQLite work stays on the
+session writer or dedicated read workers. An async SQLite wrapper would move
+the same synchronous SQLite calls onto another worker and add scheduling hops;
+it would not make the database engine asynchronous.
 
 Canonical segments are retained until explicit session deletion or an explicit
 export-and-forget policy. Size pressure cannot silently delete history. Secret
@@ -345,10 +448,14 @@ markers.
 | v8 bounded resource-event rows | Migrated with an explicit history-completeness checkpoint |
 | Legacy workspace and terminal event tables | Compatibility projections, migration pending |
 | Transient `MuxEvent` observations | Classification and ingress pending |
-| Terminal content chunk references | Pending |
+| Checkpoint terminal VT content references | Implemented with content-addressed gzip blobs |
+| Continuous terminal content chunks | Pending |
 | Agent adapter manifests and root leases | Pending |
-| Hook dispatcher and delivery projections | Pending |
-| Restoration reducers and checkpoint writer | Pending |
+| Schema-validated producer manifests and ingress | Implemented in storage v1 |
+| Hook dispatcher and delivery projections | Implemented in storage v1 |
+| Checkpoint writer and restoration preview reducer | Implemented in storage v1 |
+| Checkpoint-aligned immutable segments | Implemented in storage v1 |
+| Live restoration application | Pending |
 
 The in-memory `MuxEvent` broadcaster remains a lossy presentation mechanism.
 It may wake consumers after commit, but it is never a journal or restoration

@@ -312,6 +312,84 @@ fn parse_session(
             add_journal_subscription(&mut params, flags)?;
             request(ResourceOperation::SessionJournalSubscribe, selectors, flags, params)
         }
+        [selector, "journal", "producer", "list"] => {
+            selectors.insert("session", "session", selector)?;
+            request(ResourceOperation::SessionJournalProducerList, selectors, flags, Map::new())
+        }
+        [selector, "journal", "producer", "put"] => {
+            selectors.insert("session", "session", selector)?;
+            let manifest = parse_json_flag(flags, "manifest-json")?;
+            request(
+                ResourceOperation::SessionJournalProducerPut,
+                selectors,
+                flags,
+                map_with("manifest", manifest),
+            )
+        }
+        [selector, "journal", "append"] => {
+            selectors.insert("session", "session", selector)?;
+            let mut event = parse_json_flag(flags, "event-json")?;
+            let hook_id = std::env::var("CMUX_JOURNAL_HOOK_ID").ok();
+            let causation_id = std::env::var("CMUX_JOURNAL_CAUSATION_ID").ok();
+            let correlation_id = std::env::var("CMUX_JOURNAL_CORRELATION_ID").ok();
+            apply_journal_hook_context(
+                &mut event,
+                hook_id.as_deref(),
+                causation_id.as_deref(),
+                correlation_id.as_deref(),
+            )?;
+            request(
+                ResourceOperation::SessionJournalAppend,
+                selectors,
+                flags,
+                map_with("event", event),
+            )
+        }
+        [selector, "journal", "hook", "list"] => {
+            selectors.insert("session", "session", selector)?;
+            request(ResourceOperation::SessionJournalHookList, selectors, flags, Map::new())
+        }
+        [selector, "journal", "hook", "put"] => {
+            selectors.insert("session", "session", selector)?;
+            let manifest = parse_json_flag(flags, "manifest-json")?;
+            request(
+                ResourceOperation::SessionJournalHookPut,
+                selectors,
+                flags,
+                map_with("manifest", manifest),
+            )
+        }
+        [selector, "journal", "checkpoint", "create"] => {
+            selectors.insert("session", "session", selector)?;
+            request(ResourceOperation::SessionJournalCheckpointCreate, selectors, flags, Map::new())
+        }
+        [selector, "journal", "checkpoint", "list"] => {
+            selectors.insert("session", "session", selector)?;
+            request(ResourceOperation::SessionJournalCheckpointList, selectors, flags, Map::new())
+        }
+        [selector, "journal", "restore", "preview"] => {
+            selectors.insert("session", "session", selector)?;
+            let mut params = Map::new();
+            if let Some(checkpoint) = flags.take("checkpoint") {
+                params.insert("checkpoint".into(), Value::String(checkpoint));
+            }
+            request(ResourceOperation::SessionJournalRestorePreview, selectors, flags, params)
+        }
+        [selector, "journal", "segment", "list"] => {
+            selectors.insert("session", "session", selector)?;
+            request(ResourceOperation::SessionJournalSegmentList, selectors, flags, Map::new())
+        }
+        [selector, "journal", "segment", "seal"] => {
+            selectors.insert("session", "session", selector)?;
+            let mut params = Map::new();
+            insert_decimal(
+                &mut params,
+                "through_sequence",
+                "--through",
+                flags.required("through")?,
+            )?;
+            request(ResourceOperation::SessionJournalSegmentSeal, selectors, flags, params)
+        }
         [selector, "ping"] => {
             selectors.insert("session", "session", selector)?;
             request(ResourceOperation::SessionPing, selectors, flags, Map::new())
@@ -2035,6 +2113,47 @@ fn parse_json_flag(flags: &mut Flags, name: &str) -> Result<Value, UsageError> {
         .map_err(|error| UsageError::new(format!("invalid --{name} JSON: {error}")))
 }
 
+fn apply_journal_hook_context(
+    event: &mut Value,
+    hook_id: Option<&str>,
+    causation_id: Option<&str>,
+    correlation_id: Option<&str>,
+) -> Result<(), UsageError> {
+    let hook_id = hook_id.filter(|value| !value.is_empty());
+    let causation_id = causation_id.filter(|value| !value.is_empty());
+    let correlation_id = correlation_id.filter(|value| !value.is_empty());
+    if hook_id.is_none() && causation_id.is_none() && correlation_id.is_none() {
+        return Ok(());
+    }
+    let object = event
+        .as_object_mut()
+        .ok_or_else(|| UsageError::new("--event-json must contain a JSON object"))?;
+    if let Some(causation_id) = causation_id {
+        if object.get("causation_id").is_none_or(Value::is_null) {
+            object.insert("causation_id".into(), Value::String(causation_id.into()));
+        }
+    }
+    if let Some(correlation_id) = correlation_id {
+        if object.get("correlation_id").is_none_or(Value::is_null) {
+            object.insert("correlation_id".into(), Value::String(correlation_id.into()));
+        }
+    }
+    if let Some(hook_id) = hook_id {
+        let subjects = object.entry("subjects").or_insert_with(|| Value::Array(Vec::new()));
+        let subjects = subjects
+            .as_array_mut()
+            .ok_or_else(|| UsageError::new("--event-json subjects must contain a JSON array"))?;
+        let already_present = subjects.iter().any(|subject| {
+            subject.get("kind").and_then(Value::as_str) == Some("hook")
+                && subject.get("id").and_then(Value::as_str) == Some(hook_id)
+        });
+        if !already_present {
+            subjects.push(json!({"kind":"hook","id":hook_id}));
+        }
+    }
+    Ok(())
+}
+
 fn insert_u16(
     params: &mut Map<String, Value>,
     field: &str,
@@ -2604,6 +2723,119 @@ mod tests {
             args.extend(invalid);
             assert!(parse(&strings(&args)).is_err(), "accepted {args:?}");
         }
+
+        let manifest = r#"{"producer_id":"demo","namespace":"plugin.demo"}"#;
+        let producer = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "producer",
+            "put",
+            "--manifest-json",
+            manifest,
+            "--idempotency-key",
+            "producer-put-1",
+        ]);
+        assert_eq!(operation(&producer), "session.journal.producer.put");
+        assert_eq!(producer.params["manifest"]["producer_id"], "demo");
+        assert_eq!(producer.idempotency_key.as_deref(), Some("producer-put-1"));
+
+        let append = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "append",
+            "--event-json",
+            r#"{"producer_id":"demo","payload":{"ready":true}}"#,
+            "--idempotency-key",
+            "append-1",
+        ]);
+        assert_eq!(operation(&append), "session.journal.append");
+        assert_eq!(append.params["event"]["payload"]["ready"], true);
+
+        let hooks = protocol(&["session", SESSION, "journal", "hook", "list"]);
+        assert_eq!(operation(&hooks), "session.journal.hook.list");
+
+        let hook = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "hook",
+            "put",
+            "--manifest-json",
+            r#"{"hook_id":"demo_hook","manifest_version":1}"#,
+            "--idempotency-key",
+            "hook-put-1",
+        ]);
+        assert_eq!(operation(&hook), "session.journal.hook.put");
+        assert_eq!(hook.params["manifest"]["hook_id"], "demo_hook");
+        assert_eq!(hook.idempotency_key.as_deref(), Some("hook-put-1"));
+
+        let checkpoint = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "checkpoint",
+            "create",
+            "--idempotency-key",
+            "checkpoint-1",
+        ]);
+        assert_eq!(operation(&checkpoint), "session.journal.checkpoint.create");
+        let checkpoints = protocol(&["session", SESSION, "journal", "checkpoint", "list"]);
+        assert_eq!(operation(&checkpoints), "session.journal.checkpoint.list");
+
+        let restore = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "restore",
+            "preview",
+            "--checkpoint",
+            "latest",
+        ]);
+        assert_eq!(operation(&restore), "session.journal.restore.preview");
+        assert_eq!(restore.params["checkpoint"], "latest");
+
+        let segments = protocol(&["session", SESSION, "journal", "segment", "list"]);
+        assert_eq!(operation(&segments), "session.journal.segment.list");
+        let seal = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "segment",
+            "seal",
+            "--through",
+            "42",
+            "--idempotency-key",
+            "segment-1",
+        ]);
+        assert_eq!(operation(&seal), "session.journal.segment.seal");
+        assert_eq!(seal.params["through_sequence"], "42");
+    }
+
+    #[test]
+    fn journal_append_inherits_scoped_hook_causation() {
+        let mut event = json!({
+            "producer_id":"demo",
+            "subjects":[{"kind":"workspace","id":"ws_test"}],
+            "payload":{},
+        });
+        apply_journal_hook_context(
+            &mut event,
+            Some("demo_hook"),
+            Some("event_hook_started"),
+            Some("demo_hook:1:event_source"),
+        )
+        .unwrap();
+        assert_eq!(event["causation_id"], "event_hook_started");
+        assert_eq!(event["correlation_id"], "demo_hook:1:event_source");
+        assert_eq!(
+            event["subjects"],
+            json!([
+                {"kind":"workspace","id":"ws_test"},
+                {"kind":"hook","id":"demo_hook"},
+            ])
+        );
     }
 
     #[test]

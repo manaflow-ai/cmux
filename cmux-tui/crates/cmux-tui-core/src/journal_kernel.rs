@@ -1,14 +1,18 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, RwLock, Weak};
 use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::SessionJournalRecord;
 use crate::workspace_registry::SessionJournalReader;
+use crate::{
+    JournalClass, JournalIngress, JournalProducerManifest, JournalReplayPolicy, JournalSensitivity,
+    SessionJournalRecord,
+};
 
 const JOURNAL_FANOUT_CAPACITY: usize = 8192;
+const JOURNAL_FANOUT_BYTE_CAPACITY: usize = 128 * 1024 * 1024;
 const JOURNAL_READ_PAGE_SIZE: usize = 1024;
 
 /// One decoded journal record shared by every live subscriber.
@@ -58,6 +62,10 @@ impl JournalDocument {
     pub(crate) fn record_bytes(&self) -> &[u8] {
         &self.record_bytes
     }
+
+    fn resident_bytes(&self) -> usize {
+        self.record_bytes.len().saturating_mul(3).saturating_add(self.subjects_bytes.len())
+    }
 }
 
 fn journal_record_value(record: &SessionJournalRecord) -> Value {
@@ -101,6 +109,7 @@ struct JournalFanoutState {
     requested_epoch: u64,
     head_sequence: u64,
     records: VecDeque<Arc<JournalDocument>>,
+    record_bytes: usize,
     available: bool,
     #[cfg(test)]
     database_reader_count: u64,
@@ -112,10 +121,34 @@ pub(crate) struct JournalKernel {
     state: Mutex<JournalFanoutState>,
     changed: Condvar,
     enabled: bool,
+    producers: RwLock<HashMap<String, Arc<CompiledJournalProducer>>>,
+}
+
+struct CompiledJournalProducer {
+    manifest_version: u32,
+    max_sensitivity: JournalSensitivity,
+    events: HashMap<(String, u32), CompiledJournalEvent>,
+}
+
+struct CompiledJournalEvent {
+    class: JournalClass,
+    replay: JournalReplayPolicy,
+    sensitivity: JournalSensitivity,
+    validator: jsonschema::Validator,
+}
+
+pub(crate) struct ValidatedJournalIngress {
+    pub(crate) class: JournalClass,
+    pub(crate) replay: JournalReplayPolicy,
+    pub(crate) sensitivity: JournalSensitivity,
 }
 
 impl JournalKernel {
-    pub(crate) fn new(database_path: Option<PathBuf>) -> anyhow::Result<Arc<Self>> {
+    pub(crate) fn new(
+        database_path: Option<PathBuf>,
+        manifests: &[JournalProducerManifest],
+    ) -> anyhow::Result<Arc<Self>> {
+        let producers = compile_journal_producers(manifests)?;
         let Some(database_path) = database_path else {
             return Ok(Arc::new(Self {
                 state: Mutex::new(JournalFanoutState {
@@ -123,12 +156,14 @@ impl JournalKernel {
                     requested_epoch: 0,
                     head_sequence: 0,
                     records: VecDeque::new(),
+                    record_bytes: 0,
                     available: false,
                     #[cfg(test)]
                     database_reader_count: 0,
                 }),
                 changed: Condvar::new(),
                 enabled: false,
+                producers: RwLock::new(producers),
             }));
         };
 
@@ -140,12 +175,14 @@ impl JournalKernel {
                 requested_epoch: 0,
                 head_sequence,
                 records: VecDeque::new(),
+                record_bytes: 0,
                 available: true,
                 #[cfg(test)]
                 database_reader_count: 1,
             }),
             changed: Condvar::new(),
             enabled: true,
+            producers: RwLock::new(producers),
         });
         Self::start_tailer(&kernel, reader, head_sequence)?;
         Ok(kernel)
@@ -229,9 +266,93 @@ impl JournalKernel {
         SharedJournalRead::Page(SharedJournalPage { head_sequence: state.head_sequence, records })
     }
 
+    pub(crate) fn install_producer(
+        &self,
+        manifest: &JournalProducerManifest,
+    ) -> anyhow::Result<()> {
+        let compiled = compile_journal_producer(manifest)?;
+        self.producers.write().unwrap().insert(manifest.producer_id.clone(), Arc::new(compiled));
+        Ok(())
+    }
+
+    pub(crate) fn validate_ingress(
+        &self,
+        ingress: &JournalIngress,
+    ) -> anyhow::Result<ValidatedJournalIngress> {
+        let producer = self
+            .producers
+            .read()
+            .unwrap()
+            .get(&ingress.producer_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("journal producer is not installed"))?;
+        anyhow::ensure!(
+            ingress.manifest_version == producer.manifest_version,
+            "journal producer manifest version is not current"
+        );
+        let event =
+            producer.events.get(&(ingress.kind.clone(), ingress.schema_version)).ok_or_else(
+                || anyhow::anyhow!("journal event kind or schema version is not declared"),
+            )?;
+        let sensitivity = ingress.sensitivity.unwrap_or(event.sensitivity);
+        anyhow::ensure!(
+            sensitivity_rank(sensitivity) <= sensitivity_rank(producer.max_sensitivity),
+            "journal event sensitivity exceeds producer authority"
+        );
+        if let Err(error) = event.validator.validate(&ingress.payload) {
+            anyhow::bail!("journal event payload does not match its schema: {error}");
+        }
+        Ok(ValidatedJournalIngress { class: event.class, replay: event.replay, sensitivity })
+    }
+
     #[cfg(test)]
     pub(crate) fn database_reader_count(&self) -> u64 {
         self.state.lock().unwrap().database_reader_count
+    }
+}
+
+fn compile_journal_producers(
+    manifests: &[JournalProducerManifest],
+) -> anyhow::Result<HashMap<String, Arc<CompiledJournalProducer>>> {
+    manifests
+        .iter()
+        .map(|manifest| {
+            Ok((manifest.producer_id.clone(), Arc::new(compile_journal_producer(manifest)?)))
+        })
+        .collect()
+}
+
+fn compile_journal_producer(
+    manifest: &JournalProducerManifest,
+) -> anyhow::Result<CompiledJournalProducer> {
+    let events = manifest
+        .events
+        .iter()
+        .map(|event| {
+            Ok((
+                (event.kind.clone(), event.schema_version),
+                CompiledJournalEvent {
+                    class: event.class,
+                    replay: event.replay,
+                    sensitivity: event.sensitivity,
+                    validator: jsonschema::validator_for(&event.payload_schema)?,
+                },
+            ))
+        })
+        .collect::<anyhow::Result<HashMap<_, _>>>()?;
+    Ok(CompiledJournalProducer {
+        manifest_version: manifest.manifest_version,
+        max_sensitivity: manifest.max_sensitivity,
+        events,
+    })
+}
+
+fn sensitivity_rank(value: JournalSensitivity) -> u8 {
+    match value {
+        JournalSensitivity::Public => 0,
+        JournalSensitivity::Metadata => 1,
+        JournalSensitivity::Sensitive => 2,
+        JournalSensitivity::Secret => 3,
     }
 }
 
@@ -290,9 +411,16 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
         state.available = !read_failed;
         if !read_failed {
             for record in appended {
+                state.record_bytes = state.record_bytes.saturating_add(record.resident_bytes());
                 state.records.push_back(record);
-                if state.records.len() > JOURNAL_FANOUT_CAPACITY {
-                    state.records.pop_front();
+                while state.records.len() > JOURNAL_FANOUT_CAPACITY
+                    || (state.records.len() > 1
+                        && state.record_bytes > JOURNAL_FANOUT_BYTE_CAPACITY)
+                {
+                    if let Some(removed) = state.records.pop_front() {
+                        state.record_bytes =
+                            state.record_bytes.saturating_sub(removed.resident_bytes());
+                    }
                 }
             }
             state.head_sequence = last_sequence;

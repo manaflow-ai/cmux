@@ -298,6 +298,16 @@ USAGE
     [--kinds <kind[,kind...]>] [--classes <class[,class...]>]
     [--subjects <kind:id[,kind:id...]>] [--max-sensitivity public|metadata|sensitive]
     [--regex <pattern>] [--regex-field kind|subjects|payload|record] [--ignore-case]
+  cmux session <selector> journal producer list
+  cmux session <selector> journal producer put --manifest-json <json> --idempotency-key <key>
+  cmux session <selector> journal append --event-json <json> --idempotency-key <key>
+  cmux session <selector> journal hook list
+  cmux session <selector> journal hook put --manifest-json <json> --idempotency-key <key>
+  cmux session <selector> journal checkpoint create --idempotency-key <key>
+  cmux session <selector> journal checkpoint list
+  cmux session <selector> journal restore preview [--checkpoint latest|<checkpoint-id>]
+  cmux session <selector> journal segment list
+  cmux session <selector> journal segment seal --through <sequence> --idempotency-key <key>
   cmux session <selector> config reload
   cmux session <selector> window title set --title <value>
   cmux session <selector> window title clear

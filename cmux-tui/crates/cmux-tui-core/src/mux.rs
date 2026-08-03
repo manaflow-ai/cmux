@@ -1876,8 +1876,11 @@ impl Mux {
             surface_notifications,
             notification_ledger,
         } = restore_public_projections(&state, registry.public_projections()?)?;
-        let journal_kernel =
-            crate::journal_kernel::JournalKernel::new(registry.session_journal_database_path())?;
+        let journal_producers = registry.journal_producer_manifests()?;
+        let journal_kernel = crate::journal_kernel::JournalKernel::new(
+            registry.session_journal_database_path(),
+            &journal_producers,
+        )?;
         surface_options.browser_session_name = session.clone();
         Self::rebuild_split_screen_index(&mut state);
         let mux = Arc::new(Mux {
@@ -2014,6 +2017,7 @@ impl Mux {
             }
             std::thread::sleep(Duration::from_millis(25));
         }
+        crate::journal_hooks::start(&mux)?;
         Ok(mux)
     }
 
@@ -4385,6 +4389,204 @@ impl Mux {
         limit: usize,
     ) -> crate::journal_kernel::SharedJournalRead {
         self.journal_kernel.read_after(sequence, limit)
+    }
+
+    pub(crate) fn journal_producer_manifests(
+        &self,
+    ) -> anyhow::Result<Vec<crate::JournalProducerManifest>> {
+        self.workspace_registry.lock().unwrap().journal_producer_manifests()
+    }
+
+    pub(crate) fn put_journal_producer(
+        &self,
+        manifest: &crate::JournalProducerManifest,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<crate::JournalAppendCommit> {
+        let commit = self.workspace_registry.lock().unwrap().put_journal_producer(
+            manifest,
+            origin,
+            idempotency_key,
+        )?;
+        self.journal_kernel.install_producer(manifest)?;
+        if !commit.replayed {
+            self.publish_journal_event();
+        }
+        Ok(commit)
+    }
+
+    pub(crate) fn append_journal_ingress(
+        &self,
+        ingress: &crate::JournalIngress,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<crate::JournalAppendCommit> {
+        let validated = self.journal_kernel.validate_ingress(ingress)?;
+        let commit = self.workspace_registry.lock().unwrap().append_journal_ingress(
+            ingress,
+            &validated,
+            origin,
+            idempotency_key,
+        )?;
+        if !commit.replayed {
+            self.publish_journal_event();
+        }
+        Ok(commit)
+    }
+
+    pub(crate) fn journal_hook_states(
+        &self,
+    ) -> anyhow::Result<Vec<crate::workspace_registry::JournalHookState>> {
+        self.workspace_registry.lock().unwrap().journal_hook_states()
+    }
+
+    pub(crate) fn journal_events_caused_by_hook(
+        &self,
+        hook_id: &str,
+        event_ids: &[String],
+    ) -> anyhow::Result<HashSet<String>> {
+        self.workspace_registry.lock().unwrap().journal_events_caused_by_hook(hook_id, event_ids)
+    }
+
+    pub(crate) fn put_journal_hook(
+        &self,
+        manifest: &crate::JournalHookManifest,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<crate::JournalAppendCommit> {
+        let commit = self.workspace_registry.lock().unwrap().put_journal_hook(
+            manifest,
+            origin,
+            idempotency_key,
+        )?;
+        if !commit.replayed {
+            self.publish_journal_event();
+        }
+        Ok(commit)
+    }
+
+    pub(crate) fn schedule_journal_hook_deliveries(
+        &self,
+        hook_id: &str,
+        manifest_version: u32,
+        expected_cursor: u64,
+        scanned_to: u64,
+        matches: &[(String, u64)],
+    ) -> anyhow::Result<bool> {
+        self.workspace_registry.lock().unwrap().schedule_journal_hook_deliveries(
+            hook_id,
+            manifest_version,
+            expected_cursor,
+            scanned_to,
+            matches,
+        )
+    }
+
+    pub(crate) fn pending_journal_hook_deliveries(
+        &self,
+        limit: usize,
+    ) -> anyhow::Result<Vec<crate::workspace_registry::JournalHookDelivery>> {
+        let now_ms = crate::workspace_registry::unix_epoch_ms()?;
+        self.workspace_registry.lock().unwrap().pending_journal_hook_deliveries(now_ms, limit)
+    }
+
+    pub(crate) fn start_journal_hook_delivery(
+        &self,
+        delivery: &crate::workspace_registry::JournalHookDelivery,
+    ) -> anyhow::Result<crate::workspace_registry::JournalHookAttempt> {
+        let attempt =
+            self.workspace_registry.lock().unwrap().start_journal_hook_delivery(delivery)?;
+        self.publish_journal_event();
+        Ok(attempt)
+    }
+
+    pub(crate) fn finish_journal_hook_delivery(
+        &self,
+        delivery: &crate::workspace_registry::JournalHookDelivery,
+        attempt: u16,
+        exit_code: Option<i32>,
+        error: Option<&str>,
+    ) -> anyhow::Result<()> {
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .finish_journal_hook_delivery(delivery, attempt, exit_code, error)?;
+        self.publish_journal_event();
+        Ok(())
+    }
+
+    pub(crate) fn create_journal_checkpoint(
+        &self,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<crate::workspace_registry::JournalCheckpointCommit> {
+        if let Some(commit) =
+            self.workspace_registry.lock().unwrap().journal_checkpoint_receipt(idempotency_key)?
+        {
+            return Ok(commit);
+        }
+        let captured = crate::journal_checkpoint::capture(self)?;
+        let commit = self.workspace_registry.lock().unwrap().create_journal_checkpoint(
+            captured.source_sequence,
+            crate::journal_checkpoint::JOURNAL_REDUCER_VERSION,
+            &captured.state,
+            &captured.blobs,
+            origin,
+            idempotency_key,
+        )?;
+        if !commit.journal.replayed {
+            self.publish_journal_event();
+        }
+        Ok(commit)
+    }
+
+    pub(crate) fn journal_checkpoints(&self) -> anyhow::Result<Vec<crate::JournalCheckpoint>> {
+        self.workspace_registry.lock().unwrap().journal_checkpoints()
+    }
+
+    pub(crate) fn journal_restore_preview(&self, selector: &str) -> anyhow::Result<Value> {
+        let checkpoint = self
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .journal_checkpoint(selector)?
+            .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
+        let mut sequence = checkpoint.source_sequence;
+        let mut records = Vec::new();
+        let head_sequence = loop {
+            let page = self.session_journal_after(sequence, 1024)?;
+            let head = page.head_sequence;
+            let empty = page.records.is_empty();
+            for record in page.records {
+                sequence = record.sequence;
+                records.push(record);
+            }
+            if empty || sequence >= head {
+                break head;
+            }
+        };
+        crate::journal_checkpoint::restore_preview(&checkpoint, &records, head_sequence)
+    }
+
+    pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<crate::JournalSegment>> {
+        self.workspace_registry.lock().unwrap().journal_segments()
+    }
+
+    pub(crate) fn seal_journal_segments(
+        &self,
+        through_sequence: u64,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<crate::workspace_registry::JournalSegmentSealCommit> {
+        let commit = self.workspace_registry.lock().unwrap().seal_journal_segments(
+            through_sequence,
+            origin,
+            idempotency_key,
+        )?;
+        if !commit.journal.replayed {
+            self.publish_journal_event();
+        }
+        Ok(commit)
     }
 
     #[cfg(test)]

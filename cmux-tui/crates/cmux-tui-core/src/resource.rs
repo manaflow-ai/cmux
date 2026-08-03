@@ -142,6 +142,26 @@ pub enum ResourceOperation {
     SessionEvents,
     #[serde(rename = "session.journal.subscribe")]
     SessionJournalSubscribe,
+    #[serde(rename = "session.journal.producer.list")]
+    SessionJournalProducerList,
+    #[serde(rename = "session.journal.producer.put")]
+    SessionJournalProducerPut,
+    #[serde(rename = "session.journal.append")]
+    SessionJournalAppend,
+    #[serde(rename = "session.journal.checkpoint.create")]
+    SessionJournalCheckpointCreate,
+    #[serde(rename = "session.journal.checkpoint.list")]
+    SessionJournalCheckpointList,
+    #[serde(rename = "session.journal.hook.list")]
+    SessionJournalHookList,
+    #[serde(rename = "session.journal.hook.put")]
+    SessionJournalHookPut,
+    #[serde(rename = "session.journal.restore.preview")]
+    SessionJournalRestorePreview,
+    #[serde(rename = "session.journal.segment.list")]
+    SessionJournalSegmentList,
+    #[serde(rename = "session.journal.segment.seal")]
+    SessionJournalSegmentSeal,
     #[serde(rename = "session.ping")]
     SessionPing,
     #[serde(rename = "session.shutdown")]
@@ -420,6 +440,11 @@ impl ResourceOperation {
                 | Self::SessionSnapshot
                 | Self::SessionCreationResolve
                 | Self::SessionPing
+                | Self::SessionJournalProducerList
+                | Self::SessionJournalHookList
+                | Self::SessionJournalCheckpointList
+                | Self::SessionJournalRestorePreview
+                | Self::SessionJournalSegmentList
                 | Self::ClientList
                 | Self::ClientGet
                 | Self::PairingRequestList

@@ -85,7 +85,19 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
 fn required_server_capability(plan: &RequestPlan) -> Option<&'static str> {
     matches!(
         &plan.operation,
-        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::SessionJournalSubscribe)
+        WireOperation::Typed(
+            cmux_tui_core::resource::ResourceOperation::SessionJournalSubscribe
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalProducerList
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalProducerPut
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalAppend
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalHookList
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalHookPut
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalCheckpointCreate
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalCheckpointList
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalRestorePreview
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalSegmentList
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalSegmentSeal
+        )
     )
     .then_some(cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY)
 }

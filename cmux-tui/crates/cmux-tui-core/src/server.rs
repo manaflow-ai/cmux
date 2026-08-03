@@ -4256,6 +4256,7 @@ struct SessionJournalStreamStart {
     filter: JournalStreamFilter,
     reader: Option<crate::workspace_registry::SessionJournalReader>,
     shared_fanout: bool,
+    remote_redacted: bool,
 }
 
 struct JournalStreamFilter {
@@ -4332,6 +4333,10 @@ impl JournalCompiledRegex {
             JournalRegexField::Payload => self.matcher.is_match(document.payload_bytes()),
             JournalRegexField::Record => self.matcher.is_match(document.record_bytes()),
         }
+    }
+
+    fn exposes_payload_or_record(&self) -> bool {
+        matches!(self.field, JournalRegexField::Payload | JournalRegexField::Record)
     }
 }
 
@@ -4477,6 +4482,16 @@ const fn handles_resource_connection_operation(operation: ResourceOperation) -> 
         operation,
         ResourceOperation::SessionEvents
             | ResourceOperation::SessionJournalSubscribe
+            | ResourceOperation::SessionJournalProducerList
+            | ResourceOperation::SessionJournalProducerPut
+            | ResourceOperation::SessionJournalAppend
+            | ResourceOperation::SessionJournalHookList
+            | ResourceOperation::SessionJournalHookPut
+            | ResourceOperation::SessionJournalCheckpointCreate
+            | ResourceOperation::SessionJournalCheckpointList
+            | ResourceOperation::SessionJournalRestorePreview
+            | ResourceOperation::SessionJournalSegmentList
+            | ResourceOperation::SessionJournalSegmentSeal
             | ResourceOperation::SessionShutdown
             | ResourceOperation::PairingRequestList
             | ResourceOperation::PairingRequestResolve
@@ -4679,9 +4694,22 @@ fn handle_resource_connection_message(
                 Err(error) => send_resource_response(writer, id, operation, Err(error)),
             }
         }
+        ResourceOperation::SessionJournalProducerList
+        | ResourceOperation::SessionJournalProducerPut
+        | ResourceOperation::SessionJournalAppend
+        | ResourceOperation::SessionJournalHookList
+        | ResourceOperation::SessionJournalHookPut
+        | ResourceOperation::SessionJournalCheckpointCreate
+        | ResourceOperation::SessionJournalCheckpointList
+        | ResourceOperation::SessionJournalRestorePreview
+        | ResourceOperation::SessionJournalSegmentList
+        | ResourceOperation::SessionJournalSegmentSeal => {
+            let result = trusted_local_resource_client(mux, client, operation)
+                .and_then(|()| handle_journal_extension_request(mux, client, &request));
+            send_resource_response(writer, id, operation, result)
+        }
         ResourceOperation::SessionJournalSubscribe => {
-            let prepared = trusted_local_resource_client(mux, client, operation)
-                .and_then(|()| prepare_session_journal_stream(mux, client, writer, &request));
+            let prepared = prepare_session_journal_stream(mux, client, writer, &request);
             match prepared {
                 Ok((result, start)) => {
                     if !send_resource_response(writer, id, operation, Ok(result)) {
@@ -6654,6 +6682,236 @@ fn journal_cursor(session_id: &SessionPublicId, sequence: u64) -> Value {
     })
 }
 
+fn remote_journal_record_value(document: &JournalDocument) -> Value {
+    let mut value = document.wire_value().clone();
+    let object = value.as_object_mut().expect("journal wire value is an object");
+    object.insert("authority".into(), Value::Null);
+    object.insert("causation_id".into(), Value::Null);
+    object.insert("correlation_id".into(), Value::Null);
+    value
+}
+
+fn handle_journal_extension_request(
+    mux: &Arc<Mux>,
+    client: u64,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let session_id = resource_session_id(mux, &request.selectors)?;
+    let origin = public_client_id(&session_id, client)?.to_string();
+    match request.envelope.operation {
+        ResourceOperation::SessionJournalProducerList => mux
+            .journal_producer_manifests()
+            .map(|producers| json!({"producers":producers}))
+            .map_err(|error| journal_extension_error("session.journal.producer.list", error)),
+        ResourceOperation::SessionJournalProducerPut => {
+            let manifest = serde_json::from_value::<crate::JournalProducerManifest>(
+                request.fields["manifest"].clone(),
+            )
+            .map_err(|error| {
+                ResourceError::validation_invalid(
+                    Some("manifest"),
+                    format!("journal producer manifest is invalid: {error}"),
+                )
+            })?;
+            let idempotency_key = request
+                .envelope
+                .idempotency_key
+                .as_deref()
+                .expect("catalog requires mutation idempotency");
+            mux.put_journal_producer(&manifest, &origin, idempotency_key)
+                .map(|commit| {
+                    json!({
+                        "value":{
+                            "producer_id":manifest.producer_id,
+                            "manifest_version":manifest.manifest_version,
+                            "namespace":manifest.namespace,
+                            "sequence":commit.sequence.to_string(),
+                            "event_id":commit.event_id,
+                        },
+                        "generation":session_id,
+                        "revision":commit.sequence.to_string(),
+                        "replayed":commit.replayed,
+                    })
+                })
+                .map_err(|error| journal_extension_error("session.journal.producer.put", error))
+        }
+        ResourceOperation::SessionJournalAppend => {
+            let ingress =
+                serde_json::from_value::<crate::JournalIngress>(request.fields["event"].clone())
+                    .map_err(|error| {
+                        ResourceError::validation_invalid(
+                            Some("event"),
+                            format!("journal event is invalid: {error}"),
+                        )
+                    })?;
+            let idempotency_key = request
+                .envelope
+                .idempotency_key
+                .as_deref()
+                .expect("catalog requires mutation idempotency");
+            mux.append_journal_ingress(&ingress, &origin, idempotency_key)
+                .map(|commit| {
+                    json!({
+                        "value":{
+                            "producer_id":ingress.producer_id,
+                            "sequence":commit.sequence.to_string(),
+                            "event_id":commit.event_id,
+                        },
+                        "generation":session_id,
+                        "revision":commit.sequence.to_string(),
+                        "replayed":commit.replayed,
+                    })
+                })
+                .map_err(|error| journal_extension_error("session.journal.append", error))
+        }
+        ResourceOperation::SessionJournalHookList => mux
+            .journal_hook_states()
+            .map(|hooks| {
+                json!({
+                    "hooks":hooks.into_iter().map(|hook| json!({
+                        "manifest":hook.manifest,
+                        "enabled":hook.enabled,
+                        "cursor":journal_cursor(&session_id, hook.cursor_sequence),
+                    })).collect::<Vec<_>>()
+                })
+            })
+            .map_err(|error| journal_extension_error("session.journal.hook.list", error)),
+        ResourceOperation::SessionJournalHookPut => {
+            let manifest = serde_json::from_value::<crate::JournalHookManifest>(
+                request.fields["manifest"].clone(),
+            )
+            .map_err(|error| {
+                ResourceError::validation_invalid(
+                    Some("manifest"),
+                    format!("journal hook manifest is invalid: {error}"),
+                )
+            })?;
+            let idempotency_key = request
+                .envelope
+                .idempotency_key
+                .as_deref()
+                .expect("catalog requires mutation idempotency");
+            mux.put_journal_hook(&manifest, &origin, idempotency_key)
+                .map(|commit| {
+                    json!({
+                        "value":{
+                            "hook_id":manifest.hook_id,
+                            "manifest_version":manifest.manifest_version,
+                            "sequence":commit.sequence.to_string(),
+                            "event_id":commit.event_id,
+                        },
+                        "generation":session_id,
+                        "revision":commit.sequence.to_string(),
+                        "replayed":commit.replayed,
+                    })
+                })
+                .map_err(|error| journal_extension_error("session.journal.hook.put", error))
+        }
+        ResourceOperation::SessionJournalCheckpointCreate => {
+            let idempotency_key = request
+                .envelope
+                .idempotency_key
+                .as_deref()
+                .expect("catalog requires mutation idempotency");
+            mux.create_journal_checkpoint(&origin, idempotency_key)
+                .map(|commit| {
+                    let checkpoint = commit.checkpoint;
+                    json!({
+                        "value":{
+                            "checkpoint_id":checkpoint.checkpoint_id,
+                            "source_sequence":checkpoint.source_sequence.to_string(),
+                            "reducer_version":checkpoint.reducer_version,
+                            "sha256":checkpoint.sha256,
+                            "created_at_ms":checkpoint.created_at_ms.to_string(),
+                            "content_refs":checkpoint.content_refs,
+                            "sequence":commit.journal.sequence.to_string(),
+                            "event_id":commit.journal.event_id,
+                        },
+                        "generation":session_id,
+                        "revision":commit.journal.sequence.to_string(),
+                        "replayed":commit.journal.replayed,
+                    })
+                })
+                .map_err(|error| {
+                    journal_extension_error("session.journal.checkpoint.create", error)
+                })
+        }
+        ResourceOperation::SessionJournalCheckpointList => mux
+            .journal_checkpoints()
+            .map(|checkpoints| {
+                json!({"checkpoints":checkpoints.into_iter().map(|checkpoint| json!({
+                    "checkpoint_id":checkpoint.checkpoint_id,
+                    "source_sequence":checkpoint.source_sequence.to_string(),
+                    "reducer_version":checkpoint.reducer_version,
+                    "sha256":checkpoint.sha256,
+                    "created_at_ms":checkpoint.created_at_ms.to_string(),
+                    "content_refs":checkpoint.content_refs,
+                })).collect::<Vec<_>>()})
+            })
+            .map_err(|error| journal_extension_error("session.journal.checkpoint.list", error)),
+        ResourceOperation::SessionJournalRestorePreview => {
+            let selector =
+                request.fields.get("checkpoint").and_then(Value::as_str).unwrap_or("latest");
+            mux.journal_restore_preview(selector)
+                .map_err(|error| journal_extension_error("session.journal.restore.preview", error))
+        }
+        ResourceOperation::SessionJournalSegmentList => mux
+            .journal_segments()
+            .map(|segments| json!({"segments":segments}))
+            .map_err(|error| journal_extension_error("session.journal.segment.list", error)),
+        ResourceOperation::SessionJournalSegmentSeal => {
+            let through_sequence =
+                serde_json::from_value::<WireDecimal>(request.fields["through_sequence"].clone())
+                    .map(WireDecimal::get)
+                    .map_err(|error| {
+                        ResourceError::validation_invalid(
+                            Some("through_sequence"),
+                            format!("segment through sequence is invalid: {error}"),
+                        )
+                    })?;
+            let idempotency_key = request
+                .envelope
+                .idempotency_key
+                .as_deref()
+                .expect("catalog requires mutation idempotency");
+            mux.seal_journal_segments(through_sequence, &origin, idempotency_key)
+                .map(|commit| {
+                    json!({
+                        "value":{
+                            "through_sequence":commit.through_sequence.to_string(),
+                            "segments":commit.segments,
+                            "sequence":commit.journal.sequence.to_string(),
+                            "event_id":commit.journal.event_id,
+                        },
+                        "generation":session_id,
+                        "revision":commit.journal.sequence.to_string(),
+                        "replayed":commit.journal.replayed,
+                    })
+                })
+                .map_err(|error| journal_extension_error("session.journal.segment.seal", error))
+        }
+        _ => unreachable!("journal extension handler received another operation"),
+    }
+}
+
+fn journal_extension_error(operation: &str, error: anyhow::Error) -> ResourceError {
+    let message = error.to_string();
+    if message.contains("idempotency key was retried with a different payload") {
+        return ResourceError::idempotency_conflict("<redacted>", operation);
+    }
+    if message.contains("schema")
+        || message.contains("manifest")
+        || message.contains("namespace")
+        || message.contains("producer")
+        || message.contains("sensitivity")
+        || message.contains("causation")
+        || message.contains("payload")
+    {
+        return ResourceError::validation_invalid(None, message);
+    }
+    ResourceError::operation_failed(operation, "journal operation failed", json!({"error":message}))
+}
+
 fn session_journal_page(
     mux: &Mux,
     reader: Option<&crate::workspace_registry::SessionJournalReader>,
@@ -6744,7 +7002,30 @@ fn prepare_session_journal_stream(
     } else {
         None
     };
-    let filter = JournalStreamFilter::parse(request.fields.get("filter"))?;
+    let remote_redacted = !mux.control_clients.is_unix(client);
+    let mut filter = JournalStreamFilter::parse(request.fields.get("filter"))?;
+    if remote_redacted {
+        let requested_sensitivity = request
+            .fields
+            .get("filter")
+            .and_then(Value::as_object)
+            .and_then(|filter| filter.get("max_sensitivity"));
+        if requested_sensitivity.and_then(Value::as_str) == Some("sensitive") {
+            return Err(ResourceError::operation_failed(
+                "session.journal.subscribe",
+                "remote journal subscriptions are limited to metadata sensitivity",
+                json!({"maximum_sensitivity":"metadata"}),
+            ));
+        }
+        if filter.regex.as_ref().is_some_and(JournalCompiledRegex::exposes_payload_or_record) {
+            return Err(ResourceError::operation_failed(
+                "session.journal.subscribe",
+                "remote journal regex can match only kind or subjects",
+                json!({"allowed_regex_fields":["kind","subjects"]}),
+            ));
+        }
+        filter.max_sensitivity = Some(JournalSensitivity::Metadata);
+    }
     let opened_cursor = journal_cursor(&session_id, last_sequence);
     let overflow = resource_stream_end(
         &stream_id,
@@ -6777,6 +7058,7 @@ fn prepare_session_journal_stream(
             filter,
             reader,
             shared_fanout,
+            remote_redacted,
         },
     ))
 }
@@ -6907,7 +7189,11 @@ fn run_session_journal_stream(
                             &stream.stream_id,
                             stream.next_sequence,
                             &cursor,
-                            document.wire_value().clone(),
+                            if stream.remote_redacted {
+                                remote_journal_record_value(&document)
+                            } else {
+                                document.wire_value().clone()
+                            },
                         )
                     {
                         mux.control_clients.finish_resource_stream(
@@ -10589,8 +10875,8 @@ pub fn cleanup(path: &Path) {
 mod tests {
     use super::*;
     use crate::{
-        BrowserFrame, BrowserStatus, ProviderWorkspaceAuthority, SidebarPluginOptions,
-        SurfaceOptions,
+        BrowserFrame, BrowserStatus, JournalProducer, JournalReplayPolicy, JournalSubject,
+        ProviderWorkspaceAuthority, SessionJournalRecord, SidebarPluginOptions, SurfaceOptions,
     };
     use ghostty_vt::{Callbacks, RenderState, Terminal};
     use std::sync::mpsc::TryRecvError;
@@ -12662,6 +12948,56 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "manual throughput probe"]
+    fn journal_compiled_regex_throughput_probe() {
+        let document = JournalDocument::new(SessionJournalRecord {
+            sequence: 1,
+            event_id: "event_benchmark".into(),
+            schema_version: 1,
+            kind: "plugin.benchmark.observation".into(),
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            occurred_at_ms: 1,
+            committed_at_ms: 1,
+            producer: JournalProducer { kind: "benchmark".into(), id: "benchmark".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![JournalSubject { kind: "workspace".into(), id: "ws_benchmark".into() }],
+            sensitivity: JournalSensitivity::Metadata,
+            payload: json!({"message":"approval-42 is ready"}),
+            resource_revision: None,
+            previous_resource_revision: None,
+        });
+        let filter = JournalStreamFilter::parse(Some(&json!({
+            "kinds":["plugin.benchmark.*"],
+            "classes":["observation"],
+            "max_sensitivity":"metadata",
+            "regex":{
+                "pattern":"approval-[0-9]+",
+                "field":"payload",
+                "case_sensitive":true
+            }
+        })))
+        .unwrap();
+        let iterations = 1_000_000_u64;
+        let started = Instant::now();
+        let mut matched = 0_u64;
+        for _ in 0..iterations {
+            if std::hint::black_box(&filter).matches(std::hint::black_box(&document)) {
+                matched += 1;
+            }
+        }
+        let elapsed = started.elapsed();
+        let per_second = iterations as f64 / elapsed.as_secs_f64();
+        eprintln!(
+            "journal compiled-regex filter: {iterations} records in {elapsed:?}, {per_second:.0} records/s"
+        );
+        assert_eq!(matched, iterations);
+    }
+
+    #[test]
     fn persistent_journal_tail_subscribers_share_one_decoded_database_reader() {
         let root = std::env::temp_dir().join(format!(
             "cmux-journal-shared-reader-{}-{}",
@@ -12725,7 +13061,115 @@ mod tests {
     }
 
     #[test]
-    fn session_journal_stream_rejects_remote_clients_and_foreign_cursors() {
+    fn journal_producer_ingress_is_namespaced_schema_validated_and_idempotent() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let manifest = json!({
+            "producer_id":"demo",
+            "namespace":"plugin.demo",
+            "manifest_version":1,
+            "max_sensitivity":"sensitive",
+            "permissions":["journal.append.plugin.demo"],
+            "events":[{
+                "kind":"plugin.demo.agent.question",
+                "schema_version":1,
+                "class":"observation",
+                "replay":"advisory",
+                "sensitivity":"metadata",
+                "payload_schema":{
+                    "type":"object",
+                    "properties":{"question":{"type":"string"}},
+                    "required":["question"],
+                    "additionalProperties":false
+                }
+            }]
+        });
+        let put = resource_request(
+            "journal-producer-put",
+            "session.journal.producer.put",
+            json!({"machine":"current","session":"current","manifest":manifest}),
+            Some("producer-put-1"),
+        );
+        assert!(handle_connection_message(&mux, client, &put, &writer, &scheduler));
+        let installed = pop_json(&outbound);
+        assert_eq!(installed["ok"], true);
+        assert_eq!(installed["result"]["value"]["producer_id"], "demo");
+        assert_eq!(installed["result"]["replayed"], false);
+
+        let event = json!({
+            "producer_id":"demo",
+            "manifest_version":1,
+            "kind":"plugin.demo.agent.question",
+            "schema_version":1,
+            "subjects":[{"kind":"pane","id":"pane_00000000000000000000000000000001"}],
+            "payload":{"question":"Continue?"}
+        });
+        let append = resource_request(
+            "journal-ingress-append",
+            "session.journal.append",
+            json!({"machine":"current","session":"current","event":event}),
+            Some("append-question-1"),
+        );
+        assert!(handle_connection_message(&mux, client, &append, &writer, &scheduler));
+        let appended = pop_json(&outbound);
+        assert_eq!(appended["ok"], true);
+        assert_eq!(appended["result"]["replayed"], false);
+        let event_id = appended["result"]["value"]["event_id"].clone();
+
+        assert!(handle_connection_message(&mux, client, &append, &writer, &scheduler));
+        let replayed = pop_json(&outbound);
+        assert_eq!(replayed["result"]["replayed"], true);
+        assert_eq!(replayed["result"]["value"]["event_id"], event_id);
+
+        let invalid = resource_request(
+            "journal-ingress-invalid",
+            "session.journal.append",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "event":{
+                    "producer_id":"demo",
+                    "manifest_version":1,
+                    "kind":"plugin.demo.agent.question",
+                    "schema_version":1,
+                    "payload":{"wrong":true}
+                }
+            }),
+            Some("append-question-invalid"),
+        );
+        assert!(handle_connection_message(&mux, client, &invalid, &writer, &scheduler));
+        let rejected = pop_json(&outbound);
+        assert_eq!(rejected["error"]["code"], "validation.invalid");
+        assert!(
+            rejected["error"]["message"].as_str().unwrap().contains("does not match its schema")
+        );
+
+        let subscribe = resource_request(
+            "journal-plugin-subscribe",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":"stream_00000000000000000000000000000038",
+                "start":"beginning",
+                "filter":{"kinds":["plugin.demo.*"]}
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &subscribe, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["ok"], true);
+        let item = pop_json(&outbound);
+        assert_eq!(item["item"]["event_id"], event_id);
+        assert_eq!(item["item"]["producer"]["id"], "demo");
+        assert_eq!(item["item"]["payload"]["question"], "Continue?");
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn session_journal_stream_redacts_remote_clients_and_rejects_foreign_cursors() {
         let mux = test_mux();
         let scheduler =
             Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
@@ -12740,13 +13184,85 @@ mod tests {
                 "machine":"current",
                 "session":"current",
                 "stream_id":"stream_00000000000000000000000000000033",
+                "filter":{"max_sensitivity":"metadata","kinds":["plugin.remote_test.*"]},
             }),
             None,
         );
         assert!(handle_connection_message(&mux, remote, &remote_open, &remote_writer, &scheduler,));
+        let accepted = pop_json(&remote_outbound);
+        assert_eq!(accepted["ok"], true);
+
+        let producer: crate::JournalProducerManifest = serde_json::from_value(json!({
+            "producer_id":"remote_test",
+            "namespace":"plugin.remote_test",
+            "manifest_version":1,
+            "max_sensitivity":"metadata",
+            "permissions":["journal.append.plugin.remote_test"],
+            "events":[{
+                "kind":"plugin.remote_test.changed",
+                "schema_version":1,
+                "class":"observation",
+                "replay":"advisory",
+                "sensitivity":"metadata",
+                "payload_schema":{"type":"object"}
+            }]
+        }))
+        .unwrap();
+        mux.put_journal_producer(&producer, "client_test", "remote_producer_1").unwrap();
+        let ingress: crate::JournalIngress = serde_json::from_value(json!({
+            "producer_id":"remote_test",
+            "manifest_version":1,
+            "kind":"plugin.remote_test.changed",
+            "schema_version":1,
+            "payload":{"visible":"metadata"},
+            "correlation_id":"local_correlation_secret"
+        }))
+        .unwrap();
+        mux.append_journal_ingress(&ingress, "client_private", "remote_event_1").unwrap();
+        let item = pop_json(&remote_outbound);
+        assert_eq!(item["item"]["kind"], "plugin.remote_test.changed");
+        assert_eq!(item["item"]["payload"]["visible"], "metadata");
+        assert_eq!(item["item"]["authority"], Value::Null);
+        assert_eq!(item["item"]["causation_id"], Value::Null);
+        assert_eq!(item["item"]["correlation_id"], Value::Null);
+
+        let sensitive = resource_request(
+            "journal-remote-sensitive",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":"stream_00000000000000000000000000000039",
+                "filter":{"max_sensitivity":"sensitive"},
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, remote, &sensitive, &remote_writer, &scheduler,));
         let rejected = pop_json(&remote_outbound);
         assert_eq!(rejected["error"]["code"], "operation.failed");
-        assert!(rejected["error"]["message"].as_str().unwrap().contains("trusted local"));
+        assert!(rejected["error"]["message"].as_str().unwrap().contains("metadata"));
+
+        let payload_regex = resource_request(
+            "journal-remote-payload-regex",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":"stream_00000000000000000000000000000040",
+                "filter":{"regex":{"pattern":"secret","field":"payload"}},
+            }),
+            None,
+        );
+        assert!(handle_connection_message(
+            &mux,
+            remote,
+            &payload_regex,
+            &remote_writer,
+            &scheduler,
+        ));
+        let rejected = pop_json(&remote_outbound);
+        assert_eq!(rejected["error"]["code"], "operation.failed");
+        assert!(rejected["error"]["message"].as_str().unwrap().contains("kind or subjects"));
         assert!(disconnect_client(&mux, remote, false));
 
         let (local_writer, local_outbound) = captured_writer();

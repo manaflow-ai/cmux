@@ -958,6 +958,16 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::SidebarViewReload => OperationOwner::Auxiliary,
         ResourceOperation::SessionEvents
         | ResourceOperation::SessionJournalSubscribe
+        | ResourceOperation::SessionJournalProducerList
+        | ResourceOperation::SessionJournalProducerPut
+        | ResourceOperation::SessionJournalAppend
+        | ResourceOperation::SessionJournalHookList
+        | ResourceOperation::SessionJournalHookPut
+        | ResourceOperation::SessionJournalCheckpointCreate
+        | ResourceOperation::SessionJournalCheckpointList
+        | ResourceOperation::SessionJournalRestorePreview
+        | ResourceOperation::SessionJournalSegmentList
+        | ResourceOperation::SessionJournalSegmentSeal
         | ResourceOperation::SessionShutdown
         | ResourceOperation::PairingRequestList
         | ResourceOperation::PairingRequestResolve

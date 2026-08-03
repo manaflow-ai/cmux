@@ -1,10 +1,13 @@
 use super::*;
+use flate2::read::GzDecoder;
 use std::borrow::Cow;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
+use std::io::Read;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
+pub(super) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
 const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
 const MIGRATION_EVENT_KIND: &str = "session.journal.migrated";
 
@@ -18,7 +21,7 @@ pub enum JournalClass {
 }
 
 impl JournalClass {
-    fn as_str(self) -> &'static str {
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::State => "state",
             Self::Observation => "observation",
@@ -37,7 +40,7 @@ pub enum JournalReplayPolicy {
 }
 
 impl JournalReplayPolicy {
-    fn as_str(self) -> &'static str {
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::Required => "required",
             Self::Advisory => "advisory",
@@ -56,7 +59,7 @@ pub enum JournalSensitivity {
 }
 
 impl JournalSensitivity {
-    fn as_str(self) -> &'static str {
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::Public => "public",
             Self::Metadata => "metadata",
@@ -141,22 +144,23 @@ impl SessionJournalReader {
     }
 }
 
-struct JournalAppend<'a> {
-    event_id: &'a str,
-    kind: &'a str,
-    class: JournalClass,
-    replay: JournalReplayPolicy,
-    occurred_at_ms: u64,
-    producer: &'a JournalProducer,
-    authority: Option<&'a JournalAuthority>,
-    causation_id: Option<&'a str>,
-    correlation_id: Option<&'a str>,
-    causation_depth: u16,
-    subjects: &'a [JournalSubject],
-    sensitivity: JournalSensitivity,
-    payload: &'a Value,
-    resource_revision: Option<u64>,
-    previous_resource_revision: Option<u64>,
+pub(super) struct JournalAppend<'a> {
+    pub(super) event_id: &'a str,
+    pub(super) schema_version: u32,
+    pub(super) kind: &'a str,
+    pub(super) class: JournalClass,
+    pub(super) replay: JournalReplayPolicy,
+    pub(super) occurred_at_ms: u64,
+    pub(super) producer: &'a JournalProducer,
+    pub(super) authority: Option<&'a JournalAuthority>,
+    pub(super) causation_id: Option<&'a str>,
+    pub(super) correlation_id: Option<&'a str>,
+    pub(super) causation_depth: u16,
+    pub(super) subjects: &'a [JournalSubject],
+    pub(super) sensitivity: JournalSensitivity,
+    pub(super) payload: &'a Value,
+    pub(super) resource_revision: Option<u64>,
+    pub(super) previous_resource_revision: Option<u64>,
 }
 
 pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
@@ -194,6 +198,15 @@ pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
          CREATE INDEX IF NOT EXISTS session_journal_by_correlation_sequence
            ON session_journal(correlation_id, sequence)
            WHERE correlation_id IS NOT NULL;
+         CREATE TABLE IF NOT EXISTS journal_event_index (
+           event_id TEXT PRIMARY KEY NOT NULL,
+           sequence INTEGER UNIQUE NOT NULL CHECK(sequence > 0),
+           causation_depth INTEGER NOT NULL CHECK(causation_depth >= 0),
+           causation_id TEXT,
+           causal_hook_id TEXT
+         );
+         INSERT OR IGNORE INTO journal_event_index(event_id, sequence, causation_depth)
+           SELECT event_id, sequence, causation_depth FROM session_journal;
          CREATE TRIGGER IF NOT EXISTS session_journal_reject_update
            BEFORE UPDATE ON session_journal
          BEGIN
@@ -204,6 +217,52 @@ pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
          BEGIN
            SELECT RAISE(ABORT, 'session journal is append-only');
          END;",
+    )?;
+    ensure_journal_event_index_schema(transaction)?;
+    Ok(())
+}
+
+pub(super) fn ensure_journal_event_index_schema(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    let columns = {
+        let mut statement = transaction.prepare("PRAGMA table_info(journal_event_index)")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<HashSet<_>, _>>()?
+    };
+    if !columns.contains("causation_id") {
+        transaction.execute("ALTER TABLE journal_event_index ADD COLUMN causation_id TEXT", [])?;
+    }
+    if !columns.contains("causal_hook_id") {
+        transaction
+            .execute("ALTER TABLE journal_event_index ADD COLUMN causal_hook_id TEXT", [])?;
+    }
+    transaction.execute_batch(
+        "UPDATE journal_event_index
+           SET causation_id = (
+             SELECT causation_id FROM session_journal
+             WHERE session_journal.event_id = journal_event_index.event_id
+           )
+         WHERE causation_id IS NULL;
+         WITH RECURSIVE hook_descendants(event_id, hook_id) AS (
+           SELECT event_id, json_extract(producer_json, '$.id')
+           FROM session_journal
+           WHERE json_extract(producer_json, '$.kind') = 'hook_dispatcher'
+           UNION
+           SELECT child.event_id, parent.hook_id
+           FROM session_journal child
+           JOIN hook_descendants parent ON child.causation_id = parent.event_id
+         )
+         UPDATE journal_event_index
+         SET causal_hook_id = (
+           SELECT hook_id FROM hook_descendants
+           WHERE hook_descendants.event_id = journal_event_index.event_id
+         )
+         WHERE event_id IN (SELECT event_id FROM hook_descendants);
+         CREATE INDEX IF NOT EXISTS journal_event_index_by_causal_hook
+           ON journal_event_index(causal_hook_id, sequence)
+           WHERE causal_hook_id IS NOT NULL;",
     )?;
     Ok(())
 }
@@ -262,6 +321,7 @@ pub(super) fn migrate_resource_events_to_session_journal(
             transaction,
             &JournalAppend {
                 event_id: MIGRATION_EVENT_ID,
+                schema_version: JOURNAL_RECORD_SCHEMA_VERSION,
                 kind: MIGRATION_EVENT_KIND,
                 class: JournalClass::Checkpoint,
                 replay: JournalReplayPolicy::Required,
@@ -400,6 +460,7 @@ fn append_resource_journal_record_at(
         transaction,
         &JournalAppend {
             event_id: &event_id,
+            schema_version: JOURNAL_RECORD_SCHEMA_VERSION,
             kind: &kind,
             class: JournalClass::State,
             replay: JournalReplayPolicy::Required,
@@ -419,7 +480,7 @@ fn append_resource_journal_record_at(
     Ok(())
 }
 
-fn append_journal_record(
+pub(super) fn append_journal_record(
     transaction: &Transaction<'_>,
     append: &JournalAppend<'_>,
 ) -> anyhow::Result<u64> {
@@ -436,7 +497,7 @@ fn append_journal_record(
          ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             append.event_id,
-            i64::from(JOURNAL_RECORD_SCHEMA_VERSION),
+            i64::from(append.schema_version),
             append.kind,
             append.class.as_str(),
             append.replay.as_str(),
@@ -468,7 +529,31 @@ fn append_journal_record(
                 .context("previous resource revision exceeds SQLite range")?,
         ],
     )?;
-    u64::try_from(transaction.last_insert_rowid()).context("journal sequence is negative")
+    let sequence = transaction.last_insert_rowid();
+    let causal_hook_id = if append.producer.kind == "hook_dispatcher" {
+        Some(append.producer.id.clone())
+    } else if let Some(causation_id) = append.causation_id {
+        transaction.query_row(
+            "SELECT causal_hook_id FROM journal_event_index WHERE event_id = ?1",
+            [causation_id],
+            |row| row.get::<_, Option<String>>(0),
+        )?
+    } else {
+        None
+    };
+    transaction.execute(
+        "INSERT INTO journal_event_index(
+           event_id, sequence, causation_depth, causation_id, causal_hook_id
+         ) VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![
+            append.event_id,
+            sequence,
+            i64::from(append.causation_depth),
+            append.causation_id,
+            causal_hook_id,
+        ],
+    )?;
+    u64::try_from(sequence).context("journal sequence is negative")
 }
 
 impl WorkspaceRegistry {
@@ -481,7 +566,7 @@ impl WorkspaceRegistry {
     }
 }
 
-fn query_session_journal_after(
+pub(super) fn query_session_journal_after(
     connection: &Connection,
     sequence: u64,
     limit: usize,
@@ -492,7 +577,10 @@ fn query_session_journal_after(
         "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
     );
     let head_sequence = connection.query_row(
-        "SELECT COALESCE(MAX(sequence), 0) FROM session_journal",
+        "SELECT MAX(
+           COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
+           COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
+         )",
         [],
         |row| row.get::<_, i64>(0),
     )?;
@@ -502,6 +590,12 @@ fn query_session_journal_after(
         sequence <= head_sequence,
         "cursor.invalid: journal sequence {sequence} is ahead of {head_sequence}"
     );
+    let mut records = archived_records_after(connection, sequence, limit)?;
+    if records.len() >= limit {
+        records.truncate(limit);
+        return Ok(SessionJournalPage { head_sequence, records });
+    }
+    let active_after = records.last().map_or(sequence, |record| record.sequence);
     let mut statement = connection.prepare(
         "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
                     occurred_at_ms, committed_at_ms, producer_json, authority_json,
@@ -512,11 +606,12 @@ fn query_session_journal_after(
              ORDER BY sequence ASC
              LIMIT ?2",
     )?;
-    let records = statement
+    let active = statement
         .query_map(
             params![
-                i64::try_from(sequence).context("journal sequence exceeds SQLite range")?,
-                i64::try_from(limit).context("journal page limit exceeds SQLite range")?,
+                i64::try_from(active_after).context("journal sequence exceeds SQLite range")?,
+                i64::try_from(limit - records.len())
+                    .context("journal page limit exceeds SQLite range")?,
             ],
             |row| {
                 Ok((
@@ -543,7 +638,62 @@ fn query_session_journal_after(
         )?
         .map(|row| decode_record(row?))
         .collect::<anyhow::Result<Vec<_>>>()?;
+    records.extend(active);
     Ok(SessionJournalPage { head_sequence, records })
+}
+
+fn archived_records_after(
+    connection: &Connection,
+    sequence: u64,
+    limit: usize,
+) -> anyhow::Result<Vec<SessionJournalRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT segment_id, content, uncompressed_bytes, sha256
+         FROM journal_segments
+         WHERE end_sequence > ?1
+         ORDER BY start_sequence ASC",
+    )?;
+    let segments = statement
+        .query_map([i64::try_from(sequence)?], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Vec<u8>>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, Vec<u8>>(3)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut records = Vec::new();
+    for (segment_id, compressed, expected_bytes, expected_digest) in segments {
+        let expected_bytes = usize::try_from(expected_bytes)?;
+        anyhow::ensure!(
+            expected_bytes <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
+            "journal segment {segment_id} exceeds the uncompressed size limit"
+        );
+        let decoder = GzDecoder::new(compressed.as_slice());
+        let mut uncompressed = Vec::new();
+        decoder
+            .take(u64::try_from(expected_bytes)?.saturating_add(1))
+            .read_to_end(&mut uncompressed)
+            .with_context(|| format!("decompress journal segment {segment_id}"))?;
+        anyhow::ensure!(
+            expected_bytes == uncompressed.len(),
+            "journal segment {segment_id} length is invalid"
+        );
+        anyhow::ensure!(
+            Sha256::digest(&uncompressed).as_slice() == expected_digest.as_slice(),
+            "journal segment {segment_id} digest is invalid"
+        );
+        let archived: Vec<SessionJournalRecord> = serde_json::from_slice(&uncompressed)
+            .with_context(|| format!("decode journal segment {segment_id}"))?;
+        for record in archived.into_iter().filter(|record| record.sequence > sequence) {
+            records.push(record);
+            if records.len() == limit {
+                return Ok(records);
+            }
+        }
+    }
+    Ok(records)
 }
 
 #[allow(clippy::type_complexity)]
@@ -883,7 +1033,7 @@ fn table_exists(transaction: &Transaction<'_>, table: &str) -> anyhow::Result<bo
         .is_some())
 }
 
-fn unix_epoch_ms() -> anyhow::Result<u64> {
+pub(crate) fn unix_epoch_ms() -> anyhow::Result<u64> {
     let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .context("system clock is before the Unix epoch")?;

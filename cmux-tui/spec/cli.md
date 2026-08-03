@@ -152,6 +152,16 @@ session list
 session <selector> open|show|snapshot|events|ping|shutdown
 session <selector> journal subscribe [--from tail|beginning] [FILTERS]
   [--regex <pattern>] [--regex-field kind|subjects|payload|record] [--ignore-case]
+session <selector> journal producer list
+session <selector> journal producer put --manifest-json <json> --idempotency-key <key>
+session <selector> journal append --event-json <json> --idempotency-key <key>
+session <selector> journal hook list
+session <selector> journal hook put --manifest-json <json> --idempotency-key <key>
+session <selector> journal checkpoint create --idempotency-key <key>
+session <selector> journal checkpoint list
+session <selector> journal restore preview [--checkpoint latest|<checkpoint-id>]
+session <selector> journal segment list
+session <selector> journal segment seal --through <sequence> --idempotency-key <key>
 session <selector> creation <correlation-key> resolve
 session <selector> config reload
 session <selector> window title set|clear

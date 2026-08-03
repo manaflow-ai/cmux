@@ -1,0 +1,1853 @@
+use super::*;
+use crate::resource::WireDecimal;
+use crate::workspace_registry::session_journal::{
+    JournalAppend, MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES, append_journal_record,
+    query_session_journal_after, unix_epoch_ms,
+};
+use serde_json::json;
+use std::collections::{BTreeSet, HashSet};
+use std::io::Read;
+
+const MAX_PRODUCER_EVENTS: usize = 64;
+const MAX_PRODUCER_MANIFEST_BYTES: usize = 1024 * 1024;
+const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
+const MAX_CAUSATION_DEPTH: u16 = 32;
+const JOURNAL_SEGMENT_RECORD_LIMIT: usize = 1_024;
+const MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JournalEventSchema {
+    pub kind: String,
+    pub schema_version: u32,
+    pub class: JournalClass,
+    pub replay: JournalReplayPolicy,
+    pub sensitivity: JournalSensitivity,
+    pub payload_schema: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JournalProducerManifest {
+    pub producer_id: String,
+    pub namespace: String,
+    pub manifest_version: u32,
+    pub max_sensitivity: JournalSensitivity,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+    pub events: Vec<JournalEventSchema>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JournalIngress {
+    pub producer_id: String,
+    pub manifest_version: u32,
+    pub kind: String,
+    pub schema_version: u32,
+    pub occurred_at_ms: Option<WireDecimal>,
+    #[serde(default)]
+    pub subjects: Vec<JournalSubject>,
+    pub sensitivity: Option<JournalSensitivity>,
+    pub payload: Value,
+    pub causation_id: Option<String>,
+    pub correlation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JournalHookRegex {
+    pub pattern: String,
+    #[serde(default = "default_hook_regex_field")]
+    pub field: String,
+    #[serde(default = "default_true")]
+    pub case_sensitive: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct JournalHookFilter {
+    #[serde(default)]
+    pub kinds: Vec<String>,
+    #[serde(default)]
+    pub classes: Vec<JournalClass>,
+    #[serde(default)]
+    pub subject_kinds: Vec<String>,
+    pub max_sensitivity: Option<JournalSensitivity>,
+    pub regex: Option<JournalHookRegex>,
+    #[serde(default)]
+    pub include_causal_descendants: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JournalHookExec {
+    pub argv: Vec<String>,
+    pub timeout_ms: u64,
+    pub max_parallel: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JournalHookRetry {
+    pub max_attempts: u16,
+    pub backoff_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JournalHookDeliveryPolicy {
+    pub start: String,
+    pub retry: JournalHookRetry,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JournalHookManifest {
+    pub hook_id: String,
+    pub manifest_version: u32,
+    pub filter: JournalHookFilter,
+    pub exec: JournalHookExec,
+    pub delivery: JournalHookDeliveryPolicy,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct JournalHookState {
+    pub manifest: JournalHookManifest,
+    pub cursor_sequence: u64,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct JournalHookDelivery {
+    pub manifest: JournalHookManifest,
+    pub event: SessionJournalRecord,
+    pub attempt: u16,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct JournalHookAttempt {
+    pub attempt: u16,
+    pub causation_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct JournalAppendCommit {
+    pub sequence: u64,
+    pub event_id: String,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JournalContentRef {
+    pub content_id: String,
+    pub terminal_id: String,
+    pub format: String,
+    pub codec: String,
+    pub sha256: String,
+    #[serde(serialize_with = "serialize_decimal", deserialize_with = "deserialize_decimal")]
+    pub uncompressed_bytes: u64,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JournalCheckpoint {
+    pub checkpoint_id: String,
+    #[serde(serialize_with = "serialize_decimal", deserialize_with = "deserialize_decimal")]
+    pub source_sequence: u64,
+    pub reducer_version: u32,
+    pub state: Value,
+    pub content_refs: Vec<JournalContentRef>,
+    pub sha256: String,
+    #[serde(serialize_with = "serialize_decimal", deserialize_with = "deserialize_decimal")]
+    pub created_at_ms: u64,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct JournalContentBlob {
+    pub reference: JournalContentRef,
+    pub compressed: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct JournalCheckpointCommit {
+    pub checkpoint: JournalCheckpoint,
+    pub journal: JournalAppendCommit,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JournalSegment {
+    pub segment_id: String,
+    #[serde(serialize_with = "serialize_decimal", deserialize_with = "deserialize_decimal")]
+    pub start_sequence: u64,
+    #[serde(serialize_with = "serialize_decimal", deserialize_with = "deserialize_decimal")]
+    pub end_sequence: u64,
+    #[serde(serialize_with = "serialize_decimal", deserialize_with = "deserialize_decimal")]
+    pub record_count: u64,
+    pub codec: String,
+    #[serde(serialize_with = "serialize_decimal", deserialize_with = "deserialize_decimal")]
+    pub uncompressed_bytes: u64,
+    pub sha256: String,
+    #[serde(serialize_with = "serialize_decimal", deserialize_with = "deserialize_decimal")]
+    pub sealed_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct JournalSegmentSealCommit {
+    pub through_sequence: u64,
+    pub segments: Vec<JournalSegment>,
+    pub journal: JournalAppendCommit,
+}
+
+pub(super) fn create_journal_extensions_schema(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS journal_producers (
+           producer_id TEXT PRIMARY KEY NOT NULL,
+           namespace TEXT UNIQUE NOT NULL,
+           manifest_version INTEGER NOT NULL CHECK(manifest_version > 0),
+           manifest_json TEXT NOT NULL CHECK(json_valid(manifest_json)),
+           installed_at_ms INTEGER NOT NULL CHECK(installed_at_ms >= 0)
+         );
+         CREATE TABLE IF NOT EXISTS journal_operation_receipts (
+           operation TEXT NOT NULL,
+           idempotency_key TEXT NOT NULL,
+           fingerprint BLOB NOT NULL CHECK(length(fingerprint) = 32),
+           result_json TEXT NOT NULL CHECK(json_valid(result_json)),
+           journal_sequence INTEGER NOT NULL UNIQUE,
+           PRIMARY KEY(operation, idempotency_key)
+         );
+         CREATE TABLE IF NOT EXISTS journal_ingress_receipts (
+           producer_id TEXT NOT NULL,
+           idempotency_key TEXT NOT NULL,
+           fingerprint BLOB NOT NULL CHECK(length(fingerprint) = 32),
+           event_id TEXT NOT NULL UNIQUE,
+           journal_sequence INTEGER NOT NULL UNIQUE,
+           result_json TEXT NOT NULL CHECK(json_valid(result_json)),
+           PRIMARY KEY(producer_id, idempotency_key),
+           FOREIGN KEY(producer_id) REFERENCES journal_producers(producer_id)
+         );
+         CREATE TABLE IF NOT EXISTS journal_hooks (
+           hook_id TEXT NOT NULL,
+           manifest_version INTEGER NOT NULL CHECK(manifest_version > 0),
+           manifest_json TEXT NOT NULL CHECK(json_valid(manifest_json)),
+           enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
+           cursor_sequence INTEGER NOT NULL CHECK(cursor_sequence >= 0),
+           installed_at_ms INTEGER NOT NULL CHECK(installed_at_ms >= 0),
+           PRIMARY KEY(hook_id, manifest_version)
+         );
+         CREATE TABLE IF NOT EXISTS journal_hook_deliveries (
+           hook_id TEXT NOT NULL,
+           manifest_version INTEGER NOT NULL,
+           event_id TEXT NOT NULL,
+           event_sequence INTEGER NOT NULL,
+           attempt INTEGER NOT NULL CHECK(attempt >= 0),
+           state TEXT NOT NULL CHECK(state IN ('scheduled','executing','completed','failed','abandoned')),
+           next_attempt_at_ms INTEGER NOT NULL CHECK(next_attempt_at_ms >= 0),
+           scheduled_at_ms INTEGER NOT NULL,
+           started_at_ms INTEGER,
+           started_event_id TEXT,
+           completed_at_ms INTEGER,
+           exit_code INTEGER,
+           error TEXT,
+           PRIMARY KEY(hook_id, manifest_version, event_id),
+           FOREIGN KEY(hook_id, manifest_version)
+             REFERENCES journal_hooks(hook_id, manifest_version)
+         );
+         CREATE INDEX IF NOT EXISTS journal_hook_deliveries_pending
+           ON journal_hook_deliveries(state, event_sequence);
+         CREATE TABLE IF NOT EXISTS journal_content_blobs (
+           content_id TEXT PRIMARY KEY NOT NULL,
+           sha256 BLOB UNIQUE NOT NULL CHECK(length(sha256) = 32),
+           codec TEXT NOT NULL,
+           content BLOB NOT NULL,
+           uncompressed_bytes INTEGER NOT NULL CHECK(uncompressed_bytes >= 0),
+           created_at_ms INTEGER NOT NULL CHECK(created_at_ms >= 0)
+         );
+         CREATE TABLE IF NOT EXISTS journal_checkpoints (
+           checkpoint_id TEXT PRIMARY KEY NOT NULL,
+           source_sequence INTEGER UNIQUE NOT NULL CHECK(source_sequence >= 0),
+           reducer_version INTEGER NOT NULL CHECK(reducer_version > 0),
+           state_json TEXT NOT NULL CHECK(json_valid(state_json)),
+           content_refs_json TEXT NOT NULL CHECK(json_valid(content_refs_json)),
+           sha256 BLOB UNIQUE NOT NULL CHECK(length(sha256) = 32),
+           created_at_ms INTEGER NOT NULL CHECK(created_at_ms >= 0)
+         );
+         CREATE TABLE IF NOT EXISTS journal_segments (
+           segment_id TEXT PRIMARY KEY NOT NULL,
+           start_sequence INTEGER UNIQUE NOT NULL CHECK(start_sequence > 0),
+           end_sequence INTEGER UNIQUE NOT NULL CHECK(end_sequence >= start_sequence),
+           record_count INTEGER NOT NULL CHECK(record_count > 0),
+           codec TEXT NOT NULL,
+           content BLOB NOT NULL,
+           uncompressed_bytes INTEGER NOT NULL CHECK(uncompressed_bytes > 0),
+           sha256 BLOB UNIQUE NOT NULL CHECK(length(sha256) = 32),
+           sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0)
+         );
+         CREATE TABLE IF NOT EXISTS journal_event_index (
+           event_id TEXT PRIMARY KEY NOT NULL,
+           sequence INTEGER UNIQUE NOT NULL CHECK(sequence > 0),
+           causation_depth INTEGER NOT NULL CHECK(causation_depth >= 0),
+           causation_id TEXT,
+           causal_hook_id TEXT
+         );
+         INSERT OR IGNORE INTO journal_event_index(event_id, sequence, causation_depth)
+           SELECT event_id, sequence, causation_depth FROM session_journal;
+         CREATE TRIGGER IF NOT EXISTS journal_segments_reject_update
+           BEFORE UPDATE ON journal_segments
+         BEGIN
+           SELECT RAISE(ABORT, 'journal segments are immutable');
+         END;
+         CREATE TRIGGER IF NOT EXISTS journal_segments_reject_delete
+           BEFORE DELETE ON journal_segments
+         BEGIN
+           SELECT RAISE(ABORT, 'journal segments are immutable');
+         END;
+         CREATE TRIGGER IF NOT EXISTS journal_content_blobs_reject_update
+           BEFORE UPDATE ON journal_content_blobs
+         BEGIN
+           SELECT RAISE(ABORT, 'journal content blobs are immutable');
+         END;
+         CREATE TRIGGER IF NOT EXISTS journal_content_blobs_reject_delete
+           BEFORE DELETE ON journal_content_blobs
+         BEGIN
+           SELECT RAISE(ABORT, 'journal content blobs are immutable');
+         END;
+         CREATE TRIGGER IF NOT EXISTS journal_checkpoints_reject_update
+           BEFORE UPDATE ON journal_checkpoints
+         BEGIN
+           SELECT RAISE(ABORT, 'journal checkpoints are immutable');
+         END;
+         CREATE TRIGGER IF NOT EXISTS journal_checkpoints_reject_delete
+           BEFORE DELETE ON journal_checkpoints
+         BEGIN
+           SELECT RAISE(ABORT, 'journal checkpoints are immutable');
+         END;",
+    )?;
+    let delivery_columns = {
+        let mut statement = transaction.prepare("PRAGMA table_info(journal_hook_deliveries)")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<HashSet<_>, _>>()?
+    };
+    if !delivery_columns.contains("started_event_id") {
+        transaction
+            .execute("ALTER TABLE journal_hook_deliveries ADD COLUMN started_event_id TEXT", [])?;
+    }
+    session_journal::ensure_journal_event_index_schema(transaction)?;
+    Ok(())
+}
+
+pub(crate) fn validate_journal_producer_manifest(
+    manifest: &JournalProducerManifest,
+) -> anyhow::Result<()> {
+    validate_plugin_component("producer_id", &manifest.producer_id)?;
+    anyhow::ensure!(
+        manifest.namespace == format!("plugin.{}", manifest.producer_id),
+        "journal producer namespace must be plugin.<producer_id>"
+    );
+    anyhow::ensure!(manifest.manifest_version > 0, "manifest_version must be positive");
+    anyhow::ensure!(
+        manifest
+            .permissions
+            .iter()
+            .any(|permission| permission == &format!("journal.append.{}", manifest.namespace)),
+        "journal producer manifest requires journal.append.<namespace> permission"
+    );
+    anyhow::ensure!(
+        !manifest.events.is_empty() && manifest.events.len() <= MAX_PRODUCER_EVENTS,
+        "journal producer must declare 1 to {MAX_PRODUCER_EVENTS} events"
+    );
+    let encoded = serde_json::to_vec(manifest)?;
+    anyhow::ensure!(
+        encoded.len() <= MAX_PRODUCER_MANIFEST_BYTES,
+        "journal producer manifest exceeds {MAX_PRODUCER_MANIFEST_BYTES} bytes"
+    );
+    let mut identities = BTreeSet::new();
+    for event in &manifest.events {
+        validate_dotted_kind(&event.kind)?;
+        anyhow::ensure!(
+            event.kind.starts_with(&format!("{}.", manifest.namespace)),
+            "journal event kind must be inside producer namespace"
+        );
+        anyhow::ensure!(event.schema_version > 0, "journal event schema_version must be positive");
+        anyhow::ensure!(
+            sensitivity_rank(event.sensitivity) <= sensitivity_rank(manifest.max_sensitivity),
+            "journal event sensitivity exceeds producer authority"
+        );
+        anyhow::ensure!(
+            identities.insert((event.kind.as_str(), event.schema_version)),
+            "journal producer declares a duplicate event schema"
+        );
+        jsonschema::validator_for(&event.payload_schema)
+            .with_context(|| format!("compile payload schema for {}", event.kind))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_journal_hook_manifest(manifest: &JournalHookManifest) -> anyhow::Result<()> {
+    validate_plugin_component("hook_id", &manifest.hook_id)?;
+    anyhow::ensure!(manifest.manifest_version > 0, "hook manifest_version must be positive");
+    anyhow::ensure!(
+        !manifest.exec.argv.is_empty() && manifest.exec.argv.len() <= 64,
+        "hook argv must contain 1 to 64 entries"
+    );
+    anyhow::ensure!(
+        Path::new(&manifest.exec.argv[0]).is_absolute(),
+        "hook argv[0] must be an absolute executable path"
+    );
+    anyhow::ensure!(
+        manifest.exec.argv.iter().all(|value| value.len() <= 4096 && !value.contains('\0')),
+        "hook argv entries must be at most 4096 bytes and contain no NUL"
+    );
+    anyhow::ensure!(
+        (1..=300_000).contains(&manifest.exec.timeout_ms),
+        "hook timeout_ms must be between 1 and 300000"
+    );
+    anyhow::ensure!(
+        (1..=64).contains(&manifest.exec.max_parallel),
+        "hook max_parallel must be between 1 and 64"
+    );
+    anyhow::ensure!(
+        matches!(manifest.delivery.start.as_str(), "tail" | "beginning"),
+        "hook delivery start must be tail or beginning"
+    );
+    anyhow::ensure!(
+        (1..=100).contains(&manifest.delivery.retry.max_attempts),
+        "hook retry max_attempts must be between 1 and 100"
+    );
+    anyhow::ensure!(
+        manifest.delivery.retry.backoff_ms <= 86_400_000,
+        "hook retry backoff_ms exceeds one day"
+    );
+    anyhow::ensure!(
+        manifest.permissions.iter().any(|permission| permission == "journal.read")
+            || manifest.permissions.iter().any(|permission| permission == "journal.read.sensitive"),
+        "hook manifest requires journal.read permission"
+    );
+    let maximum = manifest.filter.max_sensitivity.unwrap_or(JournalSensitivity::Metadata);
+    anyhow::ensure!(
+        sensitivity_rank(maximum) <= sensitivity_rank(JournalSensitivity::Sensitive),
+        "hooks cannot receive secret journal records"
+    );
+    anyhow::ensure!(
+        sensitivity_rank(maximum) <= sensitivity_rank(JournalSensitivity::Metadata)
+            || manifest.permissions.iter().any(|permission| permission == "journal.read.sensitive"),
+        "sensitive hook filters require journal.read.sensitive permission"
+    );
+    for kind in &manifest.filter.kinds {
+        let base = kind.strip_suffix(".*").unwrap_or(kind);
+        validate_dotted_kind(base)?;
+        anyhow::ensure!(
+            !kind.contains('*') || kind.ends_with(".*"),
+            "hook kind wildcards are allowed only as terminal .*"
+        );
+    }
+    for kind in &manifest.filter.subject_kinds {
+        validate_plugin_component("hook subject kind", kind)?;
+    }
+    if let Some(regex) = &manifest.filter.regex {
+        anyhow::ensure!(
+            !regex.pattern.is_empty() && regex.pattern.len() <= 1024,
+            "hook regex must contain 1 to 1024 UTF-8 bytes"
+        );
+        anyhow::ensure!(
+            matches!(regex.field.as_str(), "kind" | "subjects" | "payload" | "record"),
+            "hook regex field is invalid"
+        );
+        regex::bytes::RegexBuilder::new(&regex.pattern)
+            .case_insensitive(!regex.case_sensitive)
+            .size_limit(1 << 20)
+            .dfa_size_limit(2 << 20)
+            .build()
+            .context("compile hook regex")?;
+    }
+    let encoded = serde_json::to_vec(manifest)?;
+    anyhow::ensure!(
+        encoded.len() <= MAX_PRODUCER_MANIFEST_BYTES,
+        "hook manifest exceeds {MAX_PRODUCER_MANIFEST_BYTES} bytes"
+    );
+    Ok(())
+}
+
+impl WorkspaceRegistry {
+    pub(crate) fn journal_producer_manifests(
+        &self,
+    ) -> anyhow::Result<Vec<JournalProducerManifest>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT manifest_json FROM journal_producers ORDER BY producer_id ASC")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .map(|value| Ok(serde_json::from_str(&value?)?))
+            .collect()
+    }
+
+    pub(crate) fn put_journal_producer(
+        &mut self,
+        manifest: &JournalProducerManifest,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<JournalAppendCommit> {
+        validate_journal_producer_manifest(manifest)?;
+        validate_identifier("journal producer origin", origin)?;
+        validate_identifier("journal producer idempotency key", idempotency_key)?;
+        let manifest_value = serde_json::to_value(manifest)?;
+        let fingerprint = Sha256::digest(canonical_json(&manifest_value)?.as_bytes());
+        let tx = self.connection.transaction()?;
+        if let Some(commit) = operation_receipt(
+            &tx,
+            "session.journal.producer.put",
+            idempotency_key,
+            fingerprint.as_slice(),
+        )? {
+            return Ok(commit);
+        }
+        let current = tx
+            .query_row(
+                "SELECT manifest_version, manifest_json FROM journal_producers WHERE producer_id = ?1",
+                [&manifest.producer_id],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        if let Some((version, stored)) = current {
+            let version = u32::try_from(version).context("producer manifest version is invalid")?;
+            anyhow::ensure!(
+                manifest.manifest_version > version
+                    || (manifest.manifest_version == version
+                        && canonical_json(&serde_json::from_str(&stored)?)?
+                            == canonical_json(&manifest_value)?),
+                "journal producer manifest versions must increase"
+            );
+        }
+        let now = unix_epoch_ms()?;
+        tx.execute(
+            "INSERT INTO journal_producers(
+               producer_id, namespace, manifest_version, manifest_json, installed_at_ms
+             ) VALUES(?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(producer_id) DO UPDATE SET
+               namespace=excluded.namespace,
+               manifest_version=excluded.manifest_version,
+               manifest_json=excluded.manifest_json,
+               installed_at_ms=excluded.installed_at_ms",
+            params![
+                manifest.producer_id,
+                manifest.namespace,
+                i64::from(manifest.manifest_version),
+                canonical_json(&manifest_value)?,
+                i64::try_from(now)?,
+            ],
+        )?;
+        let session_id = transaction_session_id(&tx)?;
+        let subjects = vec![
+            JournalSubject { kind: "session".into(), id: session_id },
+            JournalSubject { kind: "producer".into(), id: manifest.producer_id.clone() },
+        ];
+        let producer = JournalProducer { kind: "journal_admin".into(), id: origin.into() };
+        let event_id = random_event_id("producer");
+        let sequence = append_journal_record(
+            &tx,
+            &JournalAppend {
+                event_id: &event_id,
+                schema_version: 1,
+                kind: "journal.producer.installed",
+                class: JournalClass::State,
+                replay: JournalReplayPolicy::Required,
+                occurred_at_ms: now,
+                producer: &producer,
+                authority: None,
+                causation_id: None,
+                correlation_id: Some(idempotency_key),
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Metadata,
+                payload: &manifest_value,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+        let result = json!({
+            "producer_id":manifest.producer_id,
+            "manifest_version":manifest.manifest_version,
+            "namespace":manifest.namespace,
+            "sequence":sequence.to_string(),
+            "event_id":event_id,
+        });
+        insert_operation_receipt(
+            &tx,
+            "session.journal.producer.put",
+            idempotency_key,
+            fingerprint.as_slice(),
+            sequence,
+            &result,
+        )?;
+        tx.commit()?;
+        Ok(JournalAppendCommit { sequence, event_id, replayed: false })
+    }
+
+    pub(crate) fn append_journal_ingress(
+        &mut self,
+        ingress: &JournalIngress,
+        validated: &crate::journal_kernel::ValidatedJournalIngress,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<JournalAppendCommit> {
+        validate_identifier("journal ingress origin", origin)?;
+        validate_identifier("journal ingress idempotency key", idempotency_key)?;
+        validate_plugin_component("producer_id", &ingress.producer_id)?;
+        validate_dotted_kind(&ingress.kind)?;
+        anyhow::ensure!(ingress.schema_version > 0, "schema_version must be positive");
+        anyhow::ensure!(
+            serde_json::to_vec(&ingress.payload)?.len() <= MAX_EVENT_PAYLOAD_BYTES,
+            "journal event payload exceeds {MAX_EVENT_PAYLOAD_BYTES} bytes"
+        );
+        let ingress_value = serde_json::to_value(ingress)?;
+        let fingerprint = Sha256::digest(canonical_json(&ingress_value)?.as_bytes());
+        let tx = self.connection.transaction()?;
+        if let Some(commit) =
+            ingress_receipt(&tx, &ingress.producer_id, idempotency_key, fingerprint.as_slice())?
+        {
+            return Ok(commit);
+        }
+        let installed = tx
+            .query_row(
+                "SELECT 1 FROM journal_producers
+                 WHERE producer_id = ?1 AND manifest_version = ?2",
+                params![ingress.producer_id, i64::from(ingress.manifest_version)],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        anyhow::ensure!(installed, "journal producer or manifest version is not installed");
+        let causation_depth = match ingress.causation_id.as_deref() {
+            Some(causation_id) => {
+                let parent_depth = tx
+                    .query_row(
+                        "SELECT causation_depth FROM journal_event_index WHERE event_id = ?1",
+                        [causation_id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .optional()?
+                    .context("journal causation event does not exist")?;
+                u16::try_from(parent_depth)
+                    .context("journal parent causation depth is invalid")?
+                    .checked_add(1)
+                    .context("journal causation depth overflow")?
+            }
+            None => 0,
+        };
+        anyhow::ensure!(
+            causation_depth <= MAX_CAUSATION_DEPTH,
+            "journal causation depth exceeds {MAX_CAUSATION_DEPTH}"
+        );
+        let session_id = transaction_session_id(&tx)?;
+        let mut subjects = BTreeSet::from([
+            JournalSubject { kind: "session".into(), id: session_id },
+            JournalSubject { kind: "producer".into(), id: ingress.producer_id.clone() },
+        ]);
+        for subject in &ingress.subjects {
+            validate_plugin_component("journal subject kind", &subject.kind)?;
+            validate_identifier("journal subject id", &subject.id)?;
+            subjects.insert(subject.clone());
+        }
+        let subjects = subjects.into_iter().collect::<Vec<_>>();
+        let producer = JournalProducer { kind: "plugin".into(), id: ingress.producer_id.clone() };
+        let authority = JournalAuthority {
+            principal_id: origin.into(),
+            lease_id: format!("producer:{}", ingress.producer_id),
+            generation: ingress.manifest_version.to_string(),
+            role: "journal.producer".into(),
+        };
+        let event_id = random_event_id("plugin");
+        let occurred_at_ms =
+            ingress.occurred_at_ms.map(WireDecimal::get).unwrap_or(unix_epoch_ms()?);
+        let sequence = append_journal_record(
+            &tx,
+            &JournalAppend {
+                event_id: &event_id,
+                schema_version: ingress.schema_version,
+                kind: &ingress.kind,
+                class: validated.class,
+                replay: validated.replay,
+                occurred_at_ms,
+                producer: &producer,
+                authority: Some(&authority),
+                causation_id: ingress.causation_id.as_deref(),
+                correlation_id: ingress.correlation_id.as_deref().or(Some(idempotency_key)),
+                causation_depth,
+                subjects: &subjects,
+                sensitivity: validated.sensitivity,
+                payload: &ingress.payload,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+        let result = json!({
+            "producer_id":ingress.producer_id,
+            "sequence":sequence.to_string(),
+            "event_id":event_id,
+        });
+        tx.execute(
+            "INSERT INTO journal_ingress_receipts(
+               producer_id, idempotency_key, fingerprint, event_id, journal_sequence, result_json
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                ingress.producer_id,
+                idempotency_key,
+                fingerprint.as_slice(),
+                event_id,
+                i64::try_from(sequence)?,
+                canonical_json(&result)?,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(JournalAppendCommit { sequence, event_id, replayed: false })
+    }
+}
+
+impl WorkspaceRegistry {
+    pub(crate) fn journal_hook_states(&self) -> anyhow::Result<Vec<JournalHookState>> {
+        let mut statement = self.connection.prepare(
+            "SELECT manifest_json, enabled, cursor_sequence
+             FROM journal_hooks
+             ORDER BY hook_id ASC, manifest_version ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+            })?
+            .map(|row| {
+                let (manifest, enabled, cursor) = row?;
+                Ok(JournalHookState {
+                    manifest: serde_json::from_str(&manifest)?,
+                    cursor_sequence: u64::try_from(cursor)
+                        .context("hook cursor sequence is negative")?,
+                    enabled: enabled != 0,
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn journal_events_caused_by_hook(
+        &self,
+        hook_id: &str,
+        event_ids: &[String],
+    ) -> anyhow::Result<HashSet<String>> {
+        if event_ids.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let event_ids = canonical_json(&serde_json::to_value(event_ids)?)?;
+        let mut statement = self.connection.prepare(
+            "SELECT event_id
+             FROM journal_event_index
+             WHERE causal_hook_id = ?1
+               AND event_id IN (SELECT value FROM json_each(?2))",
+        )?;
+        statement
+            .query_map(params![hook_id, event_ids], |row| row.get::<_, String>(0))?
+            .collect::<Result<HashSet<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn put_journal_hook(
+        &mut self,
+        manifest: &JournalHookManifest,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<JournalAppendCommit> {
+        validate_journal_hook_manifest(manifest)?;
+        validate_identifier("journal hook origin", origin)?;
+        validate_identifier("journal hook idempotency key", idempotency_key)?;
+        let manifest_value = serde_json::to_value(manifest)?;
+        let fingerprint = Sha256::digest(canonical_json(&manifest_value)?.as_bytes());
+        let tx = self.connection.transaction()?;
+        if let Some(commit) = operation_receipt(
+            &tx,
+            "session.journal.hook.put",
+            idempotency_key,
+            fingerprint.as_slice(),
+        )? {
+            return Ok(commit);
+        }
+        let latest = tx
+            .query_row(
+                "SELECT manifest_version, manifest_json
+                 FROM journal_hooks WHERE hook_id = ?1
+                 ORDER BY manifest_version DESC LIMIT 1",
+                [&manifest.hook_id],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        if let Some((version, stored)) = latest {
+            let version = u32::try_from(version).context("hook manifest version is invalid")?;
+            anyhow::ensure!(
+                manifest.manifest_version > version
+                    || (manifest.manifest_version == version
+                        && canonical_json(&serde_json::from_str(&stored)?)?
+                            == canonical_json(&manifest_value)?),
+                "journal hook manifest versions must increase"
+            );
+        }
+        let head = journal_head(&tx)?;
+        let cursor = if manifest.delivery.start == "beginning" { 0 } else { head };
+        let now = unix_epoch_ms()?;
+        tx.execute(
+            "INSERT INTO journal_hooks(
+               hook_id, manifest_version, manifest_json, enabled, cursor_sequence, installed_at_ms
+             ) VALUES(?1, ?2, ?3, 1, ?4, ?5)
+             ON CONFLICT(hook_id, manifest_version) DO UPDATE SET
+               manifest_json=excluded.manifest_json,
+               enabled=1",
+            params![
+                manifest.hook_id,
+                i64::from(manifest.manifest_version),
+                canonical_json(&manifest_value)?,
+                i64::try_from(cursor)?,
+                i64::try_from(now)?,
+            ],
+        )?;
+        tx.execute(
+            "UPDATE journal_hooks SET enabled = 0
+             WHERE hook_id = ?1 AND manifest_version <> ?2",
+            params![manifest.hook_id, i64::from(manifest.manifest_version)],
+        )?;
+        let session_id = transaction_session_id(&tx)?;
+        let subjects = vec![
+            JournalSubject { kind: "session".into(), id: session_id },
+            JournalSubject { kind: "hook".into(), id: manifest.hook_id.clone() },
+        ];
+        let producer = JournalProducer { kind: "journal_admin".into(), id: origin.into() };
+        let event_id = random_event_id("hook_manifest");
+        let sequence = append_journal_record(
+            &tx,
+            &JournalAppend {
+                event_id: &event_id,
+                schema_version: 1,
+                kind: "hook.manifest.installed",
+                class: JournalClass::State,
+                replay: JournalReplayPolicy::Required,
+                occurred_at_ms: now,
+                producer: &producer,
+                authority: None,
+                causation_id: None,
+                correlation_id: Some(idempotency_key),
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Sensitive,
+                payload: &manifest_value,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+        let result = json!({
+            "hook_id":manifest.hook_id,
+            "manifest_version":manifest.manifest_version,
+            "sequence":sequence.to_string(),
+            "event_id":event_id,
+        });
+        insert_operation_receipt(
+            &tx,
+            "session.journal.hook.put",
+            idempotency_key,
+            fingerprint.as_slice(),
+            sequence,
+            &result,
+        )?;
+        tx.commit()?;
+        Ok(JournalAppendCommit { sequence, event_id, replayed: false })
+    }
+
+    pub(crate) fn schedule_journal_hook_deliveries(
+        &mut self,
+        hook_id: &str,
+        manifest_version: u32,
+        expected_cursor: u64,
+        scanned_to: u64,
+        matches: &[(String, u64)],
+    ) -> anyhow::Result<bool> {
+        let tx = self.connection.transaction()?;
+        let current = tx
+            .query_row(
+                "SELECT cursor_sequence FROM journal_hooks
+                 WHERE hook_id = ?1 AND manifest_version = ?2 AND enabled = 1",
+                params![hook_id, i64::from(manifest_version)],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        let Some(current) = current else { return Ok(false) };
+        if u64::try_from(current)? != expected_cursor {
+            return Ok(false);
+        }
+        let now = unix_epoch_ms()?;
+        for (event_id, sequence) in matches {
+            tx.execute(
+                "INSERT OR IGNORE INTO journal_hook_deliveries(
+                   hook_id, manifest_version, event_id, event_sequence, attempt, state,
+                   next_attempt_at_ms, scheduled_at_ms
+                 ) VALUES(?1, ?2, ?3, ?4, 0, 'scheduled', ?5, ?5)",
+                params![
+                    hook_id,
+                    i64::from(manifest_version),
+                    event_id,
+                    i64::try_from(*sequence)?,
+                    i64::try_from(now)?,
+                ],
+            )?;
+        }
+        tx.execute(
+            "UPDATE journal_hooks SET cursor_sequence = ?3
+             WHERE hook_id = ?1 AND manifest_version = ?2",
+            params![hook_id, i64::from(manifest_version), i64::try_from(scanned_to)?],
+        )?;
+        tx.commit()?;
+        Ok(true)
+    }
+
+    pub(crate) fn pending_journal_hook_deliveries(
+        &self,
+        now_ms: u64,
+        limit: usize,
+    ) -> anyhow::Result<Vec<JournalHookDelivery>> {
+        let mut statement = self.connection.prepare(
+            "WITH pending AS (
+               SELECT h.manifest_json, d.event_sequence, d.attempt,
+                      CAST(json_extract(h.manifest_json, '$.exec.max_parallel') AS INTEGER)
+                        AS max_parallel,
+                      ROW_NUMBER() OVER (
+                        PARTITION BY d.hook_id, d.manifest_version
+                        ORDER BY d.event_sequence ASC
+                      ) AS hook_slot
+               FROM journal_hook_deliveries d
+               JOIN journal_hooks h
+                 ON h.hook_id = d.hook_id AND h.manifest_version = d.manifest_version
+               WHERE h.enabled = 1
+                 AND d.state IN ('scheduled','executing')
+                 AND d.next_attempt_at_ms <= ?1
+             )
+             SELECT manifest_json, event_sequence, attempt
+             FROM pending
+             WHERE hook_slot <= max_parallel
+             ORDER BY event_sequence ASC
+             LIMIT ?2",
+        )?;
+        let rows = statement
+            .query_map(params![i64::try_from(now_ms)?, i64::try_from(limit)?], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
+        rows.into_iter()
+            .map(|(manifest, sequence, attempt)| {
+                let sequence = u64::try_from(sequence)?;
+                let page =
+                    query_session_journal_after(&self.connection, sequence.saturating_sub(1), 1)?;
+                let event = page
+                    .records
+                    .into_iter()
+                    .find(|record| record.sequence == sequence)
+                    .context("hook delivery event is absent from the journal")?;
+                Ok(JournalHookDelivery {
+                    manifest: serde_json::from_str(&manifest)?,
+                    event,
+                    attempt: u16::try_from(attempt).context("hook attempt is invalid")?,
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn start_journal_hook_delivery(
+        &mut self,
+        delivery: &JournalHookDelivery,
+    ) -> anyhow::Result<JournalHookAttempt> {
+        let tx = self.connection.transaction()?;
+        let attempt = delivery.attempt.checked_add(1).context("hook attempt overflow")?;
+        let now = unix_epoch_ms()?;
+        let changed = tx.execute(
+            "UPDATE journal_hook_deliveries
+             SET state = 'executing', attempt = ?4, started_at_ms = ?5,
+                 completed_at_ms = NULL, exit_code = NULL, error = NULL
+             WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3
+               AND state IN ('scheduled','executing')",
+            params![
+                delivery.manifest.hook_id,
+                i64::from(delivery.manifest.manifest_version),
+                delivery.event.event_id,
+                i64::from(attempt),
+                i64::try_from(now)?,
+            ],
+        )?;
+        anyhow::ensure!(changed == 1, "hook delivery is no longer pending");
+        let (_, causation_id) = append_hook_delivery_event(
+            &tx,
+            "hook.delivery.started",
+            delivery,
+            attempt,
+            json!({"attempt":attempt}),
+            now,
+        )?;
+        tx.execute(
+            "UPDATE journal_hook_deliveries
+             SET started_event_id = ?4
+             WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3",
+            params![
+                delivery.manifest.hook_id,
+                i64::from(delivery.manifest.manifest_version),
+                delivery.event.event_id,
+                causation_id,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(JournalHookAttempt { attempt, causation_id })
+    }
+
+    pub(crate) fn finish_journal_hook_delivery(
+        &mut self,
+        delivery: &JournalHookDelivery,
+        attempt: u16,
+        exit_code: Option<i32>,
+        error: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let tx = self.connection.transaction()?;
+        let now = unix_epoch_ms()?;
+        let success = error.is_none() && exit_code == Some(0);
+        if success {
+            tx.execute(
+                "UPDATE journal_hook_deliveries
+                 SET state = 'completed', completed_at_ms = ?4, exit_code = ?5, error = NULL
+                 WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3",
+                params![
+                    delivery.manifest.hook_id,
+                    i64::from(delivery.manifest.manifest_version),
+                    delivery.event.event_id,
+                    i64::try_from(now)?,
+                    exit_code,
+                ],
+            )?;
+            append_hook_delivery_event(
+                &tx,
+                "hook.delivery.completed",
+                delivery,
+                attempt,
+                json!({"attempt":attempt,"exit_code":exit_code}),
+                now,
+            )?;
+        } else {
+            let exhausted = attempt >= delivery.manifest.delivery.retry.max_attempts;
+            let next_attempt_at = now.saturating_add(
+                delivery.manifest.delivery.retry.backoff_ms.saturating_mul(u64::from(attempt)),
+            );
+            tx.execute(
+                "UPDATE journal_hook_deliveries
+                 SET state = ?4, next_attempt_at_ms = ?5, completed_at_ms = ?6,
+                     exit_code = ?7, error = ?8
+                 WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3",
+                params![
+                    delivery.manifest.hook_id,
+                    i64::from(delivery.manifest.manifest_version),
+                    delivery.event.event_id,
+                    if exhausted { "abandoned" } else { "scheduled" },
+                    i64::try_from(next_attempt_at)?,
+                    i64::try_from(now)?,
+                    exit_code,
+                    error,
+                ],
+            )?;
+            append_hook_delivery_event(
+                &tx,
+                "hook.delivery.failed",
+                delivery,
+                attempt,
+                json!({"attempt":attempt,"exit_code":exit_code,"error":error,"retrying":!exhausted}),
+                now,
+            )?;
+            if exhausted {
+                append_hook_delivery_event(
+                    &tx,
+                    "hook.delivery.abandoned",
+                    delivery,
+                    attempt,
+                    json!({"attempt":attempt,"exit_code":exit_code,"error":error}),
+                    now,
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+}
+
+impl WorkspaceRegistry {
+    pub(crate) fn journal_checkpoint_receipt(
+        &self,
+        idempotency_key: &str,
+    ) -> anyhow::Result<Option<JournalCheckpointCommit>> {
+        validate_identifier("journal checkpoint idempotency key", idempotency_key)?;
+        let fingerprint = checkpoint_request_fingerprint();
+        let Some(journal) = operation_receipt(
+            &self.connection,
+            "session.journal.checkpoint.create",
+            idempotency_key,
+            fingerprint.as_slice(),
+        )?
+        else {
+            return Ok(None);
+        };
+        let checkpoint_id = self.connection.query_row(
+            "SELECT json_extract(result_json, '$.checkpoint_id')
+             FROM journal_operation_receipts
+             WHERE operation = 'session.journal.checkpoint.create' AND idempotency_key = ?1",
+            [idempotency_key],
+            |row| row.get::<_, String>(0),
+        )?;
+        let checkpoint = query_journal_checkpoint(&self.connection, &checkpoint_id)?
+            .context("checkpoint receipt points to a missing checkpoint")?;
+        Ok(Some(JournalCheckpointCommit { checkpoint, journal }))
+    }
+
+    pub(crate) fn create_journal_checkpoint(
+        &mut self,
+        source_sequence: u64,
+        reducer_version: u32,
+        state: &Value,
+        blobs: &[JournalContentBlob],
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<JournalCheckpointCommit> {
+        anyhow::ensure!(reducer_version > 0, "checkpoint reducer_version must be positive");
+        validate_identifier("journal checkpoint origin", origin)?;
+        validate_identifier("journal checkpoint idempotency key", idempotency_key)?;
+        let fingerprint = checkpoint_request_fingerprint();
+        let tx = self.connection.transaction()?;
+        if let Some(journal) = operation_receipt(
+            &tx,
+            "session.journal.checkpoint.create",
+            idempotency_key,
+            fingerprint.as_slice(),
+        )? {
+            let checkpoint_id = tx.query_row(
+                "SELECT json_extract(result_json, '$.checkpoint_id')
+                 FROM journal_operation_receipts
+                 WHERE operation = 'session.journal.checkpoint.create' AND idempotency_key = ?1",
+                [idempotency_key],
+                |row| row.get::<_, String>(0),
+            )?;
+            let checkpoint = query_journal_checkpoint(&tx, &checkpoint_id)?
+                .context("checkpoint receipt points to a missing checkpoint")?;
+            return Ok(JournalCheckpointCommit { checkpoint, journal });
+        }
+        anyhow::ensure!(
+            journal_head(&tx)? == source_sequence,
+            "session journal changed during checkpoint capture"
+        );
+        let now = unix_epoch_ms()?;
+        for blob in blobs {
+            verify_journal_content_blob(blob)?;
+            tx.execute(
+                "INSERT OR IGNORE INTO journal_content_blobs(
+                   content_id, sha256, codec, content, uncompressed_bytes, created_at_ms
+                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    blob.reference.content_id,
+                    decode_sha256(&blob.reference.sha256)?,
+                    blob.reference.codec,
+                    blob.compressed,
+                    i64::try_from(blob.reference.uncompressed_bytes)?,
+                    i64::try_from(now)?,
+                ],
+            )?;
+            let matches = tx.query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM journal_content_blobs
+                   WHERE content_id = ?1 AND sha256 = ?2 AND codec = ?3
+                     AND content = ?4 AND uncompressed_bytes = ?5
+                 )",
+                params![
+                    blob.reference.content_id,
+                    decode_sha256(&blob.reference.sha256)?,
+                    blob.reference.codec,
+                    blob.compressed,
+                    i64::try_from(blob.reference.uncompressed_bytes)?,
+                ],
+                |row| row.get::<_, bool>(0),
+            )?;
+            anyhow::ensure!(matches, "checkpoint content id collided with different content");
+        }
+        let content_refs = blobs.iter().map(|blob| blob.reference.clone()).collect::<Vec<_>>();
+        let digest_input = json!({
+            "source_sequence":source_sequence.to_string(),
+            "reducer_version":reducer_version,
+            "state":state,
+            "content_refs":content_refs,
+        });
+        let digest = Sha256::digest(canonical_json(&digest_input)?.as_bytes());
+        let digest_hex = encode_hex(digest.as_slice());
+        let checkpoint_id = format!("checkpoint_{digest_hex}");
+        tx.execute(
+            "INSERT INTO journal_checkpoints(
+               checkpoint_id, source_sequence, reducer_version, state_json,
+               content_refs_json, sha256, created_at_ms
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                checkpoint_id,
+                i64::try_from(source_sequence)?,
+                i64::from(reducer_version),
+                canonical_json(state)?,
+                canonical_json(&serde_json::to_value(&content_refs)?)?,
+                digest.as_slice(),
+                i64::try_from(now)?,
+            ],
+        )?;
+        let session_id = transaction_session_id(&tx)?;
+        let subjects = vec![JournalSubject { kind: "session".into(), id: session_id }];
+        let producer = JournalProducer { kind: "checkpoint".into(), id: origin.into() };
+        let event_id = random_event_id("checkpoint");
+        let payload = json!({
+            "checkpoint_id":checkpoint_id,
+            "source_sequence":source_sequence.to_string(),
+            "reducer_version":reducer_version,
+            "sha256":digest_hex,
+            "content_refs":content_refs,
+        });
+        let sequence = append_journal_record(
+            &tx,
+            &JournalAppend {
+                event_id: &event_id,
+                schema_version: 1,
+                kind: "journal.checkpoint.created",
+                class: JournalClass::Checkpoint,
+                replay: JournalReplayPolicy::Required,
+                occurred_at_ms: now,
+                producer: &producer,
+                authority: None,
+                causation_id: None,
+                correlation_id: Some(idempotency_key),
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Metadata,
+                payload: &payload,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+        let result = json!({
+            "checkpoint_id":checkpoint_id,
+            "source_sequence":source_sequence.to_string(),
+            "reducer_version":reducer_version,
+            "sha256":digest_hex,
+            "sequence":sequence.to_string(),
+            "event_id":event_id,
+        });
+        insert_operation_receipt(
+            &tx,
+            "session.journal.checkpoint.create",
+            idempotency_key,
+            fingerprint.as_slice(),
+            sequence,
+            &result,
+        )?;
+        tx.commit()?;
+        Ok(JournalCheckpointCommit {
+            checkpoint: JournalCheckpoint {
+                checkpoint_id,
+                source_sequence,
+                reducer_version,
+                state: state.clone(),
+                content_refs,
+                sha256: digest_hex,
+                created_at_ms: now,
+            },
+            journal: JournalAppendCommit { sequence, event_id, replayed: false },
+        })
+    }
+
+    pub(crate) fn journal_checkpoints(&self) -> anyhow::Result<Vec<JournalCheckpoint>> {
+        let mut statement = self.connection.prepare(
+            "SELECT checkpoint_id FROM journal_checkpoints
+             ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC",
+        )?;
+        let ids = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        ids.into_iter()
+            .map(|id| {
+                query_journal_checkpoint(&self.connection, &id)?
+                    .context("listed checkpoint disappeared")
+            })
+            .collect()
+    }
+
+    pub(crate) fn journal_checkpoint(
+        &self,
+        selector: &str,
+    ) -> anyhow::Result<Option<JournalCheckpoint>> {
+        let checkpoint_id = if selector == "latest" {
+            self.connection
+                .query_row(
+                    "SELECT checkpoint_id FROM journal_checkpoints
+                     ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC LIMIT 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+        } else {
+            Some(selector.to_string())
+        };
+        checkpoint_id
+            .as_deref()
+            .map(|id| query_journal_checkpoint(&self.connection, id))
+            .transpose()
+            .map(Option::flatten)
+    }
+}
+
+impl WorkspaceRegistry {
+    pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<JournalSegment>> {
+        let mut statement = self.connection.prepare(
+            "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
+                    uncompressed_bytes, sha256, sealed_at_ms
+             FROM journal_segments ORDER BY start_sequence ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, Vec<u8>>(6)?,
+                    row.get::<_, i64>(7)?,
+                ))
+            })?
+            .map(|row| {
+                let (id, start, end, count, codec, bytes, digest, sealed_at) = row?;
+                Ok(JournalSegment {
+                    segment_id: id,
+                    start_sequence: u64::try_from(start)?,
+                    end_sequence: u64::try_from(end)?,
+                    record_count: u64::try_from(count)?,
+                    codec,
+                    uncompressed_bytes: u64::try_from(bytes)?,
+                    sha256: encode_hex(&digest),
+                    sealed_at_ms: u64::try_from(sealed_at)?,
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn seal_journal_segments(
+        &mut self,
+        requested_through: u64,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<JournalSegmentSealCommit> {
+        anyhow::ensure!(requested_through > 0, "segment through sequence must be positive");
+        validate_identifier("journal segment origin", origin)?;
+        validate_identifier("journal segment idempotency key", idempotency_key)?;
+        let fingerprint = Sha256::digest(
+            canonical_json(&json!({"through_sequence":requested_through.to_string()}))?.as_bytes(),
+        );
+        let tx = self.connection.transaction()?;
+        if let Some(journal) = operation_receipt(
+            &tx,
+            "session.journal.segment.seal",
+            idempotency_key,
+            fingerprint.as_slice(),
+        )? {
+            let result = tx.query_row(
+                "SELECT result_json FROM journal_operation_receipts
+                 WHERE operation = 'session.journal.segment.seal' AND idempotency_key = ?1",
+                [idempotency_key],
+                |row| row.get::<_, String>(0),
+            )?;
+            let result: Value = serde_json::from_str(&result)?;
+            let through_sequence = result["through_sequence"]
+                .as_str()
+                .context("segment receipt omitted through_sequence")?
+                .parse()?;
+            let segments = serde_json::from_value(result["segments"].clone())?;
+            return Ok(JournalSegmentSealCommit { through_sequence, segments, journal });
+        }
+        let head = journal_head(&tx)?;
+        anyhow::ensure!(
+            requested_through <= head,
+            "segment through sequence is ahead of the journal"
+        );
+        let through_sequence = tx
+            .query_row(
+                "SELECT MAX(source_sequence) FROM journal_checkpoints
+                 WHERE source_sequence <= ?1",
+                [i64::try_from(requested_through)?],
+                |row| row.get::<_, Option<i64>>(0),
+            )?
+            .map(u64::try_from)
+            .transpose()?
+            .context("no checkpoint exists at or before the requested segment boundary")?;
+        let archived_end = tx.query_row(
+            "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let mut cursor = u64::try_from(archived_end)?;
+        anyhow::ensure!(through_sequence > cursor, "requested journal range is already sealed");
+        let now = unix_epoch_ms()?;
+        let mut segments = Vec::new();
+        while cursor < through_sequence {
+            let mut records = Vec::new();
+            let mut uncompressed_bytes = 2_usize;
+            'collect_segment: while records.len() < JOURNAL_SEGMENT_RECORD_LIMIT
+                && cursor < through_sequence
+            {
+                let page = query_session_journal_after(&tx, cursor, 1024)?;
+                let mut accepted = 0_usize;
+                for record in page
+                    .records
+                    .into_iter()
+                    .take_while(|record| record.sequence <= through_sequence)
+                    .take(JOURNAL_SEGMENT_RECORD_LIMIT - records.len())
+                {
+                    let record_bytes = serde_json::to_vec(&record)?.len();
+                    let separator = usize::from(!records.is_empty());
+                    anyhow::ensure!(
+                        record_bytes.saturating_add(2) <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
+                        "journal record {} is too large to seal",
+                        record.sequence
+                    );
+                    if uncompressed_bytes.saturating_add(separator).saturating_add(record_bytes)
+                        > MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES
+                    {
+                        break 'collect_segment;
+                    }
+                    uncompressed_bytes += separator + record_bytes;
+                    cursor = record.sequence;
+                    records.push(record);
+                    accepted += 1;
+                }
+                if accepted == 0 {
+                    break;
+                }
+            }
+            anyhow::ensure!(!records.is_empty(), "journal segment range contains a gap");
+            let start_sequence = records.first().expect("non-empty segment").sequence;
+            let end_sequence = records.last().expect("non-empty segment").sequence;
+            let uncompressed = serde_json::to_vec(&records)?;
+            anyhow::ensure!(
+                uncompressed.len() <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
+                "journal segment exceeds the uncompressed size limit"
+            );
+            let digest = Sha256::digest(&uncompressed);
+            let digest_hex = encode_hex(digest.as_slice());
+            let mut encoder =
+                flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+            encoder.write_all(&uncompressed)?;
+            let compressed = encoder.finish()?;
+            let segment_id = format!("segment_{start_sequence}_{end_sequence}_{digest_hex}");
+            tx.execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec, content,
+                   uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, ?8)",
+                params![
+                    segment_id,
+                    i64::try_from(start_sequence)?,
+                    i64::try_from(end_sequence)?,
+                    i64::try_from(records.len())?,
+                    compressed,
+                    i64::try_from(uncompressed.len())?,
+                    digest.as_slice(),
+                    i64::try_from(now)?,
+                ],
+            )?;
+            segments.push(JournalSegment {
+                segment_id,
+                start_sequence,
+                end_sequence,
+                record_count: u64::try_from(records.len())?,
+                codec: "gzip-json-v1".into(),
+                uncompressed_bytes: u64::try_from(uncompressed.len())?,
+                sha256: digest_hex,
+                sealed_at_ms: now,
+            });
+        }
+        anyhow::ensure!(cursor == through_sequence, "journal segment range ended early");
+        tx.execute_batch("DROP TRIGGER session_journal_reject_delete;")?;
+        tx.execute(
+            "DELETE FROM session_journal WHERE sequence <= ?1",
+            [i64::try_from(through_sequence)?],
+        )?;
+        tx.execute_batch(
+            "CREATE TRIGGER session_journal_reject_delete
+             BEFORE DELETE ON session_journal
+             BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
+        )?;
+        let session_id = transaction_session_id(&tx)?;
+        let subjects = vec![JournalSubject { kind: "session".into(), id: session_id }];
+        let producer = JournalProducer { kind: "retention".into(), id: origin.into() };
+        let event_id = random_event_id("segment");
+        let payload = json!({
+            "through_sequence":through_sequence.to_string(),
+            "segments":segments,
+        });
+        let sequence = append_journal_record(
+            &tx,
+            &JournalAppend {
+                event_id: &event_id,
+                schema_version: 1,
+                kind: "journal.segment.sealed",
+                class: JournalClass::Checkpoint,
+                replay: JournalReplayPolicy::Required,
+                occurred_at_ms: now,
+                producer: &producer,
+                authority: None,
+                causation_id: None,
+                correlation_id: Some(idempotency_key),
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Metadata,
+                payload: &payload,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+        let result = json!({
+            "through_sequence":through_sequence.to_string(),
+            "segments":segments,
+            "sequence":sequence.to_string(),
+            "event_id":event_id,
+        });
+        insert_operation_receipt(
+            &tx,
+            "session.journal.segment.seal",
+            idempotency_key,
+            fingerprint.as_slice(),
+            sequence,
+            &result,
+        )?;
+        tx.commit()?;
+        Ok(JournalSegmentSealCommit {
+            through_sequence,
+            segments,
+            journal: JournalAppendCommit { sequence, event_id, replayed: false },
+        })
+    }
+}
+
+fn query_journal_checkpoint(
+    connection: &Connection,
+    checkpoint_id: &str,
+) -> anyhow::Result<Option<JournalCheckpoint>> {
+    let row = connection
+        .query_row(
+            "SELECT source_sequence, reducer_version, state_json, content_refs_json,
+                    sha256, created_at_ms
+             FROM journal_checkpoints WHERE checkpoint_id = ?1",
+            [checkpoint_id],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Vec<u8>>(4)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((source_sequence, reducer_version, state, refs, digest, created_at_ms)) = row else {
+        return Ok(None);
+    };
+    anyhow::ensure!(digest.len() == 32, "checkpoint digest is invalid");
+    Ok(Some(JournalCheckpoint {
+        checkpoint_id: checkpoint_id.into(),
+        source_sequence: u64::try_from(source_sequence)?,
+        reducer_version: u32::try_from(reducer_version)?,
+        state: serde_json::from_str(&state)?,
+        content_refs: serde_json::from_str(&refs)?,
+        sha256: encode_hex(&digest),
+        created_at_ms: u64::try_from(created_at_ms)?,
+    }))
+}
+
+fn checkpoint_request_fingerprint() -> sha2::digest::Output<Sha256> {
+    Sha256::digest(b"cmux.session-journal.checkpoint.create.v1")
+}
+
+fn transaction_session_id(transaction: &Transaction<'_>) -> anyhow::Result<String> {
+    transaction
+        .query_row("SELECT value FROM meta WHERE key = 'session_public_id'", [], |row| row.get(0))
+        .context("read journal session id")
+}
+
+fn journal_head(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
+    let value = transaction.query_row(
+        "SELECT MAX(
+           COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
+           COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
+         )",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    u64::try_from(value).context("journal head sequence is negative")
+}
+
+fn append_hook_delivery_event(
+    transaction: &Transaction<'_>,
+    kind: &str,
+    delivery: &JournalHookDelivery,
+    attempt: u16,
+    payload: Value,
+    occurred_at_ms: u64,
+) -> anyhow::Result<(u64, String)> {
+    let session_id = transaction_session_id(transaction)?;
+    let mut subjects = BTreeSet::from([
+        JournalSubject { kind: "session".into(), id: session_id },
+        JournalSubject { kind: "hook".into(), id: delivery.manifest.hook_id.clone() },
+    ]);
+    subjects.extend(delivery.event.subjects.iter().cloned());
+    let subjects = subjects.into_iter().collect::<Vec<_>>();
+    let producer =
+        JournalProducer { kind: "hook_dispatcher".into(), id: delivery.manifest.hook_id.clone() };
+    let event_id = random_event_id("hook_delivery");
+    let sequence = append_journal_record(
+        transaction,
+        &JournalAppend {
+            event_id: &event_id,
+            schema_version: 1,
+            kind,
+            class: JournalClass::Effect,
+            replay: JournalReplayPolicy::Never,
+            occurred_at_ms,
+            producer: &producer,
+            authority: None,
+            causation_id: Some(&delivery.event.event_id),
+            correlation_id: Some(&format!(
+                "{}:{}:{}",
+                delivery.manifest.hook_id,
+                delivery.manifest.manifest_version,
+                delivery.event.event_id
+            )),
+            causation_depth: delivery.event.causation_depth.saturating_add(1),
+            subjects: &subjects,
+            sensitivity: JournalSensitivity::Metadata,
+            payload: &json!({
+                "hook_id":delivery.manifest.hook_id,
+                "manifest_version":delivery.manifest.manifest_version,
+                "source_event_id":delivery.event.event_id,
+                "source_sequence":delivery.event.sequence.to_string(),
+                "attempt":attempt,
+                "outcome":payload,
+            }),
+            resource_revision: None,
+            previous_resource_revision: None,
+        },
+    )?;
+    Ok((sequence, event_id))
+}
+
+fn default_hook_regex_field() -> String {
+    "record".into()
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+fn operation_receipt(
+    connection: &Connection,
+    operation: &str,
+    idempotency_key: &str,
+    fingerprint: &[u8],
+) -> anyhow::Result<Option<JournalAppendCommit>> {
+    let stored = connection
+        .query_row(
+            "SELECT fingerprint, result_json, journal_sequence
+             FROM journal_operation_receipts
+             WHERE operation = ?1 AND idempotency_key = ?2",
+            params![operation, idempotency_key],
+            |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),
+        )
+        .optional()?;
+    let Some((stored_fingerprint, result, sequence)) = stored else { return Ok(None) };
+    anyhow::ensure!(
+        stored_fingerprint == fingerprint,
+        "journal idempotency key was retried with a different payload"
+    );
+    let result: Value = serde_json::from_str(&result)?;
+    Ok(Some(JournalAppendCommit {
+        sequence: u64::try_from(sequence)?,
+        event_id: result["event_id"].as_str().context("receipt omitted event_id")?.into(),
+        replayed: true,
+    }))
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
+
+fn decode_sha256(value: &str) -> anyhow::Result<[u8; 32]> {
+    anyhow::ensure!(value.len() == 64, "SHA-256 digest must contain 64 hexadecimal characters");
+    let mut decoded = [0_u8; 32];
+    for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
+        let text = std::str::from_utf8(chunk)?;
+        decoded[index] =
+            u8::from_str_radix(text, 16).context("SHA-256 digest is not hexadecimal")?;
+    }
+    Ok(decoded)
+}
+
+fn verify_journal_content_blob(blob: &JournalContentBlob) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        blob.reference.format == "cmux.vt-replay.v1" && blob.reference.codec == "gzip",
+        "checkpoint content format or codec is unsupported"
+    );
+    let expected_digest = decode_sha256(&blob.reference.sha256)?;
+    anyhow::ensure!(
+        blob.reference.sha256 == encode_hex(&expected_digest),
+        "checkpoint content digest is not canonical"
+    );
+    anyhow::ensure!(
+        blob.reference.content_id == format!("jcontent_{}", blob.reference.sha256),
+        "checkpoint content id does not match its digest"
+    );
+    let expected_bytes = usize::try_from(blob.reference.uncompressed_bytes)?;
+    anyhow::ensure!(
+        expected_bytes <= MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES,
+        "checkpoint content exceeds the uncompressed size limit"
+    );
+    let decoder = flate2::read::GzDecoder::new(blob.compressed.as_slice());
+    let mut uncompressed = Vec::new();
+    decoder
+        .take(u64::try_from(expected_bytes)?.saturating_add(1))
+        .read_to_end(&mut uncompressed)?;
+    anyhow::ensure!(
+        uncompressed.len() == expected_bytes,
+        "checkpoint content length does not match its reference"
+    );
+    anyhow::ensure!(
+        Sha256::digest(&uncompressed).as_slice() == expected_digest.as_slice(),
+        "checkpoint content digest does not match its reference"
+    );
+    Ok(())
+}
+
+fn serialize_decimal<S>(value: &u64, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&value.to_string())
+}
+
+fn deserialize_decimal<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    if value.is_empty()
+        || (value.len() > 1 && value.starts_with('0'))
+        || !value.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(serde::de::Error::custom("decimal must be canonical unsigned digits"));
+    }
+    value.parse().map_err(serde::de::Error::custom)
+}
+
+fn insert_operation_receipt(
+    transaction: &Transaction<'_>,
+    operation: &str,
+    idempotency_key: &str,
+    fingerprint: &[u8],
+    sequence: u64,
+    result: &Value,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        "INSERT INTO journal_operation_receipts(
+           operation, idempotency_key, fingerprint, result_json, journal_sequence
+         ) VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![
+            operation,
+            idempotency_key,
+            fingerprint,
+            canonical_json(result)?,
+            i64::try_from(sequence)?,
+        ],
+    )?;
+    Ok(())
+}
+
+fn ingress_receipt(
+    transaction: &Transaction<'_>,
+    producer_id: &str,
+    idempotency_key: &str,
+    fingerprint: &[u8],
+) -> anyhow::Result<Option<JournalAppendCommit>> {
+    let stored = transaction
+        .query_row(
+            "SELECT fingerprint, event_id, journal_sequence
+             FROM journal_ingress_receipts
+             WHERE producer_id = ?1 AND idempotency_key = ?2",
+            params![producer_id, idempotency_key],
+            |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),
+        )
+        .optional()?;
+    let Some((stored_fingerprint, event_id, sequence)) = stored else { return Ok(None) };
+    anyhow::ensure!(
+        stored_fingerprint == fingerprint,
+        "journal ingress idempotency key was retried with a different payload"
+    );
+    Ok(Some(JournalAppendCommit { sequence: u64::try_from(sequence)?, event_id, replayed: true }))
+}
+
+fn validate_plugin_component(label: &str, value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !value.is_empty()
+            && value.len() <= 64
+            && value
+                .bytes()
+                .all(|byte| { byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' }),
+        "{label} must contain 1 to 64 lowercase ASCII letters, digits, or underscores"
+    );
+    Ok(())
+}
+
+fn validate_dotted_kind(value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !value.is_empty()
+            && value.len() <= 128
+            && value.split('.').all(|component| {
+                !component.is_empty()
+                    && component.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                    })
+            }),
+        "journal event kind must be a dotted lowercase ASCII name"
+    );
+    Ok(())
+}
+
+fn sensitivity_rank(value: JournalSensitivity) -> u8 {
+    match value {
+        JournalSensitivity::Public => 0,
+        JournalSensitivity::Metadata => 1,
+        JournalSensitivity::Sensitive => 2,
+        JournalSensitivity::Secret => 3,
+    }
+}
+
+fn random_event_id(category: &str) -> String {
+    format!("event_{category}_{}", new_uuid_v4().replace('-', ""))
+}

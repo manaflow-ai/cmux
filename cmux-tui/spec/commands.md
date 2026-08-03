@@ -3325,18 +3325,16 @@ Example:
 {"id":108,"ok":true,"data":{"surface":1,"state":"working","source":"socket","session":"abc"}}
 ```
 
-## Proposed Hooks Config
+## Journal hooks
 
-Hooks are proposed protocol vNext config, not a protocol-v10 socket command.
-Event-specific arrays such as `on-bell` and `on-agent-done` are superseded by
-versioned subscriptions over the canonical session journal. The subscription
-manifest, delivery receipts, loop prevention, agent adapter mapping, authority,
-and replay semantics are specified in
-[`session-journal.md`](session-journal.md#hook-subscriptions).
-
-The strict runtime config parser still rejects hook manifests. Implementing the
-parser before the dispatcher and journal cursor contract would create a config
-surface with no durable delivery semantics.
+Hooks are versioned resource-API manifests over the canonical session journal,
+not protocol-v10 socket commands or event-specific config arrays. Use
+`session <selector> journal hook put` and `hook list`. The session-owned
+dispatcher, durable cursor, delivery receipts, retry policy, loop prevention,
+authority, and replay semantics are specified in
+[`session-journal.md`](session-journal.md#hook-subscriptions). The strict
+runtime config parser continues to reject hook manifests so there is one
+durable installation path.
 
 ## Compatibility Notes
 

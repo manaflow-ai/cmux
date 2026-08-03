@@ -90,6 +90,9 @@ libc = "0.2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
 regex = "1"
+jsonschema = { version = "0.30", default-features = false }
+flate2 = "1"
+wait-timeout = "0.2"
 bindgen = "0.72"
 smallvec = "1"
 getrandom = "0.3"

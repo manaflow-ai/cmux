@@ -10,6 +10,8 @@
 
 mod browser;
 mod event_bus;
+mod journal_checkpoint;
+mod journal_hooks;
 mod journal_kernel;
 mod model;
 mod mux;
@@ -67,7 +69,10 @@ pub use surface::{
     TerminalPointerSnapshot,
 };
 pub use workspace_registry::{
-    FrontendProjection, JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy,
+    FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint, JournalClass,
+    JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy, JournalHookExec,
+    JournalHookFilter, JournalHookManifest, JournalHookRegex, JournalHookRetry, JournalIngress,
+    JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
     JournalSensitivity, JournalSubject, ProjectionCommit, RegistryCommit, RegistryEvent,
     RegistrySnapshot, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
     UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
