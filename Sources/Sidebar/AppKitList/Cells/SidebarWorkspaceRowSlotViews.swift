@@ -1,6 +1,7 @@
 import AppKit
 import CmuxFoundation
 import CmuxSidebar
+import CoreText
 
 /// Leaf AppKit views for the pure-AppKit workspace row: unread badge,
 /// pull-request status icons, progress bar. Each is configured with values
@@ -27,14 +28,17 @@ extension NSTextField {
 /// asymmetric cell insets.
 @MainActor
 final class SidebarRowUnreadBadgeView: NSView {
-    private var text: NSString = ""
-    private var textAttributes: [NSAttributedString.Key: Any] = [:]
+    private var textLine: CTLine?
+    private var textInkBounds: CGRect = .zero
+    private var textAdvance: CGFloat = 0
+    private var textLineHeight: CGFloat = 0
+    private var fillColor: NSColor = .clear
+
+    override var isFlipped: Bool { false }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.cornerCurve = .continuous
-        layer?.masksToBounds = true
     }
 
     required init?(coder: NSCoder) {
@@ -58,40 +62,71 @@ final class SidebarRowUnreadBadgeView: NSView {
     }
 
     func configure(count: Int, fillColor: NSColor, textColor: NSColor, font: NSFont) {
-        text = NSString(string: count > 99 ? "99+" : "\(max(0, count))")
-        textAttributes = [.font: font, .foregroundColor: textColor]
-        layer?.backgroundColor = fillColor.cgColor
-        layer?.borderWidth = 0.5
-        layer?.borderColor = textColor.withAlphaComponent(0.22).cgColor
+        let text = count > 99 ? "99+" : "\(max(0, count))"
+        let attributedText = NSAttributedString(
+            string: text,
+            attributes: [.font: font, .foregroundColor: textColor]
+        )
+        let line = CTLineCreateWithAttributedString(attributedText)
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        var leading: CGFloat = 0
+        textLine = line
+        textAdvance = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+        textLineHeight = ascent + descent + leading
+        textInkBounds = CTLineGetBoundsWithOptions(line, [.useGlyphPathBounds])
+        if textInkBounds.isEmpty || textInkBounds.isNull {
+            textInkBounds = CGRect(
+                x: 0,
+                y: -descent,
+                width: textAdvance,
+                height: ascent + descent
+            )
+        }
+        self.fillColor = fillColor
         needsDisplay = true
     }
 
     func fittingSize(horizontalPadding: CGFloat, minimumHeight: CGFloat) -> NSSize {
-        let textSize = text.size(withAttributes: textAttributes)
-        let height = ceil(max(minimumHeight, textSize.height + 2))
+        let height = ceil(max(minimumHeight, textLineHeight + 2))
         return NSSize(
-            width: ceil(max(height, textSize.width + horizontalPadding * 2)),
+            width: ceil(max(height + 2, textAdvance + horizontalPadding * 2)),
             height: height
         )
     }
 
-    override func layout() {
-        super.layout()
-        layer?.cornerRadius = min(bounds.width, bounds.height) / 2
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard text.length > 0, let font = textAttributes[.font] as? NSFont else { return }
-        let size = text.size(withAttributes: textAttributes)
-        // Center on the digit's cap-height band, not the full line box, so
-        // single digits sit optically centered in the circle.
-        let capCenterOffset = (font.ascender + font.descender) / 2
-        let y = bounds.midY - size.height / 2 + (size.height / 2 - font.ascender + capCenterOffset)
-        text.draw(
-            at: NSPoint(x: bounds.midX - size.width / 2, y: y),
-            withAttributes: textAttributes
+        guard let textLine, let context = NSGraphicsContext.current?.cgContext else { return }
+
+        // Keep the status slot at its stable layout height while drawing a
+        // quieter, slimmer capsule inside it. A two-point width bias prevents
+        // single digits from reading as oversized circular dots.
+        let verticalInset = bounds.height / 14
+        let capsuleRect = bounds.insetBy(dx: 0, dy: verticalInset)
+        fillColor.setFill()
+        NSBezierPath(
+            roundedRect: capsuleRect,
+            xRadius: capsuleRect.height / 2,
+            yRadius: capsuleRect.height / 2
+        ).fill()
+
+        // CTLine's glyph-path bounds exclude advance-width side bearings and
+        // the font's asymmetric line box. Centering that visible ink fixes the
+        // low-looking digit in small Retina badges.
+        context.saveGState()
+        context.textMatrix = .identity
+        context.textPosition = CGPoint(
+            x: capsuleRect.midX - textInkBounds.midX,
+            y: capsuleRect.midY - textInkBounds.midY
         )
+        CTLineDraw(textLine, context)
+        context.restoreGState()
     }
 }
 
