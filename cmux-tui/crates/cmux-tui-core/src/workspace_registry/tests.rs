@@ -1324,7 +1324,7 @@ fn resource_tombstones_prevent_public_id_and_workspace_key_reuse() {
         )
         .unwrap();
     assert!(registry.resource_topology_snapshot().unwrap().screens.is_empty());
-    assert!(registry.terminal_snapshot().unwrap().terminals.is_empty());
+    assert_eq!(registry.terminal_snapshot().unwrap().terminals.len(), 1);
     let error = registry
         .commit_resource_patch(
             &WorkspaceMutation::new("recreate", "test").unwrap(),
@@ -1432,6 +1432,44 @@ fn resource_ids_survive_registry_restart() {
     assert_eq!(after.tabs, before.tabs);
     assert_eq!(after.browsers, before.browsers);
     assert_ne!(after.generation, before.generation);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn opening_legacy_workspaces_seeds_compatibility_active_workspace() {
+    let root = temp_root("legacy-active-workspace");
+    {
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        registry
+            .connection
+            .execute_batch(
+                "INSERT INTO workspaces(
+                   workspace_key, numeric_id, name, group_key, position,
+                   tombstoned, created_revision, updated_revision, deleted_revision
+                 ) VALUES
+                   ('later', 2, 'Later', 'default', 1, 0, 1, 1, NULL),
+                   ('first', 1, 'First', 'default', 0, 0, 2, 2, NULL);
+                 UPDATE meta SET value = '2' WHERE key = 'revision';",
+            )
+            .unwrap();
+    }
+
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let workspaces = registry.snapshot().unwrap().workspaces;
+    let topology = registry.resource_topology_snapshot().unwrap();
+    assert_eq!(
+        workspaces.iter().map(|workspace| workspace.key.as_str()).collect::<Vec<_>>(),
+        ["first", "later"]
+    );
+    assert_eq!(topology.active_workspace.as_ref(), Some(&workspaces[0].public_id));
+    drop(registry);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        reopened.resource_topology_snapshot().unwrap().active_workspace,
+        Some(workspaces[0].public_id.clone())
+    );
+    drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -1707,7 +1745,7 @@ fn resource_identity_sql_check_rejects_non_hex_payload() {
 }
 
 #[test]
-fn deferred_terminal_foreign_keys_reject_orphans_at_commit() {
+fn resource_terminals_reject_orphans_while_terminal_hosts_are_session_owned() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     let public_id = terminal_resource(TERMINAL_TWO);
     {
@@ -1741,14 +1779,21 @@ fn deferred_terminal_foreign_keys_reject_orphans_at_commit() {
 
     let tx = registry.connection.transaction().unwrap();
     tx.execute(
-        "INSERT INTO terminal_placements(
+        "INSERT INTO terminal_hosts(
                terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
                exit_json, created_revision, updated_revision, deleted_revision
              ) VALUES(?1, 'missing', NULL, 'launching', '{}', NULL, 1, 1, NULL)",
         [TERMINAL_TWO],
     )
     .unwrap();
-    assert!(tx.commit().unwrap_err().to_string().contains("FOREIGN KEY constraint failed"));
+    tx.commit().unwrap();
+    assert_eq!(
+        registry
+            .connection
+            .query_row("SELECT COUNT(*) FROM terminal_hosts", [], |row| { row.get::<_, i64>(0) })
+            .unwrap(),
+        1
+    );
 }
 
 #[test]
@@ -2042,6 +2087,52 @@ fn frontend_projection_is_durable_cas_and_exactly_once() {
 }
 
 #[test]
+fn personal_and_shared_frontend_projections_coexist_and_restore_independently() {
+    let root = temp_root("projection-scopes");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        registry
+            .put_frontend_projection(
+                &WorkspaceMutation::new("personal-layout", "cmux-tui").unwrap(),
+                "cmux-tui",
+                "personal",
+                "profile-lawrence",
+                1,
+                Some(0),
+                &json!({"selected_workspace":"alpha","scroll":{"term-a":12}}),
+            )
+            .unwrap();
+        registry
+            .put_frontend_projection(
+                &WorkspaceMutation::new("shared-layout", "cmux-tui").unwrap(),
+                "cmux-tui",
+                "shared",
+                "pairing-room",
+                1,
+                Some(0),
+                &json!({"columns":["alpha","beta"]}),
+            )
+            .unwrap();
+    }
+
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let personal = registry
+        .get_frontend_projection("cmux-tui", "personal", "profile-lawrence")
+        .unwrap()
+        .unwrap();
+    let shared =
+        registry.get_frontend_projection("cmux-tui", "shared", "pairing-room").unwrap().unwrap();
+    assert_eq!(personal.projection["selected_workspace"], "alpha");
+    assert_eq!(personal.projection["scroll"]["term-a"], 12);
+    assert_eq!(shared.projection["columns"], json!(["alpha", "beta"]));
+    assert!(
+        registry.get_frontend_projection("cmux-tui", "personal", "pairing-room").unwrap().is_none(),
+        "scope participates in projection identity"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn terminal_lifecycle_is_exactly_once_and_has_an_independent_revision() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "one");
@@ -2204,7 +2295,7 @@ fn batch_terminal_close_rolls_back_every_tab_on_mid_transaction_failure() {
         .connection
         .execute_batch(&format!(
             "CREATE TEMP TRIGGER fail_second_terminal_close
-                 BEFORE UPDATE OF lifecycle ON terminal_placements
+                 BEFORE UPDATE OF lifecycle ON terminal_hosts
                  WHEN NEW.terminal_id = '{TERMINAL_TWO}'
                  BEGIN SELECT RAISE(ABORT, 'forced batch failure'); END;"
         ))
@@ -2305,7 +2396,7 @@ fn terminal_close_tombstones_before_kill_and_retries_safely() {
 }
 
 #[test]
-fn closing_workspace_atomically_tombstones_all_child_terminals() {
+fn closing_workspace_detaches_views_without_tombstoning_terminal_hosts() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "one");
     for (index, id) in [TERMINAL_ONE, TERMINAL_TWO].into_iter().enumerate() {
@@ -2337,17 +2428,15 @@ fn closing_workspace_atomically_tombstones_all_child_terminals() {
 
     assert!(registry.snapshot().unwrap().workspaces.is_empty());
     let terminals = registry.terminal_snapshot().unwrap();
-    assert_eq!(terminals.revision, 4);
-    assert!(terminals.terminals.is_empty());
+    assert_eq!(terminals.revision, 2);
+    assert_eq!(terminals.terminals.len(), 2);
     for id in [TERMINAL_ONE, TERMINAL_TWO] {
         assert_eq!(
             registry.terminal_record(id).unwrap().unwrap().lifecycle,
-            TerminalLifecycle::Tombstoned
+            TerminalLifecycle::Launching
         );
     }
-    let events = registry.terminal_events_after(2).unwrap();
-    assert_eq!(events.len(), 2);
-    assert!(events.iter().all(|event| event.result["reason"] == "workspace-closed"));
+    assert!(registry.terminal_events_after(2).unwrap().is_empty());
 }
 
 #[test]
@@ -2622,6 +2711,137 @@ fn schema_seven_migrates_latest_live_agent_and_tombstones_without_resurrection()
 }
 
 #[test]
+fn schema_eight_migrates_terminal_hosts_and_allows_multiple_durable_views() {
+    let root = temp_root("schema-eight-terminal-multiview");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "schema-eight-seed");
+    }
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             BEGIN IMMEDIATE;
+             DROP INDEX IF EXISTS live_resource_tab_position;
+             DROP INDEX IF EXISTS live_resource_browser_view;
+             CREATE TABLE resource_tabs_v8 (
+               public_id TEXT PRIMARY KEY NOT NULL REFERENCES resource_identities(public_id),
+               pane_id TEXT NOT NULL REFERENCES resource_panes(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               position INTEGER,
+               content_kind TEXT NOT NULL CHECK(content_kind IN ('terminal','browser')),
+               content_id TEXT NOT NULL REFERENCES resource_identities(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               name TEXT,
+               created_revision INTEGER NOT NULL,
+               updated_revision INTEGER NOT NULL,
+               deleted_revision INTEGER,
+               CHECK (
+                 (deleted_revision IS NULL AND position IS NOT NULL) OR
+                 (deleted_revision IS NOT NULL AND position IS NULL)
+               )
+             );
+             INSERT INTO resource_tabs_v8(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             )
+             SELECT public_id, pane_id, position, content_kind, content_id, name,
+                    created_revision, updated_revision, deleted_revision
+             FROM resource_tabs;
+             DROP TABLE resource_tabs;
+             ALTER TABLE resource_tabs_v8 RENAME TO resource_tabs;
+             CREATE UNIQUE INDEX live_resource_tab_position
+               ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+             ALTER TABLE terminal_hosts RENAME TO terminal_placements;
+             UPDATE meta SET value = '8' WHERE key = 'schema_version';
+             COMMIT;
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let second_tab = tab_id(2);
+    legacy
+        .execute(
+            "INSERT INTO resource_identities(
+               public_id, kind, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, 'tab', 1, 1, NULL)",
+            [second_tab.as_str()],
+        )
+        .unwrap();
+    legacy
+        .execute(
+            "INSERT INTO resource_tabs(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, 1, 'terminal', ?3, 'second view', 1, 1, NULL)",
+            params![second_tab.as_str(), pane_id(1).as_str(), terminal_id.as_str()],
+        )
+        .unwrap();
+    drop(legacy);
+
+    let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
+    for (table, expected) in [("terminal_hosts", 1_i64), ("terminal_placements", 0_i64)] {
+        let count = migrated
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                [table],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(count, expected, "unexpected table state for {table}");
+    }
+    let browser_view_indexes = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'index' AND name = 'live_resource_browser_view'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(browser_view_indexes, 1);
+    let workspace_foreign_keys = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_foreign_key_list('terminal_hosts')
+             WHERE \"table\" = 'workspaces' AND \"from\" = 'workspace_key'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(workspace_foreign_keys, 0);
+    drop(migrated);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let views = reopened
+        .resource_topology_snapshot()
+        .unwrap()
+        .tabs
+        .into_iter()
+        .filter(|tab| tab.content_id == ContentPublicId::Terminal(terminal_id.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(views.len(), 2);
+    assert_eq!(views[0].public_id, tab_id(1));
+    assert_eq!(views[1].public_id, second_tab);
+    assert!(
+        reopened
+            .connection
+            .query_row("PRAGMA foreign_key_check", [], |_| Ok(()))
+            .optional()
+            .unwrap()
+            .is_none()
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn schema_four_backfills_safe_browser_restart_metadata() {
     let root = temp_root("schema-four-browser");
     let browser = browser_id(1);
@@ -2700,7 +2920,7 @@ fn schema_one_migrates_transactionally_to_terminal_registry() {
             .execute_batch(
                 "DROP TABLE terminal_events;
                      DROP TABLE terminal_mutations;
-                     DROP TABLE terminal_placements;
+                     DROP TABLE terminal_hosts;
                      DELETE FROM meta WHERE key = 'terminal_revision';
                      UPDATE meta SET value = '1' WHERE key = 'schema_version';",
             )

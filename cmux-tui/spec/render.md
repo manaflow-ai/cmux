@@ -176,9 +176,21 @@ Resize reflow is owned by Ghostty. A resize may rewrap retained content, change 
 
 ## Sizing And Multi-Client Presentation
 
-Render mode uses the same single authoritative surface grid and smallest-client sizing rules as byte mode. See [`commands.md`](commands.md#sizing) for creation defaults, clamps, and the exact mutation rule.
+Render and byte modes observe one authoritative terminal grid. One explicit
+client/view pair owns geometry; other views crop, pan, or scale that grid. See
+[`commands.md`](commands.md#sizing) for creation defaults, clamps, geometry
+claims, and browser compatibility behavior.
 
-A frontend may include paired `cols` and `rows` in `attach-surface` only after `identify.capabilities` includes `attach-initial-size`. The pair records its initial visible-size claim before the server captures `render-state`. After attachment, it sends `resize-surface` only after an actual local cell-grid change. It sends `release-surface-size` when the surface becomes hidden, while retaining the attach stream if it wants a warm cache. The server independently takes the minimum reported columns and rows across visible viewers. Larger frontends render the smaller authoritative grid with unused surrounding space. A render-size event from another client does not invalidate the frontend's last local report, so input and passive rendering cannot cause a resize feedback loop.
+A frontend may include paired `cols` and `rows` in `attach-surface` only after
+`identify.capabilities` includes `attach-initial-size`. The pair records its
+initial viewport before the server captures `render-state`, but attachment
+does not claim geometry. After attachment, the frontend sends
+`resize-surface` after an actual local grid change. When that view should drive
+the PTY, it claims geometry with `set-client-sizing`; losing focus does not
+implicitly transfer ownership. It sends `release-surface-size` when the view
+becomes hidden, while retaining the stream for a warm cache. A resize event
+from the geometry owner does not change passive clients' reports or local
+viewport state.
 
 ## Input
 

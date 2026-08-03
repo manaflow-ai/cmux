@@ -66,7 +66,8 @@ pub use resource_store::{
 use resource_store::{
     apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,
     migrate_resource_agent_projections, migrate_resource_browser_metadata,
-    migrate_resource_mutations_to_session_scope, validate_resource_invariants,
+    migrate_resource_mutations_to_session_scope, migrate_resource_tabs_to_multiview,
+    validate_resource_invariants,
 };
 pub use session_journal::{
     JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
@@ -78,7 +79,12 @@ use session_journal::{
     migrate_resource_events_to_session_journal,
 };
 
-const SCHEMA_VERSION: i64 = 10;
+// Schema 9 shipped independently on the journal and multiview development
+// branches. Schema 10 shipped the journal extensions. Version 11 is the first
+// schema that requires both, and its migration probes the actual table/index
+// shape instead of assuming that a colliding development version identifies
+// one branch.
+const SCHEMA_VERSION: i64 = 11;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
@@ -458,6 +464,13 @@ impl WorkspaceRegistry {
             .map(str::parse::<i64>)
             .transpose()
             .context("workspace registry schema is invalid")?;
+        // Existing registries may carry the pre-multiview terminal-to-workspace
+        // foreign key even when a development build already stamped the
+        // current schema number. Revalidate and normalize every existing DB.
+        let migrate_existing_registry = stored_schema.is_some();
+        if migrate_existing_registry {
+            connection.execute_batch("PRAGMA foreign_keys=OFF;")?;
+        }
         let cleanup_pending =
             match meta_value(&connection, RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY)?.as_deref() {
                 None => false,
@@ -500,9 +513,13 @@ impl WorkspaceRegistry {
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
-            Some(9) => {
+            Some(9 | 10) => {
                 let tx = connection.unchecked_transaction()?;
-                create_journal_extensions_schema(&tx)?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
                 tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
                     [SCHEMA_VERSION.to_string()],
@@ -526,7 +543,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
-                migrate_resource_events_to_session_journal(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
@@ -551,7 +568,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
-                migrate_resource_events_to_session_journal(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -572,7 +589,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
-                migrate_resource_events_to_session_journal(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
@@ -588,7 +605,7 @@ impl WorkspaceRegistry {
                 create_resource_effect_schema(&tx)?;
                 ensure_session_public_id(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
-                migrate_resource_events_to_session_journal(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -601,7 +618,7 @@ impl WorkspaceRegistry {
                 migrate_resource_browser_metadata(&tx)?;
                 ensure_session_public_id(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
-                migrate_resource_events_to_session_journal(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -615,7 +632,7 @@ impl WorkspaceRegistry {
                 create_resource_effect_schema(&tx)?;
                 ensure_session_public_id(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
-                migrate_resource_events_to_session_journal(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -637,7 +654,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
-                migrate_resource_events_to_session_journal(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -673,6 +690,33 @@ impl WorkspaceRegistry {
                 )?;
                 ensure_session_public_id(&tx)?;
                 tx.commit()?;
+            }
+        }
+        if terminal_hosts_has_workspace_foreign_key(&connection)? {
+            let tx = connection.unchecked_transaction()?;
+            migrate_terminal_hosts_to_session_ownership(&tx)?;
+            tx.commit()?;
+        }
+        if migrate_existing_registry {
+            connection.execute_batch("PRAGMA foreign_keys=ON;")?;
+            let violation = connection
+                .query_row(
+                    "SELECT \"table\", rowid, parent, fkid
+                     FROM pragma_foreign_key_check
+                     LIMIT 1",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<i64>>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            if violation.is_some() {
+                anyhow::bail!("workspace registry migration failed integrity validation");
             }
         }
         if needs_sensitive_receipt_cleanup {
@@ -711,6 +755,7 @@ impl WorkspaceRegistry {
         }
         {
             let tx = connection.unchecked_transaction()?;
+            initialize_compatibility_active_workspace(&tx)?;
             validate_resource_invariants(&tx)?;
             tx.commit()?;
         }
@@ -876,7 +921,7 @@ impl WorkspaceRegistry {
         let mut statement = self.connection.prepare(
             "SELECT terminal_id, workspace_key, incarnation, lifecycle,
                     launch_spec_json, exit_json
-             FROM terminal_placements
+             FROM terminal_hosts
              WHERE lifecycle != 'tombstoned'
              ORDER BY created_revision ASC, terminal_id ASC",
         )?;
@@ -985,7 +1030,9 @@ impl WorkspaceRegistry {
             });
         }
         validate_terminal_transition(existing.as_ref(), terminal)?;
-        if terminal.lifecycle != TerminalLifecycle::Tombstoned {
+        if terminal.lifecycle != TerminalLifecycle::Tombstoned
+            && existing.as_ref().is_none_or(|stored| stored.workspace_key != terminal.workspace_key)
+        {
             require_live_workspace(&tx, &terminal.workspace_key)?;
         }
 
@@ -995,7 +1042,7 @@ impl WorkspaceRegistry {
         let sqlite_revision =
             i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
         tx.execute(
-            "INSERT INTO terminal_placements(
+            "INSERT INTO terminal_hosts(
                terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
                exit_json, created_revision, updated_revision, deleted_revision
              ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)
@@ -1139,7 +1186,7 @@ impl WorkspaceRegistry {
         });
         let result_json = canonical_json(&result)?;
         tx.execute(
-            "UPDATE terminal_placements
+            "UPDATE terminal_hosts
              SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
              WHERE terminal_id = ?2",
             params![sqlite_revision, terminal_id],
@@ -1192,7 +1239,7 @@ impl WorkspaceRegistry {
         if enabled {
             self.connection.execute_batch(
                 "CREATE TEMP TRIGGER cmux_test_fail_terminal_close
-                 BEFORE UPDATE OF lifecycle ON terminal_placements
+                 BEFORE UPDATE OF lifecycle ON terminal_hosts
                  BEGIN SELECT RAISE(ABORT, 'forced terminal close failure'); END;",
             )?;
         } else {
@@ -1790,6 +1837,42 @@ fn migrate_resource_effect_pepper(
     Ok(())
 }
 
+/// Converge the two development schemas which independently used version 9.
+///
+/// The pre-multiview table has a table-level UNIQUE constraint on
+/// `resource_tabs.content_id`; SQLite exposes that constraint as an index with
+/// origin `u`. The multiview browser-only partial index has origin `c`, so the
+/// distinction survives formatting and index names.
+fn normalize_journal_multiview_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let legacy_content_identity = {
+        let mut indexes = transaction.prepare("PRAGMA index_list(resource_tabs)")?;
+        let indexes = indexes
+            .query_map([], |row| Ok((row.get::<_, String>(1)?, row.get::<_, String>(3)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut found = false;
+        for (name, origin) in indexes {
+            if origin != "u" {
+                continue;
+            }
+            let mut columns = transaction.prepare("SELECT name FROM pragma_index_info(?1)")?;
+            let columns = columns
+                .query_map([name], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            if columns == ["content_id"] {
+                found = true;
+                break;
+            }
+        }
+        found
+    };
+    if legacy_content_identity {
+        migrate_resource_tabs_to_multiview(transaction)?;
+    }
+    migrate_resource_events_to_session_journal(transaction)?;
+    create_journal_extensions_schema(transaction)?;
+    Ok(())
+}
+
 fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
     let (busy, _, _): (i64, i64, i64) =
         connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
@@ -1851,11 +1934,33 @@ fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> 
 }
 
 fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let legacy_exists: bool = transaction.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM sqlite_master
+           WHERE type = 'table' AND name = 'terminal_placements'
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    let hosts_exist: bool = transaction.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM sqlite_master
+           WHERE type = 'table' AND name = 'terminal_hosts'
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    anyhow::ensure!(
+        !(legacy_exists && hosts_exist),
+        "workspace registry contains both legacy terminal placements and terminal hosts"
+    );
+    if legacy_exists {
+        transaction.execute_batch("ALTER TABLE terminal_placements RENAME TO terminal_hosts;")?;
+    }
     transaction.execute_batch(
-        "CREATE TABLE IF NOT EXISTS terminal_placements (
+        "CREATE TABLE IF NOT EXISTS terminal_hosts (
            terminal_id TEXT PRIMARY KEY NOT NULL,
-           workspace_key TEXT NOT NULL REFERENCES workspaces(workspace_key)
-             DEFERRABLE INITIALLY DEFERRED,
+           workspace_key TEXT NOT NULL,
            incarnation TEXT,
            lifecycle TEXT NOT NULL CHECK(
              lifecycle IN ('launching','adopting','running','exited','tombstoned')
@@ -1867,9 +1972,9 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
            deleted_revision INTEGER
          );
          CREATE UNIQUE INDEX IF NOT EXISTS terminal_incarnation
-           ON terminal_placements(incarnation) WHERE incarnation IS NOT NULL;
+           ON terminal_hosts(incarnation) WHERE incarnation IS NOT NULL;
          CREATE INDEX IF NOT EXISTS live_terminals_by_workspace
-           ON terminal_placements(workspace_key, updated_revision)
+           ON terminal_hosts(workspace_key, updated_revision)
            WHERE lifecycle != 'tombstoned';
          CREATE TABLE IF NOT EXISTS terminal_mutations (
            origin TEXT NOT NULL,
@@ -1890,6 +1995,59 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
          );
          CREATE INDEX IF NOT EXISTS terminal_events_by_terminal
            ON terminal_events(terminal_id, revision);",
+    )?;
+    Ok(())
+}
+
+fn terminal_hosts_has_workspace_foreign_key(connection: &Connection) -> anyhow::Result<bool> {
+    let mut statement = connection.prepare("PRAGMA foreign_key_list(terminal_hosts)")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let table = row.get::<_, String>(2)?;
+        let from = row.get::<_, String>(3)?;
+        if table == "workspaces" && from == "workspace_key" {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Remove the legacy ownership edge from terminals to workspaces. The
+/// workspace key remains useful placement history, but terminal lifetime is
+/// session-owned and therefore survives removal of every view.
+fn migrate_terminal_hosts_to_session_ownership(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "DROP INDEX IF EXISTS terminal_incarnation;
+         DROP INDEX IF EXISTS live_terminals_by_workspace;
+         CREATE TABLE terminal_hosts_session_owned (
+           terminal_id TEXT PRIMARY KEY NOT NULL,
+           workspace_key TEXT NOT NULL,
+           incarnation TEXT,
+           lifecycle TEXT NOT NULL CHECK(
+             lifecycle IN ('launching','adopting','running','exited','tombstoned')
+           ),
+           launch_spec_json TEXT NOT NULL,
+           exit_json TEXT,
+           created_revision INTEGER NOT NULL,
+           updated_revision INTEGER NOT NULL,
+           deleted_revision INTEGER
+         );
+         INSERT INTO terminal_hosts_session_owned(
+           terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
+           exit_json, created_revision, updated_revision, deleted_revision
+         )
+         SELECT terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
+                exit_json, created_revision, updated_revision, deleted_revision
+         FROM terminal_hosts;
+         DROP TABLE terminal_hosts;
+         ALTER TABLE terminal_hosts_session_owned RENAME TO terminal_hosts;
+         CREATE UNIQUE INDEX terminal_incarnation
+           ON terminal_hosts(incarnation) WHERE incarnation IS NOT NULL;
+         CREATE INDEX live_terminals_by_workspace
+           ON terminal_hosts(workspace_key, updated_revision)
+           WHERE lifecycle != 'tombstoned';",
     )?;
     Ok(())
 }
@@ -1960,6 +2118,37 @@ fn backfill_workspace_public_ids(transaction: &Transaction<'_>) -> anyhow::Resul
                 updated_revision,
                 deleted_revision
             ],
+        )?;
+    }
+    Ok(())
+}
+
+/// Seed the shared compatibility default after legacy workspace backfill.
+///
+/// Frontends keep their actual focus in client-local state. The registry still
+/// exposes one default for legacy commands and initial placement, and older
+/// registries can have live public workspaces without that metadata. Preserve
+/// any stored value so invariant validation still rejects dangling selections.
+fn initialize_compatibility_active_workspace(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    if meta_value(transaction, "active_workspace_id")?.is_some() {
+        return Ok(());
+    }
+    let active_workspace = transaction
+        .query_row(
+            "SELECT rw.public_id
+             FROM workspaces w
+             JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
+             WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
+             ORDER BY w.position ASC, w.workspace_key ASC
+             LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(active_workspace) = active_workspace {
+        transaction.execute(
+            "INSERT INTO meta(key, value) VALUES('active_workspace_id', ?1)",
+            [active_workspace],
         )?;
     }
     Ok(())
@@ -2196,7 +2385,7 @@ fn close_terminals_in_transaction(
             "reason": reason,
         }))?;
         transaction.execute(
-            "UPDATE terminal_placements
+            "UPDATE terminal_hosts
              SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
              WHERE terminal_id = ?2 AND lifecycle != 'tombstoned'",
             params![sqlite_revision, terminal.terminal_id],
@@ -2265,8 +2454,12 @@ fn commit_workspace_registry_in_transaction(
         );
     }
 
+    // Terminals are session-owned. Their workspace_key records their latest
+    // canonical placement but is intentionally allowed to outlive that
+    // workspace, so closing a workspace removes views without terminating the
+    // underlying terminal.
     let terminal_batch =
-        tombstone_terminals_in_removed_workspaces(transaction, workspaces, mutation)?;
+        TerminalBatchClose { revision: transaction_terminal_revision(transaction)?, closed: 0 };
     transaction.execute(
         "UPDATE workspaces SET tombstoned = 1, position = NULL,
          updated_revision = ?1, deleted_revision = ?1
@@ -2321,85 +2514,6 @@ fn commit_workspace_registry_in_transaction(
         ],
     )?;
     Ok((revision, terminal_batch))
-}
-
-fn tombstone_terminals_in_removed_workspaces(
-    transaction: &Transaction<'_>,
-    remaining_workspaces: &[RegistryWorkspace],
-    mutation: &WorkspaceMutation,
-) -> anyhow::Result<TerminalBatchClose> {
-    let remaining =
-        remaining_workspaces.iter().map(|workspace| workspace.key.as_str()).collect::<HashSet<_>>();
-    let terminals = {
-        let mut statement = transaction.prepare(
-            "SELECT terminal_id, workspace_key, incarnation
-             FROM terminal_placements
-             WHERE lifecycle != 'tombstoned'
-             ORDER BY created_revision ASC, terminal_id ASC",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-    };
-    let removed = terminals
-        .into_iter()
-        .filter(|(_, workspace_key, _)| !remaining.contains(workspace_key.as_str()))
-        .collect::<Vec<_>>();
-    if removed.is_empty() {
-        return Ok(TerminalBatchClose {
-            revision: transaction_terminal_revision(transaction)?,
-            closed: 0,
-        });
-    }
-
-    let mut revision = transaction_terminal_revision(transaction)?;
-    let mut closed = 0usize;
-    for (terminal_id, workspace_key, incarnation) in removed {
-        revision = revision
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("terminal revision exhausted"))?;
-        let sqlite_revision =
-            i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
-        let result = serde_json::json!({
-            "terminal_id": terminal_id,
-            "workspace_key": workspace_key,
-            "incarnation": incarnation,
-            "closed": true,
-            "reason": "workspace-closed",
-        });
-        let result_json = canonical_json(&result)?;
-        transaction.execute(
-            "UPDATE terminal_placements
-             SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
-             WHERE terminal_id = ?2 AND lifecycle != 'tombstoned'",
-            params![sqlite_revision, terminal_id],
-        )?;
-        transaction.execute(
-            "INSERT INTO terminal_events(
-               revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
-             ) VALUES(?1, 'terminal-closed', ?2, ?3, ?4, ?5, ?6)",
-            params![
-                sqlite_revision,
-                terminal_id,
-                workspace_key,
-                mutation.origin,
-                mutation.id,
-                result_json,
-            ],
-        )?;
-        closed += 1;
-    }
-    transaction.execute(
-        "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
-        [revision.to_string()],
-    )?;
-    Ok(TerminalBatchClose { revision, closed })
 }
 
 fn validate_registry(workspaces: &[RegistryWorkspace]) -> anyhow::Result<()> {
@@ -2543,7 +2657,7 @@ fn read_terminal(
         .query_row(
             "SELECT terminal_id, workspace_key, incarnation, lifecycle,
                     launch_spec_json, exit_json
-             FROM terminal_placements WHERE terminal_id = ?1",
+             FROM terminal_hosts WHERE terminal_id = ?1",
             [terminal_id],
             |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))

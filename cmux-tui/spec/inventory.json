@@ -109,6 +109,7 @@
     "terminal.list",
     "terminal.move",
     "terminal.process.get",
+    "terminal.project",
     "terminal.renderer_grant.create",
     "terminal.screen.read",
     "terminal.state.read",

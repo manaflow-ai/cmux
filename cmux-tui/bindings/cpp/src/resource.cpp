@@ -160,6 +160,7 @@ struct OperationInfo {
     X(terminal_viewer_release, "terminal.viewer.release", connection_control)         \
     X(terminal_viewport_scroll, "terminal.viewport.scroll", mutation)                 \
     X(terminal_move, "terminal.move", mutation)                                       \
+    X(terminal_project, "terminal.project", mutation)                                 \
     X(terminal_attach, "terminal.attach", stream_open)                                \
     X(terminal_close, "terminal.close", mutation)                                     \
     X(browser_list, "browser.list", read)                                             \
@@ -2670,6 +2671,25 @@ Result<MutationResult<TerminalSnapshot>> Terminal::move(
             {"destination_pane", Json(destination.pane.wire())},
             {"index", Json(static_cast<std::uint64_t>(destination.index))},
         },
+        std::move(options));
+}
+
+Result<MutationResult<TabSnapshot>> Terminal::project(
+    PaneDestination destination,
+    std::optional<std::string> name,
+    MutationOptions options) const {
+    Json::Object params{
+        {"destination_workspace", Json(destination.workspace.wire())},
+        {"destination_screen", Json(destination.screen.wire())},
+        {"destination_pane", Json(destination.pane.wire())},
+        {"index", Json(static_cast<std::uint64_t>(destination.index))},
+    };
+    if (name.has_value()) {
+        params.emplace("name", Json(std::move(name).value()));
+    }
+    return mutate(
+        Operation::terminal_project,
+        std::move(params),
         std::move(options));
 }
 

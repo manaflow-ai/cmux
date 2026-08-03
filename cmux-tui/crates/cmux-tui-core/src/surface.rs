@@ -6,12 +6,14 @@
 //! VT operations.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::ops::Deref;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{
     Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
 };
@@ -22,14 +24,14 @@ use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtySize};
 use ghostty_vt::{
     Callbacks, ClearHistoryOutcome, CursorShape, Dirty, KeyEncoder, KeyInput, KittyGraphicsLimits,
     KittyReplayState, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Screen, Scrollbar,
-    Terminal, TerminalColorOverrides, TerminalPointerSemanticSnapshot,
+    Terminal, TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint,
 };
 
 use crate::mux::ResourceWaitWake;
 use crate::platform;
-use crate::resource::TabResourceIdentity;
+use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
 use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status};
-use crate::{Mux, MuxEvent, SurfaceId};
+use crate::{Mux, SurfaceId};
 
 pub use crate::browser::{
     BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserFrameUpdate, BrowserSource,
@@ -462,42 +464,112 @@ const _: () = assert!(
 const _: () = assert!(VT_REPLAY_MAX_BYTES.div_ceil(3) * 4 < VT_REPLAY_ENCODED_TRANSPORT_MAX_BYTES);
 
 pub struct AttachFrameReceiver {
-    receiver: Receiver<AttachFrame>,
-    queued_bytes: Arc<AtomicUsize>,
+    state: Arc<AttachTapState>,
     lifecycle: AttachLifecycle,
 }
 
 impl AttachFrameReceiver {
-    fn account_received(&self, frame: &AttachFrame) {
-        self.queued_bytes.fetch_sub(frame.retained_bytes(), Ordering::AcqRel);
+    fn pop(queue: &mut AttachTapQueue) -> Option<AttachFrame> {
+        let frame = queue.frames.pop_front()?;
+        queue.retained_bytes = queue.retained_bytes.saturating_sub(frame.retained_bytes());
+        Some(frame)
     }
 
     pub fn recv(&self) -> Result<AttachFrame, RecvError> {
-        let frame = self.receiver.recv()?;
-        self.account_received(&frame);
-        Ok(frame)
+        let mut queue = self.state.queue.lock().unwrap();
+        loop {
+            if let Some(frame) = Self::pop(&mut queue) {
+                return Ok(frame);
+            }
+            if !queue.sender_alive {
+                return Err(RecvError);
+            }
+            queue = self.state.ready.wait(queue).unwrap();
+        }
     }
 
     pub fn recv_timeout(&self, timeout: Duration) -> Result<AttachFrame, RecvTimeoutError> {
-        let frame = self.receiver.recv_timeout(timeout)?;
-        self.account_received(&frame);
-        Ok(frame)
+        let started = Instant::now();
+        let mut queue = self.state.queue.lock().unwrap();
+        loop {
+            if let Some(frame) = Self::pop(&mut queue) {
+                return Ok(frame);
+            }
+            if !queue.sender_alive {
+                return Err(RecvTimeoutError::Disconnected);
+            }
+            let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
+                return Err(RecvTimeoutError::Timeout);
+            };
+            let (next, result) = self.state.ready.wait_timeout(queue, remaining).unwrap();
+            queue = next;
+            if result.timed_out() && queue.frames.is_empty() {
+                return Err(RecvTimeoutError::Timeout);
+            }
+        }
     }
 
     pub fn try_recv(&self) -> Result<AttachFrame, TryRecvError> {
-        let frame = self.receiver.try_recv()?;
-        self.account_received(&frame);
-        Ok(frame)
+        let mut queue = self.state.queue.lock().unwrap();
+        if let Some(frame) = Self::pop(&mut queue) {
+            Ok(frame)
+        } else if queue.sender_alive {
+            Err(TryRecvError::Empty)
+        } else {
+            Err(TryRecvError::Disconnected)
+        }
     }
 }
 
 impl Drop for AttachFrameReceiver {
     fn drop(&mut self) {
+        let mut queue = self.state.queue.lock().unwrap();
+        queue.receiver_alive = false;
+        queue.frames.clear();
+        queue.retained_bytes = 0;
+        drop(queue);
         self.lifecycle.cancel();
+        self.state.ready.notify_all();
     }
 }
 
 impl AttachFrame {
+    fn merge_adjacent_output(
+        &mut self,
+        next: AttachFrame,
+        max_retained_bytes: usize,
+    ) -> AttachFrameMerge {
+        let mut next = match next {
+            AttachFrame::Output(next) => next,
+            other => return AttachFrameMerge::Unmerged(other),
+        };
+        let AttachFrame::Output(pending) = self else {
+            return AttachFrameMerge::Unmerged(AttachFrame::Output(next));
+        };
+        let Some(max_capacity) = max_retained_bytes.checked_sub(size_of::<Self>()) else {
+            return AttachFrameMerge::Overflow;
+        };
+        let Some(required) = pending.len().checked_add(next.len()) else {
+            return AttachFrameMerge::Overflow;
+        };
+        if required > max_capacity {
+            return AttachFrameMerge::Overflow;
+        }
+        if required > pending.capacity() {
+            let desired = pending.capacity().saturating_mul(2).max(required).min(max_capacity);
+            let mut merged = Vec::new();
+            if merged.try_reserve_exact(desired).is_err() || merged.capacity() > max_capacity {
+                return AttachFrameMerge::Overflow;
+            }
+            merged.extend_from_slice(pending);
+            merged.append(&mut next);
+            *pending = merged;
+        } else {
+            pending.append(&mut next);
+        }
+        AttachFrameMerge::Merged
+    }
+
     fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + match self {
@@ -517,6 +589,12 @@ impl AttachFrame {
                 Self::ColorsChanged(_) => size_of::<TerminalColors>(),
             }
     }
+}
+
+enum AttachFrameMerge {
+    Merged,
+    Unmerged(AttachFrame),
+    Overflow,
 }
 
 #[derive(Clone, Default)]
@@ -560,41 +638,104 @@ impl AttachLifecycle {
 }
 
 struct AttachTap {
-    sender: SyncSender<AttachFrame>,
+    state: Arc<AttachTapState>,
     lifecycle: AttachLifecycle,
-    queued_bytes: Arc<AtomicUsize>,
-    max_queued_bytes: usize,
+}
+
+struct AttachTapState {
+    queue: Mutex<AttachTapQueue>,
+    ready: Condvar,
+}
+
+struct AttachTapQueue {
+    frames: VecDeque<AttachFrame>,
+    retained_bytes: usize,
+    max_frames: usize,
+    max_retained_bytes: usize,
+    sender_alive: bool,
+    receiver_alive: bool,
 }
 
 impl AttachTap {
-    fn try_send(&self, frame: AttachFrame) -> bool {
+    fn pair(
+        lifecycle: AttachLifecycle,
+        max_frames: usize,
+        max_retained_bytes: usize,
+    ) -> (Self, AttachFrameReceiver) {
+        let state = Arc::new(AttachTapState {
+            queue: Mutex::new(AttachTapQueue {
+                frames: VecDeque::new(),
+                retained_bytes: 0,
+                max_frames,
+                max_retained_bytes,
+                sender_alive: true,
+                receiver_alive: true,
+            }),
+            ready: Condvar::new(),
+        });
+        (
+            Self { state: state.clone(), lifecycle: lifecycle.clone() },
+            AttachFrameReceiver { state, lifecycle },
+        )
+    }
+
+    fn try_send(&self, mut frame: AttachFrame) -> bool {
         if self.lifecycle.is_canceled() {
             return false;
         }
+        let mut queue = self.state.queue.lock().unwrap();
+        if !queue.receiver_alive {
+            self.lifecycle.cancel();
+            return false;
+        }
+        let queue_retained_bytes = queue.retained_bytes;
+        let queue_max_retained_bytes = queue.max_retained_bytes;
+        if let Some(pending) = queue.frames.back_mut() {
+            let previous_bytes = pending.retained_bytes();
+            let max_frame_bytes = queue_max_retained_bytes
+                .saturating_sub(queue_retained_bytes.saturating_sub(previous_bytes));
+            match pending.merge_adjacent_output(frame, max_frame_bytes) {
+                AttachFrameMerge::Merged => {
+                    let merged_bytes = pending.retained_bytes();
+                    queue.retained_bytes = queue
+                        .retained_bytes
+                        .saturating_sub(previous_bytes)
+                        .saturating_add(merged_bytes);
+                    drop(queue);
+                    self.state.ready.notify_one();
+                    return true;
+                }
+                AttachFrameMerge::Unmerged(unmerged) => frame = unmerged,
+                AttachFrameMerge::Overflow => {
+                    drop(queue);
+                    self.lifecycle.mark_overflow();
+                    return false;
+                }
+            }
+        }
         let frame_bytes = frame.retained_bytes();
-        if self
-            .queued_bytes
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |queued| {
-                queued.checked_add(frame_bytes).filter(|next| *next <= self.max_queued_bytes)
-            })
-            .is_err()
-        {
+        if frame_bytes > queue.max_retained_bytes.saturating_sub(queue.retained_bytes) {
+            drop(queue);
             self.lifecycle.mark_overflow();
             return false;
         }
-        match self.sender.try_send(frame) {
-            Ok(()) => true,
-            Err(TrySendError::Full(_)) => {
-                self.queued_bytes.fetch_sub(frame_bytes, Ordering::AcqRel);
-                self.lifecycle.mark_overflow();
-                false
-            }
-            Err(TrySendError::Disconnected(_)) => {
-                self.queued_bytes.fetch_sub(frame_bytes, Ordering::AcqRel);
-                self.lifecycle.cancel();
-                false
-            }
+        if queue.frames.len() >= queue.max_frames {
+            drop(queue);
+            self.lifecycle.mark_overflow();
+            return false;
         }
+        queue.retained_bytes = queue.retained_bytes.saturating_add(frame_bytes);
+        queue.frames.push_back(frame);
+        drop(queue);
+        self.state.ready.notify_one();
+        true
+    }
+}
+
+impl Drop for AttachTap {
+    fn drop(&mut self) {
+        self.state.queue.lock().unwrap().sender_alive = false;
+        self.state.ready.notify_all();
     }
 }
 
@@ -1014,6 +1155,51 @@ type DeferredCellPixelAckTestHook = Arc<dyn Fn() + Send + Sync>;
 
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
+    terminal: Arc<PtyTerminalRuntime>,
+    viewport: Mutex<TerminalViewportState>,
+}
+
+#[derive(Default)]
+struct TerminalViewportState {
+    primary: Option<TrackedScreenPoint>,
+    alternate: Option<TrackedScreenPoint>,
+}
+
+impl TerminalViewportState {
+    fn anchor(&self, screen: Screen) -> Option<&TrackedScreenPoint> {
+        match screen {
+            Screen::Primary => self.primary.as_ref(),
+            Screen::Alternate => self.alternate.as_ref(),
+        }
+    }
+
+    fn anchor_mut(&mut self, screen: Screen) -> &mut Option<TrackedScreenPoint> {
+        match screen {
+            Screen::Primary => &mut self.primary,
+            Screen::Alternate => &mut self.alternate,
+        }
+    }
+}
+
+impl Deref for PtySurface {
+    type Target = PtyTerminalRuntime;
+
+    fn deref(&self) -> &Self::Target {
+        &self.terminal
+    }
+}
+
+/// Content runtime shared by every view placement of one terminal.
+///
+/// A [`PtySurface`] is a lightweight placement carrying tab-local metadata.
+/// This object owns the process, terminal emulator, ordered input/output, and
+/// canonical geometry. Keeping the two identities distinct makes a terminal
+/// projectable into any number of panes without cloning its PTY or VT state.
+pub struct PtyTerminalRuntime {
+    event_surface_id: SurfaceId,
+    /// Stable public content identity. This belongs to the terminal runtime,
+    /// while `SurfaceMeta::resource_identity` belongs to one view placement.
+    terminal_public_id: Option<TerminalPublicId>,
     term: Mutex<Box<Terminal>>,
     stream_progress: Box<TerminalStreamProgress>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
@@ -1086,6 +1272,15 @@ enum PtyRuntime {
     Hosted(Box<crate::terminal_host_runtime::HostAttachment>),
     #[cfg(unix)]
     ExitedHosted,
+}
+
+#[cfg(unix)]
+struct HostedSurfaceLaunch {
+    attachment: crate::terminal_host_runtime::HostAttachment,
+    kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
+    terminate_on_error: bool,
+    terminal_public_id: Option<TerminalPublicId>,
+    resource_identity: Option<TabResourceIdentity>,
 }
 
 pub const CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR: &str =
@@ -1533,7 +1728,7 @@ fn hosted_terminal_callbacks(
         })),
         on_bell: Some(Box::new(move || {
             if let Some(mux) = mux.upgrade() {
-                mux.emit(MuxEvent::Bell(id));
+                mux.emit_terminal_bell(id);
             }
         })),
     }
@@ -1586,6 +1781,62 @@ impl Surface {
         match self {
             Self::Pty(surface) => surface.meta.resource_identity.as_ref(),
             Self::Browser(surface) => surface.meta.resource_identity.as_ref(),
+        }
+    }
+
+    pub fn terminal_public_id(&self) -> Option<&TerminalPublicId> {
+        match self {
+            Self::Pty(surface) => surface.terminal_public_id.as_ref(),
+            Self::Browser(_) => None,
+        }
+    }
+
+    /// Create another view placement for this terminal without creating a
+    /// second process or terminal emulator.
+    pub(crate) fn project_terminal(
+        &self,
+        id: SurfaceId,
+        resource_identity: TabResourceIdentity,
+    ) -> anyhow::Result<Arc<Surface>> {
+        anyhow::ensure!(
+            matches!(resource_identity.content_id, ContentPublicId::Terminal(_)),
+            "terminal placement requires a terminal content identity"
+        );
+        let ContentPublicId::Terminal(projected_id) = &resource_identity.content_id else {
+            unreachable!("validated terminal content identity")
+        };
+        anyhow::ensure!(
+            self.terminal_public_id() == Some(projected_id),
+            "terminal placement cannot change content identity"
+        );
+        let Surface::Pty(surface) = self else {
+            anyhow::bail!("browser content cannot be projected as a terminal");
+        };
+        Ok(Arc::new(Surface::Pty(PtySurface {
+            meta: SurfaceMeta {
+                id,
+                resource_identity: Some(resource_identity),
+                name: Mutex::new(None),
+                selection: Mutex::new(None),
+            },
+            terminal: surface.terminal.clone(),
+            viewport: Mutex::new(TerminalViewportState::default()),
+        })))
+    }
+
+    pub(crate) fn shares_terminal_runtime(&self, other: &Surface) -> bool {
+        match (self, other) {
+            (Surface::Pty(left), Surface::Pty(right)) => {
+                Arc::ptr_eq(&left.terminal, &right.terminal)
+            }
+            _ => false,
+        }
+    }
+
+    pub(crate) fn terminal_runtime_id(&self) -> Option<SurfaceId> {
+        match self {
+            Surface::Pty(surface) => Some(surface.event_surface_id),
+            Surface::Browser(_) => None,
         }
     }
 
@@ -1690,9 +1941,15 @@ impl Surface {
         resource_identity: Option<TabResourceIdentity>,
         cell_pixels: (u16, u16),
     ) -> anyhow::Result<Arc<Surface>> {
-        if resource_identity.as_ref().is_some_and(|identity| {
-            matches!(identity.content_id, crate::resource::ContentPublicId::Browser(_))
-        }) {
+        let terminal_public_id =
+            resource_identity.as_ref().and_then(|identity| match &identity.content_id {
+                ContentPublicId::Terminal(terminal_id) => Some(terminal_id.clone()),
+                ContentPublicId::Browser(_) => None,
+            });
+        if resource_identity
+            .as_ref()
+            .is_some_and(|identity| matches!(identity.content_id, ContentPublicId::Browser(_)))
+        {
             anyhow::bail!("terminal surface cannot use a browser resource identity");
         }
         let kitty_reservation =
@@ -1727,10 +1984,13 @@ impl Surface {
                 id,
                 opts,
                 mux,
-                attachment,
-                kitty_reservation,
-                true,
-                resource_identity,
+                HostedSurfaceLaunch {
+                    attachment,
+                    kitty_reservation,
+                    terminate_on_error: true,
+                    terminal_public_id,
+                    resource_identity,
+                },
             );
         }
         let _ = terminal_id;
@@ -1791,7 +2051,7 @@ impl Surface {
                 let mux = mux.clone();
                 move || {
                     if let Some(mux) = mux.upgrade() {
-                        mux.emit(MuxEvent::Bell(id));
+                        mux.emit_terminal_bell(id);
                     }
                 }
             })),
@@ -1819,54 +2079,59 @@ impl Surface {
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
-            term: Mutex::new(Box::new(term)),
-            stream_progress: Box::new(TerminalStreamProgress::default()),
-            mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
-            runtime: Mutex::new(PtyRuntime::Local { writer, master, killer }),
-            supports_clear_history_key_fallback: AtomicBool::new(
-                supports_clear_history_key_fallback,
-            ),
-            host_identity: None,
-            #[cfg(unix)]
-            host_exit_record_path: None,
-            pid,
-            command: argv,
-            cwd,
-            exit: Mutex::new(None),
-            local_pty_drained: AtomicBool::new(false),
-            exit_notified: AtomicBool::new(false),
-            dead: AtomicBool::new(false),
-            owner_detaching: AtomicBool::new(false),
-            host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
-            dirty: AtomicBool::new(false),
-            title: Mutex::new(String::new()),
-            pwd: Mutex::new(None),
-            geometry: Mutex::new(initial_geometry),
-            kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
-            #[cfg(test)]
-            geometry_test_hook: Mutex::new(None),
-            #[cfg(test)]
-            deferred_cell_pixel_ack_test_hook: Mutex::new(None),
-            #[cfg(test)]
-            test_master_control: None,
-            #[cfg(test)]
-            vt_replay_builds: AtomicUsize::new(0),
-            mux: mux.clone(),
-            taps: Mutex::new(Vec::new()),
-            attach_colors_pending: AtomicBool::new(false),
-            attach_colors_force_pending: AtomicBool::new(false),
-            last_attach_colors: Mutex::new(None),
-            render: Arc::new(Mutex::new(RenderHub {
-                state: Box::new(render_state),
-                built_generation: 0,
-                latest: None,
-                initial_graphics: None,
-                taps: Vec::new(),
-            })),
-            render_generation: AtomicU64::new(1),
-            frame_requests,
-            #[cfg(test)]
-            frame_producer_before_upgrade,
+            terminal: Arc::new(PtyTerminalRuntime {
+                event_surface_id: id,
+                terminal_public_id,
+                term: Mutex::new(Box::new(term)),
+                stream_progress: Box::new(TerminalStreamProgress::default()),
+                mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
+                runtime: Mutex::new(PtyRuntime::Local { writer, master, killer }),
+                supports_clear_history_key_fallback: AtomicBool::new(
+                    supports_clear_history_key_fallback,
+                ),
+                host_identity: None,
+                #[cfg(unix)]
+                host_exit_record_path: None,
+                pid,
+                command: argv,
+                cwd,
+                exit: Mutex::new(None),
+                local_pty_drained: AtomicBool::new(false),
+                exit_notified: AtomicBool::new(false),
+                dead: AtomicBool::new(false),
+                owner_detaching: AtomicBool::new(false),
+                host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                dirty: AtomicBool::new(false),
+                title: Mutex::new(String::new()),
+                pwd: Mutex::new(None),
+                geometry: Mutex::new(initial_geometry),
+                kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
+                #[cfg(test)]
+                geometry_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                test_master_control: None,
+                #[cfg(test)]
+                vt_replay_builds: AtomicUsize::new(0),
+                mux: mux.clone(),
+                taps: Mutex::new(Vec::new()),
+                attach_colors_pending: AtomicBool::new(false),
+                attach_colors_force_pending: AtomicBool::new(false),
+                last_attach_colors: Mutex::new(None),
+                render: Arc::new(Mutex::new(RenderHub {
+                    state: Box::new(render_state),
+                    built_generation: 0,
+                    latest: None,
+                    initial_graphics: None,
+                    taps: Vec::new(),
+                })),
+                render_generation: AtomicU64::new(1),
+                frame_requests,
+                #[cfg(test)]
+                frame_producer_before_upgrade,
+            }),
+            viewport: Mutex::new(TerminalViewportState::default()),
         }));
 
         if let Some(reservation) = kitty_reservation
@@ -1929,10 +2194,7 @@ impl Surface {
                             let title = term.title().unwrap_or_default();
                             *pty.title.lock().unwrap() = title.clone();
                             if let Some(mux) = mux.upgrade() {
-                                mux.emit(MuxEvent::TitleChanged {
-                                    surface: surface.id,
-                                    title: title.into(),
-                                });
+                                mux.emit_terminal_title(surface.id, title.into());
                             }
                         }
                         if let Some(pwd) = term.pwd() {
@@ -1949,11 +2211,7 @@ impl Surface {
                     if let Some((offset, at_bottom)) = scroll_changed
                         && let Some(mux) = mux.upgrade()
                     {
-                        mux.emit(MuxEvent::ScrollChanged {
-                            surface: surface.id,
-                            offset,
-                            at_bottom,
-                        });
+                        mux.emit_terminal_scroll(surface.id, offset, at_bottom);
                     }
                     let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
                     if !responses.is_empty() {
@@ -2090,7 +2348,7 @@ impl Surface {
             Ok(changed) => {
                 if let Some(mux) = pty.mux.upgrade() {
                     if changed {
-                        mux.emit(MuxEvent::SurfaceOutput(self.id));
+                        mux.emit_terminal_output(pty.event_surface_id);
                     }
                     mux.reconcile_deferred_cell_pixel_ack(self.id, expected);
                 }
@@ -2108,11 +2366,24 @@ impl Surface {
         id: SurfaceId,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
-        mut attachment: crate::terminal_host_runtime::HostAttachment,
-        kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
-        terminate_on_error: bool,
-        resource_identity: Option<TabResourceIdentity>,
+        launch: HostedSurfaceLaunch,
     ) -> anyhow::Result<Arc<Surface>> {
+        let HostedSurfaceLaunch {
+            mut attachment,
+            kitty_reservation,
+            terminate_on_error,
+            terminal_public_id,
+            resource_identity,
+        } = launch;
+        if let Some(identity) = resource_identity.as_ref() {
+            let ContentPublicId::Terminal(content_id) = &identity.content_id else {
+                anyhow::bail!("hosted terminal cannot use a browser resource identity");
+            };
+            anyhow::ensure!(
+                terminal_public_id.as_ref() == Some(content_id),
+                "terminal runtime identity does not match its placement"
+            );
+        }
         let initial_defaults = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         attachment.send_default_colors(initial_defaults)?;
         let mut reader = attachment.take_reader()?;
@@ -2169,58 +2440,63 @@ impl Surface {
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
-            term: Mutex::new(Box::new(term)),
-            stream_progress: Box::new(TerminalStreamProgress::default()),
-            mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
-            runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
-            supports_clear_history_key_fallback: AtomicBool::new(
-                supports_clear_history_key_fallback,
-            ),
-            host_identity: Some(host_identity),
-            host_exit_record_path: Some(host_exit_record_path),
-            pid: snapshot.pid,
-            command: snapshot.command,
-            cwd: snapshot.cwd,
-            exit: Mutex::new(None),
-            local_pty_drained: AtomicBool::new(true),
-            exit_notified: AtomicBool::new(false),
-            dead: AtomicBool::new(false),
-            owner_detaching: AtomicBool::new(false),
-            host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
-            dirty: AtomicBool::new(true),
-            title: Mutex::new(title),
-            pwd: Mutex::new(pwd),
-            geometry: Mutex::new(PtyGeometry {
-                cols: snapshot.cols,
-                rows: snapshot.rows,
-                cell_width: snapshot.cell_pixels.0,
-                cell_height: snapshot.cell_pixels.1,
+            terminal: Arc::new(PtyTerminalRuntime {
+                event_surface_id: id,
+                terminal_public_id,
+                term: Mutex::new(Box::new(term)),
+                stream_progress: Box::new(TerminalStreamProgress::default()),
+                mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
+                runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
+                supports_clear_history_key_fallback: AtomicBool::new(
+                    supports_clear_history_key_fallback,
+                ),
+                host_identity: Some(host_identity),
+                host_exit_record_path: Some(host_exit_record_path),
+                pid: snapshot.pid,
+                command: snapshot.command,
+                cwd: snapshot.cwd,
+                exit: Mutex::new(None),
+                local_pty_drained: AtomicBool::new(true),
+                exit_notified: AtomicBool::new(false),
+                dead: AtomicBool::new(false),
+                owner_detaching: AtomicBool::new(false),
+                host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                dirty: AtomicBool::new(true),
+                title: Mutex::new(title),
+                pwd: Mutex::new(pwd),
+                geometry: Mutex::new(PtyGeometry {
+                    cols: snapshot.cols,
+                    rows: snapshot.rows,
+                    cell_width: snapshot.cell_pixels.0,
+                    cell_height: snapshot.cell_pixels.1,
+                }),
+                kitty_graphics_limits: Box::new(Mutex::new(snapshot.kitty_state.limits)),
+                #[cfg(test)]
+                geometry_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                test_master_control: None,
+                #[cfg(test)]
+                vt_replay_builds: AtomicUsize::new(0),
+                mux: mux.clone(),
+                taps: Mutex::new(Vec::new()),
+                attach_colors_pending: AtomicBool::new(false),
+                attach_colors_force_pending: AtomicBool::new(false),
+                last_attach_colors: Mutex::new(None),
+                render: Arc::new(Mutex::new(RenderHub {
+                    state: Box::new(render_state),
+                    built_generation: 0,
+                    latest: None,
+                    initial_graphics: None,
+                    taps: Vec::new(),
+                })),
+                render_generation: AtomicU64::new(1),
+                frame_requests,
+                #[cfg(test)]
+                frame_producer_before_upgrade,
             }),
-            kitty_graphics_limits: Box::new(Mutex::new(snapshot.kitty_state.limits)),
-            #[cfg(test)]
-            geometry_test_hook: Mutex::new(None),
-            #[cfg(test)]
-            deferred_cell_pixel_ack_test_hook: Mutex::new(None),
-            #[cfg(test)]
-            test_master_control: None,
-            #[cfg(test)]
-            vt_replay_builds: AtomicUsize::new(0),
-            mux: mux.clone(),
-            taps: Mutex::new(Vec::new()),
-            attach_colors_pending: AtomicBool::new(false),
-            attach_colors_force_pending: AtomicBool::new(false),
-            last_attach_colors: Mutex::new(None),
-            render: Arc::new(Mutex::new(RenderHub {
-                state: Box::new(render_state),
-                built_generation: 0,
-                latest: None,
-                initial_graphics: None,
-                taps: Vec::new(),
-            })),
-            render_generation: AtomicU64::new(1),
-            frame_requests,
-            #[cfg(test)]
-            frame_producer_before_upgrade,
+            viewport: Mutex::new(TerminalViewportState::default()),
         }));
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
         spawn_frame_producer(&surface, frame_rx)?;
@@ -2343,19 +2619,12 @@ impl Surface {
                                 if let Some(title) = title_update
                                     && let Some(mux) = mux.upgrade()
                                 {
-                                    mux.emit(MuxEvent::TitleChanged {
-                                        surface: surface.id,
-                                        title: title.into(),
-                                    });
+                                    mux.emit_terminal_title(surface.id, title.into());
                                 }
                                 if let Some((offset, at_bottom)) = scroll_changed
                                     && let Some(mux) = mux.upgrade()
                                 {
-                                    mux.emit(MuxEvent::ScrollChanged {
-                                        surface: surface.id,
-                                        offset,
-                                        at_bottom,
-                                    });
+                                    mux.emit_terminal_scroll(surface.id, offset, at_bottom);
                                 }
                             }
                             HostedTransition::ResizedWithColors {
@@ -2458,22 +2727,10 @@ impl Surface {
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(mux) = mux.upgrade() {
-                                    mux.emit(MuxEvent::TitleChanged {
-                                        surface: surface.id,
-                                        title: title.into(),
-                                    });
-                                    mux.emit(MuxEvent::SurfaceResized {
-                                        surface: surface.id,
-                                        cols,
-                                        rows,
-                                        reservation_id: None,
-                                    });
+                                    mux.emit_terminal_title(surface.id, title.into());
+                                    mux.emit_terminal_resized(surface.id, cols, rows, None);
                                     if let Some((offset, at_bottom)) = scroll_changed {
-                                        mux.emit(MuxEvent::ScrollChanged {
-                                            surface: surface.id,
-                                            offset,
-                                            at_bottom,
-                                        });
+                                        mux.emit_terminal_scroll(surface.id, offset, at_bottom);
                                     }
                                 }
                             }
@@ -2769,16 +3026,13 @@ impl Surface {
                             surface.id,
                             replacement_snapshot.cell_pixels,
                         );
-                        reconnect_mux.emit(MuxEvent::TitleChanged {
-                            surface: surface.id,
-                            title: title.into(),
-                        });
-                        reconnect_mux.emit(MuxEvent::SurfaceResized {
-                            surface: surface.id,
-                            cols: replacement_snapshot.cols,
-                            rows: replacement_snapshot.rows,
-                            reservation_id: None,
-                        });
+                        reconnect_mux.emit_terminal_title(pty.event_surface_id, title.into());
+                        reconnect_mux.emit_terminal_resized(
+                            pty.event_surface_id,
+                            replacement_snapshot.cols,
+                            replacement_snapshot.rows,
+                            None,
+                        );
                         reader = replacement_reader;
                         control_responses = replacement_control_responses;
                         sequence_boundary = replacement_snapshot.sequence_boundary;
@@ -2856,9 +3110,12 @@ impl Surface {
         record_path: PathBuf,
         resource_identity: TabResourceIdentity,
     ) -> anyhow::Result<Arc<Surface>> {
-        if matches!(resource_identity.content_id, crate::resource::ContentPublicId::Browser(_)) {
-            anyhow::bail!("terminal host cannot use a browser resource identity");
-        }
+        let terminal_public_id = match &resource_identity.content_id {
+            ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+            ContentPublicId::Browser(_) => {
+                anyhow::bail!("hosted terminal cannot use a browser resource identity")
+            }
+        };
         let kitty_reservation =
             mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
         let initial_kitty_limits = kitty_reservation
@@ -2874,18 +3131,53 @@ impl Surface {
             id,
             opts,
             mux,
-            attachment,
-            kitty_reservation,
-            false,
-            Some(resource_identity),
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation,
+                terminate_on_error: false,
+                terminal_public_id: Some(terminal_public_id),
+                resource_identity: Some(resource_identity),
+            },
         )
     }
 
-    /// Materialize canonical Exited registry state without inventing a live
-    /// host connection. The stable identity stays queryable so later
-    /// placement mutations operate on the same terminal object rather than a
-    /// daemon-local surrogate.
     #[cfg(unix)]
+    pub(crate) fn adopt_hosted_with_terminal_public_id(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        record: crate::terminal_host_runtime::TerminalHostRecord,
+        record_path: PathBuf,
+        terminal_public_id: TerminalPublicId,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let kitty_reservation =
+            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
+        let initial_kitty_limits = kitty_reservation
+            .as_ref()
+            .map(crate::mux::KittyImageBudgetReservation::initial_limits)
+            .unwrap_or_default();
+        let attachment = crate::terminal_host_runtime::adopt_terminal_host_with_kitty_limits(
+            record,
+            record_path,
+            initial_kitty_limits,
+        )?;
+        Self::spawn_hosted(
+            id,
+            opts,
+            mux,
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation,
+                terminate_on_error: false,
+                terminal_public_id: Some(terminal_public_id),
+                resource_identity: None,
+            },
+        )
+    }
+
+    /// Construct a dead hosted surface for lifecycle tests without inventing
+    /// a live host connection. Production keeps exit receipts in the registry.
+    #[cfg(all(unix, test))]
     pub(crate) fn exited_terminal_placeholder(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -2901,7 +3193,7 @@ impl Surface {
         )
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, test))]
     pub(crate) fn exited_terminal_placeholder_with_resource_identity(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -2909,9 +3201,49 @@ impl Surface {
         identity: crate::terminal_host_runtime::TerminalHostIdentity,
         resource_identity: TabResourceIdentity,
     ) -> anyhow::Result<Arc<Surface>> {
-        if matches!(resource_identity.content_id, crate::resource::ContentPublicId::Browser(_)) {
-            anyhow::bail!("exited terminal cannot use a browser resource identity");
-        }
+        let terminal_public_id = match &resource_identity.content_id {
+            ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+            ContentPublicId::Browser(_) => {
+                anyhow::bail!("exited terminal cannot use a browser resource identity")
+            }
+        };
+        Self::exited_terminal_placeholder_with_identities(
+            id,
+            opts,
+            mux,
+            identity,
+            terminal_public_id,
+            Some(resource_identity),
+        )
+    }
+
+    #[cfg(all(unix, test))]
+    pub(crate) fn exited_terminal_placeholder_with_terminal_public_id(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        identity: crate::terminal_host_runtime::TerminalHostIdentity,
+        terminal_public_id: TerminalPublicId,
+    ) -> anyhow::Result<Arc<Surface>> {
+        Self::exited_terminal_placeholder_with_identities(
+            id,
+            opts,
+            mux,
+            identity,
+            terminal_public_id,
+            None,
+        )
+    }
+
+    #[cfg(all(unix, test))]
+    fn exited_terminal_placeholder_with_identities(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        identity: crate::terminal_host_runtime::TerminalHostIdentity,
+        terminal_public_id: TerminalPublicId,
+        resource_identity: Option<TabResourceIdentity>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let initial_kitty_limits = KittyGraphicsLimits::disabled();
         let title_changed = Arc::new(AtomicBool::new(false));
         let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
@@ -2941,60 +3273,65 @@ impl Surface {
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
                 id,
-                resource_identity: Some(resource_identity),
+                resource_identity,
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
-            term: Mutex::new(Box::new(term)),
-            stream_progress: Box::new(TerminalStreamProgress::default()),
-            mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
-            runtime: Mutex::new(PtyRuntime::ExitedHosted),
-            supports_clear_history_key_fallback: AtomicBool::new(false),
-            host_identity: Some(identity),
-            host_exit_record_path: None,
-            pid: None,
-            command,
-            cwd: opts.cwd,
-            exit: Mutex::new(None),
-            local_pty_drained: AtomicBool::new(true),
-            exit_notified: AtomicBool::new(true),
-            dead: AtomicBool::new(true),
-            owner_detaching: AtomicBool::new(false),
-            host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
-            dirty: AtomicBool::new(true),
-            title: Mutex::new(String::new()),
-            pwd: Mutex::new(None),
-            geometry: Mutex::new(PtyGeometry {
-                cols,
-                rows,
-                cell_width: cell_pixels.0,
-                cell_height: cell_pixels.1,
+            terminal: Arc::new(PtyTerminalRuntime {
+                event_surface_id: id,
+                terminal_public_id: Some(terminal_public_id),
+                term: Mutex::new(Box::new(term)),
+                stream_progress: Box::new(TerminalStreamProgress::default()),
+                mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
+                runtime: Mutex::new(PtyRuntime::ExitedHosted),
+                supports_clear_history_key_fallback: AtomicBool::new(false),
+                host_identity: Some(identity),
+                host_exit_record_path: None,
+                pid: None,
+                command,
+                cwd: opts.cwd,
+                exit: Mutex::new(None),
+                local_pty_drained: AtomicBool::new(true),
+                exit_notified: AtomicBool::new(true),
+                dead: AtomicBool::new(true),
+                owner_detaching: AtomicBool::new(false),
+                host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
+                dirty: AtomicBool::new(true),
+                title: Mutex::new(String::new()),
+                pwd: Mutex::new(None),
+                geometry: Mutex::new(PtyGeometry {
+                    cols,
+                    rows,
+                    cell_width: cell_pixels.0,
+                    cell_height: cell_pixels.1,
+                }),
+                kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
+                #[cfg(test)]
+                geometry_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                test_master_control: None,
+                #[cfg(test)]
+                vt_replay_builds: AtomicUsize::new(0),
+                mux,
+                taps: Mutex::new(Vec::new()),
+                attach_colors_pending: AtomicBool::new(false),
+                attach_colors_force_pending: AtomicBool::new(false),
+                last_attach_colors: Mutex::new(None),
+                render: Arc::new(Mutex::new(RenderHub {
+                    state: Box::new(render_state),
+                    built_generation: 0,
+                    latest: None,
+                    initial_graphics: None,
+                    taps: Vec::new(),
+                })),
+                render_generation: AtomicU64::new(1),
+                frame_requests,
+                #[cfg(test)]
+                frame_producer_before_upgrade,
             }),
-            kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
-            #[cfg(test)]
-            geometry_test_hook: Mutex::new(None),
-            #[cfg(test)]
-            deferred_cell_pixel_ack_test_hook: Mutex::new(None),
-            #[cfg(test)]
-            test_master_control: None,
-            #[cfg(test)]
-            vt_replay_builds: AtomicUsize::new(0),
-            mux,
-            taps: Mutex::new(Vec::new()),
-            attach_colors_pending: AtomicBool::new(false),
-            attach_colors_force_pending: AtomicBool::new(false),
-            last_attach_colors: Mutex::new(None),
-            render: Arc::new(Mutex::new(RenderHub {
-                state: Box::new(render_state),
-                built_generation: 0,
-                latest: None,
-                initial_graphics: None,
-                taps: Vec::new(),
-            })),
-            render_generation: AtomicU64::new(1),
-            frame_requests,
-            #[cfg(test)]
-            frame_producer_before_upgrade,
+            viewport: Mutex::new(TerminalViewportState::default()),
         }));
         spawn_frame_producer(&surface, frame_rx)?;
         Ok(surface)
@@ -3059,9 +3396,15 @@ impl Surface {
         resource_identity: Option<TabResourceIdentity>,
         cell_pixels: (u16, u16),
     ) -> anyhow::Result<Arc<Surface>> {
-        if resource_identity.as_ref().is_some_and(|identity| {
-            matches!(identity.content_id, crate::resource::ContentPublicId::Browser(_))
-        }) {
+        let terminal_public_id =
+            resource_identity.as_ref().and_then(|identity| match &identity.content_id {
+                ContentPublicId::Terminal(terminal_id) => Some(terminal_id.clone()),
+                ContentPublicId::Browser(_) => None,
+            });
+        if resource_identity
+            .as_ref()
+            .is_some_and(|identity| matches!(identity.content_id, ContentPublicId::Browser(_)))
+        {
             anyhow::bail!("terminal surface cannot use a browser resource identity");
         }
         let kitty_reservation =
@@ -3082,7 +3425,7 @@ impl Surface {
                 let mux = mux.clone();
                 move || {
                     if let Some(mux) = mux.upgrade() {
-                        mux.emit(MuxEvent::Bell(id));
+                        mux.emit_terminal_bell(id);
                     }
                 }
             })),
@@ -3113,54 +3456,59 @@ impl Surface {
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
-            term: Mutex::new(Box::new(term)),
-            stream_progress: Box::new(TerminalStreamProgress::default()),
-            mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
-            runtime: Mutex::new(PtyRuntime::Local {
-                writer: Box::new(std::io::sink()),
-                master: Box::new(TestMasterPty {
-                    size: Mutex::new(initial_pty_size),
-                    control: test_master_control.clone(),
+            terminal: Arc::new(PtyTerminalRuntime {
+                event_surface_id: id,
+                terminal_public_id,
+                term: Mutex::new(Box::new(term)),
+                stream_progress: Box::new(TerminalStreamProgress::default()),
+                mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
+                runtime: Mutex::new(PtyRuntime::Local {
+                    writer: Box::new(std::io::sink()),
+                    master: Box::new(TestMasterPty {
+                        size: Mutex::new(initial_pty_size),
+                        control: test_master_control.clone(),
+                    }),
+                    killer: Box::new(TestChildKiller),
                 }),
-                killer: Box::new(TestChildKiller),
+                supports_clear_history_key_fallback: AtomicBool::new(false),
+                host_identity: None,
+                #[cfg(unix)]
+                host_exit_record_path: None,
+                pid: Some(id as u32),
+                command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
+                cwd: opts.cwd,
+                exit: Mutex::new(None),
+                local_pty_drained: AtomicBool::new(false),
+                exit_notified: AtomicBool::new(false),
+                dead: AtomicBool::new(false),
+                owner_detaching: AtomicBool::new(false),
+                host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                dirty: AtomicBool::new(false),
+                title: Mutex::new(String::new()),
+                pwd: Mutex::new(None),
+                geometry: Mutex::new(initial_geometry),
+                kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
+                geometry_test_hook: Mutex::new(None),
+                deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                test_master_control: Some(test_master_control),
+                vt_replay_builds: AtomicUsize::new(0),
+                mux,
+                taps: Mutex::new(Vec::new()),
+                attach_colors_pending: AtomicBool::new(false),
+                attach_colors_force_pending: AtomicBool::new(false),
+                last_attach_colors: Mutex::new(None),
+                render: Arc::new(Mutex::new(RenderHub {
+                    state: Box::new(render_state),
+                    built_generation: 0,
+                    latest: None,
+                    initial_graphics: None,
+                    taps: Vec::new(),
+                })),
+                render_generation: AtomicU64::new(1),
+                frame_requests,
+                frame_producer_before_upgrade,
             }),
-            supports_clear_history_key_fallback: AtomicBool::new(false),
-            host_identity: None,
-            #[cfg(unix)]
-            host_exit_record_path: None,
-            pid: Some(id as u32),
-            command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
-            cwd: opts.cwd,
-            exit: Mutex::new(None),
-            local_pty_drained: AtomicBool::new(false),
-            exit_notified: AtomicBool::new(false),
-            dead: AtomicBool::new(false),
-            owner_detaching: AtomicBool::new(false),
-            host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
-            dirty: AtomicBool::new(false),
-            title: Mutex::new(String::new()),
-            pwd: Mutex::new(None),
-            geometry: Mutex::new(initial_geometry),
-            kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
-            geometry_test_hook: Mutex::new(None),
-            deferred_cell_pixel_ack_test_hook: Mutex::new(None),
-            test_master_control: Some(test_master_control),
-            vt_replay_builds: AtomicUsize::new(0),
-            mux,
-            taps: Mutex::new(Vec::new()),
-            attach_colors_pending: AtomicBool::new(false),
-            attach_colors_force_pending: AtomicBool::new(false),
-            last_attach_colors: Mutex::new(None),
-            render: Arc::new(Mutex::new(RenderHub {
-                state: Box::new(render_state),
-                built_generation: 0,
-                latest: None,
-                initial_graphics: None,
-                taps: Vec::new(),
-            })),
-            render_generation: AtomicU64::new(1),
-            frame_requests,
-            frame_producer_before_upgrade,
+            viewport: Mutex::new(TerminalViewportState::default()),
         }));
         if let Some(reservation) = kitty_reservation {
             reservation.commit(&surface, initial_kitty_limits)?;
@@ -3597,6 +3945,68 @@ impl Surface {
         Ok(())
     }
 
+    /// Scroll only this placement's in-process frontend viewport. Byte-mode
+    /// frontends own the equivalent state in their terminal mirror.
+    pub fn view_scroll_delta(&self, delta: isize) -> anyhow::Result<Option<Scrollbar>> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let Some(scrollbar) = pty.view_scrollbar_locked(&mut term) else { return Ok(None) };
+        let target = if delta < 0 {
+            scrollbar.offset.saturating_sub(delta.unsigned_abs() as u64)
+        } else {
+            scrollbar.offset.saturating_add(delta as u64)
+        }
+        .min(scrollbar.total.saturating_sub(scrollbar.len));
+        if target == scrollbar.offset {
+            return Ok(Some(scrollbar));
+        }
+        pty.set_view_scroll_offset_locked(&mut term, target);
+        Ok(Some(Scrollbar { offset: target, ..scrollbar }))
+    }
+
+    pub fn view_scroll_delta_if_scrollbar(
+        &self,
+        expected: Scrollbar,
+        delta: isize,
+    ) -> anyhow::Result<Option<Scrollbar>> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let Some(scrollbar) = pty.view_scrollbar_locked(&mut term) else { return Ok(None) };
+        if scrollbar != expected {
+            return Ok(None);
+        }
+        let target = if delta < 0 {
+            scrollbar.offset.saturating_sub(delta.unsigned_abs() as u64)
+        } else {
+            scrollbar.offset.saturating_add(delta as u64)
+        }
+        .min(scrollbar.total.saturating_sub(scrollbar.len));
+        pty.set_view_scroll_offset_locked(&mut term, target);
+        Ok(Some(Scrollbar { offset: target, ..scrollbar }))
+    }
+
+    pub fn view_scrollbar(&self) -> Option<Scrollbar> {
+        let pty = self.as_pty()?;
+        let mut term = pty.term.lock().unwrap();
+        pty.view_scrollbar_locked(&mut term)
+    }
+
+    pub fn view_scroll_to_bottom(&self) -> anyhow::Result<bool> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let mut term = pty.term.lock().unwrap();
+        let Some(scrollbar) = pty.view_scrollbar_locked(&mut term) else { return Ok(false) };
+        let bottom = scrollbar.total.saturating_sub(scrollbar.len);
+        let changed = scrollbar.offset != bottom;
+        pty.set_view_scroll_offset_locked(&mut term, bottom);
+        Ok(changed)
+    }
+
     /// Apply a scroll only while the terminal still matches the rendered
     /// scrollbar geometry that admitted the pointer gesture.
     pub fn scroll_delta_if_scrollbar(
@@ -3636,7 +4046,7 @@ impl Surface {
         if let Some((offset, at_bottom)) = changed
             && let Some(mux) = pty.mux.upgrade()
         {
-            mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
+            mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
         }
         Ok(scrollbar)
     }
@@ -3662,7 +4072,7 @@ impl Surface {
         if let Some((offset, at_bottom)) = changed
             && let Some(mux) = pty.mux.upgrade()
         {
-            mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
+            mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
         }
         Ok(())
     }
@@ -3785,7 +4195,7 @@ impl Surface {
             if let Some((offset, at_bottom)) = scroll_changed
                 && let Some(mux) = pty.mux.upgrade()
             {
-                mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
+                mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
             }
             pty.mark_output_dirty();
             return Ok(());
@@ -3852,6 +4262,42 @@ impl Surface {
         let generation = pty.render_generation.load(Ordering::Acquire);
         let _ = pty.build_frame_locked(&mut term, generation, false)?;
         pty.render.lock().unwrap().latest.clone().ok_or(ghostty_vt::Error::NoValue)
+    }
+
+    /// Render this placement's frontend-local viewport without changing the
+    /// session compatibility viewport used by backend render projections.
+    pub fn render_view_frame(
+        &self,
+        render: &mut RenderState,
+    ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
+        let Some(pty) = self.as_pty() else {
+            return Err(ghostty_vt::Error::InvalidValue);
+        };
+        let mut term = pty.term.lock().unwrap();
+        let original_offset = term.scrollbar().map(|scrollbar| scrollbar.offset);
+        let view_offset = pty.view_scrollbar_locked(&mut term).map(|scrollbar| scrollbar.offset);
+        if let Some(offset) = view_offset {
+            set_terminal_scroll_offset(&mut term, offset);
+        }
+        let result = (|| {
+            render.update(&mut term)?;
+            let palette_colors = std::array::from_fn(|index| render.palette_color(index as u8));
+            let palette_overridden =
+                std::array::from_fn(|index| render.palette_overridden(index as u8));
+            Ok(Arc::new(SurfaceRenderFrame {
+                frame: render.build_frame()?,
+                content_generation: pty.render_generation.load(Ordering::Acquire),
+                scrollback_rows: term.history_rows(),
+                history_epoch: term.history_epoch(),
+                pointer_semantics: term.pointer_semantic_snapshot(),
+                palette_colors,
+                palette_overridden,
+            }))
+        })();
+        if let Some(offset) = original_offset {
+            set_terminal_scroll_offset(&mut term, offset);
+        }
+        result
     }
 
     /// Read current pointer-routing state without waiting behind terminal parsing.
@@ -4211,8 +4657,8 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let mut term = pty.term.lock().unwrap();
-        let (tx, rx) = sync_channel(ATTACH_STREAM_CAPACITY);
-        let queued_bytes = Arc::new(AtomicUsize::new(0));
+        let (tap, stream) =
+            AttachTap::pair(lifecycle.clone(), ATTACH_STREAM_CAPACITY, ATTACH_STREAM_MAX_BYTES);
         // Snapshot and tap registration under the same terminal lock:
         // the reader thread cannot apply bytes between the two.
         #[cfg(test)]
@@ -4227,12 +4673,7 @@ impl Surface {
                 *pty.last_attach_colors.lock().unwrap() =
                     Some(Box::new(TerminalColors::from_pty_output(&term, defaults)));
             }
-            taps.push(AttachTap {
-                sender: tx,
-                lifecycle: lifecycle.clone(),
-                queued_bytes: queued_bytes.clone(),
-                max_queued_bytes: ATTACH_STREAM_MAX_BYTES,
-            });
+            taps.push(tap);
         }
         Ok(AttachStream {
             cols,
@@ -4241,11 +4682,7 @@ impl Surface {
             kitty_image_aliases: replay.kitty_image_aliases,
             kitty_state: replay.kitty_state,
             colors,
-            stream: AttachFrameReceiver {
-                receiver: rx,
-                queued_bytes,
-                lifecycle: lifecycle.clone(),
-            },
+            stream,
             lifecycle,
         })
     }
@@ -4800,6 +5237,58 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
+    fn view_scrollbar_locked(&self, term: &mut Terminal) -> Option<Scrollbar> {
+        let scrollbar = term.scrollbar()?;
+        let bottom = scrollbar.total.saturating_sub(scrollbar.len);
+        let screen = term.active_screen();
+        let mut viewport = self.viewport.lock().unwrap();
+        let had_anchor = viewport.anchor(screen).is_some();
+        let resolved = viewport
+            .anchor(screen)
+            .and_then(|anchor| term.tracked_screen_point(anchor))
+            .map(|(_, row)| u64::from(row).min(bottom));
+        let offset = match (had_anchor, resolved) {
+            (_, Some(offset)) => offset,
+            (false, None) => bottom,
+            (true, None) if bottom > 0 => {
+                *viewport.anchor_mut(screen) = term.track_screen_point(0, 0).ok();
+                if viewport.anchor(screen).is_some() { 0 } else { bottom }
+            }
+            (true, None) => {
+                *viewport.anchor_mut(screen) = None;
+                bottom
+            }
+        };
+        if offset == bottom {
+            *viewport.anchor_mut(screen) = None;
+        }
+        Some(Scrollbar { offset, ..scrollbar })
+    }
+
+    fn set_view_scroll_offset_locked(&self, term: &mut Terminal, offset: u64) {
+        let Some(scrollbar) = term.scrollbar() else { return };
+        let bottom = scrollbar.total.saturating_sub(scrollbar.len);
+        let target = offset.min(bottom);
+        let screen = term.active_screen();
+        let mut viewport = self.viewport.lock().unwrap();
+        let anchor = viewport.anchor_mut(screen);
+        if target == bottom {
+            *anchor = None;
+            return;
+        }
+        let Ok(target) = u32::try_from(target) else {
+            *anchor = None;
+            return;
+        };
+        if anchor
+            .as_mut()
+            .is_some_and(|anchor| term.set_tracked_screen_point(anchor, 0, target).is_ok())
+        {
+            return;
+        }
+        *anchor = term.track_screen_point(0, target).ok();
+    }
+
     #[cfg(test)]
     fn run_geometry_test_hook(&self, step: PtyGeometryTestStep) {
         let hook = self.geometry_test_hook.lock().unwrap().clone();
@@ -4929,7 +5418,7 @@ impl PtySurface {
         if !self.dirty.swap(true, Ordering::AcqRel)
             && let Some(mux) = self.mux.upgrade()
         {
-            mux.emit(MuxEvent::SurfaceOutput(self.meta.id));
+            mux.emit_terminal_output(self.event_surface_id);
         }
     }
 
@@ -5352,11 +5841,100 @@ fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
     }
 }
 
+fn set_terminal_scroll_offset(term: &mut Terminal, target: u64) {
+    let Some(scrollbar) = term.scrollbar() else { return };
+    let bottom = scrollbar.total.saturating_sub(scrollbar.len);
+    let target = target.min(bottom);
+    if target == bottom {
+        term.scroll_to_bottom();
+        return;
+    }
+    let mut current = scrollbar.offset;
+    while current != target {
+        let difference = i128::from(target) - i128::from(current);
+        let step = difference.clamp(isize::MIN as i128, isize::MAX as i128) as isize;
+        term.scroll_delta(step);
+        let Some(next) = term.scrollbar().map(|scrollbar| scrollbar.offset) else { return };
+        if next == current {
+            return;
+        }
+        current = next;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use base64::Engine as _;
 
     use super::*;
+    use crate::MuxEvent;
+
+    #[test]
+    fn terminal_projection_has_distinct_view_identity_and_shared_runtime() {
+        let mux = Mux::new_for_test("terminal-projection", SurfaceOptions::default());
+        let source =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let source_identity = source.resource_identity().unwrap().clone();
+        let projection = source
+            .project_terminal(
+                2,
+                TabResourceIdentity::new(
+                    crate::resource::TabPublicId::random().unwrap(),
+                    source_identity.content_id,
+                ),
+            )
+            .unwrap();
+
+        assert_eq!(source.id, 1);
+        assert_eq!(projection.id, 2);
+        assert!(source.shares_terminal_runtime(&projection));
+        let foreign_identity = TabResourceIdentity::new(
+            crate::resource::TabPublicId::random().unwrap(),
+            ContentPublicId::Terminal(TerminalPublicId::random().unwrap()),
+        );
+        assert!(source.project_terminal(3, foreign_identity).is_err());
+
+        source.set_name(Some("source".into()));
+        projection.set_name(Some("projection".into()));
+        assert_eq!(source.name().as_deref(), Some("source"));
+        assert_eq!(projection.name().as_deref(), Some("projection"));
+
+        projection.resize(91, 37).unwrap();
+        assert_eq!(source.size(), (91, 37));
+        source.with_terminal(|terminal| terminal.vt_write(b"shared-output"));
+        let projected_text =
+            projection.with_terminal(|terminal| terminal.viewport_text().unwrap()).unwrap();
+        assert!(projected_text.contains("shared-output"));
+
+        source.with_terminal(|terminal| {
+            for line in 0..48 {
+                terminal.vt_write(format!("\r\nline-{line:02}").as_bytes());
+            }
+        });
+        let bottom = projection.view_scrollbar().unwrap();
+        assert!(!bottom.scrolled_back());
+        source.view_scroll_delta(-5).unwrap();
+        let source_scrollbar = source.view_scrollbar().unwrap();
+        let projection_scrollbar = projection.view_scrollbar().unwrap();
+        assert!(source_scrollbar.scrolled_back());
+        assert_eq!(projection_scrollbar, bottom);
+        let compatibility_scrollbar =
+            source.with_terminal(|terminal| terminal.scrollbar().unwrap()).unwrap();
+        assert_eq!(compatibility_scrollbar, bottom);
+
+        let mut source_render = RenderState::new().unwrap();
+        let mut projection_render = RenderState::new().unwrap();
+        let source_frame = source.render_view_frame(&mut source_render).unwrap();
+        let projection_frame = projection.render_view_frame(&mut projection_render).unwrap();
+        assert_ne!(source_frame.frame.runs(), projection_frame.frame.runs());
+        assert_eq!(projection.view_scrollbar().unwrap(), bottom);
+
+        let writer = CapturingWriter::default();
+        replace_local_writer(&source, Box::new(writer.clone()));
+        source.write_bytes(b"first").unwrap();
+        projection.write_bytes(b"second").unwrap();
+        assert_eq!(&*writer.0.lock().unwrap(), b"firstsecond");
+    }
 
     fn append_disabled_kitty_replay_state(payload: &mut Vec<u8>) {
         for _ in 0..4 {
@@ -5454,9 +6032,7 @@ mod tests {
     #[test]
     fn test_surface_accepts_non_uuid_public_terminal_identity() {
         let mux = Mux::new_for_test("opaque-terminal-id", SurfaceOptions::default());
-        let terminal =
-            crate::resource::TerminalPublicId::parse("term_ffffffffffffffffffffffffffffffff")
-                .unwrap();
+        let terminal = TerminalPublicId::parse("term_ffffffffffffffffffffffffffffffff").unwrap();
         let tab =
             crate::resource::TabPublicId::parse("tab_00000000000000000000000000000001").unwrap();
         let identity = TabResourceIdentity::persisted_terminal(tab, terminal);
@@ -5788,12 +6364,16 @@ mod tests {
         let mut output = Vec::new();
         let colors = loop {
             assert!(Instant::now() < deadline, "local cursor activity was not published");
-            match attach.stream.recv_timeout(Duration::from_millis(250)).unwrap() {
-                AttachFrame::Output(bytes) => output.extend_from_slice(&bytes),
-                AttachFrame::ColorsChanged(colors) => break colors,
-                AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => {}
-                AttachFrame::OutputWithColors { .. } => {
+            match attach.stream.recv_timeout(Duration::from_millis(250)) {
+                Ok(AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+                Ok(AttachFrame::ColorsChanged(colors)) => break colors,
+                Ok(AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. }) => {}
+                Ok(AttachFrame::OutputWithColors { .. }) => {
                     panic!("local PTYs must use ordered Output then ColorsChanged")
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!("local cursor activity stream disconnected")
                 }
             }
         };
@@ -5991,16 +6571,10 @@ mod tests {
     #[test]
     fn attach_tap_overflow_cancels_the_shared_lifecycle_once() {
         let lifecycle = AttachLifecycle::default();
-        let (sender, _receiver) = sync_channel(1);
-        let tap = AttachTap {
-            sender,
-            lifecycle: lifecycle.clone(),
-            queued_bytes: Arc::new(AtomicUsize::new(0)),
-            max_queued_bytes: usize::MAX,
-        };
+        let (tap, _receiver) = AttachTap::pair(lifecycle.clone(), 1, usize::MAX);
 
-        assert!(tap.try_send(AttachFrame::Output(vec![1])));
-        assert!(!tap.try_send(AttachFrame::Output(vec![2])));
+        assert!(tap.try_send(AttachFrame::ColorsChanged(Arc::new(TerminalColors::default()))));
+        assert!(!tap.try_send(AttachFrame::ColorsChanged(Arc::new(TerminalColors::default()))));
         assert!(lifecycle.is_canceled());
         assert!(lifecycle.overflowed());
         assert!(lifecycle.claim_overflow_report());
@@ -6010,18 +6584,64 @@ mod tests {
     #[test]
     fn attach_tap_overflow_is_bounded_by_retained_bytes() {
         let lifecycle = AttachLifecycle::default();
-        let (sender, _receiver) = sync_channel(4);
         let frame_bytes = AttachFrame::Output(vec![1]).retained_bytes();
-        let tap = AttachTap {
-            sender,
-            lifecycle: lifecycle.clone(),
-            queued_bytes: Arc::new(AtomicUsize::new(0)),
-            max_queued_bytes: frame_bytes,
-        };
+        let (tap, _receiver) = AttachTap::pair(lifecycle.clone(), 4, frame_bytes);
 
         assert!(tap.try_send(AttachFrame::Output(vec![1])));
         assert!(!tap.try_send(AttachFrame::Output(vec![2])));
         assert!(lifecycle.overflowed());
+    }
+
+    #[test]
+    fn adjacent_output_merge_respects_the_exact_retained_budget() {
+        let mut bytes = Vec::with_capacity(1_024);
+        bytes.resize(1_024, 1);
+        let mut frame = AttachFrame::Output(bytes);
+        let max_retained_bytes = size_of::<AttachFrame>() + 1_025;
+
+        assert!(matches!(
+            frame.merge_adjacent_output(AttachFrame::Output(vec![2]), max_retained_bytes),
+            AttachFrameMerge::Merged
+        ));
+        let AttachFrame::Output(merged) = frame else { unreachable!() };
+        assert_eq!(merged.len(), 1_025);
+        assert!(merged.capacity() <= 1_025);
+
+        let mut full = AttachFrame::Output(merged);
+        assert!(matches!(
+            full.merge_adjacent_output(AttachFrame::Output(vec![3]), max_retained_bytes),
+            AttachFrameMerge::Overflow
+        ));
+        let AttachFrame::Output(full) = full else { unreachable!() };
+        assert_eq!(full.len(), 1_025, "overflow must not append rejected bytes");
+    }
+
+    #[test]
+    fn slow_attach_coalesces_adjacent_output_without_losing_bytes() {
+        let mux = Mux::new_for_test("attach-output-coalescing", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        let pty = surface.as_pty().unwrap();
+        let expected =
+            (0..ATTACH_STREAM_CAPACITY * 4).map(|index| (index % 251) as u8).collect::<Vec<_>>();
+
+        for (index, byte) in expected.iter().copied().enumerate() {
+            assert!(
+                pty.broadcast_attach_output(&[byte]),
+                "lossless attach disconnected at small output chunk {index}"
+            );
+        }
+
+        assert!(!attach.lifecycle.overflowed());
+        let mut received = Vec::new();
+        while let Ok(frame) = attach.stream.try_recv() {
+            match frame {
+                AttachFrame::Output(bytes) => received.extend(bytes),
+                other => panic!("unexpected frame in output-only stream: {other:?}"),
+            }
+        }
+        assert_eq!(received, expected);
     }
 
     #[test]

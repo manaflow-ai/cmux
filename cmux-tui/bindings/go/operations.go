@@ -99,6 +99,27 @@ func mutationHandle[Snapshot any, Handle any](
 	}, nil
 }
 
+func mutationNewHandle[Snapshot any, Handle any](
+	ctx context.Context,
+	client *Client,
+	operation wirev1.Operation,
+	input map[string]any,
+	options MutationOptions,
+	label string,
+	build func(Snapshot) Handle,
+) (MutationResult[Handle], error) {
+	result, err := mutationValue[Snapshot](ctx, client, operation, input, options, label)
+	if err != nil {
+		return MutationResult[Handle]{}, err
+	}
+	return MutationResult[Handle]{
+		Value:      build(result.Value),
+		Generation: result.Generation,
+		Revision:   result.Revision,
+		Replayed:   result.Replayed,
+	}, nil
+}
+
 type mutationWireResult struct {
 	value      json.RawMessage
 	generation string
@@ -740,7 +761,7 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 		}
 	case *TerminalSnapshot:
 		required = []string{
-			"id", "tab_id", "title", "cols", "rows", "running", "lifecycle",
+			"id", "tab_id", "tab_ids", "title", "cols", "rows", "running", "lifecycle",
 		}
 	case *BrowserSnapshot:
 		required = []string{
@@ -868,9 +889,16 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			return fmt.Errorf("tab snapshot ids must be present")
 		}
 	case *TerminalSnapshot:
-		if decoded.ID == "" || decoded.TabID == "" ||
+		if decoded.ID == "" || decoded.TabIDs == nil ||
 			decoded.Cols == 0 || decoded.Rows == 0 {
 			return fmt.Errorf("terminal snapshot ids and dimensions must be present")
+		}
+		if len(decoded.TabIDs) == 0 {
+			if decoded.TabID != nil {
+				return fmt.Errorf("terminal tab_id must be null when tab_ids is empty")
+			}
+		} else if decoded.TabID == nil || *decoded.TabID != decoded.TabIDs[0] {
+			return fmt.Errorf("terminal tab_id must be the first tab_ids item")
 		}
 		switch decoded.Lifecycle {
 		case TerminalLifecycleLaunching, TerminalLifecycleRunning,
@@ -1703,6 +1731,33 @@ func (t *Terminal) Move(ctx context.Context, options TerminalMoveOptions) (Mutat
 	return mutationHandle(
 		ctx, t.client, wirev1.TerminalMove, input, options.MutationOptions,
 		"terminal snapshot", t.cache, t,
+	)
+}
+func (t *Terminal) Project(ctx context.Context, options TerminalProjectOptions) (MutationResult[*Tab], error) {
+	input := t.route.params()
+	input["destination_workspace"] = options.DestinationWorkspace.String()
+	input["destination_screen"] = options.DestinationScreen.String()
+	input["destination_pane"] = options.DestinationPane.String()
+	input["index"] = options.Index
+	if options.Name != nil {
+		input["name"] = *options.Name
+	}
+	merge(input, options.Extra)
+	return mutationNewHandle(
+		ctx, t.client, wirev1.TerminalProject, input, options.MutationOptions,
+		"tab snapshot", func(snapshot TabSnapshot) *Tab {
+			selector := SelectID(snapshot.ID)
+			route := t.route
+			route.workspace = options.DestinationWorkspace
+			route.screen = options.DestinationScreen
+			route.pane = options.DestinationPane
+			route.tab = selector
+			route.terminal = Selector[TerminalID]{}
+			return &Tab{
+				client: t.client, pane: options.DestinationPane, selector: selector,
+				route: route, snapshot: &snapshot,
+			}
+		},
 	)
 }
 func (t *Terminal) Attach(ctx context.Context, options TerminalAttachOptions) (*Stream[TerminalAttachmentItem], error) {

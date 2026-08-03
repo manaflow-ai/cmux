@@ -129,6 +129,7 @@ var (
 	TerminalRendererGrantCreate = Operation{"terminal.renderer_grant.create", ConnectionControl}
 	TerminalViewportScroll      = Operation{"terminal.viewport.scroll", Mutation}
 	TerminalMove                = Operation{"terminal.move", Mutation}
+	TerminalProject             = Operation{"terminal.project", Mutation}
 	TerminalAttach              = Operation{"terminal.attach", StreamOpen}
 	TerminalClose               = Operation{"terminal.close", Mutation}
 

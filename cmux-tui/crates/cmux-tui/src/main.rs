@@ -73,6 +73,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use anyhow::Context;
 use cmux_tui_core::resource::TerminalPublicId;
 use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions};
 #[cfg(unix)]
@@ -1490,7 +1491,12 @@ fn run_server(
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime)
     } else {
-        run_tui(Session::Local(mux.clone()), args.session, None)
+        match RemoteSession::connect(&socket_path)
+            .context("connect the interactive client to its session server")
+        {
+            Ok(remote) => run_tui(Session::Remote(remote), args.session, None),
+            Err(error) => Err(error),
+        }
     };
     #[cfg(unix)]
     if let Some(runtime) = remote_runtime {

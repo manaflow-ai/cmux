@@ -119,6 +119,7 @@ pub const Operation = enum {
     terminal_viewer_release,
     terminal_viewport_scroll,
     terminal_move,
+    terminal_project,
     terminal_attach,
     terminal_close,
     browser_list,
@@ -235,6 +236,7 @@ pub const Operation = enum {
             .terminal_viewer_release => "terminal.viewer.release",
             .terminal_viewport_scroll => "terminal.viewport.scroll",
             .terminal_move => "terminal.move",
+            .terminal_project => "terminal.project",
             .terminal_attach => "terminal.attach",
             .terminal_close => "terminal.close",
             .browser_list => "browser.list",
@@ -444,6 +446,7 @@ pub const Operation = enum {
             .terminal_viewer_release => .{ .owner = .terminal_stream, .method = "releaseTerminalViewer" },
             .terminal_viewport_scroll => .{ .owner = .terminal, .method = "scroll" },
             .terminal_move => .{ .owner = .terminal, .method = "moveTerminal" },
+            .terminal_project => .{ .owner = .terminal, .method = "projectTerminal" },
             .terminal_attach => .{ .owner = .terminal, .method = "attachTerminalWith" },
             .terminal_close => .{ .owner = .terminal, .method = "close" },
             .browser_list => .{ .owner = .session, .method = "listBrowsers" },
@@ -3589,7 +3592,9 @@ fn decodeResourceEntitySnapshot(
         },
         .pane => .{ .pane = try decodePaneSnapshot(value) },
         .tab => .{ .tab = try decodeTabSnapshot(value) },
-        .terminal => .{ .terminal = try decodeTerminalSnapshot(value) },
+        .terminal => .{
+            .terminal = try decodeTerminalSnapshot(allocator, value),
+        },
         .browser => .{ .browser = try decodeBrowserSnapshot(value) },
         .client => .{
             .client = try decodeClientSnapshot(allocator, value),
@@ -5543,6 +5548,11 @@ pub const MoveDestination = struct {
     index: ?u32 = null,
 };
 
+pub const TerminalProjectOptions = struct {
+    destination: MoveDestination,
+    name: ?[]const u8 = null,
+};
+
 pub const TerminalMouseKind = union(enum) {
     press,
     release,
@@ -6467,7 +6477,8 @@ pub const TerminalLifecycle = union(enum) {
 
 pub const TerminalSnapshot = struct {
     id: TerminalId,
-    tab_id: TabId,
+    tab_id: ?TabId,
+    tab_ids: []const TabId,
     title: []const u8,
     cwd: ?[]const u8,
     cols: u16,
@@ -7151,7 +7162,7 @@ pub const OwnedMachineSnapshot = OwnedValue(MachineSnapshot);
 pub const OwnedSessionSnapshot = OwnedValue(SessionSnapshot);
 pub const OwnedWorkspaceSnapshot = OwnedValue(WorkspaceSnapshot);
 pub const OwnedClientSnapshot = OwnedDecodedValue(ClientSnapshot);
-pub const OwnedTerminalSnapshot = OwnedValue(TerminalSnapshot);
+pub const OwnedTerminalSnapshot = OwnedDecodedValue(TerminalSnapshot);
 pub const OwnedBrowserSnapshot = OwnedValue(BrowserSnapshot);
 pub const OwnedScreenSnapshot = OwnedDecodedValue(ScreenSnapshot);
 pub const OwnedPaneSnapshot = OwnedValue(PaneSnapshot);
@@ -7188,7 +7199,7 @@ pub const WorkspaceList = OwnedList(WorkspaceSnapshot);
 pub const ScreenList = OwnedDecodedList(ScreenSnapshot);
 pub const PaneList = OwnedList(PaneSnapshot);
 pub const TabList = OwnedList(TabSnapshot);
-pub const TerminalList = OwnedList(TerminalSnapshot);
+pub const TerminalList = OwnedDecodedList(TerminalSnapshot);
 pub const BrowserList = OwnedList(BrowserSnapshot);
 pub const ClientList = OwnedDecodedList(ClientSnapshot);
 pub const NotificationList = OwnedList(NotificationSnapshot);
@@ -7196,7 +7207,8 @@ pub const AgentList = OwnedList(AgentSnapshot);
 pub const PairingRequestList = OwnedList(PairingRequestSnapshot);
 pub const SessionMutationResult = TypedMutationResult(SessionSnapshot);
 pub const WorkspaceMutationResult = TypedMutationResult(WorkspaceSnapshot);
-pub const TerminalMutationResult = TypedMutationResult(TerminalSnapshot);
+pub const TerminalMutationResult =
+    TypedDecodedMutationResult(TerminalSnapshot);
 pub const BrowserMutationResult = TypedMutationResult(BrowserSnapshot);
 pub const ScreenMutationResult =
     TypedDecodedMutationResult(ScreenSnapshot);
@@ -8622,13 +8634,17 @@ fn decodeTerminalExit(value: raw.wire.Value) !TerminalExit {
     };
 }
 
-fn decodeTerminalSnapshot(value: raw.wire.Value) !TerminalSnapshot {
+fn decodeTerminalSnapshot(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+) !TerminalSnapshot {
     const object = try detailObject(value);
     try ensureOnlyFields(
         object,
         &.{
             "id",
             "tab_id",
+            "tab_ids",
             "title",
             "cwd",
             "cols",
@@ -8652,9 +8668,29 @@ fn decodeTerminalSnapshot(value: raw.wire.Value) !TerminalSnapshot {
     {
         return error.InvalidTerminalState;
     }
+    const tab_id = try requiredNullableId(TabId, object, "tab_id");
+    const raw_tab_ids = switch (object.get("tab_ids") orelse
+        return error.MissingField) {
+        .array => |items| items.items,
+        else => return error.ExpectedArray,
+    };
+    const tab_ids = try allocator.alloc(TabId, raw_tab_ids.len);
+    errdefer allocator.free(tab_ids);
+    for (raw_tab_ids, 0..) |item, index| {
+        tab_ids[index] = switch (item) {
+            .string => |text| try TabId.parse(text),
+            else => return error.ExpectedString,
+        };
+    }
+    if ((tab_id == null) != (tab_ids.len == 0) or
+        (tab_id != null and !std.meta.eql(tab_id.?, tab_ids[0])))
+    {
+        return error.InvalidTerminalPlacement;
+    }
     return .{
         .id = try parseRequiredId(TerminalId, object, "id"),
-        .tab_id = try parseRequiredId(TabId, object, "tab_id"),
+        .tab_id = tab_id,
+        .tab_ids = tab_ids,
         .title = try objectString(object, "title"),
         .cwd = try strictOptionalString(object, "cwd"),
         .cols = try objectUnsigned(u16, object, "cols", 1),
@@ -8937,9 +8973,6 @@ fn decodeTypedSnapshot(
     if (comptime Snapshot == WorkspaceSnapshot) {
         return decodeWorkspaceSnapshot(value);
     }
-    if (comptime Snapshot == TerminalSnapshot) {
-        return decodeTerminalSnapshot(value);
-    }
     if (comptime Snapshot == BrowserSnapshot) {
         return decodeBrowserSnapshot(value);
     }
@@ -8977,6 +9010,9 @@ fn decodeArenaSnapshot(
     }
     if (comptime Snapshot == ClientSnapshot) {
         return decodeClientSnapshot(allocator, value);
+    }
+    if (comptime Snapshot == TerminalSnapshot) {
+        return decodeTerminalSnapshot(allocator, value);
     }
     return decodeTypedSnapshot(Snapshot, value);
 }
@@ -9297,6 +9333,11 @@ fn decodeOwnedAllocatedResult(
             decoded_arena.allocator(),
             owned_result.value,
         )
+    else if (comptime Result == TerminalSnapshot)
+        try decodeTerminalSnapshot(
+            decoded_arena.allocator(),
+            owned_result.value,
+        )
     else if (comptime Result == ResourceSnapshot)
         try decodeResourceSnapshot(
             decoded_arena.allocator(),
@@ -9371,6 +9412,11 @@ fn decodeTypedAllocatedMutation(
     errdefer decoded_arena.deinit();
     const value: Value = if (comptime Value == ScreenSnapshot)
         try decodeScreenSnapshot(
+            decoded_arena.allocator(),
+            raw_result.value,
+        )
+    else if (comptime Value == TerminalSnapshot)
+        try decodeTerminalSnapshot(
             decoded_arena.allocator(),
             raw_result.value,
         )
@@ -9516,7 +9562,11 @@ fn decodeRefreshResult(
         return decodeOwnedTypedSnapshot(TabSnapshot, result);
     }
     if (comptime std.mem.eql(u8, scope, "terminal")) {
-        return decodeOwnedTypedSnapshot(TerminalSnapshot, result);
+        return decodeOwnedAllocatedResult(
+            TerminalSnapshot,
+            allocator,
+            result,
+        );
     }
     if (comptime std.mem.eql(u8, scope, "browser")) {
         return decodeOwnedTypedSnapshot(BrowserSnapshot, result);
@@ -9876,7 +9926,7 @@ fn HandleImpl(
             {
                 return error.UnsupportedHandleOperation;
             }
-            return decodeTypedList(
+            return decodeTypedArenaList(
                 TerminalSnapshot,
                 self.client.allocator,
                 try self.read(.terminal_list, null),
@@ -11410,10 +11460,43 @@ fn HandleImpl(
             );
             defer params.deinit();
             try encodeMoveDestination(Id, &params, destination);
-            return decodeTypedMutation(
+            return decodeTypedAllocatedMutation(
                 TerminalSnapshot,
+                self.client.allocator,
                 try self.client.mutate(
                     .terminal_move,
+                    params.asValue(),
+                    mutation,
+                ),
+            );
+        }
+
+        pub fn projectTerminal(
+            self: Self,
+            options: TerminalProjectOptions,
+            mutation: MutationOptions,
+        ) !TabMutationResult {
+            if (comptime !std.mem.eql(u8, scope, "terminal")) {
+                return error.UnsupportedHandleOperation;
+            }
+            if (options.destination.index == null) {
+                return error.MissingField;
+            }
+            var params = try Params(Id).init(
+                self.client.allocator,
+                scope,
+                &self.target,
+                null,
+            );
+            defer params.deinit();
+            try encodeMoveDestination(Id, &params, options.destination);
+            if (options.name) |name| {
+                try params.putString("name", name);
+            }
+            return decodeTypedMutation(
+                TabSnapshot,
+                try self.client.mutate(
+                    .terminal_project,
                     params.asValue(),
                     mutation,
                 ),
@@ -13206,6 +13289,14 @@ pub const Terminal = struct {
         mutation: MutationOptions,
     ) !TerminalMutationResult {
         return self.impl().moveTerminal(destination, mutation);
+    }
+
+    pub fn projectTerminal(
+        self: Self,
+        options: TerminalProjectOptions,
+        mutation: MutationOptions,
+    ) !TabMutationResult {
+        return self.impl().projectTerminal(options, mutation);
     }
 
     pub fn scroll(
@@ -15751,6 +15842,7 @@ test "public facades expose only valid resource and stream capabilities" {
         "sendMouse",
         "setInputFocus",
         "moveTerminal",
+        "projectTerminal",
         "scroll",
         "attachTerminal",
         "attachTerminalWith",
@@ -17415,17 +17507,23 @@ test "typed terminal decoders reject malformed and retain future enums" {
 }
 
 test "terminal lifecycle and durable exit constraints are strict" {
+    var decoded_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer decoded_arena.deinit();
     var running = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
             "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
+            "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
             "\"title\":\"shell\",\"cols\":120,\"rows\":40," ++
             "\"running\":true,\"lifecycle\":\"running\"," ++
             "\"extra\":{\"future\":true}}",
         .{},
     );
     defer running.deinit();
-    const running_snapshot = try decodeTerminalSnapshot(running.value);
+    const running_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        running.value,
+    );
     try std.testing.expect(running_snapshot.running);
     try std.testing.expectEqual(
         TerminalLifecycle.running,
@@ -17436,7 +17534,7 @@ test "terminal lifecycle and durable exit constraints are strict" {
     var exited = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
-            "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
+            "\"tab_id\":null,\"tab_ids\":[]," ++
             "\"title\":\"done\",\"cols\":80,\"rows\":24," ++
             "\"running\":false,\"lifecycle\":\"exited\",\"exit\":{" ++
             "\"outcome\":{\"kind\":\"exit\",\"code\":-7}," ++
@@ -17445,7 +17543,12 @@ test "terminal lifecycle and durable exit constraints are strict" {
         .{},
     );
     defer exited.deinit();
-    const exited_snapshot = try decodeTerminalSnapshot(exited.value);
+    const exited_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        exited.value,
+    );
+    try std.testing.expect(exited_snapshot.tab_id == null);
+    try std.testing.expectEqual(@as(usize, 0), exited_snapshot.tab_ids.len);
     try std.testing.expectEqual(
         std.math.maxInt(u64),
         exited_snapshot.exit.?.exited_at,
@@ -17466,12 +17569,16 @@ test "terminal lifecycle and durable exit constraints are strict" {
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
             "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
+            "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
             "\"title\":\"future\",\"cols\":80,\"rows\":24," ++
             "\"running\":false,\"lifecycle\":\"suspended\"}",
         .{},
     );
     defer future.deinit();
-    const future_snapshot = try decodeTerminalSnapshot(future.value);
+    const future_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        future.value,
+    );
     switch (future_snapshot.lifecycle) {
         .unknown => |value| try std.testing.expectEqualStrings(
             "suspended",
@@ -17484,6 +17591,7 @@ test "terminal lifecycle and durable exit constraints are strict" {
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
             "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
+            "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
             "\"title\":\"bad\",\"cols\":80,\"rows\":24," ++
             "\"running\":false,\"lifecycle\":\"running\"}",
         .{},
@@ -17491,7 +17599,7 @@ test "terminal lifecycle and durable exit constraints are strict" {
     defer inconsistent.deinit();
     try std.testing.expectError(
         error.InvalidTerminalState,
-        decodeTerminalSnapshot(inconsistent.value),
+        decodeTerminalSnapshot(decoded_arena.allocator(), inconsistent.value),
     );
 }
 

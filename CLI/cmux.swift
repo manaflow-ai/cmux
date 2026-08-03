@@ -1795,6 +1795,7 @@ final class SocketClient {
 
     private let path: String
     private(set) var socketFD: Int32 = -1
+    private var streamReadBuffer = Data()
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
@@ -1959,6 +1960,7 @@ final class SocketClient {
             Darwin.close(socketFD)
             socketFD = -1
         }
+        streamReadBuffer.removeAll(keepingCapacity: true)
         lastConfiguredReceiveTimeout = nil
     }
 
@@ -2943,6 +2945,7 @@ final class SocketClient {
     func streamV2(
         method: String,
         params: [String: Any] = [:],
+        deadline: Date? = nil,
         onLine: (String) throws -> Void
     ) throws {
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
@@ -2960,26 +2963,60 @@ final class SocketClient {
         try writeAll(
             Data((capabilityWrappedCommand(requestLine) + "\n").utf8),
             timeoutMessage: "Stream request timed out",
-            failureMessage: "Failed to write stream request"
+            failureMessage: "Failed to write stream request",
+            deadline: deadline
         )
 
         while true {
-            let line = try readStreamLine()
+            let line = try readStreamLine(deadline: deadline)
             try onLine(line)
         }
     }
 
-    private func readStreamLine(maxBytes: Int = 4 * 1024 * 1024) throws -> String {
-        var data = Data()
-        try configureReceiveTimeout(45)
-        while data.count < maxBytes {
-            var byte: UInt8 = 0
-            let count = Darwin.read(socketFD, &byte, 1)
+    private func readStreamLine(
+        maxBytes: Int = 4 * 1024 * 1024,
+        deadline: Date? = nil
+    ) throws -> String {
+        if deadline == nil {
+            try configureReceiveTimeout(45)
+        }
+        while true {
+            if let newlineIndex = streamReadBuffer.firstIndex(of: 0x0A) {
+                let lineByteCount = streamReadBuffer.distance(
+                    from: streamReadBuffer.startIndex,
+                    to: newlineIndex
+                )
+                guard lineByteCount < maxBytes else {
+                    throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
+                }
+                let lineData = streamReadBuffer[..<newlineIndex]
+                guard let line = String(data: Data(lineData), encoding: .utf8) else {
+                    throw CLIError(message: "Invalid UTF-8 event stream frame")
+                }
+                streamReadBuffer.removeSubrange(...newlineIndex)
+                return line.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard streamReadBuffer.count < maxBytes else {
+                throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
+            }
+            if let deadline {
+                try waitForReadableStream(deadline: deadline)
+            }
+            var chunk = [UInt8](repeating: 0, count: 8 * 1_024)
+            let count = chunk.withUnsafeMutableBytes { bytes in
+                Darwin.read(socketFD, bytes.baseAddress, bytes.count)
+            }
             if count < 0 {
                 if errno == EINTR {
                     continue
                 }
                 if errno == EAGAIN || errno == EWOULDBLOCK {
+                    if let deadline {
+                        guard deadline.timeIntervalSinceNow > 0 else {
+                            throw CLIError(message: "Event stream deadline exceeded")
+                        }
+                        continue
+                    }
                     throw CLIError(message: "Timed out waiting for event stream frame")
                 }
                 throw CLIError(message: "Event stream socket read error")
@@ -2987,15 +3024,36 @@ final class SocketClient {
             if count == 0 {
                 throw CLIError(message: "Event stream closed")
             }
-            if byte == 0x0A {
-                guard let line = String(data: data, encoding: .utf8) else {
-                    throw CLIError(message: "Invalid UTF-8 event stream frame")
-                }
-                return line.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            data.append(byte)
+            streamReadBuffer.append(contentsOf: chunk.prefix(count))
         }
-        throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
+    }
+
+    private func waitForReadableStream(deadline: Date) throws {
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw CLIError(message: "Event stream deadline exceeded")
+            }
+            var descriptor = pollfd(fd: socketFD, events: Int16(POLLIN), revents: 0)
+            let timeoutMilliseconds = min(
+                max(Int(ceil(remaining * 1_000)), 0),
+                Int(Int32.max)
+            )
+            let ready = Darwin.poll(
+                &descriptor,
+                1,
+                Int32(timeoutMilliseconds)
+            )
+            if ready > 0 {
+                return
+            }
+            if ready == 0 {
+                throw CLIError(message: "Event stream deadline exceeded")
+            }
+            if errno != EINTR {
+                throw CLIError(message: "Event stream socket read error")
+            }
+        }
     }
 }
 
@@ -4947,13 +5005,35 @@ struct CMUXCLI {
             let csWsFlag = optionValue(commandArgs, name: "--workspace")
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
             let workspaceArg = csWsFlag ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let surfaceRaw = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel") ?? (csWsFlag == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let explicitSurfaceRaw = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel")
+            let surfaceRaw = explicitSurfaceRaw ?? (csWsFlag == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
-            let sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
+            let sfId: String?
+            if let explicitSurfaceRaw {
+                let explicitSurfaceHandle = explicitSurfaceRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !explicitSurfaceHandle.isEmpty else {
+                    throw CLIError(message: String(
+                        localized: "cli.surface.error.handleBlank",
+                        defaultValue: "Surface handle is blank"
+                    ))
+                }
+                if let wsId {
+                    sfId = try resolveSurfaceId(explicitSurfaceHandle, workspaceId: wsId, client: client)
+                } else if let winId {
+                    sfId = try normalizeSurfaceHandle(explicitSurfaceHandle, client: client, workspaceHandle: nil, windowHandle: winId)
+                } else {
+                    throw CLIError(message: String(
+                        localized: "cli.closeSurface.error.explicitSurfaceRequiresWorkspaceOrWindow",
+                        defaultValue: "close-surface requires --workspace or --window with explicit --surface"
+                    ))
+                }
+            } else {
+                sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
+            }
             if let sfId { params["surface_id"] = sfId }
             let payload = try client.sendV2(method: "surface.close", params: params)
             if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId,
@@ -15370,26 +15450,51 @@ struct CMUXCLI {
     }
 
     private func resolveSurfaceId(_ raw: String?, workspaceId: String, client: SocketClient) throws -> String {
-        if let raw, isUUID(raw) {
-            return raw
-        }
-        if let raw, isHandleRef(raw) {
-            let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
-            let items = listed["surfaces"] as? [[String: Any]] ?? []
-            for item in items where (item["ref"] as? String) == raw {
-                if let id = item["id"] as? String { return id }
-            }
-            throw CLIError(message: "Surface ref not found: \(raw)")
-        }
-
         let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
         let items = listed["surfaces"] as? [[String: Any]] ?? []
 
-        if let raw, let index = Int(raw) {
+        if let raw {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                throw CLIError(message: String(
+                    localized: "cli.surface.error.handleBlank",
+                    defaultValue: "Surface handle is blank"
+                ))
+            }
+            if isUUID(trimmed) {
+                for item in items where surfaceHandleMatches(trimmed, item: item) {
+                    if let id = item["id"] as? String { return id }
+                }
+                throw CLIError(message: localizedFormat(
+                    "cli.surface.error.notFound",
+                    defaultValue: "Surface not found: %@",
+                    trimmed
+                ))
+            }
+            if isHandleRef(trimmed) {
+                for item in items where surfaceHandleMatches(trimmed, item: item) {
+                    if let id = item["id"] as? String { return id }
+                }
+                throw CLIError(message: localizedFormat(
+                    "cli.surface.error.refNotFound",
+                    defaultValue: "Surface ref not found: %@",
+                    trimmed
+                ))
+            }
+            guard let index = Int(trimmed) else {
+                throw CLIError(message: localizedFormat(
+                    "cli.surface.error.invalidHandle",
+                    defaultValue: "Invalid surface handle: %@ (expected UUID, ref like surface:1, or index)",
+                    trimmed
+                ))
+            }
             for item in items where intFromAny(item["index"]) == index {
                 if let id = item["id"] as? String { return id }
             }
-            throw CLIError(message: "Surface index not found")
+            throw CLIError(message: String(
+                localized: "cli.surface.error.indexNotFound",
+                defaultValue: "Surface index not found"
+            ))
         }
 
         if let focused = items.first(where: { ($0["focused"] as? Bool) == true }) {
@@ -15528,6 +15633,14 @@ struct CMUXCLI {
         case "ios":
             return iosSubcommandUsage()
         case "events":
+            let timeoutDescription = String(
+                localized: "cli.events.help.timeout",
+                defaultValue: "Exit unsuccessfully if no matching event arrives before the deadline"
+            )
+            let snapshotDescription = String(
+                localized: "cli.events.help.snapshot",
+                defaultValue: "Print the subscription snapshot and exit"
+            )
             return """
             Usage: cmux events [options]
 
@@ -15540,6 +15653,8 @@ struct CMUXCLI {
               --category <name>      Filter by category, repeatable
               --reconnect            Reconnect forever and resume from the last received sequence
               --limit <n>            Exit after printing n event frames
+              --timeout <seconds>    \(timeoutDescription)
+              --snapshot             \(snapshotDescription)
               --no-ack               Do not print the subscription ack frame
               --no-heartbeat         Do not print heartbeat frames
 

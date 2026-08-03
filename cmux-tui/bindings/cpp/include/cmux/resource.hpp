@@ -126,6 +126,7 @@ enum class Operation {
     terminal_viewer_release,
     terminal_viewport_scroll,
     terminal_move,
+    terminal_project,
     terminal_attach,
     terminal_close,
     browser_list,
@@ -779,7 +780,8 @@ struct TerminalExit {
 
 struct TerminalSnapshot {
     TerminalId id;
-    TabId tab_id;
+    std::optional<TabId> tab_id;
+    std::vector<TabId> tab_ids;
     std::string title;
     std::optional<std::string> cwd;
     std::uint16_t cols = 0;
@@ -2084,6 +2086,10 @@ public:
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<MutationResult<TerminalSnapshot>> move(
         PaneDestination destination,
+        MutationOptions options = MutationOptions::unique()) const;
+    [[nodiscard]] Result<MutationResult<TabSnapshot>> project(
+        PaneDestination destination,
+        std::optional<std::string> name = std::nullopt,
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<TerminalAttachmentStream> attach(
         TerminalAttachOptions options = {},

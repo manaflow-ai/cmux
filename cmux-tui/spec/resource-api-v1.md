@@ -9,12 +9,12 @@ The public hierarchy is:
 ```text
 Machine
 └── Session
+    ├── Terminal
     ├── Workspace
     │   └── Screen
     │       └── Pane
     │           └── Tab
-    │               ├── Terminal
-    │               └── Browser
+    │               └── Terminal view or Browser
     ├── Client
     ├── Notification
     ├── Agent
@@ -22,8 +22,14 @@ Machine
     └── SidebarView
 ```
 
-A tab owns exactly one terminal or browser. Sidebar extensions are
-session-scoped auxiliary resources and cannot become tabs.
+A terminal is session-owned content with zero or more tab views. Every view
+has its own tab ID and placement-local name; all views share one process,
+ordered input stream, output history, and canonical grid. Closing a tab, pane,
+screen, workspace, frontend projection, or client connection detaches views
+without closing the terminal. `terminal.project` adds another view, and only
+`terminal.close` terminates and tombstones the terminal. A browser remains
+single-view tab content. Sidebar extensions are session-scoped auxiliary
+resources and cannot become tabs.
 
 One `cmux.protocol/1` endpoint describes exactly one local mux session. Its
 machine and session resources provide stable routing handles for that local
@@ -83,6 +89,13 @@ selectors. Structural selectors after the session are flat fields named
 `workspace`, `screen`, `pane`, and `tab`. An opaque nested target ID may omit
 those ancestors. A `current` or name target requires the complete contiguous
 structural chain through its parent, supplied by CLI or SDK context.
+
+An opaque terminal ID resolves without a structural ancestor even when the
+terminal has no tabs. Supplying a tab disambiguates one view for view
+operations such as `terminal.move`; a terminal-only selector uses the first
+durable view when one exists. Content operations, including input, history,
+screen reads, projection, waiting, and explicit close, address the terminal
+resource and continue to work with zero views.
 
 Every supplied ancestor must contain the resolved descendant. A mismatch
 returns `selector.wrong_parent` with the expected and actual parent before a
@@ -194,13 +207,15 @@ current projection table rather than scanning report history. Tombstoning a
 terminal deletes its projection in the same transaction, so historical
 reports cannot resurrect it.
 
-`terminal.viewport.scroll` changes only the selected terminal's ephemeral
-viewport. Its first success returns the existing resource revision, inserts no
-resource mutation or event, and neither advances nor wakes `session.events`.
-A real viewport change still emits the ordinary `scroll` item on
-`terminal.attach`. Same-key, same-request replay returns the original value,
-generation, and revision with `replayed: true` without applying the delta
-again. After bounded receipt eviction, the key executes as a new mutation.
+`terminal.viewport.scroll` changes the session's compatibility inspection
+viewport. Interactive frontends keep scroll in their own terminal mirror and
+must not call this operation for user scrolling. Its first success returns the
+existing resource revision, inserts no resource mutation or event, and neither
+advances nor wakes `session.events`. A real compatibility-viewport change
+still emits the ordinary `scroll` item on `terminal.attach`. Same-key,
+same-request replay returns the original value, generation, and revision with
+`replayed: true` without applying the delta again. After bounded receipt
+eviction, the key executes as a new mutation.
 
 `sidebar_view.input` compares the complete public sidebar lifecycle snapshot
 immediately before and after the PTY write. If the snapshot is unchanged,
@@ -381,7 +396,7 @@ defines the catalog format. Unknown parameter and result fields are rejected.
 | Class | Operations |
 | --- | --- |
 | read | `agent.list`, `browser.get`, `browser.list`, `client.get`, `client.list`, `frontend_projection.get`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `pane.get`, `pane.list`, `pane.neighbor.get`, `screen.get`, `screen.layout.export`, `screen.list`, `session.creation.resolve`, `session.get`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.producer.list`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_view.get`, `tab.get`, `tab.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `workspace.get`, `workspace.list` |
-| mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `frontend_projection.put`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.rename`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.rename`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.viewport.scroll`, `workspace.close`, `workspace.create`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.rename`, `workspace.run` |
+| mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `frontend_projection.put`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.rename`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.rename`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `workspace.close`, `workspace.create`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.rename`, `workspace.run` |
 | stream_open | `browser.attach`, `session.events`, `session.journal.subscribe`, `sidebar_view.attach`, `terminal.attach` |
 | connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `request.cancel`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
 | local | `sidebar_plugin.install`, `sidebar_plugin.list`, `sidebar_plugin.remove`, `sidebar_plugin.update`, `sidebar_plugin.use`, `sidebar_plugin.use_builtin` |

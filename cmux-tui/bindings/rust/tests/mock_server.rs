@@ -196,6 +196,7 @@ fn terminal_snapshot() -> Value {
     json!({
         "id": TERMINAL,
         "tab_id": TAB,
+        "tab_ids": [TAB],
         "title": "fixture",
         "cwd": "/tmp",
         "cols": 80,
@@ -2335,7 +2336,8 @@ fn terminal_snapshot_lifecycle_invariants_are_strict() {
 
     let exited: TerminalSnapshot = serde_json::from_value(json!({
         "id": TERMINAL,
-        "tab_id": TAB,
+        "tab_id": null,
+        "tab_ids": [],
         "title": "finished",
         "cols": 80,
         "rows": 24,

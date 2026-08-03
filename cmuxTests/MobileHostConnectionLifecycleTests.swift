@@ -73,6 +73,58 @@ extension MobileHostAuthorizationTests {
         #expect(await closeRecorder.recordedIDs() == [connectionID])
     }
 
+    @Test func testDebugTransportCloseUsesProductionClosePathAndSupportsExactSelection() async {
+        let registry = MobileHostConnectionRegistry.shared
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test setup")
+        }
+        let firstID = UUID()
+        let secondID = UUID()
+        let firstTransport = GatedMobileHostByteTransport()
+        let secondTransport = GatedMobileHostByteTransport()
+        let first = MobileHostConnection(
+            id: firstID,
+            transport: firstTransport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { registry.remove(id: $0) }
+        )
+        let second = MobileHostConnection(
+            id: secondID,
+            transport: secondTransport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { registry.remove(id: $0) }
+        )
+        #expect(registry.insert(
+            first,
+            id: firstID,
+            authorization: .stackBearer,
+            limit: 2
+        ))
+        #expect(registry.insert(
+            second,
+            id: secondID,
+            authorization: .stackBearer,
+            limit: 2
+        ))
+
+        let selected = await registry.debugCloseConnections(
+            connectionID: firstID
+        )
+        #expect(selected == [firstID])
+        #expect(await firstTransport.observedCloseCount() == 1)
+        #expect(await secondTransport.observedCloseCount() == 0)
+        #expect(registry.count == 1)
+
+        let remaining = await registry.debugCloseConnections(connectionID: nil)
+        #expect(remaining == [secondID])
+        #expect(await secondTransport.observedCloseCount() == 1)
+        #expect(registry.count == 0)
+    }
+
     @Test func testNewestAuthorizedIrohConnectionSupersedesOlderOverlap() async throws {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
@@ -127,9 +179,173 @@ extension MobileHostAuthorizationTests {
         service.debugResetMobileLifecycleStateForTesting()
     }
 
+    @Test func testMobileHostPublishesUsableSessionOnlyAfterWorkspaceAndEventReadiness() async throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+        let transport = ScriptedMobileHostByteTransport()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                if request.method == "workspace.list" {
+                    return .ok(["workspaces": [[
+                        "id": "workspace-a",
+                        "title": "Ready workspace",
+                    ]]])
+                }
+                return .ok([:])
+            },
+            onClose: { _ in }
+        )
+        let runTask = Task {
+            await session.run()
+        }
+
+        await transport.enqueue(try Self.mobileHostStatusFrame(id: "admission-only"))
+        _ = await transport.waitForSentBufferCount(1)
+        #expect(Self.retainedUsableSessionEvents().isEmpty)
+
+        await transport.enqueue(try Self.mobileHostWorkspaceListFrame(id: "workspace"))
+        _ = await transport.waitForSentBufferCount(2)
+        #expect(Self.retainedUsableSessionEvents().isEmpty)
+
+        await transport.enqueue(try Self.mobileHostTerminalSubscribeFrame(id: "subscribe"))
+        _ = await transport.waitForSentBufferCount(3)
+
+        let readyEvents = Self.retainedUsableSessionEvents()
+        #expect(readyEvents.count == 1)
+        let payload = readyEvents.first?["payload"] as? [String: Any]
+        #expect(payload?["connection_id"] as? String == session.connectionID.uuidString)
+        #expect(payload?["workspace_count"] as? Int == 1)
+        #expect(payload?["stream_id"] as? String == "events")
+        #expect(payload?["client_id"] as? String == "phone-a")
+        #expect(payload?["transport"] as? String == "control_v1")
+
+        await transport.enqueue(try Self.mobileHostWorkspaceListFrame(id: "workspace-again"))
+        _ = await transport.waitForSentBufferCount(4)
+        await transport.enqueue(try Self.mobileHostTerminalSubscribeFrame(id: "subscribe-again"))
+        _ = await transport.waitForSentBufferCount(5)
+        #expect(Self.retainedUsableSessionEvents().count == 1)
+
+        await transport.finishReceiving()
+        await runTask.value
+    }
+
+    @Test func testMobileHostDoesNotPublishUsableSessionWithoutARealWorkspace() async throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+        let transport = ScriptedMobileHostByteTransport()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                request.method == "workspace.list"
+                    ? .ok(["workspaces": []])
+                    : .ok([:])
+            },
+            onClose: { _ in }
+        )
+        let runTask = Task { await session.run() }
+
+        await transport.enqueue(try Self.mobileHostWorkspaceListFrame(id: "empty"))
+        _ = await transport.waitForSentBufferCount(1)
+        await transport.enqueue(try Self.mobileHostTerminalSubscribeFrame(id: "subscribe"))
+        _ = await transport.waitForSentBufferCount(2)
+
+        #expect(Self.retainedUsableSessionEvents().isEmpty)
+        await transport.finishReceiving()
+        await runTask.value
+    }
+
+    @Test func testMobileHostDoesNotPublishReadinessForUnsubscribedStream() async throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+        let transport = ScriptedMobileHostByteTransport()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                request.method == "workspace.list"
+                    ? .ok(["workspaces": [["id": "workspace-a"]]])
+                    : .ok([:])
+            },
+            onClose: { _ in }
+        )
+        let runTask = Task { await session.run() }
+
+        await transport.enqueue(try Self.mobileHostTerminalSubscribeFrame(id: "subscribe"))
+        _ = await transport.waitForSentBufferCount(1)
+        await transport.enqueue(try Self.mobileHostUnsubscribeFrame(id: "unsubscribe"))
+        _ = await transport.waitForSentBufferCount(2)
+        await transport.enqueue(try Self.mobileHostWorkspaceListFrame(id: "workspace"))
+        _ = await transport.waitForSentBufferCount(3)
+
+        #expect(Self.retainedUsableSessionEvents().isEmpty)
+        await transport.finishReceiving()
+        await runTask.value
+    }
+
+    @Test func testMobileHostPublishesReadinessOnlyAfterSubscriptionAckWrites() async throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+        let transport = ScriptedMobileHostByteTransport()
+        await transport.failSend(number: 2)
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                request.method == "workspace.list"
+                    ? .ok(["workspaces": [["id": "workspace-a"]]])
+                    : .ok([:])
+            },
+            onClose: { _ in }
+        )
+        let runTask = Task { await session.run() }
+
+        await transport.enqueue(try Self.mobileHostWorkspaceListFrame(id: "workspace"))
+        _ = await transport.waitForSentBufferCount(1)
+        await transport.enqueue(try Self.mobileHostTerminalSubscribeFrame(id: "subscribe"))
+        await transport.waitForCloseCount(1)
+
+        #expect(Self.retainedUsableSessionEvents().isEmpty)
+        await runTask.value
+    }
+
     private static func mobileHostStatusFrame(id: String) throws -> Data {
         try MobileSyncFrameCodec.encodeFrame(
             Data("{\"id\":\"\(id)\",\"method\":\"mobile.host.status\",\"params\":{}}".utf8)
+        )
+    }
+
+    private static func mobileHostWorkspaceListFrame(id: String) throws -> Data {
+        try MobileSyncFrameCodec.encodeFrame(
+            Data("{\"id\":\"\(id)\",\"method\":\"workspace.list\",\"params\":{}}".utf8)
+        )
+    }
+
+    private static func mobileHostTerminalSubscribeFrame(id: String) throws -> Data {
+        try MobileSyncFrameCodec.encodeFrame(
+            Data(
+                """
+                {"id":"\(id)","method":"mobile.events.subscribe","params":{"client_id":"phone-a","stream_id":"events","topics":["workspace.updated","mobile.sync.delta","terminal.render_grid"]}}
+                """.utf8
+            )
+        )
+    }
+
+    private static func mobileHostUnsubscribeFrame(id: String) throws -> Data {
+        try MobileSyncFrameCodec.encodeFrame(
+            Data(
+                "{\"id\":\"\(id)\",\"method\":\"mobile.events.unsubscribe\",\"params\":{\"stream_id\":\"events\"}}".utf8
+            )
         )
     }
 
@@ -137,6 +353,12 @@ extension MobileHostAuthorizationTests {
         try MobileSyncFrameCodec.encodeFrame(
             Data("{\"id\":\"\(id)\",\"method\":\"mobile.events.subscribe\",\"params\":{\"stream_id\":\"events\",\"topics\":[\"terminal.updated\"]}}".utf8)
         )
+    }
+
+    private static func retainedUsableSessionEvents() -> [[String: Any]] {
+        CmuxEventBus.shared.retainedSnapshot().filter {
+            $0["name"] as? String == "mobile.rpc.ready"
+        }
     }
 
     private func waitForMobileHostConnectionCount(_ expected: Int) async {
@@ -505,10 +727,16 @@ private actor GatedMobileHostByteTransport: CmxByteTransport {
 }
 
 private actor ScriptedMobileHostByteTransport: CmxByteTransport {
+    private enum Failure: Error {
+        case scriptedSend
+    }
+
     private var receiveQueue: [Data?] = []
     private var receiveWaiter: CheckedContinuation<Data?, Never>?
     private var sent: [Data] = []
     private var closeCount = 0
+    private var failedSendNumbers: Set<Int> = []
+    private var sendCount = 0
     private var sentWaiters: [(count: Int, continuation: CheckedContinuation<[Data], Never>)] = []
     private var closeWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
@@ -522,6 +750,10 @@ private actor ScriptedMobileHostByteTransport: CmxByteTransport {
     }
 
     func send(_ data: Data) async throws {
+        sendCount += 1
+        if failedSendNumbers.contains(sendCount) {
+            throw Failure.scriptedSend
+        }
         sent.append(data)
         let ready = sentWaiters.filter { sent.count >= $0.count }
         sentWaiters.removeAll { sent.count >= $0.count }
@@ -569,6 +801,10 @@ private actor ScriptedMobileHostByteTransport: CmxByteTransport {
     }
 
     func observedCloseCount() -> Int { closeCount }
+
+    func failSend(number: Int) {
+        failedSendNumbers.insert(number)
+    }
 
     func waitForCloseCount(_ count: Int) async {
         if closeCount >= count {

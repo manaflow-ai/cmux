@@ -289,7 +289,6 @@ import os
         #expect(DiagnosticSessionLifecycleKind.runtimeReconfigured.rawValue == 9)
         #expect(DiagnosticSessionLifecycleKind.explicitlyInvalidated.rawValue == 10)
         #expect(DiagnosticSessionLifecycleKind.allPathsClosed.rawValue == 11)
-
         #expect(DiagnosticPathKind(.unavailable) == .unknown)
         #expect(DiagnosticPathKind(.direct) == .direct)
         #expect(DiagnosticPathKind(.privateNetwork) == .privateNetwork)
@@ -440,6 +439,38 @@ import os
             #expect(report.lastFailureKind == .protocolViolation)
             #expect(report.lastFailureDate != nil)
         }
+    }
+
+    @Test func cancelledDialOutcomesDoNotCountAsFailures() {
+        let realFailure = DiagnosticEvent(
+            code: .rpcFailed,
+            tNanos: 2,
+            b: DiagnosticFailureKind.protocolViolation.rawValue
+        )
+        let abandonedDial = DiagnosticEvent(
+            code: .transportDialFailed,
+            tNanos: 3,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: DiagnosticFailureKind.cancelled.rawValue,
+            c: 7
+        )
+
+        let onlyAbandoned = DiagnosticReport(
+            anchorWallNanos: 1_000_000_000,
+            anchorMonotonicNanos: 1,
+            events: [abandonedDial]
+        )
+        #expect(onlyAbandoned.lastFailureEvent == nil)
+        #expect(onlyAbandoned.lastFailureKind == nil)
+        #expect(onlyAbandoned.lastFailureDate == nil)
+
+        let abandonedAfterRealFailure = DiagnosticReport(
+            anchorWallNanos: 1_000_000_000,
+            anchorMonotonicNanos: 1,
+            events: [realFailure, abandonedDial]
+        )
+        #expect(abandonedAfterRealFailure.lastFailureEvent == realFailure)
+        #expect(abandonedAfterRealFailure.lastFailureKind == .protocolViolation)
     }
 
     @Test func gatedDialRefusalsReportRouteGatedNotTimedOut() {

@@ -50,8 +50,8 @@ pub use options::{
     SessionJournalOptions, SessionOpenOptions, ShutdownOptions, SidebarEnsureOptions,
     SidebarInputOptions, Size, SplitOptions, SplitRatioOptions, TerminalAttachOptions,
     TerminalCreateOptions, TerminalDefaultsOptions, TerminalKeysOptions, TerminalMouseKind,
-    TerminalMouseOptions, TextInputOptions, UndoLayoutOptions, Update, ViewportWidthOptions,
-    WaitOptions, WheelOptions, ZoomOptions,
+    TerminalMouseOptions, TerminalProjectOptions, TextInputOptions, UndoLayoutOptions, Update,
+    ViewportWidthOptions, WaitOptions, WheelOptions, ZoomOptions,
 };
 pub use stream::StreamCancellation;
 pub use typed_stream::{

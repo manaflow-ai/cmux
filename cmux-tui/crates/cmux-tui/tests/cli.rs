@@ -53,7 +53,7 @@ impl HeadlessServer {
         panic!("headless server did not create socket at {}", self.socket.display());
     }
 
-    fn close_all_surfaces(&self) -> bool {
+    fn close_all_resources(&self) -> bool {
         let host_root =
             cmux_tui_core::terminal_host_runtime::terminal_host_root(&self.state, "main");
         // Capture exact host PIDs before close can remove their discovery
@@ -92,6 +92,34 @@ impl HeadlessServer {
             })
             .filter_map(|pid| u32::try_from(pid).ok())
             .collect::<Vec<_>>();
+
+        // A terminal runtime is independent of its placements. Explicitly
+        // close every terminal resource, including zero-view terminals that
+        // cannot appear in the legacy workspace tree below.
+        if let Ok(output) = Command::new(bin())
+            .args(["--json", "--socket"])
+            .arg(&self.socket)
+            .args(["terminal", "list"])
+            .env_remove("CMUX_TUI_SOCKET")
+            .output()
+            && output.status.success()
+            && let Ok(terminals) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            && let Some(terminals) = terminals.as_array()
+        {
+            for terminal in terminals {
+                let Some(terminal_id) = terminal["id"].as_str() else { continue };
+                let _ = Command::new(bin())
+                    .args(["--quiet", "--socket"])
+                    .arg(&self.socket)
+                    .args(["terminal", terminal_id, "close"])
+                    .env_remove("CMUX_TUI_SOCKET")
+                    .output();
+            }
+        }
+
+        // Close any remaining browser placements. Terminal placements were
+        // already removed by terminal.close, so missing-surface responses are
+        // expected and harmless here.
         for (index, surface) in surfaces.into_iter().enumerate() {
             let index = u64::try_from(index).expect("surface count fits a protocol request id");
             let _ = try_json_socket_request(
@@ -129,9 +157,9 @@ impl HeadlessServer {
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
         // Durable terminal hosts intentionally outlive the daemon. Tests must
-        // close their canonical surfaces first rather than assuming SIGKILL
-        // of the daemon also owns or reaps its per-terminal processes.
-        let hosts_stopped = self.close_all_surfaces();
+        // close their terminal resources first rather than assuming SIGKILL
+        // of the daemon also owns or reaps their processes.
+        let hosts_stopped = self.close_all_resources();
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = fs::remove_file(&self.socket);
@@ -1142,6 +1170,7 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let sizing_workspace = json_cli(&server, &["workspace", "create", "--name", "cli-test"]);
     assert_success(&sizing_workspace);
     let created = json_output(&sizing_workspace);
+    let workspace_id = created["value"]["workspace_id"].as_str().unwrap().to_string();
     let screen_id = created["value"]["screen_id"].as_str().unwrap().to_string();
     let pane0 = created["value"]["pane_id"].as_str().unwrap().to_string();
     let terminal = created["value"]["terminal_id"].as_str().unwrap().to_string();
@@ -1247,6 +1276,55 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let split = json_cli(&server, &["pane", &pane0, "split", "--right"]);
     assert_success(&split);
     let pane1 = json_output(&split)["value"]["pane_id"].as_str().unwrap().to_string();
+    let projected = json_cli(
+        &server,
+        &[
+            "terminal",
+            &terminal,
+            "project",
+            "--workspace",
+            &workspace_id,
+            "--screen",
+            &screen_id,
+            "--pane",
+            &pane1,
+            "--index",
+            "0",
+            "--name",
+            "mirror",
+        ],
+    );
+    assert_success(&projected);
+    let projected = json_output(&projected);
+    assert_eq!(projected["value"]["focused"], false);
+    let projected_tab = projected["value"]["id"].as_str().unwrap();
+    let terminals = json_cli(&server, &["terminal", "list"]);
+    assert_success(&terminals);
+    let terminals = json_output(&terminals);
+    let source =
+        terminals.as_array().unwrap().iter().find(|candidate| candidate["id"] == terminal).unwrap();
+    assert_eq!(source["tab_ids"].as_array().unwrap().len(), 2);
+    let snapshot = json_cli(&server, &["session", "current", "snapshot"]);
+    assert_success(&snapshot);
+    let snapshot_json = json_output(&snapshot);
+    let projected_record = snapshot_json["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["id"].as_str() == Some(projected_tab))
+        .unwrap();
+    assert_eq!(projected_record["pane_id"], pane1);
+    assert_eq!(projected_record["focused"], false);
+    let focused_tab = snapshot_json["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["pane_id"] == pane1 && tab["focused"] == true)
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_ne!(focused_tab, projected_tab);
 
     let new_pane = json_cli(
         &server,
@@ -1843,6 +1921,7 @@ fn layout_split_ratio(node: &serde_json::Value, split_id: &str) -> Option<f64> {
     }
 }
 
+#[track_caller]
 fn assert_success(output: &Output) {
     assert!(
         output.status.success(),

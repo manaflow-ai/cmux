@@ -196,7 +196,7 @@ tab <selector> show|rename|move|focus|close
 tab <selector> terminal|browser ...
 
 terminal list
-terminal <selector> show|write|keys|mouse|copy|move|attach|close
+terminal <selector> show|write|keys|mouse|copy|move|project|attach|close
 terminal <selector> focus <in|out>
 terminal <selector> screen read|wait
 terminal <selector> state read
@@ -223,6 +223,10 @@ provider authority install
 ```
 
 Workspace creation starts with one terminal unless `--empty` is present.
+`terminal <selector> project` requires destination `--workspace`, `--screen`,
+`--pane`, and `--index` values and creates an unfocused tab placement. Tab,
+pane, screen, and workspace closes detach PTY views; only `terminal close`
+ends the session-owned process and removes all of its placements.
 `client <selector> metadata set` leaves an omitted field unchanged and clears
 one passed as null. A non-null name or kind preserves its exact value, contains
 at most 64 Unicode scalars, and contains no Unicode `Cc` control scalar.

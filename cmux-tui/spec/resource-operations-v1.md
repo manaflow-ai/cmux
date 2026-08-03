@@ -6,18 +6,18 @@ selectors, fields, results, errors, constraints, or stream types.
 
 ## Transported operations
 
-`cmux.protocol/1` transports 123 operations for exactly one local mux
+`cmux.protocol/1` transports 124 operations for exactly one local mux
 session. Cross-machine aggregation and provider lifecycle require a later
 broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
 | `read` | 40 | Reads state and forbids an idempotency key |
-| `mutation` | 66 | Requires an idempotency key and returns a mutation result |
+| `mutation` | 67 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 5 | Opens a connection-owned typed stream |
 | `connection_control` | 12 | Changes only connection-local state |
 
-The 39 mutations with an external effect may return the non-retryable
+The 40 mutations with an external effect may return the non-retryable
 `mutation.indeterminate` error after a crash. The same key is never repeated
 automatically.
 
@@ -42,7 +42,7 @@ correlation, and idempotency metadata.
 | `sidebar_view` | 6 | `sidebar_view.attach`, `sidebar_view.ensure`, `sidebar_view.get`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize` |
 | `stream` | 1 | `stream.cancel` |
 | `tab` | 8 | `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.get`, `tab.list`, `tab.move`, `tab.rename` |
-| `terminal` | 21 | `terminal.attach`, `terminal.close`, `terminal.copy`, `terminal.get`, `terminal.history.clear`, `terminal.history.read`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.list`, `terminal.move`, `terminal.process.get`, `terminal.renderer_grant.create`, `terminal.screen.read`, `terminal.state.read`, `terminal.viewer.release`, `terminal.viewer.resize`, `terminal.viewport.scroll`, `terminal.wait`, `terminal.wait_exit` |
+| `terminal` | 22 | `terminal.attach`, `terminal.close`, `terminal.copy`, `terminal.get`, `terminal.history.clear`, `terminal.history.read`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.list`, `terminal.move`, `terminal.process.get`, `terminal.project`, `terminal.renderer_grant.create`, `terminal.screen.read`, `terminal.state.read`, `terminal.viewer.release`, `terminal.viewer.resize`, `terminal.viewport.scroll`, `terminal.wait`, `terminal.wait_exit` |
 | `workspace` | 9 | `workspace.close`, `workspace.create`, `workspace.focus`, `workspace.get`, `workspace.layout.apply`, `workspace.list`, `workspace.move`, `workspace.rename`, `workspace.run` |
 
 ## Local operations

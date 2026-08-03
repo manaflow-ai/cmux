@@ -158,7 +158,8 @@ public final class Snapshots {
 
     public record TerminalSnapshot(
         Ids.TerminalId id,
-        Ids.TabId tabId,
+        Optional<Ids.TabId> tabId,
+        List<Ids.TabId> tabIds,
         String title,
         Optional<String> cwd,
         int cols,
@@ -170,7 +171,13 @@ public final class Snapshots {
     ) implements ResourceEntitySnapshot {
         public TerminalSnapshot {
             Objects.requireNonNull(id, "id");
-            Objects.requireNonNull(tabId, "tabId");
+            tabId = opt(tabId);
+            tabIds = List.copyOf(tabIds);
+            if (!tabId.equals(tabIds.stream().findFirst())) {
+                throw new IllegalArgumentException(
+                    "tabId must be the first tabIds item"
+                );
+            }
             Objects.requireNonNull(title, "title");
             cwd = opt(cwd);
             positiveUint16(cols, "cols");

@@ -421,7 +421,8 @@ func (s TabSnapshot) MarshalJSON() ([]byte, error) {
 
 type TerminalSnapshot struct {
 	ID        TerminalID           `json:"id"`
-	TabID     TabID                `json:"tab_id"`
+	TabID     *TabID               `json:"tab_id"`
+	TabIDs    []TabID              `json:"tab_ids"`
 	Title     string               `json:"title"`
 	CWD       *string              `json:"cwd,omitempty"`
 	Cols      uint16               `json:"cols"`

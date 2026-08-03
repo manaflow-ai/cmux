@@ -128,9 +128,18 @@ The `dead` pane variant is serialized only if the tree references a pane missing
 
 Every surface has one authoritative cell grid. Byte and render attach modes observe the same grid; attaching by itself never resizes it.
 
-Each client reports the cell grid available for every surface it currently displays with `resize-surface`. The authoritative grid uses the smallest reported `cols` and the smallest reported `rows`, matching tmux's `window-size smallest` policy. Input does not claim or change sizing ownership. When a tab becomes hidden, the client sends `release-surface-size`; detaching or disconnecting also removes its reports. The surface expands to the minimum of the remaining visible clients.
+Each client reports the cell grid available for every surface it displays with
+`resize-surface`. A terminal report is a viewport hint until that exact client
+and terminal view receive explicit geometry authority through
+`set-client-sizing`. One terminal has at most one geometry owner. Other views
+crop, pan, or scale the canonical grid and never resize the PTY. Input does not
+claim geometry. Releasing or disconnecting the owner freezes the current grid;
+the server does not silently elect another owner.
 
-The final effective grid is retained while at least one client still reports a visible surface. Once the final report is released or disconnected, existing surfaces keep their last grids and later unsized headless creation uses the configured default, normally `80x24`. Internal server-only resizes, including sidebar plugin tracking, do not update the client-size cache.
+Browser surfaces retain the legacy smallest-reported-grid reducer because a
+browser surface still has one live tab. When a browser tab becomes hidden, the
+client sends `release-surface-size`; detaching or disconnecting also removes
+its report. Internal server-only resizes do not update client reports.
 
 Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `new-workspace`, `new-screen`, `split`, and `run`. Their rules are:
 
@@ -140,9 +149,18 @@ Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `
 | neither supplied | Use the latest active client size, or the configured server default when no client reports remain |
 | only one supplied | Preserve protocol-v6 behavior: the incomplete pair is ignored; clients must always send both |
 
-`resize-surface` requires both fields and clamps each to `1..10000`, matching tmux's window bounds. Every live control connection enters the same shared reducer. Attached clients retain the report until release; an unattached one-shot report is removed when its connection closes. A disconnected client id is rejected.
+`resize-surface` requires both fields and clamps each to `1..10000`. Attached
+clients retain the report until release; an unattached one-shot report is
+removed when its connection closes. A passive terminal report returns
+`accepted:false` because it did not change canonical geometry, but the report
+is retained and takes effect if that view later claims authority.
 
-`set-client-sizing` controls tmux-style `ignore-size` participation independently for each terminal surface. Every request supplies `surface`. A normal request also supplies `client` and `enabled`. Supplying `exclusive:true` with an enabled client atomically includes only that client on the requested surface. Omitting `client` with `enabled:true` atomically includes all clients on that surface. Ignored clients keep reporting; if every attached client on one surface is ignored, that surface alone falls back to all of its ignored reports.
+For terminals, `set-client-sizing` claims or releases geometry authority.
+`exclusive:true`, `enabled:true`, and no `client` claims authority for the
+requesting connection. An explicit `client` may be used by an authorized
+controller. Omitting `client` and `exclusive` releases any owner and freezes
+the terminal. For browsers, the same command retains the legacy include,
+exclude, and exclusive reducer controls.
 
 Frontends report their grid after a surface becomes visible and whenever that viewport changes. They release the report when the surface becomes hidden, even if its attach stream remains cached. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
 
@@ -380,27 +398,35 @@ Example:
 | status | implemented |
 | since | protocol 9; per-surface request shape protocol 10 |
 
-Changes one client's size participation on one terminal surface. The `surface` field is always required. `exclusive:true` requires `enabled:true` and a client with a reported size on that surface. Omitting `client` with `enabled:true` restores all clients on that surface.
+Claims or releases terminal geometry authority, or changes legacy browser size
+participation. The `surface` field is always required. For a terminal,
+`exclusive:true` requires `enabled:true`; omitting `client` selects the
+requesting connection. The selected client must have reported a size for that
+exact view. Omitting both `client` and `exclusive` releases terminal authority.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `surface` | `Id` | required | Existing terminal surface |
-| `client` | `uint64` | optional only when restoring all | Attached or reporting client for this surface |
+| `surface` | `Id` | required | Existing terminal or browser surface |
+| `client` | `uint64` | optional | Attached or reporting client for this surface; defaults to self for an exclusive terminal claim |
 | `enabled` | `boolean` | required | Include or exclude the client |
-| `exclusive` | `boolean` | default `false` | Valid only with `client` and `enabled:true` |
+| `exclusive` | `boolean` | default `false` | Valid with `enabled:true`; an omitted client defaults to the requesting connection for terminals |
 
 Result: `object{}`.
 
-Errors include `unknown surface <id>`, `client <id> is not attached to surface <id>`, `client <id> has no reported size for surface <id>`, and invalid exclusive or disabled-all combinations.
+For browser surfaces, `enabled` includes or excludes a size report from the
+legacy smallest-grid reducer, and `exclusive:true` retains only the selected
+client's report. Errors include `unknown surface <id>`, `client <id> is not
+attached to surface <id>`, `client <id> has no reported size for surface <id>`,
+and invalid exclusive combinations.
 
 CLI mapping:
 
 | Item | Value |
 | --- | --- |
 | Verb | `set-client-sizing` |
-| Flags | `--surface <id> --enabled <true-or-false> [--client <id>]` |
+| Flags | `--surface <id> --enabled <true-or-false> [--client <id>] [--exclusive <true-or-false>]` |
 | Plain stdout | no output |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -600,18 +626,22 @@ Example:
 | status | implemented |
 | since | protocol 7 |
 
-Stores one opaque, schema-versioned frontend layout document per
-`(frontend, scope, subject_key)`. The browser convention is
-`frontend:"cmux-browser"`, `scope:"window-group"`, with a stable
-profile/window-group identity in `subject_key`.
+Stores one opaque, schema-versioned frontend view document per
+`(frontend, scope, subject_key)`. Use `scope:"personal"` with a stable
+user/profile or device subject for a private durable view. Use
+`scope:"shared"` with a stable collaboration-view subject for a document that
+multiple clients edit. Existing application-specific scopes, including the
+`cmux-browser` `window-group` convention, remain valid.
 
 `put-frontend-projection` additionally requires `schema_version`, a JSON
 `projection`, optional `expected_projection_revision`, and `origin` plus
 `mutation_id`. It uses its own exactly-once ledger and projection CAS; it does
-not advance `workspace_revision`. A projection may contain browser columns,
-splits, web tabs, focus, and terminal placement keyed by canonical workspace
-UUID. It must not duplicate workspace existence, name, order, or group
-membership.
+not advance `workspace_revision`. A projection may contain layouts, browser
+content, saved focus or viewport preferences, and any number of placements of
+one canonical terminal UUID. It must not encode terminal process ownership or
+turn view removal into `terminal.close`. Transient focus, selection, scroll,
+crop, pan, hover, drag, and key-prefix state should remain client-local unless
+the frontend deliberately saves them as preferences.
 
 Result:
 
@@ -1408,9 +1438,9 @@ Example:
 | status | implemented |
 | since | protocol 9 additive capability `layout-undo-v1` |
 
-Undoes the latest structural layout entry on the screen containing `pane`. History is owned by that screen, capped at 32 entries, and kept in memory only. Resize samples carrying the same connection-scoped `transaction` coalesce. A new transaction, another connection, or a request without a transaction starts a new undo entry. Pane creation, split and column resize, swap, zoom, and automatic-layout changes are undoable. A direct pane close clears that screen's history because the closed process cannot be recreated.
+Undoes the latest structural layout entry on the screen containing `pane`. History is owned by that screen, capped at 32 entries, and kept in memory only. Resize samples carrying the same connection-scoped `transaction` coalesce. A new transaction, another connection, or a request without a transaction starts a new undo entry. Pane creation, split and column resize, swap, zoom, and automatic-layout changes are undoable. A direct pane close clears that screen's history because the journal cannot reconstruct exact removed tab membership or a closed browser target.
 
-If the entry created panes, the first request returns a confirmation preview. The server advances to a unique confirmation revision and binds it to the exact ordered surface membership of every pane in `closes_panes`. The client must show the consequence, then resend that revision with `confirm_close:true`. A later structural change, tab addition, tab removal, tab reorder, tab move, or newer preview invalidates the confirmation. A rejected or stale confirmation closes nothing.
+If the entry created panes, the first request returns a confirmation preview. The server advances to a unique confirmation revision and binds it to the exact ordered surface membership of every pane in `closes_panes`. The client must show the consequence, then resend that revision with `confirm_close:true`. Confirming detaches PTY terminal views and closes single-view browser surfaces; it never invokes `terminal.close`. A later structural change, tab addition, tab removal, tab reorder, tab move, or newer preview invalidates the confirmation. A rejected or stale confirmation changes nothing.
 
 Clients must reject the response unless it contains exactly one complete result variant. The applied variant requires `undone:true`, `screen`, and `revision`, with `confirmation_required` either absent or false. The preview variant requires `undone:false`, `confirmation_required:true`, `screen`, `revision`, and an array of valid pane ids in `closes_panes`. Missing fields, contradictory outcome flags, invalid ids, and non-array `closes_panes` values are protocol errors.
 
@@ -1776,7 +1806,12 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes one surface tab. The server kills the surface runtime, removes the tab from its pane, collapses an emptied pane out of its split tree, removes emptied screens and workspaces, and may emit `tree-changed` and `empty`.
+Closes one tab placement. For a PTY, the session-owned terminal process,
+history, and canonical grid remain available, including when this was its last
+view. A browser runtime closes because a browser is single-view. The server
+removes the tab from its pane, collapses an emptied pane and screen, keeps an
+emptied canonical workspace, and may emit `tree-changed`. Only explicit
+`close-workspace` can remove the workspace and produce `empty`.
 
 Params:
 
@@ -1822,7 +1857,10 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes a pane and every tab in it. The pane is collapsed out of the screen split tree. Emptied screens and workspaces are removed.
+Closes a pane and removes every tab placement in it. PTY terminal resources
+remain session-owned and browser runtimes close. The pane is collapsed out of
+the screen split tree. An emptied screen is removed, while its canonical
+workspace remains.
 
 Params:
 
@@ -1868,7 +1906,9 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes a screen and every pane and tab in it. The workspace remains if it still has screens; otherwise the workspace is removed.
+Closes a screen and removes every pane and tab placement in it. PTY terminal
+resources remain session-owned and browser runtimes close. The canonical
+workspace remains even when this was its final screen.
 
 Params:
 
@@ -1914,8 +1954,10 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Explicitly tombstones a workspace and closes every screen, pane, and tab in
-it. Terminal/pane exit alone never invokes this operation. The active
+Explicitly tombstones a workspace and removes every screen, pane, and tab
+placement in it. PTY terminal resources remain session-owned with zero or more
+views; only `terminal.close` ends them. Single-view browser runtimes close.
+Terminal or pane exit alone never invokes this operation. The active
 workspace selection is adjusted to keep a remaining workspace active when
 possible. The workspace may be selected by stable key or numeric id, and the
 common mutation envelope provides revision CAS and exactly-once retries.
@@ -2279,7 +2321,14 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Resizes a surface to a cell grid. PTY surfaces resize both the PTY and VT terminal state. Browser surfaces update their cell grid and CDP device metrics asynchronously. Clamping and client-size bookkeeping follow [Sizing](#sizing). Protocol v7 returns `accepted`: `true` means the resize was applied or queued, while `false` means the surface already has that size, the same browser resize is pending, or its retry backoff has not elapsed. An accepted browser resize returns a numeric `reservation_id`, which is repeated by its `surface-resized` or `surface-resize-failed` completion. PTY resizes and rejected browser resizes return `null` because their completion does not need asynchronous ownership matching.
+Reports a view's available cell grid. A terminal PTY and VT resize only when
+the requesting client and view hold geometry authority. A passive terminal
+report is retained and returns `accepted:false`. Browser surfaces update their
+cell grid and CDP device metrics asynchronously through the legacy reducer.
+Clamping and bookkeeping follow [Sizing](#sizing). An accepted browser resize
+returns a numeric `reservation_id`, repeated by its `surface-resized` or
+`surface-resize-failed` completion. PTY reports and rejected browser resizes
+return `null`.
 
 Params:
 

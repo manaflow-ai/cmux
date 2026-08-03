@@ -26,6 +26,40 @@ use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 
 const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v1.json");
 
+/// Resolve a live terminal path or an unscoped durable terminal receipt.
+/// Nested selectors keep normal topology containment, so a detached receipt
+/// cannot satisfy a stale workspace, screen, pane, or tab path.
+pub(crate) fn resolve_terminal_wait_exit_id(
+    mux: &Mux,
+    selectors: &ResourceSelectors,
+) -> Result<TerminalPublicId, ResourceError> {
+    match mux.resolve_resource_path(ResourceTarget::Terminal, selectors) {
+        Ok(path) => path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>")),
+        Err(error) => {
+            if selectors.workspace.is_some()
+                || selectors.screen.is_some()
+                || selectors.pane.is_some()
+                || selectors.tab.is_some()
+            {
+                return Err(error);
+            }
+            let Some(raw) = selectors.terminal.as_deref() else {
+                return Err(error);
+            };
+            let Ok(terminal_id) = TerminalPublicId::parse(raw) else {
+                return Err(error);
+            };
+            let session_selectors = ResourceSelectors {
+                machine: selectors.machine.clone(),
+                session: selectors.session.clone(),
+                ..ResourceSelectors::default()
+            };
+            mux.resolve_resource_path(ResourceTarget::Session, &session_selectors)?;
+            Ok(terminal_id)
+        }
+    }
+}
+
 fn operation_catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
     CATALOG.get_or_init(|| {
@@ -936,6 +970,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::TerminalProcessGet
         | ResourceOperation::TerminalViewportScroll
         | ResourceOperation::TerminalMove
+        | ResourceOperation::TerminalProject
         | ResourceOperation::TerminalClose
         | ResourceOperation::BrowserNavigate
         | ResourceOperation::BrowserBack

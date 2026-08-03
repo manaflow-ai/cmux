@@ -280,36 +280,42 @@ impl Session {
         surface: SurfaceId,
         client: u64,
         enabled: bool,
+        exclusive: bool,
     ) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => {
-                mux.set_client_size_participation(surface, client, enabled).map(|_| ()).ok_or_else(
-                    || anyhow::anyhow!("client {client} is not attached to terminal {surface}"),
-                )
-            }
+            Session::Local(mux) => (if exclusive {
+                enabled.then(|| mux.use_only_client_size(surface, client)).flatten()
+            } else {
+                mux.set_client_size_participation(surface, client, enabled)
+            })
+            .map(|_| ())
+            .ok_or_else(|| anyhow::anyhow!("client {client} has no size lease for {surface}")),
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",
                     "surface": surface,
                     "client": client,
                     "enabled": enabled,
+                    "exclusive": exclusive,
                 }))
                 .map(|_| ()),
         }
     }
 
     pub fn use_only_client_sizing(&self, surface: SurfaceId, client: u64) -> anyhow::Result<()> {
+        self.set_client_sizing(surface, client, true, true)
+    }
+
+    pub fn claim_terminal_geometry(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => {
-                mux.use_only_client_size(surface, client).map(|_| ()).ok_or_else(|| {
-                    anyhow::anyhow!("client {client} has no reported size for terminal {surface}")
-                })
-            }
+            Session::Local(mux) => mux
+                .claim_terminal_geometry(surface, 0)
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface}")),
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",
                     "surface": surface,
-                    "client": client,
                     "enabled": true,
                     "exclusive": true,
                 }))
@@ -815,18 +821,6 @@ impl Session {
         }
     }
 
-    pub fn select_screen(&self, index: Option<usize>, delta: Option<isize>) -> anyhow::Result<()> {
-        match self {
-            Session::Local(mux) => {
-                mux.select_screen(index, delta);
-                Ok(())
-            }
-            Session::Remote(remote) => remote
-                .request(json!({"cmd": "select-screen", "index": index, "delta": delta}))
-                .map(|_| ()),
-        }
-    }
-
     pub fn zoom_pane(&self, pane: Option<PaneId>, mode: ZoomMode) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
@@ -1238,61 +1232,11 @@ impl Session {
         }
     }
 
-    /// Drop the local mirror of an exited surface. The server (local mux
-    /// or remote session) reaps its own tree.
+    /// Retire a local placement mirror after authoritative topology removes
+    /// that view. Terminal process exit alone does not retire a placement.
     pub fn forget_surface(&self, surface: SurfaceId) {
         if let Session::Remote(remote) = self {
-            remote.drop_surface(surface);
-        }
-    }
-
-    pub fn focus_pane(&self, pane: PaneId) -> anyhow::Result<()> {
-        match self {
-            Session::Local(mux) => {
-                mux.focus_pane(pane);
-                Ok(())
-            }
-            Session::Remote(remote) => {
-                remote.request(json!({"cmd": "focus-pane", "pane": pane})).map(|_| ())
-            }
-        }
-    }
-
-    pub fn select_tab(
-        &self,
-        pane: Option<PaneId>,
-        index: Option<usize>,
-        delta: Option<isize>,
-    ) -> anyhow::Result<()> {
-        match self {
-            Session::Local(mux) => {
-                mux.select_tab(pane, index, delta);
-                Ok(())
-            }
-            Session::Remote(remote) => remote
-                .request(json!({
-                    "cmd": "select-tab",
-                    "pane": pane,
-                    "index": index,
-                    "delta": delta
-                }))
-                .map(|_| ()),
-        }
-    }
-
-    pub fn select_workspace(
-        &self,
-        index: Option<usize>,
-        delta: Option<isize>,
-    ) -> anyhow::Result<()> {
-        match self {
-            Session::Local(mux) => {
-                mux.select_workspace(index, delta);
-                Ok(())
-            }
-            Session::Remote(remote) => remote
-                .request(json!({"cmd": "select-workspace", "index": index, "delta": delta}))
-                .map(|_| ()),
+            remote.retire_surface(surface);
         }
     }
 
@@ -1439,7 +1383,7 @@ impl SurfaceHandle {
         rs: &mut RenderState,
     ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
         match self {
-            SurfaceHandle::Local(surface, _) => surface.render_frame(),
+            SurfaceHandle::Local(surface, _) => surface.render_view_frame(rs),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
                 let mut term = surface.term.lock().unwrap();
                 rs.update(&mut term)?;
@@ -1619,15 +1563,8 @@ impl SurfaceHandle {
     pub fn scroll_delta(&self, delta: isize) -> Option<bool> {
         match self {
             SurfaceHandle::Local(surface, _) => {
-                let before = surface
-                    .with_terminal(|term| term.scrollbar().map(|sb| sb.offset))
-                    .flatten()
-                    .unwrap_or(0);
-                surface.scroll_delta(delta).ok()?;
-                let after = surface
-                    .with_terminal(|term| term.scrollbar().map(|sb| sb.offset))
-                    .flatten()
-                    .unwrap_or(0);
+                let before = surface.view_scrollbar()?.offset;
+                let after = surface.view_scroll_delta(delta).ok()??.offset;
                 Some(before != after)
             }
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
@@ -1651,7 +1588,7 @@ impl SurfaceHandle {
     ) -> Option<Scrollbar> {
         match self {
             SurfaceHandle::Local(surface, _) => {
-                surface.scroll_delta_if_scrollbar(expected, delta).ok().flatten()
+                surface.view_scroll_delta_if_scrollbar(expected, delta).ok().flatten()
             }
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
                 let mut term = surface.term.lock().unwrap();
@@ -1672,18 +1609,7 @@ impl SurfaceHandle {
 
     pub fn scroll_to_bottom(&self) -> Option<bool> {
         match self {
-            SurfaceHandle::Local(surface, _) => {
-                let before = surface
-                    .with_terminal(|term| term.scrollbar().map(|sb| sb.offset))
-                    .flatten()
-                    .unwrap_or(0);
-                surface.scroll_to_bottom().ok()?;
-                let after = surface
-                    .with_terminal(|term| term.scrollbar().map(|sb| sb.offset))
-                    .flatten()
-                    .unwrap_or(0);
-                Some(before != after)
-            }
+            SurfaceHandle::Local(surface, _) => surface.view_scroll_to_bottom().ok(),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
                 let mut term = surface.term.lock().unwrap();
                 let before = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
@@ -1693,6 +1619,16 @@ impl SurfaceHandle {
                     surface.content_generation.fetch_add(1, Ordering::AcqRel);
                 }
                 Some(before != after)
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn scrollbar(&self) -> Option<Scrollbar> {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.view_scrollbar(),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                surface.term.lock().unwrap().scrollbar()
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
@@ -2092,6 +2028,13 @@ pub(crate) fn test_remote_session_with_provider_authority_without_guard() -> Ses
 pub(crate) fn test_remote_session_with_deferred_attach()
 -> (Session, std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
     let (session, started, release) = remote::test_session_with_deferred_attach();
+    (Session::Remote(session), started, release)
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_session_with_deferred_sized_attach()
+-> (Session, std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+    let (session, started, release) = remote::test_session_with_deferred_sized_attach();
     (Session::Remote(session), started, release)
 }
 
