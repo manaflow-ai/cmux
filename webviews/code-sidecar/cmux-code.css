@@ -1,7 +1,11 @@
 :root {
   --radius: 0.5rem;
-  --background: #fcfcfc;
-  --app-chrome-background: #fcfcfc;
+  --cmux-code-canvas: transparent;
+  --cmux-code-font-mono: "SFMono-Regular", "SF Mono", ui-monospace, Menlo, monospace;
+  --cmux-code-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --cmux-ghostty-background: #fcfcfc;
+  --background: var(--cmux-code-canvas);
+  --app-chrome-background: var(--cmux-code-canvas);
   --foreground: #262626;
   --card: #ffffff;
   --card-foreground: #262626;
@@ -31,12 +35,16 @@
   --sidebar-border: #e5e5e5;
   --sidebar-stage-fade: transparent;
   --surface-raised: #ffffff;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --font-mono: var(--cmux-code-font-mono);
+  --font-sans: var(--cmux-code-font-sans);
+  font-family: var(--font-sans);
+  font-size: 14px;
 }
 
 :root:is(.dark, .dark *) {
-  --background: #0e0e0e;
-  --app-chrome-background: #0e0e0e;
+  --cmux-ghostty-background: #0e0e0e;
+  --background: var(--cmux-code-canvas);
+  --app-chrome-background: var(--cmux-code-canvas);
   --foreground: #f5f5f5;
   --card: #151515;
   --card-foreground: #f5f5f5;
@@ -69,20 +77,20 @@
 }
 
 :root[data-cmux-ghostty-theme="true"] {
-  --background: var(--cmux-ghostty-background);
-  --app-chrome-background: var(--cmux-ghostty-background);
+  --background: var(--cmux-code-canvas);
+  --app-chrome-background: var(--cmux-code-canvas);
   --foreground: var(--cmux-ghostty-foreground);
-  --card: color-mix(in srgb, var(--cmux-ghostty-foreground) 5%, var(--cmux-ghostty-background));
+  --card: color-mix(in srgb, var(--cmux-ghostty-background) 88%, transparent);
   --card-foreground: var(--cmux-ghostty-foreground);
-  --popover: color-mix(in srgb, var(--cmux-ghostty-foreground) 7%, var(--cmux-ghostty-background));
+  --popover: color-mix(in srgb, var(--cmux-ghostty-background) 94%, transparent);
   --popover-foreground: var(--cmux-ghostty-foreground);
   --primary: var(--cmux-ghostty-primary);
   --primary-foreground: var(--cmux-ghostty-primary-foreground);
-  --secondary: color-mix(in srgb, var(--cmux-ghostty-foreground) 7%, var(--cmux-ghostty-background));
+  --secondary: color-mix(in srgb, var(--cmux-ghostty-foreground) 7%, transparent);
   --secondary-foreground: var(--cmux-ghostty-foreground);
-  --muted: color-mix(in srgb, var(--cmux-ghostty-foreground) 7%, var(--cmux-ghostty-background));
+  --muted: color-mix(in srgb, var(--cmux-ghostty-foreground) 7%, transparent);
   --muted-foreground: color-mix(in srgb, var(--cmux-ghostty-foreground) 62%, var(--cmux-ghostty-background));
-  --accent: color-mix(in srgb, var(--cmux-ghostty-primary) 18%, var(--cmux-ghostty-background));
+  --accent: color-mix(in srgb, var(--cmux-ghostty-primary) 22%, transparent);
   --accent-foreground: var(--cmux-ghostty-foreground);
   --destructive: var(--cmux-ghostty-destructive);
   --border: color-mix(in srgb, var(--cmux-ghostty-foreground) 12%, transparent);
@@ -90,7 +98,7 @@
   --ring: var(--cmux-ghostty-cursor);
   --success: var(--cmux-ghostty-success);
   --success-foreground: var(--cmux-ghostty-success);
-  --sidebar: color-mix(in srgb, var(--cmux-ghostty-background) 88%, transparent);
+  --sidebar: color-mix(in srgb, var(--cmux-ghostty-background) 82%, transparent);
   --sidebar-foreground: var(--cmux-ghostty-foreground);
   --sidebar-muted-foreground: color-mix(in srgb, var(--cmux-ghostty-foreground) 62%, var(--cmux-ghostty-background));
   --sidebar-control-surface: color-mix(in srgb, var(--cmux-ghostty-foreground) 7%, transparent);
@@ -99,8 +107,8 @@
   --sidebar-row-selected: color-mix(in srgb, var(--cmux-ghostty-primary) 18%, transparent);
   --sidebar-border: color-mix(in srgb, var(--cmux-ghostty-foreground) 12%, transparent);
   --sidebar-stage-fade: transparent;
-  --surface-raised: color-mix(in srgb, var(--cmux-ghostty-foreground) 5%, var(--cmux-ghostty-background));
-  font-family: var(--cmux-code-font-family);
+  --surface-raised: color-mix(in srgb, var(--cmux-ghostty-background) 88%, transparent);
+  font-family: var(--font-sans);
 }
 
 [data-sidebar-version="v1"],
@@ -122,18 +130,24 @@
   --sidebar-row-selected: var(--sidebar-row-selected);
 }
 
+html,
+body,
+#root {
+  background: transparent !important;
+}
+
 body,
 button,
 input,
 textarea,
 select {
-  font-family: inherit;
+  font-family: var(--font-sans);
 }
 
-html[data-cmux-ghostty-theme="true"] code,
-html[data-cmux-ghostty-theme="true"] kbd,
-html[data-cmux-ghostty-theme="true"] pre {
-  font-family: var(--cmux-code-font-family);
+code,
+kbd,
+pre {
+  font-family: var(--font-mono);
 }
 
 .sidebar-wrapper,

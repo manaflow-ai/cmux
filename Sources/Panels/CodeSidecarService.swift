@@ -24,15 +24,16 @@ enum ContextualSurfaceCreationKind: Equatable, Sendable {
 }
 
 struct CodeWebThemeSnapshot: Equatable {
+    static let sansFontFamily = "-apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"Helvetica Neue\", sans-serif"
+    static let monoFontFamily = "\"SFMono-Regular\", \"SF Mono\", ui-monospace, Menlo, monospace"
+
     let isDark: Bool
     let variables: [String: String]
 
     init(
         terminalTheme: TerminalTheme,
-        fontFamily: String?,
-        backgroundCSSColor: String? = nil
+        backgroundOpacity: Double = 1
     ) {
-        let background = backgroundCSSColor ?? terminalTheme.background
         let foreground = terminalTheme.foreground
         let primary = terminalTheme.palette.indices.contains(4)
             ? terminalTheme.palette[4]
@@ -49,21 +50,19 @@ struct CodeWebThemeSnapshot: Equatable {
             opacity: 1
         ).hexString()
         let resolvedBackground = NSColor(hex: terminalTheme.background) ?? .textBackgroundColor
-        let trimmedFontFamily = fontFamily?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let cssFontFamily: String
-        if trimmedFontFamily.isEmpty {
-            cssFontFamily = "ui-monospace, SFMono-Regular, Menlo, monospace"
-        } else {
-            let escapedFontFamily = trimmedFontFamily
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-            cssFontFamily = "\"\(escapedFontFamily)\", ui-monospace, SFMono-Regular, Menlo, monospace"
-        }
+        let clampedBackgroundOpacity = GhosttyBackgroundTheme.clampedOpacity(backgroundOpacity)
 
         isDark = !resolvedBackground.isLightColor
         variables = [
-            "--cmux-code-font-family": cssFontFamily,
-            "--cmux-ghostty-background": background,
+            "--cmux-code-canvas": "transparent",
+            "--cmux-code-font-mono": Self.monoFontFamily,
+            "--cmux-code-font-sans": Self.sansFontFamily,
+            "--cmux-ghostty-background": terminalTheme.background,
+            "--cmux-ghostty-background-opacity": String(
+                format: "%.3f",
+                locale: Locale(identifier: "en_US_POSIX"),
+                Double(clampedBackgroundOpacity)
+            ),
             "--cmux-ghostty-cursor": terminalTheme.cursor,
             "--cmux-ghostty-destructive": destructive,
             "--cmux-ghostty-foreground": foreground,
@@ -71,8 +70,8 @@ struct CodeWebThemeSnapshot: Equatable {
             "--cmux-ghostty-primary-foreground": primaryForeground,
             "--cmux-ghostty-selection": terminalTheme.selectionBackground,
             "--cmux-ghostty-success": success,
-            "--font-mono": cssFontFamily,
-            "--font-sans": cssFontFamily,
+            "--font-mono": Self.monoFontFamily,
+            "--font-sans": Self.sansFontFamily,
         ]
     }
 
@@ -80,15 +79,9 @@ struct CodeWebThemeSnapshot: Equatable {
     static func current() -> CodeWebThemeSnapshot {
         let app = GhosttyApp.shared
         let terminalTheme = TerminalTheme.currentMacTerminalThemeSnapshot()
-        let config = GhosttyConfig.load(
-            preferredColorScheme: app.effectiveTerminalColorSchemePreference,
-            useCache: false,
-            globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
-        )
         return CodeWebThemeSnapshot(
             terminalTheme: terminalTheme,
-            fontFamily: config.fontFamily,
-            backgroundCSSColor: GhosttyBackgroundTheme.currentColor().markdownCSSColor
+            backgroundOpacity: app.defaultBackgroundOpacity
         )
     }
 

@@ -54,15 +54,48 @@ describe("code surface mount", () => {
     }
   });
 
-  test("inlines the classic launcher script for local WebKit pages", async () => {
+  test("runs the bundled launcher from the local page", async () => {
     const htmlURL = new URL(
       "../../../Resources/markdown-viewer/webviews-app/code.html",
       import.meta.url,
     );
     const html = await Bun.file(htmlURL).text();
+    const dom = new JSDOM(html, { url: htmlURL.href });
+    const script = dom.window.document.querySelector("script")?.textContent;
+    if (!script) throw new Error("Missing bundled launcher");
 
-    expect(html).toContain("window.webkit?.messageHandlers?.cmuxCode?.postMessage");
-    expect(html).not.toContain('src="./code-launcher.js"');
-    expect(html).not.toContain('type="module"');
+    const previousDocument = globalThis.document;
+    const previousWindow = globalThis.window;
+    let mountWasRequested = false;
+    Object.defineProperty(dom.window, "webkit", {
+      configurable: true,
+      value: {
+        messageHandlers: {
+          cmuxCode: {
+            postMessage: () => {
+              mountWasRequested = true;
+            },
+          },
+        },
+      },
+    });
+
+    try {
+      Object.assign(globalThis, {
+        document: dom.window.document,
+        window: dom.window,
+      });
+      Function(script)();
+
+      expect(mountWasRequested).toBe(true);
+      expect(dom.window.document.querySelector(".code-launcher__main")).not.toBeNull();
+      expect(dom.window.document.querySelector('[role="status"]')).toBeNull();
+    } finally {
+      Object.assign(globalThis, {
+        document: previousDocument,
+        window: previousWindow,
+      });
+      dom.window.close();
+    }
   });
 });

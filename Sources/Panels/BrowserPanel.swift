@@ -3858,7 +3858,7 @@ final class BrowserPanel: Panel, ObservableObject {
         <!doctype html>
         <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
         <style>
-        :root{color-scheme:light dark}body{align-items:center;background:light-dark(#fcfcfc,#0e0e0e);color:light-dark(#262626,#f5f5f5);display:flex;font-family:-apple-system,BlinkMacSystemFont,sans-serif;height:100vh;justify-content:center;margin:0}.card{max-width:360px;padding:32px;text-align:center}h1{font-size:17px;margin:0 0 8px}p{color:light-dark(#737373,#a3a3a3);font-size:13px;line-height:1.45;margin:0 0 18px}button{background:#6073cc;border:0;border-radius:7px;color:white;font:inherit;padding:7px 13px}
+        :root{color-scheme:light dark;font-size:14px}html,body{background:transparent}body{align-items:center;color:var(--cmux-ghostty-foreground,light-dark(#262626,#f5f5f5));display:flex;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;height:100vh;justify-content:center;margin:0}.card{max-width:320px;padding:24px;text-align:center}h1{font-size:1rem;margin:0 0 7px}p{color:color-mix(in srgb,currentColor 62%,transparent);font-size:.875rem;line-height:1.45;margin:0 0 16px}button{background:var(--cmux-ghostty-primary,#6073cc);border:0;border-radius:7px;color:var(--cmux-ghostty-primary-foreground,white);font:inherit;padding:6px 12px}
         </style></head><body><main class="card"><h1>\(title)</h1><p>\(message)</p><button onclick="window.webkit.messageHandlers.cmuxCode.postMessage({type:'mount'})">\(retry)</button></main></body></html>
         """
         webView.loadHTMLString(html, baseURL: nil)
@@ -3925,6 +3925,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.resetMediaPlaybackTracking()
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationCommit")
+                if self.purpose == .code {
+                    self.applyCurrentCodeWebTheme(to: webView)
+                }
                 if self.shouldTreatCommitAsDiscardedRestoreCommit(from: webView) {
                     self.noteDiscardedWebViewRestoreNavigationCommitted()
                 }
@@ -5420,7 +5423,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// keep WebKit's background drawing so pages without their own CSS
     /// background remain readable.
     private func applyWebViewBackground(color: NSColor) {
-        if !drawsConfiguredWebViewBackgroundForCurrentPage() {
+        if purpose == .code || !drawsConfiguredWebViewBackgroundForCurrentPage() {
             webView.wantsLayer = true
             webView.setValue(false, forKey: "drawsBackground")
             webView.underPageBackgroundColor = .clear

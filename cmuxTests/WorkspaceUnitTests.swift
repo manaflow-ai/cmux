@@ -3810,7 +3810,7 @@ final class CodeWorkspaceCreationTests: XCTestCase {
 
         let snapshot = CodeWebThemeSnapshot(
             terminalTheme: terminalTheme,
-            fontFamily: "Berkeley Mono"
+            backgroundOpacity: 0.42
         )
         let script = try XCTUnwrap(snapshot.applyingJavaScript())
 
@@ -3822,9 +3822,15 @@ final class CodeWorkspaceCreationTests: XCTestCase {
         XCTAssertEqual(snapshot.variables["--cmux-ghostty-destructive"], "#cc3344")
         XCTAssertEqual(snapshot.variables["--cmux-ghostty-cursor"], "#ffcc00")
         XCTAssertEqual(snapshot.variables["--cmux-ghostty-selection"], "#334455")
+        XCTAssertEqual(snapshot.variables["--cmux-ghostty-background-opacity"], "0.420")
+        XCTAssertEqual(snapshot.variables["--cmux-code-canvas"], "transparent")
         XCTAssertEqual(
-            snapshot.variables["--cmux-code-font-family"],
-            "\"Berkeley Mono\", ui-monospace, SFMono-Regular, Menlo, monospace"
+            snapshot.variables["--font-sans"],
+            CodeWebThemeSnapshot.sansFontFamily
+        )
+        XCTAssertEqual(
+            snapshot.variables["--font-mono"],
+            CodeWebThemeSnapshot.monoFontFamily
         )
         XCTAssertTrue(script.contains("cmuxGhosttyTheme"))
         XCTAssertTrue(script.contains("cmux:ghostty-theme-change"))
