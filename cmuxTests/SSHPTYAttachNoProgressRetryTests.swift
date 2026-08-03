@@ -64,7 +64,7 @@ struct SSHPTYAttachNoProgressRetryTests {
             command: "/bin/sh \(Self.shellQuote(scriptFile.path))",
             environment: ["CMUX_TEST_POLICY_LOG": policyLog.path]
         )
-        #expect(execution.status == 0, execution.stderr)
+        #expect(execution.status == 0, "\(execution.stderr)")
         let loggedBudget = try String(contentsOf: policyLog, encoding: .utf8)
         #expect(loggedBudget == "0/3\n")
     }
