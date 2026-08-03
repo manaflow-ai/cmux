@@ -13,18 +13,12 @@ final class KeyboardShortcutSettingsObserver {
     typealias WhenClauseProvider =
         (KeyboardShortcutSettings.Action) -> ShortcutWhenClause
 
-    struct ShortcutBinding: Equatable {
-        let action: KeyboardShortcutSettings.Action
-        let shortcut: StoredShortcut
-        let whenClause: ShortcutWhenClause
-    }
-
     static let shared = KeyboardShortcutSettingsObserver()
 
     private(set) var revision: UInt64 = 0
     private(set) var globalSearchShortcut: StoredShortcut
-    private(set) var configuredChordBindings: [ShortcutBinding]
-    private(set) var applicationPaneExplicitShortcutBindings: [ShortcutBinding]
+    private(set) var configuredChordBindings: [KeyboardShortcutBinding]
+    private(set) var applicationPaneExplicitShortcutBindings: [KeyboardShortcutBinding]
     let rightSidebarModeShortcutMatcher: RightSidebarModeShortcutMatcher
     private let notificationCenter: NotificationCenter
     private let distributedNotificationCenter: DistributedNotificationCenter
@@ -129,7 +123,7 @@ final class KeyboardShortcutSettingsObserver {
     private static func makeConfiguredChordBindings(
         shortcutProvider: ShortcutProvider,
         whenClauseProvider: WhenClauseProvider
-    ) -> [ShortcutBinding] {
+    ) -> [KeyboardShortcutBinding] {
         KeyboardShortcutSettings.Action.allCases.compactMap { action in
             guard
                 !action.isSystemWideHotkey,
@@ -141,7 +135,7 @@ final class KeyboardShortcutSettingsObserver {
             }
             let shortcut = shortcutProvider(action)
             guard shortcut.hasChord else { return nil }
-            return ShortcutBinding(
+            return KeyboardShortcutBinding(
                 action: action,
                 shortcut: shortcut,
                 whenClause: whenClauseProvider(action)
@@ -152,7 +146,7 @@ final class KeyboardShortcutSettingsObserver {
     private static func makeApplicationPaneExplicitShortcutBindings(
         explicitShortcutProvider: ExplicitShortcutProvider,
         whenClauseProvider: WhenClauseProvider
-    ) -> [ShortcutBinding] {
+    ) -> [KeyboardShortcutBinding] {
         KeyboardShortcutSettings.Action.allCases.compactMap { action in
             guard
                 !action.isSystemWideHotkey,
@@ -161,7 +155,7 @@ final class KeyboardShortcutSettingsObserver {
             else {
                 return nil
             }
-            return ShortcutBinding(
+            return KeyboardShortcutBinding(
                 action: action,
                 shortcut: shortcut,
                 whenClause: whenClauseProvider(action)

@@ -1423,6 +1423,7 @@ struct ApplicationSurfaceTests {
                     forKey: action.defaultsKey
                 )
             }
+            KeyboardShortcutSettings.notifySettingsFileDidChange()
             window.contentView = nil
             window.close()
         }
