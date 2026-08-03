@@ -11,6 +11,80 @@ import CmuxSwiftRenderUI
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import ExtensionFoundation
 import SwiftUI
+
+private extension Font.Weight {
+    var nsFontWeight: NSFont.Weight {
+        if self == .ultraLight { return .ultraLight }
+        if self == .thin { return .thin }
+        if self == .light { return .light }
+        if self == .medium { return .medium }
+        if self == .semibold { return .semibold }
+        if self == .bold { return .bold }
+        if self == .heavy { return .heavy }
+        if self == .black { return .black }
+        return .regular
+    }
+}
+
+struct CmuxSystemSymbolImage: View {
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
+
+    let systemName: String
+    let pointSize: CGFloat
+    var weight: Font.Weight?
+    var alignment: Alignment = .center
+    var appliesGlobalFontMagnification = false
+
+    init(
+        systemName: String,
+        pointSize: CGFloat,
+        weight: Font.Weight? = nil,
+        alignment: Alignment = .center,
+        appliesGlobalFontMagnification: Bool = false
+    ) {
+        self.systemName = systemName
+        self.pointSize = pointSize
+        self.weight = weight
+        self.alignment = alignment
+        self.appliesGlobalFontMagnification = appliesGlobalFontMagnification
+    }
+
+    init(
+        magnified systemName: String,
+        pointSize: CGFloat,
+        weight: Font.Weight? = nil,
+        alignment: Alignment = .center
+    ) {
+        self.init(
+            systemName: systemName,
+            pointSize: pointSize,
+            weight: weight,
+            alignment: alignment,
+            appliesGlobalFontMagnification: true
+        )
+    }
+
+    var body: some View {
+        let rasterSize = RenderableSystemSymbol.resolvedRasterPointSize(
+            pointSize,
+            globalFontPercent: globalFontPercent,
+            appliesGlobalFontMagnification: appliesGlobalFontMagnification
+        )
+        if let image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: systemName,
+            pointSize: rasterSize,
+            weight: weight.map(\.nsFontWeight)
+        ) {
+            Image(nsImage: image)
+                .renderingMode(.template)
+                .frame(width: rasterSize, height: rasterSize, alignment: alignment)
+        } else {
+            Color.clear
+                .frame(width: rasterSize, height: rasterSize, alignment: alignment)
+                .accessibilityHidden(true)
+        }
+    }
+}
 import WebKit
 
 extension Color {

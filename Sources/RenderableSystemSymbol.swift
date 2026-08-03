@@ -1,6 +1,5 @@
 import AppKit
 import CmuxFoundation
-import SwiftUI
 
 enum RenderableSystemSymbol {
     static let defaultWorkspaceGroupIcon = "folder.fill"
@@ -161,10 +160,10 @@ enum RenderableSystemSymbol {
     static func configuredAppKitImage(
         systemName: String,
         pointSize: CGFloat,
-        weight: Font.Weight? = nil
+        weight: NSFont.Weight? = nil
     ) -> NSImage? {
         let rasterSize = clampedRasterPointSize(pointSize)
-        let fontWeight = nsFontWeight(for: weight)
+        let fontWeight = weight ?? .regular
         let cacheKey = AppKitImageCacheKey(
             systemName: systemName,
             rasterSize: rasterSize,
@@ -209,19 +208,6 @@ enum RenderableSystemSymbol {
         return naturalSize
     }
 
-    private static func nsFontWeight(for weight: Font.Weight?) -> NSFont.Weight {
-        guard let weight else { return .regular }
-        if weight == .ultraLight { return .ultraLight }
-        if weight == .thin { return .thin }
-        if weight == .light { return .light }
-        if weight == .medium { return .medium }
-        if weight == .semibold { return .semibold }
-        if weight == .bold { return .bold }
-        if weight == .heavy { return .heavy }
-        if weight == .black { return .black }
-        return .regular
-    }
-
     #if DEBUG
     @MainActor
     static func resetRenderabilityCacheForTesting() {
@@ -230,64 +216,4 @@ enum RenderableSystemSymbol {
         appKitImageCacheInsertionOrder.removeAll()
     }
     #endif
-}
-
-struct CmuxSystemSymbolImage: View {
-    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
-
-    let systemName: String
-    let pointSize: CGFloat
-    var weight: Font.Weight?
-    var alignment: Alignment = .center
-    var appliesGlobalFontMagnification = false
-
-    init(
-        systemName: String,
-        pointSize: CGFloat,
-        weight: Font.Weight? = nil,
-        alignment: Alignment = .center,
-        appliesGlobalFontMagnification: Bool = false
-    ) {
-        self.systemName = systemName
-        self.pointSize = pointSize
-        self.weight = weight
-        self.alignment = alignment
-        self.appliesGlobalFontMagnification = appliesGlobalFontMagnification
-    }
-
-    init(
-        magnified systemName: String,
-        pointSize: CGFloat,
-        weight: Font.Weight? = nil,
-        alignment: Alignment = .center
-    ) {
-        self.init(
-            systemName: systemName,
-            pointSize: pointSize,
-            weight: weight,
-            alignment: alignment,
-            appliesGlobalFontMagnification: true
-        )
-    }
-
-    var body: some View {
-        let rasterSize = RenderableSystemSymbol.resolvedRasterPointSize(
-            pointSize,
-            globalFontPercent: globalFontPercent,
-            appliesGlobalFontMagnification: appliesGlobalFontMagnification
-        )
-        if let image = RenderableSystemSymbol.configuredAppKitImage(
-            systemName: systemName,
-            pointSize: rasterSize,
-            weight: weight
-        ) {
-            Image(nsImage: image)
-                .renderingMode(.template)
-                .frame(width: rasterSize, height: rasterSize, alignment: alignment)
-        } else {
-            Color.clear
-                .frame(width: rasterSize, height: rasterSize, alignment: alignment)
-                .accessibilityHidden(true)
-        }
-    }
 }
