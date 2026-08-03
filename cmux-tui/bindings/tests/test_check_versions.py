@@ -20,9 +20,12 @@ class CheckVersionsTests(unittest.TestCase):
     def run_guard(
         self,
         *,
+        argv: list[str] | None = None,
         release_version: str = "1.2.3",
         sidebar_version: str | None = None,
         sidebar_client_version: str | None = None,
+        java_version: str | None = None,
+        cpp_version: str | None = None,
         zig_manifest_version: str | None = None,
         zig_example_version: str | None = None,
         zig_manifest_source: str | None = None,
@@ -35,6 +38,8 @@ class CheckVersionsTests(unittest.TestCase):
                 release_version=release_version,
                 sidebar_version=sidebar_version or release_version,
                 sidebar_client_version=sidebar_client_version or release_version,
+                java_version=java_version or release_version,
+                cpp_version=cpp_version or release_version,
                 zig_manifest_version=zig_manifest_version or release_version,
                 zig_example_version=zig_example_version or release_version,
                 zig_manifest_source=zig_manifest_source,
@@ -43,7 +48,7 @@ class CheckVersionsTests(unittest.TestCase):
             stdout = io.StringIO()
             stderr = io.StringIO()
             with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                result = check_versions.main([], bindings=bindings)
+                result = check_versions.main(argv or [], bindings=bindings)
             return result, stdout.getvalue(), stderr.getvalue()
 
     def write_fixture(
@@ -53,6 +58,8 @@ class CheckVersionsTests(unittest.TestCase):
         release_version: str,
         sidebar_version: str,
         sidebar_client_version: str,
+        java_version: str,
+        cpp_version: str,
         zig_manifest_version: str,
         zig_example_version: str,
         zig_manifest_source: str | None,
@@ -61,7 +68,7 @@ class CheckVersionsTests(unittest.TestCase):
         files = {
             "typescript/package.json": f'{{"version": "{release_version}"}}',
             "python/pyproject.toml": (
-                f'[project]\nname = "cmux"\nversion = "{release_version}"\n'
+                f'[project]\nname = "cmux-sdk"\nversion = "{release_version}"\n'
             ),
             "rust/Cargo.toml": (
                 f'[package]\nname = "cmux-client"\nversion = "{release_version}"\n'
@@ -77,12 +84,12 @@ class CheckVersionsTests(unittest.TestCase):
             ),
             "java/pom.xml": (
                 '<project xmlns="http://maven.apache.org/POM/4.0.0">'
-                f"<version>{release_version}</version>"
+                f"<version>{java_version}</version>"
                 "</project>"
             ),
             "cpp/CMakeLists.txt": (
                 "project(cmux_tui_sdk VERSION "
-                f"{release_version} LANGUAGES CXX)\n"
+                f"{cpp_version} LANGUAGES CXX)\n"
             ),
             "zig/build.zig.zon": zig_manifest_source
             if zig_manifest_source is not None
@@ -134,6 +141,25 @@ class CheckVersionsTests(unittest.TestCase):
             "SDK version error: rust-sidebar cmux-client dependency "
             "must be 1.2.3, found ^1.2.3\n",
         )
+
+    def test_published_only_ignores_unpublished_package_versions(self) -> None:
+        result, stdout, stderr = self.run_guard(
+            argv=["--published-only"],
+            java_version="9.0.0",
+            cpp_version="8.0.0",
+            zig_manifest_version="7.0.0",
+            zig_example_version="7.0.0",
+        )
+
+        self.assertEqual(result, 0)
+        self.assertIn("Published SDK versions ok: 1.2.3", stdout)
+        self.assertIn("typescript", stdout)
+        self.assertIn("python", stdout)
+        self.assertIn("rust-sidebar", stdout)
+        self.assertNotIn("java", stdout)
+        self.assertNotIn("cpp", stdout)
+        self.assertNotIn("zig", stdout)
+        self.assertEqual(stderr, "")
 
     def test_uses_zig_manifest_as_authoritative_package_version(self) -> None:
         result, stdout, stderr = self.run_guard(zig_manifest_version="1.2.4")
