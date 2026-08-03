@@ -204,6 +204,17 @@ pub struct ClientSizeInfo {
     pub size_participating: bool,
 }
 
+/// Canonical agent presence projected into sidebar views. Keeping this
+/// transport-neutral lets local and remote sessions render identically.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct AgentInfo {
+    pub surface: SurfaceId,
+    pub state: String,
+    pub source: String,
+    pub session: Option<String>,
+    pub updated_at_ms: u64,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct ClientInfo {
     pub client: u64,
@@ -522,6 +533,23 @@ impl Session {
                 })
             }
             Session::Remote(remote) => remote.cached_tree(),
+        }
+    }
+
+    pub fn agents(&self) -> Vec<AgentInfo> {
+        match self {
+            Session::Local(mux) => mux
+                .list_agents(None, None)
+                .into_iter()
+                .map(|agent| AgentInfo {
+                    surface: agent.surface,
+                    state: agent.state.as_str().to_string(),
+                    source: agent.source.as_str().to_string(),
+                    session: agent.session,
+                    updated_at_ms: agent.updated_at_ms,
+                })
+                .collect(),
+            Session::Remote(remote) => remote.cached_agents(),
         }
     }
 

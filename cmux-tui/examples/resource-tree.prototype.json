@@ -1,10 +1,18 @@
 {
   "sidebar": {
-    "view": "workspaces",
     "views": [
-      { "id": "machines", "levels": ["machines"], "width": 18 },
-      { "id": "workspaces", "levels": ["workspaces"], "width": 22 },
-      { "id": "tabs", "levels": ["tabs"], "width": 24 }
+      {
+        "id": "machines",
+        "levels": ["machines"],
+        "width": 18,
+        "collapse_priority": 10
+      },
+      {
+        "id": "workspace-agents",
+        "levels": ["workspaces", "agents"],
+        "width": 30,
+        "collapse_priority": 30
+      }
     ]
   },
   "machine_sidebar": {

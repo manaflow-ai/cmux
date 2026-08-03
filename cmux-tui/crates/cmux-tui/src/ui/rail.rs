@@ -271,6 +271,55 @@ pub fn button(
     );
 }
 
+/// Dense one-line row used by configurable resource trees. The returned
+/// rectangle is the disclosure target when the row has children.
+#[allow(clippy::too_many_arguments)]
+pub fn tree_row(
+    frame: &mut Frame,
+    area: Rect,
+    y: u16,
+    depth: u16,
+    name: &str,
+    detail: &str,
+    branch: Option<bool>,
+    highlighted: bool,
+    active: bool,
+    palette: RailPalette,
+) -> Option<Rect> {
+    if y >= area.y.saturating_add(area.height) || area.width < 3 {
+        return None;
+    }
+    let content_width = area.width.saturating_sub(1);
+    let style = if highlighted { palette.active } else { palette.base };
+    let detail_style =
+        if highlighted { palette.active.add_modifier(Modifier::DIM) } else { palette.dim };
+    let buf = frame.buffer_mut();
+    if highlighted {
+        for x in area.x..area.x.saturating_add(content_width) {
+            buf[(x, y)].set_symbol(" ").set_style(style);
+        }
+    }
+    if active {
+        buf[(area.x, y)].set_symbol("▎").set_style(style.fg(palette.rail));
+    }
+    let disclosure_x = area
+        .x
+        .saturating_add(1)
+        .saturating_add(depth.saturating_mul(2))
+        .min(area.x.saturating_add(content_width.saturating_sub(1)));
+    let disclosure = branch.map(|expanded| {
+        buf[(disclosure_x, y)].set_symbol(if expanded { "▾" } else { "▸" }).set_style(detail_style);
+        Rect { x: disclosure_x, y, width: 1, height: 1 }
+    });
+    let name_x = disclosure_x.saturating_add(2);
+    let available = area.x.saturating_add(content_width).saturating_sub(name_x) as usize;
+    if available > 0 {
+        let label = if detail.is_empty() { name.to_string() } else { format!("{name}  {detail}") };
+        buf.set_stringn(name_x, y, truncate(&label, available), available, style);
+    }
+    disclosure
+}
+
 pub fn row(area: Rect, y: u16) -> Rect {
     Rect { x: area.x, y, width: area.width.saturating_sub(1), height: 1 }
 }

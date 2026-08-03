@@ -43,13 +43,13 @@ Drag pane borders to resize the matching split. Dragging a corner adjusts both i
 
 On a horizontally scrollable screen, drag either side of a column divider to resize the column on its left. Drag the final column's right border to resize that column. Column widths are clamped from one tenth through one full viewport. Splits inside each column remain independently resizable. One continuous divider drag is coalesced into one `Ctrl-b U` layout-undo entry.
 
-Drag a rail border to resize that rail for the current TUI session. Dragging the workspace rail leaves compact mode and sets its full-width override. `sidebar.columns` supplies explicit base and maximum widths; legacy layouts still use `machine_sidebar.width`, `sidebar.width`, and `sidebar.compact_width`. Resizing one column preserves every other visible column while leaving at least 40 columns for panes.
+Drag a rail border to resize that rail for the current TUI session. Dragging the workspace rail leaves compact mode and sets its full-width override. `sidebar.views` supplies base widths, maximum widths, and collapse priorities; legacy layouts still use `machine_sidebar.width`, `sidebar.width`, and `sidebar.compact_width`. Resizing one view preserves every other visible view while leaving at least 40 columns for panes.
 
 ## Context Menus
 
 Right-click a pane for rename tab, close tab, new pane, new tab, new browser tab, browser actions when applicable, split right, split down, close pane, maximize/restore, and ID copying. New pane runs the same smart-layout action as `Alt-n`. Pane and status-bar menus do not contain sidebar actions. When an inner PTY app enables mouse tracking, right-click is forwarded to the app; hold Shift while right-clicking to open the cmux menu.
 
-Right-click anywhere inside the sidebar, including its header, empty space, file rows, workspace rows, and divider, for show/hide, compact/full, and focus actions. Workspace rows also include their rename, close, and copy-ID actions. Switching between files and workspaces remains a keyboard action (`Ctrl-b e` by default) and is not in the context menu. Right-click a status-bar screen for only its screen actions.
+Right-click anywhere inside the sidebar, including its header, empty space, file rows, projected tree rows, and divider, for show/hide, compact/full, and focus actions. Workspace rows also include rename, close, and copy-ID actions. Tab and agent rows rename the exact surface represented by that row. Switching between files and workspaces remains a keyboard action (`Ctrl-b e` by default) and is not in the context menu. Right-click a status-bar screen for only its screen actions.
 
 Each context menu includes Keyboard shortcuts, which opens the same modal as `Ctrl-b ?`. The modal has a visible `[Esc close]` button and a terminal-style scrollbar when its rows overflow, with wheel, track-click, and thumb-drag control. Every menu action with a configured key shows the resolved shortcut on the right. Remapped prefix and action keys appear immediately, and unbound actions omit the shortcut.
 

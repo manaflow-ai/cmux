@@ -38,7 +38,9 @@ Tabs are numbered by default. A recognized agent program can appear after the nu
 
 The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "files"}` for the yazi-style file browser. `Tab` toggles the built-in view while the sidebar is focused, and the configurable `toggle-sidebar-view` action toggles it from anywhere. A configured `sidebar.plugin` still replaces either built-in view.
 
-`sidebar.columns` is an ordered native column stack. Each entry has a `kind` (`machines`, `workspaces`, or `tabs`), an optional `width`, and an optional `max_width`. Omitting it preserves the legacy machine-plus-workspace arrangement. The `tabs` column follows the highlighted workspace. Narrow terminals keep 40 pane columns, hiding `machines` first and `tabs` second.
+`sidebar.views` is an ordered list of native resource projections, with no fixed column count. Each view has a stable `id` and a `levels` path. A one-level path renders a list, while `workspaces → agents` and `workspaces → panes → tabs` render collapsible trees in one column. Valid resources are `machines`, `workspaces`, `panes`, `tabs`, and `agents`. Flat pane, tab, and agent views follow the highlighted workspace. Omit a resource to hide it.
+
+Every view has an independent width and drag handle. Lower `collapse_priority` values hide first when the terminal must preserve 40 pane columns. A hidden view needs four additional columns before it returns, which prevents resize-boundary flicker. `sidebar.columns` remains a compatibility alias for one-level machine, workspace, and tab views; `sidebar.views` wins when both are present.
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
@@ -46,10 +48,13 @@ The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "f
 | `sidebar.width` | integer | `22` | Sidebar width, clamped to 10 through 60 on load |
 | `sidebar.compact_width` | integer | `10` | Width used by compact mode, clamped to 10 through 60 and capped at `sidebar.width` |
 | `sidebar.max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
-| `sidebar.columns` | array of column objects | unset | Ordered native columns; each kind may appear once |
-| `sidebar.columns[].kind` | string | required | `machines`, `workspaces`, or `tabs` |
-| `sidebar.columns[].width` | integer | kind default | Initial width, clamped to 10 through 60 |
-| `sidebar.columns[].max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
+| `sidebar.views` | array of view objects | unset | Ordered native lists and trees; omission preserves the machine-plus-workspace default |
+| `sidebar.views[].id` | string | required | Stable unique identity for focus, collapse, scroll, and width state |
+| `sidebar.views[].levels` | array of strings | required | Resource path, such as `["agents"]`, `["workspaces", "agents"]`, or `["workspaces", "panes", "tabs"]` |
+| `sidebar.views[].width` | integer | resource default | Initial width, clamped to 10 through 60 |
+| `sidebar.views[].max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
+| `sidebar.views[].collapse_priority` | integer | resource default | Lower priorities hide first on narrow terminals |
+| `sidebar.columns` | array of column objects | unset | Compatibility form for one-level `machines`, `workspaces`, and `tabs` views |
 | `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
 | `sidebar.plugin.cwd` | string | unset | Working directory for the sidebar plugin process |
 
@@ -80,7 +85,7 @@ cmux sidebar plugin use --builtin
 
 ## Machines
 
-The machine rail is optional. Its position comes from `sidebar.columns`, or it stays first under the legacy layout. It activates when `machine_sidebar.enabled` is true, `machines` has a valid entry, or `machine_sidebar.create_sources` is nonempty.
+The machine rail is optional. Its position comes from a `sidebar.views` entry whose level is `machines`, or it stays first under the default layout. It activates when `machine_sidebar.enabled` is true, `machines` has a valid entry, or `machine_sidebar.create_sources` is nonempty.
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
@@ -98,6 +103,8 @@ Try the tracked prototype configuration with:
 cd cmux-tui
 CMUX_TUI_CONFIG=examples/resource-columns.prototype.json cargo run -p cmux-tui -- --session columns
 ```
+
+`resource-columns.prototype.json` shows three flat columns. `resource-tree.prototype.json` combines machines with a workspace/agent tree. `resource-tree-no-agents.prototype.json` combines machines with a workspace/pane/tab tree and contains no agent representation.
 
 Every machine has a unique nonempty `id`, a nonempty display `name`, an optional `subtitle`, and one transport. The id `current` is reserved for the automatically inserted local session.
 

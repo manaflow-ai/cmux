@@ -51,7 +51,8 @@ use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserKey, BrowserResizeFailure,
 };
 use crate::config::{
-    Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumnKind, SidebarView,
+    Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumnKind, SidebarResourceKind,
+    SidebarView,
 };
 use crate::keys;
 use crate::localization;
@@ -71,10 +72,14 @@ use crate::pty_input::{
 };
 use crate::session::tree::{PaneView, ScreenView};
 use crate::session::{
-    CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, Session, SidebarPluginSurface, SurfaceHandle,
-    TreeView, is_remote_surface_unavailable, is_remote_timeout, is_remote_transport_failure,
+    AgentInfo, CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, Session, SidebarPluginSurface,
+    SurfaceHandle, TreeView, is_remote_surface_unavailable, is_remote_timeout,
+    is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
+use crate::sidebar_projection::{
+    ProjectionBranch, ProjectionRailState, ProjectionRow, ProjectionTarget,
+};
 use crate::ui::graphics::{
     GraphicPlacement, GraphicSourceRect, kitty_graphic_image, kitty_graphic_placement,
 };
@@ -1479,6 +1484,10 @@ impl OrderedSession {
 
     fn tree(&self) -> TreeView {
         self.inner.tree()
+    }
+
+    fn agents(&self) -> Vec<AgentInfo> {
+        self.inner.agents()
     }
 
     fn respond_pairing(&self, request: u64, approve: bool) -> anyhow::Result<()> {
@@ -3060,6 +3069,19 @@ pub enum Hit {
         index: usize,
         surface: SurfaceId,
     },
+    /// A row in a configurable multi-level native projection.
+    ProjectionRow {
+        view: usize,
+        row: usize,
+        target: ProjectionTarget,
+    },
+    ProjectionToggle {
+        view: usize,
+        branch: ProjectionBranch,
+    },
+    ProjectionRail {
+        view: usize,
+    },
     RecoverableWorkspace {
         index: usize,
     },
@@ -3124,6 +3146,7 @@ pub enum RailKind {
     Machine,
     Workspace,
     Tabs,
+    Projection(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3145,26 +3168,40 @@ pub enum FocusTarget {
     MachineRail,
     WorkspaceRail,
     TabsRail,
+    ProjectionRail(usize),
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RailPlacement {
+    pub kind: RailKind,
+    pub view_index: usize,
+    pub rect: Rect,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SidebarLayout {
     pub machine: Option<Rect>,
     pub workspace: Option<Rect>,
     pub tabs: Option<Rect>,
+    pub ordered: Vec<RailPlacement>,
     pub content: Rect,
 }
 
 impl SidebarLayout {
-    pub fn total_width(self) -> u16 {
+    pub fn total_width(&self) -> u16 {
         self.content.x
     }
 
-    pub fn rail(self, kind: RailKind) -> Option<Rect> {
+    pub fn rail(&self, kind: RailKind) -> Option<Rect> {
         match kind {
             RailKind::Machine => self.machine,
             RailKind::Workspace => self.workspace,
             RailKind::Tabs => self.tabs,
+            RailKind::Projection(_) => self
+                .ordered
+                .iter()
+                .find(|placement| placement.kind == kind)
+                .map(|placement| placement.rect),
         }
     }
 }
@@ -5536,6 +5573,7 @@ pub struct App {
     pub(crate) tabs_rail_selection: usize,
     pub(crate) tabs_rail_scroll: usize,
     pub(crate) tabs_footer_scroll: usize,
+    projection_rails: HashMap<String, ProjectionRailState>,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -5552,6 +5590,7 @@ pub struct App {
     sidebar_width_override: Option<u16>,
     machine_sidebar_width_override: Option<u16>,
     tabs_sidebar_width_override: Option<u16>,
+    projection_sidebar_width_overrides: HashMap<String, u16>,
     /// Pane region of the current frame (screen minus sidebar/status).
     pub content_area: Rect,
     /// Clickable regions of the current frame, rebuilt by the renderers.
@@ -5675,6 +5714,7 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
 const MIN_RAIL_WIDTH: u16 = 10;
 const MIN_CONTENT_WIDTH: u16 = 40;
 const MIN_TABBED_PANE_HEIGHT: u16 = 3;
+const RAIL_REVEAL_HYSTERESIS: u16 = 4;
 
 fn clamp_rail_width(desired: u16, configured_max: u16, available: u16) -> Option<u16> {
     let configured_max = if configured_max > 0 { configured_max } else { u16::MAX };
@@ -5694,6 +5734,33 @@ fn sidebar_layout_for(
     machine_override: Option<u16>,
     tabs_override: Option<u16>,
 ) -> SidebarLayout {
+    sidebar_layout_for_state(
+        config,
+        visible,
+        compact,
+        machine_visible,
+        size,
+        workspace_override,
+        machine_override,
+        tabs_override,
+        &HashMap::new(),
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sidebar_layout_for_state(
+    config: &Config,
+    visible: bool,
+    compact: bool,
+    machine_visible: bool,
+    size: (u16, u16),
+    workspace_override: Option<u16>,
+    machine_override: Option<u16>,
+    tabs_override: Option<u16>,
+    projection_overrides: &HashMap<String, u16>,
+    previous: Option<&SidebarLayout>,
+) -> SidebarLayout {
     let (width, height) = size;
     let content_height = height.saturating_sub(1);
     if !visible {
@@ -5706,48 +5773,57 @@ fn sidebar_layout_for(
     #[derive(Clone, Copy)]
     struct Spec {
         kind: RailKind,
+        view_index: usize,
         desired: u16,
         max_width: u16,
-        priority: u8,
+        priority: u16,
     }
 
     let mut specs = config
         .sidebar
-        .columns
+        .views
         .iter()
-        .filter_map(|column| {
-            let (kind, priority, width_override) = match column.kind {
-                SidebarColumnKind::Machines if machine_visible => {
-                    (RailKind::Machine, 1, machine_override)
-                }
-                SidebarColumnKind::Machines => return None,
-                SidebarColumnKind::Workspaces => (RailKind::Workspace, 3, workspace_override),
-                SidebarColumnKind::Tabs => (RailKind::Tabs, 2, tabs_override),
+        .enumerate()
+        .filter_map(|(view_index, view)| {
+            if view.includes(SidebarResourceKind::Machines) && !machine_visible {
+                return None;
+            }
+            let kind = match view.legacy_kind() {
+                Some(SidebarColumnKind::Machines) => RailKind::Machine,
+                Some(SidebarColumnKind::Workspaces) => RailKind::Workspace,
+                Some(SidebarColumnKind::Tabs) => RailKind::Tabs,
+                None => RailKind::Projection(view_index),
+            };
+            let width_override = match kind {
+                RailKind::Machine => machine_override,
+                RailKind::Workspace => workspace_override,
+                RailKind::Tabs => tabs_override,
+                RailKind::Projection(_) => projection_overrides.get(&view.id).copied(),
             };
             let legacy_width = match kind {
                 RailKind::Machine => config.machine_sidebar.width,
                 RailKind::Workspace => config.sidebar.width,
-                RailKind::Tabs => column.width,
+                RailKind::Tabs | RailKind::Projection(_) => view.width,
             };
             let desired = if compact && kind == RailKind::Workspace {
                 config.sidebar.compact_width
             } else {
-                width_override.unwrap_or(if config.sidebar.columns_explicit {
-                    column.width
+                width_override.unwrap_or(if config.sidebar.views_explicit {
+                    view.width
                 } else {
                     legacy_width
                 })
             };
-            let max_width = if config.sidebar.columns_explicit {
-                column.max_width
+            let max_width = if config.sidebar.views_explicit {
+                view.max_width
             } else {
                 match kind {
                     RailKind::Machine => config.machine_sidebar.max_width,
                     RailKind::Workspace => config.sidebar.max_width,
-                    RailKind::Tabs => column.max_width,
+                    RailKind::Tabs | RailKind::Projection(_) => view.max_width,
                 }
             };
-            Some(Spec { kind, desired, max_width, priority })
+            Some(Spec { kind, view_index, desired, max_width, priority: view.collapse_priority })
         })
         .collect::<Vec<_>>();
 
@@ -5759,6 +5835,25 @@ fn sidebar_layout_for(
             break;
         };
         specs.remove(index);
+    }
+
+    if let Some(previous) = previous {
+        while specs.iter().any(|spec| previous.rail(spec.kind).is_none())
+            && width
+                < MIN_CONTENT_WIDTH
+                    .saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
+                    .saturating_add(RAIL_REVEAL_HYSTERESIS)
+        {
+            let Some((index, _)) = specs
+                .iter()
+                .enumerate()
+                .filter(|(_, spec)| previous.rail(spec.kind).is_none())
+                .min_by_key(|(_, spec)| spec.priority)
+            else {
+                break;
+            };
+            specs.remove(index);
+        }
     }
 
     let mut layout = SidebarLayout::default();
@@ -5777,45 +5872,36 @@ fn sidebar_layout_for(
             RailKind::Machine => layout.machine = Some(rect),
             RailKind::Workspace => layout.workspace = Some(rect),
             RailKind::Tabs => layout.tabs = Some(rect),
+            RailKind::Projection(_) => {}
         }
+        layout.ordered.push(RailPlacement { kind: spec.kind, view_index: spec.view_index, rect });
         x = x.saturating_add(rail_width);
     }
     layout.content = Rect { x, y: 0, width: width.saturating_sub(x), height: content_height };
     layout
 }
 
-fn rail_drag_width(config: &Config, layout: SidebarLayout, kind: RailKind, x: u16) -> Option<u16> {
+fn rail_drag_width(config: &Config, layout: &SidebarLayout, kind: RailKind, x: u16) -> Option<u16> {
     let rail = layout.rail(kind)?;
     let terminal_width = layout.content.x.saturating_add(layout.content.width);
-    let other_width = [RailKind::Machine, RailKind::Workspace, RailKind::Tabs]
-        .into_iter()
-        .filter(|candidate| *candidate != kind)
-        .filter_map(|candidate| layout.rail(candidate))
-        .map(|rect| rect.width)
+    let other_width = layout
+        .ordered
+        .iter()
+        .filter(|placement| placement.kind != kind)
+        .map(|placement| placement.rect.width)
         .fold(0u16, u16::saturating_add);
     let available = terminal_width.saturating_sub(MIN_CONTENT_WIDTH).saturating_sub(other_width);
-    let configured_max = config
-        .sidebar
-        .columns
-        .iter()
-        .find_map(|column| {
-            let matches = matches!(
-                (kind, column.kind),
-                (RailKind::Machine, SidebarColumnKind::Machines)
-                    | (RailKind::Workspace, SidebarColumnKind::Workspaces)
-                    | (RailKind::Tabs, SidebarColumnKind::Tabs)
-            );
-            matches.then_some(if config.sidebar.columns_explicit {
-                column.max_width
-            } else {
-                match kind {
-                    RailKind::Machine => config.machine_sidebar.max_width,
-                    RailKind::Workspace => config.sidebar.max_width,
-                    RailKind::Tabs => column.max_width,
-                }
-            })
-        })
-        .unwrap_or(0);
+    let view_index = layout.ordered.iter().find(|placement| placement.kind == kind)?.view_index;
+    let view = config.sidebar.views.get(view_index)?;
+    let configured_max = if config.sidebar.views_explicit {
+        view.max_width
+    } else {
+        match kind {
+            RailKind::Machine => config.machine_sidebar.max_width,
+            RailKind::Workspace => config.sidebar.max_width,
+            RailKind::Tabs | RailKind::Projection(_) => view.max_width,
+        }
+    };
     let desired = x.saturating_sub(rail.x).saturating_add(1);
     clamp_rail_width(desired, configured_max, available)
 }
@@ -6846,6 +6932,7 @@ fn run_with_machine_updates_inner(
         tabs_rail_selection: 0,
         tabs_rail_scroll: 0,
         tabs_footer_scroll: 0,
+        projection_rails: HashMap::new(),
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -6861,6 +6948,7 @@ fn run_with_machine_updates_inner(
         sidebar_width_override: None,
         machine_sidebar_width_override: None,
         tabs_sidebar_width_override: None,
+        projection_sidebar_width_overrides: HashMap::new(),
         content_area: Rect::default(),
         hits: Vec::new(),
         tab_scroll: HashMap::new(),
@@ -7357,7 +7445,10 @@ impl App {
     fn sidebar_rail_focused(&self) -> bool {
         matches!(
             self.focus,
-            FocusTarget::MachineRail | FocusTarget::WorkspaceRail | FocusTarget::TabsRail
+            FocusTarget::MachineRail
+                | FocusTarget::WorkspaceRail
+                | FocusTarget::TabsRail
+                | FocusTarget::ProjectionRail(_)
         )
     }
 
@@ -7366,6 +7457,7 @@ impl App {
             RailKind::Machine => self.machine_sidebar_width,
             RailKind::Workspace => self.sidebar_width,
             RailKind::Tabs => self.tabs_sidebar_width,
+            RailKind::Projection(_) => 0,
         };
         let width = width_for(kind);
         if width == 0 {
@@ -7400,6 +7492,46 @@ impl App {
 
     pub fn tabs_sidebar_area(&self, height: u16) -> Option<Rect> {
         self.sidebar_layout.tabs.or_else(|| self.fallback_sidebar_area(RailKind::Tabs, height))
+    }
+
+    pub(crate) fn projection_sidebar_area(&self, index: usize) -> Option<Rect> {
+        self.sidebar_layout.rail(RailKind::Projection(index))
+    }
+
+    pub(crate) fn projection_sidebar_focused(&self, index: usize) -> bool {
+        self.focus == FocusTarget::ProjectionRail(index)
+    }
+
+    pub(crate) fn projection_rows(&self, index: usize) -> Vec<ProjectionRow> {
+        let Some(spec) = self.config.sidebar.views.get(index) else { return Vec::new() };
+        let collapsed = self
+            .projection_rails
+            .get(&spec.id)
+            .map(|state| &state.collapsed)
+            .cloned()
+            .unwrap_or_default();
+        let agents = spec
+            .includes(SidebarResourceKind::Agents)
+            .then(|| self.session.agents())
+            .unwrap_or_default();
+        crate::sidebar_projection::rows(
+            spec,
+            &self.tree,
+            &agents,
+            self.sidebar_workspace_selection,
+            &collapsed,
+        )
+    }
+
+    pub(crate) fn projection_rail_state_mut(&mut self, index: usize) -> &mut ProjectionRailState {
+        let id = self
+            .config
+            .sidebar
+            .views
+            .get(index)
+            .map(|view| view.id.clone())
+            .unwrap_or_else(|| format!("missing-{index}"));
+        self.projection_rails.entry(id).or_default()
     }
 
     pub(crate) fn sidebar_tab_targets(&self) -> Vec<SidebarTabTarget> {
@@ -7457,11 +7589,64 @@ impl App {
         if !self.tree.select_surface(target.surface) {
             return Ok(());
         }
+        self.follow_sidebar_workspace(target.workspace);
         self.pane_focus_history.record(target.pane);
         self.session.select_workspace(Some(target.workspace), None);
         self.session.select_screen(Some(target.screen), None);
         self.session.focus_pane(target.pane);
         self.session.select_tab(Some(target.pane), Some(target.index), None);
+        Ok(())
+    }
+
+    fn follow_sidebar_workspace(&mut self, index: usize) {
+        if self.sidebar_workspace_selection != index {
+            self.tabs_rail_selection = 0;
+            self.tabs_rail_scroll = 0;
+        }
+        self.sidebar_workspace_selection = index;
+        self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+    }
+
+    fn activate_projection_target(&mut self, target: ProjectionTarget) -> anyhow::Result<()> {
+        match target {
+            ProjectionTarget::Workspace { index, .. } => {
+                if !self.prepare_pty_input_before_mutation() {
+                    return Ok(());
+                }
+                self.follow_sidebar_workspace(index);
+                self.tree.active_workspace = index;
+                self.session.select_workspace(Some(index), None);
+            }
+            ProjectionTarget::Pane { workspace, screen, pane } => {
+                if !self.prepare_pty_input_before_mutation() {
+                    return Ok(());
+                }
+                self.follow_sidebar_workspace(workspace);
+                self.tree.active_workspace = workspace;
+                if let Some(workspace_view) = self.tree.workspaces.get_mut(workspace) {
+                    workspace_view.active_screen = screen;
+                    if let Some(screen_view) = workspace_view.screens.get_mut(screen) {
+                        screen_view.active_pane = pane;
+                    }
+                }
+                self.pane_focus_history.record(pane);
+                self.session.select_workspace(Some(workspace), None);
+                self.session.select_screen(Some(screen), None);
+                self.session.focus_pane(pane);
+            }
+            ProjectionTarget::Surface { workspace, screen, pane, index, surface, .. } => {
+                self.activate_sidebar_tab(&SidebarTabTarget {
+                    workspace,
+                    screen,
+                    pane,
+                    index,
+                    surface,
+                    name: String::new(),
+                    subtitle: String::new(),
+                    active: false,
+                })?;
+            }
+        }
         Ok(())
     }
 
@@ -7477,19 +7662,7 @@ impl App {
     }
 
     fn visible_rail_order(&self) -> Vec<RailKind> {
-        self.config
-            .sidebar
-            .columns
-            .iter()
-            .filter_map(|column| {
-                let kind = match column.kind {
-                    SidebarColumnKind::Machines => RailKind::Machine,
-                    SidebarColumnKind::Workspaces => RailKind::Workspace,
-                    SidebarColumnKind::Tabs => RailKind::Tabs,
-                };
-                self.sidebar_layout.rail(kind).map(|_| kind)
-            })
-            .collect()
+        self.sidebar_layout.ordered.iter().map(|placement| placement.kind).collect()
     }
 
     fn focus_rail(&mut self, kind: RailKind) {
@@ -7497,6 +7670,7 @@ impl App {
             RailKind::Machine => FocusTarget::MachineRail,
             RailKind::Workspace => FocusTarget::WorkspaceRail,
             RailKind::Tabs => FocusTarget::TabsRail,
+            RailKind::Projection(index) => FocusTarget::ProjectionRail(index),
         };
     }
 
@@ -8447,7 +8621,13 @@ impl App {
                 .and_then(|pane| pane.tabs.get(index))
                 .map(|tab| PointerHitIdentity::Tab(tab.surface)),
             Hit::SidebarTab { surface, .. } => Some(PointerHitIdentity::Tab(surface)),
+            Hit::ProjectionRow { target: ProjectionTarget::Surface { surface, .. }, .. } => {
+                Some(PointerHitIdentity::Tab(surface))
+            }
             Hit::Workspace { .. }
+            | Hit::ProjectionRow { .. }
+            | Hit::ProjectionToggle { .. }
+            | Hit::ProjectionRail { .. }
             | Hit::ScreenEntry { .. }
             | Hit::NewTab { .. }
             | Hit::Clients { .. }
@@ -9880,6 +10060,12 @@ impl App {
     }
 
     fn reload_config(&mut self) {
+        let focused_projection_id = match self.focus {
+            FocusTarget::ProjectionRail(index) => {
+                self.config.sidebar.views.get(index).map(|view| view.id.clone())
+            }
+            _ => None,
+        };
         let mut config = crate::config::load();
         config.apply_chrome_defaults(self.chrome);
         let shortcut_rows = self
@@ -9892,6 +10078,25 @@ impl App {
         self.session.apply_config(config.clone());
         self.sidebar_view = config.sidebar.view;
         self.config = config;
+        let valid_view_ids =
+            self.config.sidebar.views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
+        self.projection_rails.retain(|id, _| valid_view_ids.contains(id));
+        self.projection_sidebar_width_overrides.retain(|id, _| valid_view_ids.contains(id));
+        if let Some(id) = focused_projection_id {
+            if let Some((index, view)) =
+                self.config.sidebar.views.iter().enumerate().find(|(_, view)| view.id == id)
+            {
+                let kind =
+                    view.legacy_kind().map_or(RailKind::Projection(index), |kind| match kind {
+                        SidebarColumnKind::Machines => RailKind::Machine,
+                        SidebarColumnKind::Workspaces => RailKind::Workspace,
+                        SidebarColumnKind::Tabs => RailKind::Tabs,
+                    });
+                self.focus_rail(kind);
+            } else {
+                self.focus = FocusTarget::Pane;
+            }
+        }
         if let (Some(help), Some(rows)) = (self.shortcut_help.as_mut(), shortcut_rows) {
             help.rows = rows;
             help.scroll_offset = help.scroll_offset.min(help.max_scroll(help.rows.len()));
@@ -10065,13 +10270,15 @@ impl App {
     /// content sizes to surfaces.
     fn sync_layout(&mut self, size: (u16, u16)) {
         let (width, height) = size;
-        self.sidebar_layout = if self.surface_only.is_some() {
+        let sidebar_layout = if self.surface_only.is_some() {
             SidebarLayout {
                 content: Rect { x: 0, y: 0, width, height },
                 ..SidebarLayout::default()
             }
         } else {
-            sidebar_layout_for(
+            let previous =
+                (!self.sidebar_layout.ordered.is_empty()).then_some(&self.sidebar_layout);
+            sidebar_layout_for_state(
                 &self.config,
                 self.sidebar_visible,
                 self.sidebar_compact,
@@ -10080,8 +10287,11 @@ impl App {
                 self.sidebar_width_override,
                 self.machine_sidebar_width_override,
                 self.tabs_sidebar_width_override,
+                &self.projection_sidebar_width_overrides,
+                previous,
             )
         };
+        self.sidebar_layout = sidebar_layout;
         self.sidebar_width = self.sidebar_layout.workspace.map_or(0, |rect| rect.width);
         self.machine_sidebar_width = self.sidebar_layout.machine.map_or(0, |rect| rect.width);
         self.tabs_sidebar_width = self.sidebar_layout.tabs.map_or(0, |rect| rect.width);
@@ -10092,6 +10302,11 @@ impl App {
             self.focus = FocusTarget::Pane;
         }
         if self.tabs_sidebar_width == 0 && self.focus == FocusTarget::TabsRail {
+            self.focus = FocusTarget::Pane;
+        }
+        if let FocusTarget::ProjectionRail(index) = self.focus
+            && self.sidebar_layout.rail(RailKind::Projection(index)).is_none()
+        {
             self.focus = FocusTarget::Pane;
         }
         let area = self.sidebar_layout.content;
@@ -12723,6 +12938,9 @@ impl App {
         if self.tabs_sidebar_focused() {
             return self.handle_tabs_sidebar_key(&key);
         }
+        if let FocusTarget::ProjectionRail(index) = self.focus {
+            return self.handle_projection_sidebar_key(index, &key);
+        }
         if self.workspace_sidebar_focused() {
             if self.config.sidebar.plugin.is_some() {
                 self.forward_sidebar_key(input);
@@ -12881,6 +13099,70 @@ impl App {
             None => {}
         }
         RenderAction::Draw
+    }
+
+    fn handle_projection_sidebar_key(
+        &mut self,
+        view_index: usize,
+        key: &KeyEvent,
+    ) -> anyhow::Result<RenderAction> {
+        if key.code == KeyCode::Esc {
+            self.focus = FocusTarget::Pane;
+            return Ok(RenderAction::Draw);
+        }
+        let rows = self.projection_rows(view_index);
+        let current = self
+            .config
+            .sidebar
+            .views
+            .get(view_index)
+            .and_then(|view| self.projection_rails.get(&view.id))
+            .map_or(0, |state| state.selected.min(rows.len().saturating_sub(1)));
+        let selected = rows.get(current).cloned();
+        if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
+            if let Some(branch) = selected.as_ref().and_then(|row| row.branch)
+                && selected.as_ref().is_some_and(|row| row.expanded)
+            {
+                self.projection_rail_state_mut(view_index).collapsed.insert(branch);
+            } else {
+                self.focus_adjacent_rail(RailKind::Projection(view_index), -1);
+            }
+            return Ok(RenderAction::Draw);
+        }
+        if matches!(key.code, KeyCode::Right | KeyCode::Char('l')) {
+            if let Some(branch) = selected.as_ref().and_then(|row| row.branch)
+                && selected.as_ref().is_some_and(|row| !row.expanded)
+            {
+                self.projection_rail_state_mut(view_index).collapsed.remove(&branch);
+            } else if !self.focus_adjacent_rail(RailKind::Projection(view_index), 1) {
+                self.focus = FocusTarget::Pane;
+            }
+            return Ok(RenderAction::Draw);
+        }
+        let page = self
+            .projection_sidebar_area(view_index)
+            .map_or(1, |area| usize::from(area.height.saturating_sub(2)).max(1));
+        if let Some(next) = rail_navigation_index(key, current, rows.len(), page) {
+            let state = self.projection_rail_state_mut(view_index);
+            state.selected = next;
+            state.follow_selection = true;
+            return Ok(RenderAction::Draw);
+        }
+        if matches!(key.code, KeyCode::Char(' '))
+            && let Some(branch) = selected.as_ref().and_then(|row| row.branch)
+        {
+            let state = self.projection_rail_state_mut(view_index);
+            if !state.collapsed.remove(&branch) {
+                state.collapsed.insert(branch);
+            }
+            return Ok(RenderAction::Draw);
+        }
+        if key.code == KeyCode::Enter
+            && let Some(row) = selected
+        {
+            self.activate_projection_target(row.target)?;
+        }
+        Ok(RenderAction::Draw)
     }
 
     fn open_machine_creation_menu(&mut self, x: u16, y: u16) {
@@ -14482,18 +14764,30 @@ impl App {
             let preferred = self
                 .config
                 .sidebar
-                .columns
+                .views
                 .iter()
-                .find(|column| column.kind == SidebarColumnKind::Workspaces)
-                .map(|_| RailKind::Workspace)
-                .or_else(|| {
-                    self.config.sidebar.columns.iter().find_map(|column| match column.kind {
-                        SidebarColumnKind::Machines if self.machine_ui.is_some() => {
-                            Some(RailKind::Machine)
-                        }
-                        SidebarColumnKind::Tabs => Some(RailKind::Tabs),
-                        SidebarColumnKind::Machines | SidebarColumnKind::Workspaces => None,
+                .enumerate()
+                .find(|(_, view)| view.includes(SidebarResourceKind::Workspaces))
+                .map(|(index, view)| {
+                    view.legacy_kind().map_or(RailKind::Projection(index), |kind| match kind {
+                        SidebarColumnKind::Machines => RailKind::Machine,
+                        SidebarColumnKind::Workspaces => RailKind::Workspace,
+                        SidebarColumnKind::Tabs => RailKind::Tabs,
                     })
+                })
+                .or_else(|| {
+                    self.config.sidebar.views.iter().enumerate().find_map(
+                        |(index, view)| match view.legacy_kind() {
+                            Some(SidebarColumnKind::Machines) if self.machine_ui.is_some() => {
+                                Some(RailKind::Machine)
+                            }
+                            Some(SidebarColumnKind::Tabs) => Some(RailKind::Tabs),
+                            Some(SidebarColumnKind::Machines | SidebarColumnKind::Workspaces) => {
+                                None
+                            }
+                            None => Some(RailKind::Projection(index)),
+                        },
+                    )
                 });
             if let Some(kind) = preferred {
                 self.focus_rail(kind);
@@ -16358,6 +16652,23 @@ impl App {
                         self.activate_sidebar_tab(target)?;
                     }
                 }
+                Hit::ProjectionToggle { view, branch } => {
+                    self.focus = FocusTarget::ProjectionRail(view);
+                    let state = self.projection_rail_state_mut(view);
+                    if !state.collapsed.remove(&branch) {
+                        state.collapsed.insert(branch);
+                    }
+                }
+                Hit::ProjectionRow { view, row, target } => {
+                    self.focus = FocusTarget::ProjectionRail(view);
+                    let state = self.projection_rail_state_mut(view);
+                    state.selected = row;
+                    state.follow_selection = true;
+                    self.activate_projection_target(target)?;
+                }
+                Hit::ProjectionRail { view } => {
+                    self.focus = FocusTarget::ProjectionRail(view);
+                }
                 Hit::RecoverableWorkspace { index } => {
                     self.focus = FocusTarget::WorkspaceRail;
                     self.workspace_rail_follow_selection = true;
@@ -16649,7 +16960,7 @@ impl App {
             }
             Some(Drag::RailResize(kind)) => {
                 let kind = *kind;
-                if let Some(width) = rail_drag_width(&self.config, self.sidebar_layout, kind, x) {
+                if let Some(width) = rail_drag_width(&self.config, &self.sidebar_layout, kind, x) {
                     match kind {
                         RailKind::Machine => self.machine_sidebar_width_override = Some(width),
                         RailKind::Workspace => {
@@ -16657,6 +16968,13 @@ impl App {
                             self.sidebar_width_override = Some(width);
                         }
                         RailKind::Tabs => self.tabs_sidebar_width_override = Some(width),
+                        RailKind::Projection(index) => {
+                            if let Some(id) =
+                                self.config.sidebar.views.get(index).map(|view| view.id.clone())
+                            {
+                                self.projection_sidebar_width_overrides.insert(id, width);
+                            }
+                        }
                     }
                 }
                 Ok(RenderAction::Draw)
@@ -17357,6 +17675,35 @@ impl App {
                 Some(Hit::SidebarTab { surface, .. }) => {
                     groups.push(self.menu_group([MenuAction::RenameSurface(surface)]));
                 }
+                Some(Hit::ProjectionRow {
+                    target: ProjectionTarget::Workspace { id, .. }, ..
+                })
+                | Some(Hit::ProjectionToggle { branch: ProjectionBranch::Workspace(id), .. }) => {
+                    if self.provider_manages_current_workspace_session() {
+                        if let Some(workspace) = self.managed_workspace_for_view(id) {
+                            let mut actions = Vec::new();
+                            if workspace.capabilities.rename {
+                                actions.push(MenuAction::RenameManagedWorkspace(id));
+                            }
+                            if workspace.capabilities.delete {
+                                actions.push(MenuAction::DeleteManagedWorkspace(id));
+                            }
+                            groups.push(self.menu_group(actions));
+                        }
+                    } else {
+                        groups.push(self.menu_group([
+                            MenuAction::RenameWorkspace(id),
+                            MenuAction::CloseWorkspace(id),
+                        ]));
+                        groups.push(self.menu_group([MenuAction::CopyWorkspaceId(id)]));
+                    }
+                }
+                Some(Hit::ProjectionRow {
+                    target: ProjectionTarget::Surface { surface, .. },
+                    ..
+                }) => {
+                    groups.push(self.menu_group([MenuAction::RenameSurface(surface)]));
+                }
                 _ => {}
             }
             groups.push(self.menu_group(self.sidebar_menu_actions()));
@@ -17505,6 +17852,18 @@ impl App {
                 self.tabs_rail_scroll.saturating_sub(3)
             };
             self.tabs_rail_follow_selection = false;
+            return Ok(RenderAction::Draw);
+        }
+        if let Some(view_index) = self.sidebar_layout.ordered.iter().find_map(|placement| {
+            matches!(placement.kind, RailKind::Projection(_))
+                .then_some((placement.view_index, placement.rect))
+                .filter(|(_, area)| area.contains(x, y))
+                .map(|(view_index, _)| view_index)
+        }) {
+            let state = self.projection_rail_state_mut(view_index);
+            state.scroll =
+                if down { state.scroll.saturating_add(3) } else { state.scroll.saturating_sub(3) };
+            state.follow_selection = false;
             return Ok(RenderAction::Draw);
         }
         let Some(area) = self.pane_area_at(x, y).copied() else { return Ok(RenderAction::None) };
@@ -18029,8 +18388,8 @@ mod tests {
         prepare_ordered_session, preserve_client_view, rail_drag_width, rebuild_pane_areas,
         record_surface_resize_dispatch_result, report_after_unwind,
         reset_pane_area_projection_work, should_claim_clear_history_shortcut, sidebar_layout_for,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
-        swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
+        sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
+        start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -18040,9 +18399,9 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use cmux_tui_core::{
-        BrowserFrame, BrowserStatus, Direction, LayoutUndoError, Mux, MuxEvent, Node,
-        PointerSnapshotProbe, Rect, SplitDir, SurfaceId, SurfaceKind, SurfaceOptions, VirtualRect,
-        ZoomMode, layout_screen, server,
+        AgentSource, AgentState, BrowserFrame, BrowserStatus, Direction, LayoutUndoError, Mux,
+        MuxEvent, Node, PointerSnapshotProbe, Rect, SplitDir, SurfaceId, SurfaceKind,
+        SurfaceOptions, VirtualRect, ZoomMode, layout_screen, server,
     };
     use crossterm::event::{
         EnhancedKeyEvent, Event, KeyCode, KeyEvent, KeyModifiers, KeyboardEnhancementFlags,
@@ -18060,8 +18419,8 @@ mod tests {
 
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
     use crate::config::{
-        Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumnKind, SidebarView,
-        action_definitions,
+        Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumnKind, SidebarResourceKind,
+        SidebarView, SidebarViewSpec, action_definitions,
     };
     use crate::localization;
     use crate::machine::{
@@ -19492,6 +19851,13 @@ mod tests {
             },
             crate::config::SidebarColumn { kind: SidebarColumnKind::Tabs, width: 24, max_width: 0 },
         ];
+        config.sidebar.views = config
+            .sidebar
+            .columns
+            .iter()
+            .map(|column| SidebarViewSpec::legacy(column.kind, column.width, column.max_width))
+            .collect();
+        config.sidebar.views_explicit = true;
 
         let full = sidebar_layout_for(&config, true, false, true, (120, 30), None, None, None);
         assert_eq!(full.machine, Some(Rect { x: 0, y: 0, width: 18, height: 30 }));
@@ -19509,6 +19875,58 @@ mod tests {
         assert_eq!(narrow.tabs, None);
         assert_eq!(narrow.workspace.map(|rect| rect.width), Some(10));
         assert_eq!(narrow.content.width, 40);
+    }
+
+    #[test]
+    fn collapsed_rail_requires_hysteresis_before_reappearing() {
+        let mut config = Config::default();
+        config.sidebar.views = vec![
+            SidebarViewSpec::legacy(SidebarColumnKind::Machines, 18, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Tabs, 24, 0),
+        ];
+        config.sidebar.views_explicit = true;
+        let overrides = HashMap::new();
+        let collapsed = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            true,
+            (69, 30),
+            None,
+            None,
+            None,
+            &overrides,
+            None,
+        );
+        assert!(collapsed.machine.is_none());
+
+        let at_boundary = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            true,
+            (70, 30),
+            None,
+            None,
+            None,
+            &overrides,
+            Some(&collapsed),
+        );
+        assert!(at_boundary.machine.is_none());
+        let revealed = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            true,
+            (74, 30),
+            None,
+            None,
+            None,
+            &overrides,
+            Some(&at_boundary),
+        );
+        assert!(revealed.machine.is_some());
     }
 
     #[test]
@@ -31937,7 +32355,7 @@ mod tests {
             let rect = divider(&app, kind);
             let target_x = rect.x + 3;
             let expected =
-                rail_drag_width(&app.config, app.sidebar_layout, kind, target_x).unwrap();
+                rail_drag_width(&app.config, &app.sidebar_layout, kind, target_x).unwrap();
             app.handle_mouse(MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),
                 column: rect.x,
@@ -31969,6 +32387,9 @@ mod tests {
                     assert_eq!(app.sidebar_width_override, Some(expected));
                 }
                 RailKind::Tabs => unreachable!("tabs rail is not configured in this test"),
+                RailKind::Projection(_) => {
+                    unreachable!("projection rail is not configured in this test")
+                }
             }
         }
     }
@@ -32146,6 +32567,14 @@ mod tests {
             },
             crate::config::SidebarColumn { kind: SidebarColumnKind::Tabs, width: 24, max_width: 0 },
         ];
+        app.config.sidebar.views = app
+            .config
+            .sidebar
+            .columns
+            .iter()
+            .map(|column| SidebarViewSpec::legacy(column.kind, column.width, column.max_width))
+            .collect();
+        app.config.sidebar.views_explicit = true;
         app.sidebar_view = SidebarView::Workspaces;
         app.replace_tree(app.session.tree());
         app.sync_layout((100, 20));
@@ -32185,6 +32614,14 @@ mod tests {
             },
             crate::config::SidebarColumn { kind: SidebarColumnKind::Tabs, width: 24, max_width: 0 },
         ];
+        app.config.sidebar.views = app
+            .config
+            .sidebar
+            .columns
+            .iter()
+            .map(|column| SidebarViewSpec::legacy(column.kind, column.width, column.max_width))
+            .collect();
+        app.config.sidebar.views_explicit = true;
         app.sidebar_view = SidebarView::Workspaces;
         app.replace_tree(app.session.tree());
         app.sync_layout((100, 20));
@@ -32230,6 +32667,91 @@ mod tests {
             .and_then(|tab| tab.name.as_deref());
         assert_eq!(renamed, Some("first renamed"));
         assert_eq!(mux.active_surface(), Some(second.id));
+    }
+
+    #[test]
+    fn workspace_agent_tree_renders_collapses_and_renames_the_exact_surface() {
+        let (mux, surface) = test_mux("workspace-agent-tree-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("agent-session".into()),
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "workspace-agents".into(),
+            levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(rendered.contains("workspaces › agents"), "{rendered}");
+        assert!(rendered.contains("working · agent-session"), "{rendered}");
+        let surface_row = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::ProjectionRow {
+                        target: crate::sidebar_projection::ProjectionTarget::Surface {
+                            surface: hit_surface,
+                            ..
+                        },
+                        ..
+                    } if *hit_surface == surface.id
+                )
+                .then_some(*rect)
+            })
+            .unwrap();
+        app.open_context_menu(surface_row.x, surface_row.y);
+        assert!(
+            app.menu.as_ref().unwrap().levels[0]
+                .items
+                .iter()
+                .any(|item| item.action() == Some(MenuAction::RenameSurface(surface.id)))
+        );
+
+        app.menu = None;
+        let disclosure = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::ProjectionToggle {
+                        branch: crate::sidebar_projection::ProjectionBranch::Workspace(_),
+                        ..
+                    }
+                )
+                .then_some(*rect)
+            })
+            .unwrap();
+        app.handle_left_down(disclosure.x, disclosure.y, KeyModifiers::NONE).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(0));
+        assert!(!app.hits.iter().any(|(_, hit)| matches!(
+            hit,
+            super::Hit::ProjectionRow {
+                target: crate::sidebar_projection::ProjectionTarget::Surface {
+                    surface: hit_surface,
+                    ..
+                },
+                ..
+            } if *hit_surface == surface.id
+        )));
+
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -33876,6 +34398,7 @@ mod tests {
             tabs_rail_selection: 0,
             tabs_rail_scroll: 0,
             tabs_footer_scroll: 0,
+            projection_rails: HashMap::new(),
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,
@@ -33891,6 +34414,7 @@ mod tests {
             sidebar_width_override: None,
             machine_sidebar_width_override: None,
             tabs_sidebar_width_override: None,
+            projection_sidebar_width_overrides: HashMap::new(),
             content_area: Rect::default(),
             hits: Vec::new(),
             tab_scroll: HashMap::new(),

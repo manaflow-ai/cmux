@@ -11,11 +11,46 @@ use super::{
     ScrollbarState, ScrollbarStyle, middle_truncate, rail, truncate, viewport_thumb_geometry,
 };
 use crate::app::{App, Hit, RailKind, WorkspaceRailSelection};
-use crate::config::SidebarView;
+use crate::config::{SidebarResourceKind, SidebarView};
 use crate::localization;
 use crate::machine::{
     MachineRailSelection, MachineStatus, ProviderScopeKind, WorkspaceCreationMode,
 };
+
+fn projection_resource_label(resource: SidebarResourceKind) -> &'static str {
+    let messages = &localization::catalog().sidebar;
+    match resource {
+        SidebarResourceKind::Machines => messages.machines,
+        SidebarResourceKind::Workspaces => messages.workspaces,
+        SidebarResourceKind::Panes => messages.panes,
+        SidebarResourceKind::Tabs => messages.tabs,
+        SidebarResourceKind::Agents => messages.agents,
+    }
+}
+
+fn projection_empty_label(resource: SidebarResourceKind) -> &'static str {
+    let messages = &localization::catalog().sidebar;
+    match resource {
+        SidebarResourceKind::Machines => messages.no_machines,
+        SidebarResourceKind::Workspaces => messages.no_workspaces,
+        SidebarResourceKind::Panes => messages.no_panes,
+        SidebarResourceKind::Tabs => messages.no_tabs,
+        SidebarResourceKind::Agents => messages.no_agents,
+    }
+}
+
+fn projection_detail(row: &crate::sidebar_projection::ProjectionRow) -> String {
+    let Some(state) = row.agent_state.as_deref() else { return row.subtitle.clone() };
+    let messages = &localization::catalog().sidebar;
+    let state = match state {
+        "working" => messages.working,
+        "blocked" => messages.blocked,
+        "idle" => messages.idle,
+        "done" => messages.done,
+        _ => messages.unknown,
+    };
+    if row.subtitle.is_empty() { state.to_string() } else { format!("{state} · {}", row.subtitle) }
+}
 
 /// The color of a workspace's unread indicator, or `None` when nothing is
 /// unread. Mirrors the tab-bar severity cue (`error` > `warning` > `info`)
@@ -323,6 +358,70 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
         }
     }
     app.hits.push((rail::divider(area), Hit::RailResize(RailKind::Tabs)));
+}
+
+/// Render one configurable resource path as a dense native tree column.
+pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
+    let Some(area) = app.projection_sidebar_area(view_index) else { return };
+    let Some(spec) = app.config.sidebar.views.get(view_index).cloned() else { return };
+    let rows = app.projection_rows(view_index);
+    let focused = app.projection_sidebar_focused(view_index);
+    let palette = rail::RailPalette::for_app(app, focused);
+    rail::prepare(frame, area, palette);
+    let header =
+        spec.levels.iter().copied().map(projection_resource_label).collect::<Vec<_>>().join(" › ");
+    rail::header(frame, area, &header, palette);
+
+    let visible = usize::from(area.height.saturating_sub(2));
+    let (selected, scroll) = {
+        let state = app.projection_rail_state_mut(view_index);
+        state.selected = state.selected.min(rows.len().saturating_sub(1));
+        state.scroll = state.scroll.min(rows.len().saturating_sub(visible));
+        if focused && state.follow_selection && visible > 0 {
+            if state.selected < state.scroll {
+                state.scroll = state.selected;
+            } else if state.selected >= state.scroll.saturating_add(visible) {
+                state.scroll = state.selected.saturating_add(1).saturating_sub(visible);
+            }
+        }
+        (state.selected, state.scroll)
+    };
+    let body_y = area.y.saturating_add(2);
+    if rows.is_empty() && visible > 0 {
+        let resource = spec.levels.last().copied().unwrap_or(SidebarResourceKind::Workspaces);
+        rail::button(frame, area, body_y, projection_empty_label(resource), false, palette);
+    }
+    for (visible_index, (row_index, row)) in
+        rows.iter().enumerate().skip(scroll).take(visible).enumerate()
+    {
+        let y = body_y.saturating_add(visible_index as u16);
+        let highlighted = row.active || (focused && selected == row_index);
+        let detail = projection_detail(row);
+        let disclosure = rail::tree_row(
+            frame,
+            area,
+            y,
+            row.depth,
+            &row.name,
+            &detail,
+            row.branch.map(|_| row.expanded),
+            highlighted,
+            row.active,
+            palette,
+        );
+        if let (Some(rect), Some(branch)) = (disclosure, row.branch) {
+            app.hits.push((rect, Hit::ProjectionToggle { view: view_index, branch }));
+        }
+        app.hits.push((
+            rail::row(area, y),
+            Hit::ProjectionRow { view: view_index, row: row_index, target: row.target },
+        ));
+    }
+    app.hits.push((rail::divider(area), Hit::RailResize(RailKind::Projection(view_index))));
+    app.hits.push((
+        Rect { x: area.x, y: area.y, width: area.width.saturating_sub(1), height: area.height },
+        Hit::ProjectionRail { view: view_index },
+    ));
 }
 
 fn draw_plugin(app: &mut App, frame: &mut Frame) {

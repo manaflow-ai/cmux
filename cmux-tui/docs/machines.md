@@ -8,9 +8,9 @@ There is no master or slave role. The rail follows capabilities available to thi
 
 ## Layout and input
 
-Machine, workspace, and tab columns use the same rail renderer, selection treatment, two-line entries, and divider. `sidebar.columns` controls their order and widths. Every divider remains independently draggable, and all columns preserve at least 40 pane columns. A narrow terminal hides machines first, then tabs.
+`sidebar.views` controls the order, resource path, width, and collapse priority of native rails. One-level machine, workspace, pane, tab, and agent views render as lists. Multi-level paths render collapsible trees, including workspace/agent and workspace/pane/tab representations. Every divider remains independently draggable, and all views preserve at least 40 pane columns.
 
-`Ctrl-b S` focuses the workspace rail. Left or `h` and Right or `l` traverse adjacent configured columns. Up/Down or `k`/`j` changes the current selection. Enter activates it, and Esc returns to the active pane. Mouse clicks focus a column directly. Every divider resizes only its column.
+`Ctrl-b S` prefers the first view containing workspaces. Left or `h` and Right or `l` traverse adjacent configured views. In a tree, Left collapses an expanded branch and Right expands a collapsed branch before changing columns. Up/Down or `k`/`j` changes the current selection. Enter activates it, Space toggles a branch, and Esc returns to the active pane. Mouse clicks focus a column directly. Every divider resizes only its column.
 
 Right-click a client-owned machine or any tab in the tabs column to rename that exact row. Provider-owned machine renames remain capability-gated and versioned by the provider. Client-owned machine names last for the current process only; tab names remain session state.
 

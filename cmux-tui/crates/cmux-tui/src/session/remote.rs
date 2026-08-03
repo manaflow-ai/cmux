@@ -34,10 +34,10 @@ use ghostty_vt::{
 use serde_json::{Value, json};
 use zeroize::{Zeroize, Zeroizing};
 
-use super::CLEAR_HISTORY_UNSUPPORTED_ERROR;
 #[cfg(test)]
 use super::tree::parse_tree;
 use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
+use super::{AgentInfo, CLEAR_HISTORY_UNSUPPORTED_ERROR};
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 10;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
@@ -279,6 +279,7 @@ impl Default for RemoteBrowserState {
 #[derive(Default)]
 struct RemoteTreeCache {
     view: TreeView,
+    agents: Vec<AgentInfo>,
     surface_tabs: HashMap<SurfaceId, [usize; 4]>,
     title_generation: u64,
     title_updates: HashMap<SurfaceId, TitleUpdate>,
@@ -3003,6 +3004,10 @@ impl RemoteSession {
         self.tree.lock().unwrap().view.clone()
     }
 
+    pub fn cached_agents(&self) -> Vec<AgentInfo> {
+        self.tree.lock().unwrap().agents.clone()
+    }
+
     pub fn refresh_tree(&self) -> anyhow::Result<TreeView> {
         self.refresh_tree_inner(true)
     }
@@ -3027,6 +3032,11 @@ impl RemoteSession {
                 return Err(e);
             }
         };
+        let agents = self.request(json!({"cmd": "list-agents"})).ok().and_then(|data| {
+            data.get("agents")
+                .cloned()
+                .and_then(|agents| serde_json::from_value::<Vec<AgentInfo>>(agents).ok())
+        });
         let capabilities = self.capabilities.lock().unwrap();
         let tree = parse_tree_with_capabilities(
             &data,
@@ -3055,6 +3065,9 @@ impl RemoteSession {
         let tree = {
             let mut cache = self.tree.lock().unwrap();
             cache.replace(tree, refresh_generation);
+            if let Some(agents) = agents {
+                cache.agents = agents;
+            }
             cache.view.clone()
         };
         let surfaces = self.surfaces.lock().unwrap().clone();

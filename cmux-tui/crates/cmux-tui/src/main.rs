@@ -62,6 +62,7 @@ mod remote_cli {
 mod remote_runtime;
 mod session;
 mod sidebar_files;
+mod sidebar_projection;
 mod ui;
 
 #[cfg(target_os = "linux")]

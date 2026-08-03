@@ -22,7 +22,7 @@ use ratatui::style::{Color, Modifier, Style};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{App, Hit};
+use crate::app::{App, Hit, RailKind};
 use crate::config::Action;
 use crate::localization::catalog;
 use crate::machine::DurableNoticeLevel;
@@ -109,12 +109,29 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     }
 
     app.hits.clear();
-    if app.machine_sidebar_width > 0 {
-        sidebar::draw_machines(app, frame);
-    }
-    let sidebar_input_cursor = (app.sidebar_width > 0).then(|| sidebar::draw(app, frame)).flatten();
-    if app.tabs_sidebar_width > 0 {
-        sidebar::draw_tabs(app, frame);
+    let mut sidebar_input_cursor = None;
+    if app.sidebar_layout.ordered.is_empty() {
+        // Preserve the pre-layout fallback used during startup, recovery, and
+        // isolated renderer tests. Each renderer resolves its area from the
+        // legacy live widths when no committed ordered layout exists yet.
+        if app.machine_sidebar_width > 0 {
+            sidebar::draw_machines(app, frame);
+        }
+        if app.sidebar_width > 0 {
+            sidebar_input_cursor = sidebar::draw(app, frame);
+        }
+        if app.tabs_sidebar_width > 0 {
+            sidebar::draw_tabs(app, frame);
+        }
+    } else {
+        for placement in app.sidebar_layout.ordered.clone() {
+            match placement.kind {
+                RailKind::Machine => sidebar::draw_machines(app, frame),
+                RailKind::Workspace => sidebar_input_cursor = sidebar::draw(app, frame),
+                RailKind::Tabs => sidebar::draw_tabs(app, frame),
+                RailKind::Projection(index) => sidebar::draw_projection(app, frame, index),
+            }
+        }
     }
 
     let pane_cursors = pane::draw_all(app, frame);
