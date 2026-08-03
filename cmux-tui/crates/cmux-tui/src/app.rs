@@ -64,7 +64,7 @@ use crate::machine::{
 use crate::pty_input::{
     PTY_OPERATION_QUEUE_CAPACITY, PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult,
     PtyInputEvent, PtyInputKind, PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
-    mark_operation_known_not_delivered,
+    TERMINAL_EXITED_LABEL, mark_operation_known_not_delivered,
 };
 use crate::session::tree::{PaneView, ScreenView};
 use crate::session::{
@@ -8102,26 +8102,26 @@ impl App {
         if failed_active_press || (failure.lane_failed && !recovery_release_required) {
             self.drag = None;
         }
-        self.status_message = Some(
-            if failure.label == "attach surface"
-                && failure.delivery == PtyOperationDelivery::Ambiguous
-            {
-                format!(
-                    "{}: {}",
-                    localization::catalog().terminal.attach_outcome_unknown,
-                    failure.error
-                )
-            } else if failure.label == "clear terminal history"
-                && failure.delivery == PtyOperationDelivery::Ambiguous
-            {
-                localization::catalog().terminal.clear_history_outcome_unknown.to_string()
-            } else if failure.label == "clear terminal history" {
-                let detail = localized_clear_history_failure(&failure.error);
-                format!("{}: {}", localization::catalog().terminal.clear_history_failed, detail)
-            } else {
-                format!("{}: {}", localization::catalog().terminal.operation_failed, failure.error)
-            },
-        );
+        self.status_message = Some(if failure.label == TERMINAL_EXITED_LABEL {
+            localization::catalog().terminal.pty_input_exited.to_string()
+        } else if failure.label == "attach surface"
+            && failure.delivery == PtyOperationDelivery::Ambiguous
+        {
+            format!(
+                "{}: {}",
+                localization::catalog().terminal.attach_outcome_unknown,
+                failure.error
+            )
+        } else if failure.label == "clear terminal history"
+            && failure.delivery == PtyOperationDelivery::Ambiguous
+        {
+            localization::catalog().terminal.clear_history_outcome_unknown.to_string()
+        } else if failure.label == "clear terminal history" {
+            let detail = localized_clear_history_failure(&failure.error);
+            format!("{}: {}", localization::catalog().terminal.clear_history_failed, detail)
+        } else {
+            format!("{}: {}", localization::catalog().terminal.operation_failed, failure.error)
+        });
         RenderAction::Draw
     }
 
@@ -14234,6 +14234,11 @@ impl App {
         if !self.session_available() {
             self.status_message =
                 Some(localization::catalog().sidebar.no_active_session.to_string());
+            return PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
+        }
+        if surface.is_dead() {
+            self.status_message =
+                Some(localization::catalog().terminal.pty_input_exited.to_string());
             return PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
         }
         let (result, reservation_id) = self

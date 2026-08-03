@@ -18,6 +18,7 @@ use smallvec::SmallVec;
 use crate::session::{SurfaceHandle, is_remote_timeout, is_remote_transport_failure};
 
 pub(crate) const PTY_OPERATION_QUEUE_CAPACITY: usize = 512;
+pub(crate) const TERMINAL_EXITED_LABEL: &str = "terminal exited";
 const MAX_QUEUED_BYTES: usize = 4 * 1024 * 1024;
 const MAX_CONCURRENT_SURFACE_OPERATIONS: usize = 32;
 const RESERVED_RELEASE_BYTES: usize = 64;
@@ -1022,14 +1023,19 @@ fn process_event(
         .err()
         .is_some_and(|error| error.downcast_ref::<KnownNotDeliveredOperationError>().is_some());
     let operation_error = result.as_ref().err().map(underlying_operation_error);
+    let terminal_exited = operation_error.is_some()
+        && event.kind != PtyInputKind::Mutation
+        && event.surface.is_dead();
     let remote_transport_failed =
-        remote && operation_error.is_some_and(is_remote_transport_failure);
-    let remote_timed_out = remote && operation_error.is_some_and(is_remote_timeout);
+        !terminal_exited && remote && operation_error.is_some_and(is_remote_transport_failure);
+    let remote_timed_out =
+        !terminal_exited && remote && operation_error.is_some_and(is_remote_timeout);
     // Any remote transport error can follow a complete request write, and
     // response timeout or rejection can likewise follow an operation that
     // already executed. Local PTY errors can occur while flushing after
     // bytes were written.
     let known_not_delivered = marked_known_not_delivered
+        || terminal_exited
         || (event.kind != PtyInputKind::Mutation
             && !remote
             && event.surface.kind() == SurfaceKind::Browser);
@@ -1053,7 +1059,7 @@ fn process_event(
             surface_id,
             kind,
             reservation_id,
-            label: event.label,
+            label: if terminal_exited { TERMINAL_EXITED_LABEL } else { event.label },
             error: if exhausted_ambiguous_release {
                 format!(
                     "mouse release timed out after {REMOTE_RELEASE_MAX_ATTEMPTS} attempts; detach and reconnect before sending more input"
@@ -1358,11 +1364,7 @@ mod tests {
         let mux = TestMux::new(
             "clean-terminal-exit-lane-test",
             TestSurfaceOptions {
-                command: Some(vec![
-                    "/bin/sh".to_string(),
-                    "-c".to_string(),
-                    "exit 0".to_string(),
-                ]),
+                command: Some(vec!["/bin/sh".to_string(), "-c".to_string(), "exit 0".to_string()]),
                 ..Default::default()
             },
         );
