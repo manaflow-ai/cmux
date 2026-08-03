@@ -843,6 +843,70 @@ struct SimulatorFeatureDisabledView: NSViewRepresentable {
     }
 }
 
+struct DockUnreadProjectionContextBridge: NSViewRepresentable {
+    let projection: DockUnreadPanelProjection
+    let panelIDs: Set<UUID>
+    let isActive: Bool
+
+    func makeNSView(context: Context) -> NSView {
+        projection.updateContext(panelIDs: panelIDs, isActive: isActive)
+        return NSView(frame: .zero)
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        projection.updateContext(panelIDs: panelIDs, isActive: isActive)
+    }
+}
+
+struct SidebarWorkspaceDropTargetWriters: NSViewRepresentable {
+    let bonsplitTargetBridge: SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge
+    let bonsplitTargets: [SidebarDropPlanner.WorkspaceDropTarget]
+    let reorderTargetBridge: SidebarWorkspaceReorderDropOverlay.TargetBridge
+    let reorderTargets: [SidebarWorkspaceReorderDropOverlay.Target]
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            bonsplitTargetBridge: bonsplitTargetBridge,
+            reorderTargetBridge: reorderTargetBridge
+        )
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        updateTargets()
+        return NSView(frame: .zero)
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.bonsplitTargetBridge = bonsplitTargetBridge
+        context.coordinator.reorderTargetBridge = reorderTargetBridge
+        updateTargets()
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.bonsplitTargetBridge.updateTargets([])
+        coordinator.reorderTargetBridge.updateTargets([])
+    }
+
+    private func updateTargets() {
+        bonsplitTargetBridge.updateTargets(bonsplitTargets)
+        reorderTargetBridge.updateTargets(reorderTargets)
+    }
+
+    @MainActor
+    final class Coordinator {
+        var bonsplitTargetBridge: SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge
+        var reorderTargetBridge: SidebarWorkspaceReorderDropOverlay.TargetBridge
+
+        init(
+            bonsplitTargetBridge: SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge,
+            reorderTargetBridge: SidebarWorkspaceReorderDropOverlay.TargetBridge
+        ) {
+            self.bonsplitTargetBridge = bonsplitTargetBridge
+            self.reorderTargetBridge = reorderTargetBridge
+        }
+    }
+}
+
 struct NativeSidebarScrollViewResolver: NSViewRepresentable {
     let onResolve: (NSScrollView?) -> Void
 
