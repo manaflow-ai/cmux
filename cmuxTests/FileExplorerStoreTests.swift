@@ -767,6 +767,7 @@ struct FileExplorerStoreTests {
                 isDirectory: true
             )
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
         let invocationLog = directory.appendingPathComponent("invocations.log")
         let releaseFile = directory.appendingPathComponent("release")
         let script = directory.appendingPathComponent("fake-git")
@@ -937,7 +938,7 @@ struct FileExplorerStoreTests {
         let visibleRowCount = outlineView.rows(in: outlineView.visibleRect).length
         outlineView.resetMetrics()
 
-        coordinator.enqueueOutlineChange(.gitStatusChanged(paths: nil))
+        coordinator.enqueueOutlineChange(.gitStatusChanged(.allVisible))
 
         try await waitFor("batched visible git status refresh") {
             outlineView.reloadRowsCallCount == 1
@@ -957,10 +958,12 @@ struct FileExplorerStoreTests {
         })
 
         let change = try #require(
-            FileExplorerStore.gitStatusChange(previous: [:], current: current)
+            FileExplorerStore.outlineChange(
+                for: FileExplorerStore.gitStatusDiff(previous: [:], current: current)
+            )
         )
 
-        guard case .gitStatusChanged(paths: nil) = change else {
+        guard case .gitStatusChanged(.allVisible) = change else {
             Issue.record("Expected a bounded all-visible fallback")
             return
         }

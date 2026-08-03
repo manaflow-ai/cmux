@@ -19,6 +19,22 @@ import Testing
 enum SettingsWindowSharedStateSuites {}
 
 extension SettingsWindowSharedStateSuites {
+    @MainActor
+    static func waitUntil(
+        timeout: Duration = .seconds(2),
+        _ predicate: () -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if predicate() {
+                return true
+            }
+            await Task.yield()
+        }
+        return predicate()
+    }
+
     /// Unit coverage for ``SettingsWindowPresenter``'s AppKit-owned lifecycle
     /// (issue #7777) using an injected window factory. End-to-end coverage of the
     /// real factory path lives in `SettingsWindowOpenRegressionTests`.
@@ -207,8 +223,19 @@ extension SettingsWindowSharedStateSuites {
         }
 
         @Test func repeatedOpenResizeToggleCloseDoesNotLeakOrWedge() async throws {
+            let defaults = UserDefaults.standard
+            let frameAutosaveKey =
+                "NSWindow Frame \(SettingsWindowPresenter.windowIdentifier)"
+            let previousFrameAutosaveValue = defaults.object(forKey: frameAutosaveKey)
             closeSettingsWindows()
-            defer { closeSettingsWindows() }
+            defer {
+                closeSettingsWindows()
+                if let previousFrameAutosaveValue {
+                    defaults.set(previousFrameAutosaveValue, forKey: frameAutosaveKey)
+                } else {
+                    defaults.removeObject(forKey: frameAutosaveKey)
+                }
+            }
 
             let inset = SettingsWindowPresenter.visibleAreaInset
             let referenceVisibleFrame = try #require(
@@ -240,7 +267,7 @@ extension SettingsWindowSharedStateSuites {
             for cycle in 0..<100 {
                 let shouldRestorePreviousFrame = !cycle.isMultiple(of: 2)
                 if !shouldRestorePreviousFrame {
-                    UserDefaults.standard.removeObject(forKey: "NSWindow Frame cmux.settings")
+                    defaults.removeObject(forKey: frameAutosaveKey)
                     requestedFactoryFrame = cycle.isMultiple(of: 4)
                         ? smallFactoryFrame
                         : largeFactoryFrame
@@ -257,7 +284,7 @@ extension SettingsWindowSharedStateSuites {
                 }
 
                 #expect(presenter.show() == .presented)
-                #expect(await waitUntil { visibleSettingsWindows().count == 1 })
+                #expect(await SettingsWindowSharedStateSuites.waitUntil { visibleSettingsWindows().count == 1 })
 
                 let retiredWindow = try autoreleasepool {
                     let window = try #require(visibleSettingsWindow() as? TestSettingsWindow)
@@ -330,7 +357,7 @@ extension SettingsWindowSharedStateSuites {
                 }
                 retiredWindows.append(retiredWindow)
 
-                #expect(await waitUntil {
+                #expect(await SettingsWindowSharedStateSuites.waitUntil {
                     visibleSettingsWindows().isEmpty
                         && retiredWindows.allSatisfy { $0.window == nil }
                 })
@@ -616,21 +643,6 @@ extension SettingsWindowSharedStateSuites {
             NSApp.windows.filter {
                 $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
             }
-        }
-
-        private func waitUntil(
-            timeout: Duration = .seconds(2),
-            _ predicate: () -> Bool
-        ) async -> Bool {
-            let clock = ContinuousClock()
-            let deadline = clock.now.advanced(by: timeout)
-            while clock.now < deadline {
-                if predicate() {
-                    return true
-                }
-                await Task.yield()
-            }
-            return predicate()
         }
 
         private func withCleanSettingsWindows(_ body: () throws -> Void) rethrows {

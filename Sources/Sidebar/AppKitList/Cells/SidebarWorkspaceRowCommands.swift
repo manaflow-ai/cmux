@@ -159,19 +159,7 @@ struct SidebarWorkspaceRowCommands {
     }
 
     /// Parity with TabItemView.promptRename (NSAlert flow).
-    func promptRename(
-        resolvePresentingWindow: @MainActor (UUID) -> NSWindow? = { workspaceId in
-            AppDelegate.shared?.mainWindowContainingWorkspace(workspaceId)
-        },
-        presentAlert: @MainActor (NSAlert, NSTextField, NSWindow?) -> NSApplication.ModalResponse = { alert, input, presentingWindow in
-            let alertWindow = alert.window
-            alertWindow.initialFirstResponder = input
-            return alert.runCmuxModal(presentingWindow: presentingWindow) { _ in
-                alertWindow.makeFirstResponder(input)
-                input.selectText(nil)
-            }
-        }
-    ) {
+    func promptRename() {
         guard let tabManager else { return }
         let alert = NSAlert()
         alert.messageText = String(localized: "alert.renameWorkspace.title", defaultValue: "Rename Workspace")
@@ -182,7 +170,14 @@ struct SidebarWorkspaceRowCommands {
         alert.accessoryView = input
         alert.addButton(withTitle: String(localized: "alert.renameWorkspace.rename", defaultValue: "Rename"))
         alert.addButton(withTitle: String(localized: "alert.renameWorkspace.cancel", defaultValue: "Cancel"))
-        let response = presentAlert(alert, input, resolvePresentingWindow(tab.id))
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        let response = alert.runCmuxModal(
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(tab.id)
+        ) { _ in
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
     }

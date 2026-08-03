@@ -79,7 +79,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
     static func dismantleNSView(_ nsView: FileExplorerContainerView, coordinator: Coordinator) {
         _ = nsView
-        coordinator.onContainerChange?(nil)
+        coordinator.tearDown()
     }
 
     // MARK: - Coordinator
@@ -101,17 +101,15 @@ struct FileExplorerPanelView: NSViewRepresentable {
         ] = [:]
         private var pendingNodeOrder: [ObjectIdentifier] = []
         private var pendingNodeOverflowReconciliation = false
-        private var expandedReconciliationSnapshot: Set<String>?
-        private var expandedReconciliationIterator: Set<String>.Iterator?
-        private var expandedReconciliationDepth = 0
-        private var expandedReconciliationMaximumDepth = 0
+        private var expandedReconciliationPaths: [String] = []
+        private var expandedReconciliationIndex = 0
         private var pendingSelectionChange = false
         private var pendingGitStatusPaths: Set<String> = []
         private var pendingAllVisibleGitStatusChange = false
         private var pendingRootNodesRevision: Int?
         private var outlineChangeFlushTask: Task<Void, Never>?
-        private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
+        private var isTornDown = false
         private var isUpdatingOutlineProgrammatically = false
         private(set) var lastNodeChangeVisibleRowInspectionCount = 0
         private(set) var lastGitStatusVisibleRowInspectionCount = 0
@@ -137,7 +135,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
             self.onContainerChange = onContainerChange
             self.iconRenderContext = CmuxResolvedIconRenderContext()
             super.init()
-            observeStore()
             observeOutlineChanges()
             styleObserver = NotificationCenter.default.addObserver(
                 forName: .fileExplorerStyleDidChange, object: nil, queue: .main
@@ -166,12 +163,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 store.removeOutlineChangeObserver(outlineChangeObserverID)
             }
             outlineChangeObserverID = nil
-            observationCancellable?.cancel()
-            observationCancellable = nil
 
             store = newStore
             lastRootNodesRevision = -1
-            observeStore()
             observeOutlineChanges()
         }
 
@@ -200,25 +194,28 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         deinit {
             outlineChangeFlushTask?.cancel()
-            if let outlineChangeObserverID {
-                let observedStore = store
-                Task { @MainActor in
-                    observedStore.removeOutlineChangeObserver(outlineChangeObserverID)
-                }
-            }
             if let observer = styleObserver {
                 NotificationCenter.default.removeObserver(observer)
             }
         }
 
-        private func observeStore() {
-            observationCancellable = store.objectWillChange
-                .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
-                .sink { [weak self] _ in
-                    Task { @MainActor [weak self] in
-                        self?.reloadIfNeeded()
-                    }
-                }
+        func tearDown() {
+            guard !isTornDown else { return }
+            isTornDown = true
+            outlineChangeFlushTask?.cancel()
+            outlineChangeFlushTask = nil
+            clearPendingOutlineChanges()
+            if let outlineChangeObserverID {
+                store.removeOutlineChangeObserver(outlineChangeObserverID)
+                self.outlineChangeObserverID = nil
+            }
+            if let styleObserver {
+                NotificationCenter.default.removeObserver(styleObserver)
+                self.styleObserver = nil
+            }
+            onContainerChange?(nil)
+            containerView = nil
+            outlineView = nil
         }
 
         private func observeOutlineChanges() {
@@ -235,12 +232,15 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
 
             switch change {
+            case .rootsChanged:
+                break
             case .nodeChanged(let node, let reloadChildren):
                 enqueueNodeChange(node, reloadChildren: reloadChildren)
             case .expansionChanged(let node, let isExpanded):
                 enqueueNodeChange(node, reloadChildren: isExpanded && node.children != nil, expansion: isExpanded)
-            case .gitStatusChanged(let paths):
-                if let paths {
+            case .gitStatusChanged(let scope):
+                switch scope {
+                case .boundedPaths(let paths):
                     if !pendingAllVisibleGitStatusChange {
                         pendingGitStatusPaths.formUnion(paths)
                         if pendingGitStatusPaths.count >
@@ -249,7 +249,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                             pendingAllVisibleGitStatusChange = true
                         }
                     }
-                } else {
+                case .allVisible:
                     pendingGitStatusPaths.removeAll(keepingCapacity: false)
                     pendingAllVisibleGitStatusChange = true
                 }
@@ -264,6 +264,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             guard outlineChangeFlushTask == nil else { return }
             outlineChangeFlushTask = Task { @MainActor [weak self] in
                 await Task.yield()
+                guard !Task.isCancelled else { return }
                 self?.flushPendingOutlineChanges()
             }
         }
@@ -298,10 +299,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
             pendingNodeChanges.removeAll(keepingCapacity: false)
             pendingNodeOrder.removeAll(keepingCapacity: false)
             pendingNodeOverflowReconciliation = false
-            expandedReconciliationSnapshot = nil
-            expandedReconciliationIterator = nil
-            expandedReconciliationDepth = 0
-            expandedReconciliationMaximumDepth = 0
+            expandedReconciliationPaths.removeAll(keepingCapacity: false)
+            expandedReconciliationIndex = 0
             pendingSelectionChange = false
             pendingGitStatusPaths.removeAll(keepingCapacity: false)
             pendingAllVisibleGitStatusChange = false
@@ -331,28 +330,24 @@ struct FileExplorerPanelView: NSViewRepresentable {
             if changes.contains(where: \.reloadChildren) {
                 pendingSelectionChange = true
             }
-            let gitStatusPaths: Set<String>?
-            let hasGitStatusChange: Bool
+            let gitStatusScope: FileExplorerGitStatusChangeScope?
             if pendingAllVisibleGitStatusChange {
-                gitStatusPaths = nil
-                hasGitStatusChange = true
+                gitStatusScope = .allVisible
             } else if pendingGitStatusPaths.isEmpty {
-                gitStatusPaths = nil
-                hasGitStatusChange = false
+                gitStatusScope = nil
             } else {
-                gitStatusPaths = pendingGitStatusPaths
-                hasGitStatusChange = true
+                gitStatusScope = .boundedPaths(pendingGitStatusPaths)
             }
             pendingGitStatusPaths.removeAll(keepingCapacity: false)
             pendingAllVisibleGitStatusChange = false
 
             applyNodeChanges(changes)
-            if hasGitStatusChange, let outlineView {
-                applyGitStatusChange(paths: gitStatusPaths, in: outlineView)
+            if let gitStatusScope, let outlineView {
+                applyGitStatusChange(scope: gitStatusScope, in: outlineView)
             }
 
             if pendingNodeOrder.isEmpty,
-               expandedReconciliationSnapshot == nil,
+               expandedReconciliationPaths.isEmpty,
                pendingNodeOverflowReconciliation {
                 pendingNodeOverflowReconciliation = false
                 pendingSelectionChange = true
@@ -360,13 +355,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 startExpandedOutlineReconciliation()
             }
             if pendingNodeOrder.isEmpty,
-               expandedReconciliationSnapshot != nil {
+               !expandedReconciliationPaths.isEmpty {
                 drainExpandedOutlineReconciliationBatch()
             }
 
             let hasMoreWork = !pendingNodeOrder.isEmpty
                 || pendingNodeOverflowReconciliation
-                || expandedReconciliationSnapshot != nil
+                || !expandedReconciliationPaths.isEmpty
             if !hasMoreWork, pendingSelectionChange, let outlineView {
                 withProgrammaticOutlineUpdate {
                     applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
@@ -410,58 +405,58 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private func startExpandedOutlineReconciliation() {
             let snapshot = store.expandedPaths
             guard !snapshot.isEmpty else { return }
-            let depths = snapshot.lazy.map {
-                $0.split(separator: "/").count
-            }
-            guard let minimumDepth = depths.min(),
-                  let maximumDepth = depths.max() else {
-                return
-            }
-            expandedReconciliationSnapshot = snapshot
-            expandedReconciliationIterator = snapshot.makeIterator()
-            expandedReconciliationDepth = minimumDepth
-            expandedReconciliationMaximumDepth = maximumDepth
+            expandedReconciliationPaths = snapshot.map { path in
+                (path: path, depth: path.split(separator: "/").count)
+            }.sorted { lhs, rhs in
+                if lhs.depth != rhs.depth {
+                    return lhs.depth < rhs.depth
+                }
+                return lhs.path < rhs.path
+            }.map { $0.path }
+            expandedReconciliationIndex = 0
+        }
+
+        private func finishExpandedOutlineReconciliation() {
+            expandedReconciliationPaths.removeAll(keepingCapacity: false)
+            expandedReconciliationIndex = 0
+        }
+
+        private var hasExpandedOutlineReconciliationWork: Bool {
+            expandedReconciliationIndex < expandedReconciliationPaths.count
         }
 
         @MainActor
         private func drainExpandedOutlineReconciliationBatch() {
-            guard let snapshot = expandedReconciliationSnapshot,
-                  var iterator = expandedReconciliationIterator else {
+            guard hasExpandedOutlineReconciliationWork else {
+                finishExpandedOutlineReconciliation()
                 return
             }
 
             var changes: [(node: FileExplorerNode, reloadChildren: Bool, expansion: Bool?)] = []
             var inspectedPathCount = 0
             while changes.count < Self.maximumNodeChangesPerFlush,
-                  inspectedPathCount < Self.maximumReconciliationPathsInspectedPerFlush {
-                if let path = iterator.next() {
-                    inspectedPathCount += 1
-                    guard path.split(separator: "/").count == expandedReconciliationDepth,
-                          let node = store.loadedNode(at: path) else {
-                        continue
-                    }
-                    changes.append((
-                        node: node,
-                        reloadChildren: true,
-                        expansion: true
-                    ))
-                } else if expandedReconciliationDepth < expandedReconciliationMaximumDepth {
-                    expandedReconciliationDepth += 1
-                    iterator = snapshot.makeIterator()
-                } else {
-                    expandedReconciliationSnapshot = nil
-                    expandedReconciliationIterator = nil
-                    break
+                  inspectedPathCount < Self.maximumReconciliationPathsInspectedPerFlush,
+                  hasExpandedOutlineReconciliationWork {
+                let path = expandedReconciliationPaths[expandedReconciliationIndex]
+                expandedReconciliationIndex += 1
+                inspectedPathCount += 1
+                guard let node = store.loadedNode(at: path) else {
+                    continue
                 }
+                changes.append((
+                    node: node,
+                    reloadChildren: true,
+                    expansion: true
+                ))
             }
-            if expandedReconciliationSnapshot != nil {
-                expandedReconciliationIterator = iterator
+            if !hasExpandedOutlineReconciliationWork {
+                finishExpandedOutlineReconciliation()
             }
             applyNodeChanges(changes)
         }
 
         private func applyGitStatusChange(
-            paths: Set<String>?,
+            scope: FileExplorerGitStatusChangeScope,
             in outlineView: NSOutlineView
         ) {
             lastGitStatusVisibleRowInspectionCount = 0
@@ -472,7 +467,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 integersIn: visibleRange.location..<(visibleRange.location + visibleRange.length)
             )
             let rowsToReload: IndexSet
-            if let paths {
+            switch scope {
+            case .boundedPaths(let paths):
                 var matchingRows = IndexSet()
                 for row in visibleRows {
                     lastGitStatusVisibleRowInspectionCount += 1
@@ -484,7 +480,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     }
                 }
                 rowsToReload = matchingRows
-            } else {
+            case .allVisible:
                 rowsToReload = visibleRows
             }
             guard !rowsToReload.isEmpty, outlineView.numberOfColumns > 0 else { return }

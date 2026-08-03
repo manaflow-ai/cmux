@@ -30,7 +30,7 @@ extension SettingsWindowSharedStateSuites {
 
             let window = SettingsWindowFactory.makeSettingsWindow(onContentAppear: {})
             window.orderFrontRegardless()
-            #expect(await waitUntil {
+            #expect(await SettingsWindowSharedStateSuites.waitUntil {
                 window.isVisible && window.contentView?.window === window
             })
             window.displayIfNeeded()
@@ -43,7 +43,7 @@ extension SettingsWindowSharedStateSuites {
             window.contentViewController = nil
             window.contentView = nil
             window.close()
-            #expect(await waitUntil {
+            #expect(await SettingsWindowSharedStateSuites.waitUntil {
                 !window.isVisible && window.contentView == nil
             })
         }
@@ -64,16 +64,16 @@ extension SettingsWindowSharedStateSuites {
             let presenter = SettingsWindowPresenter()
 
             #expect(presenter.show() == .presented)
-            #expect(await waitUntil { visibleSettingsWindow() != nil })
+            #expect(await SettingsWindowSharedStateSuites.waitUntil { visibleSettingsWindow() != nil })
             let firstWindow = visibleSettingsWindow()
             #expect(firstWindow != nil)
             firstWindow?.close()
-            #expect(await waitUntil {
+            #expect(await SettingsWindowSharedStateSuites.waitUntil {
                 firstWindow?.identifier == nil && firstWindow?.isVisible == false
             })
 
             #expect(presenter.show() == .presented)
-            #expect(await waitUntil {
+            #expect(await SettingsWindowSharedStateSuites.waitUntil {
                 guard let window = visibleSettingsWindow() else { return false }
                 return window !== firstWindow
             })
@@ -172,20 +172,6 @@ extension SettingsWindowSharedStateSuites {
             }
         }
 
-        private func waitUntil(
-            timeout: Duration = .seconds(2),
-            _ predicate: () -> Bool
-        ) async -> Bool {
-            let clock = ContinuousClock()
-            let deadline = clock.now.advanced(by: timeout)
-            while clock.now < deadline {
-                if predicate() {
-                    return true
-                }
-                await Task.yield()
-            }
-            return predicate()
-        }
     }
 }
 

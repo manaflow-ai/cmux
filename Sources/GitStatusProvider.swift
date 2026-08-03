@@ -1,28 +1,6 @@
 import CmuxFoundation
 import Foundation
 
-private struct GitStatusEnvironmentCommandRunner: CommandRunning {
-    let base: any CommandRunning
-    let environment: [String: String]
-
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        let environmentArguments = environment
-            .sorted { $0.key < $1.key }
-            .map { "\($0.key)=\($0.value)" }
-        return await base.run(
-            directory: directory,
-            executable: "/usr/bin/env",
-            arguments: ["-i"] + environmentArguments + [executable] + arguments,
-            timeout: timeout
-        )
-    }
-}
-
 /// Runs non-locking `git status --porcelain` and parses results into a path-to-status map.
 struct GitStatusProvider: Sendable {
     private static let nonLockingGitEnvironmentKey = "GIT_OPTIONAL_LOCKS"
@@ -48,23 +26,28 @@ struct GitStatusProvider: Sendable {
         } else {
             var nonLockingEnvironment = environment
             nonLockingEnvironment[Self.nonLockingGitEnvironmentKey] = Self.nonLockingGitEnvironmentValue
-            let baseRunner = CommandRunner(
+            self.commandRunner = CommandRunner(
                 environment: nonLockingEnvironment,
                 bundledBinPath: nil,
                 fallbackSearchDirectories: []
-            )
-            self.commandRunner = GitStatusEnvironmentCommandRunner(
-                base: baseRunner,
-                environment: nonLockingEnvironment
             )
         }
         self.processTimeout = max(0, processTimeout)
     }
 
-    func fetchStatus(directory: String) async -> [String: GitFileStatus] {
-        guard let repoRoot = await gitRepoRoot(for: directory) else { return [:] }
+    func fetchStatus(
+        directory: String,
+        preserving previousStatus: [String: GitFileStatus] = [:]
+    ) async -> [String: GitFileStatus] {
+        guard let repoRoot = await gitRepoRoot(for: directory),
+              let output = await runGit(
+                in: repoRoot,
+                arguments: ["status", "--porcelain=v1", "-z"]
+              ) else {
+            return previousStatus
+        }
         return parseGitStatus(
-            output: await runGit(in: repoRoot, arguments: ["status", "--porcelain=v1", "-z"]),
+            output: output,
             repoRoot: repoRoot,
             explorerRoot: directory,
             resolvesLocalSymlinks: true
@@ -73,7 +56,8 @@ struct GitStatusProvider: Sendable {
 
     func fetchStatusSSH(
         directory: String, destination: String, port: Int?,
-        identityFile: String?, sshOptions: [String]
+        identityFile: String?, sshOptions: [String],
+        preserving previousStatus: [String: GitFileStatus] = [:]
     ) async -> [String: GitFileStatus] {
         let escapedDir = directory.replacingOccurrences(of: "'", with: "'\\''")
         let cmd = [
@@ -85,10 +69,10 @@ struct GitStatusProvider: Sendable {
         guard let output = await runSSH(
             command: cmd, destination: destination,
             port: port, identityFile: identityFile, sshOptions: sshOptions
-        ) else { return [:] }
+        ) else { return previousStatus }
 
         let parts = output.components(separatedBy: "---GIT_STATUS---\n")
-        guard parts.count == 2 else { return [:] }
+        guard parts.count == 2 else { return previousStatus }
         let repoRoot = parts[0].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         return parseGitStatus(
             output: parts[1],
@@ -99,12 +83,12 @@ struct GitStatusProvider: Sendable {
     }
 
     private func parseGitStatus(
-        output: String?,
+        output: String,
         repoRoot: String,
         explorerRoot: String,
         resolvesLocalSymlinks: Bool
     ) -> [String: GitFileStatus] {
-        guard let output, !output.isEmpty else { return [:] }
+        guard !output.isEmpty else { return [:] }
         var statusMap: [String: GitFileStatus] = [:]
         let outputExplorerRoot = Self.standardizedPath(explorerRoot)
         let comparisonRepoRoot = resolvesLocalSymlinks
@@ -133,7 +117,7 @@ struct GitStatusProvider: Sendable {
             guard let status = parseStatusChars(index: indexStatus, workTree: workTreeStatus) else { continue }
 
             let comparisonAbsolutePath = Self.absolutePath(
-                repoRoot: comparisonRepoRoot,
+                base: comparisonRepoRoot,
                 relativePath: path
             )
             guard let explorerRelativePath = Self.relativePath(
@@ -143,7 +127,7 @@ struct GitStatusProvider: Sendable {
                 continue
             }
             let absolutePath = Self.absolutePath(
-                repoRoot: outputExplorerRoot,
+                base: outputExplorerRoot,
                 relativePath: explorerRelativePath
             )
 
@@ -188,9 +172,9 @@ struct GitStatusProvider: Sendable {
         index == "R" || workTree == "R" || index == "C" || workTree == "C"
     }
 
-    private static func absolutePath(repoRoot: String, relativePath: String) -> String {
-        guard !relativePath.isEmpty else { return repoRoot }
-        return repoRoot == "/" ? "/" + relativePath : repoRoot + "/" + relativePath
+    private static func absolutePath(base: String, relativePath: String) -> String {
+        guard !relativePath.isEmpty else { return base }
+        return base == "/" ? "/" + relativePath : base + "/" + relativePath
     }
 
     private static func path(_ path: String, isContainedIn root: String) -> Bool {

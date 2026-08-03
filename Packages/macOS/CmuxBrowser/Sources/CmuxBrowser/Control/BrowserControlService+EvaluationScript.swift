@@ -60,8 +60,23 @@ extension BrowserControlService {
 
         const __cmuxCircularReference = Symbol('cmux.circularReference');
         const __cmuxBridgeSafeValue = (__value, __ancestors = new WeakSet()) => {
-          if (__value === null || typeof __value !== 'object') {
+          if (__value === null || typeof __value === 'undefined') {
             return __value;
+          }
+
+          const __valueType = typeof __value;
+          if (__valueType === 'number') {
+            return Number.isFinite(__value) ? __value : null;
+          }
+          if (__valueType === 'bigint' || __valueType === 'symbol') {
+            return String(__value);
+          }
+          if (__valueType !== 'object' && __valueType !== 'function') {
+            return __value;
+          }
+
+          if (__ancestors.has(__value)) {
+            throw __cmuxCircularReference;
           }
 
           let __objectTag = '';
@@ -76,20 +91,21 @@ extension BrowserControlService {
             __objectTag === '[object DOMRect]' ||
             __objectTag === '[object DOMRectReadOnly]';
           if (__isDOMRect) {
-            return {
-              x: __value.x,
-              y: __value.y,
-              width: __value.width,
-              height: __value.height,
-              top: __value.top,
-              right: __value.right,
-              bottom: __value.bottom,
-              left: __value.left
-            };
-          }
-
-          if (__ancestors.has(__value)) {
-            throw __cmuxCircularReference;
+            __ancestors.add(__value);
+            try {
+              return {
+                x: __cmuxBridgeSafeValue(__value.x, __ancestors),
+                y: __cmuxBridgeSafeValue(__value.y, __ancestors),
+                width: __cmuxBridgeSafeValue(__value.width, __ancestors),
+                height: __cmuxBridgeSafeValue(__value.height, __ancestors),
+                top: __cmuxBridgeSafeValue(__value.top, __ancestors),
+                right: __cmuxBridgeSafeValue(__value.right, __ancestors),
+                bottom: __cmuxBridgeSafeValue(__value.bottom, __ancestors),
+                left: __cmuxBridgeSafeValue(__value.left, __ancestors)
+              };
+            } finally {
+              __ancestors.delete(__value);
+            }
           }
 
           if (Array.isArray(__value)) {
@@ -105,21 +121,21 @@ extension BrowserControlService {
             }
           }
 
-          const __prototype = Object.getPrototypeOf(__value);
-          if (__prototype === Object.prototype || __prototype === null) {
-            __ancestors.add(__value);
-            try {
-              const __copy = {};
-              for (const __key of Object.keys(__value)) {
-                __copy[__key] = __cmuxBridgeSafeValue(__value[__key], __ancestors);
-              }
-              return __copy;
-            } finally {
-              __ancestors.delete(__value);
+          __ancestors.add(__value);
+          try {
+            const __copy = {};
+            for (const __key of Object.keys(__value)) {
+              Object.defineProperty(__copy, __key, {
+                value: __cmuxBridgeSafeValue(__value[__key], __ancestors),
+                enumerable: true,
+                configurable: true,
+                writable: true
+              });
             }
+            return __copy;
+          } finally {
+            __ancestors.delete(__value);
           }
-
-          return __value;
         };
 
         const __cmuxEvalInFrame = async function() {

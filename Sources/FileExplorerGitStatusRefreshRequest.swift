@@ -4,8 +4,6 @@ struct FileExplorerGitStatusRefreshRequest: Sendable {
 
 #if compiler(>=6.2)
     @concurrent
-#else
-    @Sendable
 #endif
     nonisolated func fetch(
         using provider: GitStatusProvider,
@@ -14,7 +12,10 @@ struct FileExplorerGitStatusRefreshRequest: Sendable {
         let status: [String: GitFileStatus]
         switch source {
         case .local(let directory):
-            status = await provider.fetchStatus(directory: directory)
+            status = await provider.fetchStatus(
+                directory: directory,
+                preserving: previousStatus
+            )
         case .ssh(
             let directory,
             let destination,
@@ -27,7 +28,8 @@ struct FileExplorerGitStatusRefreshRequest: Sendable {
                 destination: destination,
                 port: port,
                 identityFile: identityFile,
-                sshOptions: options
+                sshOptions: options,
+                preserving: previousStatus
             )
         }
         return FileExplorerGitStatusRefreshResult(

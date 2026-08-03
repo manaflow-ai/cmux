@@ -318,14 +318,9 @@ class TerminalController {
     }
 
     private final class V2BrowserUndefinedSentinel: Sendable {}
-    private final class V2BrowserEvaluationFailure: Sendable {
+    struct V2JavaScriptFailure: Sendable {
         let code: String
         let message: String
-
-        init(code: String, message: String) {
-            self.code = code
-            self.message = message
-        }
     }
 
     private var v2BrowserNextElementOrdinal: Int = 1
@@ -6071,7 +6066,11 @@ class TerminalController {
 
     enum V2JavaScriptResult {
         case success(Any?)
-        case failure(String)
+        case failure(V2JavaScriptFailure)
+
+        static func javaScriptFailure(_ message: String) -> Self {
+            .failure(V2JavaScriptFailure(code: "js_error", message: message))
+        }
     }
 
     /// True when a page-world JS failure looks like a CSP block of eval/function
@@ -6242,8 +6241,8 @@ class TerminalController {
         ) {
         case .success(let value):
             return (value as? Bool) == true ? .met : .timedOut
-        case .failure(let message):
-            return .evaluationFailed(message)
+        case .failure(let failure):
+            return .evaluationFailed(failure.message)
         }
     }
 
@@ -6365,7 +6364,7 @@ class TerminalController {
             browserPanel: browserPanel,
             surfaceId: surfaceId
         ) else {
-            return .failure(v2BrowserAutomationMessageAfterLivenessCheck(
+            return .javaScriptFailure(v2BrowserAutomationMessageAfterLivenessCheck(
                 originalMessage: String(
                     localized: "browser.automation.error.documentReadinessTimedOut",
                     defaultValue: "Timed out waiting for the browser document to become ready"
@@ -6447,7 +6446,7 @@ class TerminalController {
 
         switch resolvedResult {
         case .failure(let message):
-            return .failure(message)
+            return .javaScriptFailure(message)
         case .success(let value):
             switch v2BrowserControl.resolveEvaluationEnvelope(value) {
             case .undefined:
@@ -6455,7 +6454,7 @@ class TerminalController {
             case .value(let unwrapped), .unwrapped(let unwrapped):
                 return .success(unwrapped)
             case .error(let code, let message):
-                return .success(V2BrowserEvaluationFailure(code: code, message: message))
+                return .failure(V2JavaScriptFailure(code: code, message: message))
             }
         }
     }
@@ -7033,10 +7032,11 @@ class TerminalController {
         let script = v2BrowserControl.notFoundDiagnosticsScript(selector: selector)
 
         switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, browserPanel: browserPanel, surfaceId: surfaceId, script: script, timeout: 4.0) {
-        case .failure(let message):
+        case .failure(let failure):
             return [
                 "selector": selector,
-                "diagnostics_error": message
+                "diagnostics_error": failure.message,
+                "diagnostics_code": failure.code,
             ]
         case .success(let value):
             guard let dict = value as? [String: Any] else {
@@ -7151,8 +7151,12 @@ class TerminalController {
 
             for attempt in 1...retryAttempts {
                 switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script, useEval: false) {
-                case .failure(let message):
-                    return .err(code: "js_error", message: message, data: ["action": actionName, "selector": selector])
+                case .failure(let failure):
+                    return .err(
+                        code: failure.code,
+                        message: failure.message,
+                        data: ["action": actionName, "selector": selector]
+                    )
                 case .success(let value):
                     if let dict = value as? [String: Any],
                        let ok = dict["ok"] as? Bool,
@@ -7230,16 +7234,9 @@ class TerminalController {
                 timeout: 10.0,
                 onIsolatedWorldFallback: { usedIsolatedWorld = true }
             ) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
-                if let failure = value as? V2BrowserEvaluationFailure {
-                    return .err(
-                        code: failure.code,
-                        message: failure.message,
-                        data: nil
-                    )
-                }
                 var payload: [String: Any] = [
                     "workspace_id": ctx.workspaceId.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
@@ -7448,8 +7445,8 @@ class TerminalController {
             """
 
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script, timeout: 10.0, useEval: false) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
                 guard let dict = value as? [String: Any] else {
                     return .err(code: "js_error", message: "Invalid snapshot payload", data: nil)
@@ -7881,8 +7878,8 @@ class TerminalController {
         return v2BrowserWithPanelContext(params: params) { ctx in
             let surfaceId = ctx.surfaceId
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success:
                 var payload: [String: Any] = [
                     "workspace_id": ctx.workspaceId.uuidString,
@@ -7970,8 +7967,8 @@ class TerminalController {
             }
 
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
                 if let dict = value as? [String: Any],
                    let ok = dict["ok"] as? Bool,
@@ -8170,8 +8167,8 @@ class TerminalController {
             let selectorLiteral = v2JSONLiteral(selector)
             let script = "document.querySelectorAll(\(selectorLiteral)).length"
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
                 let count = (value as? NSNumber)?.intValue ?? 0
                 return .ok([
@@ -8743,8 +8740,8 @@ class TerminalController {
             let script = v2BrowserControl.findScript(finderBody: finderBody)
 
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: ["action": actionName])
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: ["action": actionName])
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -8905,8 +8902,8 @@ class TerminalController {
             }
             let script = v2BrowserControl.findFirstScript(selector: selector)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -8939,8 +8936,8 @@ class TerminalController {
             }
             let script = v2BrowserControl.findLastScript(selector: selector)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -8979,8 +8976,8 @@ class TerminalController {
             }
             let script = v2BrowserControl.findNthScript(selector: selector, index: index)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -9031,8 +9028,8 @@ class TerminalController {
             })()
             """
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
                 if let dict = value as? [String: Any],
                    let ok = dict["ok"] as? Bool,
@@ -9128,8 +9125,8 @@ class TerminalController {
                 useEval: false,
                 requiresPageWorld: true
             ) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -9814,8 +9811,8 @@ class TerminalController {
         return v2BrowserWithPanelContext(params: params) { ctx in
             let script = v2BrowserControl.storageGetScript(storageType: storageType, key: key)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -9844,8 +9841,8 @@ class TerminalController {
             let valueLiteral = v2JSONLiteral(v2NormalizeJSValue(value))
             let script = v2BrowserControl.storageSetScript(storageType: storageType, key: key, valueLiteral: valueLiteral)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -9865,8 +9862,8 @@ class TerminalController {
         return v2BrowserWithPanelContext(params: params) { ctx in
             let script = v2BrowserControl.storageClearScript(storageType: storageType)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -10207,8 +10204,8 @@ class TerminalController {
                 useEval: false,
                 requiresPageWorld: true
             ) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
                 let dict = value as? [String: Any]
                 let items = (dict?["items"] as? [Any]) ?? []
@@ -10249,8 +10246,8 @@ class TerminalController {
                 useEval: false,
                 requiresPageWorld: true
             ) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
                 let dict = value as? [String: Any]
                 let items = (dict?["items"] as? [Any]) ?? []
@@ -10308,8 +10305,8 @@ class TerminalController {
 
             let storageValue: Any
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: storageScript, timeout: 10.0) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
                 storageValue = v2NormalizeJSValue(value)
             }
@@ -10438,8 +10435,8 @@ class TerminalController {
         }
         return v2BrowserWithPanelContext(params: params) { ctx in
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script, timeout: 10.0) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return .err(code: failure.code, message: failure.message, data: nil)
             case .success(let value):
                 return .ok(v2BrowserPanelFields(ctx, adding: ["value": v2NormalizeJSValue(value)]))
             }

@@ -32,3 +32,10 @@ extension NSScrollView {
         }
     }
 }
+
+/// Applies the stable sidebar scroller policy when SwiftUI has resolved its
+/// backing scroll view.
+@MainActor
+public func configureSidebarOverlayScrollView(_ scrollView: NSScrollView?) {
+    scrollView?.applySidebarOverlayScrollerConfiguration()
+}

@@ -44,7 +44,8 @@ public struct BrowserEvalEnvelope: Sendable, Equatable {
     ///   - errorCodeKey: JSON key for an error code. Defaults to `"__cmux_error_code"`.
     ///   - errorMessageKey: JSON key for an error message. Defaults to `"__cmux_error_message"`.
     ///   - circularReferenceCode: stable circular-reference error code.
-    ///   - circularReferenceMessage: stable circular-reference error message.
+    ///   - circularReferenceMessage: stable circular-reference error message;
+    ///     `nil` uses the localized default.
     public init(
         typeKey: String = "__cmux_t",
         valueKey: String = "__cmux_v",
@@ -54,7 +55,7 @@ public struct BrowserEvalEnvelope: Sendable, Equatable {
         errorCodeKey: String = "__cmux_error_code",
         errorMessageKey: String = "__cmux_error_message",
         circularReferenceCode: String = "circular_reference",
-        circularReferenceMessage: String = "browser.eval result contains a circular reference"
+        circularReferenceMessage: String? = nil
     ) {
         self.typeKey = typeKey
         self.valueKey = valueKey
@@ -64,6 +65,9 @@ public struct BrowserEvalEnvelope: Sendable, Equatable {
         self.errorCodeKey = errorCodeKey
         self.errorMessageKey = errorMessageKey
         self.circularReferenceCode = circularReferenceCode
-        self.circularReferenceMessage = circularReferenceMessage
+        self.circularReferenceMessage = circularReferenceMessage ?? String(
+            localized: "cli.browser.error.circularReference",
+            defaultValue: "browser.eval result contains a circular reference"
+        )
     }
 }

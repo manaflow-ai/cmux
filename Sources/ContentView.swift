@@ -11169,7 +11169,7 @@ extension DefaultWorkspaceSidebarView {
             .sidebarPointerEventHost(pointerInteractionMonitor)
             .background(
                 SidebarScrollViewResolver { scrollView in
-                    configureSidebarScrollView(scrollView)
+                    configureSidebarOverlayScrollView(scrollView)
                     dragAutoScrollController.attach(scrollView: scrollView)
                 }
                 .frame(width: 0, height: 0)
@@ -11863,26 +11863,9 @@ extension DefaultWorkspaceSidebarView {
             }
         )
     }
-
-
-    // Applies one stable overlay/autohide scroller config and never toggles it.
-    // Toggling `hasVerticalScroller`/style from SwiftUI re-renders (constant
-    // while agents update rows) re-flashes the overlay knob so it never reaches
-    // its idle fade; a stable config lets AppKit own appear/scroll/fade and the
-    // finite empty-area height keeps it hidden when content fits (#3241).
-    private func configureSidebarScrollView(_ scrollView: NSScrollView?) {
-        guard let scrollView else { return }
-        scrollView.applySidebarOverlayScrollerConfiguration()
-    }
-
 }
 
 extension VerticalTabsSidebar {
-    private func configureSidebarScrollView(_ scrollView: NSScrollView?) {
-        guard let scrollView else { return }
-        scrollView.applySidebarOverlayScrollerConfiguration()
-    }
-
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         extensionSidebarScrollAreaContent(renderContext: renderContext)
             .sidebarProcessTitleObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarProcessTitleObservation)) { refreshExtensionSidebarSnapshot() }
@@ -12028,7 +12011,7 @@ extension VerticalTabsSidebar {
             }
             .background(
                 SidebarScrollViewResolver { scrollView in
-                    configureSidebarScrollView(scrollView)
+                    configureSidebarOverlayScrollView(scrollView)
                     dragAutoScrollController.attach(scrollView: scrollView)
                 }
                 .frame(width: 0, height: 0)

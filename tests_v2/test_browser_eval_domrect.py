@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression: browser.eval returns bridge-safe JSON or explicit cycle errors."""
 
+import contextlib
 import os
 import sys
 from pathlib import Path
@@ -21,13 +22,15 @@ def _value(payload: dict):
     return (payload or {}).get("value")
 
 
-def _expect_circular_reference_error(client: cmux, surface_id: str) -> None:
+def _expect_circular_reference_error(
+    client: cmux, surface_id: str, script: str
+) -> None:
     try:
         client._call(
             "browser.eval",
             {
                 "surface_id": surface_id,
-                "script": "(() => { const value = {}; value.self = value; return value; })()",
+                "script": script,
             },
         )
     except cmuxError as exc:
@@ -35,10 +38,6 @@ def _expect_circular_reference_error(client: cmux, surface_id: str) -> None:
         _must(
             "circular_reference" in message,
             f"Expected explicit circular_reference error, got: {message}",
-        )
-        _must(
-            "browser.eval result contains a circular reference" in message,
-            f"Expected deterministic circular-reference message, got: {message}",
         )
         _must(
             "encode_error" not in message,
@@ -139,15 +138,68 @@ def main() -> int:
                 f"Expected repeated aliases to become JSON-safe copies: {repeated_alias_result}",
             )
 
-            _expect_circular_reference_error(client, surface_id)
+            custom_result = client._call(
+                "browser.eval",
+                {
+                    "surface_id": surface_id,
+                    "script": """
+                    (() => {
+                      class Payload {
+                        constructor() { this.answer = 42; }
+                        toJSON() { return 'prototype-hook'; }
+                      }
+                      return new Payload();
+                    })()
+                    """,
+                },
+            ) or {}
+            _must(
+                _value(custom_result) == {"answer": 42},
+                f"Expected a custom instance to become plain JSON data: {custom_result}",
+            )
+
+            proto_result = client._call(
+                "browser.eval",
+                {
+                    "surface_id": surface_id,
+                    "script": """
+                    (() => {
+                      const value = Object.create(null);
+                      Object.defineProperty(value, '__proto__', {
+                        value: 'ordinary-value', enumerable: true
+                      });
+                      return value;
+                    })()
+                    """,
+                },
+            ) or {}
+            _must(
+                _value(proto_result) == {"__proto__": "ordinary-value"},
+                f"Expected own __proto__ data to survive serialization: {proto_result}",
+            )
+
+            _expect_circular_reference_error(
+                client,
+                surface_id,
+                "(() => { const value = {}; value.self = value; return value; })()",
+            )
+            _expect_circular_reference_error(
+                client,
+                surface_id,
+                """
+                (() => {
+                  const value = new Map();
+                  Object.defineProperty(value, 'self', {value, enumerable: true});
+                  return value;
+                })()
+                """,
+            )
         finally:
             if surface_id:
-                try:
+                with contextlib.suppress(cmuxError, OSError):
                     client._call("surface.close", {"surface_id": surface_id})
-                except (cmuxError, OSError):
-                    pass
 
-    print("PASS: browser.eval returns bridge-safe DOMRects, aliases, and cycle errors")
+    print("PASS: browser.eval returns bridge-safe objects and explicit cycle errors")
     return 0
 
 

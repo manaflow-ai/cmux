@@ -749,6 +749,7 @@ final class FileExplorerStore: ObservableObject {
 
     private var gitStatusRefreshOperation: FileExplorerGitStatusRefreshOperation?
     private var pendingGitStatusRefresh: FileExplorerGitStatusRefreshRequest?
+    private var lastGitStatusRefreshSource: FileExplorerGitStatusRefreshSource?
 
     /// Prefetch debounce schedulers keyed by path.
     private var prefetchSchedulers: [String: MainActorDeferredActionScheduler] = [:]
@@ -842,9 +843,10 @@ final class FileExplorerStore: ObservableObject {
         guard !rootPath.isEmpty else {
             pendingGitStatusRefresh = nil
             gitStatusRefreshOperation?.task.cancel()
+            lastGitStatusRefreshSource = nil
             setGitStatusByPath(
                 [:],
-                change: gitStatusByPath.isEmpty ? nil : .gitStatusChanged(paths: nil)
+                change: gitStatusByPath.isEmpty ? nil : .gitStatusChanged(.allVisible)
             )
             return
         }
@@ -869,9 +871,10 @@ final class FileExplorerStore: ObservableObject {
             return
         }
 
-        // Keep at most one newest trailing request. A new root cancels the old
-        // command immediately; repeated watcher events for one root let its
-        // current query finish and collapse into one trailing refresh.
+        // Keep at most one newest trailing request. When the source changes,
+        // cancellation asks the subprocess to stop and the generation check
+        // discards any result that still completes. Repeated watcher events for
+        // one root let its current query finish and collapse into one refresh.
         pendingGitStatusRefresh = request
         if operation.source != source {
             operation.task.cancel()
@@ -881,7 +884,9 @@ final class FileExplorerStore: ObservableObject {
     private func startGitStatusRefresh(_ request: FileExplorerGitStatusRefreshRequest) {
         let identifier = UUID()
         let provider = gitStatusProvider
-        let previousStatus = gitStatusByPath
+        let previousStatus = lastGitStatusRefreshSource == request.source
+            ? gitStatusByPath
+            : [:]
         let task = Task { @MainActor [weak self] in
             let result = await request.fetch(
                 using: provider,
@@ -912,6 +917,7 @@ final class FileExplorerStore: ObservableObject {
         gitStatusRefreshOperation = nil
 
         if !wasCancelled, gitStatusRefreshGeneration == request.generation {
+            lastGitStatusRefreshSource = request.source
             setGitStatusByPath(
                 result.status,
                 change: Self.outlineChange(for: result.diff)
@@ -992,7 +998,7 @@ final class FileExplorerStore: ObservableObject {
         setRootNodes([])
         nodesByPath = [:]
         guard !rootPath.isEmpty, provider != nil else { return }
-        isRootLoading = true
+        setRootLoading(true)
         startLoad(for: nil, at: rootPath)
     }
 
@@ -1168,7 +1174,7 @@ final class FileExplorerStore: ObservableObject {
                 }
             } else {
                 setRootNodes(children)
-                isRootLoading = false
+                setRootLoading(false)
                 setRootStatusMessage(nil)
                 if selectedPath == nil {
                     selectedPath = children.first?.path
@@ -1205,7 +1211,7 @@ final class FileExplorerStore: ObservableObject {
                 parentNode.error = error.localizedDescription
                 publishOutlineChange(.nodeChanged(node: parentNode, reloadChildren: false))
             } else {
-                isRootLoading = false
+                setRootLoading(false)
                 setRootStatusMessage(error.localizedDescription)
             }
             retireLoad(
@@ -1242,15 +1248,8 @@ final class FileExplorerStore: ObservableObject {
             parentNode.isLoading = false
             publishOutlineChange(.nodeChanged(node: parentNode, reloadChildren: false))
         } else {
-            isRootLoading = false
+            setRootLoading(false)
         }
-    }
-
-    static func gitStatusChange(
-        previous: [String: GitFileStatus],
-        current: [String: GitFileStatus]
-    ) -> FileExplorerOutlineChange? {
-        outlineChange(for: gitStatusDiff(previous: previous, current: current))
     }
 
     nonisolated static func gitStatusDiff(
@@ -1281,16 +1280,16 @@ final class FileExplorerStore: ObservableObject {
         return changedPaths.isEmpty ? .unchanged : .scoped(changedPaths)
     }
 
-    private static func outlineChange(
+    static func outlineChange(
         for diff: FileExplorerGitStatusDiff
     ) -> FileExplorerOutlineChange? {
         switch diff {
         case .unchanged:
             return nil
         case .scoped(let paths):
-            return .gitStatusChanged(paths: paths)
+            return .gitStatusChanged(.boundedPaths(paths))
         case .allVisible:
-            return .gitStatusChanged(paths: nil)
+            return .gitStatusChanged(.allVisible)
         }
     }
 
@@ -1305,13 +1304,12 @@ final class FileExplorerStore: ObservableObject {
 
     func setRootNodes(_ nodes: [FileExplorerNode]) {
         rootNodesRevision &+= 1
-        for node in rootNodes where nodesByPath[node.path] === node {
-            nodesByPath.removeValue(forKey: node.path)
-        }
+        nodesByPath.removeAll(keepingCapacity: true)
         rootNodes = nodes
         for node in nodes {
             nodesByPath[node.path] = node
         }
+        publishOutlineChange(.rootsChanged)
     }
 
     private func publishOutlineChange(_ change: FileExplorerOutlineChange) {
@@ -1331,7 +1329,7 @@ final class FileExplorerStore: ObservableObject {
             scheduler.cancel()
         }
         prefetchSchedulers.removeAll()
-        isRootLoading = false
+        setRootLoading(false)
     }
 
     private func applyRemoteSSHWorkspaceRoot(
@@ -1469,6 +1467,13 @@ final class FileExplorerStore: ObservableObject {
     private func setRootStatusMessage(_ message: String?) {
         guard rootStatusMessage != message else { return }
         rootStatusMessage = message
+        publishOutlineChange(.rootsChanged)
+    }
+
+    private func setRootLoading(_ isLoading: Bool) {
+        guard isRootLoading != isLoading else { return }
+        isRootLoading = isLoading
+        publishOutlineChange(.rootsChanged)
     }
 
     private static func path(_ candidate: String, isContainedIn root: String) -> Bool {
