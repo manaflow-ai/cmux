@@ -302,6 +302,34 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(source.availabilityCheckCount - availabilityChecksBeforeBurst <= 2)
     }
 
+    @Test("Notification-backed controllers cap frame copies to display cadence")
+    func notificationControllerCapsFrameCopiesToDisplayCadence() async throws {
+        let source = SignaledSimulatorFrameSurfaceSource(
+            snapshot: simulatorFrameSnapshot(
+                pixel: 0xFF_12_34_56,
+                sequence: 1
+            )
+        )
+        let controller = SimulatorFramePresentationController(
+            source: source,
+            presentationDidComplete: { _ in },
+            sourceFailureDidOccur: {}
+        )
+        defer { controller.invalidate() }
+
+        controller.startPresenting(maximumFramesPerSecond: 1)
+        controller.presentLatestFrame()
+        try await waitUntil { source.copyCount == 1 }
+
+        source.publish(simulatorFrameSnapshot(
+            pixel: 0xFF_65_43_21,
+            sequence: 2
+        ))
+        try await ContinuousClock().sleep(for: .milliseconds(50))
+
+        #expect(source.copyCount == 1)
+    }
+
     @Test("A publication invalidating an in-flight copy retries the newest frame")
     func invalidatedCopyRetriesNewestPublication() async throws {
         let source = InvalidatingSignaledSimulatorFrameSurfaceSource(
