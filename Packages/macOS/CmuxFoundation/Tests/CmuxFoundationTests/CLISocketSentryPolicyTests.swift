@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxFoundation
 
@@ -24,4 +25,111 @@ import Testing
             ]
         ).allowsSandboxPolicyDenial)
     }
+
+    @Test func suppressesOwnedSocketEPERMForVerifiedClaudeHook() {
+        let policy = CLISocketSentryPolicy(
+            environment: [
+                "CMUX_CLAUDE_PID": "4242",
+                "CMUX_WORKSPACE_ID": "workspace-id",
+                "CMUX_SURFACE_ID": "surface-id",
+            ],
+            command: "hooks",
+            subcommand: "claude"
+        )
+
+        #expect(policy.shouldSuppressPolicyDenial(.ownedSocketEPERM))
+    }
+
+    @Test func suppressesOwnedSocketEPERMForVerifiedCodexSandbox() {
+        let policy = CLISocketSentryPolicy(
+            environment: ["CODEX_SANDBOX": "workspace-write"],
+            command: "ping",
+            subcommand: "help"
+        )
+
+        #expect(policy.shouldSuppressPolicyDenial(.ownedSocketEPERM))
+    }
+
+    @Test func policyDenialTruthTableKeepsUnverifiedAndMismatchedFailures() {
+        let unknown = CLISocketSentryPolicy(
+            environment: [:],
+            command: "hooks",
+            subcommand: "claude"
+        )
+        #expect(!unknown.shouldSuppressPolicyDenial(.ownedSocketEPERM))
+
+        let claudeHook = CLISocketSentryPolicy(
+            environment: [
+                "CMUX_CLAUDE_PID": "4242",
+                "CMUX_WORKSPACE_ID": "workspace-id",
+                "CMUX_SURFACE_ID": "surface-id",
+            ],
+            command: "hooks",
+            subcommand: "claude"
+        )
+        #expect(!claudeHook.shouldSuppressPolicyDenial(.init(
+            stage: "socket_connect",
+            errnoCode: 1,
+            socketExists: true,
+            socketIsUnixDomainSocket: true,
+            socketOwnerUID: 502,
+            processUID: 501,
+            effectiveUID: 501
+        )))
+        #expect(!claudeHook.shouldSuppressPolicyDenial(.init(
+            stage: "socket_connect",
+            errnoCode: 1,
+            socketExists: true,
+            socketIsUnixDomainSocket: false,
+            socketOwnerUID: 501,
+            processUID: 501,
+            effectiveUID: 501
+        )))
+        #expect(!claudeHook.shouldSuppressPolicyDenial(.init(
+            stage: "socket_connect",
+            errnoCode: 13,
+            socketExists: true,
+            socketIsUnixDomainSocket: true,
+            socketOwnerUID: 501,
+            processUID: 501,
+            effectiveUID: 501
+        )))
+
+        let normalTerminal = CLISocketSentryPolicy(
+            environment: [
+                "CMUX_CLAUDE_PID": "4242",
+                "CMUX_WORKSPACE_ID": "workspace-id",
+                "CMUX_SURFACE_ID": "surface-id",
+            ],
+            command: "ping",
+            subcommand: "help"
+        )
+        #expect(!normalTerminal.shouldSuppressPolicyDenial(.ownedSocketEPERM))
+    }
+
+    @Test func socketConnectErrorHasStableNSErrorIdentityAndFingerprint() {
+        let first = CLISocketConnectError(path: "/tmp/cmux-a.sock", errnoCode: 1)
+        let second = CLISocketConnectError(path: "/tmp/cmux-b.sock", errnoCode: 1)
+        let firstNSError = first as NSError
+        let secondNSError = second as NSError
+
+        #expect(firstNSError.domain == "com.cmux.cli.socket-connect")
+        #expect(firstNSError.domain == secondNSError.domain)
+        #expect(firstNSError.code == secondNSError.code)
+        #expect(first.sentryFingerprint == second.sentryFingerprint)
+        #expect(!firstNSError.domain.contains("unknown context"))
+        #expect(!firstNSError.domain.contains("$"))
+    }
+}
+
+private extension CLISocketPolicyDenialContext {
+    static let ownedSocketEPERM = Self(
+        stage: "socket_connect",
+        errnoCode: 1,
+        socketExists: true,
+        socketIsUnixDomainSocket: true,
+        socketOwnerUID: 501,
+        processUID: 501,
+        effectiveUID: 501
+    )
 }

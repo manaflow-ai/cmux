@@ -3,6 +3,7 @@ import Darwin
 import CmuxFoundation
 
 import CmuxSidebar
+import CmuxSidebarGit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -61,6 +62,35 @@ private final class MainThreadObservationBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return storedObservedOnMainThread
+    }
+}
+
+private final class SidebarActivitySnapshotLoaderProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private let gate = DispatchSemaphore(value: 0)
+    private var storedReadCount = 0
+    private let result: SidebarGitActivitySnapshot
+
+    init(result: SidebarGitActivitySnapshot) {
+        self.result = result
+    }
+
+    var readCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedReadCount
+    }
+
+    func release() {
+        gate.signal()
+    }
+
+    func load() -> SidebarGitActivitySnapshot? {
+        lock.lock()
+        storedReadCount += 1
+        lock.unlock()
+        gate.wait()
+        return result
     }
 }
 
@@ -467,6 +497,52 @@ private func gitIndexUInt32Field<T: BinaryInteger>(_ value: T) -> UInt32 {
 
 @MainActor
 final class WorkspacePullRequestSidebarTests: XCTestCase {
+    @MainActor
+    func testSidebarActivitySnapshotStartsDisabledAndLoadsWithoutBlockingMainActor() async {
+        let loader = SidebarActivitySnapshotLoaderProbe(
+            result: SidebarGitActivitySnapshot(
+                gitMetadataActivity: .activePolling,
+                pullRequestActivity: .passiveReportsOnly
+            )
+        )
+        let cache = SidebarGitActivitySnapshotCache(loader: loader.load)
+
+        XCTAssertEqual(cache.snapshot, .disabled)
+        cache.requestRefresh()
+        var heartbeat = false
+        Task { @MainActor in heartbeat = true }
+        while !heartbeat {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(cache.snapshot, .disabled)
+        loader.release()
+        await cache.waitUntilIdle()
+
+        XCTAssertEqual(cache.snapshot.gitMetadataActivity, .activePolling)
+        XCTAssertEqual(cache.snapshot.pullRequestActivity, .passiveReportsOnly)
+        XCTAssertEqual(loader.readCount, 1)
+    }
+
+    @MainActor
+    func testSidebarActivityBurstReadsCachedSnapshotWithoutSettingsReadAmplification() async {
+        let loader = SidebarActivitySnapshotLoaderProbe(
+            result: SidebarGitActivitySnapshot(
+                gitMetadataActivity: .activePolling,
+                pullRequestActivity: .activePolling
+            )
+        )
+        let cache = SidebarGitActivitySnapshotCache(loader: loader.load)
+        cache.requestRefresh()
+        loader.release()
+        await cache.waitUntilIdle()
+
+        for _ in 0..<300 {
+            XCTAssertTrue(cache.snapshot.gitMetadataActivity.performsActivePolling)
+            XCTAssertTrue(cache.snapshot.pullRequestActivity.performsActivePolling)
+        }
+        XCTAssertEqual(loader.readCount, 1)
+    }
     func testSidebarPullRequestsIgnoreStaleWorkspaceLevelCacheWithoutPanelState() throws {
         let workspace = Workspace(title: "Test")
         let panelId = UUID()

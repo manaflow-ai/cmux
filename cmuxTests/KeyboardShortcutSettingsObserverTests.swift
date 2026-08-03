@@ -1,4 +1,5 @@
 import Carbon
+import AppKit
 import Foundation
 import Testing
 
@@ -155,5 +156,91 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(observer.revision == 1)
     }
 
+    @Test func blockedKeyboardLayoutLoaderKeepsMainActorResponsiveAndReplacesSnapshot() async {
+        let gate = DispatchSemaphore(value: 0)
+        let initial = KeyboardLayoutSnapshot.testFixture(id: "old", character: "a")
+        let replacement = KeyboardLayoutSnapshot.testFixture(id: "new", character: "q")
+        let cache = KeyboardLayoutSnapshotCache(initialSnapshot: initial) {
+            gate.wait()
+            return replacement
+        }
+
+        cache.requestRefresh()
+        var heartbeat = false
+        Task { @MainActor in heartbeat = true }
+        while !heartbeat {
+            await Task.yield()
+        }
+
+        #expect(cache.snapshot.inputSourceID == "old")
+        #expect(cache.snapshot.shortcutCharacter(forKeyCode: 0, modifierFlags: []) == "a")
+
+        gate.signal()
+        await cache.waitUntilIdle()
+
+        #expect(cache.snapshot.inputSourceID == "new")
+        #expect(cache.snapshot.shortcutCharacter(forKeyCode: 0, modifierFlags: []) == "q")
+    }
+
+    @Test func keyboardLayoutRefreshStormDropsStaleResultAndCoalescesReloads() async {
+        let loader = SequencedKeyboardLayoutSnapshotLoader()
+        let cache = KeyboardLayoutSnapshotCache(
+            initialSnapshot: .testFixture(id: "initial", character: "a"),
+            loader: loader.load
+        )
+
+        cache.requestRefresh()
+        for _ in 0..<100 {
+            cache.requestRefresh()
+        }
+        loader.releaseFirstLoad()
+        await cache.waitUntilIdle()
+
+        #expect(loader.loadCount == 2)
+        #expect(cache.snapshot.inputSourceID == "fresh")
+        #expect(cache.snapshot.shortcutCharacter(forKeyCode: 0, modifierFlags: []) == "f")
+    }
+
+    }
+}
+
+private extension KeyboardLayoutSnapshot {
+    static func testFixture(id: String, character: String) -> Self {
+        Self(
+            inputSourceID: id,
+            shortcutCharacters: [
+                .init(keyCode: 0, modifierFlags: []): character,
+            ],
+            textInputCharacters: [:]
+        )
+    }
+}
+
+private final class SequencedKeyboardLayoutSnapshotLoader: @unchecked Sendable {
+    private let lock = NSLock()
+    private let firstLoadGate = DispatchSemaphore(value: 0)
+    private var storedLoadCount = 0
+
+    var loadCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedLoadCount
+    }
+
+    func releaseFirstLoad() {
+        firstLoadGate.signal()
+    }
+
+    func load() -> KeyboardLayoutSnapshot? {
+        lock.lock()
+        storedLoadCount += 1
+        let loadNumber = storedLoadCount
+        lock.unlock()
+
+        if loadNumber == 1 {
+            firstLoadGate.wait()
+            return .testFixture(id: "stale", character: "s")
+        }
+        return .testFixture(id: "fresh", character: "f")
     }
 }
