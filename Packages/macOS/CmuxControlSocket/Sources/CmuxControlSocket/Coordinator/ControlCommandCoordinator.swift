@@ -277,8 +277,20 @@ public final class ControlCommandCoordinator {
             return resolveRef(raw, forParamKey: key)
         }
         guard let expected = Self.expectedHandleKinds[key] else { return parsed }
+        // The mint history is a sound kind oracle here rather than an accident
+        // of what the caller happens to have been handed: dispatch re-mints refs
+        // for live topology first (the conformer's `v2RefreshKnownRefs` walks
+        // every main window, workspace, workspace group, pane and surface), so
+        // anything routing can reach has a kind by the time params are parsed.
+        // The residual is dock-hosted surfaces, which are first-minted by the
+        // individual command bodies.
         let minted = handles.mintedKinds(for: parsed)
-        // Never minted → kind unknown, so it still passes through (issue gap 1).
+        // Never minted → kind unknown, so it still passes through. That is gap 1
+        // of the issue: the CLI injects the caller's own CMUX_WORKSPACE_ID /
+        // CMUX_SURFACE_ID into most commands, so failing closed here would also
+        // fail ordinary commands issued from a since-closed workspace. Telling
+        // those apart needs the wire-format change the issue defers to a
+        // product call.
         guard minted.isEmpty || !minted.isDisjoint(with: expected) else { return nil }
         return parsed
     }
