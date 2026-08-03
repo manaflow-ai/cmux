@@ -114,6 +114,81 @@ private final class DeferredListFileExplorerProvider: FileExplorerProvider {
     }
 }
 
+private final class CountingFileExplorerOutlineView: NSOutlineView {
+    private(set) var reloadDataCallCount = 0
+    private(set) var reloadItemCallCount = 0
+    private(set) var reloadRowsCallCount = 0
+    private(set) var lastReloadedRowCount = 0
+    private(set) var itemAtRowCallCount = 0
+    private(set) var cellViewLookupCallCount = 0
+    private(set) var reloadedNodeIdentifiers: Set<ObjectIdentifier> = []
+    var performsActualOutlineMutations = true
+
+    override func reloadItem(_ item: Any?, reloadChildren: Bool) {
+        reloadItemCallCount += 1
+        if let node = item as? FileExplorerNode {
+            reloadedNodeIdentifiers.insert(ObjectIdentifier(node))
+        }
+        if performsActualOutlineMutations {
+            super.reloadItem(item, reloadChildren: reloadChildren)
+        }
+    }
+
+    override func reloadData() {
+        reloadDataCallCount += 1
+        if performsActualOutlineMutations {
+            super.reloadData()
+        }
+    }
+
+    override func reloadData(
+        forRowIndexes rowIndexes: IndexSet,
+        columnIndexes: IndexSet
+    ) {
+        reloadRowsCallCount += 1
+        lastReloadedRowCount = rowIndexes.count
+        if performsActualOutlineMutations {
+            super.reloadData(forRowIndexes: rowIndexes, columnIndexes: columnIndexes)
+        }
+    }
+
+    override func expandItem(_ item: Any?, expandChildren: Bool) {
+        if performsActualOutlineMutations {
+            super.expandItem(item, expandChildren: expandChildren)
+        }
+    }
+
+    override func item(atRow row: Int) -> Any? {
+        itemAtRowCallCount += 1
+        return super.item(atRow: row)
+    }
+
+    override func view(
+        atColumn column: Int,
+        row: Int,
+        makeIfNecessary: Bool
+    ) -> NSView? {
+        if !makeIfNecessary {
+            cellViewLookupCallCount += 1
+        }
+        return super.view(
+            atColumn: column,
+            row: row,
+            makeIfNecessary: makeIfNecessary
+        )
+    }
+
+    func resetMetrics() {
+        reloadDataCallCount = 0
+        reloadItemCallCount = 0
+        reloadRowsCallCount = 0
+        lastReloadedRowCount = 0
+        itemAtRowCallCount = 0
+        cellViewLookupCallCount = 0
+        reloadedNodeIdentifiers.removeAll(keepingCapacity: false)
+    }
+}
+
 // MARK: - Store Tests
 
 /// The store's `@Published` state is driven by unstructured `Task { ... }` calls that
@@ -163,7 +238,790 @@ struct FileExplorerStoreTests {
         }
     }
 
+    private static func gitStatusInvocationCount(_ value: String, in file: URL) -> Int {
+        guard let contents = try? String(contentsOf: file, encoding: .utf8) else {
+            return 0
+        }
+        return contents.split(separator: "\n").count { $0 == Substring(value) }
+    }
+
+    private func hostInScrollView(
+        _ outlineView: NSOutlineView
+    ) -> NSScrollView {
+        let scrollView = NSScrollView(frame: outlineView.frame)
+        scrollView.documentView = outlineView
+        scrollView.layoutSubtreeIfNeeded()
+        return scrollView
+    }
+
     // MARK: - Basic loading
+
+    @Test
+    func unchangedTreeDoesNotReloadLoadedDirectories() {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let directory = FileExplorerNode(name: "Sources", path: "/project/Sources", isDirectory: true)
+        directory.children = [
+            FileExplorerNode(name: "App.swift", path: "/project/Sources/App.swift", isDirectory: false),
+        ]
+        store.rootPath = "/project"
+        store.setRootNodes([directory])
+        store.expand(node: directory)
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+
+        coordinator.reloadIfNeeded()
+        outlineView.resetMetrics()
+        coordinator.reloadIfNeeded()
+
+        #expect(outlineView.reloadItemCallCount == 0)
+    }
+
+    @Test
+    func largeNestedDirectoryUsesLoadTimeOrderingWithoutPerReadResorts() async throws {
+        let provider = MockFileExplorerProvider(homePath: "/project")
+        provider.listings["/project"] = .success([
+            FileExplorerEntry(
+                name: "Large",
+                path: "/project/Large",
+                isDirectory: true
+            ),
+        ])
+        provider.listings["/project/Large"] = .success(
+            (0..<5_000).reversed().flatMap { index in
+                [
+                    FileExplorerEntry(
+                        name: String(format: "file-%05d.swift", index),
+                        path: String(format: "/project/Large/file-%05d.swift", index),
+                        isDirectory: false
+                    ),
+                    FileExplorerEntry(
+                        name: String(format: "folder-%05d", index),
+                        path: String(format: "/project/Large/folder-%05d", index),
+                        isDirectory: true
+                    ),
+                ]
+            }
+        )
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider, reloadIfAvailable: false)
+        store.setRootPath("/project")
+        try await waitFor("large root loaded") { store.rootNodes.count == 1 }
+        let directory = try #require(store.rootNodes.first)
+        store.expand(node: directory)
+        try await waitFor("large nested directory loaded", timeout: 10) {
+            directory.children?.count == 10_000
+        }
+        let children = try #require(directory.children)
+
+        #expect(children.prefix(5_000).allSatisfy(\.isDirectory))
+        #expect(children.suffix(5_000).allSatisfy { !$0.isDirectory })
+        for index in 1..<children.count {
+            let previous = children[index - 1]
+            let current = children[index]
+            if previous.isDirectory == current.isDirectory {
+                #expect(
+                    previous.name.localizedCaseInsensitiveCompare(current.name)
+                        != .orderedDescending
+                )
+            }
+        }
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = NSOutlineView()
+        let storedIdentityOrder = Array(children.reversed())
+        directory.children = storedIdentityOrder
+        var readsStoredOrder = true
+        for iteration in 0..<500 {
+            if coordinator.outlineView(
+                outlineView,
+                numberOfChildrenOfItem: directory
+            ) != storedIdentityOrder.count {
+                readsStoredOrder = false
+                break
+            }
+            let index = (iteration * 7_919) % storedIdentityOrder.count
+            guard let child = coordinator.outlineView(
+                outlineView,
+                child: index,
+                ofItem: directory
+            ) as? FileExplorerNode,
+                  child === storedIdentityOrder[index] else {
+                readsStoredOrder = false
+                break
+            }
+        }
+
+        #expect(readsStoredOrder)
+    }
+
+    @Test
+    func thousandNodeChangesInTenThousandRowsPreserveOutlineState() async throws {
+        let store = FileExplorerStore()
+        var nodes = (0..<10_000).map { index in
+            FileExplorerNode(
+                name: String(format: "File-%05d.swift", index),
+                path: String(format: "/project/File-%05d.swift", index),
+                isDirectory: false
+            )
+        }
+        let directory = FileExplorerNode(
+            name: "Expanded",
+            path: "/project/Expanded",
+            isDirectory: true
+        )
+        let selectedChild = FileExplorerNode(
+            name: "Selected.swift",
+            path: "/project/Expanded/Selected.swift",
+            isDirectory: false
+        )
+        directory.children = [selectedChild]
+        nodes[5_000] = directory
+        store.rootPath = "/project"
+        store.setRootNodes(nodes)
+        store.expand(node: directory)
+        store.select(node: selectedChild)
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let scrollView = hostInScrollView(outlineView)
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
+
+        let selectedRow = outlineView.row(forItem: selectedChild)
+        #expect(selectedRow >= 0)
+        outlineView.scrollRowToVisible(selectedRow)
+        scrollView.layoutSubtreeIfNeeded()
+        let initialScrollOrigin = scrollView.contentView.bounds.origin
+        let initialVisibleRowCount = outlineView.rows(in: outlineView.visibleRect).length
+        outlineView.resetMetrics()
+
+        for node in nodes[8_000..<9_000] {
+            coordinator.enqueueOutlineChange(
+                .nodeChanged(node: node, reloadChildren: false)
+            )
+        }
+
+        try await waitFor("bounded overflow reconciliation") {
+            outlineView.reloadItemCallCount >= 2
+        }
+
+        #expect(outlineView.reloadDataCallCount == 0)
+        #expect(outlineView.reloadRowsCallCount == 0)
+        #expect(outlineView.reloadItemCallCount == 2)
+        #expect(outlineView.isItemExpanded(directory))
+        #expect(outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode === selectedChild)
+        #expect(scrollView.contentView.bounds.origin == initialScrollOrigin)
+        #expect(coordinator.lastNodeChangeVisibleRowInspectionCount <= initialVisibleRowCount)
+        #expect(outlineView.itemAtRowCallCount < 1_000)
+    }
+
+    @Test
+    func scopedNodeChangeDoesNotScanLargeOutline() async throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let directory = FileExplorerNode(name: "Sources", path: "/project/Sources", isDirectory: true)
+        let siblingFiles = (0..<1_000).map {
+            FileExplorerNode(name: "File\($0).swift", path: "/project/File\($0).swift", isDirectory: false)
+        }
+        store.rootPath = "/project"
+        store.setRootNodes([directory] + siblingFiles)
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        let scrollView = hostInScrollView(outlineView)
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+
+        coordinator.reloadIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
+        #expect(outlineView.numberOfRows == 1_001)
+        outlineView.resetMetrics()
+
+        store.expand(node: directory)
+        try await waitFor("scoped node refresh") {
+            outlineView.cellViewLookupCallCount > 0
+        }
+        coordinator.reloadIfNeeded()
+
+        #expect(outlineView.reloadRowsCallCount == 0)
+        #expect(outlineView.reloadItemCallCount == 0)
+        #expect(coordinator.lastNodeChangeVisibleRowInspectionCount < 20)
+    }
+
+    @Test
+    func duplicateNodeChangesAreCoalescedBeforeOutlineRefresh() async throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let directory = FileExplorerNode(name: "Sources", path: "/project/Sources", isDirectory: true)
+        store.rootPath = "/project"
+        store.setRootNodes([directory])
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        outlineView.resetMetrics()
+
+        for _ in 0..<100 {
+            coordinator.enqueueOutlineChange(.nodeChanged(node: directory, reloadChildren: false))
+        }
+
+        try await waitFor("coalesced outline refresh") {
+            outlineView.cellViewLookupCallCount == 1
+        }
+        #expect(outlineView.cellViewLookupCallCount == 1)
+        #expect(outlineView.reloadRowsCallCount == 0)
+        #expect(outlineView.reloadItemCallCount == 0)
+    }
+
+    @Test
+    func multipleStructuralNodeChangesStayScoped() async throws {
+        let store = FileExplorerStore()
+        let directories = ["Sources", "Tests"].map {
+            let node = FileExplorerNode(
+                name: $0,
+                path: "/project/\($0)",
+                isDirectory: true
+            )
+            node.children = []
+            return node
+        }
+        store.rootPath = "/project"
+        store.setRootNodes(directories)
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let scrollView = hostInScrollView(outlineView)
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
+        outlineView.resetMetrics()
+
+        for directory in directories {
+            coordinator.enqueueOutlineChange(.nodeChanged(node: directory, reloadChildren: true))
+        }
+
+        try await waitFor("scoped structural refreshes") {
+            outlineView.reloadItemCallCount == directories.count
+                || outlineView.reloadDataCallCount > 0
+        }
+        #expect(outlineView.reloadDataCallCount == 0)
+        #expect(outlineView.reloadItemCallCount == directories.count)
+    }
+
+    @Test
+    func offscreenStructuralNodeChangeDoesNotReloadWholeOutline() async throws {
+        let store = FileExplorerStore()
+        let directories = (0..<1_000).map {
+            let node = FileExplorerNode(
+                name: "Directory\($0)",
+                path: "/project/Directory\($0)",
+                isDirectory: true
+            )
+            node.children = []
+            return node
+        }
+        store.rootPath = "/project"
+        store.setRootNodes(directories)
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let scrollView = hostInScrollView(outlineView)
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
+        outlineView.resetMetrics()
+
+        coordinator.enqueueOutlineChange(
+            .nodeChanged(node: directories.last!, reloadChildren: true)
+        )
+
+        try await waitFor("offscreen structural change inspected") {
+            coordinator.lastNodeChangeVisibleRowInspectionCount > 0
+        }
+        #expect(outlineView.reloadDataCallCount == 0)
+        #expect(outlineView.reloadItemCallCount == 0)
+    }
+
+    @Test
+    func offscreenExpandedNodeRestoresExpansionAfterHydration() async throws {
+        let store = FileExplorerStore()
+        let directories = (0..<1_000).map {
+            FileExplorerNode(
+                name: "Directory\($0)",
+                path: "/project/Directory\($0)",
+                isDirectory: true
+            )
+        }
+        let hydratedDirectory = directories.last!
+        store.rootPath = "/project"
+        store.setRootNodes(directories)
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let scrollView = hostInScrollView(outlineView)
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
+
+        store.expand(node: hydratedDirectory)
+        hydratedDirectory.children = [
+            FileExplorerNode(
+                name: "Child.swift",
+                path: "\(hydratedDirectory.path)/Child.swift",
+                isDirectory: false
+            ),
+        ]
+        outlineView.resetMetrics()
+        coordinator.enqueueOutlineChange(
+            .nodeChanged(node: hydratedDirectory, reloadChildren: true)
+        )
+
+        try await waitFor("offscreen expansion restored") {
+            outlineView.isItemExpanded(hydratedDirectory)
+        }
+        #expect(outlineView.reloadDataCallCount == 0)
+        #expect(outlineView.reloadItemCallCount == 1)
+    }
+
+    @Test
+    func distinctNodeBurstDrainsScopedBatchesWithoutOutlineReload() async throws {
+        let store = FileExplorerStore()
+        let nodes = (0..<130).map {
+            FileExplorerNode(
+                name: "Directory\($0)",
+                path: "/project/Directory\($0)",
+                isDirectory: true
+            )
+        }
+        for node in nodes {
+            node.children = []
+        }
+        store.rootPath = "/project"
+        store.setRootNodes(nodes)
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        outlineView.resetMetrics()
+        outlineView.performsActualOutlineMutations = false
+
+        for node in nodes {
+            store.expand(node: node)
+            coordinator.enqueueOutlineChange(.expansionChanged(node: node, isExpanded: true))
+        }
+
+        try await waitFor("bounded scoped outline batches") {
+            outlineView.reloadedNodeIdentifiers.count == nodes.count
+        }
+        #expect(outlineView.reloadDataCallCount == 0)
+        #expect(outlineView.reloadedNodeIdentifiers.count == nodes.count)
+    }
+
+    @Test
+    func childChangeWaitsForItsRootRevisionToReachOutline() async throws {
+        let store = FileExplorerStore()
+        let oldNode = FileExplorerNode(
+            name: "Old.swift",
+            path: "/project/Old.swift",
+            isDirectory: false
+        )
+        store.rootPath = "/project"
+        store.setRootNodes([oldNode])
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+
+        let newDirectory = FileExplorerNode(
+            name: "Sources",
+            path: "/project/Sources",
+            isDirectory: true
+        )
+        newDirectory.children = [
+            FileExplorerNode(
+                name: "App.swift",
+                path: "/project/Sources/App.swift",
+                isDirectory: false
+            ),
+        ]
+        store.setRootNodes([newDirectory])
+        coordinator.enqueueOutlineChange(
+            .expansionChanged(node: newDirectory, isExpanded: true)
+        )
+
+        try await waitFor("new root revision installed") {
+            outlineView.item(atRow: 0) as? FileExplorerNode === newDirectory
+        }
+        #expect(outlineView.isItemExpanded(newDirectory))
+    }
+
+    @Test
+    func gitStatusRefreshCoalescesToOneActiveAndOneTrailingQuery() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-file-explorer-git-coalescing-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let invocationLog = directory.appendingPathComponent("invocations.log")
+        let releaseFile = directory.appendingPathComponent("release")
+        let script = directory.appendingPathComponent("fake-git")
+        try #"""
+        #!/bin/sh
+        case "$1 $2" in
+        "rev-parse --show-toplevel")
+            printf '%s\n' "$CMUX_TEST_REPO_ROOT"
+            ;;
+        "status --porcelain=v1")
+            printf 'status\n' >> "$CMUX_TEST_INVOCATION_LOG"
+            while [ ! -f "$CMUX_TEST_RELEASE_FILE" ]; do sleep 0.01; done
+            printf 'done\n' >> "$CMUX_TEST_INVOCATION_LOG"
+            ;;
+        *)
+            exit 2
+            ;;
+        esac
+        """#.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: script.path
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_TEST_REPO_ROOT"] = directory.path
+        environment["CMUX_TEST_INVOCATION_LOG"] = invocationLog.path
+        environment["CMUX_TEST_RELEASE_FILE"] = releaseFile.path
+        let store = FileExplorerStore(
+            gitStatusProvider: GitStatusProvider(
+                gitExecutableURL: script,
+                environment: environment
+            )
+        )
+        store.rootPath = directory.path
+        defer {
+            try? Data().write(to: releaseFile)
+        }
+
+        store.refreshGitStatus()
+        try await waitFor("first Git status query started") {
+            Self.gitStatusInvocationCount("status", in: invocationLog) == 1
+        }
+        for _ in 0..<20 {
+            store.refreshGitStatus()
+        }
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        #expect(Self.gitStatusInvocationCount("status", in: invocationLog) == 1)
+
+        try Data().write(to: releaseFile)
+        try await waitFor("trailing Git status query completed") {
+            Self.gitStatusInvocationCount("done", in: invocationLog) >= 2
+        }
+        #expect(Self.gitStatusInvocationCount("status", in: invocationLog) == 2)
+    }
+
+    @Test
+    func largeGitStatusChangeReloadsVisibleRowsInOneBatch() async throws {
+        let store = FileExplorerStore()
+        store.rootPath = "/project"
+        store.setRootNodes((0..<1_000).map {
+            FileExplorerNode(
+                name: "File\($0).swift",
+                path: "/project/File\($0).swift",
+                isDirectory: false
+            )
+        })
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let scrollView = hostInScrollView(outlineView)
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
+        let visibleRowCount = outlineView.rows(in: outlineView.visibleRect).length
+        outlineView.resetMetrics()
+
+        coordinator.enqueueOutlineChange(.gitStatusChanged(paths: nil))
+
+        try await waitFor("batched visible git status refresh") {
+            outlineView.reloadRowsCallCount == 1
+        }
+        #expect(outlineView.reloadRowsCallCount == 1)
+        #expect(outlineView.lastReloadedRowCount == visibleRowCount)
+        #expect(outlineView.reloadItemCallCount == 0)
+        #expect(coordinator.lastGitStatusVisibleRowInspectionCount == 0)
+    }
+
+    @Test
+    func gitStatusInvalidationFallsBackBeforeCollectingUnboundedPaths() throws {
+        let count =
+            FileExplorerOutlineChange.maximumScopedGitStatusPathCount + 1
+        let current = Dictionary(uniqueKeysWithValues: (0..<count).map {
+            ("/project/File\($0).swift", GitFileStatus.modified)
+        })
+
+        let change = try #require(
+            FileExplorerStore.gitStatusChange(previous: [:], current: current)
+        )
+
+        guard case .gitStatusChanged(paths: nil) = change else {
+            Issue.record("Expected a bounded all-visible fallback")
+            return
+        }
+    }
+
+    @Test
+    func replacingStoreRebindsOutlineAndObservers() async throws {
+        let oldStore = FileExplorerStore()
+        oldStore.rootPath = "/old"
+        oldStore.setRootNodes([
+            FileExplorerNode(name: "Old.swift", path: "/old/Old.swift", isDirectory: false),
+        ])
+        let newStore = FileExplorerStore()
+        let newDirectory = FileExplorerNode(name: "New", path: "/new/New", isDirectory: true)
+        newStore.rootPath = "/new"
+        newStore.setRootNodes([newDirectory])
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: oldStore,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+
+        coordinator.updateStore(newStore)
+        coordinator.reloadIfNeeded()
+
+        #expect(outlineView.item(atRow: 0) as? FileExplorerNode === newDirectory)
+        outlineView.resetMetrics()
+        newStore.expand(node: newDirectory)
+        try await waitFor("replacement store outline change") {
+            outlineView.cellViewLookupCallCount == 1
+        }
+        #expect(outlineView.reloadRowsCallCount == 0)
+    }
+
+    @Test
+    func hydratedSelectedDescendantReplacesAncestorFallback() async throws {
+        let provider = DeferredListFileExplorerProvider()
+        let store = FileExplorerStore()
+        let selectedPath = "/project/Sources/App.swift"
+        store.select(node: FileExplorerNode(
+            name: "App.swift",
+            path: selectedPath,
+            isDirectory: false
+        ))
+        store.expand(node: FileExplorerNode(
+            name: "Sources",
+            path: "/project/Sources",
+            isDirectory: true
+        ))
+        store.setProviderForTesting(provider)
+        store.setRootPath("/project")
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+
+        try await waitFor("root listing started") {
+            provider.listCallPaths == ["/project"]
+        }
+        provider.resumeListing(returning: [
+            FileExplorerEntry(
+                name: "Sources",
+                path: "/project/Sources",
+                isDirectory: true
+            ),
+        ])
+        try await waitFor("expanded directory listing started") {
+            provider.listCallPaths == ["/project", "/project/Sources"]
+        }
+        coordinator.reloadIfNeeded()
+
+        #expect(
+            (outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode)?.path
+                == "/project/Sources"
+        )
+
+        provider.resumeListing(returning: [
+            FileExplorerEntry(
+                name: "App.swift",
+                path: selectedPath,
+                isDirectory: false
+            ),
+        ])
+        try await waitFor("selected descendant hydrated") {
+            store.rootNodes.first?.children?.first?.path == selectedPath
+        }
+        try await waitFor("selected descendant restored") {
+            guard outlineView.selectedRow >= 0 else { return false }
+            return (outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode)?.path
+                == selectedPath
+        }
+    }
+
+    @Test
+    func explicitExpansionPromotesActivePrefetchToVisibleLoading() async throws {
+        let provider = DeferredListFileExplorerProvider()
+        let store = FileExplorerStore()
+        let directory = FileExplorerNode(
+            name: "Sources",
+            path: "/project/Sources",
+            isDirectory: true
+        )
+        store.rootPath = "/project"
+        store.setRootNodes([directory])
+        store.setProviderForTesting(provider, reloadIfAvailable: false)
+
+        store.prefetchChildren(for: directory)
+        try await waitFor("prefetch listing started") {
+            provider.listCallPaths == [directory.path]
+        }
+
+        store.expand(node: directory)
+
+        #expect(directory.isLoading)
+        #expect(store.isExpanded(directory))
+        #expect(provider.listCallPaths == [directory.path])
+
+        provider.resumeListing(returning: [])
+        try await waitFor("promoted prefetch completed") {
+            directory.children != nil
+        }
+        #expect(!directory.isLoading)
+    }
 
     @Test
     func testLoadRootPopulatesNodes() async throws {
