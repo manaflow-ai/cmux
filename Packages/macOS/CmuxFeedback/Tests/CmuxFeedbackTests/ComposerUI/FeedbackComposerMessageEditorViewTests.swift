@@ -45,4 +45,59 @@ final class FeedbackComposerMessageEditorViewTests: XCTestCase {
             heightWithoutTrailingBlankLine + 5
         )
     }
+
+    func testTextChangeCallbackReceivesEditedPlainText() {
+        let editor = FeedbackComposerMessageEditorView(frame: .zero)
+        var receivedText: String?
+        editor.onTextChange = { receivedText = $0 }
+
+        editor.textView.string = "Native feedback"
+        NotificationCenter.default.post(
+            name: NSText.didChangeNotification,
+            object: editor.textView
+        )
+
+        XCTAssertEqual(receivedText, "Native feedback")
+    }
+
+    func testComposerEnablesSendOnlyAfterValidEmailAndMessage() throws {
+        let defaultsName = "CmuxFeedbackTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let controller = SidebarFeedbackComposerSheet(userDefaults: defaults)
+        controller.loadViewIfNeeded()
+
+        let emailField = try XCTUnwrap(
+            descendant(of: controller.view, identifier: "SidebarFeedbackEmailField") as? NSTextField
+        )
+        let messageEditor = try XCTUnwrap(
+            descendants(of: controller.view)
+                .compactMap { $0 as? NSTextView }
+                .first { $0.accessibilityIdentifier() == "SidebarFeedbackMessageEditor" }
+        )
+        let sendButton = try XCTUnwrap(
+            descendant(of: controller.view, identifier: "SidebarFeedbackSendButton") as? NSButton
+        )
+
+        XCTAssertFalse(sendButton.isEnabled)
+        emailField.stringValue = "person@example.com"
+        controller.controlTextDidChange(
+            Notification(name: NSControl.textDidChangeNotification, object: emailField)
+        )
+        XCTAssertFalse(sendButton.isEnabled)
+
+        messageEditor.string = "The native composer works."
+        NotificationCenter.default.post(name: NSText.didChangeNotification, object: messageEditor)
+
+        XCTAssertTrue(sendButton.isEnabled)
+        XCTAssertEqual(defaults.string(forKey: "sidebarHelpFeedbackEmail"), "person@example.com")
+    }
+
+    private func descendant(of root: NSView, identifier: String) -> NSView? {
+        descendants(of: root).first { $0.accessibilityIdentifier() == identifier }
+    }
+
+    private func descendants(of root: NSView) -> [NSView] {
+        root.subviews + root.subviews.flatMap(descendants(of:))
+    }
 }

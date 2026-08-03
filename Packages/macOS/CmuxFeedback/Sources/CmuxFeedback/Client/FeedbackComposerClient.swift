@@ -6,7 +6,7 @@ import ImageIO
 /// Builds and uploads the feedback multipart request: gathers app metadata,
 /// downsamples/optimizes image attachments to fit the upload budget, and posts
 /// to the resolved endpoint. Surfaces failures as ``FeedbackComposerSubmissionError``.
-public struct FeedbackComposerClient {
+public struct FeedbackComposerClient: Sendable {
     private static let passthroughAttachmentMIMETypes: Set<String> = [
         "image/gif",
         "image/heic",
@@ -28,6 +28,7 @@ public struct FeedbackComposerClient {
         self.settings = settings
     }
 
+    @concurrent
     public func submit(
         email: String,
         message: String,

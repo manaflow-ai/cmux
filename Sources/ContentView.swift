@@ -3371,7 +3371,7 @@ struct ContentView: View {
 
         view = AnyView(view.ignoresSafeArea())
         view = AnyView(view.sheet(isPresented: $isFeedbackComposerPresented) {
-            SidebarFeedbackComposerSheet()
+            NativeFeedbackComposerBridge()
         })
 
         view = AnyView(view.onDisappear {

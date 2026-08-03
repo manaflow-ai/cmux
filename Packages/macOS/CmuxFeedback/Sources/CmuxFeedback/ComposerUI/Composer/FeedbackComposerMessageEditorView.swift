@@ -19,6 +19,9 @@ public final class FeedbackComposerMessageEditorView: NSView {
     private let placeholderField = FeedbackComposerPassthroughLabel(labelWithString: "")
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
 
+    /// Called after an edit changes the plain-text value.
+    public var onTextChange: (@MainActor (String) -> Void)?
+
     public var placeholder: String = "" {
         didSet {
             placeholderField.stringValue = placeholder
@@ -128,6 +131,7 @@ public final class FeedbackComposerMessageEditorView: NSView {
     @objc
     private func textDidChange(_ notification: Notification) {
         refreshTextLayout(scrollSelection: true)
+        onTextChange?(textView.string)
     }
 
     private func updatePlaceholderVisibility() {
