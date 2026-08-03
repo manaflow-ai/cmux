@@ -1522,4 +1522,65 @@ mod tests {
             daemon.shutdown().await;
         });
     }
+
+    #[test]
+    fn terminal_exit_marks_the_smart_client_closed_and_not_ready() {
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(async {
+            let (client_endpoint, daemon_endpoint) = endpoint_pair();
+            let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+            let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+            let daemon_task = tokio::spawn({
+                let daemon = daemon.clone();
+                async move {
+                    let incoming = daemon.accept().await.unwrap().unwrap();
+                    let opened = serde_json::to_vec(&ServiceControl::Opened {
+                        service: Service::TerminalBytes,
+                    })
+                    .unwrap();
+                    incoming.stream.send_on(Lane::Interactive, Bytes::from(opened)).await.unwrap();
+
+                    let boundary = 10;
+                    let mut snapshot =
+                        Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"prompt> "));
+                    snapshot.sequence = boundary;
+                    send_test_terminal_frame(&incoming.stream, snapshot).await;
+                    let mut ready = Frame::new(MessageKind::Ready, Vec::new());
+                    ready.sequence = boundary;
+                    send_test_terminal_frame(&incoming.stream, ready).await;
+                    let mut exit = Frame::new(MessageKind::Exit, Vec::new());
+                    exit.sequence = boundary + 1;
+                    send_test_terminal_frame(&incoming.stream, exit).await;
+
+                    let closed = incoming.stream.receive().await.unwrap().unwrap();
+                    assert!(closed.finished || closed.reset);
+                }
+            });
+
+            let terminal_id = test_terminal_id();
+            let stream = open_terminal_stream(&client, &terminal_id).await.unwrap();
+            let state = Arc::new(Mutex::new(
+                ClientState::new("test".into(), "memory".into(), 1, terminal_id.clone()).unwrap(),
+            ));
+            let active =
+                start_terminal_tasks(&runtime, stream, client.clone(), terminal_id, state.clone());
+
+            tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                while !active.closed.load(Ordering::Acquire) {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("terminal exit did not close the smart client input path");
+            let state = state.lock().unwrap();
+            assert_eq!(state.status, "exited");
+            assert!(!state.ready, "an exited terminal must not remain input-ready");
+            drop(state);
+
+            active.close().await;
+            daemon_task.await.unwrap();
+            client.shutdown().await;
+            daemon.shutdown().await;
+        });
+    }
 }
