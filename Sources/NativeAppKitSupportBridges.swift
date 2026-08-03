@@ -125,6 +125,168 @@ struct ShortcutDiscoveryButton: NSViewRepresentable {
     }
 }
 
+struct CMUXSidebarExtensionBrowserPanelView: NSViewControllerRepresentable {
+    let panel: CMUXSidebarExtensionBrowserPanel
+    let onRequestPanelFocus: () -> Void
+
+    func makeNSViewController(context: Context) -> CMUXSidebarExtensionBrowserContainerViewController {
+        CMUXSidebarExtensionBrowserContainerViewController(
+            browserViewController: panel.browserViewController,
+            onRequestPanelFocus: onRequestPanelFocus
+        )
+    }
+
+    func updateNSViewController(
+        _ container: CMUXSidebarExtensionBrowserContainerViewController,
+        context: Context
+    ) {
+        container.browserViewController.title = panel.displayTitle
+        container.onRequestPanelFocus = onRequestPanelFocus
+        container.attachBrowserIfNeeded()
+        container.updateLayoutForCurrentBounds()
+    }
+
+    static func dismantleNSViewController(
+        _ container: CMUXSidebarExtensionBrowserContainerViewController,
+        coordinator: ()
+    ) {
+        container.detachBrowserForTransientReparent()
+    }
+}
+
+struct SidebarBonsplitTabNewWorkspaceDropOverlay: NSViewRepresentable {
+    let tabManager: TabManager
+    @Binding var selectedTabIds: Set<UUID>
+    @Binding var lastSidebarSelectionIndex: Int?
+    @Binding var dropIndicator: SidebarDropIndicator?
+
+    func makeNSView(context: Context) -> SidebarBonsplitTabNewWorkspaceDropView {
+        SidebarBonsplitTabNewWorkspaceDropView()
+    }
+
+    func updateNSView(_ view: SidebarBonsplitTabNewWorkspaceDropView, context: Context) {
+        view.isValidTransfer = { transfer in
+            AppDelegate.shared?.canMoveBonsplitTabToNewWorkspace(tabId: transfer.tab.id) ?? false
+        }
+        view.setDropActive = { isActive in
+            dropIndicator = isActive ? SidebarDropIndicator(tabId: nil, edge: .bottom) : nil
+        }
+        view.performMove = { transfer in
+            guard let app = AppDelegate.shared,
+                  let result = app.moveBonsplitTabToNewWorkspace(
+                    tabId: transfer.tab.id,
+                    destinationManager: tabManager,
+                    focus: true,
+                    focusWindow: true,
+                    placementOverride: .end
+                  ) else {
+                return false
+            }
+            selectedTabIds = [result.destinationWorkspaceId]
+            lastSidebarSelectionIndex = tabManager.tabs.firstIndex {
+                $0.id == result.destinationWorkspaceId
+            }
+            return true
+        }
+    }
+}
+
+struct MarkdownWebRenderer: NSViewRepresentable {
+    typealias Coordinator = MarkdownWebRendererCore.Coordinator
+    static let localImageURLScheme = MarkdownWebRendererCore.localImageURLScheme
+    static let remoteImageURLScheme = MarkdownWebRendererCore.remoteImageURLScheme
+
+    let markdown: String
+    let theme: MarkdownWebTheme
+    let backgroundColor: NSColor
+    let panelId: UUID
+    let workspaceId: UUID
+    let filePath: String
+    let fontSize: Double
+    let fontFamily: String
+    let maxContentWidth: Double
+    let session: MarkdownRendererSession
+    let onRequestPanelFocus: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        if let webView = context.coordinator.webView {
+            webView.removeFromSuperview()
+            configure(webView, coordinator: context.coordinator)
+            return webView
+        }
+
+        let configuration = WKWebViewConfiguration()
+        configuration.suppressesIncrementalRendering = false
+        configuration.userContentController.add(
+            WeakMarkdownScriptMessageHandler(context.coordinator),
+            name: "cmuxLib"
+        )
+        configuration.setURLSchemeHandler(context.coordinator, forURLScheme: Self.localImageURLScheme)
+        configuration.setURLSchemeHandler(context.coordinator, forURLScheme: Self.remoteImageURLScheme)
+        let webView = MarkdownWebView(frame: .zero, configuration: configuration)
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.allowsBackForwardNavigationGestures = false
+        webView.allowsLinkPreview = false
+        if #available(macOS 13.3, *) {
+#if DEBUG
+            webView.isInspectable = true
+#else
+            webView.isInspectable = false
+#endif
+        }
+        context.coordinator.webView = webView
+        configure(webView, coordinator: context.coordinator)
+        context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+        configure(webView, coordinator: context.coordinator)
+        context.coordinator.update(markdown: markdown, theme: theme)
+    }
+
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        if coordinator.webView === webView { return }
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        (webView as? MarkdownWebView)?.onPointerDown = nil
+        (webView as? MarkdownWebView)?.onLeaveWindow = nil
+        (webView as? MarkdownWebView)?.onReenterWindow = nil
+        coordinator.cancelImageLoads()
+    }
+
+    private func configure(_ webView: WKWebView, coordinator: Coordinator) {
+        if let markdownView = webView as? MarkdownWebView {
+            markdownView.onPointerDown = onRequestPanelFocus
+            markdownView.onLeaveWindow = { [weak coordinator] in
+                coordinator?.handleViewLeftWindow()
+            }
+            markdownView.onReenterWindow = { [weak coordinator] in
+                coordinator?.handleViewReenteredWindow()
+            }
+        }
+        webView.navigationDelegate = coordinator
+        webView.uiDelegate = coordinator
+        webView.underPageBackgroundColor = backgroundColor
+        webView.wantsLayer = true
+        webView.layer?.backgroundColor = backgroundColor.cgColor
+        webView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
+        let appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
+        if webView.appearance !== appearance {
+            webView.appearance = appearance
+        }
+        coordinator.setFontSize(fontSize)
+        coordinator.setFontFamily(fontFamily)
+        coordinator.setMaxContentWidth(maxContentWidth)
+    }
+}
+
 private extension Font.Weight {
     var nsFontWeight: NSFont.Weight {
         if self == .ultraLight { return .ultraLight }

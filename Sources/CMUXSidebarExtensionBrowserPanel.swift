@@ -1,7 +1,7 @@
 @_spi(CmuxHostTransport) import CmuxSidebar
 import AppKit
+import Combine
 import CmuxFoundation
-import SwiftUI
 
 @MainActor
 final class CMUXSidebarExtensionBrowserPanel: NSObject, Panel, ObservableObject {
@@ -35,37 +35,8 @@ final class CMUXSidebarExtensionBrowserPanel: NSObject, Panel, ObservableObject 
     }
 }
 
-struct CMUXSidebarExtensionBrowserPanelView: NSViewControllerRepresentable {
-    let panel: CMUXSidebarExtensionBrowserPanel
-    let onRequestPanelFocus: () -> Void
-
-    func makeNSViewController(context: Context) -> NSViewController {
-        CMUXSidebarExtensionBrowserContainerViewController(
-            browserViewController: panel.browserViewController,
-            onRequestPanelFocus: onRequestPanelFocus
-        )
-    }
-
-    func updateNSViewController(_ nsViewController: NSViewController, context: Context) {
-        guard let container = nsViewController as? CMUXSidebarExtensionBrowserContainerViewController else {
-            return
-        }
-        container.browserViewController.title = panel.displayTitle
-        container.onRequestPanelFocus = onRequestPanelFocus
-        container.attachBrowserIfNeeded()
-        container.updateLayoutForCurrentBounds()
-    }
-
-    static func dismantleNSViewController(
-        _ nsViewController: NSViewController,
-        coordinator: ()
-    ) {
-        (nsViewController as? CMUXSidebarExtensionBrowserContainerViewController)?.detachBrowserForTransientReparent()
-    }
-}
-
 @MainActor
-private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewController {
+final class CMUXSidebarExtensionBrowserContainerViewController: NSViewController {
     private final class RootView: NSView {
         var onLayout: (() -> Void)?
         var onMoveToWindow: (() -> Void)?

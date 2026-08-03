@@ -1,7 +1,6 @@
 import CmuxCommandPalette
 import AppKit
 import CmuxFoundation
-import SwiftUI
 
 extension ContentView {
     func appendMoveTabToNewWorkspaceCommandContribution(
@@ -27,51 +26,6 @@ extension ContentView {
             focus: true,
             focusWindow: false
         ) != nil
-    }
-}
-
-struct SidebarBonsplitTabNewWorkspaceDropOverlay: NSViewRepresentable {
-    let tabManager: TabManager
-    @Binding var selectedTabIds: Set<UUID>
-    @Binding var lastSidebarSelectionIndex: Int?
-    @Binding var dropIndicator: SidebarDropIndicator?
-
-    func makeNSView(context: Context) -> SidebarBonsplitTabNewWorkspaceDropView {
-        return SidebarBonsplitTabNewWorkspaceDropView()
-    }
-
-    func updateNSView(_ nsView: SidebarBonsplitTabNewWorkspaceDropView, context: Context) {
-        nsView.isValidTransfer = { transfer in
-            return AppDelegate.shared?.canMoveBonsplitTabToNewWorkspace(tabId: transfer.tab.id) ?? false
-        }
-        nsView.setDropActive = { isActive in
-            dropIndicator = isActive ? SidebarDropIndicator(tabId: nil, edge: .bottom) : nil
-        }
-        nsView.performMove = { transfer in
-            guard let app = AppDelegate.shared,
-                  let result = app.moveBonsplitTabToNewWorkspace(
-                    tabId: transfer.tab.id,
-                    destinationManager: tabManager,
-                    focus: true,
-                    focusWindow: true,
-                    placementOverride: .end
-                  ) else {
-                return false
-            }
-
-            selectedTabIds = [result.destinationWorkspaceId]
-            syncSidebarSelection(preferredSelectedTabId: result.destinationWorkspaceId)
-            return true
-        }
-    }
-
-    private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {
-        let selectedId = preferredSelectedTabId ?? tabManager.selectedTabId
-        if let selectedId {
-            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
-        } else {
-            lastSidebarSelectionIndex = nil
-        }
     }
 }
 

@@ -1,140 +1,9 @@
 import AppKit
-import SwiftUI
 import WebKit
 
-struct MarkdownWebRenderer: NSViewRepresentable {
+enum MarkdownWebRendererCore {
     static let localImageURLScheme = "cmux-local-image"
     static let remoteImageURLScheme = "cmux-remote-image"
-
-    let markdown: String
-    let theme: MarkdownWebTheme
-    let backgroundColor: NSColor
-    let panelId: UUID
-    let workspaceId: UUID
-    let filePath: String
-    /// Body font size in points, applied as `pageZoom` and to shell-managed SVG zoom.
-    let fontSize: Double
-    /// Body prose font-family name (empty = System). Applied as an inline
-    /// `font-family` on the content.
-    let fontFamily: String
-    /// Maximum content column width, in CSS pixels.
-    let maxContentWidth: Double
-    let session: MarkdownRendererSession
-    let onRequestPanelFocus: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
-    }
-
-    func makeNSView(context: Context) -> WKWebView {
-        if let webView = context.coordinator.webView {
-            if webView.superview != nil {
-                webView.removeFromSuperview()
-            }
-            webView.onPointerDown = onRequestPanelFocus
-            webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
-                coordinator?.handleViewLeftWindow()
-            }
-            webView.onReenterWindow = { [weak coordinator = context.coordinator] in
-                coordinator?.handleViewReenteredWindow()
-            }
-            webView.navigationDelegate = context.coordinator
-            webView.uiDelegate = context.coordinator
-            applyBackground(to: webView)
-            applyAppearance(to: webView, isDark: theme.isDark)
-            context.coordinator.setFontSize(fontSize)
-            context.coordinator.setFontFamily(fontFamily)
-            context.coordinator.setMaxContentWidth(maxContentWidth)
-            return webView
-        }
-
-        let config = WKWebViewConfiguration()
-        config.suppressesIncrementalRendering = false
-        // Bridge: JS posts to `cmuxLib` to request lazy-loaded libraries
-        // (mermaid / vega-lite). Swift fetches the bundled source from the
-        // app bundle and injects it via evaluateJavaScript.
-        config.userContentController.add(WeakMarkdownScriptMessageHandler(context.coordinator), name: "cmuxLib")
-        config.setURLSchemeHandler(
-            context.coordinator,
-            forURLScheme: Self.localImageURLScheme
-        )
-        config.setURLSchemeHandler(
-            context.coordinator,
-            forURLScheme: Self.remoteImageURLScheme
-        )
-        let webView = MarkdownWebView(frame: .zero, configuration: config)
-        webView.onPointerDown = onRequestPanelFocus
-        webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
-            coordinator?.handleViewLeftWindow()
-        }
-        webView.onReenterWindow = { [weak coordinator = context.coordinator] in
-            coordinator?.handleViewReenteredWindow()
-        }
-        webView.setValue(false, forKey: "drawsBackground")
-        applyBackground(to: webView)
-        webView.allowsBackForwardNavigationGestures = false
-        webView.allowsLinkPreview = false
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
-        if #available(macOS 13.3, *) {
-#if DEBUG
-            webView.isInspectable = true
-#else
-            webView.isInspectable = false
-#endif
-        }
-        applyAppearance(to: webView, isDark: theme.isDark)
-
-        context.coordinator.webView = webView
-        context.coordinator.setFontSize(fontSize)
-        context.coordinator.setFontFamily(fontFamily)
-        context.coordinator.setMaxContentWidth(maxContentWidth)
-        context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
-        return webView
-    }
-
-    func updateNSView(_ nsView: WKWebView, context: Context) {
-        // Re-bind panel metadata in case SwiftUI recreated the wrapper while
-        // the panel-owned renderer session kept the same coordinator.
-        context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
-        (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
-        applyBackground(to: nsView)
-        applyAppearance(to: nsView, isDark: theme.isDark)
-        context.coordinator.setFontSize(fontSize)
-        context.coordinator.setFontFamily(fontFamily)
-        context.coordinator.setMaxContentWidth(maxContentWidth)
-        context.coordinator.update(markdown: markdown, theme: theme)
-    }
-
-    static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
-        if let retainedWebView = coordinator.webView, retainedWebView === nsView {
-            return
-        }
-        nsView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
-        nsView.navigationDelegate = nil
-        nsView.uiDelegate = nil
-        (nsView as? MarkdownWebView)?.onPointerDown = nil
-        (nsView as? MarkdownWebView)?.onLeaveWindow = nil
-        (nsView as? MarkdownWebView)?.onReenterWindow = nil
-        coordinator.cancelImageLoads()
-    }
-
-    /// WebKit's `prefers-color-scheme` media query reflects the WKWebView's
-    /// effective NSAppearance. Forcing it here lets us decouple the markdown
-    /// panel from the system appearance and follow the cmux color scheme.
-    private func applyAppearance(to webView: WKWebView, isDark: Bool) {
-        let appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
-        if webView.appearance !== appearance {
-            webView.appearance = appearance
-        }
-    }
-
-    private func applyBackground(to webView: WKWebView) {
-        webView.underPageBackgroundColor = backgroundColor
-        webView.wantsLayer = true
-        webView.layer?.backgroundColor = backgroundColor.cgColor
-        webView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
-    }
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
@@ -520,7 +389,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         private func imageLoadTask(for requestURL: URL) -> Task<ImageLoadResult, Never> {
             let scheme = requestURL.scheme?.lowercased()
-            if scheme == MarkdownWebRenderer.localImageURLScheme {
+            if scheme == MarkdownWebRendererCore.localImageURLScheme {
                 let fileURL = localImageFileURL(from: requestURL)
                 let mimeType = fileURL
                     .flatMap { Self.localImageMimeType(for: $0.pathExtension) } ?? "image/png"
@@ -534,7 +403,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 }
             }
 
-            if scheme == MarkdownWebRenderer.remoteImageURLScheme {
+            if scheme == MarkdownWebRendererCore.remoteImageURLScheme {
                 let remoteURL = MarkdownRemoteImageSecurity.remoteImageURL(from: requestURL)
                 return Task.detached(priority: .userInitiated) {
                     guard let remoteURL,
@@ -551,7 +420,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         private func localImageFileURL(from requestURL: URL) -> URL? {
-            guard requestURL.scheme?.lowercased() == MarkdownWebRenderer.localImageURLScheme,
+            guard requestURL.scheme?.lowercased() == MarkdownWebRendererCore.localImageURLScheme,
                   let components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false),
                   let rawFileURL = components.queryItems?.first(where: { $0.name == "url" })?.value,
                   let fileURL = URL(string: rawFileURL),
