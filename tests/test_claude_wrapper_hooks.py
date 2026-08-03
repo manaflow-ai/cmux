@@ -397,6 +397,7 @@ keys=(
   CLAUDE_CODE_USE_BEDROCK
   CLAUDE_CODE_USE_VERTEX
   CLAUDE_CONFIG_DIR
+  CLAUDE_SECURESTORAGE_CONFIG_DIR
   CLOUD_ML_REGION
 )
 for key in "${keys[@]}"; do
@@ -453,6 +454,7 @@ exit 0
                 "CLAUDE_CODE_USE_BEDROCK",
                 "CLAUDE_CODE_USE_VERTEX",
                 "CLAUDE_CONFIG_DIR",
+                "CLAUDE_SECURESTORAGE_CONFIG_DIR",
                 "CLOUD_ML_REGION",
             ):
                 env.pop(ambient_key, None)
@@ -964,6 +966,7 @@ def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures
     # test_live_socket_preserves_plain_anthropic_model_on_default_path (#7047).
     inherited = {
         "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
+        "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/tmp/claude-securestorage",
         "ANTHROPIC_API_KEY": "stale-api-key",
         "ANTHROPIC_AUTH_TOKEN": "third-party-auth-token",
         "ANTHROPIC_BASE_URL": "https://api.example.test",
@@ -976,6 +979,7 @@ def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures
     )
     expect(code == 0, f"fresh auth env: wrapper exited {code}: {stderr}", failures)
     expect(auth_env.get("CLAUDE_CONFIG_DIR") == "/tmp/claude-config", f"fresh auth env: expected CLAUDE_CONFIG_DIR preserved, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+    expect(auth_env.get("CLAUDE_SECURESTORAGE_CONFIG_DIR") == "/tmp/claude-securestorage", f"fresh auth env: expected CLAUDE_SECURESTORAGE_CONFIG_DIR preserved, got {auth_env.get('CLAUDE_SECURESTORAGE_CONFIG_DIR')!r}", failures)
     expect(auth_env.get("ANTHROPIC_AUTH_TOKEN") == "third-party-auth-token", f"fresh auth env: expected ANTHROPIC_AUTH_TOKEN preserved, got {auth_env.get('ANTHROPIC_AUTH_TOKEN')!r}", failures)
     expect(auth_env.get("ANTHROPIC_BASE_URL") == "https://api.example.test", f"fresh auth env: expected ANTHROPIC_BASE_URL preserved, got {auth_env.get('ANTHROPIC_BASE_URL')!r}", failures)
     for key in [
@@ -1424,12 +1428,13 @@ def test_live_socket_resume_self_heal_ignores_prompt_text_after_double_dash(fail
 def test_live_socket_preserves_claude_auth_for_resume_launch(failures: list[str]) -> None:
     expected_auth_env = {
         "CLAUDE_CONFIG_DIR": "/tmp/resume-claude-config",
+        "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/tmp/resume-claude-securestorage",
         "ANTHROPIC_MODEL": "resume-model",
     }
     inherited = {
         **expected_auth_env,
         "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1",
-        "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "CLAUDE_CONFIG_DIR,ANTHROPIC_MODEL",
+        "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "CLAUDE_CONFIG_DIR,CLAUDE_SECURESTORAGE_CONFIG_DIR,ANTHROPIC_MODEL",
     }
     code, auth_env, real_argv, stderr = run_wrapper_auth_env(
         argv=["--resume", "claude-session-123"],
@@ -1439,6 +1444,25 @@ def test_live_socket_preserves_claude_auth_for_resume_launch(failures: list[str]
     for key, value in expected_auth_env.items():
         expect(auth_env.get(key) == value, f"resume auth env: expected {key}={value!r}, got {auth_env.get(key)!r}", failures)
     expect("--session-id" not in real_argv, f"resume auth env: expected no injected session id, got {real_argv}", failures)
+
+
+def test_live_socket_clears_marked_absent_claude_securestorage_for_resume_launch(failures: list[str]) -> None:
+    inherited = {
+        "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/tmp/ambient-claude-securestorage",
+        "CMUX_CLEAR_CLAUDE_AUTH_SELECTION_ENV_KEYS": "UNSUPPORTED_KEY,CLAUDE_SECURESTORAGE_CONFIG_DIR",
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["--resume", "claude-session-123"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"clear absent securestorage auth env: wrapper exited {code}: {stderr}", failures)
+    expect(
+        auth_env.get("CLAUDE_SECURESTORAGE_CONFIG_DIR") == "__UNSET__",
+        "clear absent securestorage auth env: expected CLAUDE_SECURESTORAGE_CONFIG_DIR unset, "
+        f"got {auth_env.get('CLAUDE_SECURESTORAGE_CONFIG_DIR')!r}",
+        failures,
+    )
+    expect("--session-id" not in real_argv, f"clear absent securestorage auth env: expected no injected session id, got {real_argv}", failures)
 
 
 def test_live_socket_preserves_only_listed_claude_auth_keys(failures: list[str]) -> None:
@@ -1969,6 +1993,7 @@ def main() -> int:
     test_live_socket_resume_keeps_correct_claude_config_dir(failures)
     test_live_socket_resume_self_heal_ignores_prompt_text_after_double_dash(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
+    test_live_socket_clears_marked_absent_claude_securestorage_for_resume_launch(failures)
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
     test_live_socket_auto_preserves_vertex_auth_when_truthy(failures)
     test_live_socket_auto_preserves_bedrock_auth_when_truthy(failures)

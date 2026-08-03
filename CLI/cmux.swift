@@ -28215,7 +28215,11 @@ struct CMUXCLI {
         let workingDirectory = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"]) : nil)
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
-        let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
+        let environment = selectedAgentLaunchEnvironment(
+            from: env,
+            kind: launcher,
+            includeClaudeCaptureMetadata: true
+        )
 
         // Fallback when the launch argv is genuinely UNAVAILABLE: plain `codex` with no cmux launcher
         // (no CMUX_AGENT_LAUNCH_ARGV_B64) and an unresolved/exited PID, so processArguments returns nil.
@@ -28520,19 +28524,11 @@ struct CMUXCLI {
         let selected = selectedAgentLaunchEnvironment(from: environment, kind: kind)
         guard !selected.isEmpty else { return nil }
 
-        let claudeAuthKeys: Set<String> = [
-            "ANTHROPIC_API_KEY",
-            "ANTHROPIC_AUTH_TOKEN",
-            "ANTHROPIC_BASE_URL",
-            "ANTHROPIC_MODEL",
-            "ANTHROPIC_SMALL_FAST_MODEL",
-            "CLAUDE_CODE_USE_BEDROCK",
-            "CLAUDE_CODE_USE_VERTEX",
-            "CLAUDE_CONFIG_DIR"
-        ]
         var resolved = selected
-        if kind == "claude" {
-            let preservedClaudeKeys = selected.keys.sorted().filter { claudeAuthKeys.contains($0) }
+        if AgentLaunchEnvironmentPolicy.isClaudeEnvironmentKind(kind) {
+            let preservedClaudeKeys = selected.keys.sorted().filter {
+                AgentLaunchEnvironmentPolicy.claudeAuthSelectionEnvironmentKeys.contains($0)
+            }
             if !preservedClaudeKeys.isEmpty {
                 resolved["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] = "1"
                 resolved["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"] = preservedClaudeKeys.joined(separator: ",")
@@ -28568,8 +28564,15 @@ struct CMUXCLI {
         return parts.isEmpty ? nil : parts
     }
 
-    private func selectedAgentLaunchEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
-        var selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: env, kind: kind)
+    private func selectedAgentLaunchEnvironment(
+        from env: [String: String],
+        kind: String? = nil,
+        includeClaudeCaptureMetadata: Bool = false
+    ) -> [String: String] {
+        let policy = AgentLaunchEnvironmentPolicy()
+        var selected = includeClaudeCaptureMetadata
+            ? policy.selectedLaunchEnvironment(from: env, kind: kind)
+            : policy.selectedEnvironment(from: env, kind: kind)
         if kind == "hermes-agent" {
             selected = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
                 to: selected,

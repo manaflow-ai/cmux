@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import CMUXAgentLaunch
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -1470,6 +1471,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "ANTHROPIC_BASE_URL": "https://api.example.test",
             "ANTHROPIC_MODEL": "claude-sonnet-test",
             "CLAUDE_CONFIG_DIR": context.root.appendingPathComponent("claude-config", isDirectory: true).path,
+            "CLAUDE_SECURESTORAGE_CONFIG_DIR": context.root.appendingPathComponent("claude-securestorage", isDirectory: true).path,
         ]
         startClaudeHookMockServerAccepting(
             context: context,
@@ -1511,7 +1513,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] as? String, "1")
         XCTAssertEqual(
             environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"] as? String,
-            "ANTHROPIC_BASE_URL,ANTHROPIC_MODEL,CLAUDE_CONFIG_DIR"
+            "ANTHROPIC_BASE_URL,ANTHROPIC_MODEL,CLAUDE_CONFIG_DIR,CLAUDE_SECURESTORAGE_CONFIG_DIR"
         )
         XCTAssertNil(environment["ANTHROPIC_API_KEY"])
         XCTAssertEqual(environment["ANTHROPIC_BASE_URL"] as? String, "https://api.example.test")
@@ -1520,6 +1522,81 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             environment["CLAUDE_CONFIG_DIR"] as? String,
             context.root.appendingPathComponent("claude-config", isDirectory: true).path
         )
+        XCTAssertEqual(
+            environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"] as? String,
+            context.root.appendingPathComponent("claude-securestorage", isDirectory: true).path
+        )
+    }
+
+    func testClaudePromptSubmitResumeBindingMarksAbsentSecureStorageConfigDirForClearing() throws {
+        let context = try makeClaudeHookContext(name: "claude-resume-env-absent-securestorage")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-absent-securestorage-session"
+        let clearKeysKey = AgentLaunchEnvironmentPolicy.claudeAuthSelectionClearEnvironmentKeysKey
+        let launchEnvironment = [
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                "/usr/local/bin/claude",
+                "--model",
+                "sonnet",
+            ]),
+            "ANTHROPIC_AUTH_TOKEN": "should-not-persist",
+            "ANTHROPIC_MODEL": "claude-sonnet-test",
+            "CLAUDE_CONFIG_DIR": context.root.appendingPathComponent("claude-config", isDirectory: true).path,
+        ]
+        startClaudeHookMockServerAccepting(
+            context: context,
+            surfaceIds: [context.surfaceId],
+            connectionLimit: 5
+        )
+
+        let start = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let commandStart = context.state.commands.count
+        let prompt = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let promptCommands = Array(context.state.commands.dropFirst(commandStart))
+        let resumeBindingRequests = promptCommands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertEqual(resumeBindingRequests.count, 1, promptCommands.joined(separator: "\n"))
+        let request = try XCTUnwrap(resumeBindingRequests.first)
+        XCTAssertEqual(request["auto_resume"] as? Bool, true)
+        let environment = try XCTUnwrap(request["environment"] as? [String: Any])
+        XCTAssertEqual(environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] as? String, "1")
+        XCTAssertEqual(
+            environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"] as? String,
+            "ANTHROPIC_MODEL,CLAUDE_CONFIG_DIR"
+        )
+        XCTAssertEqual(environment[clearKeysKey] as? String, "CLAUDE_SECURESTORAGE_CONFIG_DIR")
+        XCTAssertNil(environment["ANTHROPIC_AUTH_TOKEN"])
+        XCTAssertEqual(environment["ANTHROPIC_MODEL"] as? String, "claude-sonnet-test")
+        XCTAssertEqual(
+            environment["CLAUDE_CONFIG_DIR"] as? String,
+            context.root.appendingPathComponent("claude-config", isDirectory: true).path
+        )
+        XCTAssertNil(environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"])
     }
 
     func testClaudeSessionEndChecksConsumedWorkspaceBeforeClearingVisibleState() throws {

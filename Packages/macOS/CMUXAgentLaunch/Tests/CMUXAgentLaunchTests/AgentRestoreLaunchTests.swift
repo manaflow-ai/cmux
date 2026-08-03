@@ -184,6 +184,91 @@ import Testing
         )
     }
 
+    @Test func structuredClaudeTeamsRestoreMarksSecureStorageConfigDirAsAuthSelection() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "claudeTeams",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/work",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "claudeTeams",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: ["/usr/local/bin/cmux", "claude-teams"],
+                workingDirectory: "/tmp/work",
+                environment: [
+                    "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
+                    "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/tmp/claude-secure-storage",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            isExecutableFile: { _ in false }
+        ).invocation(
+            for: request,
+            ambientEnvironment: [:]
+        ))
+
+        #expect(invocation.arguments == [
+            "/usr/local/bin/cmux",
+            "claude-teams",
+            "--resume",
+            sessionID,
+        ])
+        #expect(invocation.environment["CLAUDE_CONFIG_DIR"] == "/tmp/claude-config")
+        #expect(invocation.environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"] == "/tmp/claude-secure-storage")
+        #expect(invocation.environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] == "1")
+        #expect(
+            invocation.environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"]
+                == "CLAUDE_CONFIG_DIR,CLAUDE_SECURESTORAGE_CONFIG_DIR"
+        )
+    }
+
+    @Test func structuredClaudeRestoreClearsAmbientSecureStorageConfigDirWhenCaptureMarkedAbsent() throws {
+        let clearKeysKey = AgentLaunchEnvironmentPolicy.claudeAuthSelectionClearEnvironmentKeysKey
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "claude",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/work",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "claude",
+                executablePath: "/opt/claude",
+                arguments: ["/opt/claude"],
+                workingDirectory: "/tmp/work",
+                environment: [
+                    clearKeysKey: "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+                    "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            isExecutableFile: { $0 == "/shim/claude" }
+        ).invocation(
+            for: request,
+            ambientEnvironment: [
+                "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/tmp/ambient-secure-storage",
+                "CMUX_CLAUDE_WRAPPER_SHIM": "/shim/claude",
+            ]
+        ))
+
+        #expect(invocation.environment["CLAUDE_CONFIG_DIR"] == "/tmp/claude-config")
+        #expect(invocation.environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"] == nil)
+        #expect(invocation.environment[clearKeysKey] == "CLAUDE_SECURESTORAGE_CONFIG_DIR")
+        #expect(invocation.environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] == "1")
+        #expect(
+            invocation.environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"]
+                == "CLAUDE_CONFIG_DIR"
+        )
+    }
+
     @Test func managedRestoreUsesCapturedExecutableWhenWrapperShimIsUnavailable() throws {
         let executable = "/opt/custom tools/codex"
         let request = AgentRestoreRequest(

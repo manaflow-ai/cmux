@@ -35,9 +35,45 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
     /// Creates a launch environment policy.
     public init() {}
 
+    /// Claude environment names that select which account or auth backend a restore should use.
+    ///
+    /// This is not a replay allowlist. Callers intersect it with values already filtered by
+    /// ``selectedEnvironment(from:kind:)`` so secret names here do not become persisted values.
+    public static let claudeAuthSelectionEnvironmentKeys: Set<String> = [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+        "CLAUDE_CONFIG_DIR",
+        "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+    ]
+
+    /// Environment key listing Claude auth-selection keys that were absent at capture time
+    /// and must be cleared from ambient restore environments before launching Claude.
+    public static let claudeAuthSelectionClearEnvironmentKeysKey =
+        "CMUX_CLEAR_CLAUDE_AUTH_SELECTION_ENV_KEYS"
+
     private static let hermesAgentEnvironmentKeys: Set<String> = [
         "CUSTOM_BASE_URL",
         "HERMES_CODEX_BASE_URL",
+    ]
+
+    private static let claudeOnlyEnvironmentKeys: Set<String> = [
+        claudeAuthSelectionClearEnvironmentKeysKey,
+        "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+    ]
+
+    private static let claudeAuthSelectionClearWhenAbsentEnvironmentKeys: Set<String> = [
+        "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+    ]
+
+    private static let claudeEnvironmentKinds: Set<String> = [
+        "claude",
+        "claudeteams",
+        "claude-teams",
     ]
 
     /// Keys campfire manages itself and must not inherit from a captured Pi
@@ -71,6 +107,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         // Selects the directory holding Claude Code's .credentials.json. A path, not a secret,
         // so restoring it keeps a restored agent on the account it launched with.
         "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+        "CMUX_CLEAR_CLAUDE_AUTH_SELECTION_ENV_KEYS",
         "CMUX_CUSTOM_CLAUDE_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
@@ -141,12 +178,34 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
                 result.removeValue(forKey: key)
             }
         }
+        if !Self.isNormalizedClaudeEnvironmentKind(normalizedKind) {
+            for key in Self.claudeOnlyEnvironmentKeys {
+                result.removeValue(forKey: key)
+            }
+        }
         if normalizedKind == "campfire" {
             for key in Self.campfireManagedEnvironmentKeys {
                 result.removeValue(forKey: key)
             }
         }
         return result
+    }
+
+    /// Returns safe launch environment values plus cmux-owned metadata needed to preserve
+    /// meaningful absence for Claude auth-selection variables.
+    public func selectedLaunchEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
+        var selected = selectedEnvironment(from: env, kind: kind)
+        selected.removeValue(forKey: Self.claudeAuthSelectionClearEnvironmentKeysKey)
+        guard Self.isClaudeEnvironmentKind(kind) else { return selected }
+
+        let clearKeys = Self.claudeAuthSelectionClearWhenAbsentEnvironmentKeys
+            .filter { env[$0] == nil && selected[$0] == nil }
+            .sorted()
+        if !clearKeys.isEmpty {
+            selected[Self.claudeAuthSelectionClearEnvironmentKeysKey] =
+                clearKeys.joined(separator: ",")
+        }
+        return selected
     }
 
     /// Returns the captured environment that may cross the restore transport boundary.
@@ -173,12 +232,27 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         return selected
     }
 
+    /// Returns the Claude auth-selection keys represented by the clear marker, constrained
+    /// to keys this policy owns clearing for.
+    public func claudeAuthSelectionEnvironmentKeysToClear(from env: [String: String]) -> Set<String> {
+        guard let rawValue = env[Self.claudeAuthSelectionClearEnvironmentKeysKey] else {
+            return []
+        }
+        let requested = rawValue
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return Set(requested).intersection(Self.claudeAuthSelectionClearWhenAbsentEnvironmentKeys)
+    }
+
     /// Returns a replay-safe value for a single environment variable, or `nil` when it should drop.
     public func sanitizedValue(key: String, value: String?) -> String? {
         guard Self.safeEnvironmentKeys.contains(key) else { return nil }
         switch key {
         case "CLAUDE_CONFIG_DIR":
             return value.map { ClaudeConfigDirectoryPath.preferredPath($0) }
+        case "CMUX_CLEAR_CLAUDE_AUTH_SELECTION_ENV_KEYS":
+            return sanitizedClaudeAuthSelectionClearKeys(value)
         case "NODE_OPTIONS":
             return sanitizedNodeOptions(value)
         default:
@@ -236,6 +310,26 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         let joined = sanitized.joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return joined.isEmpty ? nil : joined
+    }
+
+    private func sanitizedClaudeAuthSelectionClearKeys(_ rawValue: String?) -> String? {
+        let keys = claudeAuthSelectionEnvironmentKeysToClear(
+            from: [Self.claudeAuthSelectionClearEnvironmentKeysKey: rawValue ?? ""]
+        )
+        let joined = keys.sorted().joined(separator: ",")
+        return joined.isEmpty ? nil : joined
+    }
+
+    private static func isNormalizedClaudeEnvironmentKind(_ normalizedKind: String?) -> Bool {
+        guard let normalizedKind else { return false }
+        return claudeEnvironmentKinds.contains(normalizedKind)
+    }
+
+    /// Returns true when an agent or launcher kind belongs to the Claude family.
+    public static func isClaudeEnvironmentKind(_ kind: String?) -> Bool {
+        isNormalizedClaudeEnvironmentKind(kind?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased())
     }
 
     private func normalizedValue(_ value: String?) -> String? {

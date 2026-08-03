@@ -89,7 +89,8 @@ extension CMUXCLI {
         for key in selectedEnvironment.keys.sorted() {
             guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")
-            if agent == "claude", sessionsListClaudeAuthSelectionEnvironmentKeys.contains(key) {
+            if AgentLaunchEnvironmentPolicy.isClaudeEnvironmentKind(agent),
+               sessionsListClaudeAuthSelectionEnvironmentKeys.contains(key) {
                 preservedClaudeKeys.append(key)
             }
         }
@@ -101,16 +102,7 @@ extension CMUXCLI {
     }
 
     private var sessionsListClaudeAuthSelectionEnvironmentKeys: Set<String> {
-        [
-            "ANTHROPIC_API_KEY",
-            "ANTHROPIC_AUTH_TOKEN",
-            "ANTHROPIC_BASE_URL",
-            "ANTHROPIC_MODEL",
-            "ANTHROPIC_SMALL_FAST_MODEL",
-            "CLAUDE_CODE_USE_BEDROCK",
-            "CLAUDE_CODE_USE_VERTEX",
-            "CLAUDE_CONFIG_DIR",
-        ]
+        AgentLaunchEnvironmentPolicy.claudeAuthSelectionEnvironmentKeys
     }
 
     private func sessionsListASCIIPrintfCommandSubstitution(for value: String) -> String {

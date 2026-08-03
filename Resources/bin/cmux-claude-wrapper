@@ -555,6 +555,20 @@ reconcile_claude_config_dir_for_resume() {
 }
 
 clear_inherited_claude_auth_selection_env() {
+    local clear_keys="${CMUX_CLEAR_CLAUDE_AUTH_SELECTION_ENV_KEYS:-}"
+    if [[ -n "$clear_keys" ]]; then
+        clear_keys="${clear_keys//,/ }"
+        local clear_key
+        for clear_key in $clear_keys; do
+            case "$clear_key" in
+                CLAUDE_SECURESTORAGE_CONFIG_DIR)
+                    unset "$clear_key"
+                    ;;
+            esac
+        done
+        unset CMUX_CLEAR_CLAUDE_AUTH_SELECTION_ENV_KEYS
+    fi
+
     if [[ "${IN_CMUX:-0}" == "1" ]]; then
         local key
         for key in "${CLAUDE_AUTH_SELECTION_ENV_KEYS[@]}"; do

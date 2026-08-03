@@ -2,17 +2,6 @@ import Foundation
 
 /// Builds shell-free restore invocations from structured persisted records.
 public struct AgentRestorePlanner: Sendable {
-    private static let claudeAuthSelectionEnvironmentKeys: Set<String> = [
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_BASE_URL",
-        "ANTHROPIC_MODEL",
-        "ANTHROPIC_SMALL_FAST_MODEL",
-        "CLAUDE_CODE_USE_BEDROCK",
-        "CLAUDE_CODE_USE_VERTEX",
-        "CLAUDE_CONFIG_DIR",
-    ]
-
     private let isExecutableFile: @Sendable (String) -> Bool
 
     /// Creates a restore planner.
@@ -72,6 +61,12 @@ public struct AgentRestorePlanner: Sendable {
         var environment = ambientEnvironment
         let restoredEnvironment = restoredEnvironment(for: request, kind: kind)
         environment.merge(restoredEnvironment) { _, restored in restored }
+        if AgentLaunchEnvironmentPolicy.isClaudeEnvironmentKind(kind) {
+            for key in AgentLaunchEnvironmentPolicy()
+                .claudeAuthSelectionEnvironmentKeysToClear(from: restoredEnvironment) {
+                environment.removeValue(forKey: key)
+            }
+        }
 
         var routedArguments = sanitizedArguments
         if request.mode != .direct {
@@ -162,9 +157,9 @@ public struct AgentRestorePlanner: Sendable {
             from: captured,
             kind: kind
         )
-        if kind == "claude" {
+        if AgentLaunchEnvironmentPolicy.isClaudeEnvironmentKind(kind) {
             let keys = selected.keys.sorted().filter {
-                Self.claudeAuthSelectionEnvironmentKeys.contains($0)
+                AgentLaunchEnvironmentPolicy.claudeAuthSelectionEnvironmentKeys.contains($0)
             }
             if !keys.isEmpty {
                 selected["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] = "1"
