@@ -32787,6 +32787,10 @@ mod tests {
         let rendered = buffer_text(terminal.backend().buffer());
         assert!(rendered.contains("workspaces › agents"), "{rendered}");
         assert!(rendered.contains("working · agent-session"), "{rendered}");
+        assert!(
+            rendered.contains("new workspace"),
+            "a configured workspace representation must preserve its native creation action: {rendered}"
+        );
         let surface_row = app
             .hits
             .iter()
