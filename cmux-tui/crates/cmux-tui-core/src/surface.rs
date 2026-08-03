@@ -4692,6 +4692,9 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let mut term = pty.term.lock().unwrap();
+        if pty.dead.load(Ordering::Acquire) {
+            return Err(ghostty_vt::Error::NoValue);
+        }
         let (tap, stream) =
             AttachTap::pair(lifecycle.clone(), ATTACH_STREAM_CAPACITY, ATTACH_STREAM_MAX_BYTES);
         // Snapshot and tap registration under the same terminal lock:
@@ -4734,6 +4737,9 @@ impl Surface {
             .and_then(|mux| mux.claim_render_attachment())
             .ok_or(ghostty_vt::Error::OutOfSpace)?;
         let mut term = pty.term.lock().unwrap();
+        if pty.dead.load(Ordering::Acquire) {
+            return Err(ghostty_vt::Error::NoValue);
+        }
         let generation = pty.render_generation.load(Ordering::Acquire);
         let _ = pty.build_frame_locked(&mut term, generation, false)?;
         let (tap, stream) = RenderTap::pair(&pty.render);

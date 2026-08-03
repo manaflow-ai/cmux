@@ -8194,7 +8194,9 @@ fn ids_json(state: &State, kind: Option<&str>) -> anyhow::Result<Value> {
 }
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
-    mux.surface(id).ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
+    mux.surface(id)
+        .filter(|surface| !surface.is_dead())
+        .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
 }
 
 fn resolve_workspace(
