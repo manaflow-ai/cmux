@@ -654,12 +654,12 @@ class TabManager: ObservableObject {
     /// This bootstrap owner must remain terminal-free because SwiftUI may
     /// initialize the app value more than once during launch.
     static func makeAppBootstrap(
-        workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore? = nil,
+        workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) -> TabManager {
         TabManager(
             createInitialWorkspace: false,
-            workspaceDirectoryCustomizationStore: workspaceDirectoryCustomizationStore,
+            workspaceCustomizationStore: workspaceCustomizationStore,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
     }
