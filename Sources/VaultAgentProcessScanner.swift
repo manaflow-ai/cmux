@@ -10,7 +10,7 @@ extension AgentLaunchCommandSnapshot {
         workingDirectory: String?,
         environment: [String: String]
     ) {
-        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: launcher)
+        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedLaunchEnvironment(from: environment, kind: launcher)
         if ["opencode", "pi", "omp"].contains(launcher),
            let path = environment["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !path.isEmpty {

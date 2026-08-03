@@ -310,16 +310,6 @@ enum TerminalStartupWorkingDirectoryPrefix {
 }
 
 enum AgentResumeCommandBuilder {
-    private static let claudeAuthSelectionEnvironmentKeys: Set<String> = [
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_BASE_URL",
-        "ANTHROPIC_MODEL",
-        "ANTHROPIC_SMALL_FAST_MODEL",
-        "CLAUDE_CODE_USE_BEDROCK",
-        "CLAUDE_CODE_USE_VERTEX",
-        "CLAUDE_CONFIG_DIR"
-    ]
     static func resumeShellCommand(
         kind: RestorableAgentKind,
         sessionId: String,
@@ -495,8 +485,8 @@ enum AgentResumeCommandBuilder {
         for key in selectedEnvironment.keys.sorted() {
             guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")
-            if kind == .claude,
-               claudeAuthSelectionEnvironmentKeys.contains(key) {
+            if AgentLaunchEnvironmentPolicy.isClaudeEnvironmentKind(kind.rawValue),
+               AgentLaunchEnvironmentPolicy.claudeAuthSelectionEnvironmentKeys.contains(key) {
                 preservedClaudeAuthSelectionEnvironmentKeys.append(key)
             }
         }
