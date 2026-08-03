@@ -10,7 +10,10 @@ extension CmxIrohClientRuntimeTests {
         let staleEndpoint = ClientRuntimeBlockingCloseEndpoint(
             identity: fixture.endpointID
         )
-        let replacementEndpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let replacementEndpoint = TestIrohEndpoint(
+            identity: fixture.endpointID,
+            directAddresses: ["0.0.0.0:50909"]
+        )
         let factory = TestIrohEndpointFactory(
             endpoints: [staleEndpoint, replacementEndpoint]
         )
@@ -134,18 +137,21 @@ extension CmxIrohClientRuntimeTests {
     }
 
     @Test
-    func refreshAwaitsAlreadyScheduledSuccessorWithoutRequestingThirdRefresh() async throws {
+    func refreshAwaitsAlreadyScheduledSuccessorWithoutRequestingThirdMutation() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
-        let secondRegistration = HostRuntimeRegistrationGate()
-        let thirdRegistration = HostRuntimeRegistrationGate()
+        let secondDiscovery = HostRuntimeRegistrationGate()
+        let thirdDiscovery = HostRuntimeRegistrationGate()
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
             relay: fixture.relayResponse(),
-            registrationHook: { count in
-                if count == 2 { await secondRegistration.waitOnce() }
-                if count == 3 { await thirdRegistration.waitOnce() }
+            discoveryErrorsByCount: [
+                2: CmxIrohTrustBrokerClientError.connectivity,
+            ],
+            discoveryHook: { count in
+                if count == 2 { await secondDiscovery.waitOnce() }
+                if count == 3 { await thirdDiscovery.waitOnce() }
             }
         )
         let runtime = try CmxIrohClientRuntime(
@@ -156,31 +162,28 @@ extension CmxIrohClientRuntimeTests {
             now: { fixture.now }
         )
         try await runtime.start()
-        await broker.setRegistrationError(
-            CmxIrohTrustBrokerClientError.connectivity,
-            forRegistrationCount: 2
-        )
         let refresh = Task { await runtime.refreshLiveDiscovery() }
-        await broker.waitForRegistrationCount(2)
+        await broker.waitForDiscoveryCount(2)
         await runtime.handleSupervisorNetworkChange(
             revision: await runtime.lifecycleRevision
         )
         #expect(await runtime.registrationRefreshPending)
 
-        await secondRegistration.open()
-        await broker.waitForRegistrationCount(3)
+        await secondDiscovery.open()
+        await broker.waitForDiscoveryCount(3)
         #expect(await runtime.registrationRefreshTaskID != nil)
-        await thirdRegistration.open()
+        await thirdDiscovery.open()
 
         #expect(await refresh.value)
         #expect(await runtime.registrationRefreshTaskID == nil)
         #expect(!(await runtime.registrationRefreshPending))
-        #expect(await broker.observedRegistrations().count == 3)
+        #expect(await broker.observedRegistrations().count == 1)
+        #expect(await broker.observedDiscoveryCount() == 3)
         await runtime.stop()
     }
 
     @Test
-    func networkChangeDuringRegistrationRequestsRefreshAfterStartup() async throws {
+    func networkChangeDuringRegistrationRequestsReadOnlyRefreshAfterStartup() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let broker = TestIrohClientBroker(
@@ -201,14 +204,13 @@ extension CmxIrohClientRuntimeTests {
 
         try await runtime.start()
 
-        #expect(
-            await broker.waitForRegistrationCount(2, timeout: .seconds(1))
-        )
+        #expect(await broker.waitForDiscoveryCount(2, timeout: .seconds(1)))
+        #expect(!(await broker.waitForRegistrationCount(2, timeout: .milliseconds(200))))
         await runtime.stop()
     }
 
     @Test
-    func networkChangeDuringActiveRefreshRequestsAnotherRegistration() async throws {
+    func networkChangeDuringActiveRefreshUsesReadOnlyDiscoveryForSameReachability() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let gate = HostRuntimeRegistrationGate()
@@ -216,7 +218,7 @@ extension CmxIrohClientRuntimeTests {
             binding: fixture.binding,
             discovery: fixture.discovery,
             relay: fixture.relayResponse(),
-            registrationHook: { count in
+            discoveryHook: { count in
                 if count == 2 { await gate.waitOnce() }
             }
         )
@@ -230,13 +232,12 @@ extension CmxIrohClientRuntimeTests {
         try await runtime.start()
 
         await endpoint.emit(.networkChanged)
-        await broker.waitForRegistrationCount(2)
+        await broker.waitForDiscoveryCount(2)
         await endpoint.emit(.networkChanged)
         await gate.open()
 
-        #expect(
-            await broker.waitForRegistrationCount(3, timeout: .seconds(1))
-        )
+        #expect(await broker.waitForDiscoveryCount(3, timeout: .seconds(1)))
+        #expect(!(await broker.waitForRegistrationCount(2, timeout: .milliseconds(200))))
         await runtime.stop()
     }
 
@@ -249,7 +250,7 @@ extension CmxIrohClientRuntimeTests {
             binding: fixture.binding,
             discovery: fixture.discovery,
             relay: fixture.relayResponse(),
-            registrationHook: { count in
+            discoveryHook: { count in
                 if count == 2 { await gate.waitOnce() }
             }
         )
@@ -262,7 +263,7 @@ extension CmxIrohClientRuntimeTests {
         )
         try await runtime.start()
         await endpoint.emit(.networkChanged)
-        await broker.waitForRegistrationCount(2)
+        await broker.waitForDiscoveryCount(2)
         let refresh = await runtime.registrationRefreshTask
 
         await runtime.stop()
@@ -282,7 +283,7 @@ extension CmxIrohClientRuntimeTests {
             binding: fixture.binding,
             discovery: fixture.discovery,
             relay: fixture.relayResponse(),
-            registrationHook: { count in
+            discoveryHook: { count in
                 if count == 2 { await gate.waitOnce() }
             }
         )
@@ -295,7 +296,7 @@ extension CmxIrohClientRuntimeTests {
         )
         try await runtime.start()
         await endpoint.emit(.networkChanged)
-        await broker.waitForRegistrationCount(2)
+        await broker.waitForDiscoveryCount(2)
         let refresh = await runtime.registrationRefreshTask
 
         let preparation = await runtime.deactivateForSignOut()
