@@ -2389,7 +2389,16 @@ mod tests {
         let bytes = Arc::new(Mutex::new(Vec::new()));
         let (flushed_tx, flushed_rx) = sync_channel(8);
         let output = ObservedOutput { bytes: bytes.clone(), flushed: flushed_tx };
-        let mut writer = GraphicsWriter::spawn_with_output(stdout_lock.clone(), output).unwrap();
+        let (ready_tx, ready_rx) = sync_channel(1);
+        let mut writer = GraphicsWriter::spawn_with_output_and_fence(
+            stdout_lock.clone(),
+            output,
+            || Ok(()),
+            move || {
+                let _ = ready_tx.try_send(());
+            },
+        )
+        .unwrap();
         let first = rgba_placement(41, 1, 0, [255, 0, 0, 255]);
         let second = rgba_placement(42, 1, 1, [0, 255, 0, 255]);
 
@@ -2397,6 +2406,9 @@ mod tests {
         wait_for_output(&flushed_rx, &bytes, |bytes| {
             String::from_utf8_lossy(bytes).matches("a=p").count() == 2
         });
+        ready_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("initial graphics batch must finish before blocking stdout");
         bytes.lock().unwrap().clear();
 
         let draw_guard = stdout_lock.lock();
