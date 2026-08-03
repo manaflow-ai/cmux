@@ -3,6 +3,8 @@ import CoreGraphics
 
 enum WindowChromeMetrics {
     static let sharedChromeBarHeight: CGFloat = 28
+    /// Leading width that keeps the native traffic-light cluster visually recognizable.
+    static let nativeTrafficLightLeadingInset: CGFloat = 80
     static let appTitlebarHeight: CGFloat = sharedChromeBarHeight
     static let bonsplitTabBarHeight: CGFloat = sharedChromeBarHeight
     static let secondaryTitlebarHeight: CGFloat = sharedChromeBarHeight

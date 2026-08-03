@@ -6,7 +6,8 @@ import AppKit
 /// `3b632db585ceeb5208c7e4ec4a43cf9c05804b34`. cmux independently implements
 /// the geometry and native-window lifecycle for its workspace-owned panels.
 struct WorkspaceFloatingDockParkingSnapshot: Equatable {
-    static let restingPeekWidth: CGFloat = 24
+    /// Keeps the real window identifiable at rest by exposing its native titlebar chrome.
+    static let restingPeekWidth = WindowChromeMetrics.nativeTrafficLightLeadingInset
     static let maximumRestingPeekFraction: CGFloat = 0.2
     static let hoverRevealDistance: CGFloat = 96
     static let hoverExitTolerance: CGFloat = 15
@@ -16,6 +17,7 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
     let visibleScreenFrame: CGRect
     let parkedFrame: CGRect
     let revealedFrame: CGRect
+    let restingVisibleFrame: CGRect
     let restingHitFrame: CGRect
     let hoverExitFrame: CGRect
 
@@ -53,6 +55,7 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
         self.parkedFrame = parkedFrame
         self.revealedFrame = revealedFrame
         let visibleSlice = parkedFrame.intersection(visibleScreenFrame)
+        self.restingVisibleFrame = visibleSlice
         if let restingTargetMinY, let restingTargetHeight {
             self.restingHitFrame = CGRect(
                 x: visibleSlice.minX,

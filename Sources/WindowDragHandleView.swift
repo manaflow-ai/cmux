@@ -598,7 +598,9 @@ enum MinimalModeTitlebarDebugSettings {
 
     static let defaultLeftControlsLeadingInset = 72.0
     static let defaultLeftControlsTopInset = 2.0
-    static let defaultTrafficLightTabBarInset = 80.0
+    static let defaultTrafficLightTabBarInset = Double(
+        WindowChromeMetrics.nativeTrafficLightLeadingInset
+    )
     static let defaultTrafficLightTitlebarLeadingInset = 78.0
 
     static let horizontalInsetRange: ClosedRange<Double> = 0...180
