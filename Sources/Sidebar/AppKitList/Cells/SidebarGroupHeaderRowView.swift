@@ -388,9 +388,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         chevronButton.frame = centered(metrics.chevronFrame)
         x = chevronButton.frame.maxX + 4
 
-        let plusSide = metrics.plusFrame
-        plusButton.frame = NSRect(x: contentMaxX - plusSide, y: midY - plusSide / 2, width: plusSide, height: plusSide)
-
         var badgeSize = NSSize.zero
         if !unreadBadgeView.isHidden {
             badgeSize = unreadBadgeView.fittingSize(
@@ -402,27 +399,36 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
         }
 
-        let nameAvailable = max(0, (plusButton.frame.minX - 4) - x
-            - (badgeSize.width > 0 ? badgeSize.width + 6 : 0))
+        let badgeSpacing: CGFloat = 6
+        var trailingAccessoryMaxX = contentMaxX
+        if !unreadBadgeView.isHidden {
+            unreadBadgeView.frame = NSRect(
+                x: contentMaxX - badgeSize.width,
+                y: midY - badgeSize.height / 2,
+                width: badgeSize.width,
+                height: badgeSize.height
+            )
+            unreadBadgeView.needsDisplay = true
+            trailingAccessoryMaxX = unreadBadgeView.frame.minX - badgeSpacing
+        }
+
+        let plusSide = metrics.plusFrame
+        plusButton.frame = NSRect(
+            x: trailingAccessoryMaxX - plusSide,
+            y: midY - plusSide / 2,
+            width: plusSide,
+            height: plusSide
+        )
+
+        let nameAvailable = max(0, (plusButton.frame.minX - 4) - x)
         let nameSize = nameField.attributedStringValue.size()
-        // The field owns ALL remaining width (truncation only when genuinely
-        // out of space); the badge tracks the measured text width instead.
+        // The field owns all space before the fixed trailing accessories.
         nameField.frame = NSRect(
             x: x,
             y: midY - ceil(nameSize.height) / 2,
             width: nameAvailable,
             height: ceil(nameSize.height)
         )
-        if !unreadBadgeView.isHidden {
-            let badgeX = x + min(ceil(nameSize.width), nameAvailable) + 6
-            unreadBadgeView.frame = NSRect(
-                x: badgeX,
-                y: midY - badgeSize.height / 2,
-                width: badgeSize.width,
-                height: badgeSize.height
-            )
-            unreadBadgeView.needsDisplay = true
-        }
 
         let indicatorX: CGFloat = 8
         let indicatorWidth = max(0, bounds.width - indicatorX - 8)
@@ -437,8 +443,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         )
 
         let pillSize = hintPill.fittingPillSize()
+        let pillMaxX = unreadBadgeView.isHidden
+            ? bounds.width - 10
+            : unreadBadgeView.frame.minX - badgeSpacing
         hintPill.frame = NSRect(
-            x: bounds.width - pillSize.width - 10 + ShortcutHintDebugSettings.clamped(model.shortcutHintXOffset),
+            x: pillMaxX - pillSize.width + ShortcutHintDebugSettings.clamped(model.shortcutHintXOffset),
             y: 6 + ShortcutHintDebugSettings.clamped(model.shortcutHintYOffset),
             width: pillSize.width,
             height: pillSize.height

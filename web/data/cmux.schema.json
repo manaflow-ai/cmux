@@ -1116,7 +1116,7 @@
         "notificationBadgePosition": {
           "type": "string",
           "enum": ["leading", "trailing"],
-          "default": "leading",
+          "default": "trailing",
           "description": "Which side of the workspace row the unread notification badge appears on: leading (left) or trailing (right)."
         },
         "showCustomMetadata": {

@@ -132,14 +132,14 @@ Shows a loading spinner on sidebar workspace rows that currently have running co
   "sidebar": {
     "showAgentActivity": true,
     "loadingSpinnerPosition": "leading",
-    "notificationBadgePosition": "leading"
+    "notificationBadgePosition": "trailing"
   }
 }
 ```
 
 - `showAgentActivity`: show the spinner at all. Default: `true`. It is a live status signal, so it stays visible even when `sidebar.hideAllDetails` is on. Toggle it from **Settings > Sidebar > Show Loading Spinner**.
 - `loadingSpinnerPosition`: `leading` (left, sharing the unread-badge slot) or `trailing` (right, in the close-button corner). Default: `leading`.
-- `notificationBadgePosition`: which side the unread notification badge sits on, `leading` or `trailing`. Default: `leading`.
+- `notificationBadgePosition`: which side the unread notification badge sits on, `leading` or `trailing`. Default: `trailing`.
 
 The spinner is compositor-driven (a Core Animation transform run by the render server), so it costs no per-frame CPU and pauses automatically while the window is occluded or Reduce Motion is on. Toggle it manually per workspace with `cmux workspace loading <on|off> [--id <name>]`; each `--id` is a separate loader and the command prints the workspace state as `before=ON;after=OFF`.
 

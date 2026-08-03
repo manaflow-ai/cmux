@@ -165,10 +165,10 @@ public struct SidebarCatalogSection: SettingCatalogSection {
     )
 
     /// Which side of the workspace row the unread notification badge appears on
-    /// (`sidebar.notificationBadgePosition`). Defaults to leading (left).
+    /// (`sidebar.notificationBadgePosition`). Defaults to trailing (right).
     public let notificationBadgePosition = DefaultsKey<SidebarIndicatorPosition>(
         id: "sidebar.notificationBadgePosition",
-        defaultValue: .leading,
+        defaultValue: .trailing,
         userDefaultsKey: "sidebarNotificationBadgePosition"
     )
 
