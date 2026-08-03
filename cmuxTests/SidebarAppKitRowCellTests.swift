@@ -841,7 +841,8 @@ struct SidebarAppKitRowCellTests {
         pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
         CATransaction.commit()
 
-        #expect(!(pill.layer?.animationKeys() ?? []).isEmpty)
+        let animationKeys = pill.layer?.animationKeys() ?? []
+        #expect(animationKeys.contains("shortcutHintVisibility"))
     }
 
     @Test
