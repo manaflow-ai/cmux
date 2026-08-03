@@ -7,6 +7,7 @@ import CmuxFoundation
 import CmuxNotifications
 import CmuxSettings
 import CmuxSimulatorUI
+import CmuxSidebarProviderKit
 import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
@@ -105,6 +106,48 @@ struct ConfigSettingsView: NSViewControllerRepresentable {
         _ viewController: ConfigSettingsViewController,
         context: Context
     ) {}
+}
+
+struct CmuxExtensionSidebarWorkspaceRowView: NSViewRepresentable, Equatable {
+    let row: CmuxSidebarProviderRow
+    let workspace: CmuxSidebarProviderWorkspace?
+    let providerId: String
+    let relativeNow: Date
+    let isSelected: Bool
+    let onSelect: (UUID) -> Void
+    let onOpenWindow: (CmuxSidebarProviderWorkspace) -> Void
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.row == rhs.row &&
+            lhs.workspace == rhs.workspace &&
+            lhs.providerId == rhs.providerId &&
+            lhs.relativeNow == rhs.relativeNow &&
+            lhs.isSelected == rhs.isSelected
+    }
+
+    func makeNSView(context: Context) -> CmuxExtensionSidebarWorkspaceRowNativeView {
+        CmuxExtensionSidebarWorkspaceRowNativeView()
+    }
+
+    func updateNSView(_ view: CmuxExtensionSidebarWorkspaceRowNativeView, context: Context) {
+        view.update(
+            row: row,
+            workspace: workspace,
+            providerID: providerId,
+            relativeNow: relativeNow,
+            isSelected: isSelected,
+            onSelect: onSelect,
+            onOpenWindow: onOpenWindow
+        )
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: CmuxExtensionSidebarWorkspaceRowNativeView,
+        context: Context
+    ) -> CGSize? {
+        CGSize(width: proposal.width ?? nsView.fittingSize.width, height: 32)
+    }
 }
 
 struct ShortcutDiscoveryButton: NSViewRepresentable {

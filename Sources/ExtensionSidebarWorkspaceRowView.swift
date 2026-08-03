@@ -1,115 +1,153 @@
-import CmuxFoundation
 import AppKit
+import CmuxFoundation
 import CmuxSidebarProviderKit
-import SwiftUI
 import WebKit
 
-struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
-    let row: CmuxSidebarProviderRow
-    let workspace: CmuxSidebarProviderWorkspace?
-    let providerId: String
-    let relativeNow: Date
-    let isSelected: Bool
-    let onSelect: (UUID) -> Void
-    let onOpenWindow: (CmuxSidebarProviderWorkspace) -> Void
-    @State private var showsInspector = false
-    @State private var inspectorDraft: CmuxExtensionWorkspaceInspectorDraft?
+@MainActor
+final class CmuxExtensionSidebarWorkspaceRowNativeView: NSView {
+    private let primaryLabel = NSTextField(labelWithString: "")
+    private let secondaryLabel = NSTextField(labelWithString: "")
+    private let trailingLabel = NSTextField(labelWithString: "")
+    private let accessoryButton = NSButton()
+    private let textStack = NSStackView()
+    private let rowStack = NSStackView()
 
-    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.row == rhs.row &&
-            lhs.workspace == rhs.workspace &&
-            lhs.providerId == rhs.providerId &&
-            lhs.relativeNow == rhs.relativeNow &&
-            lhs.isSelected == rhs.isSelected
-    }
+    private var workspace: CmuxSidebarProviderWorkspace?
+    private var inspectorDraft: CmuxExtensionWorkspaceInspectorDraft?
+    private var onSelect: ((UUID) -> Void)?
+    private var onOpenWindow: ((CmuxSidebarProviderWorkspace) -> Void)?
+    private var workspaceID: UUID?
+    private var inspectorPopover: NSPopover?
 
-    private var isSuperCompact: Bool {
-        false
-    }
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
 
-    private var isThin: Bool {
-        false
-    }
-
-    var body: some View {
-        let primarySize: CGFloat = isSuperCompact ? 10.5 : 12.5
-        let secondarySize: CGFloat = isSuperCompact ? 9 : 10
-        HStack(spacing: isSuperCompact ? 5 : 7) {
-            VStack(alignment: .leading, spacing: isSuperCompact ? 0 : 2) {
-                Text(row.title)
-                    .cmuxFont(size: primarySize, weight: .regular)
-                    .foregroundColor(isSelected ? .primary : .primary.opacity(0.86))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                if !isSuperCompact, let subtitle = rendered(row.subtitle) {
-                    Text(subtitle)
-                        .cmuxFont(size: secondarySize, weight: .regular)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if !isSuperCompact, let trailing = rendered(row.trailingText) {
-                Text(trailing)
-                    .cmuxFont(size: 10.5, weight: .regular)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-
-            if let accessory = row.accessory, let workspace {
-                Button {
-                    if inspectorDraft == nil {
-                        inspectorDraft = CmuxExtensionWorkspaceInspectorDraft.initial(
-                            workspace: workspace,
-                            selectedTab: accessory.defaultTab
-                        )
-                    }
-                    showsInspector = true
-                } label: {
-                    Image(systemName: accessory.systemImageName)
-                        .cmuxFont(size: isSuperCompact ? 10 : 12, weight: .regular)
-                        .frame(width: isSuperCompact ? 14 : 18, height: isSuperCompact ? 14 : 18)
-                }
-                .buttonStyle(.plain)
-                .safeHelp(String(localized: "sidebar.extension.inspectWorkspace", defaultValue: "Workspace tools"))
-                .popover(isPresented: $showsInspector, arrowEdge: .trailing) {
-                    CmuxExtensionWorkspaceInspectorView(
-                        workspace: workspace,
-                        draft: Binding(
-                            get: {
-                                inspectorDraft ?? CmuxExtensionWorkspaceInspectorDraft.initial(
-                                    workspace: workspace,
-                                    selectedTab: accessory.defaultTab
-                                )
-                            },
-                            set: { inspectorDraft = $0 }
-                        ),
-                        onOpenWindow: { onOpenWindow(workspace) }
-                    )
-                    .frame(width: 460, height: 340)
-                }
-            }
+        for label in [primaryLabel, secondaryLabel, trailingLabel] {
+            label.lineBreakMode = .byTruncatingTail
+            label.maximumNumberOfLines = 1
+            label.translatesAutoresizingMaskIntoConstraints = false
         }
-        .padding(.leading, isSuperCompact ? 14 : 28)
-        .padding(.trailing, 8)
-        .padding(.vertical, isSuperCompact ? 2 : (isThin ? 5 : 7))
-        .frame(minHeight: isSuperCompact ? 22 : 32)
-        .background {
-            if isSelected {
-                Rectangle()
-                    .fill(Color.primary.opacity(0.10))
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onSelect(row.workspaceId)
-        }
+        primaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        secondaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        trailingLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        trailingLabel.alignment = .right
+
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 2
+        textStack.addArrangedSubview(primaryLabel)
+        textStack.addArrangedSubview(secondaryLabel)
+        textStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        accessoryButton.isBordered = false
+        accessoryButton.imagePosition = .imageOnly
+        accessoryButton.imageScaling = .scaleProportionallyDown
+        accessoryButton.target = self
+        accessoryButton.action = #selector(showInspector(_:))
+        accessoryButton.toolTip = String(
+            localized: "sidebar.extension.inspectWorkspace",
+            defaultValue: "Workspace tools"
+        )
+        accessoryButton.setAccessibilityLabel(accessoryButton.toolTip)
+        accessoryButton.translatesAutoresizingMaskIntoConstraints = false
+
+        rowStack.orientation = .horizontal
+        rowStack.alignment = .centerY
+        rowStack.spacing = 7
+        rowStack.addArrangedSubview(textStack)
+        rowStack.addArrangedSubview(trailingLabel)
+        rowStack.addArrangedSubview(accessoryButton)
+        rowStack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(rowStack)
+
+        NSLayoutConstraint.activate([
+            rowStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 28),
+            rowStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            rowStack.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+            rowStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7),
+            accessoryButton.widthAnchor.constraint(equalToConstant: 18),
+            accessoryButton.heightAnchor.constraint(equalToConstant: 18),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 32),
+        ])
     }
 
-    private func rendered(_ text: CmuxSidebarProviderText?) -> String? {
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: 32)
+    }
+
+    func update(
+        row: CmuxSidebarProviderRow,
+        workspace: CmuxSidebarProviderWorkspace?,
+        providerID: String,
+        relativeNow: Date,
+        isSelected: Bool,
+        onSelect: @escaping (UUID) -> Void,
+        onOpenWindow: @escaping (CmuxSidebarProviderWorkspace) -> Void
+    ) {
+        self.workspace = workspace
+        self.workspaceID = row.workspaceId
+        self.onSelect = onSelect
+        self.onOpenWindow = onOpenWindow
+
+        primaryLabel.stringValue = row.title
+        secondaryLabel.stringValue = rendered(row.subtitle, relativeNow: relativeNow) ?? ""
+        secondaryLabel.isHidden = secondaryLabel.stringValue.isEmpty
+        trailingLabel.stringValue = rendered(row.trailingText, relativeNow: relativeNow) ?? ""
+        trailingLabel.isHidden = trailingLabel.stringValue.isEmpty
+
+        let percent = GlobalFontMagnification.storedPercent
+        primaryLabel.font = .systemFont(
+            ofSize: GlobalFontMagnification.scaledSize(12.5, percent: percent),
+            weight: .regular
+        )
+        let secondaryFont = NSFont.systemFont(
+            ofSize: GlobalFontMagnification.scaledSize(10, percent: percent),
+            weight: .regular
+        )
+        secondaryLabel.font = secondaryFont
+        trailingLabel.font = .systemFont(
+            ofSize: GlobalFontMagnification.scaledSize(10.5, percent: percent),
+            weight: .regular
+        )
+        primaryLabel.textColor = isSelected ? .labelColor : .secondaryLabelColor
+        secondaryLabel.textColor = .secondaryLabelColor
+        trailingLabel.textColor = .secondaryLabelColor
+
+        if let accessory = row.accessory, workspace != nil {
+            accessoryButton.image = NSImage(
+                systemSymbolName: accessory.systemImageName,
+                accessibilityDescription: accessoryButton.toolTip
+            )
+            accessoryButton.isHidden = false
+        } else {
+            accessoryButton.isHidden = true
+        }
+
+        layer?.backgroundColor = isSelected
+            ? NSColor.labelColor.withAlphaComponent(0.10).cgColor
+            : NSColor.clear.cgColor
+        setAccessibilityIdentifier("extensionSidebar.workspace.\(row.workspaceId.uuidString)")
+        setAccessibilityLabel(row.title)
+        setAccessibilityRole(.button)
+        _ = providerID
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let workspaceID else { return }
+        onSelect?(workspaceID)
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    private func rendered(_ text: CmuxSidebarProviderText?, relativeNow: Date) -> String? {
         guard let text else { return nil }
         switch text {
         case .plain(let value):
@@ -119,6 +157,29 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         case .relativeDate(let date, _):
             return CmuxExtensionRelativeTimeFormatter.string(from: date, to: relativeNow)
         }
+    }
+
+    @objc private func showInspector(_ sender: NSButton) {
+        guard let workspace else { return }
+        let draft = inspectorDraft ?? .initial(workspace: workspace)
+        inspectorDraft = draft
+
+        let contentView = CmuxExtensionWorkspaceInspectorNativeView(
+            workspace: workspace,
+            draft: draft,
+            onDraftChange: { [weak self] draft in self?.inspectorDraft = draft },
+            onOpenWindow: { [weak self] in self?.onOpenWindow?(workspace) }
+        )
+        let controller = NSViewController()
+        controller.view = contentView
+        controller.preferredContentSize = NSSize(width: 460, height: 340)
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentSize = controller.preferredContentSize
+        popover.contentViewController = controller
+        inspectorPopover = popover
+        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxX)
     }
 }
 
@@ -168,106 +229,188 @@ enum CmuxExtensionRelativeTimeFormatter {
     }
 }
 
-struct CmuxExtensionWorkspaceInspectorView: View {
-    let workspace: CmuxSidebarProviderWorkspace
-    let onOpenWindow: () -> Void
-    @Binding private var draft: CmuxExtensionWorkspaceInspectorDraft
+@MainActor
+final class CmuxExtensionWorkspaceInspectorNativeView: NSView, NSTextFieldDelegate, NSTextViewDelegate {
+    private let workspace: CmuxSidebarProviderWorkspace
+    private var draft: CmuxExtensionWorkspaceInspectorDraft
+    private let onDraftChange: (CmuxExtensionWorkspaceInspectorDraft) -> Void
+    private let onOpenWindow: () -> Void
+
+    private let segmentedControl = NSSegmentedControl()
+    private let openWindowButton = NSButton()
+    private let separator = NSBox()
+    private let contentContainer = NSView()
+    private let notesScrollView = NSScrollView()
+    private let notesTextView = NSTextView()
+    private let addressField = NSTextField()
+    private let browserStack = NSStackView()
+    private let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
 
     init(
         workspace: CmuxSidebarProviderWorkspace,
-        draft: Binding<CmuxExtensionWorkspaceInspectorDraft>,
+        draft: CmuxExtensionWorkspaceInspectorDraft,
+        onDraftChange: @escaping (CmuxExtensionWorkspaceInspectorDraft) -> Void,
         onOpenWindow: @escaping () -> Void
     ) {
         self.workspace = workspace
-        self._draft = draft
+        self.draft = draft
+        self.onDraftChange = onDraftChange
         self.onOpenWindow = onOpenWindow
+        super.init(frame: NSRect(x: 0, y: 0, width: 460, height: 340))
+        buildHierarchy()
+        applyDraft(loadBrowser: true)
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Picker("", selection: $draft.selectedTab) {
-                    Text(String(localized: "sidebar.extension.notesTab", defaultValue: "Notes")).tag(CmuxSidebarProviderWorkspacePopoverTab.notes)
-                    Text(String(localized: "sidebar.extension.browserTab", defaultValue: "Browser")).tag(CmuxSidebarProviderWorkspacePopoverTab.browser)
-                }
-                .pickerStyle(.segmented)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
-                Button(action: onOpenWindow) {
-                    Image(systemName: "macwindow")
-                        .frame(width: 20, height: 20)
-                }
-                .buttonStyle(.plain)
-                .safeHelp(String(localized: "sidebar.extension.openWindow", defaultValue: "Open window"))
-            }
-            .padding(10)
+    private func buildHierarchy() {
+        segmentedControl.segmentCount = 2
+        segmentedControl.setLabel(String(localized: "sidebar.extension.notesTab", defaultValue: "Notes"), forSegment: 0)
+        segmentedControl.setLabel(String(localized: "sidebar.extension.browserTab", defaultValue: "Browser"), forSegment: 1)
+        segmentedControl.segmentStyle = .rounded
+        segmentedControl.target = self
+        segmentedControl.action = #selector(selectionChanged(_:))
 
-            Divider()
+        openWindowButton.isBordered = false
+        openWindowButton.image = NSImage(
+            systemSymbolName: "macwindow",
+            accessibilityDescription: String(localized: "sidebar.extension.openWindow", defaultValue: "Open window")
+        )
+        openWindowButton.toolTip = String(localized: "sidebar.extension.openWindow", defaultValue: "Open window")
+        openWindowButton.target = self
+        openWindowButton.action = #selector(openWindow(_:))
 
-            switch draft.selectedTab {
-            case .notes:
-                TextEditor(text: $draft.notes)
-                    .cmuxFont(size: 13)
-                    .scrollContentBackground(.hidden)
-                    .padding(8)
-                    .accessibilityIdentifier("ExtensionSidebarNotesEditor")
-            case .browser, .pullRequest:
-                VStack(spacing: 0) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(.secondary)
-                        TextField(
-                            String(localized: "sidebar.extension.browserAddress", defaultValue: "Search or enter URL"),
-                            text: $draft.address
-                        )
-                        .textFieldStyle(.plain)
-                        .onSubmit {
-                            let normalized = CmuxExtensionWorkspaceInspectorBrowserView.normalizedAddress(draft.address)
-                            draft.address = normalized
-                            draft.committedAddress = normalized
-                        }
-                    }
-                    .cmuxFont(size: 12)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 7)
-                    .background(Color(nsColor: .controlBackgroundColor))
+        let header = NSStackView(views: [segmentedControl, openWindowButton])
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.spacing = 8
+        header.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+        header.translatesAutoresizingMaskIntoConstraints = false
+        segmentedControl.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        openWindowButton.setContentHuggingPriority(.required, for: .horizontal)
 
-                    CmuxExtensionWorkspaceInspectorBrowserView(address: draft.committedAddress)
-                }
-            }
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        contentContainer.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(header)
+        addSubview(separator)
+        addSubview(contentContainer)
+
+        notesTextView.string = draft.notes
+        notesTextView.font = .systemFont(ofSize: 13)
+        notesTextView.delegate = self
+        notesTextView.setAccessibilityIdentifier("ExtensionSidebarNotesEditor")
+        notesScrollView.documentView = notesTextView
+        notesScrollView.hasVerticalScroller = true
+        notesScrollView.autohidesScrollers = true
+        notesScrollView.drawsBackground = false
+        notesScrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        addressField.placeholderString = String(
+            localized: "sidebar.extension.browserAddress",
+            defaultValue: "Search or enter URL"
+        )
+        addressField.stringValue = draft.address
+        addressField.delegate = self
+        addressField.target = self
+        addressField.action = #selector(commitAddress(_:))
+        addressField.font = .systemFont(ofSize: 12)
+
+        let addressRow = NSStackView()
+        addressRow.orientation = .horizontal
+        addressRow.alignment = .centerY
+        addressRow.spacing = 6
+        addressRow.edgeInsets = NSEdgeInsets(top: 7, left: 9, bottom: 7, right: 9)
+        let searchImage = NSImageView(image: NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil) ?? NSImage())
+        searchImage.contentTintColor = .secondaryLabelColor
+        addressRow.addArrangedSubview(searchImage)
+        addressRow.addArrangedSubview(addressField)
+        addressField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        browserStack.orientation = .vertical
+        browserStack.spacing = 0
+        browserStack.addArrangedSubview(addressRow)
+        browserStack.addArrangedSubview(webView)
+        browserStack.translatesAutoresizingMaskIntoConstraints = false
+        webView.setValue(false, forKey: "drawsBackground")
+
+        NSLayoutConstraint.activate([
+            header.leadingAnchor.constraint(equalTo: leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: trailingAnchor),
+            header.topAnchor.constraint(equalTo: topAnchor),
+            openWindowButton.widthAnchor.constraint(equalToConstant: 20),
+            openWindowButton.heightAnchor.constraint(equalToConstant: 20),
+            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
+            separator.topAnchor.constraint(equalTo: header.bottomAnchor),
+            contentContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentContainer.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    private func applyDraft(loadBrowser: Bool) {
+        segmentedControl.selectedSegment = draft.selectedTab == .notes ? 0 : 1
+        notesTextView.string = draft.notes
+        addressField.stringValue = draft.address
+
+        contentContainer.subviews.forEach { $0.removeFromSuperview() }
+        let content: NSView = draft.selectedTab == .notes ? notesScrollView : browserStack
+        content.translatesAutoresizingMaskIntoConstraints = false
+        contentContainer.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            content.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            content.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
+        ])
+
+        if loadBrowser, draft.selectedTab != .notes {
+            loadCommittedAddress()
         }
     }
+
+    @objc private func selectionChanged(_ sender: NSSegmentedControl) {
+        draft.selectedTab = sender.selectedSegment == 0 ? .notes : .browser
+        onDraftChange(draft)
+        applyDraft(loadBrowser: true)
+    }
+
+    @objc private func openWindow(_ sender: NSButton) {
+        onOpenWindow()
+    }
+
+    @objc private func commitAddress(_ sender: NSTextField) {
+        let normalized = CmuxExtensionWorkspaceInspectorBrowserView.normalizedAddress(sender.stringValue)
+        draft.address = normalized
+        draft.committedAddress = normalized
+        sender.stringValue = normalized
+        onDraftChange(draft)
+        loadCommittedAddress()
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        draft.address = addressField.stringValue
+        onDraftChange(draft)
+    }
+
+    func textDidChange(_ notification: Notification) {
+        draft.notes = notesTextView.string
+        onDraftChange(draft)
+    }
+
+    private func loadCommittedAddress() {
+        let normalized = CmuxExtensionWorkspaceInspectorBrowserView.normalizedAddress(draft.committedAddress)
+        guard let url = URL(string: normalized), webView.url?.absoluteString != normalized else { return }
+        webView.load(URLRequest(url: url))
+    }
 }
 
-struct CmuxExtensionWorkspaceInspectorWindowContentView: View {
-    let workspace: CmuxSidebarProviderWorkspace
-    let onOpenWindow: () -> Void
-    @State private var draft: CmuxExtensionWorkspaceInspectorDraft
-
-    init(
-        workspace: CmuxSidebarProviderWorkspace,
-        onOpenWindow: @escaping () -> Void
-    ) {
-        self.workspace = workspace
-        self.onOpenWindow = onOpenWindow
-        _draft = State(initialValue: CmuxExtensionWorkspaceInspectorDraft.initial(workspace: workspace))
-    }
-
-    var body: some View {
-        CmuxExtensionWorkspaceInspectorView(
-            workspace: workspace,
-            draft: $draft,
-            onOpenWindow: onOpenWindow
-        )
-    }
-}
-
-struct CmuxExtensionWorkspaceInspectorBrowserView: NSViewRepresentable {
-    let address: String
-
-    final class Coordinator {
-        var loadedAddress: String?
-    }
-
+enum CmuxExtensionWorkspaceInspectorBrowserView {
     static func normalizedAddress(_ rawValue: String) -> String {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "https://github.com/" }
@@ -275,27 +418,6 @@ struct CmuxExtensionWorkspaceInspectorBrowserView: NSViewRepresentable {
         if trimmed.contains(".") && !trimmed.contains(" ") { return "https://\(trimmed)" }
         let query = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmed
         return "https://www.google.com/search?q=\(query)"
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.setValue(false, forKey: "drawsBackground")
-        return webView
-    }
-
-    func updateNSView(_ webView: WKWebView, context: Context) {
-        let normalized = Self.normalizedAddress(address)
-        guard context.coordinator.loadedAddress != normalized,
-              let url = URL(string: normalized) else {
-            return
-        }
-        context.coordinator.loadedAddress = normalized
-        webView.load(URLRequest(url: url))
     }
 }
 
@@ -313,11 +435,15 @@ final class CmuxExtensionSidebarInspectorWindowController {
             return
         }
 
-        let view = CmuxExtensionWorkspaceInspectorWindowContentView(workspace: workspace) {
-            show(workspace: workspace)
-        }
-        let hostingController = NSHostingController(rootView: view.frame(width: 620, height: 440))
-        let window = NSWindow(contentViewController: hostingController)
+        let contentView = CmuxExtensionWorkspaceInspectorNativeView(
+            workspace: workspace,
+            draft: .initial(workspace: workspace),
+            onDraftChange: { _ in },
+            onOpenWindow: { show(workspace: workspace) }
+        )
+        let viewController = NSViewController()
+        viewController.view = contentView
+        let window = NSWindow(contentViewController: viewController)
         window.title = workspace.title
         window.identifier = NSUserInterfaceItemIdentifier("cmux.extensionSidebarInspector")
         window.setContentSize(NSSize(width: 620, height: 440))
@@ -329,7 +455,7 @@ final class CmuxExtensionSidebarInspectorWindowController {
             object: window,
             queue: .main
         ) { _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 controllers.removeValue(forKey: workspace.id)
                 if let observer = closeObservers.removeValue(forKey: workspace.id) {
                     NotificationCenter.default.removeObserver(observer)
