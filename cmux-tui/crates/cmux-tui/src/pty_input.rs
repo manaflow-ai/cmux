@@ -1338,6 +1338,7 @@ fn prune_lane_to_recovery_releases(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cmux_tui_core::{Mux as TestMux, SurfaceOptions as TestSurfaceOptions};
 
     fn lane(surface_id: SurfaceId) -> PtyInputLane {
         PtyInputLane { session_generation: 1, surface_id }
@@ -1350,6 +1351,51 @@ mod tests {
             SmallVec::from_slice(&[bytes]),
             kind,
         )
+    }
+
+    #[test]
+    fn clean_terminal_exit_is_known_not_delivered_and_does_not_fail_its_lane() {
+        let mux = TestMux::new(
+            "clean-terminal-exit-lane-test",
+            TestSurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "exit 0".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !surface.is_dead() {
+            assert!(Instant::now() < deadline, "terminal host did not exit");
+            std::thread::yield_now();
+        }
+
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let mut dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+        let input = || {
+            PtyInputEvent::input(
+                surface.id,
+                SurfaceHandle::Local(surface.clone(), mux.clone()),
+                PtyInputBytes::from_slice(b"x"),
+                PtyInputKind::Ordered,
+            )
+        };
+
+        assert_eq!(dispatcher.enqueue(input()), PtyInputEnqueueResult::Accepted);
+        let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(failure.label, "terminal exited");
+        assert_eq!(failure.delivery, PtyOperationDelivery::KnownNotDelivered);
+        assert!(!failure.lane_failed, "a clean process exit must not poison the input lane");
+        assert_eq!(dispatcher.enqueue(input()), PtyInputEnqueueResult::Accepted);
+
+        assert!(dispatcher.shutdown(Duration::from_secs(1)));
+        mux.shutdown();
     }
 
     fn mutation_with_retained_bytes(retained_bytes: usize) -> PtyInputEvent {

@@ -22487,6 +22487,30 @@ mod tests {
     }
 
     #[test]
+    fn clean_terminal_exit_failure_uses_a_lifecycle_message() {
+        let mux = Mux::new("clean-terminal-exit-status-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+
+        app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
+            session_generation: 1,
+            surface_id: Some(42),
+            kind: Some(PtyInputKind::Ordered),
+            reservation_id: None,
+            label: "terminal exited",
+            error: "terminal host has exited".to_string(),
+            lane_failed: false,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
+        }))
+        .unwrap();
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Terminal exited; input was not sent"),
+            "a clean terminal exit must not be presented as an input or transport failure"
+        );
+    }
+
+    #[test]
     fn rejected_release_clears_the_active_pty_drag() {
         let mux = Mux::new("rejected-release-drag-test", SurfaceOptions::default());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
