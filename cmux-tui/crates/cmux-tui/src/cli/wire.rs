@@ -13,6 +13,7 @@ use super::command::{RequestPlan, WireOperation, random_prefixed};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
+const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     if plan.stream && global.output == OutputMode::Json {
@@ -62,8 +63,15 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             return 3;
         }
     };
-    let _ = stream.set_read_timeout(response_read_timeout(&plan));
+    let _ = stream.set_read_timeout(Some(SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
+    if let Some(capability) = required_server_capability(&plan) {
+        match require_server_capability(&mut reader, &global, capability) {
+            Ok(()) => {}
+            Err(exit_code) => return exit_code,
+        }
+    }
+    let _ = reader.get_mut().set_read_timeout(response_read_timeout(&plan));
     if let Err(error) = reader.get_mut().write_all(&encoded).and_then(|_| {
         reader.get_mut().write_all(b"\n")?;
         reader.get_mut().flush()
@@ -72,6 +80,76 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         return 3;
     }
     run_response(&mut reader, &global, &plan, &request_id)
+}
+
+fn required_server_capability(plan: &RequestPlan) -> Option<&'static str> {
+    matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::SessionJournalSubscribe)
+    )
+    .then_some(cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY)
+}
+
+fn require_server_capability(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    global: &GlobalArgs,
+    capability: &'static str,
+) -> Result<(), i32> {
+    let request_id = random_request_id().map_err(|error| {
+        eprintln!("cmux: {error}");
+        2
+    })?;
+    let request = json!({"id":request_id,"cmd":"identify"});
+    let encoded = serde_json::to_vec(&request).map_err(|error| {
+        eprintln!("cmux: cannot encode capability request: {error}");
+        2
+    })?;
+    reader
+        .get_mut()
+        .write_all(&encoded)
+        .and_then(|_| reader.get_mut().write_all(b"\n"))
+        .and_then(|_| reader.get_mut().flush())
+        .map_err(|error| {
+            eprintln!("transport error while checking session capabilities: {error}");
+            3
+        })?;
+    let response = read_envelope(reader, false)
+        .map_err(|error| {
+            eprintln!("{error}");
+            3
+        })?
+        .ok_or_else(|| {
+            eprintln!("transport closed before capability response");
+            3
+        })?;
+    if response.get("id").and_then(Value::as_str) != Some(request_id.as_str())
+        || response.get("ok").and_then(Value::as_bool) != Some(true)
+    {
+        eprintln!("protocol error: invalid identify response during capability negotiation");
+        return Err(3);
+    }
+    let supported = response
+        .get("data")
+        .and_then(|data| data.get("capabilities"))
+        .and_then(Value::as_array)
+        .is_some_and(|capabilities| {
+            capabilities.iter().any(|value| value.as_str() == Some(capability))
+        });
+    if supported {
+        return Ok(());
+    }
+    let session = global.session.as_deref().unwrap_or("main");
+    let error = json!({
+        "code":"operation.unsupported",
+        "message":"resident session does not support journal subscriptions; restart it with this cmux-tui binary",
+        "details":{
+            "capability":capability,
+            "session":session,
+            "action":"restart_session"
+        },
+        "retryable":false
+    });
+    Err(print_local_error(&error, global.output, 1))
 }
 
 fn response_read_timeout(plan: &RequestPlan) -> Option<Duration> {
