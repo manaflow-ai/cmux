@@ -219889,6 +219889,23 @@
         }
       }
     },
+    "sidebar.repository.openTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open repository %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリ「%@」を開く"
+          }
+        }
+      }
+    },
     "sidebar.remote.badge": {
       "extractionState": "manual",
       "localizations": {

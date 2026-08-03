@@ -51,6 +51,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let progressView = SidebarRowProgressView()
     private let branchIconView = NSImageView()
     private var branchLines: [SidebarRowIconTextLine] = []
+    private var repositoryLinkLines: [SidebarRowRepositoryLinkLine] = []
     private var pullRequestRows: [SidebarRowPullRequestLine] = []
     private var portButtons: [SidebarRowLinkButton] = []
     private let checklistSection = SidebarRowChecklistSection()
@@ -544,6 +545,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         configureMetadata(model: model, palette: palette)
         configureLogAndProgress(model: model, palette: palette)
         configureBranchDirectory(model: model, palette: palette)
+        configureRepositoryLink(model: model, palette: palette)
         configurePullRequestsAndPorts(model: model, palette: palette)
         if let actions {
             checklistSection.configure(model: model, palette: palette, actions: actions)
@@ -836,6 +838,23 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         Self.pool(&branchLines, count: lines.count, parent: contentContainer) { SidebarRowIconTextLine() }
         for (index, content) in lines.enumerated() {
             branchLines[index].configureBranchLine(content, model: model, palette: palette)
+        }
+    }
+
+    private func configureRepositoryLink(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
+        let displays = model.snapshot.repositoryLink.map { [$0] } ?? []
+        Self.pool(&repositoryLinkLines, count: displays.count, parent: contentContainer) {
+            SidebarRowRepositoryLinkLine()
+        }
+        for (index, display) in displays.enumerated() {
+            repositoryLinkLines[index].configure(
+                display: display,
+                model: model,
+                palette: palette
+            ) { [weak self] url in
+                self?.actions?.commands.updateSelection()
+                self?.actions?.onOpenRepository(url)
+            }
         }
     }
 
@@ -1253,6 +1272,24 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             for line in visibleBranchLines {
                 let height = line.measuredHeight(width: lineWidth)
                 if apply { line.frame = NSRect(x: lineX, y: y, width: lineWidth, height: height) }
+                y += height + 1
+            }
+            y -= 1
+        }
+
+        let visibleRepositoryLinks = repositoryLinkLines.filter { !$0.isHidden }
+        if !visibleRepositoryLinks.isEmpty {
+            y += spacing
+            for line in visibleRepositoryLinks {
+                let height = line.measuredHeight(width: contentWidth)
+                if apply {
+                    line.frame = NSRect(
+                        x: leading,
+                        y: y,
+                        width: contentWidth,
+                        height: height
+                    )
+                }
                 y += height + 1
             }
             y -= 1

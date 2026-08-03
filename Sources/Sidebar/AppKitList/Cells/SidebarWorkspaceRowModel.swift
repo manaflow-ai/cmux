@@ -71,6 +71,7 @@ struct SidebarAppKitRowActions {
     let commands: SidebarWorkspaceRowCommands
     let onOpenStatusURL: (URL) -> Void
     let onOpenPullRequest: (URL) -> Void
+    var onOpenRepository: (URL) -> Void = { _ in }
     let onOpenPort: (Int) -> Void
     let onToggleChecklistExpansion: () -> Void
     let onToggleMetadataExpansion: () -> Void
