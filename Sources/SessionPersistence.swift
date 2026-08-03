@@ -125,6 +125,9 @@ enum SessionRestorePolicy {
     static func isRunningUnderAutomatedTests(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
+        if environment["CMUX_TEST_PROCESS"] == "1" {
+            return true
+        }
         if environment["CMUX_UI_TEST_MODE"] == "1" {
             return true
         }

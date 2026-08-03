@@ -1,18 +1,17 @@
 import Stripe from "stripe";
 
 import { env } from "../../app/env";
+import {
+  PRO_PRICING_USD,
+  TEAM_PRICING_USD,
+  type BillingInterval,
+} from "./plans";
 
-export type ProBillingInterval = "month" | "year";
-
-const PRO_PRICE_LOOKUP_KEYS: Record<ProBillingInterval, string> = {
-  month: "cmux-pro-monthly",
-  year: "cmux-pro-yearly",
-};
-const TEAM_PRICE_LOOKUP_KEY = "cmux-team-monthly";
+export type { BillingInterval, ProBillingInterval } from "./plans";
 
 let stripeClient: Stripe | null = null;
-const resolvedPriceIds = new Map<ProBillingInterval, string>();
-let resolvedTeamPriceId: string | null = null;
+const resolvedProPriceIds = new Map<BillingInterval, string>();
+const resolvedTeamPriceIds = new Map<BillingInterval, string>();
 
 export function isStripeBillingConfigured(): boolean {
   return Boolean(env.STRIPE_SECRET_KEY);
@@ -28,16 +27,16 @@ export function stripe(): Stripe {
   return stripeClient;
 }
 
-export async function resolveProPrice(interval: ProBillingInterval): Promise<string> {
+export async function resolveProPrice(interval: BillingInterval): Promise<string> {
   const overridden = interval === "month"
     ? env.STRIPE_PRO_MONTHLY_PRICE_ID
-    : env.STRIPE_PRO_YEARLY_PRICE_ID;
+    : env.STRIPE_PRO_YEARLY_288_PRICE_ID;
   if (overridden) return overridden;
 
-  const cached = resolvedPriceIds.get(interval);
+  const cached = resolvedProPriceIds.get(interval);
   if (cached) return cached;
 
-  const lookupKey = PRO_PRICE_LOOKUP_KEYS[interval];
+  const lookupKey = PRO_PRICING_USD[interval].lookupKey;
   const prices = await stripe().prices.list({
     active: true,
     lookup_keys: [lookupKey],
@@ -47,23 +46,29 @@ export async function resolveProPrice(interval: ProBillingInterval): Promise<str
   if (!priceId) {
     throw new Error(`Stripe price lookup key not found: ${lookupKey}`);
   }
-  resolvedPriceIds.set(interval, priceId);
+  resolvedProPriceIds.set(interval, priceId);
   return priceId;
 }
 
-export async function resolveTeamPrice(): Promise<string> {
-  if (env.STRIPE_TEAM_MONTHLY_PRICE_ID) return env.STRIPE_TEAM_MONTHLY_PRICE_ID;
-  if (resolvedTeamPriceId) return resolvedTeamPriceId;
+export async function resolveTeamPrice(interval: BillingInterval): Promise<string> {
+  const overridden = interval === "month"
+    ? env.STRIPE_TEAM_MONTHLY_PRICE_ID
+    : env.STRIPE_TEAM_YEARLY_PRICE_ID;
+  if (overridden) return overridden;
 
+  const cached = resolvedTeamPriceIds.get(interval);
+  if (cached) return cached;
+
+  const lookupKey = TEAM_PRICING_USD[interval].lookupKey;
   const prices = await stripe().prices.list({
     active: true,
-    lookup_keys: [TEAM_PRICE_LOOKUP_KEY],
+    lookup_keys: [lookupKey],
     limit: 1,
   });
   const priceId = prices.data[0]?.id;
   if (!priceId) {
-    throw new Error(`Stripe price lookup key not found: ${TEAM_PRICE_LOOKUP_KEY}`);
+    throw new Error(`Stripe price lookup key not found: ${lookupKey}`);
   }
-  resolvedTeamPriceId = priceId;
+  resolvedTeamPriceIds.set(interval, priceId);
   return priceId;
 }

@@ -523,6 +523,60 @@ import Testing
         await registry.finishConnect(lease: nextLease)
     }
 
+    @Test func activeRouteAdmissionReportsRouteGatedInsteadOfTimedOut()
+        async throws {
+        let registry = MobileRPCConnectAttemptRegistry()
+        let key = debugConnectAttemptKey(port: 59_134)
+        let firstTransport = ReleasableConnectTransport()
+        let firstSession = MobileCoreRPCSession(
+            connectAttemptKey: key,
+            connectAttemptRegistry: registry,
+            makeTransport: { firstTransport }
+        )
+        let secondSession = MobileCoreRPCSession(
+            connectAttemptKey: key,
+            connectAttemptRegistry: registry,
+            makeTransport: {
+                Issue.record("Gated route must not allocate transport")
+                return ReleasableConnectTransport()
+            }
+        )
+        let firstTask = Task {
+            try await firstSession.send(
+                payload: MobileCoreRPCClient.requestData(
+                    method: "mobile.host.status",
+                    id: "active-route-owner"
+                ),
+                requestID: "active-route-owner",
+                deadlineUptimeNanoseconds:
+                    DispatchTime.now().uptimeNanoseconds
+                    + 60_000_000_000
+            )
+        }
+        #expect(await firstTransport.waitUntilConnectStarted())
+
+        do {
+            _ = try await secondSession.send(
+                payload: MobileCoreRPCClient.requestData(
+                    method: "mobile.host.status",
+                    id: "active-route-contender"
+                ),
+                requestID: "active-route-contender",
+                deadlineUptimeNanoseconds:
+                    DispatchTime.now().uptimeNanoseconds
+                    + 60_000_000_000
+            )
+            Issue.record("Expected route gate to reject concurrent admission")
+        } catch MobileShellConnectionError.connectAttemptGated {
+        } catch {
+            Issue.record("Expected connectAttemptGated, got \(error)")
+        }
+
+        await firstTransport.releaseConnect()
+        _ = try await firstTask.value
+        await firstSession.tearDown(error: .connectionClosed)
+    }
+
     @Test func connectAttemptKeySeparatesPeersAndIgnoresIrohHintChurn()
         async throws {
         let identityA = try CmxIrohPeerIdentity(

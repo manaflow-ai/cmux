@@ -561,7 +561,7 @@ the expected text without connecting to a cmux socket.
 - `cmux enable-browser --help` -> `Usage: cmux enable-browser [--json]`
 - `cmux browser-status --help` -> `Usage: cmux browser-status [--json]`
 - `cmux agent-hibernation --help` -> `Usage: cmux agent-hibernation <on|off> [--json]`
-- `cmux restore --help` -> `Usage: cmux restore <kind> <checkpoint-id>`; `--surface [id|ref]` uses the caller when omitted.
+- `cmux restore --help` -> `Usage: cmux restore <kind> <checkpoint-id>`
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
 - `cmux open --help` -> `Usage: cmux open <path-or-url>...`
 - `cmux feedback --help` -> `Usage: cmux feedback`
@@ -682,6 +682,8 @@ the expected text without connecting to a cmux socket.
 - `cmux is-webview-focused --help` -> `Legacy alias for 'cmux browser is-webview-focused'`
 - `cmux markdown --help` -> `Usage: cmux markdown open <path>`
 <!-- cli-contract-help-probes:end -->
+
+For `cmux restore`, `--surface [id|ref]` uses the caller when omitted.
 
 ## No-Socket Negative Help Probes
 

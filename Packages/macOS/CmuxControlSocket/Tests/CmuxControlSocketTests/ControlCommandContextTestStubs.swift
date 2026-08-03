@@ -526,7 +526,14 @@ extension ControlSurfaceContext {
     nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }
     nonisolated func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? { nil }
 
-    func controlSurfaceReportTTY(workspaceID: UUID, requestedSurfaceID: UUID?, ttyName: String)
+    func controlSurfaceReportTTY(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        ttyName: String,
+        authenticatedRemoteWorkspaceID: UUID?,
+        terminalLifecycleID: UUID?,
+        attemptID: UUID?
+    )
         -> ControlSurfaceReportTTYResolution { .workspaceNotFound }
     func controlSurfaceReportPWD(workspaceID: UUID, requestedSurfaceID: UUID?, path: String)
         -> ControlSurfaceReportPWDResolution { .workspaceNotFound }

@@ -10382,10 +10382,10 @@ struct CMUXCLI {
                 "  cmux_relay_cli=\"$HOME/.cmux/bin/cmux\"",
                 "  if [ ! -x \"$cmux_relay_cli\" ]; then cmux_relay_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
                 "  if [ -n \"$cmux_relay_cli\" ]; then",
-                "    ( cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\"}'",
+                "    ( cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\",\"terminal_lifecycle_id\":\"__CMUX_TERMINAL_LIFECYCLE_ID__\",\"attempt_id\":\"__CMUX_SSH_ATTEMPT_ID__\"}'",
                 "      cmux_relay_ports_kick='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"reason\":\"command\"}'",
                 "      if [ -n \"__CMUX_SURFACE_ID__\" ]; then",
-                "        cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\"}'",
+                "        cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\",\"terminal_lifecycle_id\":\"__CMUX_TERMINAL_LIFECYCLE_ID__\",\"attempt_id\":\"__CMUX_SSH_ATTEMPT_ID__\"}'",
                 "        cmux_relay_ports_kick='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"reason\":\"command\"}'",
                 "      fi",
                 "      env -u CMUX_SOCKET CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_relay_cli\" rpc surface.report_tty \"$cmux_relay_report_tty\" >/dev/null 2>&1 || true",
@@ -35439,6 +35439,9 @@ export default CMUXSessionRestore;
             guard let action = rest.first?.lowercased() else {
                 print(subcommandUsage("hooks") ?? "Usage: cmux hooks <setup|uninstall|agent>")
                 return true
+            }
+            if def.name == "pi", action == "session-start" {
+                refreshManagedPiExtensionIfNeeded(def)
             }
             let actionArgs = Array(rest.dropFirst())
             switch action {
