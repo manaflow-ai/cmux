@@ -1,73 +1,103 @@
 import CmuxAgentChat
-import SwiftUI
 
-/// A compact tool-invocation row: tool icon, one-line summary, and a status
-/// glyph.
-public struct ChatToolUseRowView: View {
-    private let toolUse: ChatToolUse
-    private let rowID: String
-    private let onShowDetail: () -> Void
+#if canImport(UIKit)
+import UIKit
 
-    /// Creates a tool-use row.
-    ///
-    /// - Parameters:
-    ///   - toolUse: The invocation payload.
-    ///   - rowID: The row's stable identity, for UI automation.
-    ///   - onShowDetail: Opens the full tool input/output in a detail sheet.
-    public init(toolUse: ChatToolUse, rowID: String, onShowDetail: @escaping () -> Void = {}) {
-        self.toolUse = toolUse
-        self.rowID = rowID
+/// Native compact tool invocation row with status and detail affordance.
+@MainActor
+public final class ChatToolUseRowView: UIControl {
+    private let onShowDetail: @MainActor () -> Void
+
+    public init(
+        toolUse: ChatToolUse,
+        rowID: String,
+        onShowDetail: @escaping @MainActor () -> Void = {}
+    ) {
         self.onShowDetail = onShowDetail
-    }
+        super.init(frame: .zero)
 
-    public var body: some View {
-        Button(action: onShowDetail) {
-            HStack(spacing: 6) {
-                Image(systemName: symbolName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(toolUse.summary)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                statusGlyph
-                detailGlyph
-                Spacer(minLength: 0)
-            }
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityIdentifier("ChatToolUseToggle-\(rowID)")
-        .accessibilityLabel(toolUseAccessibilityLabel)
-        .accessibilityHint(
-            String(
-                localized: "chat.detail.show.hint",
-                defaultValue: "Opens a sheet with the full block content",
-                bundle: .module
-            )
+        let toolIcon = UIImageView(image: UIImage(systemName: Self.symbolName(for: toolUse.toolName)))
+        toolIcon.preferredSymbolConfiguration = .init(textStyle: .caption1)
+        toolIcon.tintColor = .secondaryLabel
+        toolIcon.setContentHuggingPriority(.required, for: .horizontal)
+
+        let summary = UILabel()
+        summary.text = toolUse.summary
+        summary.font = .preferredFont(forTextStyle: .footnote)
+        summary.textColor = .secondaryLabel
+        summary.lineBreakMode = .byTruncatingMiddle
+        summary.numberOfLines = 1
+
+        let status = Self.makeStatusView(toolUse.status)
+        let detail = UIImageView(image: UIImage(systemName: "doc.text.magnifyingglass"))
+        detail.preferredSymbolConfiguration = .init(textStyle: .caption2)
+        detail.tintColor = .tertiaryLabel
+        detail.setContentHuggingPriority(.required, for: .horizontal)
+
+        let stack = UIStackView(arrangedSubviews: [toolIcon, summary, status, detail])
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = 6
+        stack.isUserInteractionEnabled = false
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 32),
+        ])
+
+        accessibilityIdentifier = "ChatToolUseToggle-\(rowID)"
+        accessibilityLabel = "\(toolUse.summary), \(Self.statusLabel(toolUse.status))"
+        accessibilityHint = String(
+            localized: "chat.detail.show.hint",
+            defaultValue: "Opens a sheet with the full block content",
+            bundle: .module
         )
+        addTarget(self, action: #selector(showDetail), for: .primaryActionTriggered)
     }
 
-    private var toolUseAccessibilityLabel: String {
-        "\(toolUse.summary), \(statusAccessibilityLabel)"
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    private var statusAccessibilityLabel: String {
-        switch toolUse.status {
+    @objc private func showDetail() {
+        onShowDetail()
+    }
+
+    private static func makeStatusView(_ status: ChatToolUse.Status) -> UIView {
+        switch status {
         case .running:
-            return String(localized: "chat.tool.running.accessibility", defaultValue: "Running", bundle: .module)
-        case .succeeded:
-            return String(localized: "chat.tool.succeeded.accessibility", defaultValue: "Succeeded", bundle: .module)
-        case .failed:
-            return String(localized: "chat.tool.failed.accessibility", defaultValue: "Failed", bundle: .module)
+            let indicator = UIActivityIndicatorView(style: .medium)
+            indicator.transform = CGAffineTransform(scaleX: 0.65, y: 0.65)
+            indicator.startAnimating()
+            indicator.accessibilityLabel = statusLabel(status)
+            return indicator
+        case .succeeded, .failed:
+            let image = UIImageView(image: UIImage(systemName: status == .succeeded ? "checkmark" : "xmark"))
+            image.preferredSymbolConfiguration = .init(pointSize: 11, weight: .semibold)
+            image.tintColor = status == .succeeded ? .systemGreen : .systemRed
+            image.accessibilityLabel = statusLabel(status)
+            return image
         }
     }
 
-    /// SF symbol for the tool, keyed off its machine name.
-    private var symbolName: String {
-        let name = toolUse.toolName.lowercased()
+    private static func statusLabel(_ status: ChatToolUse.Status) -> String {
+        switch status {
+        case .running:
+            String(localized: "chat.tool.running.accessibility", defaultValue: "Running", bundle: .module)
+        case .succeeded:
+            String(localized: "chat.tool.succeeded.accessibility", defaultValue: "Succeeded", bundle: .module)
+        case .failed:
+            String(localized: "chat.tool.failed.accessibility", defaultValue: "Failed", bundle: .module)
+        }
+    }
+
+    private static func symbolName(for toolName: String) -> String {
+        let name = toolName.lowercased()
         if name == "read" { return "doc.text" }
         if name.contains("grep") || name.contains("glob") || name.contains("search") {
             return "magnifyingglass"
@@ -76,42 +106,5 @@ public struct ChatToolUseRowView: View {
         if name.contains("task") || name.contains("agent") { return "person.2" }
         return "gearshape"
     }
-
-    private var detailGlyph: some View {
-        Image(systemName: "doc.text.magnifyingglass")
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
-            .accessibilityHidden(true)
-    }
-
-    @ViewBuilder
-    private var statusGlyph: some View {
-        switch toolUse.status {
-        case .running:
-            ProgressView()
-                .controlSize(.mini)
-        case .succeeded:
-            Image(systemName: "checkmark")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.green)
-                .accessibilityLabel(
-                    String(
-                        localized: "chat.tool.succeeded.accessibility",
-                        defaultValue: "Succeeded",
-                        bundle: .module
-                    )
-                )
-        case .failed:
-            Image(systemName: "xmark")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.red)
-                .accessibilityLabel(
-                    String(
-                        localized: "chat.tool.failed.accessibility",
-                        defaultValue: "Failed",
-                        bundle: .module
-                    )
-                )
-            }
-    }
 }
+#endif

@@ -34,12 +34,12 @@ public struct ChatMessageRowView: View {
                 )
                 .equatable()
             case .thought:
-                ChatThoughtRowView(
+                ChatThoughtRowBridge(
                     rowID: rowID,
                     onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
             case .toolUse(let toolUse):
-                ChatToolUseRowView(
+                ChatToolUseRowBridge(
                     toolUse: toolUse,
                     rowID: rowID,
                     onShowDetail: { actions.showMessageDetail(snapshot.message) }
@@ -65,7 +65,7 @@ public struct ChatMessageRowView: View {
             case .question(let question):
                 ChatQuestionCardView(question: question, actions: actions)
             case .status(let transition):
-                ChatStatusRowView(transition: transition, timestamp: snapshot.message.timestamp)
+                ChatStatusRowBridge(transition: transition, timestamp: snapshot.message.timestamp)
             case .attachment(let attachment):
                 ChatAttachmentBubbleView(
                     attachment: attachment,
@@ -75,7 +75,7 @@ public struct ChatMessageRowView: View {
                     onOpenArtifact: actions.openArtifact
                 )
             case .unsupported(let payload):
-                ChatUnsupportedRowView(payload: payload)
+                ChatUnsupportedRowBridge(payload: payload)
             }
         }
         .padding(.top, snapshot.groupPosition.topSpacing(theme: theme))
@@ -85,6 +85,52 @@ public struct ChatMessageRowView: View {
         ChatTranscriptRow.message(snapshot).id
     }
 }
+
+#if os(iOS)
+private struct ChatThoughtRowBridge: UIViewRepresentable {
+    let rowID: String
+    let onShowDetail: @MainActor () -> Void
+
+    func makeUIView(context: Context) -> ChatThoughtRowView {
+        ChatThoughtRowView(rowID: rowID, onShowDetail: onShowDetail)
+    }
+
+    func updateUIView(_ view: ChatThoughtRowView, context: Context) {}
+}
+
+private struct ChatToolUseRowBridge: UIViewRepresentable {
+    let toolUse: ChatToolUse
+    let rowID: String
+    let onShowDetail: @MainActor () -> Void
+
+    func makeUIView(context: Context) -> ChatToolUseRowView {
+        ChatToolUseRowView(toolUse: toolUse, rowID: rowID, onShowDetail: onShowDetail)
+    }
+
+    func updateUIView(_ view: ChatToolUseRowView, context: Context) {}
+}
+
+private struct ChatStatusRowBridge: UIViewRepresentable {
+    let transition: ChatStatusTransition
+    let timestamp: Date
+
+    func makeUIView(context: Context) -> ChatStatusRowView {
+        ChatStatusRowView(transition: transition, timestamp: timestamp)
+    }
+
+    func updateUIView(_ view: ChatStatusRowView, context: Context) {}
+}
+
+private struct ChatUnsupportedRowBridge: UIViewRepresentable {
+    let payload: ChatUnsupportedPayload
+
+    func makeUIView(context: Context) -> ChatUnsupportedRowView {
+        ChatUnsupportedRowView(payload: payload)
+    }
+
+    func updateUIView(_ view: ChatUnsupportedRowView, context: Context) {}
+}
+#endif
 
 extension ChatGroupPosition {
     /// Vertical spacing above a row given its position in a bubble group.

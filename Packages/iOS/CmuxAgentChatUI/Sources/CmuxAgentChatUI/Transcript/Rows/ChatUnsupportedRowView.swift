@@ -1,30 +1,36 @@
 import CmuxAgentChat
-import SwiftUI
 
-/// A centered fallback caption for wire payload types this client does not
-/// understand (fail-open: the row stays visible instead of being dropped).
-public struct ChatUnsupportedRowView: View {
-    private let payload: ChatUnsupportedPayload
+#if canImport(UIKit)
+import UIKit
 
-    /// Creates an unsupported-payload row.
-    ///
-    /// - Parameter payload: The unrecognized payload placeholder.
+/// Native fail-open caption for an unsupported wire payload.
+@MainActor
+public final class ChatUnsupportedRowView: UIView {
     public init(payload: ChatUnsupportedPayload) {
-        self.payload = payload
+        super.init(frame: .zero)
+        let label = UILabel()
+        label.text = String(
+            localized: "chat.unsupported",
+            defaultValue: "Unsupported message (\(payload.rawType))",
+            bundle: .module
+        )
+        label.font = .preferredFont(forTextStyle: .caption2)
+        label.textColor = .tertiaryLabel
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor),
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+        ])
     }
 
-    public var body: some View {
-        Text(
-            String(
-                localized: "chat.unsupported",
-                defaultValue: "Unsupported message (\(payload.rawType))",
-                bundle: .module
-            )
-        )
-        .font(.caption2)
-        .foregroundStyle(.tertiary)
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 2)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
+#endif

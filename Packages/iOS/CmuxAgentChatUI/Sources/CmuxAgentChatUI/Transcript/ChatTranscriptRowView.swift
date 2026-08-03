@@ -28,9 +28,9 @@ public struct ChatTranscriptRowView: View, Equatable {
     public var body: some View {
         switch row {
         case .dateHeader(let day):
-            ChatDateHeaderView(day: day)
+            ChatDateHeaderBridge(day: day)
         case .unreadSeparator:
-            ChatUnreadSeparatorView()
+            ChatUnreadSeparatorBridge()
         case .message(let snapshot):
             ChatMessageRowView(snapshot: snapshot, actions: actions)
         case .pendingOutbound(let pending):
@@ -44,3 +44,23 @@ public struct ChatTranscriptRowView: View, Equatable {
         }
     }
 }
+
+#if os(iOS)
+private struct ChatDateHeaderBridge: UIViewRepresentable {
+    let day: Date
+
+    func makeUIView(context: Context) -> ChatDateHeaderView {
+        ChatDateHeaderView(day: day)
+    }
+
+    func updateUIView(_ view: ChatDateHeaderView, context: Context) {}
+}
+
+private struct ChatUnreadSeparatorBridge: UIViewRepresentable {
+    func makeUIView(context: Context) -> ChatUnreadSeparatorView {
+        ChatUnreadSeparatorView()
+    }
+
+    func updateUIView(_ view: ChatUnreadSeparatorView, context: Context) {}
+}
+#endif

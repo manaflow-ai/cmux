@@ -1,65 +1,50 @@
 import CmuxAgentChat
-import SwiftUI
 
-/// A centered caption for a durable session lifecycle transition
-/// ("Session started", "Interrupted", ...).
-public struct ChatStatusRowView: View {
-    private let transition: ChatStatusTransition
-    private let timestamp: Date
+#if canImport(UIKit)
+import UIKit
 
-    /// Creates a status row.
-    ///
-    /// - Parameters:
-    ///   - transition: The lifecycle transition payload.
-    ///   - timestamp: When the transition occurred.
-    public init(transition: ChatStatusTransition, timestamp: Date) {
-        self.transition = transition
-        self.timestamp = timestamp
-    }
-
-    public var body: some View {
-        Text(label)
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 2)
-    }
-
-    private var label: String {
-        let base = eventLabel
+/// Native centered caption for a durable session lifecycle transition.
+@MainActor
+public final class ChatStatusRowView: UIView {
+    public init(transition: ChatStatusTransition, timestamp _: Date) {
+        super.init(frame: .zero)
+        let label = UILabel()
+        let base = Self.eventLabel(transition.event)
         if let detail = transition.detail, !detail.isEmpty {
-            return "\(base) · \(detail)"
+            label.text = "\(base) · \(detail)"
+        } else {
+            label.text = base
         }
-        return base
+        label.font = .preferredFont(forTextStyle: .caption2)
+        label.textColor = .tertiaryLabel
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor),
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+        ])
     }
 
-    private var eventLabel: String {
-        switch transition.event {
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private static func eventLabel(_ event: ChatStatusTransition.Event) -> String {
+        switch event {
         case .sessionStarted:
-            return String(
-                localized: "chat.status.session_started",
-                defaultValue: "Session started",
-                bundle: .module
-            )
+            String(localized: "chat.status.session_started", defaultValue: "Session started", bundle: .module)
         case .sessionEnded:
-            return String(
-                localized: "chat.status.session_ended",
-                defaultValue: "Session ended",
-                bundle: .module
-            )
+            String(localized: "chat.status.session_ended", defaultValue: "Session ended", bundle: .module)
         case .interrupted:
-            return String(
-                localized: "chat.status.interrupted",
-                defaultValue: "Interrupted",
-                bundle: .module
-            )
+            String(localized: "chat.status.interrupted", defaultValue: "Interrupted", bundle: .module)
         case .contextCompacted:
-            return String(
-                localized: "chat.status.context_compacted",
-                defaultValue: "Context compacted",
-                bundle: .module
-            )
+            String(localized: "chat.status.context_compacted", defaultValue: "Context compacted", bundle: .module)
         }
     }
 }
+#endif

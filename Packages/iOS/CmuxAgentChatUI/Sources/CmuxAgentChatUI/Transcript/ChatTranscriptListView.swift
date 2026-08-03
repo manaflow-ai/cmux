@@ -155,7 +155,7 @@ public struct ChatTranscriptListView: View {
                     .id(row.id)
                 }
                 if case .working = agentState {
-                    ChatTypingIndicatorView(agentState: agentState)
+                    ChatTypingIndicatorBridge(agentState: agentState)
                         .padding(.top, theme.intraGroupSpacing)
                 }
                 // Fixed trailing anchor: a stable scroll target for
@@ -223,3 +223,15 @@ public struct ChatTranscriptListView: View {
         }
     }
 }
+
+#if os(iOS)
+private struct ChatTypingIndicatorBridge: UIViewRepresentable {
+    let agentState: ChatAgentState
+
+    func makeUIView(context: Context) -> ChatTypingIndicatorView {
+        ChatTypingIndicatorView(agentState: agentState)
+    }
+
+    func updateUIView(_ view: ChatTypingIndicatorView, context: Context) {}
+}
+#endif

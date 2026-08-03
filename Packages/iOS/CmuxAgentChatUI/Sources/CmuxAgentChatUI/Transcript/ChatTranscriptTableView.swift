@@ -44,6 +44,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.allowsSelection = false
         tableView.accessibilityIdentifier = "ChatTranscriptTableView"
+        tableView.register(ChatTranscriptCell.self, forCellReuseIdentifier: ChatTranscriptCell.reuseIdentifier)
         tableView.applyScrollEdgeEffects(topSoft: true, bottomSoft: true)
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
@@ -160,14 +161,23 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         }
 
         func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-            let cell = tableView.dequeueReusableCell(withIdentifier: "ChatTranscriptCell")
-                ?? UITableViewCell(style: .default, reuseIdentifier: "ChatTranscriptCell")
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: ChatTranscriptCell.reuseIdentifier,
+                for: indexPath
+            ) as? ChatTranscriptCell else {
+                return UITableViewCell(style: .default, reuseIdentifier: nil)
+            }
             cell.backgroundColor = .clear
             cell.contentView.backgroundColor = .clear
             cell.selectionStyle = .none
             guard let configuration else { return cell }
             let item = items[indexPath.row]
             let tableWidth = ChatContainerWidth(tableView: tableView).effectiveWidth
+            if let nativeView = configuration.nativeView(for: item) {
+                cell.installNativeView(nativeView, horizontalMargin: configuration.theme.horizontalMargin)
+                return cell
+            }
+            cell.removeNativeView()
             cell.contentConfiguration = UIHostingConfiguration {
                 configuration.view(for: item, tableWidth: tableWidth)
             }
@@ -352,6 +362,39 @@ struct ChatTranscriptTableView: UIViewRepresentable {
     }
 }
 
+@MainActor
+private final class ChatTranscriptCell: UITableViewCell {
+    static let reuseIdentifier = "ChatTranscriptCell"
+
+    private weak var nativeView: UIView?
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        removeNativeView()
+        contentConfiguration = nil
+    }
+
+    func installNativeView(_ view: UIView, horizontalMargin: CGFloat) {
+        removeNativeView()
+        contentConfiguration = nil
+        nativeView = view
+        view.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalMargin),
+            view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalMargin),
+            view.topAnchor.constraint(equalTo: contentView.topAnchor),
+            view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        ])
+    }
+
+    func removeNativeView() {
+        nativeView?.removeFromSuperview()
+        nativeView = nil
+    }
+}
+
+@MainActor
 private struct ChatTranscriptTableConfiguration {
     let rows: [ChatTranscriptRow]
     let agentState: ChatAgentState
@@ -366,6 +409,170 @@ private struct ChatTranscriptTableConfiguration {
     let markdownRenderer: ChatMarkdownRenderer?
     let contentCache: ChatContentCache?
     let artifactLoader: ChatArtifactLoader
+
+    func nativeView(for item: ChatTranscriptTableItem) -> UIView? {
+        switch item {
+        case .loadingMore:
+            let indicator = UIActivityIndicatorView(style: .medium)
+            indicator.startAnimating()
+            return verticallyPadded(indicator, padding: 12)
+        case .historyTruncated:
+            return verticallyPadded(
+                centeredLabel(
+                    String(
+                        localized: "chat.history.truncated",
+                        defaultValue: "Earlier history is on your Mac",
+                        bundle: .module
+                    ),
+                    style: .caption2,
+                    color: .tertiaryLabel
+                ),
+                padding: 12
+            )
+        case .loadFailed:
+            return loadFailureView()
+        case .empty:
+            return verticallyPadded(
+                centeredLabel(
+                    String(
+                        localized: "chat.transcript.empty",
+                        defaultValue: "No messages yet",
+                        bundle: .module
+                    ),
+                    style: .subheadline,
+                    color: .secondaryLabel
+                ),
+                padding: 48
+            )
+        case .initialLoading:
+            let indicator = UIActivityIndicatorView(style: .large)
+            indicator.startAnimating()
+            return verticallyPadded(indicator, padding: 48)
+        case .row(let row):
+            return nativeRowView(for: row)
+        case .typing:
+            let typing = ChatTypingIndicatorView(
+                agentState: agentState,
+                incomingColor: UIColor(theme.incomingBubbleFill)
+            )
+            return topPadded(typing, padding: theme.intraGroupSpacing)
+        case .bottomAnchor:
+            let spacer = UIView()
+            spacer.heightAnchor.constraint(equalToConstant: 9).isActive = true
+            return spacer
+        }
+    }
+
+    private func nativeRowView(for row: ChatTranscriptRow) -> UIView? {
+        switch row {
+        case .dateHeader(let day):
+            return ChatDateHeaderView(day: day)
+        case .unreadSeparator:
+            return ChatUnreadSeparatorView(accentColor: UIColor(theme.accent))
+        case .pendingOutbound, .terminalCommand:
+            return nil
+        case .message(let snapshot):
+            let content: UIView
+            switch snapshot.message.kind {
+            case .thought:
+                content = ChatThoughtRowView(
+                    rowID: row.id,
+                    onShowDetail: { actions.showMessageDetail(snapshot.message) }
+                )
+            case .toolUse(let toolUse):
+                content = ChatToolUseRowView(
+                    toolUse: toolUse,
+                    rowID: row.id,
+                    onShowDetail: { actions.showMessageDetail(snapshot.message) }
+                )
+            case .status(let transition):
+                content = ChatStatusRowView(
+                    transition: transition,
+                    timestamp: snapshot.message.timestamp
+                )
+            case .unsupported(let payload):
+                content = ChatUnsupportedRowView(payload: payload)
+            case .prose, .terminal, .fileEdit, .permissionRequest, .question, .attachment:
+                return nil
+            }
+            let spacing: CGFloat
+            switch snapshot.groupPosition {
+            case .solo, .first:
+                spacing = theme.groupSpacing
+            case .middle, .last:
+                spacing = theme.intraGroupSpacing
+            }
+            return topPadded(content, padding: spacing)
+        }
+    }
+
+    private func centeredLabel(
+        _ text: String,
+        style: UIFont.TextStyle,
+        color: UIColor
+    ) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.font = .preferredFont(forTextStyle: style)
+        label.textColor = color
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        return label
+    }
+
+    private func verticallyPadded(_ content: UIView, padding: CGFloat) -> UIView {
+        let container = UIView()
+        content.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            content.topAnchor.constraint(equalTo: container.topAnchor, constant: padding),
+            content.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -padding),
+            content.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor),
+            content.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+        ])
+        return container
+    }
+
+    private func topPadded(_ content: UIView, padding: CGFloat) -> UIView {
+        let container = UIView()
+        content.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            content.topAnchor.constraint(equalTo: container.topAnchor, constant: padding),
+            content.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        return container
+    }
+
+    private func loadFailureView() -> UIView {
+        let label = centeredLabel(
+            String(
+                localized: "chat.transcript.load_failed",
+                defaultValue: "Couldn't load this conversation",
+                bundle: .module
+            ),
+            style: .subheadline,
+            color: .secondaryLabel
+        )
+        let button = UIButton(type: .system)
+        var configuration = UIButton.Configuration.bordered()
+        configuration.title = String(
+            localized: "chat.transcript.retry",
+            defaultValue: "Retry",
+            bundle: .module
+        )
+        button.configuration = configuration
+        button.accessibilityIdentifier = "ChatTranscriptRetry"
+        button.addAction(UIAction { _ in onRetryInitialLoad() }, for: .primaryActionTriggered)
+        let stack = UIStackView(arrangedSubviews: [label, button])
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 12
+        return verticallyPadded(stack, padding: 48)
+    }
 
     func makeItems() -> [ChatTranscriptTableItem] {
         var items: [ChatTranscriptTableItem] = []
@@ -466,8 +673,7 @@ private struct ChatTranscriptTableConfiguration {
             )
             .equatable()
         case .typing:
-            ChatTypingIndicatorView(agentState: agentState)
-                .padding(.top, theme.intraGroupSpacing)
+            EmptyView()
         case .bottomAnchor:
             Color.clear
                 .frame(height: 9)
